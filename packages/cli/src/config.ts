@@ -85,36 +85,36 @@ export function setSavedTheme(name: string): void {
   writeFileSync(path, name + "\n");
 }
 
-export type NodeBackend = "core" | "simulator";
-export const NODE_BACKENDS: NodeBackend[] = ["core", "simulator"];
+export type NodeRuntime = "core" | "simulator";
+export const NODE_RUNTIMES: NodeRuntime[] = ["core", "simulator"];
 
-export function nodeBackendStorePath(): string {
-  return join(configDir(), "node-backend");
+export function runtimeStorePath(): string {
+  return join(configDir(), "runtime");
 }
 
-export function savedNodeBackend(): NodeBackend | undefined {
+export function savedRuntime(): NodeRuntime | undefined {
   try {
-    const backend = readFileSync(nodeBackendStorePath(), "utf8").trim();
-    return backend === "core" || backend === "simulator" ? backend : undefined;
+    const runtime = readFileSync(runtimeStorePath(), "utf8").trim();
+    return runtime === "core" || runtime === "simulator" ? runtime : undefined;
   } catch {
     return undefined;
   }
 }
 
-export function setSavedNodeBackend(backend: NodeBackend): void {
-  const path = nodeBackendStorePath();
+export function setSavedRuntime(runtime: NodeRuntime): void {
+  const path = runtimeStorePath();
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, backend + "\n");
+  writeFileSync(path, runtime + "\n");
 }
 
-export function resolveNodeBackend(requested?: string): NodeBackend {
+export function resolveRuntime(requested?: string): NodeRuntime {
   if (requested === undefined) {
-    return savedNodeBackend() ?? "core";
+    return savedRuntime() ?? "core";
   }
   if (requested === "core" || requested === "simulator") {
     return requested;
   }
-  return invalidArgs("--node-backend must be core or simulator");
+  return invalidArgs("--runtime must be core or simulator");
 }
 
 export type CompilerBackend = "clang" | "typescript";

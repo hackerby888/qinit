@@ -93,7 +93,7 @@ packages/cli/src/
   commands/deploy-interact/   deploy call call-interactive ls state debug seed system test gtest
                               explorer/{index,chrome,find,overview,tick,identity,contracts}
   commands/editor/            ext
-  commands/misc/              node-backend compiler theme cheat smoke version help backend-picker
+  commands/misc/              runtime compiler theme cheat smoke version help backend-picker
   ops/                        deploy/{index,steps,upload} project-build project-deploy
                               node node-core cache update serve corpus-run typescript-build
   contracts/                  registry templates idl-file idl-lookup callees state-digest system-wasm
@@ -341,7 +341,7 @@ The invariants to remember are:
 | Develop | `develop` | `commands/develop/` | `new`, `dev`, `build`, `gen`, `verify` |
 | Deploy and interact | `deploy & interact` | `commands/deploy-interact/` | `deploy`, `call`, `seed`, `ls`, `state`, `explorer`, `debug`, `test`, `gtest`, `system` |
 | Editor integration | `editor` | `commands/editor/` | `ext` |
-| Miscellaneous | `misc` | `commands/misc/` | `node-backend`, `compiler`, `theme`, `cheat-sheet`, `smoke`, `version`, `help` |
+| Miscellaneous | `misc` | `commands/misc/` | `runtime`, `compiler`, `theme`, `cheat-sheet`, `smoke`, `version`, `help` |
 
 Within a group, commands print in `META` declaration order — `Help` filters `COMMANDS`, which is
 `Object.keys(META)`. Keep a new entry beside its group's other entries.
@@ -404,7 +404,7 @@ It contains independent files:
 |---|---|---|
 | `seed` | Saved 55-character signing seed | none |
 | `theme` | Ink color theme | default theme |
-| `node-backend` | `core` or `simulator` | `core` |
+| `runtime` | `core` or `simulator` | `core` |
 | `compiler-backend` | `clang` or `typescript` | `clang` |
 
 The seed is written with mode `0600` where the platform honors Unix modes.
@@ -499,7 +499,7 @@ render
 
 Interactive components instead remain mounted and use `useInput()`. Important
 examples are `call` without an explicit mode, `state` without a target, `debug`,
-`explorer`, the backend/theme/compiler selectors, and `seed`. `dev` is
+`explorer`, the runtime/theme/compiler selectors, and `seed`. `dev` is
 deliberately long-lived.
 
 Only one component may own the keyboard at a time, so a view that mounts a
@@ -920,7 +920,7 @@ setDebug(true)
   -> describeTrace()
 ```
 
-Entry sequences are 1-based on both backends and `since` is exclusive, so the poll
+Entry sequences are 1-based on both runtimes and `since` is exclusive, so the poll
 starts at `0` and still sees the first entry of a freshly enabled ring.
 
 `--trace-full` implies `--trace` and prints the state block with its container
@@ -1293,13 +1293,13 @@ pane is `flexShrink={0}` and floored at `LIST_MIN_WIDTH`, below which `Table` ca
 render its columns without wrapping either. `qinit call --trace` passes no `width` and
 keeps wrapping, so the caller stays a full copy-pasteable id there.
 
-Both node backends report changed bytes as 256-byte aligned windows rather than as
+Both runtimes report changed bytes as 256-byte aligned windows rather than as
 minimal runs, because a small value written into zeroed state dirties too few bytes to
 decode. Contiguous regions are joined before resolving, so a record split across two
 dirty pages still decodes whole. A region that still does not cover a whole value keeps
 its bytes as hex under the resolved path rather than guessing the rest.
 
-Neither backend caps how much of a call's state changes it reports: the simulator
+Neither runtime caps how much of a call's state changes it reports: the simulator
 snapshots the whole state, and core-lite sizes its dirty-page buffer from the contract's
 state. `stateTruncated` therefore means bytes were genuinely dropped.
 
@@ -1317,7 +1317,7 @@ node release older than that default. No CLI path turns capture off; the toggle 
 global, so one that did would blind every other client. `GET /live/v1/dev/debug?on=0`
 remains for anyone who wants the cycles back.
 
-The ring holds 8192 entries on both backends, and a slot is spent per *dispatch*
+The ring holds 8192 entries on both runtimes, and a slot is spent per *dispatch*
 rather than per tick: a contract registering `BEGIN_TICK`/`END_TICK` spends two every
 tick whether or not anything happened, which turns the depth into a time window.
 
@@ -1429,10 +1429,10 @@ carries 25 identities and would otherwise wrap far past the frame.
 
 ## 12. Node lifecycle and simulator topology
 
-The default node backend is selected by:
+The default runtime is selected by:
 
 ```text
---node-backend -> saved node-backend -> core
+--runtime -> saved runtime -> core
 ```
 
 The main orchestrator is [`commands/node/node-run.tsx`](../packages/cli/src/commands/node/node-run.tsx).
@@ -1448,19 +1448,19 @@ core headers -> node binary -> Wasm compiler -> node running
 Header preparation is in [`ops/node-core.ts`](../packages/cli/src/ops/node-core.ts):
 
 - `--core-dir` bypasses the release manifest.
-- Core backend plus `--core-dir` also requires `--node-bin` so headers and an
+- The core runtime plus `--core-dir` also requires `--node-bin` so headers and an
   arbitrary fetched node are not silently mixed.
 - `--core-dir` and `--ref` are mutually exclusive.
 - `--offline` requires an existing cache.
 - Otherwise one release manifest supplies the version and header asset.
 
-For the core backend, Qinit uses an explicit, cached, or downloaded Qubic binary
-and calls `launchNode()`. For the simulator backend, it loads the core-derived
+For the core runtime, Qinit uses an explicit, cached, or downloaded Qubic binary
+and calls `launchNode()`. For the simulator runtime, it loads the core-derived
 dynamic-slot layout and calls `launchSimulatorNode()`.
 
 ### 12.2 Detached process tracking
 
-[`ops/node.ts`](../packages/cli/src/ops/node.ts) starts both backends detached.
+[`ops/node.ts`](../packages/cli/src/ops/node.ts) starts both runtimes detached.
 It records:
 
 ```text
@@ -1517,11 +1517,11 @@ therefore appear up but not ticking.
 
 ### 13.1 System contracts
 
-`qinit system` understands both node backends through `GET /live/v1/whoami`:
+`qinit system` identifies both runtimes through `GET /live/v1/whoami`:
 
 - The simulator returns `{ "backend": "simulator" }`; core-lite returns
   `{ "backend": "core" }`. The `/live/v1/dev/fault` diagnostic route is never
-  used for backend detection.
+  used for runtime detection.
 
 - `ls` reads the local core-derived catalog and configured selection.
 - On core, `add` records the selection but never uploads built-ins; the core
@@ -1567,7 +1567,7 @@ Other maintenance commands are intentionally thin:
 | `uninstall` | Preview or remove discovered CLI binaries and optionally the cache |
 | `ext` | Invoke a supported editor's extension installer |
 | `theme` | Select and persist the terminal palette |
-| `node-backend` | Select and persist core or simulator |
+| `runtime` | Select and persist core or simulator |
 
 ## 14. Testing commands are two different systems
 
@@ -1579,7 +1579,7 @@ same runner.
 [`commands/deploy-interact/test.tsx`](../packages/cli/src/commands/deploy-interact/test.tsx) runs:
 
 ```text
-resolve core/compiler/node backend
+resolve core/compiler/runtime
   |
   +-- simulator -> EngineServer in this command process
   |
@@ -1722,7 +1722,7 @@ Paths below are relative to `packages/cli/src/`.
 | `gtest` | `commands/deploy-interact/gtest.tsx` | `ops/corpus-run.ts`, engine |
 | `system` | `commands/deploy-interact/system.tsx` | Core catalog, `contracts/system-wasm.ts`, `LiteRpc` |
 | `ext` | `commands/editor/ext.tsx` | external editor process |
-| `node-backend` | `commands/misc/node-backend.tsx` | `commands/misc/backend-picker.tsx`, config store |
+| `runtime` | `commands/misc/runtime.tsx` | `commands/misc/backend-picker.tsx`, config store |
 | `compiler` | `commands/misc/compiler.tsx` | `commands/misc/backend-picker.tsx`, config store |
 | `theme` | `commands/misc/theme.tsx` | config store and `ui/theme.tsx` |
 | `cheat-sheet` | `commands/misc/cheat.tsx` | static Ink view |

@@ -14,7 +14,7 @@ export function BackendPicker<Backend extends string>({
   save,
 }: {
   commandArgs: CommandArguments;
-  command: "compiler" | "node-backend";
+  command: "compiler" | "runtime";
   label: string;
   backends: readonly Backend[];
   descriptions: Record<Backend, string>;

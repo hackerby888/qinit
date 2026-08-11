@@ -22,7 +22,7 @@ Sections are numbered, so jump with `grep -n '^## ' docs/<file>.md` rather than 
 | How is a JSON output, a plain stream, or an exit code decided? | cli-guide §5 |
 | How does the CLI find a contract, its slot, and its IDL? | cli-guide §6 |
 | What does `build` / `gen` / `verify` / `dev` actually run? | cli-guide §7 |
-| What happens during a deploy, and how do the two node backends differ? | cli-guide §8 |
+| What happens during a deploy, and how do the two runtimes differ? | cli-guide §8 |
 | How are functions and procedures called, and what does `--trace` do? | cli-guide §9 |
 | How is contract state decoded from raw bytes? | cli-guide §10 |
 | How does the live trace inspector work? The chain explorer? | cli-guide §11, §11.1 |

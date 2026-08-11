@@ -103,7 +103,7 @@ export async function deployProjectContracts(options: {
   const identity = await rpc.whoami();
   if (identity.backend !== "core" && identity.backend !== "simulator") {
     throw new Error(
-      `unsupported node backend '${String(identity.backend)}'`,
+      `unsupported runtime '${String(identity.backend)}'`,
     );
   }
 

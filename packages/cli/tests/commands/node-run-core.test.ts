@@ -80,7 +80,7 @@ test("node run rejects --core-dir without a path", async () => {
   ).rejects.toThrow("--core-dir requires a path");
 });
 
-test("the core backend with --core-dir requires --node-bin", async () => {
+test("the core runtime with --core-dir requires --node-bin", async () => {
   await expect(prepareNodeRunCore({ coreDir: coreCheckout() }, false)).rejects.toThrow(
     "requires --node-bin <path>",
   );

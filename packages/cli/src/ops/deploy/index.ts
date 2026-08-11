@@ -321,7 +321,7 @@ export async function deployContract(
       ok: false,
       slot,
       hash,
-      error: `unsupported node backend '${String(backend)}'`,
+      error: `unsupported runtime '${String(backend)}'`,
     };
   }
 

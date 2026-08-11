@@ -6,7 +6,7 @@ import {
   loadConfig,
   resolveCompilerBackend,
   resolveCoreDir,
-  resolveNodeBackend,
+  resolveRuntime,
 } from "../../config";
 import type { DeploymentEvent } from "../../ops/deploy";
 import { deployProjectContracts } from "../../ops/project-deploy";
@@ -116,7 +116,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
         }
 
         const useSimulator =
-          resolveNodeBackend(commandArgs.get("node-backend")) === "simulator";
+          resolveRuntime(commandArgs.get("runtime")) === "simulator";
         if (useSimulator) {
           spin("starting in-process simulator");
           engineSrv = new EngineServer();

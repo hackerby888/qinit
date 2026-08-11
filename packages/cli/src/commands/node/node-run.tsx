@@ -29,7 +29,7 @@ import {
 import {
   loadConfig,
   resolveCompilerBackend,
-  resolveNodeBackend,
+  resolveRuntime,
 } from "../../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
@@ -46,7 +46,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
   const offline = commandArgs.has("offline");
   const projectConfig = loadConfig();
   const useSimulator =
-    resolveNodeBackend(commandArgs.get("node-backend")) === "simulator";
+    resolveRuntime(commandArgs.get("runtime")) === "simulator";
   const coreDirectory =
     commandArgs.get("core-dir") ??
     (useSimulator && !requestedRef ? projectConfig.coreDir : undefined);
@@ -262,7 +262,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
         // Trust the run verdict above; just read contracts once (no extra tick sampling).
         const contracts = await nodeContracts(rpcBaseUrl);
         const rows: [string, string][] = [
-          ["backend", useSimulator ? "simulator (in-process)" : "core-lite node"],
+          ["runtime", useSimulator ? "simulator (in-process)" : "core-lite node"],
           ["version", version],
           ["rpc", rpcBaseUrl],
           ["tick", String(tick)],

@@ -12,10 +12,10 @@ import {
   clearSavedSeed,
   savedTheme,
   setSavedTheme,
-  savedNodeBackend,
-  setSavedNodeBackend,
-  nodeBackendStorePath,
-  resolveNodeBackend,
+  savedRuntime,
+  setSavedRuntime,
+  runtimeStorePath,
+  resolveRuntime,
   savedCompilerBackend,
   setSavedCompilerBackend,
   compilerBackendStorePath,
@@ -78,18 +78,19 @@ test("theme store: round-trip", () => {
   expect(savedTheme()).toBe("dracula");
 });
 
-test("node backend store: default undefined, round-trip, ignore unknown value", () => {
-  isolate();
-  expect(savedNodeBackend()).toBeUndefined();
-  expect(resolveNodeBackend()).toBe("core");
-  setSavedNodeBackend("simulator");
-  expect(savedNodeBackend()).toBe("simulator");
-  expect(resolveNodeBackend()).toBe("simulator");
-  expect(resolveNodeBackend("core")).toBe("core");
-  writeFileSync(nodeBackendStorePath(), "bogus");
-  expect(savedNodeBackend()).toBeUndefined();
-  expect(() => resolveNodeBackend("bogus")).toThrow(
-    "--node-backend must be core or simulator",
+test("runtime store: default undefined, round-trip, ignore unknown value", () => {
+  const configRoot = isolate();
+  expect(savedRuntime()).toBeUndefined();
+  expect(resolveRuntime()).toBe("core");
+  setSavedRuntime("simulator");
+  writeFileSync(join(configRoot, "qinit", "node-backend"), "core\n");
+  expect(savedRuntime()).toBe("simulator");
+  expect(resolveRuntime()).toBe("simulator");
+  expect(resolveRuntime("core")).toBe("core");
+  writeFileSync(runtimeStorePath(), "bogus");
+  expect(savedRuntime()).toBeUndefined();
+  expect(() => resolveRuntime("bogus")).toThrow(
+    "--runtime must be core or simulator",
   );
 });
 

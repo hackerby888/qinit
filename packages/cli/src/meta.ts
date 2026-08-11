@@ -109,7 +109,7 @@ const commandMeta = {
           stringOption(
             "core-dir",
             "<path>",
-            "use a local core-lite checkout (core backend also requires --node-bin)",
+            "use a local core-lite checkout (core runtime also requires --node-bin)",
           ),
           stringOption("node-bin", "<path>", "run this core-lite node binary (skip fetch)"),
           stringOption("tick-ms", "<n>", "simulator tick interval in ms (0 = fastest)"),
@@ -123,9 +123,9 @@ const commandMeta = {
           stringOption("node-mode", "<n>", "core-lite node mode"),
           stringOption("peers", "<addr>", "core-lite node peer address"),
           stringOption(
-            "node-backend",
+            "runtime",
             "<core|simulator>",
-            "override the saved node backend for this run",
+            "override the saved runtime for this run",
           ),
           stringOption(
             "compiler",
@@ -334,7 +334,7 @@ const commandMeta = {
   },
   test: {
     group: "deploy & interact",
-    summary: "deploy a contract graph + run Bun tests on the selected backend",
+    summary: "deploy a contract graph + run Bun tests on the selected runtime",
     usage: "[<file.h>]",
     options: [
       stringOption("contract", "<file.h>", "contract header (alternative to the positional)"),
@@ -354,9 +354,9 @@ const commandMeta = {
       stringOption("seed", "<seed>", "signer seed"),
       stringOption("timeout", "<ms>", "Bun test timeout"),
       stringOption(
-        "node-backend",
+        "runtime",
         "<core|simulator>",
-        "override the saved node backend for this run",
+        "override the saved runtime for this run",
       ),
       stringOption("compiler", "<clang|typescript>", "override the saved compiler backend"),
       booleanOption("keep-node", "leave a core node launched by this test running"),
@@ -399,11 +399,11 @@ const commandMeta = {
     ],
   },
 
-  "node-backend": {
+  runtime: {
     group: "misc",
-    summary: "pick the default node backend: core-lite node or in-process simulator",
+    summary: "pick the default runtime: core-lite node or in-process simulator",
     usage: "[core|simulator]",
-    options: [booleanOption("show", "print the current node backend")],
+    options: [booleanOption("show", "print the current runtime")],
   },
   compiler: {
     group: "misc",

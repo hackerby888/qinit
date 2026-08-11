@@ -70,6 +70,12 @@ test("GROUP_ORDER: every declared group is used by at least one command", () => 
 
 test("release-smoke flags are exposed in command metadata", () => {
   expect(commandOptions("node", "run").map(optionSyntax)).toContain("--core-dir <path>");
+  expect(commandOptions("node", "run").map(optionSyntax)).toContain(
+    "--runtime <core|simulator>",
+  );
+  expect(commandOptions("test").map(optionSyntax)).toContain(
+    "--runtime <core|simulator>",
+  );
   expect(commandOptions("state").map(optionSyntax)).toContain("--digest");
   expect(commandOptions("state").map(optionSyntax)).toContain("--container <index>");
   expect(commandOptions("state").map(optionSyntax)).toContain("--all");
@@ -111,6 +117,8 @@ test("legacy backend and path flags are not accepted", () => {
   for (const legacy of ["native", "local", "core", "bin", "dir", "mode"]) {
     expect(optionNames.some((entry) => entry.endsWith(`:${legacy}`))).toBe(false);
   }
-  expect(COMMANDS).toContain("node-backend");
+  expect(COMMANDS).toContain("runtime");
+  expect(COMMANDS).not.toContain("node-backend");
+  expect(optionNames.some((entry) => entry.endsWith(":node-backend"))).toBe(false);
   expect(COMMANDS).not.toContain("mode");
 });

@@ -53,7 +53,7 @@ export async function prepareNodeRunCore(
     }
     if (!useSimulator && !options.nodeBinary) {
       throw new Error(
-        "core backend with --core-dir requires --node-bin <path> to keep node and headers aligned",
+        "core runtime with --core-dir requires --node-bin <path> to keep node and headers aligned",
       );
     }
 

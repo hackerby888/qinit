@@ -21,11 +21,11 @@ async function run(...args: string[]) {
 }
 
 test("CLI reports unknown options without a crash message", async () => {
-  const result = await run("node-backend", "--bogus");
+  const result = await run("runtime", "--bogus");
 
   expect(result.code).toBe(1);
   expect(result.stdout).toContain("invalid arguments: Unknown option '--bogus'");
-  expect(result.stdout).toContain("qinit node-backend --help");
+  expect(result.stdout).toContain("qinit runtime --help");
   expect(result.stdout).not.toContain("qinit crashed");
   expect(result.stderr).toBe("");
 });

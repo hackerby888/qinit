@@ -25,7 +25,7 @@ import { Seed } from "./commands/deploy-interact/seed";
 import { Tick } from "./commands/node/tick";
 import { Epoch } from "./commands/node/epoch";
 import { ThemeCmd } from "./commands/misc/theme";
-import { NodeBackendCmd } from "./commands/misc/node-backend";
+import { RuntimeCmd } from "./commands/misc/runtime";
 import { CompilerCmd } from "./commands/misc/compiler";
 import { System } from "./commands/deploy-interact/system";
 import { Update } from "./commands/setup/update";
@@ -187,9 +187,7 @@ const HANDLERS = {
   explorer: ({ commandArgs }) => <Explorer commandArgs={commandArgs} />,
   test: ({ commandArgs }) => <Test commandArgs={commandArgs} />,
   gtest: ({ commandArgs }) => <Gtest commandArgs={commandArgs} />,
-  "node-backend": ({ commandArgs }) => (
-    <NodeBackendCmd commandArgs={commandArgs} />
-  ),
+  runtime: ({ commandArgs }) => <RuntimeCmd commandArgs={commandArgs} />,
   compiler: ({ commandArgs }) => <CompilerCmd commandArgs={commandArgs} />,
   system: ({ commandArgs }) => <System commandArgs={commandArgs} />,
   theme: ({ commandArgs }) => <ThemeCmd commandArgs={commandArgs} />,
