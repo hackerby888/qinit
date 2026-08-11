@@ -1,4 +1,5 @@
 const assert = require("node:assert");
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const vscode = require("vscode");
 
@@ -35,6 +36,30 @@ async function hoverText(doc, marker) {
       ),
     )
     .join("\n");
+}
+// The member fallback shells out to clang++ (WASM_CLANG or PATH); without one it stays disabled.
+function fallbackClangAvailable() {
+  for (const candidate of [process.env.WASM_CLANG, "clang++"]) {
+    if (!candidate) continue;
+    try {
+      execFileSync(candidate, ["--version"], { stdio: "pipe" });
+      return true;
+    } catch {}
+  }
+  return false;
+}
+async function completionLabels(doc, marker, dot) {
+  const offset = doc.getText().indexOf(marker);
+  assert.ok(offset >= 0, `missing completion marker ${marker}`);
+  const pos = doc.positionAt(offset + dot.length);
+  const list = await vscode.commands.executeCommand(
+    "vscode.executeCompletionItemProvider",
+    doc.uri,
+    pos,
+  );
+  return (list?.items ?? []).map((item) =>
+    (typeof item.label === "string" ? item.label : item.label.label).trim(),
+  );
 }
 
 suite("Qubic QPI extension", function () {
@@ -119,6 +144,37 @@ suite("Qubic QPI extension", function () {
     assert.ok(Number.isInteger(counterSlot), "Counter slot should be generated");
     assert.ok(Number.isInteger(proxySlot), "Proxy slot should be generated");
     assert.ok(counterSlot < proxySlot, "Counter must be below Proxy");
+  });
+
+  // clangd itself returns nothing for members reached through a field whose preamble type carries a
+  // template member (upstream bug); the extension answers these through its clang fallback.
+  test("cross-call callee members complete through the clang fallback", async function () {
+    if (!fallbackClangAvailable()) this.skip();
+    const doc = await open("project/contracts/Proxy.h");
+    await sleep(3000);
+
+    // The clangd client comes up asynchronously and the fallback builds a PCH on first use.
+    let labels = [];
+    for (let attempt = 0; attempt < 20; attempt++) {
+      labels = await completionLabels(doc, "locals.input.offset", "locals.input.");
+      if (labels.includes("offset")) break;
+      await sleep(1500);
+    }
+    assert.ok(
+      labels.includes("history") && labels.includes("offset"),
+      `fallback should complete Get_input members; got [${labels.slice(0, 12).join(", ")}]`,
+    );
+
+    const arrayLabels = await completionLabels(
+      doc,
+      "locals.input.history.setAll",
+      "locals.input.history.",
+    );
+    assert.ok(
+      arrayLabels.some((l) => l.startsWith("setAll")) &&
+        arrayLabels.some((l) => l.startsWith("get")),
+      `fallback should complete Array members; got [${arrayLabels.slice(0, 12).join(", ")}]`,
+    );
   });
 
   test("an ambiguous project callee is shown as a diagnostic", async () => {

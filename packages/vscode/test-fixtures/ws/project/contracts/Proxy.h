@@ -9,6 +9,8 @@ struct Proxy : public ContractBase {
   };
 
   PUBLIC_FUNCTION_WITH_LOCALS(Read) {
+    locals.input.history.setAll(0);
+    locals.input.offset = 0;
     CALL_OTHER_CONTRACT_FUNCTION(
       Counter,
       Get,
