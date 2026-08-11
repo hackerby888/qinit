@@ -200,6 +200,40 @@ suite("Qubic QPI extension", function () {
     assert.ok(elapsedMs < 500, `warm completion should stay fast; took ${elapsedMs}ms`);
   });
 
+  // A gtest compiles against its own generated prefix. Without one clangd falls back to plain flags
+  // and every QPI symbol turns red, which is what an unconfigured test file used to look like.
+  test("a gtest file is configured and completes callee members", async function () {
+    if (!fallbackClangAvailable()) this.skip();
+    const doc = await open("Counter.test.cpp");
+    await sleep(3000);
+
+    let errors = [];
+    for (let attempt = 0; attempt < 20; attempt++) {
+      errors = vscode.languages
+        .getDiagnostics(doc.uri)
+        .filter(
+          (diagnostic) =>
+            diagnostic.severity === vscode.DiagnosticSeverity.Error &&
+            String(diagnostic.source) === "clang",
+        );
+      if (errors.length === 0) break;
+      await sleep(1500);
+    }
+    assert.strictEqual(
+      errors.length,
+      0,
+      `gtest should compile against its prefix; got ${errors.map((d) => d.message).join(" | ")}`,
+    );
+
+    const clangdConfig = fs.readFileSync(wsUri(".clangd").fsPath, "utf8");
+    const databaseDir = JSON.parse(/CompilationDatabase:\s*("[^"]+")/.exec(clangdConfig)[1]);
+    const entries = JSON.parse(fs.readFileSync(`${databaseDir}/compile_commands.json`, "utf8"));
+    assert.ok(
+      entries.some((entry) => entry.file.endsWith("Counter.test.cpp")),
+      "the test file should have its own compile entry",
+    );
+  });
+
   test("an ambiguous project callee is shown as a diagnostic", async () => {
     const duplicateDir = wsUri("project/contracts/duplicate").fsPath;
     const duplicate = `${duplicateDir}/Counter.h`;

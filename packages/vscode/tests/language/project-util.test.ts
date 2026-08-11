@@ -40,6 +40,24 @@ test("test pairing uses its type and only falls back to one contract", () => {
   expect(selectTestContract("INIT_CONTRACT(Missing)", [counter, token])).toBeUndefined();
 });
 
+test("a repeated contract name is resolved against the test's own path", () => {
+  const beside = { path: "/work/Counter.h", stateType: "Counter" };
+  const nested = { path: "/work/project/contracts/Counter.h", stateType: "Counter" };
+  const renamed = { path: "/work/other/Ledger.h", stateType: "Counter" };
+  const source = "INIT_CONTRACT(Counter);";
+
+  // Without the test's path the pair stays ambiguous, which is what left gtests unconfigured.
+  expect(selectTestContract(source, [beside, nested])).toBeUndefined();
+  expect(selectTestContract(source, [beside, nested], "/work/Counter.test.cpp")).toEqual(beside);
+  expect(
+    selectTestContract(source, [beside, nested], "/work/project/tests/Counter.test.cpp"),
+  ).toEqual(nested);
+  // The file name decides before proximity does: a nearer contract with another name loses.
+  expect(
+    selectTestContract(source, [renamed, nested], "/work/project/tests/Counter.test.cpp"),
+  ).toEqual(nested);
+});
+
 test("project and contract discovery work without qinit.json", () => {
   const root = mkdtempSync(join(tmpdir(), "qpi-project-"));
   try {

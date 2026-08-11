@@ -29,6 +29,7 @@ import {
 
 const warned = new Set<string>();
 const restartingRoots = new Set<string>();
+const pendingRefreshRoots = new Set<string>();
 const filteredClients = new WeakSet<object>();
 // The prefix header clangd is using for the active contract: the root of the allowed-identifier walk.
 let contractPrefixPath: string | undefined;
@@ -131,9 +132,21 @@ async function filterCompletions(
   token: vscode.CancellationToken,
   out: vscode.OutputChannel,
 ): Promise<CompletionResult> {
-  if (!contractPrefixPath || !isContractDoc(doc)) return result;
+  if (!contractPrefixPath || !(isContractDoc(doc) || isTestDoc(doc))) return result;
   if (vscode.workspace.getConfiguration("qpi").get<string>("completionFilter") === "off") {
     return result;
+  }
+
+  // A gtest may write std:: and the gtest macros, so only the fallback applies there: narrowing
+  // a test to the QPI surface would hide what it legitimately needs.
+  if (isTestDoc(doc)) {
+    const linePrefix = doc.lineAt(position.line).text.slice(0, position.character);
+    if (completionScope(linePrefix).kind !== "member") return result;
+    const items = result ? (Array.isArray(result) ? result : result.items) : [];
+    if (items.length > 0) return result;
+
+    const fallback = await fallbackMemberCompletions(doc, position, token, out);
+    return fallback.length > 0 ? new vscode.CompletionList(fallback, false) : result;
   }
 
   // A null result still goes through the member branch: the clangd bug the fallback covers can
@@ -277,24 +290,30 @@ async function clangdSettled(): Promise<boolean> {
 }
 
 function refreshClangd(root: string, out: vscode.OutputChannel, core?: string): void {
-  if (restartingRoots.has(root)) return;
+  // Opening a contract and then its test writes two entries. Dropping the second request would
+  // leave that file on clangd's fallback flags, so a request arriving mid-restart runs after it.
+  if (restartingRoots.has(root)) {
+    pendingRefreshRoots.add(root);
+    return;
+  }
   restartingRoots.add(root);
 
   void clangdSettled().then(async (settled) => {
     // A client that never came up reads the finished database when it starts, so leave it alone.
-    if (!settled) {
-      restartingRoots.delete(root);
-      scheduleCompletionFilter(core, out);
-      return;
-    }
-    try {
-      await vscode.commands.executeCommand("clangd.restart");
-      out.appendLine("clangd restarted with QPI configuration");
-    } catch (error: any) {
-      out.appendLine(`clangd restart failed: ${String(error?.message ?? error)}`);
+    if (settled) {
+      try {
+        await vscode.commands.executeCommand("clangd.restart");
+        out.appendLine("clangd restarted with QPI configuration");
+      } catch (error: any) {
+        out.appendLine(`clangd restart failed: ${String(error?.message ?? error)}`);
+      }
     }
     restartingRoots.delete(root);
     scheduleCompletionFilter(core, out);
+
+    if (pendingRefreshRoots.delete(root)) {
+      refreshClangd(root, out, core);
+    }
   });
 }
 
@@ -366,6 +385,7 @@ function regenerateTest(
     const candidate = selectTestContract(
       doc.getText(),
       findContractCandidates(root),
+      doc.fileName,
     );
     contractPath = candidate?.path;
   }
@@ -403,6 +423,8 @@ function regenerateTest(
       dynCallees: sourceDetails.dynCallees,
       wasiSysrootPath: sourceDetails.wasiSysrootPath,
     });
+    contractPrefixPaths.set(doc.fileName, result.prefixPath);
+    void prewarmPch(result.prefixPath, result.testFile).catch(() => {});
     reportClangdConfig(
       result.clangdConfigured,
       result.dotClangdPath,

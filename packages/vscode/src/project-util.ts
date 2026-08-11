@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import type * as vscode from "vscode";
 import { loadConfig } from "@qinit/core/project";
 import {
@@ -113,14 +113,67 @@ export function testContractType(source: string): string | undefined {
   return fallback;
 }
 
+// How closely a contract sits to the test: how much of the path they share, then how far apart they
+// are. Sharing `<project>/` beats sharing only the workspace root, even at equal step counts.
+function pathProximity(
+  candidatePath: string,
+  testPath: string,
+): { shared: number; distance: number } {
+  const candidateParts = resolve(candidatePath).split(sep);
+  const testParts = resolve(testPath).split(sep);
+  let shared = 0;
+  while (
+    shared < candidateParts.length &&
+    shared < testParts.length &&
+    candidateParts[shared] === testParts[shared]
+  ) {
+    shared++;
+  }
+  return {
+    shared,
+    distance: candidateParts.length - shared + (testParts.length - shared),
+  };
+}
+
+// One contract name can exist in several directories, so a tie is broken by the file name the test
+// carries (`Counter.test.cpp` → `Counter.h`) and then by proximity. Still tied stays ambiguous.
+function closestCandidate(
+  matches: ContractCandidate[],
+  testPath?: string,
+): ContractCandidate | undefined {
+  if (!testPath) return undefined;
+
+  const testName = basename(testPath).replace(/\.test\.(cpp|cc|cxx)$/i, "");
+  const named = matches.filter((candidate) => basename(candidate.path, ".h") === testName);
+  const ranked = named.length > 0 ? named : matches;
+  if (ranked.length === 1) return ranked[0];
+
+  const scored = ranked.map((candidate) => ({
+    candidate,
+    ...pathProximity(candidate.path, testPath),
+  }));
+  const best = scored.reduce((winner, entry) =>
+    entry.shared > winner.shared ||
+      (entry.shared === winner.shared && entry.distance < winner.distance)
+      ? entry
+      : winner
+  );
+  const tied = scored.filter(
+    (entry) => entry.shared === best.shared && entry.distance === best.distance,
+  );
+  return tied.length === 1 ? best.candidate : undefined;
+}
+
 export function selectTestContract(
   testSource: string,
   candidates: ContractCandidate[],
+  testPath?: string,
 ): ContractCandidate | undefined {
   const stateType = testContractType(testSource);
   if (stateType) {
     const matches = candidates.filter((candidate) => candidate.stateType === stateType);
     if (matches.length === 1) return matches[0];
+    if (matches.length > 1) return closestCandidate(matches, testPath);
   }
   return candidates.length === 1 ? candidates[0] : undefined;
 }
