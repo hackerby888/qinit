@@ -200,7 +200,7 @@ export function resolveProjectDependencies(
     const candidates = headers.get(reference) ?? [];
     if (candidates.length > 1) {
       const listed = candidates
-        .map((candidate) => relative(projectRoot, candidate))
+        .map((candidate) => relative(projectRoot, candidate).replaceAll("\\", "/"))
         .sort()
         .join(", ");
       throw new Error(
