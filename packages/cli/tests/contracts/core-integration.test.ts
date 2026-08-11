@@ -29,8 +29,17 @@ function temporaryDirectory(): string {
   return path;
 }
 
+// Commits also run in the checkouts the integration clones, which inherit no identity — and CI
+// machines have no global one either, so every call carries the fixture identity.
+const GIT_IDENTITY = [
+  "-c",
+  "user.email=qinit@example.test",
+  "-c",
+  "user.name=Qinit Test",
+];
+
 function runGit(cwd: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", ...args], {
+  const result = Bun.spawnSync(["git", ...GIT_IDENTITY, ...args], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
@@ -120,8 +129,6 @@ function createCoreRepository(root: string, baseAssetName = "BASE"): string {
 
   runGit(corePath, "init", "-b", "main");
   runGit(corePath, "config", "core.autocrlf", "false");
-  runGit(corePath, "config", "user.email", "qinit@example.test");
-  runGit(corePath, "config", "user.name", "Qinit Test");
   runGit(corePath, "add", ".");
   runGit(corePath, "commit", "-m", "Initial core fixture");
   return corePath;
