@@ -43,6 +43,14 @@ jobs:
       - name: Build all targets
         run: bun run build:all
 
+      # Nothing else runs the shipped artifact. The runner is linux-x64, so only that target can be
+      # executed here; the cross-compiled ones ship unverified until a runner matrix exists.
+      - name: Verify the linux-x64 binary runs wasm crypto
+        run: |
+          out=$(./dist/qinit-linux-x64 smoke 2>&1 | sed 's/\x1b\[[0-9;]*[mGKHA]//g')
+          echo "$out"
+          echo "$out" | grep -q "valid identity"
+
       - name: Checksums
         run: cd dist && sha256sum qinit-* > SHA256SUMS && cat SHA256SUMS
 

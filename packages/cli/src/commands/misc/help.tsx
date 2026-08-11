@@ -27,11 +27,12 @@ export function Help({
   useEffect(() => {
     exit();
   }, [exit]);
-  const w = Math.max(...COMMANDS.map((c) => c.length)) + 2; // align descriptions across all groups
+  const listed = COMMANDS.filter((c) => !META[c].hidden);
+  const w = Math.max(...listed.map((c) => c.length)) + 2; // align descriptions across all groups
   const pad = "  " + " ".repeat(w); // indent for example/note lines
   const groups = GROUP_ORDER.map((g) => ({
     title: g,
-    items: COMMANDS.filter((c) => META[c].group === g),
+    items: listed.filter((c) => META[c].group === g),
   }));
   return (
     <Box flexDirection="column">

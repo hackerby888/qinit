@@ -92,6 +92,20 @@ test("GROUP_ORDER: every declared group is used by at least one command", () => 
   }
 });
 
+test("hidden commands stay routable but leave the help listing", () => {
+  // `smoke` is the compiled-binary crypto guard: CI and the release scripts still invoke it.
+  expect(COMMANDS).toContain("smoke");
+  expect(META.smoke.hidden).toBe(true);
+  expect(GROUP_ORDER).toContain(META.smoke.group);
+
+  const listed = COMMANDS.filter((command) => !META[command].hidden);
+  expect(listed).not.toContain("smoke");
+
+  // Hiding one command must not empty its group, or the group heading would print with no rows.
+  const sameGroup = listed.filter((command) => META[command].group === META.smoke.group);
+  expect(sameGroup.length).toBeGreaterThan(0);
+});
+
 test("release-smoke flags are exposed in command metadata", () => {
   expect(commandOptions("node", "run").map(optionSyntax)).toContain("--core-dir <path>");
   expect(commandOptions("node", "run").map(optionSyntax)).toContain(

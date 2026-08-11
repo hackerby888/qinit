@@ -114,11 +114,13 @@ function canonicalCommand(command: string): CommandName | undefined {
 }
 
 function unknownCommand(command: string): ReactNode {
+  // A near-miss must not advertise a hidden command the help listing does not show.
+  const suggestable = COMMANDS.filter((name) => !META[name].hidden);
   return (
     <Help
       unknown={!command.startsWith("-")}
       command={command}
-      suggestion={REMOVED.get(command) ?? nearest(command, COMMANDS)}
+      suggestion={REMOVED.get(command) ?? nearest(command, suggestable)}
     />
   );
 }

@@ -341,10 +341,14 @@ The invariants to remember are:
 | Develop | `develop` | `commands/develop/` | `new`, `integrate`, `dev`, `build`, `gen`, `verify` |
 | Deploy and interact | `deploy & interact` | `commands/deploy-interact/` | `deploy`, `call`, `seed`, `ls`, `state`, `explorer`, `debug`, `test`, `gtest`, `system` |
 | Editor integration | `editor` | `commands/editor/` | `ext` |
-| Miscellaneous | `misc` | `commands/misc/` | `runtime`, `compiler`, `theme`, `cheat-sheet`, `smoke`, `version`, `help` |
+| Miscellaneous | `misc` | `commands/misc/` | `runtime`, `compiler`, `theme`, `cheat-sheet`, `version`, `help` (plus hidden `smoke`) |
 
 Within a group, commands print in `META` declaration order — `Help` filters `COMMANDS`, which is
 `Object.keys(META)`. Keep a new entry beside its group's other entries.
+
+`hidden: true` on a `META` entry keeps a command out of the help listing and out of typo suggestions
+while leaving it routed and strictly parsed — for internals nobody should discover, like `smoke`, the
+guard that proves wasm crypto still works in the compiled binary.
 
 ## 4. Configuration and persistent state
 

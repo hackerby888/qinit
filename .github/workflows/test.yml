@@ -142,6 +142,10 @@ jobs:
           test -f packages/compiler/dist/browser.d.ts
       - name: Smoke browser compiler bundle
         run: bun packages/compiler/tools/ci-browser-smoke.ts
+      # `bun build --compile` resolves modules differently from the source tests, so wasm crypto is
+      # proven in the shipped artifact here. The k12-in-build half needs core headers and self-skips.
+      - name: Compiled binary guard (wasm crypto)
+        run: bun run test:compiled
       - name: Import each dist under plain Node
         run: |
           node --input-type=module -e '

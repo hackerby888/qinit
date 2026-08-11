@@ -21,6 +21,8 @@ export interface CommandMeta {
   subcommands?: Record<string, SubcommandMeta>;
   examples?: string[];
   json?: boolean;
+  // Kept out of the help listing and typo suggestions; still routed, parsed and runnable.
+  hidden?: boolean;
 }
 
 const stringOption = (
@@ -456,7 +458,8 @@ const commandMeta = {
     group: "misc",
     summary: "show common workflows and call formats",
   },
-  smoke: { group: "misc", summary: "check identity cryptography" },
+  // Internal: the release guard that proves wasm crypto still works in the compiled binary.
+  smoke: { group: "misc", summary: "check identity cryptography", hidden: true },
   version: { group: "misc", json: true, summary: "show the Qinit version" },
   help: { group: "misc", summary: "show command help" },
 } satisfies Record<string, CommandMeta>;
