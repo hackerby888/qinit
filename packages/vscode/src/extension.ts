@@ -15,6 +15,7 @@ import {
 } from "./completion-filter";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
+import { memberFallbackCompletions, type FallbackItem } from "./member-fallback";
 import { resolveProjectSourceDetails } from "./project-context";
 import {
   findContractCandidates,
@@ -33,6 +34,7 @@ const filteredClients = new WeakSet<object>();
 let contractPrefixPath: string | undefined;
 let contractCorePath: string | undefined;
 let filterReported = false;
+let fallbackReported = false;
 
 function warnOnce(key: string, message: string): void {
   if (warned.has(key)) return;
@@ -83,20 +85,53 @@ function labelOf(item: vscode.CompletionItem): string {
   return typeof item.label === "string" ? item.label : item.label.label;
 }
 
+function fallbackCompletionItem(item: FallbackItem): vscode.CompletionItem {
+  const kind =
+    item.kind === "method" ? vscode.CompletionItemKind.Method : vscode.CompletionItemKind.Field;
+  const completion = new vscode.CompletionItem(item.label, kind);
+  completion.detail = item.detail;
+  return completion;
+}
+
+// clangd's member completion breaks on preamble types with template members (member-fallback.ts);
+// a raw clang++ answers the same query correctly, so an empty member list is retried through it.
+async function fallbackMemberCompletions(
+  doc: vscode.TextDocument,
+  position: vscode.Position,
+  out: vscode.OutputChannel,
+): Promise<vscode.CompletionItem[]> {
+  if (!contractPrefixPath) return [];
+  const items = await memberFallbackCompletions({
+    prefixPath: contractPrefixPath,
+    contractPath: doc.fileName.replace(/\\/g, "/"),
+    bufferText: doc.getText(),
+    line: position.line,
+    character: position.character,
+  });
+  if (!items) return [];
+  if (!fallbackReported) {
+    fallbackReported = true;
+    out.appendLine(`member completion answered by clang fallback: ${items.length} items`);
+  }
+  return items.filter((item) => keepMemberLabel(item.label)).map(fallbackCompletionItem);
+}
+
 // clangd offers every symbol the translation unit can see; a contract may write only the QPI surface.
-function filterCompletions(
+async function filterCompletions(
   doc: vscode.TextDocument,
   position: vscode.Position,
   result: CompletionResult,
   core: string,
   out: vscode.OutputChannel,
-): CompletionResult {
-  if (!result || !contractPrefixPath || !isContractDoc(doc)) return result;
+): Promise<CompletionResult> {
+  if (!contractPrefixPath || !isContractDoc(doc)) return result;
   if (vscode.workspace.getConfiguration("qpi").get<string>("completionFilter") === "off") {
     return result;
   }
 
-  const items = Array.isArray(result) ? result : result.items;
+  // A null result still goes through the member branch: the clangd bug the fallback covers can
+  // surface as an absent list, not only as an empty or word-list one.
+  const items = result ? (Array.isArray(result) ? result : result.items) : [];
   const linePrefix = doc.lineAt(position.line).text.slice(0, position.character);
   const scope = completionScope(linePrefix);
   const allowed = qpiAllowedIdentifiers(contractPrefixPath, core);
@@ -106,6 +141,16 @@ function filterCompletions(
   if (scope.kind === "member") {
     // A member list is already scoped by its type — only QPI's reserved names have to go.
     kept = items.filter((item) => keepMemberLabel(labelOf(item)));
+    // Sema found no members when clangd answers empty or pads with word-list items (kind Text).
+    const unresolved =
+      items.length === 0 ||
+      items.every(
+        (item) => item.kind === undefined || item.kind === vscode.CompletionItemKind.Text,
+      );
+    if (unresolved) {
+      const fallback = await fallbackMemberCompletions(doc, position, out);
+      if (fallback.length > 0) kept = fallback;
+    }
   } else if (scope.kind === "qualified") {
     // `QPI::`, `OI::Price::` and the contract's own types stay whole; `std::` and friends offer nothing.
     kept = keepQualifiedScope(scope.qualifier, allowed, documentNames)
@@ -120,7 +165,10 @@ function filterCompletions(
     out.appendLine(`completion filtered to the QPI surface: kept ${kept.length} of ${items.length}`);
   }
   // clangd truncates its result set, so the list stays incomplete and is re-requested as the user types.
-  return new vscode.CompletionList(kept, Array.isArray(result) ? false : result.isIncomplete);
+  const incomplete = result !== null && result !== undefined && !Array.isArray(result)
+    ? result.isIncomplete
+    : false;
+  return new vscode.CompletionList(kept, incomplete);
 }
 
 interface ClangdApi {
@@ -140,15 +188,16 @@ interface ClangdApi {
 // The clangd extension owns the completion provider, but exposes its language client, and its middleware
 // hook is read per request — so wrapping it here filters the list without taking the provider over.
 // `clangd.restart` builds a fresh client, hence the re-check on every document event.
-function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChannel): void {
+function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChannel): boolean {
   const initialCore = contractCorePath ?? core;
-  if (!initialCore) return;
+  if (!initialCore) return false;
   const api: ClangdApi | undefined = vscode.extensions
     .getExtension("llvm-vs-code-extensions.vscode-clangd")
     ?.exports?.getApi?.(1);
   const client = api?.languageClient;
   const middleware = client?.middleware;
-  if (!client || !middleware || filteredClients.has(client)) return;
+  if (!client || !middleware) return false;
+  if (filteredClients.has(client)) return true;
 
   const inner = middleware.provideCompletionItem;
   middleware.provideCompletionItem = async (doc, position, context, token, next) => {
@@ -156,7 +205,7 @@ function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChan
       ? await inner(doc, position, context, token, next)
       : await next(doc, position, context, token);
     try {
-      return filterCompletions(
+      return await filterCompletions(
         doc,
         position,
         result,
@@ -169,6 +218,23 @@ function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChan
     }
   };
   filteredClients.add(client);
+  return true;
+}
+
+// The clangd client comes up asynchronously; a document event may run before it exists, so keep
+// retrying until the middleware is wrapped (and again after `clangd.restart` builds a new client).
+let filterRetryActive = false;
+function scheduleCompletionFilter(core: string | undefined, out: vscode.OutputChannel): void {
+  if (ensureCompletionFilter(core, out) || filterRetryActive) return;
+  filterRetryActive = true;
+  let attempts = 0;
+  const timer = setInterval(() => {
+    attempts++;
+    if (ensureCompletionFilter(core, out) || attempts >= 60) {
+      clearInterval(timer);
+      filterRetryActive = false;
+    }
+  }, 1000);
 }
 
 function restartClangd(root: string, out: vscode.OutputChannel, core?: string): void {
@@ -177,7 +243,7 @@ function restartClangd(root: string, out: vscode.OutputChannel, core?: string): 
   void vscode.commands.executeCommand("clangd.restart").then(
     () => {
       restartingRoots.delete(root);
-      ensureCompletionFilter(core, out);
+      scheduleCompletionFilter(core, out);
       out.appendLine("clangd restarted with QPI configuration");
     },
     (error) => {
@@ -331,7 +397,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const onDocument = (doc?: vscode.TextDocument) => {
     if (!doc) return;
     regenerateDocument(doc, context, core, out);
-    ensureCompletionFilter(core, out);
+    scheduleCompletionFilter(core, out);
     diagnostics.refresh(doc);
   };
   const onSave = (doc: vscode.TextDocument) => {

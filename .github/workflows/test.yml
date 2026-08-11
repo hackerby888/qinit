@@ -591,7 +591,17 @@ jobs:
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: bun run --filter qpi-vscode prepare:headers
+      - name: Install clangd ${{ env.CLANGD_VERSION }}
+        run: |
+          curl -fsSL -o clangd.zip \
+            https://github.com/${{ env.CLANGD_REPOSITORY }}/releases/download/${{ env.CLANGD_VERSION }}/clangd-linux-${{ env.CLANGD_VERSION }}.zip
+          unzip -q clangd.zip
+          echo "${{ github.workspace }}/clangd_${{ env.CLANGD_VERSION }}/bin" >> "$GITHUB_PATH"
       - name: Install xvfb (headless display for VS Code)
         run: sudo apt-get update && sudo apt-get install -y xvfb
       - name: Integration tests (headless VS Code)
+        env:
+          # The member-completion clang fallback pairs clang with the sysroot it was shipped with.
+          WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
+          WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: xvfb-run -a bun run --filter qpi-vscode test:int

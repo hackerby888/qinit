@@ -14,3 +14,5 @@ contracts_dyn/
 /.idea/
 .generated/
 /packages/vscode/resources/
+# Written by the integration-test pretest step (machine-specific clangd path).
+/packages/vscode/test-fixtures/ws/.vscode/

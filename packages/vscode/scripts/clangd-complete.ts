@@ -22,6 +22,36 @@ if (!existsSync(join(core, "src", "qpi", "qpi.h"))) {
 }
 
 const workspace = mkdtempSync(join(tmpdir(), "qpi-complete-"));
+
+// Cross-call pair mirroring the field-completion clangd bug: callee input holds an Array member.
+const CALLEE = `using namespace QPI;
+struct Callee : public ContractBase {
+  struct StateData { uint64 counter; };
+  struct Get_input {
+    Array<uint64, 8> bc;
+    sint16 a;
+  };
+  struct Get_output { uint64 value; };
+  PUBLIC_FUNCTION(Get) {
+    output.value = state.get().counter;
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+};
+`;
+const CALLER = `using namespace QPI;
+struct Caller : public ContractBase {
+  struct StateData { uint64 dummy; };
+  struct Read_input {}; struct Read_output { uint64 value; };
+  struct Read_locals { Callee::Get_input gi; Callee::Get_output go; };
+  PUBLIC_FUNCTION_WITH_LOCALS(Read) {
+    CALL_OTHER_CONTRACT_FUNCTION(Callee, Get, locals.gi, locals.go);
+    locals.gi.a = 0;
+    output.value = locals.go.value;
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Read, 1); }
+};
+`;
+
 const PROBE = `#include "qpi/qpi.h"
 using namespace QPI;
 struct Probe2 {};
@@ -50,12 +80,30 @@ const config = generateClangdConfig({
 });
 const uri = pathToFileURL(config.contractFile).href;
 
-const posAt = (offset: number) => {
-  const prefix = PROBE.slice(0, offset);
+const calleeFile = join(workspace, "Callee.h");
+const callerFile = join(workspace, "Caller.h");
+writeFileSync(calleeFile, CALLEE);
+writeFileSync(callerFile, CALLER);
+const callerConfig = generateClangdConfig({
+  contractPath: callerFile,
+  corePath: core,
+  dataRoot: workspace,
+  workspaceRoot: workspace,
+  name: "Caller",
+  slot: 30,
+  dynCallees: { Callee: { header: calleeFile, index: 29 } },
+});
+const callerUri = pathToFileURL(callerConfig.contractFile).href;
+
+const posIn = (source: string, offset: number) => {
+  const prefix = source.slice(0, offset);
   const line = prefix.split("\n").length - 1;
   return { line, character: offset - (prefix.lastIndexOf("\n") + 1) };
 };
+const posAt = (offset: number) => posIn(PROBE, offset);
 const afterDot = (find: string, dot: string) => posAt(PROBE.indexOf(find) + dot.length);
+const callerAfterDot = (find: string, dot: string) =>
+  posIn(CALLER, CALLER.indexOf(find) + dot.length);
 
 const clangd = Bun.spawn(
   [
@@ -115,8 +163,14 @@ function send(method: string, params: any, isNotification = false) {
   }
 })();
 
-const labelsAt = async (pos: { line: number; character: number }): Promise<string[]> => {
-  const result = await send("textDocument/completion", { textDocument: { uri }, position: pos });
+const labelsAt = async (
+  pos: { line: number; character: number },
+  documentUri: string = uri,
+): Promise<string[]> => {
+  const result = await send("textDocument/completion", {
+    textDocument: { uri: documentUri },
+    position: pos,
+  });
   const items = Array.isArray(result) ? result : (result?.items ?? []);
   return items.map((item: any) => item.label.trim());
 };
@@ -241,6 +295,56 @@ try {
         (members) => members.filter(keepMemberLabel).length === members.length,
       ),
       "member lists survive the filter unchanged",
+    )
+  ) {
+    failures++;
+  }
+
+  // Cross-call probes. clangd cannot complete members through a field whose preamble type carries a
+  // template member (upstream, clangd 17-22); the extension covers that with a clang fallback. This
+  // canary asserts the raw breakage, so a fixed clangd release flips it and retires the fallback.
+  send(
+    "textDocument/didOpen",
+    { textDocument: { uri: callerUri, languageId: "cpp", version: 1, text: CALLER } },
+    true,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 4000));
+
+  const localsMembers = await labelsAt(callerAfterDot("locals.gi, locals.go", "locals."), callerUri);
+  const plainFieldMembers = await labelsAt(
+    callerAfterDot("locals.go.value", "locals.go."),
+    callerUri,
+  );
+  const brokenFieldMembers = await labelsAt(
+    callerAfterDot("locals.gi.a = 0", "locals.gi."),
+    callerUri,
+  );
+  console.log(
+    `cross-call   -> locals.=${localsMembers.length}, ` +
+      `locals.go.=${plainFieldMembers.length}, locals.gi.=${brokenFieldMembers.length}`,
+  );
+
+  if (
+    !ok(
+      localsMembers.includes("gi") && localsMembers.includes("go"),
+      "cross-call locals. completes its fields (gi, go)",
+    )
+  ) {
+    failures++;
+  }
+  if (
+    !ok(
+      plainFieldMembers.includes("value"),
+      "cross-call locals.go. completes a template-free callee struct",
+    )
+  ) {
+    failures++;
+  }
+  if (
+    !ok(
+      brokenFieldMembers.length === 0,
+      "KNOWN-BAD canary: raw clangd still returns nothing for locals.gi. — " +
+        "if this fails with items present, clangd fixed the upstream bug: retire member-fallback.ts",
     )
   ) {
     failures++;
