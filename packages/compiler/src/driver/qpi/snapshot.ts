@@ -5,7 +5,14 @@ import {
 } from "./prelude";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { parseWasmAbiSource } from "@qinit/core/wasm/abi-source";
-import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "./snapshot-format";
+import { Lexer } from "../../frontend/lexer";
+import { Preprocessor, type MacroDef } from "../../frontend/preprocessor";
+import { getQpiPrelude } from "../qpi-macros";
+import {
+  embeddedWasmAbi,
+  IMPL_BOUNDARY,
+  WASM_ABI_MARKER,
+} from "./snapshot-format";
 
 export {
   embeddedWasmAbi,
@@ -285,6 +292,54 @@ function assembleHostWrapperChunk(
     normalizedContextWrappers;
 
   return `\n${IMPL_BOUNDARY}\n${wrapperSource}\n`;
+}
+
+function snapshotTokens(source: string) {
+  return new Lexer(source)
+    .tokenize()
+    .map((token) => [token.kind, token.text]);
+}
+
+function snapshotMacros(macros: Map<string, MacroDef>) {
+  return [...macros.values()]
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((macro) => ({
+      name: macro.name,
+      params: macro.params,
+      isVarArgs: macro.isVarArgs,
+      body: snapshotTokens(macro.body),
+    }));
+}
+
+function qpiHeaderSignature(headers: string): string {
+  const [mainHeaders, ...implementationChunks] = headers.split(IMPL_BOUNDARY);
+  const { preprocessedSource: mainSource, macros } = getQpiPrelude(mainHeaders);
+  const implementations = implementationChunks.map((source) => {
+    const implementationPreprocessor = new Preprocessor();
+    const implementationSource = implementationPreprocessor.preprocess({
+      source,
+      qpiHeader: "",
+      contractName: "__impl__",
+      contractIndex: 0,
+      seedMacros: macros,
+    });
+
+    return snapshotTokens(implementationSource);
+  });
+
+  return JSON.stringify({
+    wasmAbi: embeddedWasmAbi(headers),
+    main: snapshotTokens(mainSource),
+    macros: snapshotMacros(macros),
+    implementations,
+  });
+}
+
+export function qpiHeadersEquivalent(left: string, right: string): boolean {
+  const normalizeEndlines = (source: string) => source.replace(/\r\n?/g, "\n");
+
+  return normalizeEndlines(left) === normalizeEndlines(right) ||
+    qpiHeaderSignature(left) === qpiHeaderSignature(right);
 }
 
 // List every core file read during header assembly and cache hashing.

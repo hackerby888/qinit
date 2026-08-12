@@ -5,6 +5,7 @@ import {
   QPI_SNAPSHOT,
   QPI_SNAPSHOT_META,
 } from "@qinit/compiler/generated/qpi-snapshot";
+import { qpiHeadersEquivalent } from "@qinit/compiler/driver/qpi/snapshot";
 
 export const WASM_NODE_CMAKE_PROFILE = Object.freeze({
   BUILD_BINARY: "ON",
@@ -61,11 +62,10 @@ export function assertCoreBuildProfile(
 }
 
 export function assertPinnedQpiHeader(header: string): void {
-  const normalize = (source: string) => source.replace(/\r\n?/g, "\n");
   const hash = (source: string) =>
     `sha256:${createHash("sha256").update(source).digest("hex")}`;
 
-  if (normalize(header) !== normalize(QPI_SNAPSHOT)) {
+  if (!qpiHeadersEquivalent(header, QPI_SNAPSHOT)) {
     throw new Error(
       `core header hash ${hash(header)} does not match pinned ${QPI_SNAPSHOT_META.snapshotHash}`,
     );

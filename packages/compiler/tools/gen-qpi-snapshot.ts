@@ -3,7 +3,11 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { assembleQpiHeader, GENERATOR_VERSION } from "../src/driver/qpi/snapshot";
+import {
+  assembleQpiHeader,
+  GENERATOR_VERSION,
+  qpiHeadersEquivalent,
+} from "../src/driver/qpi/snapshot";
 import { assembleQpiProtocolPrelude } from "../src/driver/qpi/prelude";
 
 const callArguments = process.argv.slice(2);
@@ -45,8 +49,7 @@ interface SnapshotManifest {
 
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as SnapshotManifest;
 
-function render(): { hash: string; module: string; protocolPreludeModule: string } {
-  const snapshot = assembleQpiHeader(core);
+function render(snapshot: string): { hash: string; module: string; protocolPreludeModule: string } {
   const protocolPrelude = assembleQpiProtocolPrelude(
     readFileSync(join(core, "src", "network_messages", "common_def.h"), "utf8"),
   );
@@ -84,7 +87,15 @@ function verify(hash: string): void {
 }
 
 try {
-  const generated = render();
+  const liveSnapshot = assembleQpiHeader(core);
+  let snapshot = liveSnapshot;
+  if (existsSync(outputPath)) {
+    const { QPI_SNAPSHOT } = await import("../src/generated/qpi-snapshot");
+    if (qpiHeadersEquivalent(liveSnapshot, QPI_SNAPSHOT)) {
+      snapshot = QPI_SNAPSHOT;
+    }
+  }
+  const generated = render(snapshot);
   if (flag("--verify") || flag("--check")) {
     verify(generated.hash);
     log(`verified against ${manifestPath}`);

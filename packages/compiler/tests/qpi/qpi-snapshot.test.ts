@@ -6,7 +6,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { loadQpiHeader } from "../../src/index";
-import { assembleQpiHeader, GENERATOR_VERSION, snapshotInputFiles } from "../../src/driver/qpi/snapshot";
+import {
+  assembleQpiHeader,
+  GENERATOR_VERSION,
+  qpiHeadersEquivalent,
+  snapshotInputFiles,
+} from "../../src/driver/qpi/snapshot";
+import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "../../src/driver/qpi/snapshot-format";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "../../src/generated/qpi-snapshot";
 import { QPI_PROTOCOL_PRELUDE } from "../../src/generated/qpi-protocol-prelude";
 import { assembleQpiProtocolPrelude } from "../../src/driver/qpi/prelude";
@@ -32,6 +38,58 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Bump, 1); }
 };`;
+
+const FORMATTED_HEADER = `${WASM_ABI_MARKER}{"abiVersion":1,"lhost":[],"systemProcedures":[],"records":{}}
+#define SUM(a, b) ((a) + (b))
+int add(
+  int left,
+  int right);
+
+${IMPL_BOUNDARY}
+int add(
+  int left,
+  int right)
+{
+  return left + right;
+}
+`;
+
+const COMPACT_HEADER = `${WASM_ABI_MARKER}{"abiVersion":1,"lhost":[],"systemProcedures":[],"records":{}}
+#define SUM(a,b) ((a)+(b))
+int add(int left,int right);
+${IMPL_BOUNDARY}
+int add(int left,int right){return left+right;}
+`;
+
+describe("qpi header equivalence", () => {
+  test("ignores endlines, spaces, and empty lines", () => {
+    expect(qpiHeadersEquivalent(FORMATTED_HEADER, COMPACT_HEADER)).toBe(true);
+    expect(
+      qpiHeadersEquivalent(FORMATTED_HEADER.replace(/\n/g, "\r\n"), COMPACT_HEADER),
+    ).toBe(true);
+  });
+
+  test("preserves semantic tokens", () => {
+    expect(
+      qpiHeadersEquivalent(
+        FORMATTED_HEADER,
+        COMPACT_HEADER.replace("left+right", "left-right"),
+      ),
+    ).toBe(false);
+    expect(
+      qpiHeadersEquivalent(
+        COMPACT_HEADER.replace("left+right", "left + +right"),
+        COMPACT_HEADER.replace("left+right", "left++right"),
+      ),
+    ).toBe(false);
+    expect(
+      qpiHeadersEquivalent(
+        FORMATTED_HEADER,
+        COMPACT_HEADER.replace('"abiVersion":1', '"abiVersion":2'),
+      ),
+    ).toBe(false);
+  });
+});
 
 describe.if(coreOk)("qpi snapshot assembly", () => {
   test("loadQpiHeader delegates to assembleQpiHeader byte-identically", () => {
@@ -98,9 +156,9 @@ describe("tracked snapshot + browser entry", () => {
     ).toThrow(/MAX_AMOUNT/);
   });
 
-  test("generated module embeds the assembly verbatim with a matching hash", async () => {
+  test("generated module matches the assembly semantically with an exact byte hash", async () => {
     if (coreOk) {
-      expect(QPI_SNAPSHOT).toBe(assembleQpiHeader(CORE));
+      expect(qpiHeadersEquivalent(QPI_SNAPSHOT, assembleQpiHeader(CORE))).toBe(true);
     }
     const hash = "sha256:" + createHash("sha256").update(QPI_SNAPSHOT).digest("hex");
     expect(QPI_SNAPSHOT_META.snapshotHash as string).toBe(hash);
