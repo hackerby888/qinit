@@ -26,41 +26,35 @@ export interface ContractRegistration {
     line: number;
     notification: boolean; // oracle-reply callback: dispatched by the node, not invoked by users
 }
-export function evalRegistrationConstant(expression: Expression | undefined, programAnalysis: ProgramAnalysis): bigint | null {
-    if (!expression)
-        return null;
+export function evalRegistrationConstant(
+    expression: Expression | undefined,
+    programAnalysis: ProgramAnalysis,
+): bigint | null {
+    if (!expression) return null;
 
     const resolving = new Set<string>();
     const resolve = (name: string): bigint | null => {
         const separator = name.lastIndexOf("::");
-        const candidates = separator >= 0
-            ? [name, name.slice(separator + 2)]
-            : [name];
+        const candidates = separator >= 0 ? [name, name.slice(separator + 2)] : [name];
 
         for (const candidate of candidates) {
             const enumValue = programAnalysis.enumConst.get(candidate);
-            if (enumValue !== undefined)
-                return enumValue;
+            if (enumValue !== undefined) return enumValue;
 
             const initializer = programAnalysis.constexprInit.get(candidate);
-            if (!initializer)
-                continue;
-            if (resolving.has(candidate))
-                return null;
+            if (!initializer) continue;
+            if (resolving.has(candidate)) return null;
 
             resolving.add(candidate);
             const value = evalIntegralConst(initializer, resolve);
             resolving.delete(candidate);
-            if (value === null)
-                return null;
+            if (value === null) return null;
 
             return programAnalysis.resolveConst(candidate) ?? value;
         }
 
         const contractIndex = /^(\w+)_CONTRACT_INDEX$/.exec(name);
-        const callee = contractIndex
-            ? programAnalysis.callees.get(contractIndex[1])
-            : undefined;
+        const callee = contractIndex ? programAnalysis.callees.get(contractIndex[1]) : undefined;
         return callee ? BigInt(callee.index) : null;
     };
 
@@ -68,36 +62,36 @@ export function evalRegistrationConstant(expression: Expression | undefined, pro
 }
 export function lexRegistrationLiteral(value: string): bigint {
     const cleaned = value.replace(/[uUlL]+$/, "").replace(/'/g, "");
-    if (/^0[0-7]+$/.test(cleaned))
-        return BigInt(`0o${cleaned.slice(1)}`);
+    if (/^0[0-7]+$/.test(cleaned)) return BigInt(`0o${cleaned.slice(1)}`);
     return BigInt(cleaned);
 }
-export function extractRegistrations(contract: StructDecl, programAnalysis: ProgramAnalysis): ContractRegistration[] {
+export function extractRegistrations(
+    contract: StructDecl,
+    programAnalysis: ProgramAnalysis,
+): ContractRegistration[] {
     const regs: ContractRegistration[] = [];
-    const regFn = contract.members.find((member) => member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === "__registerUserFunctionsAndProcedures") as FunctionDecl | undefined;
-    if (!regFn?.body || regFn.body.kind !== AstKind.COMPOUND)
-        return regs;
+    const regFn = contract.members.find(
+        (member) =>
+            member.kind === AstKind.FUNCTION &&
+            (member as FunctionDecl).name === "__registerUserFunctionsAndProcedures",
+    ) as FunctionDecl | undefined;
+    if (!regFn?.body || regFn.body.kind !== AstKind.COMPOUND) return regs;
     for (const statement of regFn.body.body) {
-        if (statement.kind !== AstKind.EXPRESSION)
-            continue;
+        if (statement.kind !== AstKind.EXPRESSION) continue;
         const expression = statement.expression;
-        if (expression.kind !== AstKind.CALL)
-            continue;
-        if (expression.callee.kind !== AstKind.MEMBER_ACCESS)
-            continue;
+        if (expression.kind !== AstKind.CALL) continue;
+        if (expression.callee.kind !== AstKind.MEMBER_ACCESS) continue;
         const method = expression.callee.member;
         const isFn = method === "__registerUserFunction";
         const isProc = method === "__registerUserProcedure";
         const isNotif = method === "__registerUserProcedureNotification";
-        if (!isFn && !isProc && !isNotif)
-            continue;
+        if (!isFn && !isProc && !isNotif) continue;
         // args: (void*)fnName, inputType, sizeof(...), ...
         const fnArg = expression.callArguments[0];
         let fnName = "";
         if (fnArg?.kind === AstKind.C_CAST && fnArg.expression.kind === AstKind.IDENTIFIER)
             fnName = fnArg.expression.name;
-        else if (fnArg?.kind === AstKind.IDENTIFIER)
-            fnName = fnArg.name;
+        else if (fnArg?.kind === AstKind.IDENTIFIER) fnName = fnArg.name;
         const itArg = expression.callArguments[1];
         const evaluated = evalRegistrationConstant(itArg, programAnalysis);
         let inputType = evaluated === null ? 0 : Number(evaluated);
@@ -272,17 +266,12 @@ function validateRegistrationKind(
     const contextType = programAnalysis.derefType(
         declaration.params[0]?.type ?? { kind: AstKind.VOID },
     );
-    const actualKind: UserEntryKind | undefined = (
-        contextType.kind === AstKind.NAME &&
-        contextType.name === "QpiContextFunctionCall"
-    )
-        ? USER_FUNCTION_KIND
-        : (
-            contextType.kind === AstKind.NAME &&
-            contextType.name === "QpiContextProcedureCall"
-        )
-            ? USER_PROCEDURE_KIND
-            : undefined;
+    const actualKind: UserEntryKind | undefined =
+        contextType.kind === AstKind.NAME && contextType.name === "QpiContextFunctionCall"
+            ? USER_FUNCTION_KIND
+            : contextType.kind === AstKind.NAME && contextType.name === "QpiContextProcedureCall"
+              ? USER_PROCEDURE_KIND
+              : undefined;
 
     if (actualKind !== undefined && actualKind !== registration.kind) {
         programAnalysis.error(
@@ -319,10 +308,7 @@ function validateRegistrationLayouts(
     const outputSize = layouts.resolve(outputName).size;
     const localsSize = layouts.resolve(localsName).size;
 
-    if (
-        registration.kind === USER_PROCEDURE_KIND &&
-        inputSize > MAX_PROCEDURE_INPUT_SIZE_BYTES
-    ) {
+    if (registration.kind === USER_PROCEDURE_KIND && inputSize > MAX_PROCEDURE_INPUT_SIZE_BYTES) {
         programAnalysis.error(
             `${inputName} exceeds MAX_INPUT_SIZE (${MAX_PROCEDURE_INPUT_SIZE_BYTES} bytes)`,
             registration.line,
@@ -345,7 +331,5 @@ function validateRegistrationLayouts(
 }
 
 function registrationKindName(kind: UserEntryKind): QpiContextKind {
-    return kind === USER_FUNCTION_KIND
-        ? QpiContextKind.FUNCTION
-        : QpiContextKind.PROCEDURE;
+    return kind === USER_FUNCTION_KIND ? QpiContextKind.FUNCTION : QpiContextKind.PROCEDURE;
 }

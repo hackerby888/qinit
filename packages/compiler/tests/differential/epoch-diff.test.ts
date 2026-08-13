@@ -30,8 +30,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 // epochLength is 3000 ticks (QubicSimulator TESTNET_EPOCH_DURATION); each boundary crossing fires END_EPOCH once.
 const EPOCHER_GTEST = coreGtest(
-  "Epoch",
-  `TEST(Epoch, EndEpochUsesLocals) {
+    "Epoch",
+    `TEST(Epoch, EndEpochUsesLocals) {
   ContractTestingHarness t;
   Epoch::Get_input g{};
   EXPECT_EQ(t.call<Epoch::Get_output>(1, g).acc, 0ull);
@@ -49,37 +49,41 @@ const EPOCHER_GTEST = coreGtest(
 const wasi = wasiToolchain();
 
 describe("differential gtest — Epoch (END_EPOCH sysproc locals)", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("my Epoch.wasm runs END_EPOCH using its locals frame", async () => {
-    if (!wasi.available) {
-      console.log("  (wasi-sdk clang not found — skipping)");
-      return;
-    }
-    const runnerWasm = await buildDifferentialRunner({
-      corePath: CORE,
-      source: EPOCHER,
-      testSource: EPOCHER_GTEST,
-      name: "Epoch",
-      tempPrefix: "epoch-diff-",
+    beforeAll(async () => {
+        await initK12();
     });
 
-    const mine = await compileContract({
-      source: EPOCHER,
-      contractName: "Epoch",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1024 * 1024,
-    });
-    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+    test("my Epoch.wasm runs END_EPOCH using its locals frame", async () => {
+        if (!wasi.available) {
+            console.log("  (wasi-sdk clang not found — skipping)");
+            return;
+        }
+        const runnerWasm = await buildDifferentialRunner({
+            corePath: CORE,
+            source: EPOCHER,
+            testSource: EPOCHER_GTEST,
+            name: "Epoch",
+            tempPrefix: "epoch-diff-",
+        });
 
-    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-    for (const r of results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
-    }
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.every((r) => r.passed)).toBe(true);
-  }, 120000);
+        const mine = await compileContract({
+            source: EPOCHER,
+            contractName: "Epoch",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1024 * 1024,
+        });
+        expect(
+            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+
+        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+        for (const r of results) {
+            console.log(
+                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+            );
+        }
+        expect(results.length).toBeGreaterThan(0);
+        expect(results.every((r) => r.passed)).toBe(true);
+    }, 120000);
 });

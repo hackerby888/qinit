@@ -1,4 +1,3 @@
-
 import type { PreprocessorInternals } from "./preprocessor-context";
 
 export function evalIfCondition(context: PreprocessorInternals): boolean {
@@ -8,23 +7,23 @@ export function evalIfCondition(context: PreprocessorInternals): boolean {
 
 export function evalConstCondition(context: PreprocessorInternals, expression: string): bigint {
     // Replace defined(X) / defined X → 1/0
-    let text = expression.replace(/defined\s*\(\s*(\w+)\s*\)/g, (_m, exprItemIndex) => context.defines.has(exprItemIndex) ? "1" : "0");
-    text = text.replace(/defined\s+(\w+)/g, (_m, sItemIndex) => (context.defines.has(sItemIndex) ? "1" : "0"));
+    let text = expression.replace(/defined\s*\(\s*(\w+)\s*\)/g, (_m, exprItemIndex) =>
+        context.defines.has(exprItemIndex) ? "1" : "0",
+    );
+    text = text.replace(/defined\s+(\w+)/g, (_m, sItemIndex) =>
+        context.defines.has(sItemIndex) ? "1" : "0",
+    );
     // Expand remaining identifiers: a defined macro's body if numeric, else 0.
     text = text.replace(/\b([A-Za-z_]\w*)\b/g, (_m, id) => {
-        if (id === "true")
-            return "1";
-        if (id === "false")
-            return "0";
+        if (id === "true") return "1";
+        if (id === "false") return "0";
         const def = context.defines.get(id);
-        if (def && def.params === null && /^-?\d+$/.test(def.body.trim()))
-            return def.body.trim();
+        if (def && def.params === null && /^-?\d+$/.test(def.body.trim())) return def.body.trim();
         return "0";
     });
     try {
         return context.evalArith(text);
-    }
-    catch {
+    } catch {
         return 0n;
     }
 }
@@ -41,12 +40,9 @@ export function evalArith(_context: PreprocessorInternals, text: string): bigint
             next();
             return numericValue;
         }
-        if (text === "!")
-            return parsePrimary() === 0n ? 1n : 0n;
-        if (text === "-")
-            return -parsePrimary();
-        if (text === "+")
-            return parsePrimary();
+        if (text === "!") return parsePrimary() === 0n ? 1n : 0n;
+        if (text === "-") return -parsePrimary();
+        if (text === "+") return parsePrimary();
         return BigInt(text ?? "0");
     };
     const prec: Record<string, number> = {
@@ -69,7 +65,11 @@ export function evalArith(_context: PreprocessorInternals, text: string): bigint
         "/": 10,
         "%": 10,
     };
-    const apply = (numericValue: bigint, operator: string, numericValueCandidate: bigint): bigint => {
+    const apply = (
+        numericValue: bigint,
+        operator: string,
+        numericValueCandidate: bigint,
+    ): bigint => {
         switch (operator) {
             case "||":
                 return numericValue !== 0n || numericValueCandidate !== 0n ? 1n : 0n;

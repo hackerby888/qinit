@@ -49,75 +49,79 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 const wasi = wasiToolchain();
 
 describe("differential — Collection BST rebuild state parity", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
+    beforeAll(async () => {
+        await initK12();
+    });
 
-  toolchainTest(
-    "state bytes after rebuild-triggering adds match native exactly",
-    wasi,
-    async () => {
-      const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-      const { tmpdir } = await import("node:os");
-      const { join } = await import("node:path");
-      const dir = mkdtempSync(join(tmpdir(), "coll-rebuild-"));
-      const contractPath = join(dir, "CollP.h");
-      writeFileSync(contractPath, SRC);
+    toolchainTest(
+        "state bytes after rebuild-triggering adds match native exactly",
+        wasi,
+        async () => {
+            const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
+            const { tmpdir } = await import("node:os");
+            const { join } = await import("node:path");
+            const dir = mkdtempSync(join(tmpdir(), "coll-rebuild-"));
+            const contractPath = join(dir, "CollP.h");
+            writeFileSync(contractPath, SRC);
 
-      const built = await buildContractWithWasiClang({
-        contractPath,
-        name: "CollP",
-        slot: 28,
-        corePath: CORE,
-        outDir: dir,
-        skipVerify: true,
-      });
-      expect(built.ok).toBe(true);
-      const nativeWasm = new Uint8Array(readFileSync(built.wasmPath!));
+            const built = await buildContractWithWasiClang({
+                contractPath,
+                name: "CollP",
+                slot: 28,
+                corePath: CORE,
+                outDir: dir,
+                skipVerify: true,
+            });
+            expect(built.ok).toBe(true);
+            const nativeWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
-      const mine = await compileContract({
-        source: SRC,
-        contractName: "CollP",
-        slot: 28,
-        qpiHeader: HEADERS,
-        arenaSizeBytes: 4 * 1024 * 1024,
-      });
-      expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+            const mine = await compileContract({
+                source: SRC,
+                contractName: "CollP",
+                slot: 28,
+                qpiHeader: HEADERS,
+                arenaSizeBytes: 4 * 1024 * 1024,
+            });
+            expect(
+                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+            ).toHaveLength(0);
 
-      const run = (wasm: Uint8Array) => {
-        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-        sim.deploy(28, wasm);
-        const user = new Uint8Array(32).fill(7);
-        sim.fund(user, 1_000_000n);
-        // A 48-node right spine crosses the native rebuild threshold.
-        const inBytes = new Uint8Array(8);
-        new DataView(inBytes.buffer).setBigUint64(0, 48n, true);
-        sim.procedure(28, 1, inBytes, { invocator: user });
-        const walk = sim.query(28, 1);
-        const state = sim.contracts.get(28)!.state().slice();
-        return { walk, state };
-      };
+            const run = (wasm: Uint8Array) => {
+                const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+                sim.deploy(28, wasm);
+                const user = new Uint8Array(32).fill(7);
+                sim.fund(user, 1_000_000n);
+                // A 48-node right spine crosses the native rebuild threshold.
+                const inBytes = new Uint8Array(8);
+                new DataView(inBytes.buffer).setBigUint64(0, 48n, true);
+                sim.procedure(28, 1, inBytes, { invocator: user });
+                const walk = sim.query(28, 1);
+                const state = sim.contracts.get(28)!.state().slice();
+                return { walk, state };
+            };
 
-      const nat = run(nativeWasm);
-      const ours = run(mine.wasm);
+            const nat = run(nativeWasm);
+            const ours = run(mine.wasm);
 
-      // Behavioral parity: identical in-order traversal.
-      expect(Buffer.from(ours.walk).toString("hex")).toBe(Buffer.from(nat.walk).toString("hex"));
+            // Behavioral parity: identical in-order traversal.
+            expect(Buffer.from(ours.walk).toString("hex")).toBe(
+                Buffer.from(nat.walk).toString("hex"),
+            );
 
-      // State-byte parity: the BST index fields must match, or the on-chain state digest diverges.
-      const firstDiff = nat.state.findIndex((b, i) => ours.state[i] !== b);
-      if (firstDiff >= 0) {
-        console.log(
-          `  STATE DIVERGENCE at byte ${firstDiff}: native=${nat.state[firstDiff]} ours=${ours.state[firstDiff]}`,
-        );
-        let diffs = 0;
-        for (let i = 0; i < nat.state.length; i++) {
-          if (nat.state[i] !== ours.state[i]) diffs++;
-        }
-        console.log(`  total differing bytes: ${diffs} of ${nat.state.length}`);
-      }
-      expect(firstDiff).toBe(-1);
-    },
-    180000,
-  );
+            // State-byte parity: the BST index fields must match, or the on-chain state digest diverges.
+            const firstDiff = nat.state.findIndex((b, i) => ours.state[i] !== b);
+            if (firstDiff >= 0) {
+                console.log(
+                    `  STATE DIVERGENCE at byte ${firstDiff}: native=${nat.state[firstDiff]} ours=${ours.state[firstDiff]}`,
+                );
+                let diffs = 0;
+                for (let i = 0; i < nat.state.length; i++) {
+                    if (nat.state[i] !== ours.state[i]) diffs++;
+                }
+                console.log(`  total differing bytes: ${diffs} of ${nat.state.length}`);
+            }
+            expect(firstDiff).toBe(-1);
+        },
+        180000,
+    );
 });

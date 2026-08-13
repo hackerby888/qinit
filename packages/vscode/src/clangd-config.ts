@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  generateWasmWrapperSource,
-  WASM_CONTRACT_CLANG_FLAGS,
-  WASM_TEST_UTIL_HEADER,
-  type ContractBuildOptions,
+    generateWasmWrapperSource,
+    WASM_CONTRACT_CLANG_FLAGS,
+    WASM_TEST_UTIL_HEADER,
+    type ContractBuildOptions,
 } from "@qinit/build/recipe";
 import { generateWasmContractTestingHeaderForCore } from "@qinit/build/system-contracts";
 import { buildCalleePrelude, type DynCallees } from "@qinit/build/intercontract";
@@ -17,267 +17,257 @@ export const DEFAULT_SLOT = DEFAULT_WASM_SLOT_LAYOUT.slotBase;
 const forwardSlashes = (path: string) => path.replace(/\\/g, "/");
 
 export function deriveName(contractPath: string, explicit?: string): string {
-  if (explicit) return explicit;
-  return (contractPath.split(/[/\\]/).pop() ?? contractPath).replace(/\.[^.]+$/, "");
+    if (explicit) return explicit;
+    return (contractPath.split(/[/\\]/).pop() ?? contractPath).replace(/\.[^.]+$/, "");
 }
 
 export interface ClangdInputs {
-  contractPath: string;
-  corePath: string;
-  dataRoot?: string;
-  workspaceRoot: string;
-  name?: string;
-  slot?: number;
-  dynCallees?: DynCallees;
-  wasiSysrootPath?: string;
+    contractPath: string;
+    corePath: string;
+    dataRoot?: string;
+    workspaceRoot: string;
+    name?: string;
+    slot?: number;
+    dynCallees?: DynCallees;
+    wasiSysrootPath?: string;
 }
 
 export interface ClangdConfig {
-  dir: string;
-  prefixPath: string;
-  contractFile: string;
-  dbPath: string;
-  dotClangdPath: string;
-  clangdConfigured: boolean;
-  restartRequired: boolean;
-  name: string;
-  slot: number;
-  args: string[];
+    dir: string;
+    prefixPath: string;
+    contractFile: string;
+    dbPath: string;
+    dotClangdPath: string;
+    clangdConfigured: boolean;
+    restartRequired: boolean;
+    name: string;
+    slot: number;
+    args: string[];
 }
 
 export interface TestClangdConfig {
-  dbPath: string;
-  prefixPath: string;
-  testFile: string;
-  dotClangdPath: string;
-  clangdConfigured: boolean;
-  restartRequired: boolean;
+    dbPath: string;
+    prefixPath: string;
+    testFile: string;
+    dotClangdPath: string;
+    clangdConfigured: boolean;
+    restartRequired: boolean;
 }
 
-function compileArgs(
-  corePath: string,
-  wasiSysrootPath?: string,
-): string[] {
-  const core = forwardSlashes(corePath);
-  const shim = forwardSlashes(join(corePath, "src", CORE_WASM_HEADERS.sdk.platformIntrinsics));
-  const sysroot = forwardSlashes(
-    wasiSysrootPath ?? join(corePath, "wasi-sdk", "share", "wasi-sysroot"),
-  );
-  return [
-    "clang++",
-    ...WASM_CONTRACT_CLANG_FLAGS,
-    "-Wno-undefined-inline",
-    "-include",
-    shim,
-    `--sysroot=${sysroot}`,
-    "-isystem",
-    core,
-    "-isystem",
-    `${core}/src`,
-  ];
+function compileArgs(corePath: string, wasiSysrootPath?: string): string[] {
+    const core = forwardSlashes(corePath);
+    const shim = forwardSlashes(join(corePath, "src", CORE_WASM_HEADERS.sdk.platformIntrinsics));
+    const sysroot = forwardSlashes(
+        wasiSysrootPath ?? join(corePath, "wasi-sdk", "share", "wasi-sysroot"),
+    );
+    return [
+        "clang++",
+        ...WASM_CONTRACT_CLANG_FLAGS,
+        "-Wno-undefined-inline",
+        "-include",
+        shim,
+        `--sysroot=${sysroot}`,
+        "-isystem",
+        core,
+        "-isystem",
+        `${core}/src`,
+    ];
 }
 
 export function ensureEditorSettings(workspaceRoot: string): void {
-  const dir = join(workspaceRoot, ".vscode");
-  const file = join(dir, "settings.json");
-  let settings: Record<string, unknown> = {};
-  if (existsSync(file)) {
-    try {
-      settings = JSON.parse(readFileSync(file, "utf8"));
-    } catch {
-      return;
+    const dir = join(workspaceRoot, ".vscode");
+    const file = join(dir, "settings.json");
+    let settings: Record<string, unknown> = {};
+    if (existsSync(file)) {
+        try {
+            settings = JSON.parse(readFileSync(file, "utf8"));
+        } catch {
+            return;
+        }
+        if (typeof settings !== "object" || settings === null || Array.isArray(settings)) return;
     }
-    if (typeof settings !== "object" || settings === null || Array.isArray(settings)) return;
-  }
 
-  let changed = false;
-  for (const [key, value] of [
-    ["C_Cpp.intelliSenseEngine", "disabled"],
-    ["C_Cpp.errorSquiggles", "disabled"],
-  ] as const) {
-    if (key in settings) continue;
-    settings[key] = value;
-    changed = true;
-  }
-  if (!changed) return;
+    let changed = false;
+    for (const [key, value] of [
+        ["C_Cpp.intelliSenseEngine", "disabled"],
+        ["C_Cpp.errorSquiggles", "disabled"],
+    ] as const) {
+        if (key in settings) continue;
+        settings[key] = value;
+        changed = true;
+    }
+    if (!changed) return;
 
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
 }
 
 export function detectStateType(source: string): string | undefined {
-  return contractStateType(source);
+    return contractStateType(source);
 }
 
 function sourceDetails(o: ClangdInputs): {
-  contractFile: string;
-  name: string;
-  slot: number;
-  dir: string;
-  options: ContractBuildOptions;
+    contractFile: string;
+    name: string;
+    slot: number;
+    dir: string;
+    options: ContractBuildOptions;
 } {
-  const contractPath = resolve(o.contractPath);
-  const contractFile = forwardSlashes(contractPath);
-  let source = "";
-  try {
-    source = readFileSync(contractPath, "utf8");
-  } catch {}
+    const contractPath = resolve(o.contractPath);
+    const contractFile = forwardSlashes(contractPath);
+    let source = "";
+    try {
+        source = readFileSync(contractPath, "utf8");
+    } catch {}
 
-  const detected = contractStateType(source);
-  const name =
-    detected && detected !== "CONTRACT_STATE_TYPE"
-      ? detected
-      : deriveName(o.contractPath, o.name);
-  const slot = o.slot ?? DEFAULT_SLOT;
-  const dir = join(o.dataRoot ?? join(o.workspaceRoot, ".qpi"), "clangd");
-  mkdirSync(dir, { recursive: true });
+    const detected = contractStateType(source);
+    const name =
+        detected && detected !== "CONTRACT_STATE_TYPE"
+            ? detected
+            : deriveName(o.contractPath, o.name);
+    const slot = o.slot ?? DEFAULT_SLOT;
+    const dir = join(o.dataRoot ?? join(o.workspaceRoot, ".qpi"), "clangd");
+    mkdirSync(dir, { recursive: true });
 
-  const calleePrelude = buildCalleePrelude(
-    o.corePath,
-    source,
-    o.dynCallees ?? {},
-    name,
-  );
+    const calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, name);
 
-  const options: ContractBuildOptions = {
-    contractPath: contractFile,
-    name,
-    slot,
-    corePath: o.corePath,
-    outDir: dir,
-    calleePrelude,
-  };
-  return { contractFile, name, slot, dir, options };
+    const options: ContractBuildOptions = {
+        contractPath: contractFile,
+        name,
+        slot,
+        corePath: o.corePath,
+        outDir: dir,
+        calleePrelude,
+    };
+    return { contractFile, name, slot, dir, options };
 }
 
 function writeCompileEntry(
-  dir: string,
-  file: string,
-  args: string[],
+    dir: string,
+    file: string,
+    args: string[],
 ): { path: string; added: boolean } {
-  const dbPath = join(dir, "compile_commands.json");
-  const entry = { directory: forwardSlashes(dir), file, arguments: args };
-  let entries: Array<{ file?: string }> = [];
-  try {
-    const parsed = JSON.parse(readFileSync(dbPath, "utf8"));
-    if (Array.isArray(parsed)) entries = parsed;
-  } catch {}
+    const dbPath = join(dir, "compile_commands.json");
+    const entry = { directory: forwardSlashes(dir), file, arguments: args };
+    let entries: Array<{ file?: string }> = [];
+    try {
+        const parsed = JSON.parse(readFileSync(dbPath, "utf8"));
+        if (Array.isArray(parsed)) entries = parsed;
+    } catch {}
 
-  const added = !entries.some((existing) => existing?.file === file);
-  entries = entries.filter((existing) => existing?.file !== file);
-  entries.push(entry);
-  writeFileSync(dbPath, JSON.stringify(entries, null, 2) + "\n");
-  return { path: dbPath, added };
+    const added = !entries.some((existing) => existing?.file === file);
+    entries = entries.filter((existing) => existing?.file !== file);
+    entries.push(entry);
+    writeFileSync(dbPath, JSON.stringify(entries, null, 2) + "\n");
+    return { path: dbPath, added };
 }
 
 function ensureClangdConfig(
-  workspaceRoot: string,
-  databaseDir: string,
+    workspaceRoot: string,
+    databaseDir: string,
 ): { path: string; configured: boolean } {
-  const path = join(workspaceRoot, ".clangd");
-  const database = forwardSlashes(databaseDir);
-  if (existsSync(path)) {
-    return {
-      path,
-      configured: readFileSync(path, "utf8").includes(database),
-    };
-  }
+    const path = join(workspaceRoot, ".clangd");
+    const database = forwardSlashes(databaseDir);
+    if (existsSync(path)) {
+        return {
+            path,
+            configured: readFileSync(path, "utf8").includes(database),
+        };
+    }
 
-  writeFileSync(
-    path,
-    [
-      "# Generated by the Qubic QPI extension.",
-      "CompileFlags:",
-      `  CompilationDatabase: ${JSON.stringify(database)}`,
-      "Completion:",
-      "  AllScopes: No",
-      "  HeaderInsertion: Never",
-      "",
-    ].join("\n"),
-  );
-  return { path, configured: true };
+    writeFileSync(
+        path,
+        [
+            "# Generated by the Qubic QPI extension.",
+            "CompileFlags:",
+            `  CompilationDatabase: ${JSON.stringify(database)}`,
+            "Completion:",
+            "  AllScopes: No",
+            "  HeaderInsertion: Never",
+            "",
+        ].join("\n"),
+    );
+    return { path, configured: true };
 }
 
 export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
-  const details = sourceDetails(o);
-  const wrapper = generateWasmWrapperSource(details.options);
-  const contractInclude = `#include "${details.contractFile}"`;
-  const includeOffset = wrapper.indexOf(contractInclude);
-  const preamble = includeOffset >= 0 ? wrapper.slice(0, includeOffset) : wrapper;
-  const prefixPath = join(details.dir, `${details.name}.prefix.h`);
-  writeFileSync(prefixPath, preamble);
+    const details = sourceDetails(o);
+    const wrapper = generateWasmWrapperSource(details.options);
+    const contractInclude = `#include "${details.contractFile}"`;
+    const includeOffset = wrapper.indexOf(contractInclude);
+    const preamble = includeOffset >= 0 ? wrapper.slice(0, includeOffset) : wrapper;
+    const prefixPath = join(details.dir, `${details.name}.prefix.h`);
+    writeFileSync(prefixPath, preamble);
 
-  const args = [
-    ...compileArgs(o.corePath, o.wasiSysrootPath),
-    "-include",
-    forwardSlashes(prefixPath),
-    "-x",
-    "c++",
-    details.contractFile,
-  ];
-  const compileEntry = writeCompileEntry(details.dir, details.contractFile, args);
-  const clangd = ensureClangdConfig(o.workspaceRoot, details.dir);
-  ensureEditorSettings(o.workspaceRoot);
+    const args = [
+        ...compileArgs(o.corePath, o.wasiSysrootPath),
+        "-include",
+        forwardSlashes(prefixPath),
+        "-x",
+        "c++",
+        details.contractFile,
+    ];
+    const compileEntry = writeCompileEntry(details.dir, details.contractFile, args);
+    const clangd = ensureClangdConfig(o.workspaceRoot, details.dir);
+    ensureEditorSettings(o.workspaceRoot);
 
-  return {
-    dir: details.dir,
-    prefixPath,
-    contractFile: details.contractFile,
-    dbPath: compileEntry.path,
-    dotClangdPath: clangd.path,
-    clangdConfigured: clangd.configured,
-    restartRequired: compileEntry.added,
-    name: details.name,
-    slot: details.slot,
-    args,
-  };
+    return {
+        dir: details.dir,
+        prefixPath,
+        contractFile: details.contractFile,
+        dbPath: compileEntry.path,
+        dotClangdPath: clangd.path,
+        clangdConfigured: clangd.configured,
+        restartRequired: compileEntry.added,
+        name: details.name,
+        slot: details.slot,
+        args,
+    };
 }
 
-export function generateTestClangdConfig(
-  o: ClangdInputs & { testPath: string },
-): TestClangdConfig {
-  const details = sourceDetails(o);
-  const preamble = generateWasmWrapperSource({
-    ...details.options,
-    testSource: "\n",
-    testPath: "gtest-prefix.h",
-  });
-  writeFileSync(
-    join(details.dir, "contract_testing.h"),
-    generateWasmContractTestingHeaderForCore({
-      corePath: o.corePath,
-      name: details.name,
-      slot: details.slot,
-    }),
-  );
-  writeFileSync(join(details.dir, "test_util.h"), WASM_TEST_UTIL_HEADER);
+export function generateTestClangdConfig(o: ClangdInputs & { testPath: string }): TestClangdConfig {
+    const details = sourceDetails(o);
+    const preamble = generateWasmWrapperSource({
+        ...details.options,
+        testSource: "\n",
+        testPath: "gtest-prefix.h",
+    });
+    writeFileSync(
+        join(details.dir, "contract_testing.h"),
+        generateWasmContractTestingHeaderForCore({
+            corePath: o.corePath,
+            name: details.name,
+            slot: details.slot,
+        }),
+    );
+    writeFileSync(join(details.dir, "test_util.h"), WASM_TEST_UTIL_HEADER);
 
-  const testPath = resolve(o.testPath);
-  const testFile = forwardSlashes(testPath);
-  const testBase = (testPath.split(/[/\\]/).pop() ?? "test").replace(/\.[^.]+$/, "");
-  const prefixPath = join(details.dir, `${testBase}.test.prefix.h`);
-  writeFileSync(prefixPath, preamble);
+    const testPath = resolve(o.testPath);
+    const testFile = forwardSlashes(testPath);
+    const testBase = (testPath.split(/[/\\]/).pop() ?? "test").replace(/\.[^.]+$/, "");
+    const prefixPath = join(details.dir, `${testBase}.test.prefix.h`);
+    writeFileSync(prefixPath, preamble);
 
-  const args = [
-    ...compileArgs(o.corePath, o.wasiSysrootPath),
-    "-I",
-    forwardSlashes(details.dir),
-    "-include",
-    forwardSlashes(prefixPath),
-    "-x",
-    "c++",
-    testFile,
-  ];
-  const compileEntry = writeCompileEntry(details.dir, testFile, args);
-  const clangd = ensureClangdConfig(o.workspaceRoot, details.dir);
-  ensureEditorSettings(o.workspaceRoot);
+    const args = [
+        ...compileArgs(o.corePath, o.wasiSysrootPath),
+        "-I",
+        forwardSlashes(details.dir),
+        "-include",
+        forwardSlashes(prefixPath),
+        "-x",
+        "c++",
+        testFile,
+    ];
+    const compileEntry = writeCompileEntry(details.dir, testFile, args);
+    const clangd = ensureClangdConfig(o.workspaceRoot, details.dir);
+    ensureEditorSettings(o.workspaceRoot);
 
-  return {
-    dbPath: compileEntry.path,
-    prefixPath,
-    testFile,
-    dotClangdPath: clangd.path,
-    clangdConfigured: clangd.configured,
-    restartRequired: compileEntry.added,
-  };
+    return {
+        dbPath: compileEntry.path,
+        prefixPath,
+        testFile,
+        dotClangdPath: clangd.path,
+        clangdConfigured: clangd.configured,
+        restartRequired: compileEntry.added,
+    };
 }

@@ -1,11 +1,26 @@
 import type { ParsedModule } from "./parsed-module";
 import { Reader, WasmParseError, error } from "./binary-reader";
-import { parseCodeSection, parseDataSection, parseElementSection, parseExportSection, parseFunctionSection, parseGlobalSection, parseImportSection, parseMemorySection, parseTableSection, parseTypeSection } from "./section-parser";
+import {
+    parseCodeSection,
+    parseDataSection,
+    parseElementSection,
+    parseExportSection,
+    parseFunctionSection,
+    parseGlobalSection,
+    parseImportSection,
+    parseMemorySection,
+    parseTableSection,
+    parseTypeSection,
+} from "./section-parser";
 
 export function parseModule(bytes: Uint8Array, parsed: ParsedModule): ParsedModule {
     const reader = new Reader(bytes);
     const expectedHeader = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-    for (let expectedHeaderItemIndex = 0; expectedHeaderItemIndex < expectedHeader.length; expectedHeaderItemIndex++) {
+    for (
+        let expectedHeaderItemIndex = 0;
+        expectedHeaderItemIndex < expectedHeader.length;
+        expectedHeaderItemIndex++
+    ) {
         if (reader.byte("Wasm header") !== expectedHeader[expectedHeaderItemIndex])
             throw new WasmParseError("invalid Wasm magic or version", expectedHeaderItemIndex);
     }
@@ -67,12 +82,20 @@ export function parseModule(bytes: Uint8Array, parsed: ParsedModule): ParsedModu
                 break;
             default:
                 parsed.features.add(`unknown-section-${id}`);
-                error(parsed.diagnostics, "unsupported-section", `section ${id} is outside the portable MVP profile`, sectionAt);
+                error(
+                    parsed.diagnostics,
+                    "unsupported-section",
+                    `section ${id} is outside the portable MVP profile`,
+                    sectionAt,
+                );
                 section.skip(section.remaining, "unknown section");
                 break;
         }
         if (!section.done)
-            throw new WasmParseError(`section ${id} has ${section.remaining} unread bytes`, section.pos);
+            throw new WasmParseError(
+                `section ${id} has ${section.remaining} unread bytes`,
+                section.pos,
+            );
     }
     return parsed;
 }

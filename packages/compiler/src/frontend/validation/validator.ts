@@ -1,10 +1,16 @@
 import { AstKind, DiagnosticSeverity } from "../../shared/enums";
 // Validation runs after parse and before codegen.
-import type { Declaration, StructDecl, FunctionDecl, VariableDecl, Statement, Expression, TypeSpec, Span } from "../../ast";
 import type {
-    FnSig,
-    ValidateDiagnostic,
-} from "./validator-context";
+    Declaration,
+    StructDecl,
+    FunctionDecl,
+    VariableDecl,
+    Statement,
+    Expression,
+    TypeSpec,
+    Span,
+} from "../../ast";
+import type { FnSig, ValidateDiagnostic } from "./validator-context";
 import * as validatorPart0 from "./declaration-validator";
 import * as validatorPart1 from "./function-validator";
 import * as validatorPart2 from "./scope-validator";
@@ -73,25 +79,55 @@ export class Validator {
     guaranteesReturn(statement: Statement): boolean {
         return validatorPart1.guaranteesReturn(this, statement);
     }
-    collectEnumConstants(entry: Declaration & {
-        kind: AstKind.ENUM;
-    }): void {
+    collectEnumConstants(
+        entry: Declaration & {
+            kind: AstKind.ENUM;
+        },
+    ): void {
         return validatorPart0.collectEnumConstants(this, entry);
     }
     checkStaticAssert(condition: Expression, message: Expression | undefined, span: Span): void {
         return validatorPart0.checkStaticAssert(this, condition, message, span);
     }
     // Resolve identifiers against an ordered stack of lexical scopes.
-    walkScope(statement: Statement, fn: FunctionDecl, memberFns: Map<string, FnSig>, allLocals: Set<string>, constParams: Set<string>, scopes: Array<Map<string, {
-        const: boolean;
-    }>>): void {
-        return validatorPart2.walkScope(this, statement, fn, memberFns, allLocals, constParams, scopes);
+    walkScope(
+        statement: Statement,
+        fn: FunctionDecl,
+        memberFns: Map<string, FnSig>,
+        allLocals: Set<string>,
+        constParams: Set<string>,
+        scopes: Array<
+            Map<
+                string,
+                {
+                    const: boolean;
+                }
+            >
+        >,
+    ): void {
+        return validatorPart2.walkScope(
+            this,
+            statement,
+            fn,
+            memberFns,
+            allLocals,
+            constParams,
+            scopes,
+        );
     }
-    checkDeclarationStatement(statement: Statement & {
-        kind: AstKind.DECLARATION;
-    }, scopes: Array<Map<string, {
-        const: boolean;
-    }>>): void {
+    checkDeclarationStatement(
+        statement: Statement & {
+            kind: AstKind.DECLARATION;
+        },
+        scopes: Array<
+            Map<
+                string,
+                {
+                    const: boolean;
+                }
+            >
+        >,
+    ): void {
         return validatorPart2.checkDeclarationStatement(this, statement, scopes);
     }
     checkInitializerCardinality(type: TypeSpec, initializer: Expression, span: Span): void {
@@ -101,15 +137,37 @@ export class Validator {
         return validatorPart4.checkSwitchCases(this, body, allLocals);
     }
     // ---- Expressions ----
-    checkExpression(root: Expression, memberFns: Map<string, FnSig>, allLocals: Set<string>, constParams: Set<string>, scopes: Array<Map<string, {
-        const: boolean;
-    }>>): void {
-        return validatorPart5.checkExpression(this, root, memberFns, allLocals, constParams, scopes);
+    checkExpression(
+        root: Expression,
+        memberFns: Map<string, FnSig>,
+        allLocals: Set<string>,
+        constParams: Set<string>,
+        scopes: Array<
+            Map<
+                string,
+                {
+                    const: boolean;
+                }
+            >
+        >,
+    ): void {
+        return validatorPart5.checkExpression(
+            this,
+            root,
+            memberFns,
+            allLocals,
+            constParams,
+            scopes,
+        );
     }
     // Assignment roots must be mutable; accessor results are read-only views.
-    checkAssignTarget(target: Expression, constParams: Set<string>, lookup: (name: string) => {
-        const: boolean;
-    } | null): void {
+    checkAssignTarget(
+        target: Expression,
+        constParams: Set<string>,
+        lookup: (name: string) => {
+            const: boolean;
+        } | null,
+    ): void {
         return validatorPart5.checkAssignTarget(this, target, constParams, lookup);
     }
     isPublicFunctionContext(): boolean {
@@ -124,9 +182,13 @@ export class Validator {
     isReadonlyStateExpression(expression: Expression): boolean {
         return validatorPart5.isReadonlyStateExpression(this, expression);
     }
-    isWritableReferenceArgument(argument: Expression, constParams: Set<string>, lookup: (name: string) => {
-        const: boolean;
-    } | null): boolean {
+    isWritableReferenceArgument(
+        argument: Expression,
+        constParams: Set<string>,
+        lookup: (name: string) => {
+            const: boolean;
+        } | null,
+    ): boolean {
         return validatorPart5.isWritableReferenceArgument(this, argument, constParams, lookup);
     }
     // ---- Generic walkers ----

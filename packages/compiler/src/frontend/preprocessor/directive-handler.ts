@@ -1,4 +1,3 @@
-
 import type { PreprocessorInternals } from "./preprocessor-context";
 
 export function handleDirective(context: PreprocessorInternals): void {
@@ -24,9 +23,11 @@ export function handleDirective(context: PreprocessorInternals): void {
             return;
         }
         case "elif": {
-            const condition = context.condStack.length > 0 && !context.condStack[context.condStack.length - 1].taken
-                ? context.evalIfCondition()
-                : (context.skipToNewline(), false);
+            const condition =
+                context.condStack.length > 0 &&
+                !context.condStack[context.condStack.length - 1].taken
+                    ? context.evalIfCondition()
+                    : (context.skipToNewline(), false);
             context.applyElif(condition);
             return;
         }
@@ -77,22 +78,18 @@ export function pushCond(context: PreprocessorInternals, condition: boolean): vo
 
 export function applyElif(context: PreprocessorInternals, condition: boolean): void {
     const condStackItem = context.condStack[context.condStack.length - 1];
-    if (!condStackItem)
-        return;
+    if (!condStackItem) return;
     if (condStackItem.taken) {
         condStackItem.active = false;
-    }
-    else {
+    } else {
         condStackItem.active = condStackItem.parentActive && condition;
-        if (condStackItem.active)
-            condStackItem.taken = true;
+        if (condStackItem.active) condStackItem.taken = true;
     }
 }
 
 export function applyElse(context: PreprocessorInternals): void {
     const condStackItem = context.condStack[context.condStack.length - 1];
-    if (!condStackItem)
-        return;
+    if (!condStackItem) return;
     condStackItem.active = condStackItem.parentActive && !condStackItem.taken;
     condStackItem.taken = true;
 }
@@ -108,9 +105,11 @@ export function handleInclude(context: PreprocessorInternals): void {
     let filename = "";
     if (ch === '"') {
         context.pos++; // skip opening "
-        while (context.pos < context.input.length &&
+        while (
+            context.pos < context.input.length &&
             context.input[context.pos] !== '"' &&
-            context.input[context.pos] !== "\n") {
+            context.input[context.pos] !== "\n"
+        ) {
             filename += context.input[context.pos];
             context.pos++;
         }
@@ -118,12 +117,13 @@ export function handleInclude(context: PreprocessorInternals): void {
             context.pos++; // skip closing "
         }
         context.skipToNewline();
-    }
-    else if (ch === "<") {
+    } else if (ch === "<") {
         context.pos++; // skip opening <
-        while (context.pos < context.input.length &&
+        while (
+            context.pos < context.input.length &&
             context.input[context.pos] !== ">" &&
-            context.input[context.pos] !== "\n") {
+            context.input[context.pos] !== "\n"
+        ) {
             filename += context.input[context.pos];
             context.pos++;
         }
@@ -131,8 +131,7 @@ export function handleInclude(context: PreprocessorInternals): void {
             context.pos++; // skip closing >
         }
         context.skipToNewline();
-    }
-    else {
+    } else {
         context.skipToNewline();
     }
     // #include directives in preprocessed source are no-ops (qpi.h is already embedded).
@@ -157,19 +156,16 @@ export function handleDefine(context: PreprocessorInternals): void {
         if (paramStr === "...") {
             params = [];
             isVarArgs = true;
-        }
-        else if (paramStr.endsWith("...")) {
+        } else if (paramStr.endsWith("...")) {
             params = paramStr
                 .replace("...", "")
                 .split(",")
                 .map((text) => text.trim())
                 .filter(Boolean);
             isVarArgs = true;
-        }
-        else if (paramStr.trim()) {
+        } else if (paramStr.trim()) {
             params = paramStr.split(",").map((text) => text.trim());
-        }
-        else {
+        } else {
             params = [];
         }
     }
@@ -194,8 +190,7 @@ export function handlePragma(context: PreprocessorInternals): void {
     // Ignore #pragma once; include ownership stays with the caller.
     if (pragma === "once") {
         context.skipToNewline();
-    }
-    else {
+    } else {
         const rest = context.readToNewline();
         context.result += `// #pragma ${pragma} ${rest}\n`;
     }

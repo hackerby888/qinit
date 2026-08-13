@@ -1,10 +1,10 @@
 import { test, expect } from "bun:test";
 import {
-  k12Hex,
-  deriveIdentity,
-  bytesToIdentity,
-  identityToBytes,
-  contractIndexFromIdentity,
+    k12Hex,
+    deriveIdentity,
+    bytesToIdentity,
+    identityToBytes,
+    contractIndexFromIdentity,
 } from "../../src/crypto/qubic";
 
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -13,47 +13,47 @@ const bytes = (h: string) => new Uint8Array((h.match(/../g) ?? []).map((x) => pa
 const PUB = "1f590d03e613bdded38b4c0820ac44615f91af12435980b3ede3c08c315a2544"; // pubkey of seed "a"*55
 
 test("k12Hex: KangarooTwelve KT128 known-answer for empty input", async () => {
-  // published K12(M="", C="", 32) vector — a true correctness check, not just regression
-  expect(await k12Hex(new Uint8Array(0))).toBe(
-    "1ac2d450fc3b4205d19da7bfca1b37513c0803577ac7167f06fe2ce1f0ef39e5",
-  );
+    // published K12(M="", C="", 32) vector — a true correctness check, not just regression
+    expect(await k12Hex(new Uint8Array(0))).toBe(
+        "1ac2d450fc3b4205d19da7bfca1b37513c0803577ac7167f06fe2ce1f0ef39e5",
+    );
 });
 
 test("k12Hex: golden for 'abc' + deterministic", async () => {
-  const h = await k12Hex(enc("abc"));
-  expect(h).toBe("ab174f328c55a5510b0b209791bf8b60e801a7cfc2aa42042dcb8f547fbe3a7d");
-  expect(await k12Hex(enc("abc"))).toBe(h);
+    const h = await k12Hex(enc("abc"));
+    expect(h).toBe("ab174f328c55a5510b0b209791bf8b60e801a7cfc2aa42042dcb8f547fbe3a7d");
+    expect(await k12Hex(enc("abc"))).toBe(h);
 });
 
 test("deriveIdentity: golden FourQ pubkey for seed a*55 + valid identity, deterministic", async () => {
-  const id = await deriveIdentity("a".repeat(55));
-  expect(id.publicKeyHex).toBe(PUB); // locks K12-subseed + FourQ against a lib bump
-  expect(id.identity).toMatch(/^[A-Z]{60}$/);
-  expect((await deriveIdentity("a".repeat(55))).identity).toBe(id.identity);
+    const id = await deriveIdentity("a".repeat(55));
+    expect(id.publicKeyHex).toBe(PUB); // locks K12-subseed + FourQ against a lib bump
+    expect(id.identity).toMatch(/^[A-Z]{60}$/);
+    expect((await deriveIdentity("a".repeat(55))).identity).toBe(id.identity);
 });
 
 test("identity codec: pubkey <-> 60-char identity round-trips", async () => {
-  const idn = await bytesToIdentity(bytes(PUB));
-  expect(idn).toMatch(/^[A-Z]{60}$/);
-  expect(hx(identityToBytes(idn))).toBe(PUB); // 32B -> 60-char -> 32B identity
-  expect(identityToBytes(idn).length).toBe(32);
+    const idn = await bytesToIdentity(bytes(PUB));
+    expect(idn).toMatch(/^[A-Z]{60}$/);
+    expect(hx(identityToBytes(idn))).toBe(PUB); // 32B -> 60-char -> 32B identity
+    expect(identityToBytes(idn).length).toBe(32);
 });
 
 test("contractIndexFromIdentity: decodes contract addresses, rejects everything else", async () => {
-  // A contract's public key is m256i(index, 0, 0, 0).
-  const contractAddress = async (index: number) => {
-    const key = new Uint8Array(32);
-    new DataView(key.buffer).setBigUint64(0, BigInt(index), true);
-    return bytesToIdentity(key);
-  };
+    // A contract's public key is m256i(index, 0, 0, 0).
+    const contractAddress = async (index: number) => {
+        const key = new Uint8Array(32);
+        new DataView(key.buffer).setBigUint64(0, BigInt(index), true);
+        return bytesToIdentity(key);
+    };
 
-  for (const index of [1, 12, 28, 1023]) {
-    expect(contractIndexFromIdentity(await contractAddress(index))).toBe(index);
-  }
+    for (const index of [1, 12, 28, 1023]) {
+        expect(contractIndexFromIdentity(await contractAddress(index))).toBe(index);
+    }
 
-  // The all-zero key is the null/burn address, not contract 0.
-  expect(contractIndexFromIdentity(await contractAddress(0))).toBeNull();
-  // A real entity identity has non-zero high chunks.
-  expect(contractIndexFromIdentity(await bytesToIdentity(bytes(PUB)))).toBeNull();
-  expect(contractIndexFromIdentity("TOOSHORT")).toBeNull();
+    // The all-zero key is the null/burn address, not contract 0.
+    expect(contractIndexFromIdentity(await contractAddress(0))).toBeNull();
+    // A real entity identity has non-zero high chunks.
+    expect(contractIndexFromIdentity(await bytesToIdentity(bytes(PUB)))).toBeNull();
+    expect(contractIndexFromIdentity("TOOSHORT")).toBeNull();
 });

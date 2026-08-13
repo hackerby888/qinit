@@ -8,13 +8,11 @@ export function collectGotosIn(statement: Statement, out: Set<string>): void {
             out.add(statement.label);
             break;
         case AstKind.COMPOUND:
-            for (const bodyItem of statement.body)
-                collectGotosIn(bodyItem, out);
+            for (const bodyItem of statement.body) collectGotosIn(bodyItem, out);
             break;
         case AstKind.IF:
             collectGotosIn(statement.then, out);
-            if (statement.else_)
-                collectGotosIn(statement.else_, out);
+            if (statement.else_) collectGotosIn(statement.else_, out);
             break;
         case AstKind.FOR:
         case AstKind.WHILE:
@@ -32,13 +30,11 @@ export function collectLabelsIn(statement: Statement, out: Set<string>): void {
             out.add(statement.name);
             break;
         case AstKind.COMPOUND:
-            for (const bodyItem of statement.body)
-                collectLabelsIn(bodyItem, out);
+            for (const bodyItem of statement.body) collectLabelsIn(bodyItem, out);
             break;
         case AstKind.IF:
             collectLabelsIn(statement.then, out);
-            if (statement.else_)
-                collectLabelsIn(statement.else_, out);
+            if (statement.else_) collectLabelsIn(statement.else_, out);
             break;
         case AstKind.FOR:
         case AstKind.WHILE:

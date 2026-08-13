@@ -1,7 +1,11 @@
 import type { Layout, ModuleSpecification } from "./framework-types";
 import { emitSysSwitch } from "./dispatch";
 
-export function emitMetadata(capacity: Layout, spec: ModuleSpecification, sysprocMask: number): string {
+export function emitMetadata(
+    capacity: Layout,
+    spec: ModuleSpecification,
+    sysprocMask: number,
+): string {
     const lines: string[] = [];
     lines.push("  ;; ---- metadata exports ----");
     lines.push(`  (func $contract_index (result i32) (i32.const ${spec.contractSlot}))`);
@@ -17,9 +21,15 @@ export function emitMetadata(capacity: Layout, spec: ModuleSpecification, syspro
         const entry = spec.entries[entryIndex];
         lines.push(`    (if (i32.eq (local.get $i) (i32.const ${entryIndex})) (then`);
         lines.push(`      (i32.store (local.get $o) (i32.const ${entry.inputType}))`);
-        lines.push(`      (i32.store (i32.add (local.get $o) (i32.const 4)) (i32.const ${entry.kind}))`);
-        lines.push(`      (i32.store (i32.add (local.get $o) (i32.const 8)) (i32.const ${entry.inSize}))`);
-        lines.push(`      (i32.store (i32.add (local.get $o) (i32.const 12)) (i32.const ${entry.outSize}))`);
+        lines.push(
+            `      (i32.store (i32.add (local.get $o) (i32.const 4)) (i32.const ${entry.kind}))`,
+        );
+        lines.push(
+            `      (i32.store (i32.add (local.get $o) (i32.const 8)) (i32.const ${entry.inSize}))`,
+        );
+        lines.push(
+            `      (i32.store (i32.add (local.get $o) (i32.const 12)) (i32.const ${entry.outSize}))`,
+        );
         lines.push(`      (return)))`);
     }
     lines.push(`    (i32.store (local.get $o) (i32.const 0))`);
@@ -37,7 +47,11 @@ export function emitMetadata(capacity: Layout, spec: ModuleSpecification, syspro
     lines.push(emitSysSwitch(spec.sysprocs, (sp) => sp.outSize));
     lines.push(`    (i32.const 0))`);
     lines.push(`  (func $has_migrate (result i32) (i32.const ${spec.migrate ? 1 : 0}))`);
-    lines.push(`  (func $migrate_old_state_size (result i32) (i32.const ${spec.migrate?.oldStateSize ?? 0}))`);
-    lines.push(`  (func $migrate_locals_size (result i32) (i32.const ${spec.migrate?.localsSize ?? 0}))`);
+    lines.push(
+        `  (func $migrate_old_state_size (result i32) (i32.const ${spec.migrate?.oldStateSize ?? 0}))`,
+    );
+    lines.push(
+        `  (func $migrate_locals_size (result i32) (i32.const ${spec.migrate?.localsSize ?? 0}))`,
+    );
     return lines.join("\n");
 }

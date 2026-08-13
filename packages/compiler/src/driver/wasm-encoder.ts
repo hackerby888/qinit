@@ -6,10 +6,7 @@ import type { CompileOptions } from "./types";
 
 // ArrayBuffer-backed, not just `Uint8Array`: the browser's DOM lib types `BufferSource` as
 // ArrayBuffer-only, so a possibly-shared view is not a valid `WebAssembly.validate` argument.
-export async function encodeWat(
-    wat: string,
-    sourceName: string,
-): Promise<Uint8Array<ArrayBuffer>> {
+export async function encodeWat(wat: string, sourceName: string): Promise<Uint8Array<ArrayBuffer>> {
     const wabt = await import("wabt");
     const wabtModule = await wabt.default();
     const parsedModule = wabtModule.parseWat(sourceName, wat);
@@ -31,18 +28,15 @@ export async function encodeAndInspectWat(
     }
 
     const inspection = inspectWasmModule(wasm, {
-        memoryMode: options.sharedMemoryBaseOffsetBytes === undefined
-            ? WasmModuleMemoryMode.DEFINED
-            : WasmModuleMemoryMode.IMPORTED,
-        lhostAbi: metadata.lhostAbi
-            ? toWasmFunctionSignatures(metadata.lhostAbi)
-            : undefined,
+        memoryMode:
+            options.sharedMemoryBaseOffsetBytes === undefined
+                ? WasmModuleMemoryMode.DEFINED
+                : WasmModuleMemoryMode.IMPORTED,
+        lhostAbi: metadata.lhostAbi ? toWasmFunctionSignatures(metadata.lhostAbi) : undefined,
     });
 
     if (!inspection.ok) {
-        const message = inspection.diagnostics
-            .map((diagnostic) => diagnostic.message)
-            .join("; ");
+        const message = inspection.diagnostics.map((diagnostic) => diagnostic.message).join("; ");
 
         throw new Error(message);
     }

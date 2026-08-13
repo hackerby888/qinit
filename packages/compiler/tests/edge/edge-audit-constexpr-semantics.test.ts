@@ -19,55 +19,57 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function run(source: string): Promise<bigint> {
-  const result = await compileContract({
-    source,
-    contractName: "ConstexprEdge",
-    slot: 27,
-    qpiHeader: HEADERS,
-    arenaSizeBytes: 1 << 20,
-  });
-  expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-  const user = new Uint8Array(32).fill(7);
-  sim.fund(user, 1_000_000n);
-  sim.deploy(27, result.wasm);
-  sim.procedure(27, 1, undefined, { invocator: user });
-  const state = sim.contracts.get(27)!.state();
-  return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
+    const result = await compileContract({
+        source,
+        contractName: "ConstexprEdge",
+        slot: 27,
+        qpiHeader: HEADERS,
+        arenaSizeBytes: 1 << 20,
+    });
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
+        0,
+    );
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+    const user = new Uint8Array(32).fill(7);
+    sim.fund(user, 1_000_000n);
+    sim.deploy(27, result.wasm);
+    sim.procedure(27, 1, undefined, { invocator: user });
+    const state = sim.contracts.get(27)!.state();
+    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
 }
 
 describe("edge audit — typed constexpr semantics", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
+    beforeAll(async () => {
+        await initK12();
+    });
 
-  test("uint32 constexpr arithmetic wraps at 32 bits", async () => {
-    const source = wrap(
-      `static constexpr uint32 EDGE_WRAP_K = 4294967295u;`,
-      `state.mut().result = EDGE_WRAP_K + 1u;`,
-    );
-    expect(await run(source)).toBe(0n);
-  });
+    test("uint32 constexpr arithmetic wraps at 32 bits", async () => {
+        const source = wrap(
+            `static constexpr uint32 EDGE_WRAP_K = 4294967295u;`,
+            `state.mut().result = EDGE_WRAP_K + 1u;`,
+        );
+        expect(await run(source)).toBe(0n);
+    });
 
-  test("constexpr narrowing cast is applied", async () => {
-    const source = wrap(
-      `static constexpr uint8 EDGE_NARROW_K = (uint8)300;`,
-      `state.mut().result = EDGE_NARROW_K;`,
-    );
-    expect(await run(source)).toBe(44n);
-  });
+    test("constexpr narrowing cast is applied", async () => {
+        const source = wrap(
+            `static constexpr uint8 EDGE_NARROW_K = (uint8)300;`,
+            `state.mut().result = EDGE_NARROW_K;`,
+        );
+        expect(await run(source)).toBe(44n);
+    });
 
-  test("uint64 constexpr comparison uses unsigned ordering", async () => {
-    const source = wrap(
-      `static constexpr uint64 EDGE_HIGH_K = 0x8000000000000000ull;`,
-      `state.mut().result = EDGE_HIGH_K > 1 ? 1 : 0;`,
-    );
-    expect(await run(source)).toBe(1n);
-  });
+    test("uint64 constexpr comparison uses unsigned ordering", async () => {
+        const source = wrap(
+            `static constexpr uint64 EDGE_HIGH_K = 0x8000000000000000ull;`,
+            `state.mut().result = EDGE_HIGH_K > 1 ? 1 : 0;`,
+        );
+        expect(await run(source)).toBe(1n);
+    });
 
-  test("contract member constant shadows same-named qpi.h constant", async () => {
-    // qpi.h currently contributes an unrelated K; class scope must still resolve this member first.
-    const source = wrap(`static constexpr uint64 K = 123;`, `state.mut().result = K;`);
-    expect(await run(source)).toBe(123n);
-  });
+    test("contract member constant shadows same-named qpi.h constant", async () => {
+        // qpi.h currently contributes an unrelated K; class scope must still resolve this member first.
+        const source = wrap(`static constexpr uint64 K = 123;`, `state.mut().result = K;`);
+        expect(await run(source)).toBe(123n);
+    });
 });

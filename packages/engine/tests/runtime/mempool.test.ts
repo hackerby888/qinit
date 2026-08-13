@@ -11,95 +11,71 @@ const GET = 1; // Counter Get function
 const EMPTY = new Uint8Array(0);
 
 test("mempool mode: a tx applies + is recorded at its scheduled tick, not before", async () => {
-  await initK12();
-  const sim = new QubicSimulator({ mempool: true });
-  sim.deploy(28, await wasm("Counter"));
-  const source = new Uint8Array(32).fill(0x11);
-  sim.fund(source, 1n);
+    await initK12();
+    const sim = new QubicSimulator({ mempool: true });
+    sim.deploy(28, await wasm("Counter"));
+    const source = new Uint8Array(32).fill(0x11);
+    sim.fund(source, 1n);
 
-  const scheduled = sim.currentTick + 3;
-  sim.enqueueTx(
-    scheduled,
-    source,
-    contractId(28),
-    0n,
-    INC,
-    EMPTY,
-    "tx-sched",
-  );
+    const scheduled = sim.currentTick + 3;
+    sim.enqueueTx(scheduled, source, contractId(28), 0n, INC, EMPTY, "tx-sched");
 
-  // deferred: not applied, not recorded yet
-  expect(readUint64LE(sim.query(28, GET))).toBe(0n);
-  expect(sim.tickTransactions(scheduled).length).toBe(0);
+    // deferred: not applied, not recorded yet
+    expect(readUint64LE(sim.query(28, GET))).toBe(0n);
+    expect(sim.tickTransactions(scheduled).length).toBe(0);
 
-  while (sim.currentTick < scheduled) {
-    sim.advance();
-  }
+    while (sim.currentTick < scheduled) {
+        sim.advance();
+    }
 
-  expect(readUint64LE(sim.query(28, GET))).toBe(1n); // Inc ran at its tick
-  const recs = sim.tickTransactions(scheduled);
-  expect(recs.length).toBe(1);
-  expect(recs[0].txId).toBe("tx-sched"); // recorded under the scheduled tick (what checktxontick queries)
+    expect(readUint64LE(sim.query(28, GET))).toBe(1n); // Inc ran at its tick
+    const recs = sim.tickTransactions(scheduled);
+    expect(recs.length).toBe(1);
+    expect(recs[0].txId).toBe("tx-sched"); // recorded under the scheduled tick (what checktxontick queries)
 });
 
 test("mempool mode: numberOfTickTransactions reports the scheduled tick's tx-set size", async () => {
-  await initK12();
-  const sim = new QubicSimulator({ mempool: true });
-  sim.deploy(28, await wasm("Counter"));
-  const firstSource = new Uint8Array(32).fill(0x11);
-  const secondSource = new Uint8Array(32).fill(0x22);
-  sim.fund(firstSource, 1n);
-  sim.fund(secondSource, 1n);
+    await initK12();
+    const sim = new QubicSimulator({ mempool: true });
+    sim.deploy(28, await wasm("Counter"));
+    const firstSource = new Uint8Array(32).fill(0x11);
+    const secondSource = new Uint8Array(32).fill(0x22);
+    sim.fund(firstSource, 1n);
+    sim.fund(secondSource, 1n);
 
-  const scheduled = sim.currentTick + 2;
-  sim.enqueueTx(scheduled, firstSource, contractId(28), 0n, INC, EMPTY, "a");
-  sim.enqueueTx(scheduled, secondSource, contractId(28), 0n, INC, EMPTY, "b");
+    const scheduled = sim.currentTick + 2;
+    sim.enqueueTx(scheduled, firstSource, contractId(28), 0n, INC, EMPTY, "a");
+    sim.enqueueTx(scheduled, secondSource, contractId(28), 0n, INC, EMPTY, "b");
 
-  while (sim.currentTick < scheduled) {
-    sim.advance();
-  }
+    while (sim.currentTick < scheduled) {
+        sim.advance();
+    }
 
-  // beginTick of the scheduled tick fixed the count to its 2-tx batch (qpi numberOfTickTransactions)
-  expect(sim.host.numberOfTickTransactions()).toBe(2);
+    // beginTick of the scheduled tick fixed the count to its 2-tx batch (qpi numberOfTickTransactions)
+    expect(sim.host.numberOfTickTransactions()).toBe(2);
 
-  sim.advance(); // a following tick with no scheduled txs reports zero
-  expect(sim.host.numberOfTickTransactions()).toBe(0);
+    sim.advance(); // a following tick with no scheduled txs reports zero
+    expect(sim.host.numberOfTickTransactions()).toBe(0);
 });
 
 test("mempool mode: a tx scheduled for a past/current tick applies immediately", async () => {
-  await initK12();
-  const sim = new QubicSimulator({ mempool: true });
-  sim.deploy(28, await wasm("Counter"));
-  const source = new Uint8Array(32).fill(0x33);
-  sim.fund(source, 1n);
+    await initK12();
+    const sim = new QubicSimulator({ mempool: true });
+    sim.deploy(28, await wasm("Counter"));
+    const source = new Uint8Array(32).fill(0x33);
+    sim.fund(source, 1n);
 
-  sim.enqueueTx(
-    sim.currentTick,
-    source,
-    contractId(28),
-    0n,
-    INC,
-    EMPTY,
-    "tx-now",
-  );
-  expect(readUint64LE(sim.query(28, GET))).toBe(1n);
+    sim.enqueueTx(sim.currentTick, source, contractId(28), 0n, INC, EMPTY, "tx-now");
+    expect(readUint64LE(sim.query(28, GET))).toBe(1n);
 });
 
 test("mempool off (default): a tx with a future tick still applies immediately", async () => {
-  await initK12();
-  const sim = new QubicSimulator();
-  sim.deploy(28, await wasm("Counter"));
-  const source = new Uint8Array(32).fill(0x44);
-  sim.fund(source, 1n);
+    await initK12();
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("Counter"));
+    const source = new Uint8Array(32).fill(0x44);
+    sim.fund(source, 1n);
 
-  sim.enqueueTx(
-    sim.currentTick + 5,
-    source,
-    contractId(28),
-    0n,
-    INC,
-    EMPTY,
-    "tx-imm",
-  );
-  expect(readUint64LE(sim.query(28, GET))).toBe(1n); // immediate-apply semantics preserved
+    sim.enqueueTx(sim.currentTick + 5, source, contractId(28), 0n, INC, EMPTY, "tx-imm");
+    expect(readUint64LE(sim.query(28, GET))).toBe(1n); // immediate-apply semantics preserved
 });

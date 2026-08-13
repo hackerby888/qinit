@@ -75,82 +75,88 @@ TEST(Counter, Increment) {
 }`;
 
 describe("core-lite-style gtest compiler", () => {
-  beforeAll(async () => initK12());
+    beforeAll(async () => initK12());
 
-  test("compiles and executes a standard ContractTesting test without clang", async () => {
-    const compiled = await compileGtest({
-      source: CONTRACT,
-      testSource: STANDARD_GTEST,
-      contractName: "Counter",
-      slot: 28,
-      qpiHeader: QPI,
-    });
-    expect(compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
-    expect(compiled.program?.tests.map((item) => item.name)).toEqual(["Counter.Increment"]);
+    test("compiles and executes a standard ContractTesting test without clang", async () => {
+        const compiled = await compileGtest({
+            source: CONTRACT,
+            testSource: STANDARD_GTEST,
+            contractName: "Counter",
+            slot: 28,
+            qpiHeader: QPI,
+        });
+        expect(
+            compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR),
+        ).toEqual([]);
+        expect(compiled.program?.tests.map((item) => item.name)).toEqual(["Counter.Increment"]);
 
-    const contract = await compileContract({
-      source: CONTRACT,
-      contractName: "Counter",
-      slot: 28,
-      qpiHeader: QPI,
-      arenaSizeBytes: 64 * 1024,
-    });
-    expect(contract.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
-    const results = await runCompiledGtest(compiled.program!, compiled.wasm!, {
-      28: contract.wasm,
-    });
-    expect(results).toEqual([{ name: "Counter.Increment", passed: true, message: "" }]);
-  }, 120000);
+        const contract = await compileContract({
+            source: CONTRACT,
+            contractName: "Counter",
+            slot: 28,
+            qpiHeader: QPI,
+            arenaSizeBytes: 64 * 1024,
+        });
+        expect(
+            contract.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR),
+        ).toEqual([]);
+        const results = await runCompiledGtest(compiled.program!, compiled.wasm!, {
+            28: contract.wasm,
+        });
+        expect(results).toEqual([{ name: "Counter.Increment", passed: true, message: "" }]);
+    }, 120000);
 
-  test("rejects the removed ContractTest style", async () => {
-    const compiled = await compileGtest({
-      source: CONTRACT,
-      testSource: `TEST(Counter, Old) { ContractTest t; }`,
-      contractName: "Counter",
-      slot: 28,
-      qpiHeader: QPI,
+    test("rejects the removed ContractTest style", async () => {
+        const compiled = await compileGtest({
+            source: CONTRACT,
+            testSource: `TEST(Counter, Old) { ContractTest t; }`,
+            contractName: "Counter",
+            slot: 28,
+            qpiHeader: QPI,
+        });
+        expect(compiled.program).toBeUndefined();
+        expect(compiled.diagnostics[0]?.message).toContain("legacy ContractTest");
     });
-    expect(compiled.program).toBeUndefined();
-    expect(compiled.diagnostics[0]?.message).toContain("legacy ContractTest");
-  });
 
-  test("compiles loops through the normal frontend", async () => {
-    const compiled = await compileGtest({
-      source: CONTRACT,
-      testSource: STANDARD_GTEST.replace(
-        "Counter::Inc_output out = t.inc(user);",
-        "for (int i = 0; i < 3; ++i) { t.inc(user); }",
-      ),
-      contractName: "Counter",
-      slot: 28,
-      qpiHeader: QPI,
+    test("compiles loops through the normal frontend", async () => {
+        const compiled = await compileGtest({
+            source: CONTRACT,
+            testSource: STANDARD_GTEST.replace(
+                "Counter::Inc_output out = t.inc(user);",
+                "for (int i = 0; i < 3; ++i) { t.inc(user); }",
+            ),
+            contractName: "Counter",
+            slot: 28,
+            qpiHeader: QPI,
+        });
+        expect(
+            compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR),
+        ).toEqual([]);
+        expect(compiled.program).toBeDefined();
     });
-    expect(compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
-    expect(compiled.program).toBeDefined();
-  });
 
-  test("reports a failed compiler-backed assertion", async () => {
-    const compiled = await compileGtest({
-      source: CONTRACT,
-      testSource: STANDARD_GTEST.replace(
-        "EXPECT_EQ(t.get().value, 7ull);",
-        "EXPECT_EQ(t.get().value, 8ull);",
-      ),
-      contractName: "Counter",
-      slot: 28,
-      qpiHeader: QPI,
+    test("reports a failed compiler-backed assertion", async () => {
+        const compiled = await compileGtest({
+            source: CONTRACT,
+            testSource: STANDARD_GTEST.replace(
+                "EXPECT_EQ(t.get().value, 7ull);",
+                "EXPECT_EQ(t.get().value, 8ull);",
+            ),
+            contractName: "Counter",
+            slot: 28,
+            qpiHeader: QPI,
+        });
+        const contract = await compileContract({
+            source: CONTRACT,
+            contractName: "Counter",
+            slot: 28,
+            qpiHeader: QPI,
+            arenaSizeBytes: 64 * 1024,
+        });
+        const [result] = await runCompiledGtest(compiled.program!, compiled.wasm!, {
+            28: contract.wasm,
+        });
+        expect(result.passed).toBe(false);
+        expect(result.message).toContain("EXPECT_EQ failed");
     });
-    const contract = await compileContract({
-      source: CONTRACT,
-      contractName: "Counter",
-      slot: 28,
-      qpiHeader: QPI,
-      arenaSizeBytes: 64 * 1024,
-    });
-    const [result] = await runCompiledGtest(compiled.program!, compiled.wasm!, {
-      28: contract.wasm,
-    });
-    expect(result.passed).toBe(false);
-    expect(result.message).toContain("EXPECT_EQ failed");
-  });
 });

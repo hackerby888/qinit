@@ -86,10 +86,16 @@ export interface Layout {
     iterBufBase: number;
 }
 
-export function computeLayout(stateSize: number, arenaSize: number, contextSize: number, memBase = 0, assetRecord: {
-    readonly size: number;
-    readonly capacity: number;
-} = ASSET_ENUMERATION_RECORD): Layout {
+export function computeLayout(
+    stateSize: number,
+    arenaSize: number,
+    contextSize: number,
+    memBase = 0,
+    assetRecord: {
+        readonly size: number;
+        readonly capacity: number;
+    } = ASSET_ENUMERATION_RECORD,
+): Layout {
     const align = (count: number, argument: number) => Math.ceil(count / argument) * argument;
     const stateBase = memBase;
     const ctxBase = align(stateBase + Math.max(stateSize, 8), 16);

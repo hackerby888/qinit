@@ -34,10 +34,7 @@ export class ContractLayoutResolver {
         return this.resolveNamedType(name, this.emptyLayout);
     }
 
-    private resolveNamedType(
-        name: string,
-        fallback: StructLayout,
-    ): StructLayout {
+    private resolveNamedType(name: string, fallback: StructLayout): StructLayout {
         const type: TypeSpec = { kind: AstKind.NAME, name };
         const layout = this.programAnalysis.layoutOfType(type);
 

@@ -46,39 +46,39 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 function i64(b: Uint8Array, off = 0): bigint {
-  return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigInt64(off, true);
+    return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigInt64(off, true);
 }
 
 describe("using type aliases", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("struct-scope and function-scope aliases compile and resolve", async () => {
-    const r = await compileContract({
-      source: SRC,
-      contractName: "Alias",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1024 * 1024,
+    beforeAll(async () => {
+        await initK12();
     });
-    const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
-    if (errs.length) console.log("  COMPILE ERRORS:", errs.map((e) => e.message).join("\n"));
-    expect(errs).toHaveLength(0);
 
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    sim.deploy(28, r.wasm);
+    test("struct-scope and function-scope aliases compile and resolve", async () => {
+        const r = await compileContract({
+            source: SRC,
+            contractName: "Alias",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1024 * 1024,
+        });
+        const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
+        if (errs.length) console.log("  COMPILE ERRORS:", errs.map((e) => e.message).join("\n"));
+        expect(errs).toHaveLength(0);
 
-    const user = new Uint8Array(32).fill(7);
-    sim.fund(user, 1_000_000n);
+        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+        sim.deploy(28, r.wasm);
 
-    const inBytes = new Uint8Array(8);
-    new DataView(inBytes.buffer).setBigInt64(0, 21n, true);
-    sim.procedure(28, 1, inBytes, { invocator: user });
+        const user = new Uint8Array(32).fill(7);
+        sim.fund(user, 1_000_000n);
 
-    const g = sim.query(28, 1);
-    expect(i64(g, 0)).toBe(42n); // total: 21 * 2 through Local + Amount aliases
-    expect(i64(g, 8)).toBe(1n); // hits through Counter32 alias
-    expect(i64(g, 16)).toBe(42n); // byUser through Registry alias (HashMap of aliased value type)
-  });
+        const inBytes = new Uint8Array(8);
+        new DataView(inBytes.buffer).setBigInt64(0, 21n, true);
+        sim.procedure(28, 1, inBytes, { invocator: user });
+
+        const g = sim.query(28, 1);
+        expect(i64(g, 0)).toBe(42n); // total: 21 * 2 through Local + Amount aliases
+        expect(i64(g, 8)).toBe(1n); // hits through Counter32 alias
+        expect(i64(g, 16)).toBe(42n); // byUser through Registry alias (HashMap of aliased value type)
+    });
 });

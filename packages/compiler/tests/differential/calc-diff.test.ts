@@ -40,8 +40,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 `;
 
 const CALC_GTEST = coreGtest(
-  "Calc",
-  `TEST(Calc, SafeDivMod) {
+    "Calc",
+    `TEST(Calc, SafeDivMod) {
   ContractTestingHarness t;
   Calc::Div_input a{}; a.a = 10ull; a.b = 3ull;
   auto r = t.call<Calc::Div_output>(1, a);
@@ -65,37 +65,41 @@ TEST(Calc, LoopSumWithBreakCap) {
 const wasi = wasiToolchain();
 
 describe("differential gtest — Calc (safe math, loops, break, constants)", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("my Calc.wasm passes the native Calc gtest", async () => {
-    if (!wasi.available) {
-      console.log("  (wasi-sdk clang not found — skipping)");
-      return;
-    }
-    const runnerWasm = await buildDifferentialRunner({
-      corePath: CORE,
-      source: CALC,
-      testSource: CALC_GTEST,
-      name: "Calc",
-      tempPrefix: "calc-diff-",
+    beforeAll(async () => {
+        await initK12();
     });
 
-    const mine = await compileContract({
-      source: CALC,
-      contractName: "Calc",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 64 * 1024,
-    });
-    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+    test("my Calc.wasm passes the native Calc gtest", async () => {
+        if (!wasi.available) {
+            console.log("  (wasi-sdk clang not found — skipping)");
+            return;
+        }
+        const runnerWasm = await buildDifferentialRunner({
+            corePath: CORE,
+            source: CALC,
+            testSource: CALC_GTEST,
+            name: "Calc",
+            tempPrefix: "calc-diff-",
+        });
 
-    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-    for (const r of results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
-    }
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.every((r) => r.passed)).toBe(true);
-  }, 120000);
+        const mine = await compileContract({
+            source: CALC,
+            contractName: "Calc",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 64 * 1024,
+        });
+        expect(
+            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+
+        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+        for (const r of results) {
+            console.log(
+                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+            );
+        }
+        expect(results.length).toBeGreaterThan(0);
+        expect(results.every((r) => r.passed)).toBe(true);
+    }, 120000);
 });

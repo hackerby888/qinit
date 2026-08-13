@@ -9,32 +9,28 @@ const SYSPROC = 2;
 const MIGRATE = 3;
 
 const SYSPROC_NAMES = new Map<number, string>(
-  Object.entries(SYSTEM_PROCEDURES).map(([name, id]) => [id, name]),
+    Object.entries(SYSTEM_PROCEDURES).map(([name, id]) => [id, name]),
 );
 
 // `from` is the contract's IDL, or the entry name when the caller already resolved it.
-export function entryLabel(
-  kind: number,
-  entry: number,
-  from?: ContractIdl | string,
-): string {
-  // Migrate records entry 0 and is not a system procedure, so it has to be answered before the id lookup.
-  if (kind === MIGRATE) {
-    return "migrate";
-  }
+export function entryLabel(kind: number, entry: number, from?: ContractIdl | string): string {
+    // Migrate records entry 0 and is not a system procedure, so it has to be answered before the id lookup.
+    if (kind === MIGRATE) {
+        return "migrate";
+    }
 
-  if (kind === SYSPROC) {
-    const name = SYSPROC_NAMES.get(entry);
-    return name ? `sys#${entry} (${name})` : `sys#${entry}`;
-  }
+    if (kind === SYSPROC) {
+        const name = SYSPROC_NAMES.get(entry);
+        return name ? `sys#${entry} (${name})` : `sys#${entry}`;
+    }
 
-  const prefix = kind === FUNCTION ? "fn" : kind === PROCEDURE ? "proc" : `kind${kind}`;
-  const idl = typeof from === "string" ? undefined : from;
-  const registered =
-    kind === FUNCTION ? idl?.functions : kind === PROCEDURE ? idl?.procedures : undefined;
-  const name =
-    typeof from === "string"
-      ? from
-      : registered?.find((candidate) => candidate.inputType === entry)?.name;
-  return name ? `${prefix}#${entry} (${name})` : `${prefix}#${entry}`;
+    const prefix = kind === FUNCTION ? "fn" : kind === PROCEDURE ? "proc" : `kind${kind}`;
+    const idl = typeof from === "string" ? undefined : from;
+    const registered =
+        kind === FUNCTION ? idl?.functions : kind === PROCEDURE ? idl?.procedures : undefined;
+    const name =
+        typeof from === "string"
+            ? from
+            : registered?.find((candidate) => candidate.inputType === entry)?.name;
+    return name ? `${prefix}#${entry} (${name})` : `${prefix}#${entry}`;
 }

@@ -1,13 +1,13 @@
 export class QpiIncompleteReadError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "QpiIncompleteReadError";
-  }
+    constructor(message: string) {
+        super(message);
+        this.name = "QpiIncompleteReadError";
+    }
 }
 
 export class QpiContainerConsistencyError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "QpiContainerConsistencyError";
-  }
+    constructor(message: string) {
+        super(message);
+        this.name = "QpiContainerConsistencyError";
+    }
 }

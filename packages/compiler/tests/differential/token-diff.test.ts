@@ -16,8 +16,8 @@ const TOKEN = readFileSync(QINIT_ROOT + "/fixtures/Token.h", "utf8");
 
 // Issue = procedure it=1, Issued = func it=2, NextId = func it=4, Last = func it=5.
 const TOKEN_GTEST = coreGtest(
-  "Token",
-  `TEST(Token, IssueResultFlowsToStateAndOutput) {
+    "Token",
+    `TEST(Token, IssueResultFlowsToStateAndOutput) {
   ContractTestingHarness t;
   QPI::id u = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u, 1000000000000ll);
@@ -46,38 +46,42 @@ TEST(Token, NextIdIsDeterministic) {
 const wasi = wasiToolchain();
 
 describe("differential gtest — Token (qpi host calls)", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("my Token.wasm passes the native Token gtest", async () => {
-    if (!wasi.available) {
-      console.log("  (wasi-sdk clang not found — skipping)");
-      return;
-    }
-    const runnerWasm = await buildDifferentialRunner({
-      corePath: CORE,
-      source: TOKEN,
-      testSource: TOKEN_GTEST,
-      name: "Token",
-      tempPrefix: "token-diff-",
+    beforeAll(async () => {
+        await initK12();
     });
 
-    const mine = await compileContract({
-      source: TOKEN,
-      contractName: "Token",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1024 * 1024,
-    });
-    // numberOfShares (Select args) is a known gap — only errors should block; warnings are fine.
-    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+    test("my Token.wasm passes the native Token gtest", async () => {
+        if (!wasi.available) {
+            console.log("  (wasi-sdk clang not found — skipping)");
+            return;
+        }
+        const runnerWasm = await buildDifferentialRunner({
+            corePath: CORE,
+            source: TOKEN,
+            testSource: TOKEN_GTEST,
+            name: "Token",
+            tempPrefix: "token-diff-",
+        });
 
-    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-    for (const r of results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
-    }
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.every((r) => r.passed)).toBe(true);
-  }, 120000);
+        const mine = await compileContract({
+            source: TOKEN,
+            contractName: "Token",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1024 * 1024,
+        });
+        // numberOfShares (Select args) is a known gap — only errors should block; warnings are fine.
+        expect(
+            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+
+        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+        for (const r of results) {
+            console.log(
+                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+            );
+        }
+        expect(results.length).toBeGreaterThan(0);
+        expect(results.every((r) => r.passed)).toBe(true);
+    }, 120000);
 });

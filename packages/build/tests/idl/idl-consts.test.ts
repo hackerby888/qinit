@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { AbiTypeKind, extractIdl } from "../../src/idl";
 
 test("constexpr QPI math resolves array lengths in the v3 type tree", () => {
-  const source = `
+    const source = `
 using namespace QPI;
 constexpr uint64 MAX_VALUES = 1024;
 constexpr uint64 GROUPS = 4;
@@ -16,21 +16,21 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-  const input = extractIdl(source, "Constants").procedures[0].input;
-  if (input.kind !== AbiTypeKind.STRUCT) {
-    throw new Error("Measure_input must be a struct");
-  }
-  expect(input.format).toBe("[1024;uint8]");
-  const values = input.fields[0].type;
-  expect(values.kind).toBe(AbiTypeKind.ARRAY);
-  if (values.kind === AbiTypeKind.ARRAY) {
-    expect(values.count).toBe(1024);
-    expect(values.element.format).toBe("uint8");
-  }
+    const input = extractIdl(source, "Constants").procedures[0].input;
+    if (input.kind !== AbiTypeKind.STRUCT) {
+        throw new Error("Measure_input must be a struct");
+    }
+    expect(input.format).toBe("[1024;uint8]");
+    const values = input.fields[0].type;
+    expect(values.kind).toBe(AbiTypeKind.ARRAY);
+    if (values.kind === AbiTypeKind.ARRAY) {
+        expect(values.count).toBe(1024);
+        expect(values.element.format).toBe("uint8");
+    }
 });
 
 test("templated and plain constexpr helpers resolve consistently", () => {
-  const source = `
+    const source = `
 using namespace QPI;
 constexpr uint64 N = 14;
 constexpr uint64 A = div<uint64>(N, 2);
@@ -44,10 +44,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-  const input = extractIdl(source, "Constants").procedures[0].input;
-  if (input.kind !== AbiTypeKind.STRUCT) {
-    throw new Error("Measure_input must be a struct");
-  }
-  expect(input.format).toBe("[7;uint8], [2;uint8]");
-  expect(input.fields.map((field) => field.type.size)).toEqual([7, 2]);
+    const input = extractIdl(source, "Constants").procedures[0].input;
+    if (input.kind !== AbiTypeKind.STRUCT) {
+        throw new Error("Measure_input must be a struct");
+    }
+    expect(input.format).toBe("[7;uint8], [2;uint8]");
+    expect(input.fields.map((field) => field.type.size)).toEqual([7, 2]);
 });

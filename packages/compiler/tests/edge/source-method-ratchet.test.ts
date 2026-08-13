@@ -42,55 +42,59 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 describe("source-method lowering ratchet", () => {
-  beforeAll(initK12);
+    beforeAll(initK12);
 
-  test("Array and selector behavior comes from authoritative method bodies", async () => {
-    const result = await compileContract({
-      source: SOURCE,
-      contractName: "SourceMethods",
-      slot: 27,
-      qpiHeader: HEADER,
-      arenaSizeBytes: 1 << 20,
+    test("Array and selector behavior comes from authoritative method bodies", async () => {
+        const result = await compileContract({
+            source: SOURCE,
+            contractName: "SourceMethods",
+            slot: 27,
+            qpiHeader: HEADER,
+            arenaSizeBytes: 1 << 20,
+        });
+        expect(
+            result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR),
+        ).toEqual([]);
+
+        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+        const who = new Uint8Array(32).fill(0x5a);
+        const input = new Uint8Array(40);
+        input.set(who);
+        const inputView = new DataView(input.buffer);
+        inputView.setUint32(32, 2, true);
+        inputView.setUint32(36, 1, true);
+        const contract = sim.deploy(27, result.wasm);
+        sim.procedure(27, 1, input, { invocator: who, originator: who });
+        const state = contract.state();
+        const view = new DataView(state.buffer, state.byteOffset, state.byteLength);
+        expect(view.getBigUint64(144, true)).toBe(51n);
+        expect(view.getUint16(96, true)).toBe(42);
+        expect(view.getUint8(98)).toBe(1);
+        expect(state.slice(104, 136)).toEqual(who);
+        expect(view.getUint8(139)).toBe(1);
     });
-    expect(result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const who = new Uint8Array(32).fill(0x5a);
-    const input = new Uint8Array(40);
-    input.set(who);
-    const inputView = new DataView(input.buffer);
-    inputView.setUint32(32, 2, true);
-    inputView.setUint32(36, 1, true);
-    const contract = sim.deploy(27, result.wasm);
-    sim.procedure(27, 1, input, { invocator: who, originator: who });
-    const state = contract.state();
-    const view = new DataView(state.buffer, state.byteOffset, state.byteLength);
-    expect(view.getBigUint64(144, true)).toBe(51n);
-    expect(view.getUint16(96, true)).toBe(42);
-    expect(view.getUint8(98)).toBe(1);
-    expect(state.slice(104, 136)).toEqual(who);
-    expect(view.getUint8(139)).toBe(1);
-  });
-
-  test("name-specific semantic fallbacks cannot return", () => {
-    const calls = readSourceTree("../../src/backend/wasm/calls", import.meta.url);
-    const memory = readSourceTree("../../src/backend/wasm/memory", import.meta.url);
-    const framework = readSourceTree("../../src/backend/wasm/framework", import.meta.url);
-    const qpiContext = readSourceTree("../../src/driver/qpi-context.ts", import.meta.url);
-    const pipeline = readSourceTree("../../src/driver", import.meta.url);
-    expect(calls).not.toContain('node.type.name === "Array"');
-    expect(memory).not.toMatch(/\^\(AssetOwnershipSelect\|AssetPossessionSelect\)::/);
-    expect(calls).not.toContain(
-      'if (m === "nextProposalIndex" || m === "nextFinishedProposalIndex")',
-    );
-    expect(calls).not.toContain('invocationReward: Object.freeze({ fwd: "$qpi_invocationReward"');
-    expect(calls).not.toContain('"invocator", "originator"');
-    expect(memory).not.toContain('invocator: "$qpi_invocator"');
-    expect(memory).not.toContain('originator: "$qpi_originator"');
-    expect(framework).not.toMatch(/const CTX\s*=/);
-    expect(framework).not.toContain("CTX_SZ");
-    expect(qpiContext).not.toContain("QPI_CONTEXT_FALLBACK");
-    expect(qpiContext).not.toMatch(/struct\s+QpiContext\s*\{/);
-    expect(pipeline).not.toContain("QPI_STUB");
-  });
+    test("name-specific semantic fallbacks cannot return", () => {
+        const calls = readSourceTree("../../src/backend/wasm/calls", import.meta.url);
+        const memory = readSourceTree("../../src/backend/wasm/memory", import.meta.url);
+        const framework = readSourceTree("../../src/backend/wasm/framework", import.meta.url);
+        const qpiContext = readSourceTree("../../src/driver/qpi-context.ts", import.meta.url);
+        const pipeline = readSourceTree("../../src/driver", import.meta.url);
+        expect(calls).not.toContain('node.type.name === "Array"');
+        expect(memory).not.toMatch(/\^\(AssetOwnershipSelect\|AssetPossessionSelect\)::/);
+        expect(calls).not.toContain(
+            'if (m === "nextProposalIndex" || m === "nextFinishedProposalIndex")',
+        );
+        expect(calls).not.toContain(
+            'invocationReward: Object.freeze({ fwd: "$qpi_invocationReward"',
+        );
+        expect(calls).not.toContain('"invocator", "originator"');
+        expect(memory).not.toContain('invocator: "$qpi_invocator"');
+        expect(memory).not.toContain('originator: "$qpi_originator"');
+        expect(framework).not.toMatch(/const CTX\s*=/);
+        expect(framework).not.toContain("CTX_SZ");
+        expect(qpiContext).not.toContain("QPI_CONTEXT_FALLBACK");
+        expect(qpiContext).not.toMatch(/struct\s+QpiContext\s*\{/);
+        expect(pipeline).not.toContain("QPI_STUB");
+    });
 });

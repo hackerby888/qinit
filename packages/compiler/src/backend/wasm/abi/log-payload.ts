@@ -24,10 +24,7 @@ export function logPayloadDefect(layout: StructLayout): LogPayloadDefect | null 
     return null;
 }
 
-export function logPayloadMessage(
-    callName: string,
-    defect: LogPayloadDefect,
-): string {
+export function logPayloadMessage(callName: string, defect: LogPayloadDefect): string {
     switch (defect) {
         case LogPayloadDefect.NOT_A_STRUCT:
             return `${callName} payload must be a struct`;

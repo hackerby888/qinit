@@ -1,35 +1,33 @@
-import {
-    AccessSpec,
-    AstKind,
-    StorageClass,
-} from "../shared/enums";
+import { AccessSpec, AstKind, StorageClass } from "../shared/enums";
 import type { Expression } from "./expressions";
 import type { Span } from "./source-location";
 import type { Statement } from "./statements";
 import type { TemplateParam, TypeSpec } from "./types";
 
 // ---- Declarations (top-level and member) ----
-export type Declaration = 
-// Struct/class
-StructDecl | ClassTemplateDecl | FunctionTemplateDecl
-// Functions
- | FunctionDecl
-// Variables
- | VariableDecl
-// Enums
- | EnumDecl
-// Typedef/using
- | TypedefDeclNode
-// Namespace
- | NamespaceDecl
-// Static assert (top-level)
- | StaticAssertDecl
-// Extern block
- | ExternBlockDecl
-// Friend
- | FriendDecl
-// Empty (from macros resolving to nothing)
- | EmptyDecl;
+export type Declaration =
+    // Struct/class
+    | StructDecl
+    | ClassTemplateDecl
+    | FunctionTemplateDecl
+    // Functions
+    | FunctionDecl
+    // Variables
+    | VariableDecl
+    // Enums
+    | EnumDecl
+    // Typedef/using
+    | TypedefDeclNode
+    // Namespace
+    | NamespaceDecl
+    // Static assert (top-level)
+    | StaticAssertDecl
+    // Extern block
+    | ExternBlockDecl
+    // Friend
+    | FriendDecl
+    // Empty (from macros resolving to nothing)
+    | EmptyDecl;
 
 export interface StructDecl {
     kind: AstKind.STRUCT;
@@ -156,7 +154,4 @@ export interface EmptyDecl {
     span?: Span;
 }
 
-export {
-    AccessSpec,
-    StorageClass,
-};
+export { AccessSpec, StorageClass };

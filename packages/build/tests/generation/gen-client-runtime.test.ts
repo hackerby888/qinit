@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -58,37 +54,37 @@ export async function invokeProcedure(options: {
 `;
 
 test("no-argument generated clients send the canonical padding byte", async () => {
-  const outputDir = mkdtempSync(join(tmpdir(), "qinit-client-runtime-"));
+    const outputDir = mkdtempSync(join(tmpdir(), "qinit-client-runtime-"));
 
-  try {
-    const idl = extractIdl(SOURCE, "Demo");
-    const runtimePath = join(outputDir, "runtime.ts");
-    const clientPath = join(outputDir, "client.ts");
-    writeFileSync(runtimePath, RUNTIME);
-    writeFileSync(
-      clientPath,
-      generateClient(idl, 28, {
-        runtimeImport: "./runtime",
-      }),
-    );
+    try {
+        const idl = extractIdl(SOURCE, "Demo");
+        const runtimePath = join(outputDir, "runtime.ts");
+        const clientPath = join(outputDir, "client.ts");
+        writeFileSync(runtimePath, RUNTIME);
+        writeFileSync(
+            clientPath,
+            generateClient(idl, 28, {
+                runtimeImport: "./runtime",
+            }),
+        );
 
-    const runtime = await import(pathToFileURL(runtimePath).href);
-    const generated = await import(pathToFileURL(clientPath).href);
-    const client = new generated.Demo();
+        const runtime = await import(pathToFileURL(runtimePath).href);
+        const generated = await import(pathToFileURL(clientPath).href);
+        const client = new generated.Demo();
 
-    expect(await client.Read()).toEqual({ value: 7n });
-    expect(
-      await client.Reset({
-        seed: "a".repeat(55),
-        confirm: false,
-      }),
-    ).toEqual({ ok: true });
-    expect(runtime.functionInputs).toEqual([new Uint8Array([0])]);
-    expect(runtime.procedureInputs).toEqual([new Uint8Array([0])]);
-  } finally {
-    rmSync(outputDir, {
-      recursive: true,
-      force: true,
-    });
-  }
+        expect(await client.Read()).toEqual({ value: 7n });
+        expect(
+            await client.Reset({
+                seed: "a".repeat(55),
+                confirm: false,
+            }),
+        ).toEqual({ ok: true });
+        expect(runtime.functionInputs).toEqual([new Uint8Array([0])]);
+        expect(runtime.procedureInputs).toEqual([new Uint8Array([0])]);
+    } finally {
+        rmSync(outputDir, {
+            recursive: true,
+            force: true,
+        });
+    }
 });

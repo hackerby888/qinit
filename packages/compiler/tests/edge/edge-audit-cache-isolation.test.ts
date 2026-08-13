@@ -17,27 +17,29 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function stateSize(name: string, qpiHeader: string): Promise<number> {
-  const result = await compileContract({
-    source: SOURCE,
-    contractName: name,
-    slot: 27,
-    qpiHeader,
-    arenaSizeBytes: 1 << 20,
-  });
-  expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-  sim.deploy(27, result.wasm);
-  return sim.contracts.get(27)!.state().byteLength;
+    const result = await compileContract({
+        source: SOURCE,
+        contractName: name,
+        slot: 27,
+        qpiHeader,
+        arenaSizeBytes: 1 << 20,
+    });
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
+        0,
+    );
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+    sim.deploy(27, result.wasm);
+    return sim.contracts.get(27)!.state().byteLength;
 }
 
 beforeAll(async () => {
-  await initK12();
+    await initK12();
 });
 
 test("same-length headers with the same prefix retain independent parsed layouts", async () => {
-  expect(HEADER_8).toHaveLength(HEADER_4.length);
-  expect(HEADER_8.slice(0, 64)).toBe(HEADER_4.slice(0, 64));
+    expect(HEADER_8).toHaveLength(HEADER_4.length);
+    expect(HEADER_8.slice(0, 64)).toBe(HEADER_4.slice(0, 64));
 
-  expect(await stateSize("HeaderEight", HEADER_8)).toBe(8);
-  expect(await stateSize("HeaderFour", HEADER_4)).toBe(4);
+    expect(await stateSize("HeaderEight", HEADER_8)).toBe(8);
+    expect(await stateSize("HeaderFour", HEADER_4)).toBe(4);
 });

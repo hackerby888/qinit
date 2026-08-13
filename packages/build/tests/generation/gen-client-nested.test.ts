@@ -47,144 +47,146 @@ const incl = (s: string) => expect(geoClient.includes(s)).toBe(true);
 // ---- generated-source shape ----
 
 test("nested struct output -> inline object type", () => {
-  incl("export interface GetPt_output {\n  p: { x: bigint; y: bigint };\n}");
+    incl("export interface GetPt_output {\n  p: { x: bigint; y: bigint };\n}");
 });
 
 test("array-of-struct output -> typed element array", () => {
-  incl("export interface ListPts_output {\n  pts: { x: bigint; y: bigint }[];\n}");
-  incl("export type Matrix_output = { x: bigint; y: bigint }[][];");
+    incl("export interface ListPts_output {\n  pts: { x: bigint; y: bigint }[];\n}");
+    incl("export type Matrix_output = { x: bigint; y: bigint }[][];");
 });
 
 test("nested struct input uses typed args and schema", () => {
-  incl("async Echo(args: Echo_input): Promise<Echo_output>");
-  incl(
-    "3, { type: Echo_function_input_schema, value: args }, Echo_function_output_schema)",
-  );
+    incl("async Echo(args: Echo_input): Promise<Echo_output>");
+    incl("3, { type: Echo_function_input_schema, value: args }, Echo_function_output_schema)");
 });
 
 test("nested-with-id input uses typed metadata", () => {
-  incl("4, { type: EchoHolder_function_input_schema, value: args }");
+    incl("4, { type: EchoHolder_function_input_schema, value: args }");
 });
 
 test("recursive output mapper turns the decoder's positional arrays into named objects", () => {
-  incl("return { p: ((s) => ({ x: s[0] as bigint, y: s[1] as bigint }))(r as unknown[]) };");
-  incl(
-    "return { pts: (r as unknown[]).map((element) => ((s) => ({ x: s[0] as bigint, y: s[1] as bigint }))(element as unknown[])) };",
-  );
+    incl("return { p: ((s) => ({ x: s[0] as bigint, y: s[1] as bigint }))(r as unknown[]) };");
+    incl(
+        "return { pts: (r as unknown[]).map((element) => ((s) => ({ x: s[0] as bigint, y: s[1] as bigint }))(element as unknown[])) };",
+    );
 });
 
 test("array input remains typed", () => {
-  incl("async AddPts(args: AddPts_input, opts:");
-  incl("input: { type: AddPts_procedure_input_schema, value: args }");
+    incl("async AddPts(args: AddPts_input, opts:");
+    incl("input: { type: AddPts_procedure_input_schema, value: args }");
 });
 
 test.skipIf(!have("Qx"))("real QX/Quottery clients transpile cleanly (valid TS syntax)", () => {
-  const t = new Transpiler({ loader: "ts" });
-  for (const c of ["Qx", "Quottery"].filter(have)) {
-    const code = generateClient(extractIdl(srcOf(c), c), 1);
-    expect(() => t.transformSync(code)).not.toThrow();
-  }
+    const t = new Transpiler({ loader: "ts" });
+    for (const c of ["Qx", "Quottery"].filter(have)) {
+        const code = generateClient(extractIdl(srcOf(c), c), 1);
+        expect(() => t.transformSync(code)).not.toThrow();
+    }
 });
 
 test.skipIf(!have("Qx"))(
-  "real QX: nested order row + Asset input are fully typed (no `unknown`)",
-  () => {
-    const qx = generateClient(extractIdl(srcOf("Qx"), "Qx"), 1);
-    // entity order book row carries all four named fields (the scoped-resolution fix)
-    expect(qx).toContain(
-      "issuer: string; assetName: bigint; price: bigint; numberOfShares: bigint }[]",
-    );
-    // share-management procedure takes typed args, not a hand-written format string
-    expect(qx).toContain("asset: { issuer: string; assetName: bigint }");
-    expect(qx).not.toContain("async TransferShareManagementRights(inputFormat: string");
-  },
+    "real QX: nested order row + Asset input are fully typed (no `unknown`)",
+    () => {
+        const qx = generateClient(extractIdl(srcOf("Qx"), "Qx"), 1);
+        // entity order book row carries all four named fields (the scoped-resolution fix)
+        expect(qx).toContain(
+            "issuer: string; assetName: bigint; price: bigint; numberOfShares: bigint }[]",
+        );
+        // share-management procedure takes typed args, not a hand-written format string
+        expect(qx).toContain("asset: { issuer: string; assetName: bigint }");
+        expect(qx).not.toContain("async TransferShareManagementRights(inputFormat: string");
+    },
 );
 
 // ---- run the generated client against a fake RPC (byte-exact encode + typed decode) ----
 
 const tmp: string[] = [];
 async function loadGenerated(code: string, tag: string): Promise<any> {
-  const path = `${import.meta.dir}/_genrun_${tag}.ts`;
-  await Bun.write(path, code);
-  tmp.push(path);
-  return import(path);
+    const path = `${import.meta.dir}/_genrun_${tag}.ts`;
+    await Bun.write(path, code);
+    tmp.push(path);
+    return import(path);
 }
 afterAll(() => {
-  for (const p of tmp)
-    try {
-      unlinkSync(p);
-    } catch {}
+    for (const p of tmp)
+        try {
+            unlinkSync(p);
+        } catch {}
 });
 
 const sint64 = (...vs: bigint[]) => {
-  const b = new Uint8Array(vs.length * 8);
-  const dv = new DataView(b.buffer);
-  vs.forEach((v, i) => dv.setBigInt64(i * 8, v, true));
-  return b;
+    const b = new Uint8Array(vs.length * 8);
+    const dv = new DataView(b.buffer);
+    vs.forEach((v, i) => dv.setBigInt64(i * 8, v, true));
+    return b;
 };
 
 test("RUN: nested + array-of-struct outputs decode into typed named objects", async () => {
-  const mod = await loadGenerated(geoClient, "out");
-  const rpc = {
-    async querySmartContract(_idx: number, functionId: number): Promise<Uint8Array> {
-      if (functionId === 1) return sint64(5n, 7n); // GetPt -> Pt{5,7}
-      if (functionId === 2) return sint64(1n, 2n, 3n, 4n, 5n, 6n); // ListPts -> 3 Pts
-      if (functionId === 6) return sint64(1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n);
-      throw new Error("unexpected fn " + functionId);
-    },
-  };
-  const c = new mod.Geo({ rpc, index: 5 });
-  expect(await c.GetPt()).toEqual({ p: { x: 5n, y: 7n } });
-  expect(await c.ListPts()).toEqual({
-    pts: [
-      { x: 1n, y: 2n },
-      { x: 3n, y: 4n },
-      { x: 5n, y: 6n },
-    ],
-  });
-  expect(await c.Matrix()).toEqual([
-    [
-      { x: 1n, y: 2n },
-      { x: 3n, y: 4n },
-    ],
-    [
-      { x: 5n, y: 6n },
-      { x: 7n, y: 8n },
-    ],
-  ]);
+    const mod = await loadGenerated(geoClient, "out");
+    const rpc = {
+        async querySmartContract(_idx: number, functionId: number): Promise<Uint8Array> {
+            if (functionId === 1) return sint64(5n, 7n); // GetPt -> Pt{5,7}
+            if (functionId === 2) return sint64(1n, 2n, 3n, 4n, 5n, 6n); // ListPts -> 3 Pts
+            if (functionId === 6) return sint64(1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n);
+            throw new Error("unexpected fn " + functionId);
+        },
+    };
+    const c = new mod.Geo({ rpc, index: 5 });
+    expect(await c.GetPt()).toEqual({ p: { x: 5n, y: 7n } });
+    expect(await c.ListPts()).toEqual({
+        pts: [
+            { x: 1n, y: 2n },
+            { x: 3n, y: 4n },
+            { x: 5n, y: 6n },
+        ],
+    });
+    expect(await c.Matrix()).toEqual([
+        [
+            { x: 1n, y: 2n },
+            { x: 3n, y: 4n },
+        ],
+        [
+            { x: 5n, y: 6n },
+            { x: 7n, y: 8n },
+        ],
+    ]);
 });
 
 test("RUN: nested struct input is byte-exact encoded (alignment incl. trailing pad)", async () => {
-  const mod = await loadGenerated(geoClient, "in");
-  let captured: Uint8Array | null = null;
-  const rpc = {
-    async querySmartContract(_idx: number, _fnId: number, input: Uint8Array): Promise<Uint8Array> {
-      captured = input;
-      return sint64(99n);
-    },
-  };
-  const c = new mod.Geo({ rpc, index: 5 });
+    const mod = await loadGenerated(geoClient, "in");
+    let captured: Uint8Array | null = null;
+    const rpc = {
+        async querySmartContract(
+            _idx: number,
+            _fnId: number,
+            input: Uint8Array,
+        ): Promise<Uint8Array> {
+            captured = input;
+            return sint64(99n);
+        },
+    };
+    const c = new mod.Geo({ rpc, index: 5 });
 
-  // Echo: { sint64 x@0, sint64 y@8 }, uint64 speed@16 -> 24 bytes
-  expect(await c.Echo({ to: { x: 10n, y: 20n }, speed: 3n })).toEqual({ sum: 99n });
-  let dv = new DataView(captured!.buffer, captured!.byteOffset, captured!.byteLength);
-  expect(captured!.length).toBe(24);
-  expect(dv.getBigInt64(0, true)).toBe(10n);
-  expect(dv.getBigInt64(8, true)).toBe(20n);
-  expect(dv.getBigUint64(16, true)).toBe(3n);
+    // Echo: { sint64 x@0, sint64 y@8 }, uint64 speed@16 -> 24 bytes
+    expect(await c.Echo({ to: { x: 10n, y: 20n }, speed: 3n })).toEqual({ sum: 99n });
+    let dv = new DataView(captured!.buffer, captured!.byteOffset, captured!.byteLength);
+    expect(captured!.length).toBe(24);
+    expect(dv.getBigInt64(0, true)).toBe(10n);
+    expect(dv.getBigInt64(8, true)).toBe(20n);
+    expect(dv.getBigUint64(16, true)).toBe(3n);
 
-  // EchoPad: { uint64 a@0, uint8 b@8 } pads to 16, uint8 c@16 -> 24 bytes (proves nested trailing pad)
-  await c.EchoPad({ p: { a: 100n, b: 9 }, c: 200 });
-  dv = new DataView(captured!.buffer, captured!.byteOffset, captured!.byteLength);
-  expect(captured!.length).toBe(24);
-  expect(dv.getBigUint64(0, true)).toBe(100n);
-  expect(dv.getUint8(8)).toBe(9);
-  expect(dv.getUint8(16)).toBe(200);
+    // EchoPad: { uint64 a@0, uint8 b@8 } pads to 16, uint8 c@16 -> 24 bytes (proves nested trailing pad)
+    await c.EchoPad({ p: { a: 100n, b: 9 }, c: 200 });
+    dv = new DataView(captured!.buffer, captured!.byteOffset, captured!.byteLength);
+    expect(captured!.length).toBe(24);
+    expect(dv.getBigUint64(0, true)).toBe(100n);
+    expect(dv.getUint8(8)).toBe(9);
+    expect(dv.getUint8(16)).toBe(200);
 
-  // EchoHolder: { id who@0 (32B), uint64 amt@32 } -> 40 bytes
-  await c.EchoHolder({ h: { who: "11".repeat(32), amt: 42n } });
-  dv = new DataView(captured!.buffer, captured!.byteOffset, captured!.byteLength);
-  expect(captured!.length).toBe(40);
-  expect([...captured!.slice(0, 32)].every((x) => x === 0x11)).toBe(true);
-  expect(dv.getBigUint64(32, true)).toBe(42n);
+    // EchoHolder: { id who@0 (32B), uint64 amt@32 } -> 40 bytes
+    await c.EchoHolder({ h: { who: "11".repeat(32), amt: 42n } });
+    dv = new DataView(captured!.buffer, captured!.byteOffset, captured!.byteLength);
+    expect(captured!.length).toBe(40);
+    expect([...captured!.slice(0, 32)].every((x) => x === 0x11)).toBe(true);
+    expect(dv.getBigUint64(32, true)).toBe(42n);
 });

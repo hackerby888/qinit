@@ -5,10 +5,10 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import {
-  compileContract,
-  loadQpiHeader,
-  type CompileResult,
-  type ContractIdl,
+    compileContract,
+    loadQpiHeader,
+    type CompileResult,
+    type ContractIdl,
 } from "../../src/index";
 
 const CORE = CORE_PATH;
@@ -47,58 +47,62 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 function requireIdl(result: CompileResult): ContractIdl {
-  if (!result.idl) {
-    throw new Error("successful Counter compile returned no IDL");
-  }
-  return result.idl;
+    if (!result.idl) {
+        throw new Error("successful Counter compile returned no IDL");
+    }
+    return result.idl;
 }
 
 function u64(b: Uint8Array): bigint {
-  return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
+    return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
 }
 
 describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("CALL_OTHER reads the callee, INVOKE_OTHER mutates it across the boundary", async () => {
-    const counter = await compileContract({
-      source: COUNTER,
-      contractName: "Counter",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1024 * 1024,
+    beforeAll(async () => {
+        await initK12();
     });
-    expect(counter.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
-    const callees = [requireIdl(counter)];
-    const caller = await compileContract({
-      source: CALLER,
-      contractName: "Caller",
-      slot: 29,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1024 * 1024,
-      callees,
+    test("CALL_OTHER reads the callee, INVOKE_OTHER mutates it across the boundary", async () => {
+        const counter = await compileContract({
+            source: COUNTER,
+            contractName: "Counter",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1024 * 1024,
+        });
+        expect(
+            counter.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+
+        const callees = [requireIdl(counter)];
+        const caller = await compileContract({
+            source: CALLER,
+            contractName: "Caller",
+            slot: 29,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1024 * 1024,
+            callees,
+        });
+        expect(
+            caller.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+        expect(caller.idl?.dependencies).toEqual(["Counter"]);
+
+        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+        sim.deploy(28, counter.wasm);
+        sim.deploy(29, caller.wasm);
+
+        // Caller.ReadCounter (fn 1) → Counter.Get; both start at 0.
+        expect(u64(sim.query(29, 1))).toBe(0n);
+        expect(u64(sim.query(28, 1))).toBe(0n);
+
+        // Caller.BumpCounter (proc 1) → Counter.Inc.
+        sim.procedure(29, 1);
+        expect(u64(sim.query(28, 1))).toBe(1n); // Counter incremented through the caller
+        expect(u64(sim.query(29, 1))).toBe(1n); // caller reads Counter == 1 via CALL_OTHER
+
+        sim.procedure(29, 1);
+        expect(u64(sim.query(28, 1))).toBe(2n);
+        expect(u64(sim.query(29, 1))).toBe(2n);
     });
-    expect(caller.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    expect(caller.idl?.dependencies).toEqual(["Counter"]);
-
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    sim.deploy(28, counter.wasm);
-    sim.deploy(29, caller.wasm);
-
-    // Caller.ReadCounter (fn 1) → Counter.Get; both start at 0.
-    expect(u64(sim.query(29, 1))).toBe(0n);
-    expect(u64(sim.query(28, 1))).toBe(0n);
-
-    // Caller.BumpCounter (proc 1) → Counter.Inc.
-    sim.procedure(29, 1);
-    expect(u64(sim.query(28, 1))).toBe(1n); // Counter incremented through the caller
-    expect(u64(sim.query(29, 1))).toBe(1n); // caller reads Counter == 1 via CALL_OTHER
-
-    sim.procedure(29, 1);
-    expect(u64(sim.query(28, 1))).toBe(2n);
-    expect(u64(sim.query(29, 1))).toBe(2n);
-  });
 });

@@ -79,9 +79,7 @@ function tryEmitAssetIteratorAssignment(
         (expression.right.kind !== AstKind.CALL && expression.right.kind !== AstKind.CONSTRUCT) ||
         (expression.right.kind === AstKind.CALL &&
             (expression.right.callee.kind !== AstKind.IDENTIFIER ||
-                !/Asset(Ownership|Possession)Iterator$/.test(
-                    expression.right.callee.name,
-                )))
+                !/Asset(Ownership|Possession)Iterator$/.test(expression.right.callee.name)))
     ) {
         return false;
     }

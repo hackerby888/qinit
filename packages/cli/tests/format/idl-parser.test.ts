@@ -30,72 +30,72 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 test("parser: native, uint128, enum, Asset, nested + scoped struct, multi-var, constexpr/div size, methods", () => {
-  const sf = stateFieldsOf(extractIdl(SRC, "T"));
-  const by = Object.fromEntries(sf.map((f) => [f.name, f]));
-  expect(sf.some((f) => f.bad)).toBe(false); // everything resolves
-  expect(by.nativeU.size).toBe(4); // unsigned int -> uint32
-  expect(by.nativeI.size).toBe(4); // int -> sint32
-  expect(by.big.size).toBe(16); // uint128
-  expect(by.c.size).toBe(4); // enum -> uint32
-  expect(by.asset.size).toBe(40); // Asset { id(32), uint64(8) }
-  expect(by.when.size).toBe(8); // DateAndTime -> uint64
-  expect(by.inner.size).toBe(8); // custom struct { uint64 }
-  expect(by.scoped.size).toBe(40); // Wrap::Order { id, uint64 }
-  expect(by.a.size).toBe(8);
-  expect(by.b.size).toBe(8);
-  expect(by.cc.size).toBe(8); // multi-var split
-  expect(by.arr.size).toBe(8 * 8); // Array<Inner, CAP=8> stride 8
-  expect(by.helper).toBeUndefined(); // method stripped, not a field
+    const sf = stateFieldsOf(extractIdl(SRC, "T"));
+    const by = Object.fromEntries(sf.map((f) => [f.name, f]));
+    expect(sf.some((f) => f.bad)).toBe(false); // everything resolves
+    expect(by.nativeU.size).toBe(4); // unsigned int -> uint32
+    expect(by.nativeI.size).toBe(4); // int -> sint32
+    expect(by.big.size).toBe(16); // uint128
+    expect(by.c.size).toBe(4); // enum -> uint32
+    expect(by.asset.size).toBe(40); // Asset { id(32), uint64(8) }
+    expect(by.when.size).toBe(8); // DateAndTime -> uint64
+    expect(by.inner.size).toBe(8); // custom struct { uint64 }
+    expect(by.scoped.size).toBe(40); // Wrap::Order { id, uint64 }
+    expect(by.a.size).toBe(8);
+    expect(by.b.size).toBe(8);
+    expect(by.cc.size).toBe(8); // multi-var split
+    expect(by.arr.size).toBe(8 * 8); // Array<Inner, CAP=8> stride 8
+    expect(by.helper).toBeUndefined(); // method stripped, not a field
 });
 
 test("compiler rejects state layouts with unresolved types", () => {
-  const bad = `struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { uint64 ok; Array<X, SOME_EXTERNAL_DEFINE> nope; uint64 after; }; INITIALIZE() {} };`;
-  expect(() => extractIdl(bad, "B")).toThrow();
+    const bad = `struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { uint64 ok; Array<X, SOME_EXTERNAL_DEFINE> nope; uint64 after; }; INITIALIZE() {} };`;
+    expect(() => extractIdl(bad, "B")).toThrow();
 });
 
 test("bare struct name resolves to the shallowest (contract-level) struct, not a nested same-named shadow", () => {
-  const src = `using namespace QPI;
+    const src = `using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct Order { id a; sint64 b; };                 // contract-level: id(32)+sint64(8) = 40
   struct StateData { Array<Order, 4> q; };
   struct Foo_output { struct Order { id a; sint64 b; sint64 c; }; Order x; };   // deeper shadow: 48
   INITIALIZE() {}
 };`;
-  const q = stateFieldsOf(extractIdl(src, "T")).find((f) => f.name === "q")!;
-  expect(q.size).toBe(160); // 4 * contract-level Order(40); the nested 48-byte Order must NOT shadow it
+    const q = stateFieldsOf(extractIdl(src, "T")).find((f) => f.name === "q")!;
+    expect(q.size).toBe(160); // 4 * contract-level Order(40); the nested 48-byte Order must NOT shadow it
 });
 
 test("enum underlying type sizes the field (enum class : uint8 -> 1B, not 4B)", () => {
-  const src = `using namespace QPI;
+    const src = `using namespace QPI;
 enum class EState : uint8 { A, B };
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData { uint8 a; EState s; uint16 b; uint64 tail; };
   INITIALIZE() {}
 };`;
-  const by = Object.fromEntries(stateFieldsOf(extractIdl(src, "T")).map((f) => [f.name, f]));
-  expect(by.s.size).toBe(1); // enum class : uint8 -> 1 byte
-  expect(by.b.off).toBe(2); // a(1)+s(1) -> uint16 at 2 (would be 6 if s were uint32)
-  expect(by.tail.off).toBe(8);
+    const by = Object.fromEntries(stateFieldsOf(extractIdl(src, "T")).map((f) => [f.name, f]));
+    expect(by.s.size).toBe(1); // enum class : uint8 -> 1 byte
+    expect(by.b.off).toBe(2); // a(1)+s(1) -> uint16 at 2 (would be 6 if s were uint32)
+    expect(by.tail.off).toBe(8);
 });
 
 test("BitArray<L> and bit_4096 size as uint64[ceil(L/64)]", () => {
-  const src = `using namespace QPI;
+    const src = `using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData { BitArray<256> flags; bit_4096 big; uint64 n; };
   INITIALIZE() {}
 };`;
-  const by = Object.fromEntries(stateFieldsOf(extractIdl(src, "T")).map((f) => [f.name, f]));
-  expect(by.flags.size).toBe(32); // 256/64 = 4 uint64 = 32B
-  expect(by.big.size).toBe(512); // 4096/64 = 64 uint64 = 512B
+    const by = Object.fromEntries(stateFieldsOf(extractIdl(src, "T")).map((f) => [f.name, f]));
+    expect(by.flags.size).toBe(32); // 256/64 = 4 uint64 = 32B
+    expect(by.big.size).toBe(512); // 4096/64 = 64 uint64 = 512B
 });
 
 test("typedef alias resolves to its target type", () => {
-  const src = `using namespace QPI;
+    const src = `using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct Order { id a; sint64 b; };
   typedef Order _Order;
   struct StateData { _Order o; };
   INITIALIZE() {}
 };`;
-  expect(stateFieldsOf(extractIdl(src, "T")).find((f) => f.name === "o")!.size).toBe(40); // id(32)+sint64(8)
+    expect(stateFieldsOf(extractIdl(src, "T")).find((f) => f.name === "o")!.size).toBe(40); // id(32)+sint64(8)
 });

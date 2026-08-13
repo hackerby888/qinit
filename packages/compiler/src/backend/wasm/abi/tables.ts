@@ -1,11 +1,14 @@
 import { SCALAR_SIZE } from "../../../shared/scalar-sizes";
 export { SCALAR_SIZE };
 // Transfer hooks use real I/O structs, unlike empty lifecycle hooks.
-export const SYSPROC_IO: Record<string, {
-    in?: string;
-    out?: string;
-    typedIO?: boolean;
-}> = {
+export const SYSPROC_IO: Record<
+    string,
+    {
+        in?: string;
+        out?: string;
+        typedIO?: boolean;
+    }
+> = {
     __impl_preReleaseShares: {
         in: "PreManagementRightsTransfer_input",
         out: "PreManagementRightsTransfer_output",
@@ -60,8 +63,7 @@ export const AUTHORITATIVE_NAMESPACES = new Set(["QPI", "math_lib"]);
 /** True when a qualified symbol lives under an authoritative platform namespace (QPI::div, math_lib::max). */
 export function isAuthoritativeSymbol(qualifiedName: string): boolean {
     const sep = qualifiedName.indexOf("::");
-    if (sep <= 0)
-        return false;
+    if (sep <= 0) return false;
     return AUTHORITATIVE_NAMESPACES.has(qualifiedName.slice(0, sep));
 }
 /** Unqualified base of a possibly qualified call name (QPI::div → div). */

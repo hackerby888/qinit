@@ -22,8 +22,7 @@ export function validateAndDesugar(translationUnit: {
     const seen = new Set<string>();
     return diagnostics.filter((diagnostic) => {
         const key = `${diagnostic.severity}:${diagnostic.span.start}:${diagnostic.span.end}:${diagnostic.message}`;
-        if (seen.has(key))
-            return false;
+        if (seen.has(key)) return false;
         seen.add(key);
         return true;
     });

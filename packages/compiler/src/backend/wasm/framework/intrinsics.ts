@@ -3,13 +3,19 @@ import type { Layout, ModuleSpecification } from "./framework-types";
 export function emitIntrinsics(capacity: Layout, spec: ModuleSpecification): string {
     const inputSizeCases: string[] = [];
     for (const entry of spec.entries) {
-        inputSizeCases.push(`    (if (i32.and (i32.eq (local.get $kind) (i32.const ${entry.kind})) (i32.eq (i32.and (local.get $it) (i32.const 0xffff)) (i32.const ${entry.inputType}))) (then (return (i32.const ${entry.inSize}))))`);
+        inputSizeCases.push(
+            `    (if (i32.and (i32.eq (local.get $kind) (i32.const ${entry.kind})) (i32.eq (i32.and (local.get $it) (i32.const 0xffff)) (i32.const ${entry.inputType}))) (then (return (i32.const ${entry.inSize}))))`,
+        );
     }
     for (const sysproc of spec.sysprocs) {
-        inputSizeCases.push(`    (if (i32.and (i32.eq (local.get $kind) (i32.const 2)) (i32.eq (local.get $it) (i32.const ${sysproc.id}))) (then (return (i32.const ${sysproc.inSize}))))`);
+        inputSizeCases.push(
+            `    (if (i32.and (i32.eq (local.get $kind) (i32.const 2)) (i32.eq (local.get $it) (i32.const ${sysproc.id}))) (then (return (i32.const ${sysproc.inSize}))))`,
+        );
     }
     if (spec.migrate) {
-        inputSizeCases.push(`    (if (i32.eq (local.get $kind) (i32.const 3)) (then (return (i32.const ${spec.migrate.oldStateSize}))))`);
+        inputSizeCases.push(
+            `    (if (i32.eq (local.get $kind) (i32.const 3)) (then (return (i32.const ${spec.migrate.oldStateSize}))))`,
+        );
     }
     // Provide compiler intrinsics used by source-backed container helpers.
     return `  ;; ---- intrinsics ----

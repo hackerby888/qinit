@@ -1,7 +1,15 @@
 import { WasmExternalKind, WasmLimitKind, WasmMemorySource } from "../../shared/enums";
 import { Reader, WasmParseError, error } from "./binary-reader";
 import type { ParsedModule } from "./parsed-module";
-import { readConstExpression, readGlobalType, readInstruction, readLimits, readTableType, readValueType, readValueTypeVector } from "./instruction-parser";
+import {
+    readConstExpression,
+    readGlobalType,
+    readInstruction,
+    readLimits,
+    readTableType,
+    readValueType,
+    readValueTypeVector,
+} from "./instruction-parser";
 import type { WasmFunctionSignature } from "./inspection-types";
 import { signature } from "./inspection-types";
 
@@ -13,16 +21,19 @@ export function parseTypeSection(reader: Reader, parsed: ParsedModule): void {
             throw new WasmParseError("type is not a function type", at);
         const params = readValueTypeVector(reader, parsed, "parameter");
         const results = readValueTypeVector(reader, parsed, "result");
-        if (results.length > 1)
-            parsed.features.add("multi-value-results");
+        if (results.length > 1) parsed.features.add("multi-value-results");
         parsed.types.push(signature(params, results));
     }
 }
 
-export function typeAt(parsed: ParsedModule, index: number, context: string, offset: number): WasmFunctionSignature {
+export function typeAt(
+    parsed: ParsedModule,
+    index: number,
+    context: string,
+    offset: number,
+): WasmFunctionSignature {
     const type = parsed.types[index];
-    if (!type)
-        throw new WasmParseError(`${context} refers to missing type ${index}`, offset);
+    if (!type) throw new WasmParseError(`${context} refers to missing type ${index}`, offset);
     return type;
 }
 
@@ -38,16 +49,18 @@ export function parseImportSection(reader: Reader, parsed: ParsedModule): void {
             const typeIndex = reader.u32("import function type index");
             const fnType = typeAt(parsed, typeIndex, `import ${module}.${name}`, typeIndexAt);
             parsed.functionTypeIndices.push(typeIndex);
-            parsed.imports.push({ module, name, kind: WasmExternalKind.FUNCTION, signature: fnType });
-        }
-        else if (kind === 1) {
+            parsed.imports.push({
+                module,
+                name,
+                kind: WasmExternalKind.FUNCTION,
+                signature: fnType,
+            });
+        } else if (kind === 1) {
             readTableType(reader, parsed);
             parsed.tableCount++;
-            if (parsed.tableCount > 1)
-                parsed.features.add("multiple-tables");
+            if (parsed.tableCount > 1) parsed.features.add("multiple-tables");
             parsed.imports.push({ module, name, kind: WasmExternalKind.TABLE });
-        }
-        else if (kind === 2) {
+        } else if (kind === 2) {
             const limits = readLimits(reader, parsed, WasmLimitKind.MEMORY);
             parsed.memories.push({
                 source: WasmMemorySource.IMPORTED,
@@ -59,18 +72,15 @@ export function parseImportSection(reader: Reader, parsed: ParsedModule): void {
                 memory64: limits.memory64,
             });
             parsed.imports.push({ module, name, kind: WasmExternalKind.MEMORY });
-        }
-        else if (kind === 3) {
+        } else if (kind === 3) {
             parsed.globals.push(readGlobalType(reader, parsed));
             parsed.imports.push({ module, name, kind: WasmExternalKind.GLOBAL });
-        }
-        else if (kind === 4) {
+        } else if (kind === 4) {
             parsed.features.add("exception-handling/tags");
             reader.byte("tag attribute");
             reader.u32("tag type index");
             parsed.imports.push({ module, name, kind: WasmExternalKind.TAG });
-        }
-        else {
+        } else {
             throw new WasmParseError(`unknown import kind ${kind}`, kindAt);
         }
     }
@@ -93,8 +103,7 @@ export function parseTableSection(reader: Reader, parsed: ParsedModule): void {
         readTableType(reader, parsed);
         parsed.tableCount++;
     }
-    if (parsed.tableCount > 1)
-        parsed.features.add("multiple-tables");
+    if (parsed.tableCount > 1) parsed.features.add("multiple-tables");
 }
 
 export function parseMemorySection(reader: Reader, parsed: ParsedModule): void {
@@ -109,8 +118,7 @@ export function parseMemorySection(reader: Reader, parsed: ParsedModule): void {
             memory64: limits.memory64,
         });
     }
-    if (parsed.memories.length > 1)
-        parsed.features.add("multiple-memories");
+    if (parsed.memories.length > 1) parsed.features.add("multiple-memories");
 }
 
 export function parseGlobalSection(reader: Reader, parsed: ParsedModule): void {
@@ -128,18 +136,21 @@ export function parseExportSection(reader: Reader, parsed: ParsedModule): void {
         const kindAt = reader.pos;
         const rawKind = reader.byte("export kind");
         const index = reader.u32("export index");
-        const kinds: WasmExternalKind[] = [WasmExternalKind.FUNCTION, WasmExternalKind.TABLE, WasmExternalKind.MEMORY, WasmExternalKind.GLOBAL, WasmExternalKind.TAG];
+        const kinds: WasmExternalKind[] = [
+            WasmExternalKind.FUNCTION,
+            WasmExternalKind.TABLE,
+            WasmExternalKind.MEMORY,
+            WasmExternalKind.GLOBAL,
+            WasmExternalKind.TAG,
+        ];
         const kind = kinds[rawKind];
-        if (!kind)
-            throw new WasmParseError(`unknown export kind ${rawKind}`, kindAt);
-        if (kind === WasmExternalKind.TAG)
-            parsed.features.add("exception-handling/tags");
+        if (!kind) throw new WasmParseError(`unknown export kind ${rawKind}`, kindAt);
+        if (kind === WasmExternalKind.TAG) parsed.features.add("exception-handling/tags");
         if (kind === WasmExternalKind.FUNCTION) {
             const typeIndex = parsed.functionTypeIndices[index];
             const fnType = typeIndex === undefined ? undefined : parsed.types[typeIndex];
             parsed.exports.push({ name, kind, index, signature: fnType });
-        }
-        else {
+        } else {
             parsed.exports.push({ name, kind, index });
         }
     }
@@ -164,7 +175,11 @@ export function parseElementSection(reader: Reader, parsed: ParsedModule): void 
 export function parseCodeSection(reader: Reader, parsed: ParsedModule): void {
     const count = reader.u32("code body count");
     if (count !== parsed.definedFunctionCount) {
-        error(parsed.diagnostics, "malformed-module", `function section declares ${parsed.definedFunctionCount} bodies but code section has ${count}`);
+        error(
+            parsed.diagnostics,
+            "malformed-module",
+            `function section declares ${parsed.definedFunctionCount} bodies but code section has ${count}`,
+        );
     }
     for (let index = 0; index < count; index++) {
         const size = reader.u32("function body size");
@@ -184,7 +199,12 @@ export function parseCodeSection(reader: Reader, parsed: ParsedModule): void {
             }
         }
         if (!opaque && lastOpcode !== 0x0b) {
-            error(parsed.diagnostics, "malformed-module", `function body ${index} does not end with end`, body.end - 1);
+            error(
+                parsed.diagnostics,
+                "malformed-module",
+                `function body ${index} does not end with end`,
+                body.end - 1,
+            );
         }
     }
 }

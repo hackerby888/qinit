@@ -1,16 +1,13 @@
 import {
-  AssignOp,
-  AstKind,
-  BinaryOp,
-  DiagnosticSeverity,
-  TokenKind,
-  UnaryOp,
-  UpdateOp,
+    AssignOp,
+    AstKind,
+    BinaryOp,
+    DiagnosticSeverity,
+    TokenKind,
+    UnaryOp,
+    UpdateOp,
 } from "../../../shared/enums";
-import type {
-    Expression,
-    TypeSpec,
-} from "../../../ast";
+import type { Expression, TypeSpec } from "../../../ast";
 import type { Parser } from "../parser";
 
 export class ExpressionParser {
@@ -60,7 +57,13 @@ export class ExpressionParser {
         let left = this.parser.expressions.parseLogicalAnd();
         while (this.parser.state.tryConsume(TokenKind.PIPE_PIPE)) {
             const right = this.parser.expressions.parseLogicalAnd();
-            left = { kind: AstKind.BINARY_OP, operator: BinaryOp.LOGICAL_OR, left, right, span: left.span };
+            left = {
+                kind: AstKind.BINARY_OP,
+                operator: BinaryOp.LOGICAL_OR,
+                left,
+                right,
+                span: left.span,
+            };
         }
         return left;
     }
@@ -69,7 +72,13 @@ export class ExpressionParser {
         let left = this.parser.expressions.parseBitwiseOr();
         while (this.parser.state.tryConsume(TokenKind.AMP_AMP)) {
             const right = this.parser.expressions.parseBitwiseOr();
-            left = { kind: AstKind.BINARY_OP, operator: BinaryOp.LOGICAL_AND, left, right, span: left.span };
+            left = {
+                kind: AstKind.BINARY_OP,
+                operator: BinaryOp.LOGICAL_AND,
+                left,
+                right,
+                span: left.span,
+            };
         }
         return left;
     }
@@ -78,7 +87,13 @@ export class ExpressionParser {
         let left = this.parser.expressions.parseBitwiseXor();
         while (this.parser.state.tryConsume(TokenKind.PIPE)) {
             const right = this.parser.expressions.parseBitwiseXor();
-            left = { kind: AstKind.BINARY_OP, operator: BinaryOp.BITWISE_OR, left, right, span: left.span };
+            left = {
+                kind: AstKind.BINARY_OP,
+                operator: BinaryOp.BITWISE_OR,
+                left,
+                right,
+                span: left.span,
+            };
         }
         return left;
     }
@@ -87,7 +102,13 @@ export class ExpressionParser {
         let left = this.parser.expressions.parseBitwiseAnd();
         while (this.parser.state.tryConsume(TokenKind.CARET)) {
             const right = this.parser.expressions.parseBitwiseAnd();
-            left = { kind: AstKind.BINARY_OP, operator: BinaryOp.BITWISE_XOR, left, right, span: left.span };
+            left = {
+                kind: AstKind.BINARY_OP,
+                operator: BinaryOp.BITWISE_XOR,
+                left,
+                right,
+                span: left.span,
+            };
         }
         return left;
     }
@@ -96,7 +117,13 @@ export class ExpressionParser {
         let left = this.parser.expressions.parseEquality();
         while (this.parser.state.tryConsume(TokenKind.AMP)) {
             const right = this.parser.expressions.parseEquality();
-            left = { kind: AstKind.BINARY_OP, operator: BinaryOp.BITWISE_AND, left, right, span: left.span };
+            left = {
+                kind: AstKind.BINARY_OP,
+                operator: BinaryOp.BITWISE_AND,
+                left,
+                right,
+                span: left.span,
+            };
         }
         return left;
     }
@@ -114,8 +141,7 @@ export class ExpressionParser {
                     right: this.parser.expressions.parseComparison(),
                     span: left.span,
                 };
-            }
-            else if (tok.kind === TokenKind.NOT_EQ) {
+            } else if (tok.kind === TokenKind.NOT_EQ) {
                 this.parser.state.next();
                 left = {
                     kind: AstKind.BINARY_OP,
@@ -124,8 +150,7 @@ export class ExpressionParser {
                     right: this.parser.expressions.parseComparison(),
                     span: left.span,
                 };
-            }
-            else {
+            } else {
                 break;
             }
         }
@@ -144,20 +169,33 @@ export class ExpressionParser {
                 gt_eq: BinaryOp.GREATER_THAN_OR_EQUAL,
             };
             // Inside a template arg/param list a top-level `>` / `>=` closes the list, not a comparison.
-            if (this.parser.state.templateAngleDepth > 0 && (tok.kind === TokenKind.R_ANGLE || tok.kind === TokenKind.GT_EQ)) {
+            if (
+                this.parser.state.templateAngleDepth > 0 &&
+                (tok.kind === TokenKind.R_ANGLE || tok.kind === TokenKind.GT_EQ)
+            ) {
                 break;
             }
             const operator = ops[tok.kind];
             if (operator) {
                 this.parser.state.next();
-                left = { kind: AstKind.BINARY_OP, operator, left, right: this.parser.expressions.parseShift(), span: left.span };
-            }
-            else if (tok.kind === TokenKind.SPACESHIP) {
+                left = {
+                    kind: AstKind.BINARY_OP,
+                    operator,
+                    left,
+                    right: this.parser.expressions.parseShift(),
+                    span: left.span,
+                };
+            } else if (tok.kind === TokenKind.SPACESHIP) {
                 // <=> — treat as comparison
                 this.parser.state.next();
-                left = { kind: AstKind.BINARY_OP, operator: BinaryOp.LESS_THAN, left, right: this.parser.expressions.parseShift(), span: left.span };
-            }
-            else {
+                left = {
+                    kind: AstKind.BINARY_OP,
+                    operator: BinaryOp.LESS_THAN,
+                    left,
+                    right: this.parser.expressions.parseShift(),
+                    span: left.span,
+                };
+            } else {
                 break;
             }
         }
@@ -167,16 +205,29 @@ export class ExpressionParser {
     parseShift(): Expression {
         let left = this.parser.expressions.parseAdditive();
         while (!this.parser.state.eof()) {
-            if (this.parser.state.templateAngleDepth > 0 && this.parser.state.peek().kind === TokenKind.R_SHIFT) {
+            if (
+                this.parser.state.templateAngleDepth > 0 &&
+                this.parser.state.peek().kind === TokenKind.R_SHIFT
+            ) {
                 break; // `>>` closes two nested template lists here, not a shift operator
             }
             if (this.parser.state.tryConsume(TokenKind.L_SHIFT)) {
-                left = { kind: AstKind.BINARY_OP, operator: BinaryOp.SHIFT_LEFT, left, right: this.parser.expressions.parseAdditive(), span: left.span };
-            }
-            else if (this.parser.state.tryConsume(TokenKind.R_SHIFT)) {
-                left = { kind: AstKind.BINARY_OP, operator: BinaryOp.SHIFT_RIGHT, left, right: this.parser.expressions.parseAdditive(), span: left.span };
-            }
-            else {
+                left = {
+                    kind: AstKind.BINARY_OP,
+                    operator: BinaryOp.SHIFT_LEFT,
+                    left,
+                    right: this.parser.expressions.parseAdditive(),
+                    span: left.span,
+                };
+            } else if (this.parser.state.tryConsume(TokenKind.R_SHIFT)) {
+                left = {
+                    kind: AstKind.BINARY_OP,
+                    operator: BinaryOp.SHIFT_RIGHT,
+                    left,
+                    right: this.parser.expressions.parseAdditive(),
+                    span: left.span,
+                };
+            } else {
                 break;
             }
         }
@@ -194,8 +245,7 @@ export class ExpressionParser {
                     right: this.parser.expressions.parseMultiplicative(),
                     span: left.span,
                 };
-            }
-            else if (this.parser.state.tryConsume(TokenKind.MINUS)) {
+            } else if (this.parser.state.tryConsume(TokenKind.MINUS)) {
                 left = {
                     kind: AstKind.BINARY_OP,
                     operator: BinaryOp.SUBTRACT,
@@ -203,8 +253,7 @@ export class ExpressionParser {
                     right: this.parser.expressions.parseMultiplicative(),
                     span: left.span,
                 };
-            }
-            else {
+            } else {
                 break;
             }
         }
@@ -215,15 +264,30 @@ export class ExpressionParser {
         let left = this.parser.expressions.parseUnary();
         while (!this.parser.state.eof()) {
             if (this.parser.state.tryConsume(TokenKind.STAR)) {
-                left = { kind: AstKind.BINARY_OP, operator: BinaryOp.MULTIPLY, left, right: this.parser.expressions.parseUnary(), span: left.span };
-            }
-            else if (this.parser.state.tryConsume(TokenKind.SLASH)) {
-                left = { kind: AstKind.BINARY_OP, operator: BinaryOp.DIVIDE, left, right: this.parser.expressions.parseUnary(), span: left.span };
-            }
-            else if (this.parser.state.tryConsume(TokenKind.PERCENT)) {
-                left = { kind: AstKind.BINARY_OP, operator: BinaryOp.MODULO, left, right: this.parser.expressions.parseUnary(), span: left.span };
-            }
-            else {
+                left = {
+                    kind: AstKind.BINARY_OP,
+                    operator: BinaryOp.MULTIPLY,
+                    left,
+                    right: this.parser.expressions.parseUnary(),
+                    span: left.span,
+                };
+            } else if (this.parser.state.tryConsume(TokenKind.SLASH)) {
+                left = {
+                    kind: AstKind.BINARY_OP,
+                    operator: BinaryOp.DIVIDE,
+                    left,
+                    right: this.parser.expressions.parseUnary(),
+                    span: left.span,
+                };
+            } else if (this.parser.state.tryConsume(TokenKind.PERCENT)) {
+                left = {
+                    kind: AstKind.BINARY_OP,
+                    operator: BinaryOp.MODULO,
+                    left,
+                    right: this.parser.expressions.parseUnary(),
+                    span: left.span,
+                };
+            } else {
                 break;
             }
         }
@@ -233,24 +297,33 @@ export class ExpressionParser {
     parseUnary(): Expression {
         const tok = this.parser.state.peek();
         // Reject heap operations once, then skip the rest of the statement.
-        if ((tok.kind === TokenKind.IDENTIFIER && tok.text === "new") || tok.kind === TokenKind.KW_DELETE) {
+        if (
+            (tok.kind === TokenKind.IDENTIFIER && tok.text === "new") ||
+            tok.kind === TokenKind.KW_DELETE
+        ) {
             this.parser.state.diagnostics.push({
                 severity: DiagnosticSeverity.ERROR,
                 message: `dynamic memory allocation ('${tok.text}') is not allowed in a contract`,
                 span: tok.span,
             });
-            while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.SEMICOLON && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
+            while (
+                !this.parser.state.eof() &&
+                this.parser.state.peek().kind !== TokenKind.SEMICOLON &&
+                this.parser.state.peek().kind !== TokenKind.R_BRACE
+            ) {
                 this.parser.state.next();
             }
             return { kind: AstKind.INT_LITERAL, value: "0", span: tok.span };
         }
         // Prefix operators
-        if (tok.kind === TokenKind.BANG ||
+        if (
+            tok.kind === TokenKind.BANG ||
             tok.kind === TokenKind.TILDE ||
             tok.kind === TokenKind.MINUS ||
             tok.kind === TokenKind.PLUS ||
             tok.kind === TokenKind.STAR ||
-            tok.kind === TokenKind.AMP) {
+            tok.kind === TokenKind.AMP
+        ) {
             const opMap: Record<string, UnaryOp> = {
                 bang: UnaryOp.LOGICAL_NOT,
                 tilde: UnaryOp.BITWISE_NOT,
@@ -268,9 +341,8 @@ export class ExpressionParser {
         }
         // Prefix ++ / --
         if (tok.kind === TokenKind.PLUS_PLUS || tok.kind === TokenKind.MINUS_MINUS) {
-            const operator = tok.kind === TokenKind.PLUS_PLUS
-                ? UpdateOp.INCREMENT
-                : UpdateOp.DECREMENT;
+            const operator =
+                tok.kind === TokenKind.PLUS_PLUS ? UpdateOp.INCREMENT : UpdateOp.DECREMENT;
             this.parser.state.next();
             const argument = this.parser.expressions.parseUnary();
             return { kind: AstKind.PREFIX_OP, operator, argument, span: tok.span };
@@ -291,18 +363,31 @@ export class ExpressionParser {
         while (!this.parser.state.eof()) {
             const tok = this.parser.state.peek();
             // Parse brace initialization only when the prefix names a type.
-            if (tok.kind === TokenKind.L_BRACE &&
-                (expression.kind === AstKind.IDENTIFIER || expression.kind === AstKind.QUALIFIED_NAME)) {
-                const name = expression.kind === AstKind.IDENTIFIER ? expression.name : `${expression.namespace}::${expression.name}`;
+            if (
+                tok.kind === TokenKind.L_BRACE &&
+                (expression.kind === AstKind.IDENTIFIER ||
+                    expression.kind === AstKind.QUALIFIED_NAME)
+            ) {
+                const name =
+                    expression.kind === AstKind.IDENTIFIER
+                        ? expression.name
+                        : `${expression.namespace}::${expression.name}`;
                 this.parser.state.next(); // {
                 const callArguments: Expression[] = [];
-                while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
+                while (
+                    !this.parser.state.eof() &&
+                    this.parser.state.peek().kind !== TokenKind.R_BRACE
+                ) {
                     callArguments.push(this.parser.expressions.parseBraceArg());
-                    if (!this.parser.state.tryConsume(TokenKind.COMMA))
-                        break;
+                    if (!this.parser.state.tryConsume(TokenKind.COMMA)) break;
                 }
                 this.parser.state.expect(TokenKind.R_BRACE, "brace init");
-                expression = { kind: AstKind.CONSTRUCT, type: { kind: AstKind.NAME, name }, callArguments, span: expression.span };
+                expression = {
+                    kind: AstKind.CONSTRUCT,
+                    type: { kind: AstKind.NAME, name },
+                    callArguments,
+                    span: expression.span,
+                };
                 continue;
             }
             // .member or ->member
@@ -326,7 +411,12 @@ export class ExpressionParser {
                 this.parser.state.next();
                 const index = this.parser.expressions.parseExpression();
                 this.parser.state.expect(TokenKind.R_BRACKET, "subscript");
-                expression = { kind: AstKind.SUBSCRIPT, object: expression, index, span: expression.span };
+                expression = {
+                    kind: AstKind.SUBSCRIPT,
+                    object: expression,
+                    index,
+                    span: expression.span,
+                };
                 continue;
             }
             // Function call: expr(args)
@@ -334,18 +424,27 @@ export class ExpressionParser {
                 this.parser.state.next();
                 const callArguments = this.parser.expressions.parseArgList();
                 this.parser.state.expect(TokenKind.R_PAREN, "call args");
-                expression = { kind: AstKind.CALL, callee: expression, callArguments, span: expression.span };
+                expression = {
+                    kind: AstKind.CALL,
+                    callee: expression,
+                    callArguments,
+                    span: expression.span,
+                };
                 continue;
             }
             // Template call: expr<T>(args) — only when the lookahead genuinely matches `< types > (`.
             if (tok.kind === TokenKind.L_ANGLE && this.parser.expressions.looksLikeTemplateArgs()) {
                 this.parser.state.next();
                 const templateArguments: TypeSpec[] = [];
-                while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_ANGLE) {
+                while (
+                    !this.parser.state.eof() &&
+                    this.parser.state.peek().kind !== TokenKind.R_ANGLE
+                ) {
                     const argStart = this.parser.state.peek().span;
                     const kind = this.parser.state.peek().kind;
                     // Preserve value arguments in function templates such as `irootK64<2>`.
-                    if (kind === TokenKind.INT_LITERAL ||
+                    if (
+                        kind === TokenKind.INT_LITERAL ||
                         kind === TokenKind.L_PAREN ||
                         kind === TokenKind.KW_SIZEOF ||
                         kind === TokenKind.CHAR_LITERAL ||
@@ -353,29 +452,42 @@ export class ExpressionParser {
                         kind === TokenKind.TILDE ||
                         kind === TokenKind.KW_TRUE ||
                         kind === TokenKind.KW_FALSE ||
-                        this.parser.types.templateArgIsExpr()) {
-                        templateArguments.push({ kind: AstKind.EXPR_VALUE, expression: this.parser.expressions.parseShift(), span: argStart });
-                    }
-                    else {
+                        this.parser.types.templateArgIsExpr()
+                    ) {
+                        templateArguments.push({
+                            kind: AstKind.EXPR_VALUE,
+                            expression: this.parser.expressions.parseShift(),
+                            span: argStart,
+                        });
+                    } else {
                         templateArguments.push(this.parser.types.parseTypeSpec());
                     }
-                    if (!this.parser.state.tryConsume(TokenKind.COMMA))
-                        break;
+                    if (!this.parser.state.tryConsume(TokenKind.COMMA)) break;
                 }
                 this.parser.state.consumeTemplateAngleClose();
                 this.parser.state.expect(TokenKind.L_PAREN, "template call args");
                 const callArguments = this.parser.expressions.parseArgList();
                 this.parser.state.expect(TokenKind.R_PAREN, "template call args close");
-                expression = { kind: AstKind.TEMPLATE_CALL, callee: expression, templateArguments, callArguments, span: expression.span };
+                expression = {
+                    kind: AstKind.TEMPLATE_CALL,
+                    callee: expression,
+                    templateArguments,
+                    callArguments,
+                    span: expression.span,
+                };
                 continue;
             }
             // Postfix ++ / --
             if (tok.kind === TokenKind.PLUS_PLUS || tok.kind === TokenKind.MINUS_MINUS) {
-                const operator = tok.kind === TokenKind.PLUS_PLUS
-                    ? UpdateOp.INCREMENT
-                    : UpdateOp.DECREMENT;
+                const operator =
+                    tok.kind === TokenKind.PLUS_PLUS ? UpdateOp.INCREMENT : UpdateOp.DECREMENT;
                 this.parser.state.next();
-                expression = { kind: AstKind.POSTFIX_OP, operator, argument: expression, span: expression.span };
+                expression = {
+                    kind: AstKind.POSTFIX_OP,
+                    operator,
+                    argument: expression,
+                    span: expression.span,
+                };
                 continue;
             }
             break;
@@ -407,7 +519,8 @@ export class ExpressionParser {
                 continue;
             }
             // Tokens that can't appear inside a template-argument list → it's a comparison.
-            if (kind === TokenKind.SEMICOLON ||
+            if (
+                kind === TokenKind.SEMICOLON ||
                 kind === TokenKind.L_BRACE ||
                 kind === TokenKind.R_BRACE ||
                 kind === TokenKind.EQ ||
@@ -421,13 +534,15 @@ export class ExpressionParser {
                 kind === TokenKind.EQ_EQ ||
                 kind === TokenKind.NOT_EQ ||
                 kind === TokenKind.L_PAREN ||
-                kind === TokenKind.R_PAREN) {
+                kind === TokenKind.R_PAREN
+            ) {
                 ok = false;
                 break;
             }
             this.parser.state.next();
         }
-        const followedByParen = ok && depth <= 0 && this.parser.state.peek().kind === TokenKind.L_PAREN;
+        const followedByParen =
+            ok && depth <= 0 && this.parser.state.peek().kind === TokenKind.L_PAREN;
         this.parser.state.position = save;
         return followedByParen;
     }
@@ -436,10 +551,12 @@ export class ExpressionParser {
         if (this.parser.state.peek().kind === TokenKind.L_BRACE) {
             const start = this.parser.state.next().span; // {
             const expressions: Expression[] = [];
-            while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
+            while (
+                !this.parser.state.eof() &&
+                this.parser.state.peek().kind !== TokenKind.R_BRACE
+            ) {
                 expressions.push(this.parser.expressions.parseBraceArg());
-                if (!this.parser.state.tryConsume(TokenKind.COMMA))
-                    break;
+                if (!this.parser.state.tryConsume(TokenKind.COMMA)) break;
             }
             this.parser.state.expect(TokenKind.R_BRACE, "initializer list");
             return { kind: AstKind.INITIALIZER_LIST, expressions, span: start };
@@ -455,7 +572,12 @@ export class ExpressionParser {
             // Split the u/l suffix off the digits — literal typing (width/signedness) reads it.
             const member = tok.text.match(/^(.+?)([uUlL]+)$/);
             if (member) {
-                return { kind: AstKind.INT_LITERAL, value: member[1], suffix: member[2], span: tok.span };
+                return {
+                    kind: AstKind.INT_LITERAL,
+                    value: member[1],
+                    suffix: member[2],
+                    span: tok.span,
+                };
             }
             return { kind: AstKind.INT_LITERAL, value: tok.text, span: tok.span };
         }
@@ -474,7 +596,11 @@ export class ExpressionParser {
         }
         if (tok.kind === TokenKind.CHAR_LITERAL) {
             this.parser.state.next();
-            return { kind: AstKind.CHAR_LITERAL, value: this.parser.recovery.parseCharValue(tok.text), span: tok.span };
+            return {
+                kind: AstKind.CHAR_LITERAL,
+                value: this.parser.recovery.parseCharValue(tok.text),
+                span: tok.span,
+            };
         }
         if (tok.kind === TokenKind.KW_TRUE) {
             this.parser.state.next();
@@ -509,10 +635,12 @@ export class ExpressionParser {
             const savedGt = this.parser.state.templateAngleDepth;
             this.parser.state.templateAngleDepth = 0;
             const expressions: Expression[] = [];
-            while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
+            while (
+                !this.parser.state.eof() &&
+                this.parser.state.peek().kind !== TokenKind.R_BRACE
+            ) {
                 expressions.push(this.parser.expressions.parseExpression());
-                if (!this.parser.state.tryConsume(TokenKind.COMMA))
-                    break;
+                if (!this.parser.state.tryConsume(TokenKind.COMMA)) break;
             }
             this.parser.state.templateAngleDepth = savedGt;
             this.parser.state.expect(TokenKind.R_BRACE, "initializer list");
@@ -535,8 +663,7 @@ export class ExpressionParser {
 
     parseCommaSequence(): Expression {
         const first = this.parser.expressions.parseExpression();
-        if (this.parser.state.peek().kind !== TokenKind.COMMA)
-            return first;
+        if (this.parser.state.peek().kind !== TokenKind.COMMA) return first;
         const expressions = [first];
         while (this.parser.state.peek().kind === TokenKind.COMMA) {
             this.parser.state.next();
@@ -547,13 +674,14 @@ export class ExpressionParser {
 
     looksLikeLocalDecl(): boolean {
         const t0 = this.parser.state.peek().kind;
-        if (t0 === TokenKind.KW_CONST || t0 === TokenKind.KW_AUTO)
-            return true;
-        if (t0 !== TokenKind.IDENTIFIER)
-            return false;
+        if (t0 === TokenKind.KW_CONST || t0 === TokenKind.KW_AUTO) return true;
+        if (t0 !== TokenKind.IDENTIFIER) return false;
         // Skip a qualified type name: identifier (:: identifier)* — e.g. QPI::uint64 name.
         let index = 1;
-        while (this.parser.state.peek(index).kind === TokenKind.D_COLON && this.parser.state.peek(index + 1).kind === TokenKind.IDENTIFIER)
+        while (
+            this.parser.state.peek(index).kind === TokenKind.D_COLON &&
+            this.parser.state.peek(index + 1).kind === TokenKind.IDENTIFIER
+        )
             index += 2;
         // Skip template arguments `<...>` so `ProposalWithAllVoteData<D, N>& p` is recognized as a decl, not read as a `<`
         if (this.parser.state.peek(index).kind === TokenKind.L_ANGLE) {
@@ -561,32 +689,35 @@ export class ExpressionParser {
             let templateEndIndex = index;
             for (; !this.parser.state.eof(); templateEndIndex++) {
                 const kind = this.parser.state.peek(templateEndIndex).kind;
-                if (kind === TokenKind.L_ANGLE)
-                    depth++;
+                if (kind === TokenKind.L_ANGLE) depth++;
                 else if (kind === TokenKind.R_ANGLE) {
                     if (--depth === 0) {
                         templateEndIndex++;
                         break;
                     }
-                }
-                else if (kind === TokenKind.R_SHIFT) {
+                } else if (kind === TokenKind.R_SHIFT) {
                     depth -= 2;
                     if (depth <= 0) {
                         templateEndIndex++;
                         break;
                     }
-                }
-                else if (kind === TokenKind.SEMICOLON || kind === TokenKind.L_BRACE || kind === TokenKind.R_BRACE || kind === TokenKind.R_PAREN)
+                } else if (
+                    kind === TokenKind.SEMICOLON ||
+                    kind === TokenKind.L_BRACE ||
+                    kind === TokenKind.R_BRACE ||
+                    kind === TokenKind.R_PAREN
+                )
                     return false;
             }
-            if (depth > 0)
-                return false;
+            if (depth > 0) return false;
             index = templateEndIndex;
         }
         const t1 = this.parser.state.peek(index).kind;
-        if (t1 === TokenKind.IDENTIFIER)
-            return true;
-        if ((t1 === TokenKind.STAR || t1 === TokenKind.AMP) && this.parser.state.peek(index + 1).kind === TokenKind.IDENTIFIER)
+        if (t1 === TokenKind.IDENTIFIER) return true;
+        if (
+            (t1 === TokenKind.STAR || t1 === TokenKind.AMP) &&
+            this.parser.state.peek(index + 1).kind === TokenKind.IDENTIFIER
+        )
             return true;
         return false;
     }

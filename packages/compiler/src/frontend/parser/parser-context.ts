@@ -1,7 +1,4 @@
-import {
-    DiagnosticCategory,
-    DiagnosticSeverity,
-} from "../../shared/enums";
+import { DiagnosticCategory, DiagnosticSeverity } from "../../shared/enums";
 import type { Span } from "../../ast";
 
 export interface ParserDiagnostic {

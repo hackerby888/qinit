@@ -12,3 +12,9 @@
 - Use short commit messages.
 - Do not mention AI/LLM tools in commit messages.
 - When spawning qubic core binary or test, run it in the tmp folder instead of current working folder (it will create many trash files in our project)
+
+- Follow this conceptually this clang format (apply for ts,js,cpp,... too):
+  IndentWidth: 4
+  ColumnLimit: 100
+  BinPackArguments: true
+  BinPackParameters: true

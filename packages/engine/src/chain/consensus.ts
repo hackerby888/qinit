@@ -3,7 +3,15 @@
 import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "../support/k12";
 import { dateFields } from "../contract/runtime";
 import { rootFromSiblings } from "../ledger/merkle";
-import { M256i, Tick, TickData, DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, TICKDATA_SIZE } from "../protocol/wire";
+import {
+    M256i,
+    Tick,
+    TickData,
+    DIGEST_SIZE,
+    SIG_SIZE,
+    TXS_PER_TICK,
+    TICKDATA_SIZE,
+} from "../protocol/wire";
 import { MAX_NUMBER_OF_CONTRACTS } from "@qinit/proto";
 
 export { MAX_NUMBER_OF_CONTRACTS, TXS_PER_TICK, TICKDATA_SIZE };
@@ -15,166 +23,166 @@ const SEED_ALPHABET = "abcdefghijklmnopqrstuvwxyz";
 
 // QUORUM = floor(N*2/3)+1 (core-lite common_def.h:17).
 export function quorumOf(n: number): number {
-  return Math.floor((n * 2) / 3) + 1;
+    return Math.floor((n * 2) / 3) + 1;
 }
 
 // A fresh random 55-letter Qubic seed (the default per-computor identity source).
 export function randomSeed(): string {
-  let s = "";
-  for (let i = 0; i < 55; i++) {
-    s += SEED_ALPHABET[Math.floor(Math.random() * 26)];
-  }
-  return s;
+    let s = "";
+    for (let i = 0; i < 55; i++) {
+        s += SEED_ALPHABET[Math.floor(Math.random() * 26)];
+    }
+    return s;
 }
 
 export interface Computor extends KeyPair {
-  index: number;
-  seed: string;
+    index: number;
+    seed: string;
 }
 
 export interface CommitteeOpts {
-  numberOfComputors?: number; // default 8 (ignored when computorSeeds is given)
-  computorSeeds?: string[]; // explicit seeds (reproducible); else N random seeds
-  arbitratorSeed?: string; // default "a".repeat(55)
+    numberOfComputors?: number; // default 8 (ignored when computorSeeds is given)
+    computorSeeds?: string[]; // explicit seeds (reproducible); else N random seeds
+    arbitratorSeed?: string; // default "a".repeat(55)
 }
 
 // The committee that signs ticks + the arbitrator that signs the committee list. Derives every key
 // synchronously (deriveKeysSync), so it must be constructed after initK12().
 export class Committee {
-  readonly computors: Computor[];
-  readonly arbitrator: KeyPair & { seed: string };
-  readonly quorum: number;
+    readonly computors: Computor[];
+    readonly arbitrator: KeyPair & { seed: string };
+    readonly quorum: number;
 
-  constructor(opts: CommitteeOpts = {}) {
-    const n = opts.numberOfComputors ?? DEFAULT_NUMBER_OF_COMPUTORS;
-    const seeds = opts.computorSeeds ?? Array.from({ length: n }, () => randomSeed());
+    constructor(opts: CommitteeOpts = {}) {
+        const n = opts.numberOfComputors ?? DEFAULT_NUMBER_OF_COMPUTORS;
+        const seeds = opts.computorSeeds ?? Array.from({ length: n }, () => randomSeed());
 
-    this.computors = seeds.map((seed, index) => ({ index, seed, ...deriveKeysSync(seed) }));
-    const arbSeed = opts.arbitratorSeed ?? DEFAULT_ARBITRATOR_SEED;
-    this.arbitrator = { seed: arbSeed, ...deriveKeysSync(arbSeed) };
-    this.quorum = quorumOf(this.computors.length);
-  }
-
-  get size(): number {
-    return this.computors.length;
-  }
-
-  // Build signed Computors wire data: epoch, keys, and arbitrator signature.
-  // slotCount defaults to the committee size.
-  signedComputorList(epoch: number, slotCount = this.computors.length): Uint8Array {
-    const size = 2 + slotCount * DIGEST_SIZE + SIG_SIZE;
-    const buf = new Uint8Array(size);
-    const dv = new DataView(buf.buffer);
-    dv.setUint16(0, epoch & 0xffff, true);
-
-    for (const c of this.computors) {
-      if (c.index < slotCount) {
-        buf.set(c.publicKey, 2 + c.index * DIGEST_SIZE);
-      }
+        this.computors = seeds.map((seed, index) => ({ index, seed, ...deriveKeysSync(seed) }));
+        const arbSeed = opts.arbitratorSeed ?? DEFAULT_ARBITRATOR_SEED;
+        this.arbitrator = { seed: arbSeed, ...deriveKeysSync(arbSeed) };
+        this.quorum = quorumOf(this.computors.length);
     }
 
-    const digest = k12Bytes(buf.subarray(0, size - SIG_SIZE));
-    buf.set(
-      signSync(this.arbitrator.privateKey, this.arbitrator.publicKey, digest),
-      size - SIG_SIZE,
-    );
-    return buf;
-  }
+    get size(): number {
+        return this.computors.length;
+    }
+
+    // Build signed Computors wire data: epoch, keys, and arbitrator signature.
+    // slotCount defaults to the committee size.
+    signedComputorList(epoch: number, slotCount = this.computors.length): Uint8Array {
+        const size = 2 + slotCount * DIGEST_SIZE + SIG_SIZE;
+        const buf = new Uint8Array(size);
+        const dv = new DataView(buf.buffer);
+        dv.setUint16(0, epoch & 0xffff, true);
+
+        for (const c of this.computors) {
+            if (c.index < slotCount) {
+                buf.set(c.publicKey, 2 + c.index * DIGEST_SIZE);
+            }
+        }
+
+        const digest = k12Bytes(buf.subarray(0, size - SIG_SIZE));
+        buf.set(
+            signSync(this.arbitrator.privateKey, this.arbitrator.publicKey, digest),
+            size - SIG_SIZE,
+        );
+        return buf;
+    }
 }
 
 // State and transaction digests committed by each tick vote.
 // Spectrum and universe are incremental depth-24 Merkle roots.
 export interface TickStateDigests {
-  spectrum: Uint8Array;
-  universe: Uint8Array;
-  computer: Uint8Array;
-  transaction: Uint8Array;
-  expectedNextTransaction: Uint8Array;
+    spectrum: Uint8Array;
+    universe: Uint8Array;
+    computer: Uint8Array;
+    transaction: Uint8Array;
+    expectedNextTransaction: Uint8Array;
 }
 
 // Binary merkle root via K12 over `capacity` (a power of two) leaves; absent leaves are zero, parent =
 // K12(left32 ‖ right32). Mirrors core-lite getComputerDigest over MAX_NUMBER_OF_CONTRACTS contract-state leaves.
 export function merkleRoot(leaves: Map<number, Uint8Array>, capacity: number): Uint8Array {
-  let level: Uint8Array[] = [];
-  for (let i = 0; i < capacity; i++) {
-    level.push(leaves.get(i) ?? new Uint8Array(DIGEST_SIZE));
-  }
-
-  while (level.length > 1) {
-    const next: Uint8Array[] = [];
-    for (let i = 0; i < level.length; i += 2) {
-      const pair = new Uint8Array(2 * DIGEST_SIZE);
-      pair.set(level[i], 0);
-      pair.set(level[i + 1], DIGEST_SIZE);
-      next.push(k12Bytes(pair));
+    let level: Uint8Array[] = [];
+    for (let i = 0; i < capacity; i++) {
+        level.push(leaves.get(i) ?? new Uint8Array(DIGEST_SIZE));
     }
-    level = next;
-  }
 
-  return level[0];
+    while (level.length > 1) {
+        const next: Uint8Array[] = [];
+        for (let i = 0; i < level.length; i += 2) {
+            const pair = new Uint8Array(2 * DIGEST_SIZE);
+            pair.set(level[i], 0);
+            pair.set(level[i + 1], DIGEST_SIZE);
+            next.push(k12Bytes(pair));
+        }
+        level = next;
+    }
+
+    return level[0];
 }
 
 // salted digest = K12(publicKey(32) ‖ prevDigest(32)) — the per-computor salt (qubic.cpp:5707).
 function saltedDigest(publicKey: Uint8Array, prev: Uint8Array): Uint8Array {
-  const buf = new Uint8Array(2 * DIGEST_SIZE);
-  buf.set(publicKey.subarray(0, DIGEST_SIZE), 0);
-  buf.set(prev.subarray(0, DIGEST_SIZE), DIGEST_SIZE);
-  return k12Bytes(buf);
+    const buf = new Uint8Array(2 * DIGEST_SIZE);
+    buf.set(publicKey.subarray(0, DIGEST_SIZE), 0);
+    buf.set(prev.subarray(0, DIGEST_SIZE), DIGEST_SIZE);
+    return k12Bytes(buf);
 }
 
 // Build and sign one 352-byte Tick vote.
 // State roots use prev*Digest and K12(publicKey ‖ digest) salted fields.
 export function buildTickVote(
-  c: Computor,
-  epoch: number,
-  tick: number,
-  d: TickStateDigests,
-  timeMs: number,
+    c: Computor,
+    epoch: number,
+    tick: number,
+    d: TickStateDigests,
+    timeMs: number,
 ): Tick {
-  const v = Tick.alloc();
-  v.computorIndex = c.index;
-  v.epoch = epoch;
-  v.tick = tick;
+    const v = Tick.alloc();
+    v.computorIndex = c.index;
+    v.epoch = epoch;
+    v.tick = tick;
 
-  // timestamp; the resource-testing / tx-body u32 digests stay zero (deterministic, not modeled in the dev sim).
-  const t = dateFields(timeMs);
-  v.millisecond = t.milli;
-  v.second = t.second;
-  v.minute = t.minute;
-  v.hour = t.hour;
-  v.day = t.day;
-  v.month = t.month;
-  v.year = t.year;
+    // timestamp; the resource-testing / tx-body u32 digests stay zero (deterministic, not modeled in the dev sim).
+    const t = dateFields(timeMs);
+    v.millisecond = t.milli;
+    v.second = t.second;
+    v.minute = t.minute;
+    v.hour = t.hour;
+    v.day = t.day;
+    v.month = t.month;
+    v.year = t.year;
 
-  v.prevSpectrumDigest = M256i.from(d.spectrum);
-  v.prevUniverseDigest = M256i.from(d.universe);
-  v.prevComputerDigest = M256i.from(d.computer);
-  v.saltedSpectrumDigest = M256i.from(saltedDigest(c.publicKey, d.spectrum));
-  v.saltedUniverseDigest = M256i.from(saltedDigest(c.publicKey, d.universe));
-  v.saltedComputerDigest = M256i.from(saltedDigest(c.publicKey, d.computer));
-  v.transactionDigest = M256i.from(d.transaction);
-  v.expectedNextTickTransactionDigest = M256i.from(d.expectedNextTransaction);
+    v.prevSpectrumDigest = M256i.from(d.spectrum);
+    v.prevUniverseDigest = M256i.from(d.universe);
+    v.prevComputerDigest = M256i.from(d.computer);
+    v.saltedSpectrumDigest = M256i.from(saltedDigest(c.publicKey, d.spectrum));
+    v.saltedUniverseDigest = M256i.from(saltedDigest(c.publicKey, d.universe));
+    v.saltedComputerDigest = M256i.from(saltedDigest(c.publicKey, d.computer));
+    v.transactionDigest = M256i.from(d.transaction);
+    v.expectedNextTickTransactionDigest = M256i.from(d.expectedNextTransaction);
 
-  // Domain-separate the signed message by XORing computorIndex with the Tick message type (qubic.cpp does the
-  // same XOR before verifying). The transmitted struct keeps the plain index.
-  v.computorIndex = (c.index ^ TICK_TYPE) & 0xffff;
-  const digest = k12Bytes(v.bytes.subarray(0, TICK_SIZE - SIG_SIZE));
-  v.computorIndex = c.index;
-  v.signature = signSync(c.privateKey, c.publicKey, digest);
-  return v;
+    // Domain-separate the signed message by XORing computorIndex with the Tick message type (qubic.cpp does the
+    // same XOR before verifying). The transmitted struct keeps the plain index.
+    v.computorIndex = (c.index ^ TICK_TYPE) & 0xffff;
+    const digest = k12Bytes(v.bytes.subarray(0, TICK_SIZE - SIG_SIZE));
+    v.computorIndex = c.index;
+    v.signature = signSync(c.privateKey, c.publicKey, digest);
+    return v;
 }
 
 // The K12 message a tick vote's signature covers: the Tick − signature, with computorIndex XORed by the Tick
 // message type (the qubic domain-separation tweak). For verification in tests / the bridge.
 export function tickVoteMessage(vote: Uint8Array): Uint8Array {
-  const body = vote.slice(0, TICK_SIZE - SIG_SIZE);
-  const dv = new DataView(body.buffer);
-  dv.setUint16(0, (dv.getUint16(0, true) ^ TICK_TYPE) & 0xffff, true);
-  return k12Bytes(body);
+    const body = vote.slice(0, TICK_SIZE - SIG_SIZE);
+    const dv = new DataView(body.buffer);
+    dv.setUint16(0, (dv.getUint16(0, true) ^ TICK_TYPE) & 0xffff, true);
+    return k12Bytes(body);
 }
 
 export function tickVoteSignature(vote: Uint8Array): Uint8Array {
-  return vote.subarray(TICK_SIZE - SIG_SIZE, TICK_SIZE);
+    return vote.subarray(TICK_SIZE - SIG_SIZE, TICK_SIZE);
 }
 
 // Leader-proposed transaction set in the TickData wire format.
@@ -182,112 +190,112 @@ const TICKDATA_TYPE = 8; // BROADCAST_FUTURE_TICK_DATA — XORed into computorIn
 
 // timelock = K12(spectrumDigest ‖ universeDigest ‖ computerDigest) — the tick's committed state roots.
 function tickDataTimelock(
-  spectrum: Uint8Array,
-  universe: Uint8Array,
-  computer: Uint8Array,
+    spectrum: Uint8Array,
+    universe: Uint8Array,
+    computer: Uint8Array,
 ): Uint8Array {
-  const buf = new Uint8Array(3 * DIGEST_SIZE);
-  buf.set(spectrum.subarray(0, DIGEST_SIZE), 0);
-  buf.set(universe.subarray(0, DIGEST_SIZE), DIGEST_SIZE);
-  buf.set(computer.subarray(0, DIGEST_SIZE), 2 * DIGEST_SIZE);
-  return k12Bytes(buf);
+    const buf = new Uint8Array(3 * DIGEST_SIZE);
+    buf.set(spectrum.subarray(0, DIGEST_SIZE), 0);
+    buf.set(universe.subarray(0, DIGEST_SIZE), DIGEST_SIZE);
+    buf.set(computer.subarray(0, DIGEST_SIZE), 2 * DIGEST_SIZE);
+    return k12Bytes(buf);
 }
 
 // Build + sign the tick's TickData. The leader (computor[tick % N]) commits the tick's per-tx digests (each =
 // K12(full signed tx), in order, zero-padded to the capacity) and the state roots; contractFees stay zero.
 export function buildTickData(
-  committee: Committee,
-  epoch: number,
-  tick: number,
-  txDigests: Uint8Array[],
-  roots: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array },
-  timeMs: number,
+    committee: Committee,
+    epoch: number,
+    tick: number,
+    txDigests: Uint8Array[],
+    roots: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array },
+    timeMs: number,
 ): TickData {
-  const leaderIndex = tick % committee.size;
-  const leader = committee.computors[leaderIndex];
+    const leaderIndex = tick % committee.size;
+    const leader = committee.computors[leaderIndex];
 
-  const td = TickData.alloc();
-  td.computorIndex = leaderIndex;
-  td.epoch = epoch;
-  td.tick = tick;
+    const td = TickData.alloc();
+    td.computorIndex = leaderIndex;
+    td.epoch = epoch;
+    td.tick = tick;
 
-  const t = dateFields(timeMs);
-  td.millisecond = t.milli;
-  td.second = t.second;
-  td.minute = t.minute;
-  td.hour = t.hour;
-  td.day = t.day;
-  td.month = t.month;
-  td.year = t.year;
+    const t = dateFields(timeMs);
+    td.millisecond = t.milli;
+    td.second = t.second;
+    td.minute = t.minute;
+    td.hour = t.hour;
+    td.day = t.day;
+    td.month = t.month;
+    td.year = t.year;
 
-  td.timelock = M256i.from(tickDataTimelock(roots.spectrum, roots.universe, roots.computer));
+    td.timelock = M256i.from(tickDataTimelock(roots.spectrum, roots.universe, roots.computer));
 
-  const count = Math.min(txDigests.length, TXS_PER_TICK);
-  for (let i = 0; i < count; i++) {
-    td.txDigests.set(i, txDigests[i]);
-  }
+    const count = Math.min(txDigests.length, TXS_PER_TICK);
+    for (let i = 0; i < count; i++) {
+        td.txDigests.set(i, txDigests[i]);
+    }
 
-  // Domain-separate the signed message (XOR the index by the message type); the transmitted struct keeps the
-  // plain index. The signature is stored — the votes commit K12(the whole signed TickData).
-  td.computorIndex = (leaderIndex ^ TICKDATA_TYPE) & 0xffff;
-  const digest = k12Bytes(td.bytes.subarray(0, TickData.SIG_OFFSET));
-  td.computorIndex = leaderIndex;
-  td.signature = signSync(leader.privateKey, leader.publicKey, digest);
+    // Domain-separate the signed message (XOR the index by the message type); the transmitted struct keeps the
+    // plain index. The signature is stored — the votes commit K12(the whole signed TickData).
+    td.computorIndex = (leaderIndex ^ TICKDATA_TYPE) & 0xffff;
+    const digest = k12Bytes(td.bytes.subarray(0, TickData.SIG_OFFSET));
+    td.computorIndex = leaderIndex;
+    td.signature = signSync(leader.privateKey, leader.publicKey, digest);
 
-  return td;
+    return td;
 }
 
 export function tickDataSignature(td: Uint8Array): Uint8Array {
-  return TickData.wrap(td).signature;
+    return TickData.wrap(td).signature;
 }
 
 // The K12 message a TickData signature covers: the struct − signature, with computorIndex XORed by the
 // future-tick-data type. For signature verification in tests / the bridge.
 export function tickDataMessage(td: Uint8Array): Uint8Array {
-  const body = td.slice(0, TickData.SIG_OFFSET);
-  const dv = new DataView(body.buffer);
-  dv.setUint16(0, (dv.getUint16(0, true) ^ TICKDATA_TYPE) & 0xffff, true);
-  return k12Bytes(body);
+    const body = td.slice(0, TickData.SIG_OFFSET);
+    const dv = new DataView(body.buffer);
+    dv.setUint16(0, (dv.getUint16(0, true) ^ TICKDATA_TYPE) & 0xffff, true);
+    return k12Bytes(body);
 }
 
 // Does a vote commit to the etalon (canonical) state digests? The aligned-vote count for quorum.
 export function voteIsAligned(vote: Tick, d: TickStateDigests): boolean {
-  return (
-    vote.prevSpectrumDigest.equals(d.spectrum) &&
-    vote.prevUniverseDigest.equals(d.universe) &&
-    vote.prevComputerDigest.equals(d.computer) &&
-    vote.transactionDigest.equals(d.transaction)
-  );
+    return (
+        vote.prevSpectrumDigest.equals(d.spectrum) &&
+        vote.prevUniverseDigest.equals(d.universe) &&
+        vote.prevComputerDigest.equals(d.computer) &&
+        vote.transactionDigest.equals(d.transaction)
+    );
 }
 
 // Verify an entity Merkle proof against a quorum of valid computor votes.
 export function verifyEntityProof(
-  record: Uint8Array,
-  index: number,
-  siblings: Uint8Array[],
-  votes: Tick[],
-  committee: Committee,
+    record: Uint8Array,
+    index: number,
+    siblings: Uint8Array[],
+    votes: Tick[],
+    committee: Committee,
 ): boolean {
-  if (index < 0) {
-    return false;
-  }
-
-  const proofRoot = rootFromSiblings(record, index, siblings);
-
-  let valid = 0;
-  for (const vote of votes) {
-    const c = committee.computors[vote.computorIndex];
-    if (!c) {
-      continue;
+    if (index < 0) {
+        return false;
     }
-    if (!verifySync(c.publicKey, tickVoteMessage(vote.bytes), tickVoteSignature(vote.bytes))) {
-      continue;
-    }
-    if (!vote.prevSpectrumDigest.equals(proofRoot)) {
-      continue;
-    }
-    valid++;
-  }
 
-  return valid >= committee.quorum;
+    const proofRoot = rootFromSiblings(record, index, siblings);
+
+    let valid = 0;
+    for (const vote of votes) {
+        const c = committee.computors[vote.computorIndex];
+        if (!c) {
+            continue;
+        }
+        if (!verifySync(c.publicKey, tickVoteMessage(vote.bytes), tickVoteSignature(vote.bytes))) {
+            continue;
+        }
+        if (!vote.prevSpectrumDigest.equals(proofRoot)) {
+            continue;
+        }
+        valid++;
+    }
+
+    return valid >= committee.quorum;
 }

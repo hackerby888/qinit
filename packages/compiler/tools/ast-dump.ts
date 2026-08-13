@@ -9,17 +9,17 @@ const CORE = CORE_PATH;
 
 const input = process.argv[2];
 if (!input) {
-  console.error("usage: bun tools/ast-dump.ts <contract.h> [outFile]");
-  process.exit(1);
+    console.error("usage: bun tools/ast-dump.ts <contract.h> [outFile]");
+    process.exit(1);
 }
 
 const source = readFileSync(input, "utf8");
 const name = basename(input).replace(/\.[^.]+$/, "");
 
 const { ast, diagnostics } = parseToAst({
-  source,
-  qpiHeader: loadQpiHeader(CORE),
-  contractName: name,
+    source,
+    qpiHeader: loadQpiHeader(CORE),
+    contractName: name,
 });
 const tree = formatAst(ast);
 
@@ -29,12 +29,10 @@ writeFileSync(outFile, `${tree}\n`);
 console.log(tree);
 
 if (diagnostics.length) {
-  console.error(`\n${diagnostics.length} diagnostic(s):`);
-  for (const diagnostic of diagnostics) {
-    console.error(
-      `  ${diagnostic.severity} @${diagnostic.span.line}: ${diagnostic.message}`,
-    );
-  }
+    console.error(`\n${diagnostics.length} diagnostic(s):`);
+    for (const diagnostic of diagnostics) {
+        console.error(`  ${diagnostic.severity} @${diagnostic.span.line}: ${diagnostic.message}`);
+    }
 }
 
 console.error(`\nwrote ${outFile}`);

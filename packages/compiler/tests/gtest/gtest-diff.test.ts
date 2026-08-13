@@ -29,8 +29,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 // Core-lite-style gtest cases — the same assertions a native build validates.
 const COUNTER_GTEST = coreGtest(
-  "Counter",
-  `TEST(Counter, StartsAtZero) {
+    "Counter",
+    `TEST(Counter, StartsAtZero) {
   ContractTestingHarness t;
   Counter::Get_input in{};
   EXPECT_EQ(t.call<Counter::Get_output>(1, in).value, 0ull);
@@ -53,64 +53,70 @@ TEST(Counter, EachTestStartsFresh) {
 );
 
 function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
+    try {
+        const { wasiSdkPaths } = require("@qinit/core/project");
+        return existsSync(wasiSdkPaths().clang);
+    } catch {
+        return false;
+    }
 }
 
 describe("differential gtest — my contract vs native test logic", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("my Counter.wasm passes the native Counter gtest", async () => {
-    if (!wasiAvailable()) {
-      console.log("  (wasi-sdk clang not found — skipping native test-runner build)");
-      return;
-    }
-
-    // 1. Native build of the combined Counter contract + gtest → the test runner.
-    const { writeFileSync, mkdtempSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "gtest-diff-"));
-    const contractPath = join(dir, "Counter.h");
-    writeFileSync(contractPath, COUNTER);
-
-    const testPath = join(dir, "Counter.test.cpp");
-    writeFileSync(testPath, COUNTER_GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath,
-      contractPath,
-      name: "Counter",
-      stateType: "Counter",
-      slot: 28,
-      corePath: CORE,
-      outDir: dir,
+    beforeAll(async () => {
+        await initK12();
     });
-    expect(built.ok, built.stderr).toBe(true);
-    const runnerWasm = new Uint8Array(await (await import("node:fs/promises")).readFile(built.wasmPath!));
 
-    // 2. My TS compiler builds the contract under test.
-    const mine = await compileContract({
-      source: COUNTER,
-      contractName: "Counter",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 64 * 1024,
-    });
-    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+    test("my Counter.wasm passes the native Counter gtest", async () => {
+        if (!wasiAvailable()) {
+            console.log("  (wasi-sdk clang not found — skipping native test-runner build)");
+            return;
+        }
 
-    // 3. Drive MY contract with the NATIVE test logic.
-    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-    for (const r of results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
-    }
+        // 1. Native build of the combined Counter contract + gtest → the test runner.
+        const { writeFileSync, mkdtempSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const dir = mkdtempSync(join(tmpdir(), "gtest-diff-"));
+        const contractPath = join(dir, "Counter.h");
+        writeFileSync(contractPath, COUNTER);
 
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.every((r) => r.passed)).toBe(true);
-  }, 120000);
+        const testPath = join(dir, "Counter.test.cpp");
+        writeFileSync(testPath, COUNTER_GTEST);
+        const built = await buildCorpusRunner({
+            corpusPath: testPath,
+            contractPath,
+            name: "Counter",
+            stateType: "Counter",
+            slot: 28,
+            corePath: CORE,
+            outDir: dir,
+        });
+        expect(built.ok, built.stderr).toBe(true);
+        const runnerWasm = new Uint8Array(
+            await (await import("node:fs/promises")).readFile(built.wasmPath!),
+        );
+
+        // 2. My TS compiler builds the contract under test.
+        const mine = await compileContract({
+            source: COUNTER,
+            contractName: "Counter",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 64 * 1024,
+        });
+        expect(
+            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+
+        // 3. Drive MY contract with the NATIVE test logic.
+        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+        for (const r of results) {
+            console.log(
+                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+            );
+        }
+
+        expect(results.length).toBeGreaterThan(0);
+        expect(results.every((r) => r.passed)).toBe(true);
+    }, 120000);
 });

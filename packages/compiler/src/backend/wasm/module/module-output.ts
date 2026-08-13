@@ -2,9 +2,7 @@ import { DiagnosticCategory } from "../../../shared/enums";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { SemanticAnalyzer } from "../../../analysis/semantic-analysis";
 import type { SystemProcedureInfo, UserEntry } from "../framework";
-import type {
-    GeneratedContractMetadata,
-} from "./library-index";
+import type { GeneratedContractMetadata } from "./library-index";
 import type { ContractRegistration } from "./registrations";
 
 export function writeGeneratedContractMetadata(

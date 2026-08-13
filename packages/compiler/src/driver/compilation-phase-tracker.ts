@@ -34,8 +34,6 @@ export class CompilationPhaseTracker {
     }
 
     private now(): number {
-        return typeof performance !== "undefined"
-            ? performance.now()
-            : Date.now();
+        return typeof performance !== "undefined" ? performance.now() : Date.now();
     }
 }

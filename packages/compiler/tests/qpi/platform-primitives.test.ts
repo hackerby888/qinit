@@ -1,8 +1,8 @@
 import {
-  DiagnosticSeverity,
-  PlatformCapability,
-  PlatformPrimitiveKind,
-  PlatformWasmOp,
+    DiagnosticSeverity,
+    PlatformCapability,
+    PlatformPrimitiveKind,
+    PlatformWasmOp,
 } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -10,8 +10,8 @@ import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
 import {
-  PLATFORM_PRIMITIVES,
-  platformPrimitive,
+    PLATFORM_PRIMITIVES,
+    platformPrimitive,
 } from "../../src/backend/wasm/calls/platform-primitives";
 import { readSourceTree } from "../support/source-tree";
 
@@ -52,68 +52,72 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 describe("typed platform primitive registry", () => {
-  beforeAll(initK12);
+    beforeAll(initK12);
 
-  test("aliases are unique and resolve to typed descriptors", () => {
-    const spellings = PLATFORM_PRIMITIVES.flatMap((descriptor) => [
-      descriptor.name,
-      ...descriptor.aliases,
-    ]);
-    expect(new Set(spellings).size).toBe(spellings.length);
-    expect(platformPrimitive("_mm256_lddqu_si256")?.kind).toBe(
-      PlatformPrimitiveKind.MEMORY_LOAD,
-    );
-    expect(platformPrimitive("math_lib::__lzcnt64")?.wasmOp).toBe(
-      PlatformWasmOp.I64_CLZ,
-    );
-    expect(platformPrimitive("_rdrand64_step")?.capabilities).toEqual([PlatformCapability.CHAIN_PRNG]);
-  });
-
-  test("zero, overloaded constructors, conversion helpers, and isZero compile from core source", async () => {
-    const result = await compileContract({
-      source: SOURCE,
-      contractName: "PlatformSource",
-      slot: 27,
-      qpiHeader: HEADER,
-      arenaSizeBytes: 1 << 20,
+    test("aliases are unique and resolve to typed descriptors", () => {
+        const spellings = PLATFORM_PRIMITIVES.flatMap((descriptor) => [
+            descriptor.name,
+            ...descriptor.aliases,
+        ]);
+        expect(new Set(spellings).size).toBe(spellings.length);
+        expect(platformPrimitive("_mm256_lddqu_si256")?.kind).toBe(
+            PlatformPrimitiveKind.MEMORY_LOAD,
+        );
+        expect(platformPrimitive("math_lib::__lzcnt64")?.wasmOp).toBe(PlatformWasmOp.I64_CLZ);
+        expect(platformPrimitive("_rdrand64_step")?.capabilities).toEqual([
+            PlatformCapability.CHAIN_PRNG,
+        ]);
     });
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    sim.deploy(27, result.wasm);
-    const output = sim.query(27, 1);
-    const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
-    expect(output.slice(0, 32)).toEqual(new Uint8Array(32));
-    expect([0, 1, 2, 3].map((lane) => view.getBigUint64(32 + lane * 8, true))).toEqual([
-      1n,
-      2n,
-      3n,
-      4n,
-    ]);
-    expect([...output.slice(64, 69)]).toEqual([1, 2, 3, 4, 5]);
-    expect([0, 1, 2, 3].map((lane) => view.getBigUint64(96 + lane * 8, true))).toEqual([
-      1n,
-      2n,
-      3n,
-      4n,
-    ]);
-    expect(view.getBigUint64(128, true)).toBe(1n);
-    expect(view.getBigUint64(136, true)).toBe(0n);
-    expect(view.getBigUint64(144, true)).toBe(1n);
-    expect(view.getBigUint64(152, true)).toBe(64n);
-    expect(view.getBigUint64(160, true)).toBe(4n);
-    expect(view.getBigUint64(168, true)).toBe(0xfffffffffffffffen);
-    expect(view.getBigUint64(176, true)).toBe(1n);
-    expect(view.getBigInt64(184, true)).toBe(-2n);
-    expect(view.getBigInt64(192, true)).toBe(-1n);
-  });
+    test("zero, overloaded constructors, conversion helpers, and isZero compile from core source", async () => {
+        const result = await compileContract({
+            source: SOURCE,
+            contractName: "PlatformSource",
+            slot: 27,
+            qpiHeader: HEADER,
+            arenaSizeBytes: 1 << 20,
+        });
+        expect(
+            result.diagnostics.filter(
+                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
+            ),
+        ).toEqual([]);
 
-  test("migrated semantics appear only in the registry", () => {
-    const memory = readSourceTree("../../src/backend/wasm/memory", import.meta.url);
-    const calls = readSourceTree("../../src/backend/wasm/calls", import.meta.url);
-    expect(memory).not.toContain('expr.callee.name === "m256i::zero"');
-    expect(memory).not.toContain('expr.callee.name === "_mm256_set_epi64x"');
-    expect(calls).not.toMatch(/intrinsic === "_(?:tzcnt|lzcnt)/);
-    expect(calls).not.toMatch(/\^_rdrand/);
-  });
+        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+        sim.deploy(27, result.wasm);
+        const output = sim.query(27, 1);
+        const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+        expect(output.slice(0, 32)).toEqual(new Uint8Array(32));
+        expect([0, 1, 2, 3].map((lane) => view.getBigUint64(32 + lane * 8, true))).toEqual([
+            1n,
+            2n,
+            3n,
+            4n,
+        ]);
+        expect([...output.slice(64, 69)]).toEqual([1, 2, 3, 4, 5]);
+        expect([0, 1, 2, 3].map((lane) => view.getBigUint64(96 + lane * 8, true))).toEqual([
+            1n,
+            2n,
+            3n,
+            4n,
+        ]);
+        expect(view.getBigUint64(128, true)).toBe(1n);
+        expect(view.getBigUint64(136, true)).toBe(0n);
+        expect(view.getBigUint64(144, true)).toBe(1n);
+        expect(view.getBigUint64(152, true)).toBe(64n);
+        expect(view.getBigUint64(160, true)).toBe(4n);
+        expect(view.getBigUint64(168, true)).toBe(0xfffffffffffffffen);
+        expect(view.getBigUint64(176, true)).toBe(1n);
+        expect(view.getBigInt64(184, true)).toBe(-2n);
+        expect(view.getBigInt64(192, true)).toBe(-1n);
+    });
+
+    test("migrated semantics appear only in the registry", () => {
+        const memory = readSourceTree("../../src/backend/wasm/memory", import.meta.url);
+        const calls = readSourceTree("../../src/backend/wasm/calls", import.meta.url);
+        expect(memory).not.toContain('expr.callee.name === "m256i::zero"');
+        expect(memory).not.toContain('expr.callee.name === "_mm256_set_epi64x"');
+        expect(calls).not.toMatch(/intrinsic === "_(?:tzcnt|lzcnt)/);
+        expect(calls).not.toMatch(/\^_rdrand/);
+    });
 });

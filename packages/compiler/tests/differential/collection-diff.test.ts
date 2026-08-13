@@ -45,8 +45,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 const ORDERS_GTEST = coreGtest(
-  "Orders",
-  `TEST(Coll, AddIterateRemove) {
+    "Orders",
+    `TEST(Coll, AddIterateRemove) {
   ContractTestingHarness t;
   QPI::id u1 = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   QPI::id u2 = t.idFromSeed("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
@@ -78,40 +78,42 @@ const ORDERS_GTEST = coreGtest(
 const wasi = wasiToolchain();
 
 describe("differential gtest — Collection (BST add/iterate/remove)", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
+    beforeAll(async () => {
+        await initK12();
+    });
 
-  toolchainTest(
-    "my Collection contract passes the native Collection gtest",
-    wasi,
-    async () => {
-      const runnerWasm = await buildDifferentialRunner({
-        corePath: CORE,
-        source: ORDERS,
-        testSource: ORDERS_GTEST,
-        name: "Orders",
-        tempPrefix: "collection-diff-",
-      });
+    toolchainTest(
+        "my Collection contract passes the native Collection gtest",
+        wasi,
+        async () => {
+            const runnerWasm = await buildDifferentialRunner({
+                corePath: CORE,
+                source: ORDERS,
+                testSource: ORDERS_GTEST,
+                name: "Orders",
+                tempPrefix: "collection-diff-",
+            });
 
-      const mine = await compileContract({
-        source: ORDERS,
-        contractName: "Orders",
-        slot: 28,
-        qpiHeader: HEADERS,
-        arenaSizeBytes: 1024 * 1024,
-      });
-      expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+            const mine = await compileContract({
+                source: ORDERS,
+                contractName: "Orders",
+                slot: 28,
+                qpiHeader: HEADERS,
+                arenaSizeBytes: 1024 * 1024,
+            });
+            expect(
+                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+            ).toHaveLength(0);
 
-      const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-      for (const r of results) {
-        console.log(
-          `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
-        );
-      }
-      expect(results.length).toBeGreaterThan(0);
-      expect(results.every((r) => r.passed)).toBe(true);
-    },
-    120000,
-  );
+            const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+            for (const r of results) {
+                console.log(
+                    `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+                );
+            }
+            expect(results.length).toBeGreaterThan(0);
+            expect(results.every((r) => r.passed)).toBe(true);
+        },
+        120000,
+    );
 });

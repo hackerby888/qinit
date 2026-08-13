@@ -10,7 +10,10 @@ export function collapseTypeKeywords(context: LexerInternals): void {
         for (const [seq, compound] of TYPE_COMPOUNDS) {
             let match = true;
             for (let seqItemIndex = 0; seqItemIndex < seq.length; seqItemIndex++) {
-                if (index + seqItemIndex >= context.tokens.length || context.tokens[index + seqItemIndex].kind !== seq[seqItemIndex]) {
+                if (
+                    index + seqItemIndex >= context.tokens.length ||
+                    context.tokens[index + seqItemIndex].kind !== seq[seqItemIndex]
+                ) {
                     match = false;
                     break;
                 }

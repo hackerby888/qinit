@@ -1,7 +1,4 @@
-import {
-    WatNodeType,
-    type WatValueType,
-} from "../shared/enums";
+import { WatNodeType, type WatValueType } from "../shared/enums";
 import type {
     TypeSpec,
     Expression,
@@ -49,7 +46,11 @@ export interface ResolvedSourceMethod {
     requiresMethodTemplateInference: boolean;
 }
 
-export const EMPTY_TEMPLATE_BINDINGS: TemplateBindings = { types: new Map(), values: new Map(), structs: new Map() };
+export const EMPTY_TEMPLATE_BINDINGS: TemplateBindings = {
+    types: new Map(),
+    values: new Map(),
+    structs: new Map(),
+};
 
 export interface NamespaceLookupContext {
     sourceNamespace?: string;
@@ -60,16 +61,22 @@ export interface NamespaceLookupContext {
 export interface ResolvedCalleeIdl {
     name: string;
     index: number;
-    functions: Record<string, {
-        inputType: number;
-        inSize: number;
-        outSize: number;
-    }>;
-    procedures: Record<string, {
-        inputType: number;
-        inSize: number;
-        outSize: number;
-    }>;
+    functions: Record<
+        string,
+        {
+            inputType: number;
+            inSize: number;
+            outSize: number;
+        }
+    >;
+    procedures: Record<
+        string,
+        {
+            inputType: number;
+            inSize: number;
+            outSize: number;
+        }
+    >;
 }
 
 export interface CompiledHelperMetadata {

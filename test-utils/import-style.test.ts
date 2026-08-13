@@ -13,21 +13,21 @@ const root = resolve(import.meta.dir, "..");
 // (package-internal tests). Requiring a package name followed by `/src/` keeps within-package imports
 // (`../../src/x`) and non-package targets (`../../../../test-utils/paths`) from matching.
 const RELATIVE_PACKAGE_IMPORT =
-  /from\s+"(?:\.\.\/)+(?:packages\/)?(?:build|cli|compiler|core|engine|proto)\/src\/[^"]*"/;
+    /from\s+"(?:\.\.\/)+(?:packages\/)?(?:build|cli|compiler|core|engine|proto)\/src\/[^"]*"/;
 
 test("workspace packages are imported by @qinit alias, not relative path", () => {
-  const offenders: string[] = [];
+    const offenders: string[] = [];
 
-  for (const relativePath of new Bun.Glob("**/*.{ts,tsx}").scanSync({ cwd: root })) {
-    if (/(^|\/)(node_modules|dist|\.generated)\//.test(relativePath)) continue;
+    for (const relativePath of new Bun.Glob("**/*.{ts,tsx}").scanSync({ cwd: root })) {
+        if (/(^|\/)(node_modules|dist|\.generated)\//.test(relativePath)) continue;
 
-    const lines = readFileSync(resolve(root, relativePath), "utf8").split("\n");
-    lines.forEach((line, index) => {
-      if (RELATIVE_PACKAGE_IMPORT.test(line)) {
-        offenders.push(`${relativePath}:${index + 1}: ${line.trim()}`);
-      }
-    });
-  }
+        const lines = readFileSync(resolve(root, relativePath), "utf8").split("\n");
+        lines.forEach((line, index) => {
+            if (RELATIVE_PACKAGE_IMPORT.test(line)) {
+                offenders.push(`${relativePath}:${index + 1}: ${line.trim()}`);
+            }
+        });
+    }
 
-  expect(offenders).toEqual([]);
+    expect(offenders).toEqual([]);
 });

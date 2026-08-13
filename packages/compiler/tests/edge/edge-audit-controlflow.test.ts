@@ -91,37 +91,40 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 let wasm: Uint8Array;
 
 function run(inputType: number): bigint {
-  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-  const user = new Uint8Array(32).fill(7);
-  sim.fund(user, 1_000_000n);
-  sim.deploy(27, wasm);
-  sim.procedure(27, inputType, undefined, { invocator: user });
-  const state = sim.contracts.get(27)!.state();
-  return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+    const user = new Uint8Array(32).fill(7);
+    sim.fund(user, 1_000_000n);
+    sim.deploy(27, wasm);
+    sim.procedure(27, inputType, undefined, { invocator: user });
+    const state = sim.contracts.get(27)!.state();
+    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
 }
 
 describe("edge audit — control-flow semantics", () => {
-  beforeAll(async () => {
-    await initK12();
-    const result = await compileContract({
-      source: SOURCE,
-      contractName: "ControlEdge",
-      slot: 27,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1 << 20,
+    beforeAll(async () => {
+        await initK12();
+        const result = await compileContract({
+            source: SOURCE,
+            contractName: "ControlEdge",
+            slot: 27,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1 << 20,
+        });
+        expect(
+            result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+        expect(WebAssembly.validate(result.wasm)).toBe(true);
+        wasm = result.wasm;
     });
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    expect(WebAssembly.validate(result.wasm)).toBe(true);
-    wasm = result.wasm;
-  });
 
-  test("for continue still performs the update expression", () => expect(run(1)).toBe(8n));
-  test("while continue rechecks the condition", () => expect(run(2)).toBe(12n));
-  test("do-while continue reaches the trailing condition", () => expect(run(3)).toBe(7n));
-  test("nested break and continue target the nearest loop", () => expect(run(4)).toBe(82n));
-  test("default in the middle supports direct later-case dispatch and fallthrough", () =>
-    expect(run(5)).toBe(323n));
-  test("dangling else binds to the nearest if", () => expect(run(6)).toBe(5n));
-  test("logical operators short-circuit side effects", () => expect(run(7)).toBe(0n));
-  test("switch selector with postfix increment is evaluated once", () => expect(run(8)).toBe(73n));
+    test("for continue still performs the update expression", () => expect(run(1)).toBe(8n));
+    test("while continue rechecks the condition", () => expect(run(2)).toBe(12n));
+    test("do-while continue reaches the trailing condition", () => expect(run(3)).toBe(7n));
+    test("nested break and continue target the nearest loop", () => expect(run(4)).toBe(82n));
+    test("default in the middle supports direct later-case dispatch and fallthrough", () =>
+        expect(run(5)).toBe(323n));
+    test("dangling else binds to the nearest if", () => expect(run(6)).toBe(5n));
+    test("logical operators short-circuit side effects", () => expect(run(7)).toBe(0n));
+    test("switch selector with postfix increment is evaluated once", () =>
+        expect(run(8)).toBe(73n));
 });

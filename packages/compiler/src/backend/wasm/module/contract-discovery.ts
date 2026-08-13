@@ -7,29 +7,31 @@ export function findContractStruct(translationUnit: {
     const structs: StructDecl[] = [];
     const walk = (declarations: Declaration[]) => {
         for (const declaration of declarations) {
-            if (
-                declaration.kind === AstKind.STRUCT &&
-                declaration.hasBody !== false
-            )
+            if (declaration.kind === AstKind.STRUCT && declaration.hasBody !== false)
                 structs.push(declaration as StructDecl);
-            else if (declaration.kind === AstKind.NAMESPACE)
-                walk((declaration as any).body);
+            else if (declaration.kind === AstKind.NAMESPACE) walk((declaration as any).body);
         }
     };
     walk(translationUnit.declarations);
     for (const struct of structs) {
-        if (struct.bases.some((baseType) => baseType.kind === AstKind.NAME && baseType.name === "ContractBase"))
+        if (
+            struct.bases.some(
+                (baseType) => baseType.kind === AstKind.NAME && baseType.name === "ContractBase",
+            )
+        )
             return struct;
-        if (struct.name === "CONTRACT_STATE_TYPE")
-            return struct;
+        if (struct.name === "CONTRACT_STATE_TYPE") return struct;
     }
     // fallback: a struct with a nested StateData that isn't one of the qpi.h library types
     for (const candidate of structs) {
-        if (candidate.members.some((member) => (
-            member.kind === AstKind.STRUCT &&
-            (member as StructDecl).name === "StateData" &&
-            (member as StructDecl).hasBody !== false
-        )))
+        if (
+            candidate.members.some(
+                (member) =>
+                    member.kind === AstKind.STRUCT &&
+                    (member as StructDecl).name === "StateData" &&
+                    (member as StructDecl).hasBody !== false,
+            )
+        )
             return candidate;
     }
     return null;

@@ -89,15 +89,10 @@ function emitTestProcedureInvocation(
         addrIr(origin),
     );
 
-    context.lines.push(
-        `    ${watIr.serializeWatNode(watIr.operation("drop", invocation))}`,
-    );
+    context.lines.push(`    ${watIr.serializeWatNode(watIr.operation("drop", invocation))}`);
 }
 
-function emitTestFunctionQuery(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-): void {
+function emitTestFunctionQuery(context: FunctionEmissionContext, expression: CallExpression): void {
     let input = expression.callArguments[2]
         ? context.lowering.resolveExpressionAddress(context, expression.callArguments[2])
         : null;
@@ -197,9 +192,7 @@ function emitTestSystemProcedureCall(
     );
     const procedureCall = watIr.functionCall("$qt_system", contractSlot, procedureId);
 
-    context.lines.push(
-        `    ${watIr.serializeWatNode(watIr.operation("drop", procedureCall))}`,
-    );
+    context.lines.push(`    ${watIr.serializeWatNode(watIr.operation("drop", procedureCall))}`);
 }
 
 function tryEmitTestAssertion(
@@ -207,9 +200,7 @@ function tryEmitTestAssertion(
     expression: CallExpression,
     callName: string,
 ): boolean {
-    const assertion = callName.match(
-        /^__qtest_(expect|assert)_(eq|ne|lt|le|gt|ge|true|false)$/,
-    );
+    const assertion = callName.match(/^__qtest_(expect|assert)_(eq|ne|lt|le|gt|ge|true|false)$/);
 
     if (!assertion) {
         return false;

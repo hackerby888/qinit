@@ -10,178 +10,178 @@ import { VirtualNode } from "../../src/transport";
 const SEED = "a".repeat(55);
 
 function hexToBytes(hex: string): Uint8Array {
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
+    const out = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    return out;
 }
 
 async function seedPubkey(): Promise<Uint8Array> {
-  return hexToBytes((await deriveIdentity(SEED)).publicKeyHex);
+    return hexToBytes((await deriveIdentity(SEED)).publicKeyHex);
 }
 
 // Vault Get output: { uint64 totalReceived; uint64 incomingCount; sint64 lastIncoming; uint64 tickCount }
 function vaultGet(sim: QubicSimulator, slot: number) {
-  const b = sim.query(slot, 1);
-  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  return {
-    totalReceived: dv.getBigUint64(0, true),
-    incomingCount: dv.getBigUint64(8, true),
-    lastIncoming: dv.getBigInt64(16, true),
-  };
+    const b = sim.query(slot, 1);
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    return {
+        totalReceived: dv.getBigUint64(0, true),
+        incomingCount: dv.getBigUint64(8, true),
+        lastIncoming: dv.getBigInt64(16, true),
+    };
 }
 
 test("regular transfer moves spectrum balance + lands in the tick", async () => {
-  await initK12();
+    await initK12();
 
-  const sim = new QubicSimulator();
-  const A = new Uint8Array(32).fill(0x11);
-  const B = new Uint8Array(32).fill(0x22);
-  sim.fund(A, 1000n);
+    const sim = new QubicSimulator();
+    const A = new Uint8Array(32).fill(0x11);
+    const B = new Uint8Array(32).fill(0x22);
+    sim.fund(A, 1000n);
 
-  const r = sim.applyTx(A, B, 100n, 0, new Uint8Array(0), "tx-1");
-  expect(r.moneyFlew).toBe(true);
-  expect(sim.balance(A)).toBe(900n);
-  expect(sim.balance(B)).toBe(100n);
+    const r = sim.applyTx(A, B, 100n, 0, new Uint8Array(0), "tx-1");
+    expect(r.moneyFlew).toBe(true);
+    expect(sim.balance(A)).toBe(900n);
+    expect(sim.balance(B)).toBe(100n);
 
-  const txs = sim.tickTransactions(sim.currentTick);
-  expect(txs.length).toBe(1);
-  expect(txs[0].txId).toBe("tx-1");
-  expect(sim.txByHash("tx-1")?.amount).toBe(100n);
+    const txs = sim.tickTransactions(sim.currentTick);
+    expect(txs.length).toBe(1);
+    expect(txs[0].txId).toBe("tx-1");
+    expect(sim.txByHash("tx-1")?.amount).toBe(100n);
 });
 
 test("insufficient source: moneyFlew false, no balance change (tx still recorded)", async () => {
-  await initK12();
+    await initK12();
 
-  const sim = new QubicSimulator();
-  const A = new Uint8Array(32).fill(0x11);
-  const B = new Uint8Array(32).fill(0x22);
-  sim.fund(A, 50n);
+    const sim = new QubicSimulator();
+    const A = new Uint8Array(32).fill(0x11);
+    const B = new Uint8Array(32).fill(0x22);
+    sim.fund(A, 50n);
 
-  const r = sim.applyTx(A, B, 100n, 0, new Uint8Array(0), "tx-2");
-  expect(r.moneyFlew).toBe(false);
-  expect(sim.balance(A)).toBe(50n);
-  expect(sim.balance(B)).toBe(0n);
-  expect(sim.tickTransactions(sim.currentTick).length).toBe(1);
+    const r = sim.applyTx(A, B, 100n, 0, new Uint8Array(0), "tx-2");
+    expect(r.moneyFlew).toBe(false);
+    expect(sim.balance(A)).toBe(50n);
+    expect(sim.balance(B)).toBe(0n);
+    expect(sim.tickTransactions(sim.currentTick).length).toBe(1);
 });
 
 test("contract addresses cannot be transaction signers", async () => {
-  await initK12();
-  const sim = new QubicSimulator();
-  const source = contractAddress(28);
-  sim.fund(source, 100n);
+    await initK12();
+    const sim = new QubicSimulator();
+    const source = contractAddress(28);
+    sim.fund(source, 100n);
 
-  expect(() =>
-    sim.applyTx(
-      source,
-      new Uint8Array(32).fill(0x22),
-      1n,
-      0,
-      new Uint8Array(0),
-      "contract-source",
-    ),
-  ).toThrow("contract addresses cannot sign transactions");
-  expect(sim.txByHash("contract-source")).toBeUndefined();
+    expect(() =>
+        sim.applyTx(
+            source,
+            new Uint8Array(32).fill(0x22),
+            1n,
+            0,
+            new Uint8Array(0),
+            "contract-source",
+        ),
+    ).toThrow("contract addresses cannot sign transactions");
+    expect(sim.txByHash("contract-source")).toBeUndefined();
 });
 
 test("a zero-amount transaction from a missing entity does not invoke a contract", async () => {
-  await initK12();
-  const sim = new QubicSimulator();
-  sim.deploy(28, await wasm("Counter"));
+    await initK12();
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("Counter"));
 
-  const result = sim.applyTx(
-    new Uint8Array(32).fill(0x11),
-    contractAddress(28),
-    0n,
-    1,
-    new Uint8Array(0),
-    "missing-source",
-  );
+    const result = sim.applyTx(
+        new Uint8Array(32).fill(0x11),
+        contractAddress(28),
+        0n,
+        1,
+        new Uint8Array(0),
+        "missing-source",
+    );
 
-  expect(result.moneyFlew).toBe(false);
-  expect(
-    new DataView(sim.query(28, 1).buffer).getBigUint64(0, true),
-  ).toBe(0n);
-  expect(sim.txByHash("missing-source")).toBeDefined();
+    expect(result.moneyFlew).toBe(false);
+    expect(new DataView(sim.query(28, 1).buffer).getBigUint64(0, true)).toBe(0n);
+    expect(sim.txByHash("missing-source")).toBeDefined();
 });
 
 test("contract procedure tx (real signed): source debited, procedure runs with invocationReward", async () => {
-  await initK12();
+    await initK12();
 
-  const eng = new VirtualNode({ mempool: false }); // assert tx EFFECT immediately (not mempool scheduling)
-  await eng.seedFaucet();
-  eng.deploy(28, await wasm("Vault"), "Vault");
-  const seed = await seedPubkey();
-  const before = eng.sim.balance(seed);
+    const eng = new VirtualNode({ mempool: false }); // assert tx EFFECT immediately (not mempool scheduling)
+    await eng.seedFaucet();
+    eng.deploy(28, await wasm("Vault"), "Vault");
+    const seed = await seedPubkey();
+    const before = eng.sim.balance(seed);
 
-  const tx = await buildSignedTx(SEED, {
-    destination: contractAddress(28),
-    amount: 100,
-    tick: 10,
-    inputType: 1,
-    payload: await encodeInput(""),
-  });
-  expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
+    const tx = await buildSignedTx(SEED, {
+        destination: contractAddress(28),
+        amount: 100,
+        tick: 10,
+        inputType: 1,
+        payload: await encodeInput(""),
+    });
+    expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
 
-  const g = vaultGet(eng.sim, 28);
-  expect(g.totalReceived).toBe(100n); // Deposit read qpi.invocationReward()
-  expect(g.incomingCount).toBe(1n); // POST_INCOMING_TRANSFER (procedureTransaction)
-  expect(eng.sim.balanceOf(28)).toBe(100n);
-  expect(eng.sim.balance(seed)).toBe(before - 100n);
+    const g = vaultGet(eng.sim, 28);
+    expect(g.totalReceived).toBe(100n); // Deposit read qpi.invocationReward()
+    expect(g.incomingCount).toBe(1n); // POST_INCOMING_TRANSFER (procedureTransaction)
+    expect(eng.sim.balanceOf(28)).toBe(100n);
+    expect(eng.sim.balance(seed)).toBe(before - 100n);
 });
 
 test("plain transfer to a contract (inputType 0): POST_INCOMING_TRANSFER fires, no procedure", async () => {
-  await initK12();
+    await initK12();
 
-  const eng = new VirtualNode({ mempool: false }); // assert tx EFFECT immediately (not mempool scheduling)
-  await eng.seedFaucet();
-  eng.deploy(28, await wasm("Vault"), "Vault");
+    const eng = new VirtualNode({ mempool: false }); // assert tx EFFECT immediately (not mempool scheduling)
+    await eng.seedFaucet();
+    eng.deploy(28, await wasm("Vault"), "Vault");
 
-  const tx = await buildSignedTx(SEED, {
-    destination: contractAddress(28),
-    amount: 50,
-    tick: 10,
-    inputType: 0,
-    payload: new Uint8Array(0),
-  });
-  expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
+    const tx = await buildSignedTx(SEED, {
+        destination: contractAddress(28),
+        amount: 50,
+        tick: 10,
+        inputType: 0,
+        payload: new Uint8Array(0),
+    });
+    expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
 
-  const g = vaultGet(eng.sim, 28);
-  expect(g.totalReceived).toBe(0n); // Deposit did NOT run (inputType 0 is not a procedure)
-  expect(g.incomingCount).toBe(1n); // PIT (standardTransaction) fired
-  expect(g.lastIncoming).toBe(50n);
-  expect(eng.sim.balanceOf(28)).toBe(50n);
+    const g = vaultGet(eng.sim, 28);
+    expect(g.totalReceived).toBe(0n); // Deposit did NOT run (inputType 0 is not a procedure)
+    expect(g.incomingCount).toBe(1n); // PIT (standardTransaction) fired
+    expect(g.lastIncoming).toBe(50n);
+    expect(eng.sim.balanceOf(28)).toBe(50n);
 });
 
 test("plain contract transfers report moneyFlew even when PIT returns the amount", async () => {
-  await initK12();
+    await initK12();
 
-  const sim = new QubicSimulator();
-  sim.deploy(28, await wasm("Refund"));
-  const source = new Uint8Array(32).fill(0x11);
-  sim.fund(source, 100n);
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("Refund"));
+    const source = new Uint8Array(32).fill(0x11);
+    sim.fund(source, 100n);
 
-  const result = sim.applyTx(
-    source,
-    contractAddress(28),
-    25n,
-    0,
-    new Uint8Array(0),
-    "returned-transfer",
-  );
+    const result = sim.applyTx(
+        source,
+        contractAddress(28),
+        25n,
+        0,
+        new Uint8Array(0),
+        "returned-transfer",
+    );
 
-  expect(result.moneyFlew).toBe(true);
-  expect(sim.balance(source)).toBe(100n);
-  expect(sim.balanceOf(28)).toBe(0n);
+    expect(result.moneyFlew).toBe(true);
+    expect(sim.balance(source)).toBe(100n);
+    expect(sim.balanceOf(28)).toBe(0n);
 });
 
 test("getEntity: a contract reads an account's balance from the spectrum", async () => {
-  await initK12();
+    await initK12();
 
-  const eng = new VirtualNode();
-  eng.deploy(28, await wasm("Watcher"), "Watcher");
-  const X = new Uint8Array(32).fill(0x33);
-  eng.fund(X, 777n);
+    const eng = new VirtualNode();
+    eng.deploy(28, await wasm("Watcher"), "Watcher");
+    const X = new Uint8Array(32).fill(0x33);
+    eng.fund(X, 777n);
 
-  const out = await eng.querySmartContract(28, 1, X); // Balance(who=X)
-  expect(new DataView(out.buffer, out.byteOffset, out.byteLength).getBigInt64(0, true)).toBe(777n);
+    const out = await eng.querySmartContract(28, 1, X); // Balance(who=X)
+    expect(new DataView(out.buffer, out.byteOffset, out.byteLength).getBigInt64(0, true)).toBe(
+        777n,
+    );
 });

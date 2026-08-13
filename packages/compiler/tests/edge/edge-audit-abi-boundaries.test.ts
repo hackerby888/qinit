@@ -34,67 +34,69 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 let entries: Array<{
-  inputType: number;
-  kind: number;
-  inputSizeBytes: number;
-  outputSizeBytes: number;
+    inputType: number;
+    kind: number;
+    inputSizeBytes: number;
+    outputSizeBytes: number;
 }>;
 let stateSize: number;
 let oldStateSize: number;
 
 describe("edge audit — inclusive QPI ABI boundaries", () => {
-  beforeAll(async () => {
-    await initK12();
-    const result = await compileContract({
-      source: SOURCE,
-      contractName: "AbiBoundaryEdge",
-      slot: 27,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1 << 20,
+    beforeAll(async () => {
+        await initK12();
+        const result = await compileContract({
+            source: SOURCE,
+            contractName: "AbiBoundaryEdge",
+            slot: 27,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1 << 20,
+        });
+        expect(
+            result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+        expect(WebAssembly.validate(result.wasm)).toBe(true);
+        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+        sim.deploy(27, result.wasm);
+        const contract = sim.contracts.get(27)!;
+        entries = contract.entries;
+        stateSize = contract.ex.state_size();
+        oldStateSize = contract.ex.migrate_old_state_size?.() ?? 0;
     });
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    expect(WebAssembly.validate(result.wasm)).toBe(true);
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    sim.deploy(27, result.wasm);
-    const contract = sim.contracts.get(27)!;
-    entries = contract.entries;
-    stateSize = contract.ex.state_size();
-    oldStateSize = contract.ex.migrate_old_state_size?.() ?? 0;
-  });
 
-  test("a procedure input of exactly MAX_INPUT_SIZE bytes is registered", () => {
-    expect(entries).toContainEqual({
-      inputType: 1,
-      kind: 1,
-      inputSizeBytes: 1024,
-      outputSizeBytes: 1,
+    test("a procedure input of exactly MAX_INPUT_SIZE bytes is registered", () => {
+        expect(entries).toContainEqual({
+            inputType: 1,
+            kind: 1,
+            inputSizeBytes: 1024,
+            outputSizeBytes: 1,
+        });
     });
-  });
 
-  test("a function output of exactly uint16 max bytes is registered", () => {
-    expect(entries).toContainEqual({
-      inputType: 1,
-      kind: 0,
-      inputSizeBytes: 1,
-      outputSizeBytes: 65535,
+    test("a function output of exactly uint16 max bytes is registered", () => {
+        expect(entries).toContainEqual({
+            inputType: 1,
+            kind: 0,
+            inputSizeBytes: 1,
+            outputSizeBytes: 65535,
+        });
     });
-  });
 
-  test("locals of exactly MAX_SIZE_OF_CONTRACT_LOCALS compile", () => {
-    expect(entries).toContainEqual({
-      inputType: 65535,
-      kind: 1,
-      inputSizeBytes: 1,
-      outputSizeBytes: 1,
+    test("locals of exactly MAX_SIZE_OF_CONTRACT_LOCALS compile", () => {
+        expect(entries).toContainEqual({
+            inputType: 65535,
+            kind: 1,
+            inputSizeBytes: 1,
+            outputSizeBytes: 1,
+        });
     });
-  });
 
-  test("empty state and migration layouts reach Wasm metadata", () => {
-    expect(stateSize).toBe(1);
-    expect(oldStateSize).toBe(1);
-  });
+    test("empty state and migration layouts reach Wasm metadata", () => {
+        expect(stateSize).toBe(1);
+        expect(oldStateSize).toBe(1);
+    });
 
-  test("the same input type is allowed once per function/procedure kind", () => {
-    expect(entries.filter((entry) => entry.inputType === 1)).toHaveLength(2);
-  });
+    test("the same input type is allowed once per function/procedure kind", () => {
+        expect(entries.filter((entry) => entry.inputType === 1)).toHaveLength(2);
+    });
 });

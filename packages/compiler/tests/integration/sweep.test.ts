@@ -9,10 +9,10 @@ import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { parseContractIdl } from "@qinit/proto/contract-idl";
 import {
-  compileContract,
-  loadQpiHeader,
-  type ContractIdl,
-  type CompileResult,
+    compileContract,
+    loadQpiHeader,
+    type ContractIdl,
+    type CompileResult,
 } from "../../src/index";
 
 const QPI = loadQpiHeader(CORE_PATH);
@@ -24,288 +24,296 @@ const SYSTEM_CONTRACTS = systemContracts(CORE_PATH);
 
 // simple user-level fixtures
 const FIXTURE_FILES = [
-  "Counter.h",
-  "Counter5.h",
-  "Bank.h",
-  "Token.h",
-  "Vault.h",
-  "Dividend.h",
-  "Proxy.h",
-  "DigestProbe.h",
-  "BigState.h",
+    "Counter.h",
+    "Counter5.h",
+    "Bank.h",
+    "Token.h",
+    "Vault.h",
+    "Dividend.h",
+    "Proxy.h",
+    "DigestProbe.h",
+    "BigState.h",
 ];
 
 interface DependencySpec {
-  name: string;
-  path: string;
-  slot: number;
+    name: string;
+    path: string;
+    slot: number;
 }
 
 const DEPENDENCIES: Record<string, DependencySpec> = {
-  Counter: { name: "Counter", path: join(FIXTURES, "Counter.h"), slot: 28 },
-  QX: { name: "QX", path: join(SYSTEM, "Qx.h"), slot: 1 },
-  RANDOM: { name: "RANDOM", path: join(SYSTEM, "Random.h"), slot: 3 },
-  QEARN: { name: "QEARN", path: join(SYSTEM, "Qearn.h"), slot: 9 },
-  RL: { name: "RL", path: join(SYSTEM, "RandomLottery.h"), slot: 16 },
-  QRP: { name: "QRP", path: join(SYSTEM, "QReservePool.h"), slot: 21 },
-  QTF: { name: "QTF", path: join(SYSTEM, "QThirtyFour.h"), slot: 22 },
+    Counter: { name: "Counter", path: join(FIXTURES, "Counter.h"), slot: 28 },
+    QX: { name: "QX", path: join(SYSTEM, "Qx.h"), slot: 1 },
+    RANDOM: { name: "RANDOM", path: join(SYSTEM, "Random.h"), slot: 3 },
+    QEARN: { name: "QEARN", path: join(SYSTEM, "Qearn.h"), slot: 9 },
+    RL: { name: "RL", path: join(SYSTEM, "RandomLottery.h"), slot: 16 },
+    QRP: { name: "QRP", path: join(SYSTEM, "QReservePool.h"), slot: 21 },
+    QTF: { name: "QTF", path: join(SYSTEM, "QThirtyFour.h"), slot: 22 },
 };
 
 // Inter-contract source needs both the callee IDL (ABI sizes/entry IDs) and source (qualified constants/helpers).
 // Keep dependency order topological because later callees may themselves call earlier ones.
 const LINKED_DEPENDENCIES: Record<string, string[]> = {
-  Proxy: ["Counter"],
-  QUtil: ["QX"],
-  QVAULT: ["QX", "QEARN"],
-  MsVault: ["QX"],
-  QBond: ["QEARN"],
-  QDuel: ["RANDOM", "RL"],
-  Qbay: ["QX"],
-  Qswap: ["QX"],
-  QIP: ["QX"],
-  QThirtyFour: ["RANDOM", "RL", "QRP"],
-  QReservePool: ["RANDOM", "RL"],
-  RandomLottery: ["RANDOM"],
-  Pulse: ["RANDOM", "RL", "QRP", "QTF", "QX"],
-  Nostromo: ["QX"],
+    Proxy: ["Counter"],
+    QUtil: ["QX"],
+    QVAULT: ["QX", "QEARN"],
+    MsVault: ["QX"],
+    QBond: ["QEARN"],
+    QDuel: ["RANDOM", "RL"],
+    Qbay: ["QX"],
+    Qswap: ["QX"],
+    QIP: ["QX"],
+    QThirtyFour: ["RANDOM", "RL", "QRP"],
+    QReservePool: ["RANDOM", "RL"],
+    RandomLottery: ["RANDOM"],
+    Pulse: ["RANDOM", "RL", "QRP", "QTF", "QX"],
+    Nostromo: ["QX"],
 };
 
 function structName(src: string): string {
-  const m = src.match(/struct\s+(\w+)\s*:\s*public\s+ContractBase/);
-  return m ? m[1] : "Contract";
+    const m = src.match(/struct\s+(\w+)\s*:\s*public\s+ContractBase/);
+    return m ? m[1] : "Contract";
 }
 
 interface Row {
-  name: string;
-  parse: string;
-  wasm: string;
-  load: string;
-  state: string;
-  errors: string[];
+    name: string;
+    parse: string;
+    wasm: string;
+    load: string;
+    state: string;
+    errors: string[];
 }
 
 function calleeIdlFrom(name: string, slot: number, result: CompileResult): ContractIdl {
-  if (!result.idl) {
-    throw new Error(`missing IDL for callee '${name}'`);
-  }
+    if (!result.idl) {
+        throw new Error(`missing IDL for callee '${name}'`);
+    }
 
-  return {
-    ...result.idl,
-    name,
-    slot,
-  };
+    return {
+        ...result.idl,
+        name,
+        slot,
+    };
 }
 
 async function sweepOne(path: string, displayName: string): Promise<Row> {
-  const row: Row = { name: displayName, parse: "-", wasm: "-", load: "-", state: "-", errors: [] };
-  if (!existsSync(path)) {
-    row.parse = "MISSING";
-    row.errors.push(`missing source: ${path}`);
-    return row;
-  }
-  const src = readFileSync(path, "utf8");
-  const name = structName(src);
-  const dependencyNames = LINKED_DEPENDENCIES[displayName] ?? [];
-  const dependencyResults: CompileResult[] = [];
-
-  let r;
-  try {
-    for (const dependencyName of dependencyNames) {
-      const dependency = DEPENDENCIES[dependencyName];
-      if (!dependency) throw new Error(`unknown sweep dependency '${dependencyName}'`);
-      const priorNames = dependencyNames.slice(0, dependencyResults.length);
-      const priorIdl = priorNames.map((priorName, index) => {
-        const prior = DEPENDENCIES[priorName];
-        return calleeIdlFrom(prior.name, prior.slot, dependencyResults[index]);
-      });
-      const priorSources = priorNames.map((priorName) => {
-        const prior = DEPENDENCIES[priorName];
-        return { name: prior.name, source: readFileSync(prior.path, "utf8") };
-      });
-      const dependencyResult = await compileContract({
-        source: readFileSync(dependency.path, "utf8"),
-        contractName: dependency.name,
-        slot: dependency.slot,
-        qpiHeader: QPI,
-        arenaSizeBytes: 64 * 1024,
-        callees: priorIdl.length ? priorIdl : undefined,
-        calleeSources: priorSources.length ? priorSources : undefined,
-      });
-      const dependencyErrors = dependencyResult.diagnostics.filter(
-        (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-      );
-      if (dependencyErrors.length) {
-        throw new Error(
-          `${dependency.name}: ${dependencyErrors.map((diagnostic) => `L${diagnostic.span.line} ${diagnostic.message}`).join("; ")}`,
-        );
-      }
-      dependencyResults.push(dependencyResult);
+    const row: Row = {
+        name: displayName,
+        parse: "-",
+        wasm: "-",
+        load: "-",
+        state: "-",
+        errors: [],
+    };
+    if (!existsSync(path)) {
+        row.parse = "MISSING";
+        row.errors.push(`missing source: ${path}`);
+        return row;
     }
-    const callees = dependencyNames.map((dependencyName, index) => {
-      const dependency = DEPENDENCIES[dependencyName];
-      return calleeIdlFrom(dependency.name, dependency.slot, dependencyResults[index]);
-    });
-    const calleeSources = dependencyNames.map((dependencyName) => {
-      const dependency = DEPENDENCIES[dependencyName];
-      return { name: dependency.name, source: readFileSync(dependency.path, "utf8") };
-    });
-    r = await compileContract({
-      source: src,
-      contractName: name,
-      slot: 28,
-      qpiHeader: QPI,
-      arenaSizeBytes: 64 * 1024,
-      callees: callees.length ? callees : undefined,
-      calleeSources: calleeSources.length ? calleeSources : undefined,
-    });
-  } catch (e: any) {
-    row.parse = "THROW:" + (e.message ?? "").slice(0, 30);
-    row.errors.push(e.message ?? String(e));
-    return row;
-  }
+    const src = readFileSync(path, "utf8");
+    const name = structName(src);
+    const dependencyNames = LINKED_DEPENDENCIES[displayName] ?? [];
+    const dependencyResults: CompileResult[] = [];
 
-  const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
-  row.errors.push(...errs.map((diagnostic) => `L${diagnostic.span.line} ${diagnostic.message}`));
-  if (errs.length > 0) {
-    row.parse = `${errs.length} err`;
-  } else {
+    let r;
     try {
-      parseContractIdl(r.idl);
-      row.parse = "ok";
-    } catch (error: any) {
-      row.parse = "IDL err";
-      row.errors.push(`IDL: ${error.message ?? String(error)}`);
-    }
-  }
-  row.wasm = r.wasm.byteLength > 0 ? `${r.wasm.byteLength}b` : "0";
-
-  if (r.wasm.byteLength === 0) return row;
-
-  try {
-    const sim = new QubicSimulator();
-    const c = sim.deploy(28, r.wasm);
-    const stateSize = c.ex.state_size() >>> 0;
-    const loadErrors: string[] = [];
-    row.state = `${stateSize}b`;
-
-    if (!r.idl) {
-      loadErrors.push("compiled artifact has no IDL");
-    } else {
-      if (r.idl.state.size !== stateSize) {
-        loadErrors.push(
-          `IDL state size ${r.idl.state.size} != Wasm state_size() ${stateSize}`,
-        );
-      }
-
-      const idlEntries = [
-        ...r.idl.functions.map((entry) => ({ ...entry, kind: 0 })),
-        ...r.idl.procedures.map((entry) => ({ ...entry, kind: 1 })),
-      ];
-      if (idlEntries.length !== c.entries.length) {
-        loadErrors.push(
-          `IDL entry count ${idlEntries.length} != Wasm reg_count() ${c.entries.length}`,
-        );
-      }
-      for (const entry of idlEntries) {
-        const registered = c.entries.find(
-          (candidate) =>
-            candidate.kind === entry.kind &&
-            candidate.inputType === entry.inputType,
-        );
-        if (!registered) {
-          loadErrors.push(
-            `missing Wasm registration for ${entry.name} (${entry.kind}:${entry.inputType})`,
-          );
-          continue;
+        for (const dependencyName of dependencyNames) {
+            const dependency = DEPENDENCIES[dependencyName];
+            if (!dependency) throw new Error(`unknown sweep dependency '${dependencyName}'`);
+            const priorNames = dependencyNames.slice(0, dependencyResults.length);
+            const priorIdl = priorNames.map((priorName, index) => {
+                const prior = DEPENDENCIES[priorName];
+                return calleeIdlFrom(prior.name, prior.slot, dependencyResults[index]);
+            });
+            const priorSources = priorNames.map((priorName) => {
+                const prior = DEPENDENCIES[priorName];
+                return { name: prior.name, source: readFileSync(prior.path, "utf8") };
+            });
+            const dependencyResult = await compileContract({
+                source: readFileSync(dependency.path, "utf8"),
+                contractName: dependency.name,
+                slot: dependency.slot,
+                qpiHeader: QPI,
+                arenaSizeBytes: 64 * 1024,
+                callees: priorIdl.length ? priorIdl : undefined,
+                calleeSources: priorSources.length ? priorSources : undefined,
+            });
+            const dependencyErrors = dependencyResult.diagnostics.filter(
+                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
+            );
+            if (dependencyErrors.length) {
+                throw new Error(
+                    `${dependency.name}: ${dependencyErrors.map((diagnostic) => `L${diagnostic.span.line} ${diagnostic.message}`).join("; ")}`,
+                );
+            }
+            dependencyResults.push(dependencyResult);
         }
-        if (
-          registered.inputSizeBytes !== entry.inSize ||
-          registered.outputSizeBytes !== entry.outSize
-        ) {
-          loadErrors.push(
-            `${entry.name} IDL ${entry.inSize}/${entry.outSize} != Wasm ${registered.inputSizeBytes}/${registered.outputSizeBytes}`,
-          );
-        }
-      }
+        const callees = dependencyNames.map((dependencyName, index) => {
+            const dependency = DEPENDENCIES[dependencyName];
+            return calleeIdlFrom(dependency.name, dependency.slot, dependencyResults[index]);
+        });
+        const calleeSources = dependencyNames.map((dependencyName) => {
+            const dependency = DEPENDENCIES[dependencyName];
+            return { name: dependency.name, source: readFileSync(dependency.path, "utf8") };
+        });
+        r = await compileContract({
+            source: src,
+            contractName: name,
+            slot: 28,
+            qpiHeader: QPI,
+            arenaSizeBytes: 64 * 1024,
+            callees: callees.length ? callees : undefined,
+            calleeSources: calleeSources.length ? calleeSources : undefined,
+        });
+    } catch (e: any) {
+        row.parse = "THROW:" + (e.message ?? "").slice(0, 30);
+        row.errors.push(e.message ?? String(e));
+        return row;
     }
 
-    if (loadErrors.length) {
-      row.load = "FAIL";
-      row.errors.push(...loadErrors);
+    const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
+    row.errors.push(...errs.map((diagnostic) => `L${diagnostic.span.line} ${diagnostic.message}`));
+    if (errs.length > 0) {
+        row.parse = `${errs.length} err`;
     } else {
-      row.load = "ok";
+        try {
+            parseContractIdl(r.idl);
+            row.parse = "ok";
+        } catch (error: any) {
+            row.parse = "IDL err";
+            row.errors.push(`IDL: ${error.message ?? String(error)}`);
+        }
     }
-  } catch (e: any) {
-    row.load = "FAIL";
-    row.errors.push(`engine load: ${e.message ?? String(e)}`);
-  }
-  return row;
+    row.wasm = r.wasm.byteLength > 0 ? `${r.wasm.byteLength}b` : "0";
+
+    if (r.wasm.byteLength === 0) return row;
+
+    try {
+        const sim = new QubicSimulator();
+        const c = sim.deploy(28, r.wasm);
+        const stateSize = c.ex.state_size() >>> 0;
+        const loadErrors: string[] = [];
+        row.state = `${stateSize}b`;
+
+        if (!r.idl) {
+            loadErrors.push("compiled artifact has no IDL");
+        } else {
+            if (r.idl.state.size !== stateSize) {
+                loadErrors.push(
+                    `IDL state size ${r.idl.state.size} != Wasm state_size() ${stateSize}`,
+                );
+            }
+
+            const idlEntries = [
+                ...r.idl.functions.map((entry) => ({ ...entry, kind: 0 })),
+                ...r.idl.procedures.map((entry) => ({ ...entry, kind: 1 })),
+            ];
+            if (idlEntries.length !== c.entries.length) {
+                loadErrors.push(
+                    `IDL entry count ${idlEntries.length} != Wasm reg_count() ${c.entries.length}`,
+                );
+            }
+            for (const entry of idlEntries) {
+                const registered = c.entries.find(
+                    (candidate) =>
+                        candidate.kind === entry.kind && candidate.inputType === entry.inputType,
+                );
+                if (!registered) {
+                    loadErrors.push(
+                        `missing Wasm registration for ${entry.name} (${entry.kind}:${entry.inputType})`,
+                    );
+                    continue;
+                }
+                if (
+                    registered.inputSizeBytes !== entry.inSize ||
+                    registered.outputSizeBytes !== entry.outSize
+                ) {
+                    loadErrors.push(
+                        `${entry.name} IDL ${entry.inSize}/${entry.outSize} != Wasm ${registered.inputSizeBytes}/${registered.outputSizeBytes}`,
+                    );
+                }
+            }
+        }
+
+        if (loadErrors.length) {
+            row.load = "FAIL";
+            row.errors.push(...loadErrors);
+        } else {
+            row.load = "ok";
+        }
+    } catch (e: any) {
+        row.load = "FAIL";
+        row.errors.push(`engine load: ${e.message ?? String(e)}`);
+    }
+    return row;
 }
 
 beforeAll(async () => {
-  await initK12();
+    await initK12();
 });
 
 test("conformance sweep — fixtures + system contracts", async () => {
-  const rows: Row[] = [];
+    const rows: Row[] = [];
 
-  const declaredTargets = new Set([
-    ...FIXTURE_FILES.map((file) => file.replace(".h", "")),
-    ...SYSTEM_CONTRACTS.map((contract) => contract.file.replace(".h", "")),
-  ]);
-  expect(Object.keys(LINKED_DEPENDENCIES).filter((name) => !declaredTargets.has(name))).toEqual([]);
-  expect(
-    Object.values(LINKED_DEPENDENCIES)
-      .flat()
-      .filter((name) => !(name in DEPENDENCIES)),
-  ).toEqual([]);
-
-  for (const f of FIXTURE_FILES) {
-    rows.push(await sweepOne(join(FIXTURES, f), f.replace(".h", "")));
-  }
-  rows.push({ name: "---", parse: "---", wasm: "---", load: "---", state: "---", errors: [] });
-  for (const contract of SYSTEM_CONTRACTS) {
-    rows.push(
-      await sweepOne(
-        join(SYSTEM, contract.file),
-        contract.file.replace(".h", ""),
-      ),
+    const declaredTargets = new Set([
+        ...FIXTURE_FILES.map((file) => file.replace(".h", "")),
+        ...SYSTEM_CONTRACTS.map((contract) => contract.file.replace(".h", "")),
+    ]);
+    expect(Object.keys(LINKED_DEPENDENCIES).filter((name) => !declaredTargets.has(name))).toEqual(
+        [],
     );
-  }
+    expect(
+        Object.values(LINKED_DEPENDENCIES)
+            .flat()
+            .filter((name) => !(name in DEPENDENCIES)),
+    ).toEqual([]);
 
-  // Print the table
-  const pad = (s: string, n: number) => s.padEnd(n);
-  console.log(
-    "\n" + pad("CONTRACT", 22) + pad("PARSE", 10) + pad("WASM", 10) + pad("LOAD", 8) + "STATE",
-  );
-  console.log("-".repeat(62));
-  for (const r of rows) {
-    console.log(pad(r.name, 22) + pad(r.parse, 10) + pad(r.wasm, 10) + pad(r.load, 8) + r.state);
-  }
+    for (const f of FIXTURE_FILES) {
+        rows.push(await sweepOne(join(FIXTURES, f), f.replace(".h", "")));
+    }
+    rows.push({ name: "---", parse: "---", wasm: "---", load: "---", state: "---", errors: [] });
+    for (const contract of SYSTEM_CONTRACTS) {
+        rows.push(await sweepOne(join(SYSTEM, contract.file), contract.file.replace(".h", "")));
+    }
 
-  const real = rows.filter((r) => r.name !== "---");
-  const parsed = real.filter((r) => r.parse === "ok").length;
-  const wasmd = real.filter((r) => r.wasm.endsWith("b")).length;
-  const loaded = real.filter((r) => r.load === "ok").length;
-  const failures = real.filter(
-    (row) => row.parse !== "ok" || !row.wasm.endsWith("b") || row.load !== "ok",
-  );
-  const failureReport = failures
-    .map((row) => `${row.name}: ${row.errors.join("; ") || `${row.parse}/${row.wasm}/${row.load}`}`)
-    .join("\n");
-  console.log("-".repeat(62));
-  console.log(
-    `TOTAL ${real.length}  ·  parsed ${parsed}  ·  wasm ${wasmd}  ·  engine-loaded ${loaded}\n`,
-  );
+    // Print the table
+    const pad = (s: string, n: number) => s.padEnd(n);
+    console.log(
+        "\n" + pad("CONTRACT", 22) + pad("PARSE", 10) + pad("WASM", 10) + pad("LOAD", 8) + "STATE",
+    );
+    console.log("-".repeat(62));
+    for (const r of rows) {
+        console.log(
+            pad(r.name, 22) + pad(r.parse, 10) + pad(r.wasm, 10) + pad(r.load, 8) + r.state,
+        );
+    }
 
-  // Dependency-aware coverage is deterministic, so drift is now a gating failure rather than a table-only measurement.
-  expect(
-    failures.map((row) => row.name),
-    failureReport,
-  ).toEqual([]);
-  expect({ parsed, wasmd, loaded }).toEqual({
-    parsed: real.length,
-    wasmd: real.length,
-    loaded: real.length,
-  });
+    const real = rows.filter((r) => r.name !== "---");
+    const parsed = real.filter((r) => r.parse === "ok").length;
+    const wasmd = real.filter((r) => r.wasm.endsWith("b")).length;
+    const loaded = real.filter((r) => r.load === "ok").length;
+    const failures = real.filter(
+        (row) => row.parse !== "ok" || !row.wasm.endsWith("b") || row.load !== "ok",
+    );
+    const failureReport = failures
+        .map(
+            (row) =>
+                `${row.name}: ${row.errors.join("; ") || `${row.parse}/${row.wasm}/${row.load}`}`,
+        )
+        .join("\n");
+    console.log("-".repeat(62));
+    console.log(
+        `TOTAL ${real.length}  ·  parsed ${parsed}  ·  wasm ${wasmd}  ·  engine-loaded ${loaded}\n`,
+    );
+
+    // Dependency-aware coverage is deterministic, so drift is now a gating failure rather than a table-only measurement.
+    expect(
+        failures.map((row) => row.name),
+        failureReport,
+    ).toEqual([]);
+    expect({ parsed, wasmd, loaded }).toEqual({
+        parsed: real.length,
+        wasmd: real.length,
+        loaded: real.length,
+    });
 }, 30_000);

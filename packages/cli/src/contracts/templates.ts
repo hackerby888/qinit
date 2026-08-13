@@ -204,10 +204,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 
 const BODIES: Record<TemplateKind, string> = { counter, hashmap, asset, intercontract };
 export const TEMPLATE_NOTE: Partial<Record<TemplateKind, string>> = {
-  intercontract:
-    "Counter callee scaffolded in contracts/ for automatic dependency resolution",
+    intercontract: "Counter callee scaffolded in contracts/ for automatic dependency resolution",
 };
 
 export function templateSource(kind: TemplateKind): string {
-  return HEAD + BODIES[kind];
+    return HEAD + BODIES[kind];
 }

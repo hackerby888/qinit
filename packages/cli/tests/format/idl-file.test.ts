@@ -3,99 +3,97 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  AbiTypeKind,
-  QINIT_IDL_VERSION,
-  type AbiStruct,
-  type ContractIdlArtifact,
-  type ContractIdlFile,
+    AbiTypeKind,
+    QINIT_IDL_VERSION,
+    type AbiStruct,
+    type ContractIdlArtifact,
+    type ContractIdlFile,
 } from "@qinit/proto/contract-idl";
 import {
-  contractIdlForSlot,
-  emptyContractIdlFile,
-  loadContractIdlFile,
-  saveContractIdl,
+    contractIdlForSlot,
+    emptyContractIdlFile,
+    loadContractIdlFile,
+    saveContractIdl,
 } from "../../src/contracts/idl-file";
 
 const emptyStruct: AbiStruct = {
-  kind: AbiTypeKind.STRUCT,
-  size: 1,
-  align: 1,
-  format: "",
-  fields: [],
+    kind: AbiTypeKind.STRUCT,
+    size: 1,
+    align: 1,
+    format: "",
+    fields: [],
 };
 
 const contract: ContractIdlArtifact = {
-  version: QINIT_IDL_VERSION,
-  name: "Counter",
-  slot: 28,
-  functions: [],
-  procedures: [],
-  state: emptyStruct,
-  sysprocMask: 0,
-  enums: [],
-  logs: [],
-  dependencies: [],
-  codeHash: "abcd",
+    version: QINIT_IDL_VERSION,
+    name: "Counter",
+    slot: 28,
+    functions: [],
+    procedures: [],
+    state: emptyStruct,
+    sysprocMask: 0,
+    enums: [],
+    logs: [],
+    dependencies: [],
+    codeHash: "abcd",
 };
 
 test("IDL v4 file stores contracts by slot", () => {
-  const root = mkdtempSync(join(tmpdir(), "qinit-idl-v4-"));
-  const path = join(root, "qinit.idl.json");
+    const root = mkdtempSync(join(tmpdir(), "qinit-idl-v4-"));
+    const path = join(root, "qinit.idl.json");
 
-  saveContractIdl(28, contract, path);
+    saveContractIdl(28, contract, path);
 
-  expect(loadContractIdlFile(path)).toEqual({
-    version: QINIT_IDL_VERSION,
-    contracts: {
-      28: contract,
-    },
-  });
-  expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(
-    QINIT_IDL_VERSION,
-  );
+    expect(loadContractIdlFile(path)).toEqual({
+        version: QINIT_IDL_VERSION,
+        contracts: {
+            28: contract,
+        },
+    });
+    expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(QINIT_IDL_VERSION);
 });
 
 test("IDL v3 files are rejected", () => {
-  const root = mkdtempSync(join(tmpdir(), "qinit-idl-v3-"));
-  const path = join(root, "qinit.idl.json");
-  writeFileSync(
-    path,
-    JSON.stringify({
-      version: 3,
-      contracts: {
-        28: {
-          ...contract,
-          version: 3,
-        },
-      },
-    }),
-  );
+    const root = mkdtempSync(join(tmpdir(), "qinit-idl-v3-"));
+    const path = join(root, "qinit.idl.json");
+    writeFileSync(
+        path,
+        JSON.stringify({
+            version: 3,
+            contracts: {
+                28: {
+                    ...contract,
+                    version: 3,
+                },
+            },
+        }),
+    );
 
-  expect(() => loadContractIdlFile(path)).toThrow(/Regenerate it with Qinit/);
+    expect(() => loadContractIdlFile(path)).toThrow(/Regenerate it with Qinit/);
 });
 
 test("saving validates the new contract", () => {
-  const root = mkdtempSync(join(tmpdir(), "qinit-idl-invalid-"));
-  const path = join(root, "qinit.idl.json");
+    const root = mkdtempSync(join(tmpdir(), "qinit-idl-invalid-"));
+    const path = join(root, "qinit.idl.json");
 
-  expect(() =>
-    saveContractIdl(28, { ...contract, slot: 29 }, path),
-  ).toThrow("IDL contract 28 stores slot 29");
+    expect(() => saveContractIdl(28, { ...contract, slot: 29 }, path)).toThrow(
+        "IDL contract 28 stores slot 29",
+    );
 });
 
 test("deployed metadata must match the live code hash", () => {
-  const file: ContractIdlFile = {
-    version: QINIT_IDL_VERSION,
-    contracts: { 28: contract },
-  };
+    const file: ContractIdlFile = {
+        version: QINIT_IDL_VERSION,
+        contracts: { 28: contract },
+    };
 
-  expect(contractIdlForSlot(file, 28, "ABCD")).toEqual(contract);
-  expect(contractIdlForSlot(file, 28, "different")).toBeUndefined();
+    expect(contractIdlForSlot(file, 28, "ABCD")).toEqual(contract);
+    expect(contractIdlForSlot(file, 28, "different")).toBeUndefined();
 });
 
 test("missing IDL file starts as an empty v4 registry", () => {
-  expect(emptyContractIdlFile()).toEqual({
-    version: QINIT_IDL_VERSION,
-    contracts: {},
-  });
+    expect(emptyContractIdlFile()).toEqual({
+        version: QINIT_IDL_VERSION,
+        contracts: {},
+    });
 });

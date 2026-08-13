@@ -75,38 +75,42 @@ afterScratch:
 };`;
 
 describe("scratchpad RAII and pointer lowering", () => {
-  let state: BigUint64Array;
+    let state: BigUint64Array;
 
-  beforeAll(async () => {
-    await initK12();
-    const result = await compileContract({
-      source: SOURCE,
-      contractName: "ScratchRaii",
-      slot: 27,
-      arenaSizeBytes: 1 << 20,
-      qpiHeader: loadQpiHeader(CORE),
+    beforeAll(async () => {
+        await initK12();
+        const result = await compileContract({
+            source: SOURCE,
+            contractName: "ScratchRaii",
+            slot: 27,
+            arenaSizeBytes: 1 << 20,
+            qpiHeader: loadQpiHeader(CORE),
+        });
+        expect(
+            result.diagnostics.filter(
+                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
+            ),
+        ).toEqual([]);
+        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+        const user = new Uint8Array(32).fill(9);
+        sim.fund(user, 1_000_000n);
+        sim.deploy(27, result.wasm);
+        sim.procedure(27, 1, new Uint8Array(0), { invocator: user });
+        const bytes = sim.contracts.get(27)!.state();
+        state = new BigUint64Array(
+            bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        );
     });
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(9);
-    sim.fund(user, 1_000_000n);
-    sim.deploy(27, result.wasm);
-    sim.procedure(27, 1, new Uint8Array(0), { invocator: user });
-    const bytes = sim.contracts.get(27)!.state();
-    state = new BigUint64Array(
-      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
-    );
-  });
 
-  test("normal scope, continue, break, goto, and return restore the same bump mark", () => {
-    expect(state[0]).toBe(state[1]);
-    expect(state[2]).toBe(state[3]);
-    expect(state[4]).toBe(state[5]);
-    expect(state[6]).toBe(state[7]);
-    expect(state[8]).toBe(state[9]);
-  });
+    test("normal scope, continue, break, goto, and return restore the same bump mark", () => {
+        expect(state[0]).toBe(state[1]);
+        expect(state[2]).toBe(state[3]);
+        expect(state[4]).toBe(state[5]);
+        expect(state[6]).toBe(state[7]);
+        expect(state[8]).toBe(state[9]);
+    });
 
-  test("scratch.ptr casts preserve pointer scaling and dereference", () => {
-    expect(state[10]).toBe(77n);
-  });
+    test("scratch.ptr casts preserve pointer scaling and dereference", () => {
+        expect(state[10]).toBe(77n);
+    });
 });

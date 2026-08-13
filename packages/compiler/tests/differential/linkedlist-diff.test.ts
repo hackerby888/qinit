@@ -83,8 +83,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 const QUEUE_GTEST = coreGtest(
-  "Queue",
-  `TEST(LinkedList, AddInsertTraverseRemove) {
+    "Queue",
+    `TEST(LinkedList, AddInsertTraverseRemove) {
   ContractTestingHarness t;
   QPI::id u1 = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u1, 1000000000ll);
@@ -169,40 +169,42 @@ TEST(LinkedList, ResetAndReuse) {
 const wasi = wasiToolchain();
 
 describe("differential gtest — LinkedList (add/insert/traverse/remove/reset)", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
+    beforeAll(async () => {
+        await initK12();
+    });
 
-  toolchainTest(
-    "my LinkedList contract passes the native LinkedList gtest",
-    wasi,
-    async () => {
-      const runnerWasm = await buildDifferentialRunner({
-        corePath: CORE,
-        source: QUEUE,
-        testSource: QUEUE_GTEST,
-        name: "Queue",
-        tempPrefix: "linkedlist-diff-",
-      });
+    toolchainTest(
+        "my LinkedList contract passes the native LinkedList gtest",
+        wasi,
+        async () => {
+            const runnerWasm = await buildDifferentialRunner({
+                corePath: CORE,
+                source: QUEUE,
+                testSource: QUEUE_GTEST,
+                name: "Queue",
+                tempPrefix: "linkedlist-diff-",
+            });
 
-      const mine = await compileContract({
-        source: QUEUE,
-        contractName: "Queue",
-        slot: 28,
-        qpiHeader: HEADERS,
-        arenaSizeBytes: 1024 * 1024,
-      });
-      expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+            const mine = await compileContract({
+                source: QUEUE,
+                contractName: "Queue",
+                slot: 28,
+                qpiHeader: HEADERS,
+                arenaSizeBytes: 1024 * 1024,
+            });
+            expect(
+                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+            ).toHaveLength(0);
 
-      const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-      for (const r of results) {
-        console.log(
-          `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
-        );
-      }
-      expect(results.length).toBeGreaterThan(0);
-      expect(results.every((r) => r.passed)).toBe(true);
-    },
-    120000,
-  );
+            const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+            for (const r of results) {
+                console.log(
+                    `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+                );
+            }
+            expect(results.length).toBeGreaterThan(0);
+            expect(results.every((r) => r.passed)).toBe(true);
+        },
+        120000,
+    );
 });

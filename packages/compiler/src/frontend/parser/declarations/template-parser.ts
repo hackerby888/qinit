@@ -42,9 +42,11 @@ export class TemplateParser {
             const tok = this.parser.state.peek();
             if (tok.kind === TokenKind.KW_TYPENAME || tok.kind === TokenKind.KW_CLASS) {
                 this.parser.state.next();
-                const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "template param name");
-                if (!nameTok)
-                    break;
+                const nameTok = this.parser.state.expect(
+                    TokenKind.IDENTIFIER,
+                    "template param name",
+                );
+                if (!nameTok) break;
                 const name = nameTok.text;
                 // Default: typename T = DefaultType
                 let def: TypeSpec | undefined;
@@ -52,13 +54,14 @@ export class TemplateParser {
                     def = this.parser.types.parseTypeSpec();
                 }
                 params.push({ kind: AstKind.TYPE, name, default: def });
-            }
-            else if (isTypeKeyword(tok.kind) || tok.kind === TokenKind.IDENTIFIER) {
+            } else if (isTypeKeyword(tok.kind) || tok.kind === TokenKind.IDENTIFIER) {
                 // Non-type parameter: uint64 L
                 const type = this.parser.types.parseTypeSpec();
-                const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "non-type param name");
-                if (!nameTok)
-                    break;
+                const nameTok = this.parser.state.expect(
+                    TokenKind.IDENTIFIER,
+                    "non-type param name",
+                );
+                if (!nameTok) break;
                 const name = nameTok.text;
                 if (this.parser.state.tryConsume(TokenKind.EQ)) {
                     // The default value runs up to the closing `>` of the template list — don't let a top-level
@@ -66,12 +69,10 @@ export class TemplateParser {
                     const defVal = this.parser.expressions.parseExpression();
                     this.parser.state.templateAngleDepth--;
                     params.push({ kind: AstKind.NON_TYPE_DEFAULT, name, type, default: defVal });
-                }
-                else {
+                } else {
                     params.push({ kind: AstKind.NON_TYPE, name, type });
                 }
-            }
-            else {
+            } else {
                 break;
             }
             if (!this.parser.state.tryConsume(TokenKind.COMMA)) {
@@ -120,8 +121,7 @@ export class TemplateParser {
         let body: Statement | undefined;
         if (this.parser.state.peek().kind === TokenKind.L_BRACE) {
             body = this.parser.parseFunctionBody();
-        }
-        else {
+        } else {
             this.parser.state.expect(TokenKind.SEMICOLON, "function declaration");
         }
         return {

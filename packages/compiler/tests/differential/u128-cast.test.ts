@@ -45,57 +45,59 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 // Native result for a=2, b=5 includes wrapped subtraction, casts, and division.
 const EXPECTED =
-  "fdffffffffffffff00000000000000000a000000000000000000000000000000fdffffffffffffff000000000000000033333333333333330000000000000000";
+    "fdffffffffffffff00000000000000000a000000000000000000000000000000fdffffffffffffff000000000000000033333333333333330000000000000000";
 const INPUT = [2n, 5n, 0n, 0n];
 
 const runState = (wasm: Uint8Array): string => {
-  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-  const user = new Uint8Array(32).fill(7);
-  sim.fund(user, 1_000_000n);
-  sim.deploy(27, wasm);
-  const buf = new Uint8Array(32);
-  const dv = new DataView(buf.buffer);
-  INPUT.forEach((v, i) => dv.setBigUint64(i * 8, v, true));
-  sim.procedure(27, 1, buf, { invocator: user });
-  const st = sim.contracts.get(27)!.state();
-  return Buffer.from(st.slice(0, 64)).toString("hex");
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+    const user = new Uint8Array(32).fill(7);
+    sim.fund(user, 1_000_000n);
+    sim.deploy(27, wasm);
+    const buf = new Uint8Array(32);
+    const dv = new DataView(buf.buffer);
+    INPUT.forEach((v, i) => dv.setBigUint64(i * 8, v, true));
+    sim.procedure(27, 1, buf, { invocator: user });
+    const st = sim.contracts.get(27)!.state();
+    return Buffer.from(st.slice(0, 64)).toString("hex");
 };
 
 const wasiOk = wasiToolchain().available;
 
 describe("uint128 casts of scalar expressions", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("scalar-domain evaluation and computed decl-inits", async () => {
-    const ours = await compileContract({
-      source: SOURCE,
-      contractName: "UC",
-      slot: 27,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1 << 20,
+    beforeAll(async () => {
+        await initK12();
     });
-    expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    expect(runState(ours.wasm)).toBe(EXPECTED);
 
-    if (wasiOk) {
-      const dir = mkdtempSync(join(tmpdir(), "u128cast-"));
-      try {
-        writeFileSync(join(dir, "UC.h"), SOURCE);
-        const built = await buildContractWithWasiClang({
-          contractPath: join(dir, "UC.h"),
-          name: "UC",
-          slot: 27,
-          corePath: CORE,
-          outDir: dir,
-          skipVerify: true,
+    test("scalar-domain evaluation and computed decl-inits", async () => {
+        const ours = await compileContract({
+            source: SOURCE,
+            contractName: "UC",
+            slot: 27,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1 << 20,
         });
-        expect(built.ok).toBe(true);
-        expect(runState(new Uint8Array(readFileSync(built.wasmPath!)))).toBe(EXPECTED);
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
-    }
-  }, 180000);
+        expect(
+            ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+        expect(runState(ours.wasm)).toBe(EXPECTED);
+
+        if (wasiOk) {
+            const dir = mkdtempSync(join(tmpdir(), "u128cast-"));
+            try {
+                writeFileSync(join(dir, "UC.h"), SOURCE);
+                const built = await buildContractWithWasiClang({
+                    contractPath: join(dir, "UC.h"),
+                    name: "UC",
+                    slot: 27,
+                    corePath: CORE,
+                    outDir: dir,
+                    skipVerify: true,
+                });
+                expect(built.ok).toBe(true);
+                expect(runState(new Uint8Array(readFileSync(built.wasmPath!)))).toBe(EXPECTED);
+            } finally {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        }
+    }, 180000);
 });

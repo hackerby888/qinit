@@ -84,263 +84,265 @@ const S = (v: bigint) => BigInt.asIntN(64, v);
 const U = (v: bigint) => BigInt.asUintN(64, v);
 
 function refMath(sa: bigint, sb: bigint, ua: bigint, ub: bigint) {
-  // Mirror the pinned math_lib.h implementation byte-for-byte. Its signed sadd performs the
-  // overflow checks after the native-width addition (so MIN+MIN wraps to zero and is not clamped).
-  const wrappedSum = S(sa + sb);
-  const sourceSadd =
-    sa < 0n && sb < 0n && wrappedSum > 0n
-      ? I64_MIN
-      : sa > 0n && sb > 0n && wrappedSum < 0n
-        ? I64_MAX
-        : wrappedSum;
-  return {
-    divS: sb === 0n ? 0n : sa / sb,
-    modS: sb === 0n ? 0n : sa % sb,
-    divU: ub === 0n ? 0n : ua / ub,
-    modU: ub === 0n ? 0n : ua % ub,
-    minS: sa < sb ? sa : sb,
-    maxS: sa > sb ? sa : sb,
-    minU: ua < ub ? ua : ub,
-    maxU: ua > ub ? ua : ub,
-    absS: sa === I64_MIN ? I64_MIN : sa < 0n ? -sa : sa,
-    saddS: sourceSadd,
-    saddU: ua + ub > U64_MAX ? U64_MAX : ua + ub,
-    smulS: sa * sb > I64_MAX ? I64_MAX : sa * sb < I64_MIN ? I64_MIN : sa * sb,
-    smulU: ua * ub > U64_MAX ? U64_MAX : ua * ub,
-  };
+    // Mirror the pinned math_lib.h implementation byte-for-byte. Its signed sadd performs the
+    // overflow checks after the native-width addition (so MIN+MIN wraps to zero and is not clamped).
+    const wrappedSum = S(sa + sb);
+    const sourceSadd =
+        sa < 0n && sb < 0n && wrappedSum > 0n
+            ? I64_MIN
+            : sa > 0n && sb > 0n && wrappedSum < 0n
+              ? I64_MAX
+              : wrappedSum;
+    return {
+        divS: sb === 0n ? 0n : sa / sb,
+        modS: sb === 0n ? 0n : sa % sb,
+        divU: ub === 0n ? 0n : ua / ub,
+        modU: ub === 0n ? 0n : ua % ub,
+        minS: sa < sb ? sa : sb,
+        maxS: sa > sb ? sa : sb,
+        minU: ua < ub ? ua : ub,
+        maxU: ua > ub ? ua : ub,
+        absS: sa === I64_MIN ? I64_MIN : sa < 0n ? -sa : sa,
+        saddS: sourceSadd,
+        saddU: ua + ub > U64_MAX ? U64_MAX : ua + ub,
+        smulS: sa * sb > I64_MAX ? I64_MAX : sa * sb < I64_MIN ? I64_MIN : sa * sb,
+        smulU: ua * ub > U64_MAX ? U64_MAX : ua * ub,
+    };
 }
 
 function refU128(a: bigint, b: bigint, sh: bigint) {
-  const lo = (v: bigint) => v & U64_MAX;
-  const hi = (v: bigint) => (v >> 64n) & U64_MAX;
-  const add = (a + b) & U128_MASK;
-  const sub = (a - b) & U128_MASK;
-  const mul = (a * b) & U128_MASK;
-  const div = b === 0n ? 0n : a / b;
-  const shl = (a << sh) & U128_MASK;
-  const shr = a >> sh;
-  return {
-    addLo: lo(add),
-    addHi: hi(add),
-    subLo: lo(sub),
-    subHi: hi(sub),
-    mulLo: lo(mul),
-    mulHi: hi(mul),
-    divLo: lo(div),
-    divHi: hi(div),
-    shlLo: lo(shl),
-    shlHi: hi(shl),
-    shrLo: lo(shr),
-    shrHi: hi(shr),
-    lt: a < b ? 1n : 0n,
-    eq: a === b ? 1n : 0n,
-    le: a <= b ? 1n : 0n,
-    gt: a > b ? 1n : 0n,
-  };
+    const lo = (v: bigint) => v & U64_MAX;
+    const hi = (v: bigint) => (v >> 64n) & U64_MAX;
+    const add = (a + b) & U128_MASK;
+    const sub = (a - b) & U128_MASK;
+    const mul = (a * b) & U128_MASK;
+    const div = b === 0n ? 0n : a / b;
+    const shl = (a << sh) & U128_MASK;
+    const shr = a >> sh;
+    return {
+        addLo: lo(add),
+        addHi: hi(add),
+        subLo: lo(sub),
+        subHi: hi(sub),
+        mulLo: lo(mul),
+        mulHi: hi(mul),
+        divLo: lo(div),
+        divHi: hi(div),
+        shlLo: lo(shl),
+        shlHi: hi(shl),
+        shrLo: lo(shr),
+        shrHi: hi(shr),
+        lt: a < b ? 1n : 0n,
+        eq: a === b ? 1n : 0n,
+        le: a <= b ? 1n : 0n,
+        gt: a > b ? 1n : 0n,
+    };
 }
 
 // ---- vectors ----
 
 const S_EDGES = [
-  0n,
-  1n,
-  -1n,
-  2n,
-  -2n,
-  I64_MAX,
-  I64_MIN,
-  I64_MAX - 1n,
-  I64_MIN + 1n,
-  2n ** 32n,
-  -(2n ** 32n),
-  2n ** 31n - 1n,
-  3037000499n,
-  3037000500n,
-  -3037000500n,
+    0n,
+    1n,
+    -1n,
+    2n,
+    -2n,
+    I64_MAX,
+    I64_MIN,
+    I64_MAX - 1n,
+    I64_MIN + 1n,
+    2n ** 32n,
+    -(2n ** 32n),
+    2n ** 31n - 1n,
+    3037000499n,
+    3037000500n,
+    -3037000500n,
 ];
 const U128_EDGES = [
-  0n,
-  1n,
-  U64_MAX,
-  2n ** 64n,
-  2n ** 64n + 1n,
-  2n ** 127n,
-  U128_MASK,
-  U128_MASK - 1n,
-  (0xdead0000_0000beefn << 64n) | 0x11112222_33334444n,
+    0n,
+    1n,
+    U64_MAX,
+    2n ** 64n,
+    2n ** 64n + 1n,
+    2n ** 127n,
+    U128_MASK,
+    U128_MASK - 1n,
+    (0xdead0000_0000beefn << 64n) | 0x11112222_33334444n,
 ];
 const SHIFTS = [0n, 1n, 31n, 63n, 64n, 65n, 100n, 127n];
 
 // Deterministic xorshift so failures reproduce.
 function* rng(seed: bigint): Generator<bigint> {
-  let x = seed;
-  while (true) {
-    x ^= (x << 13n) & U64_MAX;
-    x ^= x >> 7n;
-    x ^= (x << 17n) & U64_MAX;
-    yield x & U64_MAX;
-  }
+    let x = seed;
+    while (true) {
+        x ^= (x << 13n) & U64_MAX;
+        x ^= x >> 7n;
+        x ^= (x << 17n) & U64_MAX;
+        yield x & U64_MAX;
+    }
 }
 
 const MATH_FIELDS = [
-  "divS",
-  "modS",
-  "divU",
-  "modU",
-  "minS",
-  "maxS",
-  "minU",
-  "maxU",
-  "absS",
-  "saddS",
-  "saddU",
-  "smulS",
-  "smulU",
+    "divS",
+    "modS",
+    "divU",
+    "modU",
+    "minS",
+    "maxS",
+    "minU",
+    "maxU",
+    "absS",
+    "saddS",
+    "saddU",
+    "smulS",
+    "smulU",
 ] as const;
 const SIGNED_FIELDS = new Set(["divS", "modS", "minS", "maxS", "absS", "saddS", "smulS"]);
 const U128_FIELDS = [
-  "addLo",
-  "addHi",
-  "subLo",
-  "subHi",
-  "mulLo",
-  "mulHi",
-  "divLo",
-  "divHi",
-  "shlLo",
-  "shlHi",
-  "shrLo",
-  "shrHi",
-  "lt",
-  "eq",
-  "le",
-  "gt",
+    "addLo",
+    "addHi",
+    "subLo",
+    "subHi",
+    "mulLo",
+    "mulHi",
+    "divLo",
+    "divHi",
+    "shlLo",
+    "shlHi",
+    "shrLo",
+    "shrHi",
+    "lt",
+    "eq",
+    "le",
+    "gt",
 ] as const;
 
 describe("safe-math + uint128 semantics vs BigInt reference", () => {
-  let sim: QubicSimulator;
+    let sim: QubicSimulator;
 
-  beforeAll(async () => {
-    await initK12();
-    const mine = await compileContract({
-      source: SRC,
-      contractName: "M128",
-      slot: 6,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1024 * 1024,
+    beforeAll(async () => {
+        await initK12();
+        const mine = await compileContract({
+            source: SRC,
+            contractName: "M128",
+            slot: 6,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1024 * 1024,
+        });
+        expect(
+            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+        sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+        sim.deploy(6, mine.wasm);
     });
-    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    sim.deploy(6, mine.wasm);
-  });
 
-  const runMath = (sa: bigint, sb: bigint, ua: bigint, ub: bigint) => {
-    const inp = new Uint8Array(32);
-    const dv = new DataView(inp.buffer);
-    dv.setBigInt64(0, sa, true);
-    dv.setBigInt64(8, sb, true);
-    dv.setBigUint64(16, ua, true);
-    dv.setBigUint64(24, ub, true);
-    const out = sim.query(6, 1, inp);
-    const odv = new DataView(out.buffer, out.byteOffset, out.byteLength);
-    const got: Record<string, bigint> = {};
-    MATH_FIELDS.forEach(
-      (f, i) =>
-        (got[f] = SIGNED_FIELDS.has(f)
-          ? odv.getBigInt64(i * 8, true)
-          : odv.getBigUint64(i * 8, true)),
-    );
-    return got;
-  };
+    const runMath = (sa: bigint, sb: bigint, ua: bigint, ub: bigint) => {
+        const inp = new Uint8Array(32);
+        const dv = new DataView(inp.buffer);
+        dv.setBigInt64(0, sa, true);
+        dv.setBigInt64(8, sb, true);
+        dv.setBigUint64(16, ua, true);
+        dv.setBigUint64(24, ub, true);
+        const out = sim.query(6, 1, inp);
+        const odv = new DataView(out.buffer, out.byteOffset, out.byteLength);
+        const got: Record<string, bigint> = {};
+        MATH_FIELDS.forEach(
+            (f, i) =>
+                (got[f] = SIGNED_FIELDS.has(f)
+                    ? odv.getBigInt64(i * 8, true)
+                    : odv.getBigUint64(i * 8, true)),
+        );
+        return got;
+    };
 
-  const runU128 = (a: bigint, b: bigint, sh: bigint) => {
-    const inp = new Uint8Array(40);
-    const dv = new DataView(inp.buffer);
-    dv.setBigUint64(0, (a >> 64n) & U64_MAX, true);
-    dv.setBigUint64(8, a & U64_MAX, true);
-    dv.setBigUint64(16, (b >> 64n) & U64_MAX, true);
-    dv.setBigUint64(24, b & U64_MAX, true);
-    dv.setBigUint64(32, sh, true);
-    const out = sim.query(6, 2, inp);
-    const odv = new DataView(out.buffer, out.byteOffset, out.byteLength);
-    const got: Record<string, bigint> = {};
-    U128_FIELDS.forEach((f, i) => (got[f] = odv.getBigUint64(i * 8, true)));
-    return got;
-  };
+    const runU128 = (a: bigint, b: bigint, sh: bigint) => {
+        const inp = new Uint8Array(40);
+        const dv = new DataView(inp.buffer);
+        dv.setBigUint64(0, (a >> 64n) & U64_MAX, true);
+        dv.setBigUint64(8, a & U64_MAX, true);
+        dv.setBigUint64(16, (b >> 64n) & U64_MAX, true);
+        dv.setBigUint64(24, b & U64_MAX, true);
+        dv.setBigUint64(32, sh, true);
+        const out = sim.query(6, 2, inp);
+        const odv = new DataView(out.buffer, out.byteOffset, out.byteLength);
+        const got: Record<string, bigint> = {};
+        U128_FIELDS.forEach((f, i) => (got[f] = odv.getBigUint64(i * 8, true)));
+        return got;
+    };
 
-  test("scalar safe-math: edge grid + 150 random vectors", () => {
-    const vectors: Array<[bigint, bigint, bigint, bigint]> = [];
-    for (const sa of S_EDGES) {
-      for (const sb of S_EDGES) {
-        if (sa === I64_MIN && sb === -1n) continue; // UB: traps natively and in wasm alike
-        vectors.push([sa, sb, U(sa), U(sb)]);
-      }
-    }
-    const r = rng(0x9e3779b97f4a7c15n);
-    for (let i = 0; i < 150; i++) {
-      const [w, x, y, z] = [r.next().value, r.next().value, r.next().value, r.next().value];
-      if (S(w) === I64_MIN && S(x) === -1n) continue;
-      vectors.push([S(w), S(x), y, z]);
-    }
-
-    let checked = 0;
-    for (const [sa, sb, ua, ub] of vectors) {
-      const got = runMath(sa, sb, ua, ub);
-      const exp = refMath(sa, sb, ua, ub) as Record<string, bigint>;
-      for (const f of MATH_FIELDS) {
-        const want = SIGNED_FIELDS.has(f) ? S(exp[f]) : U(exp[f]);
-        if (got[f] !== want) {
-          expect(`${f}(sa=${sa} sb=${sb} ua=${ua} ub=${ub}) = ${got[f]}`).toBe(
-            `${f}(...) = ${want}`,
-          );
+    test("scalar safe-math: edge grid + 150 random vectors", () => {
+        const vectors: Array<[bigint, bigint, bigint, bigint]> = [];
+        for (const sa of S_EDGES) {
+            for (const sb of S_EDGES) {
+                if (sa === I64_MIN && sb === -1n) continue; // UB: traps natively and in wasm alike
+                vectors.push([sa, sb, U(sa), U(sb)]);
+            }
         }
-        checked++;
-      }
-    }
-    expect(checked).toBeGreaterThan(4000);
-  });
-
-  test("uint128: edge grid with all shift distances + 100 random vectors", () => {
-    const vectors: Array<[bigint, bigint, bigint]> = [];
-    for (const a of U128_EDGES) {
-      for (const b of U128_EDGES) {
-        vectors.push([a, b, SHIFTS[vectors.length % SHIFTS.length]]);
-      }
-    }
-    for (const a of U128_EDGES) {
-      for (const sh of SHIFTS) {
-        vectors.push([a, a, sh]);
-      }
-    }
-    const r = rng(0xc0ffee123456789n);
-    for (let i = 0; i < 100; i++) {
-      const a = (r.next().value << 64n) | r.next().value;
-      const b = (r.next().value << 64n) | r.next().value;
-      vectors.push([a, b, r.next().value % 128n]);
-    }
-
-    let checked = 0;
-    for (const [a, b, sh] of vectors) {
-      const got = runU128(a, b, sh);
-      const exp = refU128(a, b, sh) as Record<string, bigint>;
-      for (const f of U128_FIELDS) {
-        if (got[f] !== exp[f]) {
-          expect(
-            `${f}(a=${a.toString(16)} b=${b.toString(16)} sh=${sh}) = ${got[f].toString(16)}`,
-          ).toBe(`${f}(...) = ${exp[f].toString(16)}`);
+        const r = rng(0x9e3779b97f4a7c15n);
+        for (let i = 0; i < 150; i++) {
+            const [w, x, y, z] = [r.next().value, r.next().value, r.next().value, r.next().value];
+            if (S(w) === I64_MIN && S(x) === -1n) continue;
+            vectors.push([S(w), S(x), y, z]);
         }
-        checked++;
-      }
-    }
-    expect(checked).toBeGreaterThan(2500);
-  });
+
+        let checked = 0;
+        for (const [sa, sb, ua, ub] of vectors) {
+            const got = runMath(sa, sb, ua, ub);
+            const exp = refMath(sa, sb, ua, ub) as Record<string, bigint>;
+            for (const f of MATH_FIELDS) {
+                const want = SIGNED_FIELDS.has(f) ? S(exp[f]) : U(exp[f]);
+                if (got[f] !== want) {
+                    expect(`${f}(sa=${sa} sb=${sb} ua=${ua} ub=${ub}) = ${got[f]}`).toBe(
+                        `${f}(...) = ${want}`,
+                    );
+                }
+                checked++;
+            }
+        }
+        expect(checked).toBeGreaterThan(4000);
+    });
+
+    test("uint128: edge grid with all shift distances + 100 random vectors", () => {
+        const vectors: Array<[bigint, bigint, bigint]> = [];
+        for (const a of U128_EDGES) {
+            for (const b of U128_EDGES) {
+                vectors.push([a, b, SHIFTS[vectors.length % SHIFTS.length]]);
+            }
+        }
+        for (const a of U128_EDGES) {
+            for (const sh of SHIFTS) {
+                vectors.push([a, a, sh]);
+            }
+        }
+        const r = rng(0xc0ffee123456789n);
+        for (let i = 0; i < 100; i++) {
+            const a = (r.next().value << 64n) | r.next().value;
+            const b = (r.next().value << 64n) | r.next().value;
+            vectors.push([a, b, r.next().value % 128n]);
+        }
+
+        let checked = 0;
+        for (const [a, b, sh] of vectors) {
+            const got = runU128(a, b, sh);
+            const exp = refU128(a, b, sh) as Record<string, bigint>;
+            for (const f of U128_FIELDS) {
+                if (got[f] !== exp[f]) {
+                    expect(
+                        `${f}(a=${a.toString(16)} b=${b.toString(16)} sh=${sh}) = ${got[f].toString(16)}`,
+                    ).toBe(`${f}(...) = ${exp[f].toString(16)}`);
+                }
+                checked++;
+            }
+        }
+        expect(checked).toBeGreaterThan(2500);
+    });
 });
 
 // ---- native differential: pin the boundary semantics against clang-compiled qpi.h itself ----
 
 const GTEST = coreGtest(
-  "M128",
-  `TEST(MathSat, SaturationAndDivGuards) {
+    "M128",
+    `TEST(MathSat, SaturationAndDivGuards) {
   ContractTestingHarness t;
   CONTRACT_STATE_TYPE::MathOp_input in{};
   // positive add overflow saturates
@@ -415,37 +417,41 @@ TEST(MathSat, U128Boundaries) {
 const wasi = wasiToolchain();
 
 describe("differential gtest — safe-math saturation + uint128 boundaries", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("my contract matches native clang on the boundary vectors", async () => {
-    if (!wasi.available) {
-      console.log("  (wasi-sdk clang not found — skipping)");
-      return;
-    }
-    const runnerWasm = await buildDifferentialRunner({
-      corePath: CORE,
-      source: SRC,
-      testSource: GTEST,
-      name: "M128",
-      tempPrefix: "math-u128-",
+    beforeAll(async () => {
+        await initK12();
     });
 
-    const mine = await compileContract({
-      source: SRC,
-      contractName: "M128",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1024 * 1024,
-    });
-    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+    test("my contract matches native clang on the boundary vectors", async () => {
+        if (!wasi.available) {
+            console.log("  (wasi-sdk clang not found — skipping)");
+            return;
+        }
+        const runnerWasm = await buildDifferentialRunner({
+            corePath: CORE,
+            source: SRC,
+            testSource: GTEST,
+            name: "M128",
+            tempPrefix: "math-u128-",
+        });
 
-    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-    for (const r of results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
-    }
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.every((r) => r.passed)).toBe(true);
-  }, 120000);
+        const mine = await compileContract({
+            source: SRC,
+            contractName: "M128",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1024 * 1024,
+        });
+        expect(
+            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+
+        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+        for (const r of results) {
+            console.log(
+                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+            );
+        }
+        expect(results.length).toBeGreaterThan(0);
+        expect(results.every((r) => r.passed)).toBe(true);
+    }, 120000);
 });

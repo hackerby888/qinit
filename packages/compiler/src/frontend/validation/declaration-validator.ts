@@ -1,7 +1,21 @@
 import { AstKind } from "../../shared/enums";
 // Validation runs after parse and before codegen.
-import type { Declaration, StructDecl, FunctionDecl, VariableDecl, Expression, TypeSpec, Span } from "../../ast";
-import { unwrapType, isConstType, evalIntegralConst, typeKey, paramSignature } from "./validation-helpers";
+import type {
+    Declaration,
+    StructDecl,
+    FunctionDecl,
+    VariableDecl,
+    Expression,
+    TypeSpec,
+    Span,
+} from "../../ast";
+import {
+    unwrapType,
+    isConstType,
+    evalIntegralConst,
+    typeKey,
+    paramSignature,
+} from "./validation-helpers";
 import type { FnSig, ValidatorInternals } from "./validator-context";
 
 export function canonTypeKey(context: ValidatorInternals, type: TypeSpec): string {
@@ -33,24 +47,34 @@ export function canonTypeKey(context: ValidatorInternals, type: TypeSpec): strin
 export function runTopLevel(context: ValidatorInternals, declarations: Declaration[]): void {
     const typeNames = new Set<string>();
     for (const declaration of declarations) {
-        const isForwardDecl = (
-            declaration.kind === AstKind.STRUCT ||
-            declaration.kind === AstKind.CLASS_TEMPLATE
-        ) && declaration.hasBody === false;
-        if ((declaration.kind === AstKind.STRUCT ||
-            declaration.kind === AstKind.CLASS_TEMPLATE ||
-            declaration.kind === AstKind.ENUM ||
-            declaration.kind === AstKind.TYPEDEF_DECL) &&
+        const isForwardDecl =
+            (declaration.kind === AstKind.STRUCT || declaration.kind === AstKind.CLASS_TEMPLATE) &&
+            declaration.hasBody === false;
+        if (
+            (declaration.kind === AstKind.STRUCT ||
+                declaration.kind === AstKind.CLASS_TEMPLATE ||
+                declaration.kind === AstKind.ENUM ||
+                declaration.kind === AstKind.TYPEDEF_DECL) &&
             declaration.name &&
-            !isForwardDecl) {
+            !isForwardDecl
+        ) {
             if (typeNames.has(declaration.name))
                 context.error(`duplicate type definition '${declaration.name}'`, declaration.span);
             typeNames.add(declaration.name);
         }
         if (declaration.kind === AstKind.TYPEDEF_DECL && declaration.name) {
-            context.typeAliases.set(declaration.name, typeKey(unwrapType((declaration as {
-                type: TypeSpec;
-            }).type)));
+            context.typeAliases.set(
+                declaration.name,
+                typeKey(
+                    unwrapType(
+                        (
+                            declaration as {
+                                type: TypeSpec;
+                            }
+                        ).type,
+                    ),
+                ),
+            );
         }
         switch (declaration.kind) {
             case AstKind.VARIABLE:
@@ -71,7 +95,11 @@ export function runTopLevel(context: ValidatorInternals, declarations: Declarati
                 context.collectEnumConstants(declaration);
                 break;
             case AstKind.STATIC_ASSERT_DECL:
-                context.checkStaticAssert(declaration.condition, declaration.message, declaration.span);
+                context.checkStaticAssert(
+                    declaration.condition,
+                    declaration.message,
+                    declaration.span,
+                );
                 break;
             case AstKind.CLASS_TEMPLATE:
                 context.checkStruct(declaration as unknown as StructDecl);
@@ -80,70 +108,112 @@ export function runTopLevel(context: ValidatorInternals, declarations: Declarati
     }
 }
 
-export function checkGlobalVariable(context: ValidatorInternals, variableDeclaration: VariableDecl): void {
-    if (variableDeclaration.isConstexpr || variableDeclaration.isExtern || isConstType(variableDeclaration.type)) {
+export function checkGlobalVariable(
+    context: ValidatorInternals,
+    variableDeclaration: VariableDecl,
+): void {
+    if (
+        variableDeclaration.isConstexpr ||
+        variableDeclaration.isExtern ||
+        isConstType(variableDeclaration.type)
+    ) {
         // File-scope constexpr constants feed template-argument canonicalization (canonTypeKey) and static_assert evaluation.
         if (variableDeclaration.initializer) {
-            const value = evalIntegralConst(variableDeclaration.initializer, (name) => context.constants.get(name) ?? null);
+            const value = evalIntegralConst(
+                variableDeclaration.initializer,
+                (name) => context.constants.get(name) ?? null,
+            );
             if (value !== null) {
                 context.constants.set(variableDeclaration.name, value);
             }
         }
         return;
     }
-    context.error(`global variable '${variableDeclaration.name}' is not allowed in a contract — state must live in the contract state struct`, variableDeclaration.span);
+    context.error(
+        `global variable '${variableDeclaration.name}' is not allowed in a contract — state must live in the contract state struct`,
+        variableDeclaration.span,
+    );
 }
 
 export function checkStruct(context: ValidatorInternals, structDeclaration: StructDecl): void {
+    if (structDeclaration.name) context.aggregateNames.add(structDeclaration.name);
+    if (structDeclaration.hasBody === false) return;
     if (structDeclaration.name)
-        context.aggregateNames.add(structDeclaration.name);
-    if (structDeclaration.hasBody === false)
-        return;
+        context.aggregateFieldCount.set(
+            structDeclaration.name,
+            structDeclaration.members.filter(
+                (member) =>
+                    member.kind === AstKind.VARIABLE && !member.isStatic && !member.isConstexpr,
+            ).length,
+        );
     if (structDeclaration.name)
-        context.aggregateFieldCount.set(structDeclaration.name, structDeclaration.members.filter((member) => member.kind === AstKind.VARIABLE && !member.isStatic && !member.isConstexpr).length);
-    if (structDeclaration.name)
-        context.structFields.set(structDeclaration.name, new Map(structDeclaration.members
-            .filter((member): member is VariableDecl => member.kind === AstKind.VARIABLE)
-            .map((variableDeclaration) => [variableDeclaration.name, variableDeclaration.type])));
+        context.structFields.set(
+            structDeclaration.name,
+            new Map(
+                structDeclaration.members
+                    .filter((member): member is VariableDecl => member.kind === AstKind.VARIABLE)
+                    .map((variableDeclaration) => [
+                        variableDeclaration.name,
+                        variableDeclaration.type,
+                    ]),
+            ),
+        );
     const fieldNames = new Set<string>();
     const typeNames = new Set<string>();
     const fnBodies = new Map<string, FunctionDecl>();
     const fnSigs = new Map<string, FnSig>();
     for (const member of structDeclaration.members) {
-        const isForwardDecl = (
-            member.kind === AstKind.STRUCT ||
-            member.kind === AstKind.CLASS_TEMPLATE
-        ) && member.hasBody === false;
-        if ((member.kind === AstKind.STRUCT ||
-            member.kind === AstKind.CLASS_TEMPLATE ||
-            member.kind === AstKind.ENUM ||
-            member.kind === AstKind.TYPEDEF_DECL) &&
+        const isForwardDecl =
+            (member.kind === AstKind.STRUCT || member.kind === AstKind.CLASS_TEMPLATE) &&
+            member.hasBody === false;
+        if (
+            (member.kind === AstKind.STRUCT ||
+                member.kind === AstKind.CLASS_TEMPLATE ||
+                member.kind === AstKind.ENUM ||
+                member.kind === AstKind.TYPEDEF_DECL) &&
             member.name &&
-            !isForwardDecl) {
+            !isForwardDecl
+        ) {
             if (typeNames.has(member.name))
-                context.error(`duplicate type definition '${member.name}' in struct '${structDeclaration.name}'`, member.span);
+                context.error(
+                    `duplicate type definition '${member.name}' in struct '${structDeclaration.name}'`,
+                    member.span,
+                );
             typeNames.add(member.name);
         }
         if (member.kind === AstKind.TYPEDEF_DECL && member.name) {
-            context.typeAliases.set(member.name, typeKey(unwrapType((member as {
-                type: TypeSpec;
-            }).type)));
+            context.typeAliases.set(
+                member.name,
+                typeKey(
+                    unwrapType(
+                        (
+                            member as {
+                                type: TypeSpec;
+                            }
+                        ).type,
+                    ),
+                ),
+            );
         }
         if (member.kind === AstKind.VARIABLE) {
             // Anonymous-union alternatives intentionally alias storage; only named duplicates in the same struct are redefinitions.
             if (fieldNames.has(member.name)) {
-                context.error(`duplicate member '${member.name}' in struct '${structDeclaration.name}'`, member.span);
+                context.error(
+                    `duplicate member '${member.name}' in struct '${structDeclaration.name}'`,
+                    member.span,
+                );
             }
             fieldNames.add(member.name);
             if (member.initializer && (member.isConstexpr || isConstType(member.type))) {
-                const value = evalIntegralConst(member.initializer, (name) => context.constants.get(name) ?? null);
-                if (value !== null)
-                    context.constants.set(member.name, value);
+                const value = evalIntegralConst(
+                    member.initializer,
+                    (name) => context.constants.get(name) ?? null,
+                );
+                if (value !== null) context.constants.set(member.name, value);
             }
         }
         if (member.kind === AstKind.STRUCT) {
-            if (member.name)
-                context.aggregateNames.add(member.name);
+            if (member.name) context.aggregateNames.add(member.name);
             context.checkStruct(member);
         }
         if (member.kind === AstKind.ENUM) {
@@ -162,16 +232,21 @@ export function checkStruct(context: ValidatorInternals, structDeclaration: Stru
                 // Two definitions with the same parameter signature are a redefinition. Overloads
                 const prev = fnBodies.get(member.name);
                 if (prev && paramSignature(prev) === paramSignature(member)) {
-                    context.error(`'${member.name}' is already defined in struct '${structDeclaration.name}' with the same signature`, member.span);
+                    context.error(
+                        `'${member.name}' is already defined in struct '${structDeclaration.name}' with the same signature`,
+                        member.span,
+                    );
                 }
                 if (!prev) {
                     fnBodies.set(member.name, member);
                 }
-                if (!fnSigs.has(member.name) || fnSigs.get(member.name)!.declaration.body === undefined) {
+                if (
+                    !fnSigs.has(member.name) ||
+                    fnSigs.get(member.name)!.declaration.body === undefined
+                ) {
                     fnSigs.set(member.name, sig);
                 }
-            }
-            else if (!fnSigs.has(member.name)) {
+            } else if (!fnSigs.has(member.name)) {
                 fnSigs.set(member.name, sig);
             }
         }
@@ -194,9 +269,12 @@ export function checkStruct(context: ValidatorInternals, structDeclaration: Stru
     context.checkRecursion(structDeclaration, fnBodies);
 }
 
-export function collectEnumConstants(context: ValidatorInternals, entry: Declaration & {
-    kind: AstKind.ENUM;
-}): void {
+export function collectEnumConstants(
+    context: ValidatorInternals,
+    entry: Declaration & {
+        kind: AstKind.ENUM;
+    },
+): void {
     const names = new Set<string>();
     let next = 0n;
     for (const member of entry.members) {
@@ -208,14 +286,18 @@ export function collectEnumConstants(context: ValidatorInternals, entry: Declara
             : next;
         if (value !== null) {
             context.constants.set(member.name, value);
-            if (entry.name)
-                context.constants.set(`${entry.name}::${member.name}`, value);
+            if (entry.name) context.constants.set(`${entry.name}::${member.name}`, value);
             next = value + 1n;
         }
     }
 }
 
-export function checkStaticAssert(context: ValidatorInternals, condition: Expression, message: Expression | undefined, span: Span): void {
+export function checkStaticAssert(
+    context: ValidatorInternals,
+    condition: Expression,
+    message: Expression | undefined,
+    span: Span,
+): void {
     const value = evalIntegralConst(condition, (name) => context.constants.get(name) ?? null);
     if (value === 0n) {
         const detail = message?.kind === AstKind.STRING_LITERAL ? `: ${message.value}` : "";

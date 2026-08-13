@@ -1,12 +1,13 @@
-
 import type { PreprocessorInternals } from "./preprocessor-context";
 
 export function readIdentAt(context: PreprocessorInternals, text: string, start: number): string {
     let ident = "";
     let cursor = start;
-    while (cursor < text.length &&
+    while (
+        cursor < text.length &&
         (context.isIdStart(text[cursor]) ||
-            (cursor > start && text[cursor] >= "0" && text[cursor] <= "9"))) {
+            (cursor > start && text[cursor] >= "0" && text[cursor] <= "9"))
+    ) {
         ident += text[cursor];
         cursor++;
     }
@@ -39,18 +40,22 @@ export function peek(context: PreprocessorInternals, offset: number): string {
 }
 
 export function skipWhitespace(context: PreprocessorInternals): void {
-    while (context.pos < context.input.length &&
-        (context.input[context.pos] === " " || context.input[context.pos] === "\t")) {
+    while (
+        context.pos < context.input.length &&
+        (context.input[context.pos] === " " || context.input[context.pos] === "\t")
+    ) {
         context.pos++;
     }
 }
 
 export function skipWhitespaceAndNewlines(context: PreprocessorInternals): void {
-    while (context.pos < context.input.length &&
+    while (
+        context.pos < context.input.length &&
         (context.input[context.pos] === " " ||
             context.input[context.pos] === "\t" ||
             context.input[context.pos] === "\n" ||
-            context.input[context.pos] === "\r")) {
+            context.input[context.pos] === "\r")
+    ) {
         if (context.input[context.pos] === "\n") {
             context.line++;
             context.result += "\n";
@@ -90,9 +95,11 @@ export function skipToNewline(context: PreprocessorInternals): void {
 
 export function readUntil(context: PreprocessorInternals, stop: string): string {
     let text = "";
-    while (context.pos < context.input.length &&
+    while (
+        context.pos < context.input.length &&
         context.input[context.pos] !== stop &&
-        context.input[context.pos] !== "\n") {
+        context.input[context.pos] !== "\n"
+    ) {
         text += context.input[context.pos];
         context.pos++;
     }
@@ -112,12 +119,10 @@ export function skipBlockComment(context: PreprocessorInternals): void {
             context.result += "\n";
             context.line++;
             context.pos++;
-        }
-        else if (context.input[context.pos] === "*" && context.peek(1) === "/") {
+        } else if (context.input[context.pos] === "*" && context.peek(1) === "/") {
             context.pos += 2; // skip */
             return;
-        }
-        else {
+        } else {
             context.pos++;
         }
     }

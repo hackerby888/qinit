@@ -1,5 +1,3 @@
-
-
 // C preprocessor for QPI subset. Operates on text, not tokens.
 export interface PreprocessOptions {
     source: string; // contract source

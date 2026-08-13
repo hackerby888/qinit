@@ -7,25 +7,23 @@ export function parseIntLiteral(literalText: string): bigint {
     if (normalizedText.startsWith("0x")) {
         base = 16;
         normalizedText = normalizedText.slice(2);
-    }
-    else if (normalizedText.startsWith("0b")) {
+    } else if (normalizedText.startsWith("0b")) {
         base = 2;
         normalizedText = normalizedText.slice(2);
-    }
-    else if (normalizedText.startsWith("0") && normalizedText.length > 1 && !normalizedText.includes(".")) {
+    } else if (
+        normalizedText.startsWith("0") &&
+        normalizedText.length > 1 &&
+        !normalizedText.includes(".")
+    ) {
         base = 8;
         normalizedText = normalizedText.slice(1);
-    }
-    else {
+    } else {
         base = 10;
     }
     // Preserve the detected base when converting the normalized digits.
     let prefix = "";
-    if (base === 16)
-        prefix = "0x";
-    else if (base === 2)
-        prefix = "0b";
-    else if (base === 8)
-        prefix = "0o";
+    if (base === 16) prefix = "0x";
+    else if (base === 2) prefix = "0b";
+    else if (base === 8) prefix = "0o";
     return BigInt(prefix + (normalizedText || "0"));
 }

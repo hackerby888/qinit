@@ -46,63 +46,63 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 `;
 
 test("compile succeeds with switch fallthrough", async () => {
-  const result = await compileContract({
-    source: SRC,
-    contractName: "SwitchBug",
-    slot: 50,
-    qpiHeader: HEADERS,
-    arenaSizeBytes: 1024 * 1024,
-  });
-  const errs = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
-  if (errs.length) console.log("  COMPILE ERRORS:", errs.map((e) => e.message).join("\n"));
-  expect(errs).toHaveLength(0);
+    const result = await compileContract({
+        source: SRC,
+        contractName: "SwitchBug",
+        slot: 50,
+        qpiHeader: HEADERS,
+        arenaSizeBytes: 1024 * 1024,
+    });
+    const errs = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
+    if (errs.length) console.log("  COMPILE ERRORS:", errs.map((e) => e.message).join("\n"));
+    expect(errs).toHaveLength(0);
 });
 
 test("WAT uses nested dispatch+bodies pattern (no unconditional break between cases)", async () => {
-  const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
-  const dir = mkdtempSync(join(tmpdir(), "switch-wat-"));
-  const watPath = join(dir, "out.wat");
+    const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "switch-wat-"));
+    const watPath = join(dir, "out.wat");
 
-  process.env.QINIT_DUMP_WAT = watPath;
-  await compileContract({
-    source: SRC,
-    contractName: "SwitchBug",
-    slot: 50,
-    qpiHeader: HEADERS,
-    arenaSizeBytes: 1024 * 1024,
-  });
-  delete process.env.QINIT_DUMP_WAT;
+    process.env.QINIT_DUMP_WAT = watPath;
+    await compileContract({
+        source: SRC,
+        contractName: "SwitchBug",
+        slot: 50,
+        qpiHeader: HEADERS,
+        arenaSizeBytes: 1024 * 1024,
+    });
+    delete process.env.QINIT_DUMP_WAT;
 
-  const wat = readFileSync(watPath, "utf-8");
-  rmSync(dir, { recursive: true, force: true });
+    const wat = readFileSync(watPath, "utf-8");
+    rmSync(dir, { recursive: true, force: true });
 
-  const lines = wat.split("\n");
+    const lines = wat.split("\n");
 
-  // Find switch blocks — each function with a switch should have one (block $swbrk...)
-  const switchStarts: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].includes("(block $swbrk")) {
-      switchStarts.push(i);
+    // Find switch blocks — each function with a switch should have one (block $swbrk...)
+    const switchStarts: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes("(block $swbrk")) {
+            switchStarts.push(i);
+        }
     }
-  }
-  expect(switchStarts.length).toBe(2);
+    expect(switchStarts.length).toBe(2);
 
-  // Verify each switch has: a) nested case blocks that stay open: (block $swcase... (NOT closed immediately)
-  for (const start of switchStarts) {
-    let caseDispatch = 0;
-    let defaultDispatch = false;
-    const end = Math.min(start + 20, lines.length);
-    for (let i = start; i < end; i++) {
-      if (lines[i].includes("(if (i64.eq") && lines[i].includes("(then (br $swcase")) {
-        caseDispatch++;
-      }
-      if (lines[i].includes("(br $swdef")) {
-        defaultDispatch = true;
-      }
+    // Verify each switch has: a) nested case blocks that stay open: (block $swcase... (NOT closed immediately)
+    for (const start of switchStarts) {
+        let caseDispatch = 0;
+        let defaultDispatch = false;
+        const end = Math.min(start + 20, lines.length);
+        for (let i = start; i < end; i++) {
+            if (lines[i].includes("(if (i64.eq") && lines[i].includes("(then (br $swcase")) {
+                caseDispatch++;
+            }
+            if (lines[i].includes("(br $swdef")) {
+                defaultDispatch = true;
+            }
+        }
+        expect(caseDispatch).toBeGreaterThanOrEqual(1);
+        expect(defaultDispatch).toBe(true);
     }
-    expect(caseDispatch).toBeGreaterThanOrEqual(1);
-    expect(defaultDispatch).toBe(true);
-  }
 });

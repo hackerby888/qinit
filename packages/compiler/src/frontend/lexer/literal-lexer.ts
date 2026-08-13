@@ -2,7 +2,12 @@ import { TokenKind } from "../../shared/enums";
 import type { LexerInternals } from "./lexer-context";
 import type { Token } from "./tokens";
 
-export function lexCharLiteral(context: LexerInternals, start: number, startLine: number, startCol: number): Token {
+export function lexCharLiteral(
+    context: LexerInternals,
+    start: number,
+    startLine: number,
+    startCol: number,
+): Token {
     let text = "";
     text += context.advance(); // opening '
     while (!context.eof()) {
@@ -12,22 +17,28 @@ export function lexCharLiteral(context: LexerInternals, start: number, startLine
             if (!context.eof()) {
                 text += context.advance(); // escaped char
             }
-        }
-        else if (ch === "'") {
+        } else if (ch === "'") {
             text += context.advance(); // closing '
             break;
-        }
-        else if (ch === "\n") {
+        } else if (ch === "\n") {
             break; // unterminated
-        }
-        else {
+        } else {
             text += context.advance();
         }
     }
-    return { kind: TokenKind.CHAR_LITERAL, text, span: context.makeSpan(start, startLine, startCol) };
+    return {
+        kind: TokenKind.CHAR_LITERAL,
+        text,
+        span: context.makeSpan(start, startLine, startCol),
+    };
 }
 
-export function lexStringLiteral(context: LexerInternals, start: number, startLine: number, startCol: number): Token {
+export function lexStringLiteral(
+    context: LexerInternals,
+    start: number,
+    startLine: number,
+    startCol: number,
+): Token {
     let text = "";
     text += context.advance(); // opening "
     while (!context.eof()) {
@@ -37,17 +48,18 @@ export function lexStringLiteral(context: LexerInternals, start: number, startLi
             if (!context.eof()) {
                 text += context.advance();
             }
-        }
-        else if (ch === '"') {
+        } else if (ch === '"') {
             text += context.advance();
             break;
-        }
-        else if (ch === "\n") {
+        } else if (ch === "\n") {
             break; // unterminated
-        }
-        else {
+        } else {
             text += context.advance();
         }
     }
-    return { kind: TokenKind.STRING_LITERAL, text, span: context.makeSpan(start, startLine, startCol) };
+    return {
+        kind: TokenKind.STRING_LITERAL,
+        text,
+        span: context.makeSpan(start, startLine, startCol),
+    };
 }

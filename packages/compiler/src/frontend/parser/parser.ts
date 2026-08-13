@@ -54,10 +54,7 @@ export class Parser {
                 declarations.push(this.state.pendingDeclarations.shift()!);
             }
 
-            this.recovery.recover(
-                previousPosition,
-                previousErrorCount,
-            );
+            this.recovery.recover(previousPosition, previousErrorCount);
         }
 
         const end = this.state.last().span;
@@ -74,10 +71,7 @@ export class Parser {
     }
 
     getDiagnostics(): ParserDiagnostic[] {
-        return [
-            ...this.state.diagnostics,
-            ...this.state.bodyDiagnostics,
-        ];
+        return [...this.state.diagnostics, ...this.state.bodyDiagnostics];
     }
 
     parseFunctionBody(): Statement {
@@ -86,11 +80,7 @@ export class Parser {
         let braceDepth = 0;
         let closeBraceIndex = -1;
 
-        for (
-            let tokenIndex = openBraceIndex;
-            tokenIndex < tokens.length;
-            tokenIndex++
-        ) {
+        for (let tokenIndex = openBraceIndex; tokenIndex < tokens.length; tokenIndex++) {
             const kind = tokens[tokenIndex].kind;
 
             if (kind === TokenKind.L_BRACE) {
@@ -119,10 +109,7 @@ export class Parser {
             return this.statements.parseCompoundStatement();
         }
 
-        const bodyTokens = tokens.slice(
-            openBraceIndex,
-            closeBraceIndex + 1,
-        );
+        const bodyTokens = tokens.slice(openBraceIndex, closeBraceIndex + 1);
         bodyTokens.push({
             kind: TokenKind.EOF,
             text: "",

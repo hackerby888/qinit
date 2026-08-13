@@ -12,7 +12,7 @@ const CORE = CORE_PATH;
 const coreOk = existsSync(join(CORE, "src", "qpi", "qpi.h"));
 
 beforeAll(async () => {
-  await initK12();
+    await initK12();
 });
 
 // Forces lazy compilation of every source-backed container and arithmetic family.
@@ -135,33 +135,37 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 };`;
 
 describe("authoritative QPI capability matrix", () => {
-  const variants: Array<[string, () => Promise<string> | string]> = [];
-  if (coreOk) variants.push(["live core-lite", () => loadQpiHeader(CORE)]);
-  variants.push(["pinned browser snapshot", () => QPI_SNAPSHOT]);
+    const variants: Array<[string, () => Promise<string> | string]> = [];
+    if (coreOk) variants.push(["live core-lite", () => loadQpiHeader(CORE)]);
+    variants.push(["pinned browser snapshot", () => QPI_SNAPSHOT]);
 
-  for (const [label, header] of variants) {
-    test(`compiles every supported family from ${label}`, async () => {
-      const result = await compileContract({
-        source: CAPABILITY_SOURCE,
-        contractName: "QpiAuthority",
-        slot: 27,
-        arenaSizeBytes: 1 << 20,
-        qpiHeader: await header(),
-      });
-      expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual(
-        [],
-      );
-      expect(result.wasm.byteLength).toBeGreaterThan(0);
-      expect(inspectWasmModule(result.wasm).ok).toBe(true);
-    }, 60_000);
-  }
+    for (const [label, header] of variants) {
+        test(`compiles every supported family from ${label}`, async () => {
+            const result = await compileContract({
+                source: CAPABILITY_SOURCE,
+                contractName: "QpiAuthority",
+                slot: 27,
+                arenaSizeBytes: 1 << 20,
+                qpiHeader: await header(),
+            });
+            expect(
+                result.diagnostics.filter(
+                    (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
+                ),
+            ).toEqual([]);
+            expect(result.wasm.byteLength).toBeGreaterThan(0);
+            expect(inspectWasmModule(result.wasm).ok).toBe(true);
+        }, 60_000);
+    }
 
-  test.if(coreOk)("loadQpiHeader fails closed for a non-core path", () => {
-    expect(() => loadQpiHeader("/definitely/not/a/core/checkout")).toThrow(/not a core checkout/);
-  });
+    test.if(coreOk)("loadQpiHeader fails closed for a non-core path", () => {
+        expect(() => loadQpiHeader("/definitely/not/a/core/checkout")).toThrow(
+            /not a core checkout/,
+        );
+    });
 
-  test.if(coreOk)("uses a dependent custom HashFunc body at runtime", async () => {
-    const source = `using namespace QPI;
+    test.if(coreOk)("uses a dependent custom HashFunc body at runtime", async () => {
+        const source = `using namespace QPI;
 struct LowBitHash { static uint64 hash(const uint64& key) { return key & 1ull; } };
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -175,23 +179,27 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   PUBLIC_FUNCTION(Read) { output.first = state.get().first; output.second = state.get().second; }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Fill, 1); REGISTER_USER_FUNCTION(Read, 1); }
 };`;
-    const result = await compileContract({
-      source,
-      contractName: "CustomHash",
-      slot: 27,
-      arenaSizeBytes: 1 << 20,
-      qpiHeader: loadQpiHeader(CORE),
-    });
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+        const result = await compileContract({
+            source,
+            contractName: "CustomHash",
+            slot: 27,
+            arenaSizeBytes: 1 << 20,
+            qpiHeader: loadQpiHeader(CORE),
+        });
+        expect(
+            result.diagnostics.filter(
+                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
+            ),
+        ).toEqual([]);
 
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(7);
-    sim.fund(user, 1_000_000n);
-    sim.deploy(27, result.wasm);
-    sim.procedure(27, 1, new Uint8Array(0), { invocator: user });
-    const output = sim.query(27, 1);
-    const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
-    expect(view.getBigInt64(0, true)).toBe(0n);
-    expect(view.getBigInt64(8, true)).toBe(1n);
-  });
+        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+        const user = new Uint8Array(32).fill(7);
+        sim.fund(user, 1_000_000n);
+        sim.deploy(27, result.wasm);
+        sim.procedure(27, 1, new Uint8Array(0), { invocator: user });
+        const output = sim.query(27, 1);
+        const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+        expect(view.getBigInt64(0, true)).toBe(0n);
+        expect(view.getBigInt64(8, true)).toBe(1n);
+    });
 });

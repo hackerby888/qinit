@@ -1,4 +1,11 @@
-import type { InspectedWasmExport, InspectedWasmImport, InspectedWasmMemory, WasmFunctionSignature, WasmInspectionDiagnostic, WasmValueType } from "./inspection-types";
+import type {
+    InspectedWasmExport,
+    InspectedWasmImport,
+    InspectedWasmMemory,
+    WasmFunctionSignature,
+    WasmInspectionDiagnostic,
+    WasmValueType,
+} from "./inspection-types";
 
 export interface InternalGlobal {
     type: WasmValueType;

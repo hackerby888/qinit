@@ -2,7 +2,12 @@ import { TokenKind } from "../../shared/enums";
 import type { LexerInternals } from "./lexer-context";
 import type { Token } from "./tokens";
 
-export function lexOperator(context: LexerInternals, start: number, startLine: number, startCol: number): Token {
+export function lexOperator(
+    context: LexerInternals,
+    start: number,
+    startLine: number,
+    startCol: number,
+): Token {
     const ch = context.advance();
     const next = context.peekChar();
     const mk = (kind: TokenKind): Token => ({
@@ -154,6 +159,10 @@ export function lexOperator(context: LexerInternals, start: number, startLine: n
             return mk(TokenKind.HASH);
         default:
             // Unknown character — skip it but emit as identifier for error recovery
-            return { kind: TokenKind.IDENTIFIER, text: ch, span: context.makeSpan(start, startLine, startCol) };
+            return {
+                kind: TokenKind.IDENTIFIER,
+                text: ch,
+                span: context.makeSpan(start, startLine, startCol),
+            };
     }
 }

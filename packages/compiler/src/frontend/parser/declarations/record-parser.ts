@@ -64,14 +64,16 @@ export class RecordParser {
         // Declarators after a combined struct body use the new struct as their type.
         if (hadBody && this.parser.records.declaratorFollows()) {
             const declType: TypeSpec = { kind: AstKind.INLINE_STRUCT, struct, span: start };
-            while (this.parser.state.peek().kind === TokenKind.STAR || this.parser.state.peek().kind === TokenKind.AMP)
+            while (
+                this.parser.state.peek().kind === TokenKind.STAR ||
+                this.parser.state.peek().kind === TokenKind.AMP
+            )
                 this.parser.state.next();
-            const first = this.parser.state.expect(TokenKind.IDENTIFIER, "struct declarator")?.text ?? "";
+            const first =
+                this.parser.state.expect(TokenKind.IDENTIFIER, "struct declarator")?.text ?? "";
             const vars = this.parser.functions.parseDeclaratorList(declType, first, false, false);
-            for (const varValue of vars)
-                this.parser.state.pendingDeclarations.push(varValue);
-        }
-        else {
+            for (const varValue of vars) this.parser.state.pendingDeclarations.push(varValue);
+        } else {
             this.parser.state.tryConsume(TokenKind.SEMICOLON);
         }
         return struct;
@@ -79,7 +81,12 @@ export class RecordParser {
 
     declaratorFollows(): boolean {
         const kind = this.parser.state.peek().kind;
-        return kind === TokenKind.IDENTIFIER || kind === TokenKind.STAR || kind === TokenKind.AMP || kind === TokenKind.L_BRACKET;
+        return (
+            kind === TokenKind.IDENTIFIER ||
+            kind === TokenKind.STAR ||
+            kind === TokenKind.AMP ||
+            kind === TokenKind.L_BRACKET
+        );
     }
 
     parseSpecializationArgs(): TypeSpec[] {
@@ -87,21 +94,25 @@ export class RecordParser {
         const callArguments: TypeSpec[] = [];
         while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_ANGLE) {
             const kind = this.parser.state.peek().kind;
-            if (kind === TokenKind.INT_LITERAL ||
+            if (
+                kind === TokenKind.INT_LITERAL ||
                 kind === TokenKind.L_PAREN ||
                 kind === TokenKind.KW_SIZEOF ||
                 kind === TokenKind.CHAR_LITERAL ||
                 kind === TokenKind.MINUS ||
                 kind === TokenKind.TILDE ||
                 kind === TokenKind.KW_TRUE ||
-                kind === TokenKind.KW_FALSE) {
-                callArguments.push({ kind: AstKind.EXPR_VALUE, expression: this.parser.expressions.parseShift(), span: this.parser.state.peek().span });
-            }
-            else {
+                kind === TokenKind.KW_FALSE
+            ) {
+                callArguments.push({
+                    kind: AstKind.EXPR_VALUE,
+                    expression: this.parser.expressions.parseShift(),
+                    span: this.parser.state.peek().span,
+                });
+            } else {
                 callArguments.push(this.parser.types.parseTypeSpec());
             }
-            if (!this.parser.state.tryConsume(TokenKind.COMMA))
-                break;
+            if (!this.parser.state.tryConsume(TokenKind.COMMA)) break;
         }
         this.parser.state.consumeTemplateAngleClose();
         return callArguments;
@@ -133,14 +144,16 @@ export class RecordParser {
         // A declarator after a combined union body uses the new union as its type.
         if (hadBody && this.parser.records.declaratorFollows()) {
             const declType: TypeSpec = { kind: AstKind.INLINE_STRUCT, struct: union, span: start };
-            while (this.parser.state.peek().kind === TokenKind.STAR || this.parser.state.peek().kind === TokenKind.AMP)
+            while (
+                this.parser.state.peek().kind === TokenKind.STAR ||
+                this.parser.state.peek().kind === TokenKind.AMP
+            )
                 this.parser.state.next();
-            const first = this.parser.state.expect(TokenKind.IDENTIFIER, "union declarator")?.text ?? "";
+            const first =
+                this.parser.state.expect(TokenKind.IDENTIFIER, "union declarator")?.text ?? "";
             const vars = this.parser.functions.parseDeclaratorList(declType, first, false, false);
-            for (const varValue of vars)
-                this.parser.state.pendingDeclarations.push(varValue);
-        }
-        else {
+            for (const varValue of vars) this.parser.state.pendingDeclarations.push(varValue);
+        } else {
             this.parser.state.tryConsume(TokenKind.SEMICOLON);
         }
         return union;

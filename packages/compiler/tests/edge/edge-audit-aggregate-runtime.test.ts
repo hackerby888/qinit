@@ -20,64 +20,66 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function run(members: string, body: string): Promise<bigint> {
-  const result = await compileContract({
-    source: wrap(members, body),
-    contractName: "AggregateRuntimeEdge",
-    slot: 27,
-    qpiHeader: HEADERS,
-    arenaSizeBytes: 1 << 20,
-  });
-  expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-  expect(WebAssembly.validate(result.wasm)).toBe(true);
-  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-  const user = new Uint8Array(32).fill(7);
-  sim.fund(user, 1_000_000n);
-  sim.deploy(27, result.wasm);
-  sim.procedure(27, 1, undefined, { invocator: user });
-  const state = sim.contracts.get(27)!.state();
-  return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
+    const result = await compileContract({
+        source: wrap(members, body),
+        contractName: "AggregateRuntimeEdge",
+        slot: 27,
+        qpiHeader: HEADERS,
+        arenaSizeBytes: 1 << 20,
+    });
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
+        0,
+    );
+    expect(WebAssembly.validate(result.wasm)).toBe(true);
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+    const user = new Uint8Array(32).fill(7);
+    sim.fund(user, 1_000_000n);
+    sim.deploy(27, result.wasm);
+    sim.procedure(27, 1, undefined, { invocator: user });
+    const state = sim.contracts.get(27)!.state();
+    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
 }
 
 describe("edge audit — aggregate runtime semantics", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
+    beforeAll(async () => {
+        await initK12();
+    });
 
-  test("mutating a by-value aggregate parameter does not mutate the caller", async () => {
-    const helper = `static Pair changed(Pair value) { value.left = 9; return value; }`;
-    const body = `Pair original = {1, 2}; Pair copy = changed(original); state.mut().result = copy.left * 10 + original.left;`;
-    expect(await run(helper, body)).toBe(91n);
-  });
+    test("mutating a by-value aggregate parameter does not mutate the caller", async () => {
+        const helper = `static Pair changed(Pair value) { value.left = 9; return value; }`;
+        const body = `Pair original = {1, 2}; Pair copy = changed(original); state.mut().result = copy.left * 10 + original.left;`;
+        expect(await run(helper, body)).toBe(91n);
+    });
 
-  test("two aggregate return values use independent storage", async () => {
-    const helper = `static Pair make(uint64 left, uint64 right) { Pair value = {left, right}; return value; }`;
-    const body = `Pair first = make(1, 2); Pair second = make(3, 4); state.mut().result = first.left * 10 + second.left;`;
-    expect(await run(helper, body)).toBe(13n);
-  });
+    test("two aggregate return values use independent storage", async () => {
+        const helper = `static Pair make(uint64 left, uint64 right) { Pair value = {left, right}; return value; }`;
+        const body = `Pair first = make(1, 2); Pair second = make(3, 4); state.mut().result = first.left * 10 + second.left;`;
+        expect(await run(helper, body)).toBe(13n);
+    });
 
-  test("a returned aggregate preserves nested aggregate fields", async () => {
-    const helper = `struct Outer { Pair pair; uint64 extra; };
+    test("a returned aggregate preserves nested aggregate fields", async () => {
+        const helper = `struct Outer { Pair pair; uint64 extra; };
       static Outer make() { Outer value = {{3, 4}, 9}; return value; }`;
-    const body = `Outer value = make(); state.mut().result = value.pair.left + value.pair.right + value.extra;`;
-    expect(await run(helper, body)).toBe(16n);
-  });
+        const body = `Outer value = make(); state.mut().result = value.pair.left + value.pair.right + value.extra;`;
+        expect(await run(helper, body)).toBe(16n);
+    });
 
-  test("a const aggregate reference binds to a temporary", async () => {
-    const helper = `static uint64 sum(const Pair& value) { return value.left + value.right; }`;
-    expect(await run(helper, `state.mut().result = sum(Pair{3, 4});`)).toBe(7n);
-  });
+    test("a const aggregate reference binds to a temporary", async () => {
+        const helper = `static uint64 sum(const Pair& value) { return value.left + value.right; }`;
+        expect(await run(helper, `state.mut().result = sum(Pair{3, 4});`)).toBe(7n);
+    });
 
-  test("a file-scope aggregate constant can flow through an Array reference", async () => {
-    const body = `Array<bit_4096, 2> values;
+    test("a file-scope aggregate constant can flow through an Array reference", async () => {
+        const body = `Array<bit_4096, 2> values;
       values.set(0, BIT4096_ZERO);
       bit_4096 copy = values.get(0);
       state.mut().result = copy == BIT4096_ZERO;`;
-    expect(await run("", body)).toBe(1n);
-  });
+        expect(await run("", body)).toBe(1n);
+    });
 
-  test("union scalar members alias the same storage", async () => {
-    const helper = `union Bits { uint64 wide; uint32 low; };`;
-    const body = `Bits bits; bits.wide = 4294967296ull; bits.low = 1; state.mut().result = bits.wide;`;
-    expect(await run(helper, body)).toBe(4294967297n);
-  });
+    test("union scalar members alias the same storage", async () => {
+        const helper = `union Bits { uint64 wide; uint32 low; };`;
+        const body = `Bits bits; bits.wide = 4294967296ull; bits.low = 1; state.mut().result = bits.wide;`;
+        expect(await run(helper, body)).toBe(4294967297n);
+    });
 });

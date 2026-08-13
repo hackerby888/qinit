@@ -84,93 +84,95 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 const wasi = wasiToolchain();
 
 describe("differential — oracle read / mining / shareholder host calls", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("state bytes match native across query -> pending read -> resolve -> read", async () => {
-    if (!wasi.available) {
-      console.log("  (wasi-sdk clang not found — skipping)");
-      return;
-    }
-    const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "oracle-calls-"));
-    const contractPath = join(dir, "OrcP.h");
-    writeFileSync(contractPath, SRC);
-
-    const built = await buildContractWithWasiClang({
-      contractPath,
-      name: "OrcP",
-      slot: 27,
-      corePath: CORE,
-      outDir: dir,
-      skipVerify: true,
+    beforeAll(async () => {
+        await initK12();
     });
-    expect(built.ok).toBe(true);
-    const nativeWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
-    const mine = await compileContract({
-      source: SRC,
-      contractName: "OrcP",
-      slot: 27,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 4 * 1024 * 1024,
-    });
-    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+    test("state bytes match native across query -> pending read -> resolve -> read", async () => {
+        if (!wasi.available) {
+            console.log("  (wasi-sdk clang not found — skipping)");
+            return;
+        }
+        const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const dir = mkdtempSync(join(tmpdir(), "oracle-calls-"));
+        const contractPath = join(dir, "OrcP.h");
+        writeFileSync(contractPath, SRC);
 
-    // Mock reply for query value 42: echoedValue=42, doubledValue=84 (16 bytes LE).
-    const reply = new Uint8Array(16);
-    new DataView(reply.buffer).setBigUint64(0, 42n, true);
-    new DataView(reply.buffer).setBigUint64(8, 84n, true);
+        const built = await buildContractWithWasiClang({
+            contractPath,
+            name: "OrcP",
+            slot: 27,
+            corePath: CORE,
+            outDir: dir,
+            skipVerify: true,
+        });
+        expect(built.ok).toBe(true);
+        const nativeWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
-    const askInput = new Uint8Array(8);
-    new DataView(askInput.buffer).setBigUint64(0, 42n, true);
+        const mine = await compileContract({
+            source: SRC,
+            contractName: "OrcP",
+            slot: 27,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 4 * 1024 * 1024,
+        });
+        expect(
+            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
 
-    const run = (wasm: Uint8Array) => {
-      const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-      sim.deploy(27, wasm);
-      const user = new Uint8Array(32).fill(7);
-      sim.fund(user, 1_000_000n);
-      sim.fund(sim.contractId(27), 1_000n);
+        // Mock reply for query value 42: echoedValue=42, doubledValue=84 (16 bytes LE).
+        const reply = new Uint8Array(16);
+        new DataView(reply.buffer).setBigUint64(0, 42n, true);
+        new DataView(reply.buffer).setBigUint64(8, 84n, true);
 
-      sim.procedure(27, 1, askInput, { invocator: user });
-      sim.procedure(27, 2, undefined, { invocator: user });
-      const pendingState = sim.contracts.get(27)!.state().slice();
+        const askInput = new Uint8Array(8);
+        new DataView(askInput.buffer).setBigUint64(0, 42n, true);
 
-      sim.resolveOracle(1n, reply);
-      sim.advance();
-      sim.procedure(27, 2, undefined, { invocator: user });
-      const resolvedState = sim.contracts.get(27)!.state().slice();
+        const run = (wasm: Uint8Array) => {
+            const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+            sim.deploy(27, wasm);
+            const user = new Uint8Array(32).fill(7);
+            sim.fund(user, 1_000_000n);
+            sim.fund(sim.contractId(27), 1_000n);
 
-      return { pendingState, resolvedState };
-    };
+            sim.procedure(27, 1, askInput, { invocator: user });
+            sim.procedure(27, 2, undefined, { invocator: user });
+            const pendingState = sim.contracts.get(27)!.state().slice();
 
-    const nat = run(nativeWasm);
-    const ours = run(mine.wasm);
+            sim.resolveOracle(1n, reply);
+            sim.advance();
+            sim.procedure(27, 2, undefined, { invocator: user });
+            const resolvedState = sim.contracts.get(27)!.state().slice();
 
-    for (const phase of ["pendingState", "resolvedState"] as const) {
-      const a = nat[phase];
-      const b = ours[phase];
-      const firstDiff = a.findIndex((v, i) => b[i] !== v);
-      if (firstDiff >= 0) {
-        console.log(
-          `  ${phase} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`,
-        );
-      }
-      expect(firstDiff).toBe(-1);
-    }
+            return { pendingState, resolvedState };
+        };
 
-    // Anchor the resolved phase to known query/reply host behavior.
-    const dv = new DataView(nat.resolvedState.buffer, nat.resolvedState.byteOffset);
-    expect(dv.getBigInt64(0, true)).toBe(1n); // queryId
-    expect(dv.getBigUint64(8, true)).toBe(1n); // notified
-    expect(dv.getBigUint64(16, true)).toBe(1n); // qFound
-    expect(dv.getBigUint64(24, true)).toBe(42n); // qValue
-    expect(dv.getBigUint64(32, true)).toBe(1n); // rFound
-    expect(dv.getBigUint64(40, true)).toBe(42n); // rEcho
-    expect(dv.getBigUint64(48, true)).toBe(84n); // rDouble
-    expect(dv.getBigUint64(56, true)).toBe(0n); // sigValid (zeroed signature)
-  }, 180000);
+        const nat = run(nativeWasm);
+        const ours = run(mine.wasm);
+
+        for (const phase of ["pendingState", "resolvedState"] as const) {
+            const a = nat[phase];
+            const b = ours[phase];
+            const firstDiff = a.findIndex((v, i) => b[i] !== v);
+            if (firstDiff >= 0) {
+                console.log(
+                    `  ${phase} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`,
+                );
+            }
+            expect(firstDiff).toBe(-1);
+        }
+
+        // Anchor the resolved phase to known query/reply host behavior.
+        const dv = new DataView(nat.resolvedState.buffer, nat.resolvedState.byteOffset);
+        expect(dv.getBigInt64(0, true)).toBe(1n); // queryId
+        expect(dv.getBigUint64(8, true)).toBe(1n); // notified
+        expect(dv.getBigUint64(16, true)).toBe(1n); // qFound
+        expect(dv.getBigUint64(24, true)).toBe(42n); // qValue
+        expect(dv.getBigUint64(32, true)).toBe(1n); // rFound
+        expect(dv.getBigUint64(40, true)).toBe(42n); // rEcho
+        expect(dv.getBigUint64(48, true)).toBe(84n); // rDouble
+        expect(dv.getBigUint64(56, true)).toBe(0n); // sigValid (zeroed signature)
+    }, 180000);
 });

@@ -11,7 +11,12 @@ export function isIdContinue(context: LexerInternals, ch: string): boolean {
     return context.isIdStart(ch) || (ch >= "0" && ch <= "9");
 }
 
-export function lexIdOrKeyword(context: LexerInternals, start: number, startLine: number, startCol: number): Token {
+export function lexIdOrKeyword(
+    context: LexerInternals,
+    start: number,
+    startLine: number,
+    startCol: number,
+): Token {
     let text = "";
     while (!context.eof() && context.isIdContinue(context.peekChar())) {
         text += context.advance();

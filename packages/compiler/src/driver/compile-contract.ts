@@ -23,9 +23,7 @@ import { dumpWatIfRequested, encodeAndInspectWat } from "./wasm-encoder";
 import { collectProcedureDeclLines, collectSourceContractCalls } from "./semantic-calls";
 import { DEFAULT_COMPILE_ARENA_SIZE_BYTES } from "./defaults";
 
-export async function compileContract(
-    options: CompileOptions,
-): Promise<CompileResult> {
+export async function compileContract(options: CompileOptions): Promise<CompileResult> {
     const diagnostics = collectInitialDiagnostics(options);
 
     if (diagnostics.length > 0) {
@@ -71,9 +69,7 @@ export async function compileContract(
         options.slot,
         qpiContext.macros,
     );
-    const metadata = createContractMetadata(
-        calls.map((call) => call.callee),
-    );
+    const metadata = createContractMetadata(calls.map((call) => call.callee));
     let wat: string;
 
     try {
@@ -85,18 +81,12 @@ export async function compileContract(
             calleeContext,
             metadata,
         );
-    }
-    catch (error: any) {
+    } catch (error: any) {
         appendCompilerError(diagnostics, "Codegen failed", error);
         return emptyResult(options, diagnostics);
     }
 
-    diagnostics.push(
-        ...remapAnalysisDiagnostics(
-            semanticAnalysis.getDiagnostics(),
-            preprocessed,
-        ),
-    );
+    diagnostics.push(...remapAnalysisDiagnostics(semanticAnalysis.getDiagnostics(), preprocessed));
 
     await dumpWatIfRequested(wat);
     promoteFidelityDiagnostics(options, diagnostics);
@@ -111,8 +101,7 @@ export async function compileContract(
 
     try {
         wasm = await encodeAndInspectWat(wat, options, metadata);
-    }
-    catch (error: any) {
+    } catch (error: any) {
         appendCompilerError(diagnostics, "WAT→WASM encode failed", error);
         return emptyResult(options, diagnostics);
     }
@@ -127,14 +116,10 @@ export async function compileContract(
     };
 }
 
-function collectInitialDiagnostics(
-    options: CompileOptions,
-): ParserDiagnostic[] {
+function collectInitialDiagnostics(options: CompileOptions): ParserDiagnostic[] {
     return [
         ...validateCompileOptions(options),
-        ...(typeof options.source === "string"
-            ? scanUnterminatedSource(options.source)
-            : []),
+        ...(typeof options.source === "string" ? scanUnterminatedSource(options.source) : []),
     ];
 }
 
@@ -171,9 +156,7 @@ function generateContractWat(
     });
 }
 
-function createContractMetadata(
-    dependencies: string[],
-): GeneratedContractMetadata {
+function createContractMetadata(dependencies: string[]): GeneratedContractMetadata {
     return {
         stateSize: 0,
         entries: [],
@@ -201,11 +184,7 @@ function hasErrors(diagnostics: ParserDiagnostic[]): boolean {
     return diagnostics.some((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
 }
 
-function appendCompilerError(
-    diagnostics: ParserDiagnostic[],
-    stage: string,
-    error: any,
-): void {
+function appendCompilerError(diagnostics: ParserDiagnostic[], stage: string, error: any): void {
     diagnostics.push({
         severity: DiagnosticSeverity.ERROR,
         message: `${stage}: ${error.message}`,

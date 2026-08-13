@@ -3,14 +3,18 @@ import { FunctionEmissionContext } from "../types";
 import type { Statement, VariableDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { collectGotosIn, collectLabelsIn } from "./jump-analysis";
-export function emitScratchpadReleases(context: FunctionEmissionContext, from: number, consume: boolean): void {
-    if (!context.scratchpadScope || context.scratchpadScope.length <= from)
-        return;
+export function emitScratchpadReleases(
+    context: FunctionEmissionContext,
+    from: number,
+    consume: boolean,
+): void {
+    if (!context.scratchpadScope || context.scratchpadScope.length <= from) return;
     for (let index = context.scratchpadScope.length - 1; index >= from; index--) {
-        context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$releaseScratchpad", watIr.localGet(context.scratchpadScope[index], WatNodeType.I32)))}`);
+        context.lines.push(
+            `    ${watIr.serializeWatNode(watIr.functionCall("$releaseScratchpad", watIr.localGet(context.scratchpadScope[index], WatNodeType.I32)))}`,
+        );
     }
-    if (consume)
-        context.scratchpadScope.length = from;
+    if (consume) context.scratchpadScope.length = from;
 }
 // Lower forward gotos with nested Wasm blocks.
 export function emitCompound(context: FunctionEmissionContext, body: Statement[]): void {
@@ -19,11 +23,13 @@ export function emitCompound(context: FunctionEmissionContext, body: Statement[]
         let depth = spBase;
         for (let index = 0; index < child; index++) {
             const statement = body[index];
-            if (statement.kind !== AstKind.DECLARATION || statement.declaration.kind !== AstKind.VARIABLE)
+            if (
+                statement.kind !== AstKind.DECLARATION ||
+                statement.declaration.kind !== AstKind.VARIABLE
+            )
                 continue;
             const type = (statement.declaration as VariableDecl).type;
-            if (type.kind === AstKind.NAME && /ScopedScratchpad$/.test(type.name))
-                depth++;
+            if (type.kind === AstKind.NAME && /ScopedScratchpad$/.test(type.name)) depth++;
         }
         return depth;
     };
@@ -33,8 +39,7 @@ export function emitCompound(context: FunctionEmissionContext, body: Statement[]
         const labels = new Set<string>();
         collectLabelsIn(body[bodyItemIndex], labels);
         for (const label of labels)
-            if (!labelChild.has(label))
-                labelChild.set(label, bodyItemIndex);
+            if (!labelChild.has(label)) labelChild.set(label, bodyItemIndex);
     }
     // Wrap each forward target in a block spanning its incoming gotos.
     const wasmLabel = new Map<string, string>();
@@ -48,22 +53,21 @@ export function emitCompound(context: FunctionEmissionContext, body: Statement[]
         collectGotosIn(body[bodyItemIndexInner], gotos);
         for (const goto of gotos) {
             const lc = labelChild.get(goto);
-            if (lc === undefined || lc <= bodyItemIndexInner || wasmLabel.has(goto))
-                continue;
+            if (lc === undefined || lc <= bodyItemIndexInner || wasmLabel.has(goto)) continue;
             const wl = `$goto_${goto}_${context.loopCount++}`;
             wasmLabel.set(goto, wl);
             blocks.push({ wl, firstGoto: bodyItemIndexInner, closeAt: lc });
         }
     }
     if (wasmLabel.size === 0) {
-        for (const bodyItem of body)
-            context.lowering.emitStatement(context, bodyItem);
-    }
-    else {
-        if (!context.gotoLabels)
-            context.gotoLabels = new Map();
+        for (const bodyItem of body) context.lowering.emitStatement(context, bodyItem);
+    } else {
+        if (!context.gotoLabels) context.gotoLabels = new Map();
         for (const [labelName, blockLabel] of wasmLabel) {
-            context.gotoLabels.set(labelName, { label: blockLabel, scratchDepth: scratchDepthAt(labelChild.get(labelName) ?? 0) });
+            context.gotoLabels.set(labelName, {
+                label: blockLabel,
+                scratchDepth: scratchDepthAt(labelChild.get(labelName) ?? 0),
+            });
         }
         // Nest overlapping goto blocks in LIFO order.
         const openChild = Math.min(...blocks.map((block) => block.firstGoto));
@@ -86,8 +90,7 @@ export function emitCompound(context: FunctionEmissionContext, body: Statement[]
             context.lines.push(`    )`);
             closeStack.pop();
         }
-        for (const labelName of wasmLabel.keys())
-            context.gotoLabels!.delete(labelName);
+        for (const labelName of wasmLabel.keys()) context.gotoLabels!.delete(labelName);
     }
     // Release scoped scratchpads in LIFO order when leaving the compound.
     emitScratchpadReleases(context, spBase, true);

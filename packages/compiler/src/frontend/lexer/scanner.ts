@@ -6,7 +6,12 @@ export function span(context: LexerInternals): Span {
     return { start: context.pos, end: context.pos, line: context.line, column: context.column };
 }
 
-export function makeSpan(context: LexerInternals, start: number, startLine: number, startCol: number): Span {
+export function makeSpan(
+    context: LexerInternals,
+    start: number,
+    startLine: number,
+    startCol: number,
+): Span {
     return { start, end: context.pos, line: startLine, column: startCol };
 }
 
@@ -24,8 +29,7 @@ export function advance(context: LexerInternals): string {
     if (ch === "\n") {
         context.line++;
         context.column = 1;
-    }
-    else {
+    } else {
         context.column++;
     }
     return ch;

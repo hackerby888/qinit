@@ -38,22 +38,23 @@ const TAIL = `
 const source = (padLines: number) => HEAD + "\n".repeat(padLines) + TAIL;
 
 const notifyLine = (text: string) =>
-  text.split("\n").findIndex((line) => line.includes("PRIVATE_PROCEDURE_WITH_LOCALS(Notify)")) + 1;
+    text.split("\n").findIndex((line) => line.includes("PRIVATE_PROCEDURE_WITH_LOCALS(Notify)")) +
+    1;
 
 test("a notification procedure's inputType is its raw-source line", () => {
-  for (const padLines of [0, 40, 137]) {
-    const text = source(padLines);
-    const idl = extractIdl(text, "Contract", { slot: 4 });
-    const notify = idl.procedures.find((entry) => entry.name === "Notify");
+    for (const padLines of [0, 40, 137]) {
+        const text = source(padLines);
+        const idl = extractIdl(text, "Contract", { slot: 4 });
+        const notify = idl.procedures.find((entry) => entry.name === "Notify");
 
-    expect(notify).toBeDefined();
-    expect(notify!.inputType).toBe(notifyLine(text) & 0xffff);
-  }
+        expect(notify).toBeDefined();
+        expect(notify!.inputType).toBe(notifyLine(text) & 0xffff);
+    }
 });
 
 test("only the notification procedure is flagged as one", () => {
-  const idl = extractIdl(source(0), "Contract", { slot: 4 });
+    const idl = extractIdl(source(0), "Contract", { slot: 4 });
 
-  expect(idl.procedures.find((entry) => entry.name === "Notify")!.notification).toBe(true);
-  expect(idl.procedures.find((entry) => entry.name === "Bump")!.notification).toBeUndefined();
+    expect(idl.procedures.find((entry) => entry.name === "Notify")!.notification).toBe(true);
+    expect(idl.procedures.find((entry) => entry.name === "Bump")!.notification).toBeUndefined();
 });

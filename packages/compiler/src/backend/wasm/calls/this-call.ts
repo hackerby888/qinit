@@ -4,23 +4,35 @@ import { addrIr } from "../memory/memory-operations";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
-export function emitThisCall(context: FunctionEmissionContext, expression: Expression & {
-    kind: AstKind.CALL;
-}, valueWanted: boolean): string | null {
-    if (!context.thisType ||
+export function emitThisCall(
+    context: FunctionEmissionContext,
+    expression: Expression & {
+        kind: AstKind.CALL;
+    },
+    valueWanted: boolean,
+): string | null {
+    if (
+        !context.thisType ||
         context.thisType.kind !== AstKind.TEMPLATE_INSTANCE ||
-        expression.callee.kind !== AstKind.IDENTIFIER)
+        expression.callee.kind !== AstKind.IDENTIFIER
+    )
         return null;
     const methodName = expression.callee.name;
     // memory builtins used by container bodies: reset → setMem(this, ...); removeByIndex → setMem(&elem, ...).
     if ((methodName === "setMem" || methodName === "copyMem") && !valueWanted) {
-        const destination = context.lowering.emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)";
+        const destination =
+            context.lowering.emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)";
         if (methodName === "copyMem") {
-            const src = context.lowering.emitAddress(context, expression.callArguments[1]) ?? "(i32.const 0)";
-            context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(destination), addrIr(src), watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[2]))))}`);
-        }
-        else {
-            context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$setMem", addrIr(destination), watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[1])), watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[2]))))}`);
+            const src =
+                context.lowering.emitAddress(context, expression.callArguments[1]) ??
+                "(i32.const 0)";
+            context.lines.push(
+                `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(destination), addrIr(src), watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[2]))))}`,
+            );
+        } else {
+            context.lines.push(
+                `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", addrIr(destination), watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[1])), watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[2]))))}`,
+            );
         }
         return "";
     }
@@ -29,30 +41,45 @@ export function emitThisCall(context: FunctionEmissionContext, expression: Expre
     if (methodName.endsWith("::hash")) {
         const targetName = methodName.slice(0, methodName.lastIndexOf("::"));
         const bound = context.thisBind?.types.get(targetName);
-        const target: (TypeSpec & {
-            kind: AstKind.TEMPLATE_INSTANCE;
-        }) | null = bound?.kind === AstKind.TEMPLATE_INSTANCE
-            ? bound
-            : bound?.kind === AstKind.NAME
-                ? { kind: AstKind.TEMPLATE_INSTANCE, name: bound.name, callArguments: [] }
-                : null;
-        if (!target)
-            throw new Error(`dependent hash target '${methodName}' is not bound`);
-        const cm = compileContainerMethod(context.programAnalysis, target, "hash", expression.callArguments.length);
+        const target:
+            | (TypeSpec & {
+                  kind: AstKind.TEMPLATE_INSTANCE;
+              })
+            | null =
+            bound?.kind === AstKind.TEMPLATE_INSTANCE
+                ? bound
+                : bound?.kind === AstKind.NAME
+                  ? { kind: AstKind.TEMPLATE_INSTANCE, name: bound.name, callArguments: [] }
+                  : null;
+        if (!target) throw new Error(`dependent hash target '${methodName}' is not bound`);
+        const cm = compileContainerMethod(
+            context.programAnalysis,
+            target,
+            "hash",
+            expression.callArguments.length,
+        );
         if (!cm || cm.retKind !== WatNodeType.I64) {
             throw new Error(`authoritative QPI method ${target.name}::hash could not be lowered`);
         }
         const methodArgumentOperands = cm.functionParameters.map((fp, index) => {
             const methodArgument = expression.callArguments[index] ?? fp.defaultValue;
-            if (!methodArgument)
-                return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-            if (!fp.isAddr)
-                return context.lowering.emitValue(context, methodArgument);
+            if (!methodArgument) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+            if (!fp.isAddr) return context.lowering.emitValue(context, methodArgument);
             const direct = context.lowering.emitAddress(context, methodArgument);
-            if (direct)
-                return direct;
-            const spill = context.lowering.allocateScratchSlotNode(context, Math.max(8, context.programAnalysis.sizeOfType(context.programAnalysis.derefType(fp.type), context.thisBind ?? EMPTY_TEMPLATE_BINDINGS)));
-            context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, spill, context.lowering.lowerValueExpression(context, methodArgument)))}`);
+            if (direct) return direct;
+            const spill = context.lowering.allocateScratchSlotNode(
+                context,
+                Math.max(
+                    8,
+                    context.programAnalysis.sizeOfType(
+                        context.programAnalysis.derefType(fp.type),
+                        context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
+                    ),
+                ),
+            );
+            context.lines.push(
+                `    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, spill, context.lowering.lowerValueExpression(context, methodArgument)))}`,
+            );
             return watIr.serializeWatNode(spill);
         });
         return `(call ${cm.label} (local.get $this)${methodArgumentOperands.length ? " " + methodArgumentOperands.join(" ") : ""})`;
@@ -61,34 +88,43 @@ export function emitThisCall(context: FunctionEmissionContext, expression: Expre
     const methodNameOnly = methodName.startsWith(`${context.thisType.name}::`)
         ? methodName.slice(context.thisType.name.length + 2)
         : methodName;
-    const cm = compileContainerMethod(context.programAnalysis, context.thisType, methodNameOnly, expression.callArguments.length);
-    if (!cm)
-        return null;
+    const cm = compileContainerMethod(
+        context.programAnalysis,
+        context.thisType,
+        methodNameOnly,
+        expression.callArguments.length,
+    );
+    if (!cm) return null;
     // Spill scalar locals passed by mutable reference, then write them back.
     const writeBacks: string[] = [];
     const methodArgumentOperands = cm.functionParameters.map((fp, fnParamIndex) => {
         const methodArgument = expression.callArguments[fnParamIndex] ?? fp.defaultValue;
-        if (!methodArgument)
-            return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+        if (!methodArgument) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
         if (methodArgument.kind === AstKind.NULLPTR_LITERAL)
             return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-        if (!fp.isAddr)
-            return context.lowering.emitValue(context, methodArgument);
+        if (!fp.isAddr) return context.lowering.emitValue(context, methodArgument);
         const emittedAddress = context.lowering.emitAddress(context, methodArgument);
-        if (emittedAddress)
-            return emittedAddress;
+        if (emittedAddress) return emittedAddress;
         // `&x` (pointer out-param) and parens unwrap to the same scalar-local spill as a bare `x`.
         let argSource: Expression = methodArgument;
-        while (argSource.kind === AstKind.PAREN || (argSource.kind === AstKind.UNARY_OP && argSource.operator === UnaryOp.ADDRESS_OF)) {
-            argSource = argSource.kind === AstKind.PAREN ? argSource.expression : argSource.argument;
+        while (
+            argSource.kind === AstKind.PAREN ||
+            (argSource.kind === AstKind.UNARY_OP && argSource.operator === UnaryOp.ADDRESS_OF)
+        ) {
+            argSource =
+                argSource.kind === AstKind.PAREN ? argSource.expression : argSource.argument;
         }
         const size = context.lowering.allocateScratchSlotNode(context, 8);
-        context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, size, context.lowering.lowerValueExpression(context, argSource)))}`);
+        context.lines.push(
+            `    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, size, context.lowering.lowerValueExpression(context, argSource)))}`,
+        );
         if (
             argSource.kind === AstKind.IDENTIFIER &&
             context.localVars.get(argSource.name)?.wasmType === WatNodeType.I64
         ) {
-            writeBacks.push(`    ${context.lowering.setLocal(context, argSource.name, watIr.rawLoad("i64.load", null, size))}`);
+            writeBacks.push(
+                `    ${context.lowering.setLocal(context, argSource.name, watIr.rawLoad("i64.load", null, size))}`,
+            );
         }
         return watIr.serializeWatNode(size);
     });
@@ -99,17 +135,20 @@ export function emitThisCall(context: FunctionEmissionContext, expression: Expre
             context.lines.push(...writeBacks);
             return "(i64.const 0)";
         }
-        if (!writeBacks.length)
-            return call;
+        if (!writeBacks.length) return call;
         const returnScratch = `tmp${context.tmpCount++}`;
         context.localVars.set(returnScratch, { wasmType: WatNodeType.I64 });
-        context.lines.push(`    ${context.lowering.setLocal(context, returnScratch, watIr.rawWatNode(call, WatNodeType.I64, "unconverted: container method call"))}`);
+        context.lines.push(
+            `    ${context.lowering.setLocal(context, returnScratch, watIr.rawWatNode(call, WatNodeType.I64, "unconverted: container method call"))}`,
+        );
         context.lines.push(...writeBacks);
         return `(local.get $${returnScratch})`;
     }
-    context.lines.push(cm.retKind === WatNodeType.I64
-        ? `    ${watIr.serializeWatNode(watIr.operation("drop", watIr.rawWatNode(call, WatNodeType.I64, "unconverted: container method call")))}`
-        : `    ${call}`);
+    context.lines.push(
+        cm.retKind === WatNodeType.I64
+            ? `    ${watIr.serializeWatNode(watIr.operation("drop", watIr.rawWatNode(call, WatNodeType.I64, "unconverted: container method call")))}`
+            : `    ${call}`,
+    );
     context.lines.push(...writeBacks);
     return "";
 }

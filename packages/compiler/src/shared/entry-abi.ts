@@ -1,8 +1,6 @@
 export const USER_FUNCTION_KIND = 0;
 export const USER_PROCEDURE_KIND = 1;
-export type UserEntryKind =
-  | typeof USER_FUNCTION_KIND
-  | typeof USER_PROCEDURE_KIND;
+export type UserEntryKind = typeof USER_FUNCTION_KIND | typeof USER_PROCEDURE_KIND;
 
 export const MIN_USER_INPUT_TYPE = 1;
 export const USER_ENTRY_IO_BUFFER_SIZE_BYTES = 64 * 1024;

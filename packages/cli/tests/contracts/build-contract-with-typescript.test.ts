@@ -1,10 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import {
-  existsSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CORE_PATH } from "../../../../test-utils/paths";
@@ -84,64 +79,64 @@ struct ActualState : public ContractBase {
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
-  }
+    for (const directory of temporaryDirectories.splice(0)) {
+        rmSync(directory, { recursive: true, force: true });
+    }
 });
 
 test("buildContractWithTypeScript analyzes transitive cyclic callees before one main build", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "qinit-build-typescript-"));
-  temporaryDirectories.push(directory);
+    const directory = mkdtempSync(join(tmpdir(), "qinit-build-typescript-"));
+    temporaryDirectories.push(directory);
 
-  const mainPath = join(directory, "Main.h");
-  const relayPath = join(directory, "Relay.h");
-  const mirrorPath = join(directory, "Mirror.h");
-  const outDir = join(directory, "out");
-  writeFileSync(mainPath, MAIN);
-  writeFileSync(relayPath, RELAY);
-  writeFileSync(mirrorPath, MIRROR);
+    const mainPath = join(directory, "Main.h");
+    const relayPath = join(directory, "Relay.h");
+    const mirrorPath = join(directory, "Mirror.h");
+    const outDir = join(directory, "out");
+    writeFileSync(mainPath, MAIN);
+    writeFileSync(relayPath, RELAY);
+    writeFileSync(mirrorPath, MIRROR);
 
-  const result = await buildContractWithTypeScript({
-    contractPath: mainPath,
-    name: "Main",
-    slot: 31,
-    core: CORE_PATH,
-    outDir,
-    dynCallees: {
-      Mirror: { header: mirrorPath, index: 30 },
-      Relay: { header: relayPath, index: 29 },
-    },
-  });
+    const result = await buildContractWithTypeScript({
+        contractPath: mainPath,
+        name: "Main",
+        slot: 31,
+        core: CORE_PATH,
+        outDir,
+        dynCallees: {
+            Mirror: { header: mirrorPath, index: 30 },
+            Relay: { header: relayPath, index: 29 },
+        },
+    });
 
-  expect(result.stderr).toBeUndefined();
-  expect(result.ok).toBe(true);
-  expect(result.idl?.dependencies).toEqual(["Relay"]);
-  expect(result.idl?.functions[0]?.inSize).toBe(29);
-  expect(result.wasmPath).toBe(join(outDir, "Main.wasm"));
-  expect(existsSync(result.wasmPath!)).toBe(true);
-  expect(result.wasmSizeBytes).toBeGreaterThan(0);
-  expect(result.wasmK12DigestHex).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.stderr).toBeUndefined();
+    expect(result.ok).toBe(true);
+    expect(result.idl?.dependencies).toEqual(["Relay"]);
+    expect(result.idl?.functions[0]?.inSize).toBe(29);
+    expect(result.wasmPath).toBe(join(outDir, "Main.wasm"));
+    expect(existsSync(result.wasmPath!)).toBe(true);
+    expect(result.wasmSizeBytes).toBeGreaterThan(0);
+    expect(result.wasmK12DigestHex).toMatch(/^[0-9a-f]{64}$/);
 }, 60_000);
 
 test("buildContractWithTypeScript supports a state type distinct from the artifact name", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "qinit-build-typescript-alias-"));
-  temporaryDirectories.push(directory);
+    const directory = mkdtempSync(join(tmpdir(), "qinit-build-typescript-alias-"));
+    temporaryDirectories.push(directory);
 
-  const contractPath = join(directory, "Alias.h");
-  const outDir = join(directory, "out");
-  writeFileSync(contractPath, ALIASED);
+    const contractPath = join(directory, "Alias.h");
+    const outDir = join(directory, "out");
+    writeFileSync(contractPath, ALIASED);
 
-  const result = await buildContractWithTypeScript({
-    contractPath,
-    name: "ALIAS",
-    stateType: "ActualState",
-    slot: 31,
-    core: CORE_PATH,
-    outDir,
-  });
+    const result = await buildContractWithTypeScript({
+        contractPath,
+        name: "ALIAS",
+        stateType: "ActualState",
+        slot: 31,
+        core: CORE_PATH,
+        outDir,
+    });
 
-  expect(result.ok).toBe(true);
-  expect(result.idl?.name).toBe("ALIAS");
-  expect(result.wasmPath).toBe(join(outDir, "ALIAS.wasm"));
-  expect(existsSync(result.wasmPath!)).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(result.idl?.name).toBe("ALIAS");
+    expect(result.wasmPath).toBe(join(outDir, "ALIAS.wasm"));
+    expect(existsSync(result.wasmPath!)).toBe(true);
 }, 60_000);

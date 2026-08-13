@@ -11,10 +11,7 @@ export function newValueTmp(context: FunctionEmissionContext): string {
 
     do {
         temporaryName = `__qinit_value${context.tmpCount++}`;
-    } while (
-        context.localVars.has(temporaryName) ||
-        context.params?.has(temporaryName)
-    );
+    } while (context.localVars.has(temporaryName) || context.params?.has(temporaryName));
 
     context.localVars.set(temporaryName, { wasmType: WatNodeType.I64 });
     return temporaryName;
@@ -41,10 +38,7 @@ export function narrowLocalValue(
         ? context.programAnalysis.scalarStorageType(declaredType)
         : undefined;
 
-    if (
-        storageType?.kind === AstKind.NAME &&
-        (SCALAR_SIZE[storageType.name] ?? 8) < 8
-    ) {
+    if (storageType?.kind === AstKind.NAME && (SCALAR_SIZE[storageType.name] ?? 8) < 8) {
         return narrowCastIr(value, storageType.name);
     }
 

@@ -21,14 +21,18 @@ const bundle = "../dist/browser.js";
 const browser = await import(bundle);
 console.log("compilerInfo:", browser.compilerInfo);
 
-const res = await browser.compileContract({ source: SOURCE, contractName: "SMOKE", slot: 27, arenaSizeBytes: 1 << 20 });
+const res = await browser.compileContract({
+    source: SOURCE,
+    contractName: "SMOKE",
+    slot: 27,
+    arenaSizeBytes: 1 << 20,
+});
 const errors = res.diagnostics.filter(
-  (diagnostic: { severity: string }) =>
-    diagnostic.severity === browser.DiagnosticSeverity.ERROR,
+    (diagnostic: { severity: string }) => diagnostic.severity === browser.DiagnosticSeverity.ERROR,
 );
 if (errors.length || res.wasm.byteLength === 0) {
-  console.error("browser bundle compile failed:", errors);
-  process.exit(1);
+    console.error("browser bundle compile failed:", errors);
+    process.exit(1);
 }
 
 await initK12();
@@ -46,7 +50,7 @@ const dv = new DataView(st.buffer, st.byteOffset);
 const n = dv.getBigUint64(0, true);
 const calls = dv.getBigUint64(8, true);
 if (n !== 10n || calls !== 2n) {
-  console.error(`state mismatch: n=${n} calls=${calls} (want n=10 calls=2)`);
-  process.exit(1);
+    console.error(`state mismatch: n=${n} calls=${calls} (want n=10 calls=2)`);
+    process.exit(1);
 }
 console.log("browser bundle smoke OK — n=10, calls=2");

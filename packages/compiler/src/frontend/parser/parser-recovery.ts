@@ -6,16 +6,13 @@ export class ParserRecovery {
     constructor(private readonly parser: Parser) {}
 
     skipBalanced(open: TokenKind, close: TokenKind): void {
-        if (this.parser.state.peek().kind !== open)
-            return;
+        if (this.parser.state.peek().kind !== open) return;
         this.parser.state.next(); // consume the opener
         let depth = 1;
         while (!this.parser.state.eof() && depth > 0) {
             const kind = this.parser.state.peek().kind;
-            if (kind === open)
-                depth++;
-            else if (kind === close)
-                depth--;
+            if (kind === open) depth++;
+            else if (kind === close) depth--;
             this.parser.state.next();
         }
     }
@@ -24,10 +21,13 @@ export class ParserRecovery {
         const idx = this.parser.state.position;
         const noProgress = idx === beforeIndex;
         const newError = this.parser.state.diagnostics.length > errsBefore;
-        if (!noProgress && !newError)
-            return;
+        if (!noProgress && !newError) return;
         // A declaration that consumed its full balanced body ends on `}` or `;`. Its inner errors are already
-        if (!noProgress && (this.parser.state.lastToken?.kind === TokenKind.R_BRACE || this.parser.state.lastToken?.kind === TokenKind.SEMICOLON)) {
+        if (
+            !noProgress &&
+            (this.parser.state.lastToken?.kind === TokenKind.R_BRACE ||
+                this.parser.state.lastToken?.kind === TokenKind.SEMICOLON)
+        ) {
             return;
         }
         if (noProgress) {
@@ -42,12 +42,10 @@ export class ParserRecovery {
                 continue;
             }
             if (kind === TokenKind.R_BRACE) {
-                if (depth === 0)
-                    return; // class body's own close — let the caller handle it
+                if (depth === 0) return; // class body's own close — let the caller handle it
                 depth--;
                 this.parser.state.next();
-                if (depth === 0)
-                    return; // finished a member's brace body (e.g. a constructor) — member boundary
+                if (depth === 0) return; // finished a member's brace body (e.g. a constructor) — member boundary
                 continue;
             }
             if (kind === TokenKind.SEMICOLON && depth === 0) {

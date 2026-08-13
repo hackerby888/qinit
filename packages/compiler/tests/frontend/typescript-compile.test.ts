@@ -7,69 +7,69 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
 const COUNTER_SRC = readFileSync(
-  new URL("../../../../fixtures/Counter.h", import.meta.url),
-  "utf8",
+    new URL("../../../../fixtures/Counter.h", import.meta.url),
+    "utf8",
 );
 const QPI_HEADER = loadQpiHeader(CORE_PATH);
 
 beforeAll(async () => {
-  await initK12();
+    await initK12();
 });
 
 describe("TypeScript Counter compilation", () => {
-  test("compiles Counter.h with zero errors", async () => {
-    const r = await compileContract({
-      source: COUNTER_SRC,
-      contractName: "Counter",
-      slot: 28,
-      qpiHeader: QPI_HEADER,
+    test("compiles Counter.h with zero errors", async () => {
+        const r = await compileContract({
+            source: COUNTER_SRC,
+            contractName: "Counter",
+            slot: 28,
+            qpiHeader: QPI_HEADER,
+        });
+        expect(r.diagnostics).toHaveLength(0);
+        expect(r.wasm.byteLength).toBeGreaterThan(100);
     });
-    expect(r.diagnostics).toHaveLength(0);
-    expect(r.wasm.byteLength).toBeGreaterThan(100);
-  });
 
-  test("compiled Counter loads in engine with correct state_size", async () => {
-    const r = await compileContract({
-      source: COUNTER_SRC,
-      contractName: "Counter",
-      slot: 28,
-      qpiHeader: QPI_HEADER,
+    test("compiled Counter loads in engine with correct state_size", async () => {
+        const r = await compileContract({
+            source: COUNTER_SRC,
+            contractName: "Counter",
+            slot: 28,
+            qpiHeader: QPI_HEADER,
+        });
+        const sim = new QubicSimulator();
+        const c = sim.deploy(28, r.wasm);
+        expect(typeof c.ex.dispatch).toBe("function");
+        expect(c.ex.state_size()).toBe(8);
     });
-    const sim = new QubicSimulator();
-    const c = sim.deploy(28, r.wasm);
-    expect(typeof c.ex.dispatch).toBe("function");
-    expect(c.ex.state_size()).toBe(8);
-  });
 
-  test("Get returns 0 initially", async () => {
-    const r = await compileContract({
-      source: COUNTER_SRC,
-      contractName: "Counter",
-      slot: 28,
-      qpiHeader: QPI_HEADER,
+    test("Get returns 0 initially", async () => {
+        const r = await compileContract({
+            source: COUNTER_SRC,
+            contractName: "Counter",
+            slot: 28,
+            qpiHeader: QPI_HEADER,
+        });
+        const sim = new QubicSimulator();
+        sim.deploy(28, r.wasm);
+        const result = sim.query(28, 1);
+        const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+        expect(view.getBigUint64(0, true)).toBe(0n);
     });
-    const sim = new QubicSimulator();
-    sim.deploy(28, r.wasm);
-    const result = sim.query(28, 1);
-    const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
-    expect(view.getBigUint64(0, true)).toBe(0n);
-  });
 
-  test("Inc increments then Get returns 1", async () => {
-    const r = await compileContract({
-      source: COUNTER_SRC,
-      contractName: "Counter",
-      slot: 28,
-      qpiHeader: QPI_HEADER,
+    test("Inc increments then Get returns 1", async () => {
+        const r = await compileContract({
+            source: COUNTER_SRC,
+            contractName: "Counter",
+            slot: 28,
+            qpiHeader: QPI_HEADER,
+        });
+        const sim = new QubicSimulator();
+        sim.deploy(28, r.wasm);
+        const id = deriveKeysSync("a".repeat(55)).publicKey;
+        sim.fund(id, 1_000_000_000n);
+        sim.procedure(28, 1, undefined, { originator: id, invocator: id, reward: 0n });
+
+        const result = sim.query(28, 1);
+        const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+        expect(view.getBigUint64(0, true)).toBe(1n);
     });
-    const sim = new QubicSimulator();
-    sim.deploy(28, r.wasm);
-    const id = deriveKeysSync("a".repeat(55)).publicKey;
-    sim.fund(id, 1_000_000_000n);
-    sim.procedure(28, 1, undefined, { originator: id, invocator: id, reward: 0n });
-
-    const result = sim.query(28, 1);
-    const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
-    expect(view.getBigUint64(0, true)).toBe(1n);
-  });
 });

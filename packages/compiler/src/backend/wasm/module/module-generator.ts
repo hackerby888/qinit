@@ -1,31 +1,14 @@
 import "../functions/function-lowering-services";
 import type { Declaration, StructDecl } from "../../../ast";
 import type { SemanticAnalyzer } from "../../../analysis/semantic-analysis";
-import {
-    emitModule,
-    type ModuleSpecification,
-} from "../framework";
+import { emitModule, type ModuleSpecification } from "../framework";
 import { emitFunction, emitHelperFunction } from "../functions/function-emitter";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
-import {
-    type GeneratedContractMetadata,
-    type LibrarySymbolIndex,
-} from "./library-index";
-import {
-    prepareContractModule,
-    type CalleeTranslationUnit,
-} from "./module-analysis";
-import {
-    publishProgramDiagnostics,
-    writeGeneratedContractMetadata,
-} from "./module-output";
-import {
-    emitRegisteredEntries,
-} from "./registrations";
-import {
-    emitMigrationFunction,
-    emitSystemProcedures,
-} from "./system-procedures";
+import { type GeneratedContractMetadata, type LibrarySymbolIndex } from "./library-index";
+import { prepareContractModule, type CalleeTranslationUnit } from "./module-analysis";
+import { publishProgramDiagnostics, writeGeneratedContractMetadata } from "./module-output";
+import { emitRegisteredEntries } from "./registrations";
+import { emitMigrationFunction, emitSystemProcedures } from "./system-procedures";
 import { buildContractIdl } from "../idl";
 
 export interface ModuleGenerationRequest {
@@ -138,12 +121,7 @@ export function generateWasmModule(request: ModuleGenerationRequest): string {
 
     for (const helper of callables.helperFunctions) {
         userFunctions.push(
-            emitHelperFunction(
-                programAnalysis,
-                helper.metadata,
-                helper.declaration,
-                stateLayout,
-            ),
+            emitHelperFunction(programAnalysis, helper.metadata, helper.declaration, stateLayout),
         );
     }
 

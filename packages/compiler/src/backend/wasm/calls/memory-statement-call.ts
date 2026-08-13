@@ -5,12 +5,7 @@ import { addrIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";
 
-const QPI_MEMORY_WRAPPERS = new Set([
-    "setMemory",
-    "copyMemory",
-    "copyFromBuffer",
-    "copyToBuffer",
-]);
+const QPI_MEMORY_WRAPPERS = new Set(["setMemory", "copyMemory", "copyFromBuffer", "copyToBuffer"]);
 
 export function tryEmitMemoryStatementCall(
     context: FunctionEmissionContext,
@@ -96,7 +91,8 @@ function emitRawMemoryIntrinsic(
 
     if (callName === "copyMem") {
         const sourceAddress = expression.callArguments[1]
-            ? (context.lowering.emitAddress(context, expression.callArguments[1]) ?? "(i32.const 0)")
+            ? (context.lowering.emitAddress(context, expression.callArguments[1]) ??
+              "(i32.const 0)")
             : "(i32.const 0)";
         const copyCall = watIr.functionCall(
             "$copyMem",

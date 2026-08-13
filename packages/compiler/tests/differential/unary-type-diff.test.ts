@@ -47,8 +47,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 const GTEST = coreGtest(
-  "UnaryP",
-  `TEST(UnaryType, Promotion) {
+    "UnaryP",
+    `TEST(UnaryType, Promotion) {
   ContractTestingHarness t;
   CONTRACT_STATE_TYPE::Probe_input in{};
   auto r = t.call<CONTRACT_STATE_TYPE::Probe_output>(1, in);
@@ -65,39 +65,41 @@ const GTEST = coreGtest(
 const wasi = wasiToolchain();
 
 describe("differential gtest — unary type propagation", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("unary ops and mixed-width compares match native C++ semantics", async () => {
-    if (!wasi.available) {
-      console.log("  (wasi-sdk clang not found — skipping)");
-      return;
-    }
-    const runnerWasm = await buildDifferentialRunner({
-      corePath: CORE,
-      source: SRC,
-      testSource: GTEST,
-      name: "UnaryP",
-      tempPrefix: "unary-type-",
+    beforeAll(async () => {
+        await initK12();
     });
 
-    const mine = await compileContract({
-      source: SRC,
-      contractName: "UnaryP",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1024 * 1024,
-    });
-    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+    test("unary ops and mixed-width compares match native C++ semantics", async () => {
+        if (!wasi.available) {
+            console.log("  (wasi-sdk clang not found — skipping)");
+            return;
+        }
+        const runnerWasm = await buildDifferentialRunner({
+            corePath: CORE,
+            source: SRC,
+            testSource: GTEST,
+            name: "UnaryP",
+            tempPrefix: "unary-type-",
+        });
 
-    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-    for (const r of results) {
-      console.log(
-        `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`,
-      );
-    }
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.every((r) => r.passed)).toBe(true);
-  }, 120000);
+        const mine = await compileContract({
+            source: SRC,
+            contractName: "UnaryP",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1024 * 1024,
+        });
+        expect(
+            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+
+        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+        for (const r of results) {
+            console.log(
+                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`,
+            );
+        }
+        expect(results.length).toBeGreaterThan(0);
+        expect(results.every((r) => r.passed)).toBe(true);
+    }, 120000);
 });

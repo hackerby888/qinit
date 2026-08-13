@@ -26,15 +26,19 @@ export class SemanticAnalyzer {
         this.diagnostics.push({ severity: DiagnosticSeverity.ERROR, message: msg, span });
     }
     warn(msg: string, span: Span, category?: DiagnosticCategory.FIDELITY): void {
-        this.diagnostics.push({ severity: DiagnosticSeverity.WARNING, message: msg, span, category });
+        this.diagnostics.push({
+            severity: DiagnosticSeverity.WARNING,
+            message: msg,
+            span,
+            category,
+        });
     }
     // ---- Constexpr evaluation ----
     // Fold literal-only expressions; leave symbol-dependent cases to codegen.
     evaluateConstexpr(expression: Expression): bigint | null {
         try {
             return this.evalExpr(expression);
-        }
-        catch {
+        } catch {
             return null;
         }
     }
@@ -123,24 +127,33 @@ export class SemanticAnalyzer {
             case AstKind.TEMPLATE_CALL: {
                 // QPI safe-math helpers used in constexpr contexts, e.g. div<uint32>(REGISTER_AMOUNT, 20).
                 const callee = expression.callee;
-                const fn = callee.kind === AstKind.IDENTIFIER
-                    ? callee.name
-                    : callee.kind === AstKind.QUALIFIED_NAME
-                        ? (callee as {
-                            name: string;
-                        }).name
-                        : null;
+                const fn =
+                    callee.kind === AstKind.IDENTIFIER
+                        ? callee.name
+                        : callee.kind === AstKind.QUALIFIED_NAME
+                          ? (
+                                callee as {
+                                    name: string;
+                                }
+                            ).name
+                          : null;
                 if (fn) {
-                    const numericValue = expression.callArguments.map((argument) => this.evalExpr(argument));
+                    const numericValue = expression.callArguments.map((argument) =>
+                        this.evalExpr(argument),
+                    );
                     switch (fn) {
                         case "div":
                             return numericValue[1] === 0n ? 0n : numericValue[0] / numericValue[1];
                         case "mod":
                             return numericValue[1] === 0n ? 0n : numericValue[0] % numericValue[1];
                         case "min":
-                            return numericValue[0] <= numericValue[1] ? numericValue[0] : numericValue[1];
+                            return numericValue[0] <= numericValue[1]
+                                ? numericValue[0]
+                                : numericValue[1];
                         case "max":
-                            return numericValue[0] >= numericValue[1] ? numericValue[0] : numericValue[1];
+                            return numericValue[0] >= numericValue[1]
+                                ? numericValue[0]
+                                : numericValue[1];
                         case "abs":
                             return numericValue[0] < 0n ? -numericValue[0] : numericValue[0];
                     }

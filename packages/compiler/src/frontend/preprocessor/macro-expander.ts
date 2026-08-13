@@ -1,4 +1,3 @@
-
 import type { MacroDef, PreprocessorInternals } from "./preprocessor-context";
 
 export function tryExpandMacro(context: PreprocessorInternals, name: string): string | null {
@@ -39,8 +38,7 @@ export function tryExpandMacro(context: PreprocessorInternals, name: string): st
             depth++;
             argument += ch;
             context.pos++;
-        }
-        else if (ch === ")") {
+        } else if (ch === ")") {
             depth--;
             if (depth === 0) {
                 callArguments.push(argument.trim());
@@ -49,18 +47,15 @@ export function tryExpandMacro(context: PreprocessorInternals, name: string): st
             }
             argument += ch;
             context.pos++;
-        }
-        else if (ch === "," && depth === 1) {
+        } else if (ch === "," && depth === 1) {
             callArguments.push(argument.trim());
             argument = "";
             context.pos++;
-        }
-        else if (ch === "\n") {
+        } else if (ch === "\n") {
             context.line++;
             argument += ch;
             context.pos++;
-        }
-        else {
+        } else {
             argument += ch;
             context.pos++;
         }
@@ -71,7 +66,11 @@ export function tryExpandMacro(context: PreprocessorInternals, name: string): st
     return context.expandBody(def, callArguments);
 }
 
-export function expandBody(context: PreprocessorInternals, def: MacroDef, callArguments: string[]): string {
+export function expandBody(
+    context: PreprocessorInternals,
+    def: MacroDef,
+    callArguments: string[],
+): string {
     const macroName = def.name;
     context.expanding.add(macroName);
     let result = def.body;
@@ -98,7 +97,12 @@ export function expandBody(context: PreprocessorInternals, def: MacroDef, callAr
     return result;
 }
 
-export function replaceParamInBody(context: PreprocessorInternals, body: string, param: string, value: string): string {
+export function replaceParamInBody(
+    context: PreprocessorInternals,
+    body: string,
+    param: string,
+    value: string,
+): string {
     // Replace `param` with `value` when it's a standalone word or adjacent to ##
     const escaped = context.escapeRegex(param);
     // Allow param preceded/followed by ## or non-word chars
@@ -130,30 +134,46 @@ export function processTokenPaste(_context: PreprocessorInternals, body: string)
     return result;
 }
 
-export function processStringify(context: PreprocessorInternals, body: string, callArguments: string[], def: MacroDef): string {
+export function processStringify(
+    context: PreprocessorInternals,
+    body: string,
+    callArguments: string[],
+    def: MacroDef,
+): string {
     let result = body;
     if (def.params) {
         for (let index = 0; index < def.params.length && index < callArguments.length; index++) {
             const param = def.params[index];
             // #param but not ##param
-            result = result.replace(new RegExp(`(?<!#)#${context.escapeRegex(param)}\\b`, "g"), `"${callArguments[index].replace(/"/g, '\\"')}"`);
+            result = result.replace(
+                new RegExp(`(?<!#)#${context.escapeRegex(param)}\\b`, "g"),
+                `"${callArguments[index].replace(/"/g, '\\"')}"`,
+            );
         }
     }
     return result;
 }
 
-export function replaceParam(context: PreprocessorInternals, body: string, param: string, value: string): string {
+export function replaceParam(
+    context: PreprocessorInternals,
+    body: string,
+    param: string,
+    value: string,
+): string {
     // Replace occurrences of param that are NOT part of a larger identifier or following #/##
     const escaped = context.escapeRegex(param);
     return body.replace(new RegExp(`(?<![#\\w])${escaped}(?!\\w)`, "g"), value);
 }
 
-export function readArgsFromString(_context: PreprocessorInternals, text: string, openIdx: number): {
+export function readArgsFromString(
+    _context: PreprocessorInternals,
+    text: string,
+    openIdx: number,
+): {
     callArguments: string[];
     end: number;
 } | null {
-    if (text[openIdx] !== "(")
-        return null;
+    if (text[openIdx] !== "(") return null;
     const callArguments: string[] = [];
     let argument = "";
     let depth = 0;
@@ -161,23 +181,19 @@ export function readArgsFromString(_context: PreprocessorInternals, text: string
         const ch = text[textItemIndex];
         if (ch === "(") {
             depth++;
-            if (depth === 1)
-                continue;
+            if (depth === 1) continue;
             argument += ch;
-        }
-        else if (ch === ")") {
+        } else if (ch === ")") {
             depth--;
             if (depth === 0) {
                 callArguments.push(argument.trim());
                 return { callArguments, end: textItemIndex + 1 };
             }
             argument += ch;
-        }
-        else if (ch === "," && depth === 1) {
+        } else if (ch === "," && depth === 1) {
             callArguments.push(argument.trim());
             argument = "";
-        }
-        else {
+        } else {
             argument += ch;
         }
     }
@@ -203,32 +219,35 @@ export function expandRecursive(context: PreprocessorInternals, text: string): s
                     context.expanding.delete(ident);
                     resultItemIndex += ident.length - 1;
                     changed = true;
-                }
-                else if (def && def.params !== null && !context.expanding.has(ident)) {
+                } else if (def && def.params !== null && !context.expanding.has(ident)) {
                     // Expand function-like macros only when an argument list follows.
                     let nestedIndex = resultItemIndex + ident.length;
-                    while (nestedIndex < result.length &&
-                        (result[nestedIndex] === " " || result[nestedIndex] === "\t" || result[nestedIndex] === "\n"))
+                    while (
+                        nestedIndex < result.length &&
+                        (result[nestedIndex] === " " ||
+                            result[nestedIndex] === "\t" ||
+                            result[nestedIndex] === "\n")
+                    )
                         nestedIndex++;
-                    const parsed = result[nestedIndex] === "(" ? context.readArgsFromString(result, nestedIndex) : null;
+                    const parsed =
+                        result[nestedIndex] === "("
+                            ? context.readArgsFromString(result, nestedIndex)
+                            : null;
                     if (parsed) {
                         context.expanding.add(ident);
                         expanded += context.expandBody(def, parsed.callArguments);
                         context.expanding.delete(ident);
                         resultItemIndex = parsed.end - 1;
                         changed = true;
-                    }
-                    else {
+                    } else {
                         expanded += ident;
                         resultItemIndex += ident.length - 1;
                     }
-                }
-                else {
+                } else {
                     expanded += ident;
                     resultItemIndex += ident.length - 1;
                 }
-            }
-            else {
+            } else {
                 expanded += ch;
             }
         }

@@ -2,14 +2,21 @@ import { DiagnosticSeverity } from "../../shared/enums";
 import type { WasmInspectionDiagnostic } from "./inspection-types";
 
 export class WasmParseError extends Error {
-    constructor(message: string, readonly offset: number) {
+    constructor(
+        message: string,
+        readonly offset: number,
+    ) {
         super(message);
     }
 }
 
 export class Reader {
     pos: number;
-    constructor(readonly bytes: Uint8Array, start = 0, readonly end = bytes.byteLength) {
+    constructor(
+        readonly bytes: Uint8Array,
+        start = 0,
+        readonly end = bytes.byteLength,
+    ) {
         this.pos = start;
         if (start < 0 || end < start || end > bytes.byteLength)
             throw new WasmParseError("invalid reader bounds", start);
@@ -39,8 +46,7 @@ export class Reader {
             if (index === 4 && (templateBindings & 0xf0) !== 0)
                 throw new WasmParseError(`${label} exceeds uint32`, at);
             value += (templateBindings & 0x7f) * 2 ** (index * 7);
-            if ((templateBindings & 0x80) === 0)
-                return value >>> 0;
+            if ((templateBindings & 0x80) === 0) return value >>> 0;
         }
         throw new WasmParseError(`${label} has an overlong LEB128 encoding`, this.pos);
     }
@@ -52,15 +58,13 @@ export class Reader {
             if (index === 9 && (templateBindings & 0xfe) !== 0)
                 throw new WasmParseError(`${label} exceeds uint64`, at);
             value |= BigInt(templateBindings & 0x7f) << BigInt(index * 7);
-            if ((templateBindings & 0x80) === 0)
-                return value;
+            if ((templateBindings & 0x80) === 0) return value;
         }
         throw new WasmParseError(`${label} has an overlong LEB128 encoding`, this.pos);
     }
     signedLeb(maxBytes: number, label: string): void {
         for (let index = 0; index < maxBytes; index++) {
-            if ((this.byte(label) & 0x80) === 0)
-                return;
+            if ((this.byte(label) & 0x80) === 0) return;
         }
         throw new WasmParseError(`${label} has an overlong LEB128 encoding`, this.pos);
     }
@@ -69,9 +73,10 @@ export class Reader {
         const start = this.pos;
         this.skip(length, label);
         try {
-            return new TextDecoder("utf-8", { fatal: true }).decode(this.bytes.subarray(start, start + length));
-        }
-        catch {
+            return new TextDecoder("utf-8", { fatal: true }).decode(
+                this.bytes.subarray(start, start + length),
+            );
+        } catch {
             throw new WasmParseError(`${label} is not valid UTF-8`, start);
         }
     }
@@ -82,8 +87,15 @@ export class Reader {
     }
 }
 
-export function error(diagnostics: WasmInspectionDiagnostic[], code: string, message: string, offset?: number): void {
-    diagnostics.push(offset === undefined
-        ? { severity: DiagnosticSeverity.ERROR, code, message }
-        : { severity: DiagnosticSeverity.ERROR, code, message, offset });
+export function error(
+    diagnostics: WasmInspectionDiagnostic[],
+    code: string,
+    message: string,
+    offset?: number,
+): void {
+    diagnostics.push(
+        offset === undefined
+            ? { severity: DiagnosticSeverity.ERROR, code, message }
+            : { severity: DiagnosticSeverity.ERROR, code, message, offset },
+    );
 }

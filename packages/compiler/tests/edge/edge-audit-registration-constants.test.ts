@@ -19,70 +19,69 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function compile(source: string) {
-  return compileContract({
-    source,
-    contractName: "RegistrationConstantEdge",
-    slot: 27,
-    qpiHeader: HEADERS,
-    arenaSizeBytes: 1 << 20,
-  });
+    return compileContract({
+        source,
+        contractName: "RegistrationConstantEdge",
+        slot: 27,
+        qpiHeader: HEADERS,
+        arenaSizeBytes: 1 << 20,
+    });
 }
 
 async function registeredInputType(source: string): Promise<number | undefined> {
-  const result = await compile(source);
-  expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-  expect(WebAssembly.validate(result.wasm)).toBe(true);
-  const simulator = new QubicSimulator({
-    mempool: false,
-    fees: "off",
-    liteTicking: true,
-  });
-  simulator.deploy(27, result.wasm);
-  return simulator.contracts
-    .get(27)!
-    .entries.find((entry) => entry.kind === 1)?.inputType;
+    const result = await compile(source);
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
+        0,
+    );
+    expect(WebAssembly.validate(result.wasm)).toBe(true);
+    const simulator = new QubicSimulator({
+        mempool: false,
+        fees: "off",
+        liteTicking: true,
+    });
+    simulator.deploy(27, result.wasm);
+    return simulator.contracts.get(27)!.entries.find((entry) => entry.kind === 1)?.inputType;
 }
 
 async function expectRangeRejection(source: string) {
-  const result = await compile(source);
-  const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
-  expect(
-    errors.some((d) => /input.?type.*range|1.*65535|registration.*constant/i.test(d.message)),
-  ).toBe(true);
-  expect(result.wasm).toHaveLength(0);
+    const result = await compile(source);
+    const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
+    expect(
+        errors.some((d) => /input.?type.*range|1.*65535|registration.*constant/i.test(d.message)),
+    ).toBe(true);
+    expect(result.wasm).toHaveLength(0);
 }
 
 describe("edge audit — registration constant expressions", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
+    beforeAll(async () => {
+        await initK12();
+    });
 
-  test("a folded arithmetic input type is registered", async () => {
-    expect(await registeredInputType(wrap("", `1 + 1`))).toBe(2);
-  });
+    test("a folded arithmetic input type is registered", async () => {
+        expect(await registeredInputType(wrap("", `1 + 1`))).toBe(2);
+    });
 
-  test("an enum constant input type is registered", async () => {
-    expect(await registeredInputType(wrap(`enum InputType { GO_TYPE = 7 };`, `GO_TYPE`))).toBe(7);
-  });
+    test("an enum constant input type is registered", async () => {
+        expect(await registeredInputType(wrap(`enum InputType { GO_TYPE = 7 };`, `GO_TYPE`))).toBe(
+            7,
+        );
+    });
 
-  test("a negative folded input type is rejected instead of dropping the entry", async () => {
-    await expectRangeRejection(wrap("", `-1`));
-  });
+    test("a negative folded input type is rejected instead of dropping the entry", async () => {
+        await expectRangeRejection(wrap("", `-1`));
+    });
 
-  test("a folded input type above 65535 is rejected instead of dropping the entry", async () => {
-    await expectRangeRejection(wrap("", `32768 * 2`));
-  });
+    test("a folded input type above 65535 is rejected instead of dropping the entry", async () => {
+        await expectRangeRejection(wrap("", `32768 * 2`));
+    });
 
-  test("an unsigned literal suffix remains accepted", async () => {
-    expect(await registeredInputType(wrap("", `7u`))).toBe(7);
-  });
+    test("an unsigned literal suffix remains accepted", async () => {
+        expect(await registeredInputType(wrap("", `7u`))).toBe(7);
+    });
 
-  test("an unresolved named constant is rejected", async () => {
-    await expectRangeRejection(
-      wrap(
-        `static constexpr uint64 GO_TYPE = MISSING_TYPE + 1;`,
-        `GO_TYPE`,
-      ),
-    );
-  });
+    test("an unresolved named constant is rejected", async () => {
+        await expectRangeRejection(
+            wrap(`static constexpr uint64 GO_TYPE = MISSING_TYPE + 1;`, `GO_TYPE`),
+        );
+    });
 });

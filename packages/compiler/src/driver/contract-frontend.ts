@@ -4,11 +4,7 @@ import { Parser, type Diagnostic as ParserDiagnostic } from "../frontend/parser"
 import { Preprocessor } from "../frontend/preprocessor";
 import { validateAndDesugar } from "../frontend/validation";
 import { SCAFFOLD_MACROS } from "./qpi/scaffold";
-import {
-    makeUserDiagnosticRemapper,
-    sourceWithoutLeadingBom,
-    USER_BOUNDARY,
-} from "./diagnostics";
+import { makeUserDiagnosticRemapper, sourceWithoutLeadingBom, USER_BOUNDARY } from "./diagnostics";
 import type { CompileOptions } from "./types";
 
 type PreprocessorInput = Parameters<Preprocessor["preprocess"]>[0];
@@ -58,9 +54,7 @@ export function parseContractSource(
     const parser = new Parser(new Lexer(preprocessed.source).tokenize());
     const translationUnit = parser.parseTranslationUnit();
 
-    diagnostics.push(
-        ...userSourceDiagnostics(parser.getDiagnostics(), preprocessed),
-    );
+    diagnostics.push(...userSourceDiagnostics(parser.getDiagnostics(), preprocessed));
 
     return translationUnit;
 }
@@ -70,12 +64,7 @@ export function validateContractSource(
     preprocessed: PreprocessedContractSource,
     diagnostics: ParserDiagnostic[],
 ): void {
-    diagnostics.push(
-        ...userSourceDiagnostics(
-            validateAndDesugar(translationUnit),
-            preprocessed,
-        ),
-    );
+    diagnostics.push(...userSourceDiagnostics(validateAndDesugar(translationUnit), preprocessed));
 }
 
 export function remapAnalysisDiagnostics(

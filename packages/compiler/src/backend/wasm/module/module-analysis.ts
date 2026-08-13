@@ -1,19 +1,12 @@
 import { AstKind } from "../../../shared/enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { StructLayout } from "../../../analysis/types";
-import type {
-    Declaration,
-    FunctionDecl,
-    StructDecl,
-} from "../../../ast";
+import type { Declaration, FunctionDecl, StructDecl } from "../../../ast";
 import type { QpiContextLayout } from "../framework";
 import type { SemanticAnalyzer } from "../../../analysis/semantic-analysis";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 import type { ResolvedCalleeIdl } from "../../../analysis/types";
-import {
-    registerContractCallables,
-    type ContractCallableCatalog,
-} from "./contract-callables";
+import { registerContractCallables, type ContractCallableCatalog } from "./contract-callables";
 import { findContractStruct } from "./contract-discovery";
 import {
     contextLayoutFromCodegen,
@@ -28,10 +21,7 @@ import {
     validateContractRegistrations,
     validateRegistrationInterfaces,
 } from "./registrations";
-import {
-    indexSystemProcedures,
-    type SystemProcedureIndex,
-} from "./system-procedures";
+import { indexSystemProcedures, type SystemProcedureIndex } from "./system-procedures";
 
 export interface CalleeTranslationUnit {
     contractName: string;
@@ -114,10 +104,7 @@ export function prepareContractModule(
         request.contractSlot,
         request.procedureDeclLines,
     );
-    const registrations = validateContractRegistrations(
-        contract,
-        programAnalysis,
-    );
+    const registrations = validateContractRegistrations(contract, programAnalysis);
     const callables = registerContractCallables(
         programAnalysis,
         contract,
@@ -125,12 +112,7 @@ export function prepareContractModule(
         systemProcedureIndex.idsByImplementation,
     );
 
-    validateRegistrationInterfaces(
-        contract,
-        registrations,
-        programAnalysis,
-        layouts,
-    );
+    validateRegistrationInterfaces(contract, registrations, programAnalysis, layouts);
     registerEntryDispatchTargets(registrations, programAnalysis, layouts);
 
     const prepared: PreparedContractModule = {
@@ -160,10 +142,7 @@ export function createModuleProgramAnalysis(
     programAnalysis.gtestMode = gtestMode;
 
     for (const callee of callees ?? []) {
-        programAnalysis.callees.set(
-            callee.name,
-            resolveCalleeIdl(callee),
-        );
+        programAnalysis.callees.set(callee.name, resolveCalleeIdl(callee));
     }
 
     for (const [name, declaration] of calleeStructs ?? []) {
@@ -236,10 +215,7 @@ export function prepareContractState(
     return stateLayout;
 }
 
-function recordMemberFunctionLines(
-    programAnalysis: ProgramAnalysis,
-    contract: StructDecl,
-): void {
+function recordMemberFunctionLines(programAnalysis: ProgramAnalysis, contract: StructDecl): void {
     for (const member of contract.members) {
         if (member.kind !== AstKind.FUNCTION) {
             continue;
@@ -249,9 +225,9 @@ function recordMemberFunctionLines(
         const functionDeclaration = member as FunctionDecl;
         programAnalysis.memberFnLine.set(
             functionDeclaration.name,
-            programAnalysis.procedureDeclLines.get(functionDeclaration.name)
-                ?? functionDeclaration.span?.line
-                ?? 0,
+            programAnalysis.procedureDeclLines.get(functionDeclaration.name) ??
+                functionDeclaration.span?.line ??
+                0,
         );
     }
 }

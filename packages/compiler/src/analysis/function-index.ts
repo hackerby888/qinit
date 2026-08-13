@@ -3,13 +3,17 @@ import { EMPTY_TEMPLATE_BINDINGS, ResolvedSourceMethod, TemplateBindings } from 
 import type { TypeSpec, FunctionDecl, FunctionTemplateDecl } from "../ast";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
 
-export function methodOwnerNames(context: ProgramAnalysisInternals, name: string, seen = new Set<string>()): string[] {
+export function methodOwnerNames(
+    context: ProgramAnalysisInternals,
+    name: string,
+    seen = new Set<string>(),
+): string[] {
     const bare = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
-    if (seen.has(bare))
-        return [];
+    if (seen.has(bare)) return [];
     seen.add(bare);
     const out = [bare];
-    const struct = context.globalStructs.get(name) ??
+    const struct =
+        context.globalStructs.get(name) ??
         context.nested.get(name) ??
         context.globalStructs.get(bare) ??
         context.nested.get(bare);
@@ -17,25 +21,31 @@ export function methodOwnerNames(context: ProgramAnalysisInternals, name: string
     for (const baseType of directBases) {
         const resolvedBase = context.resolveType(baseType, EMPTY_TEMPLATE_BINDINGS);
         const baseName = context.baseTemplateName(resolvedBase);
-        if (baseName)
-            out.push(...context.methodOwnerNames(baseName, seen));
+        if (baseName) out.push(...context.methodOwnerNames(baseName, seen));
     }
     return out;
 }
 
-export function baseTemplateName(_context: ProgramAnalysisInternals, type: TypeSpec): string | null {
-    if (type.kind === AstKind.NAME)
-        return type.name;
-    if (type.kind === AstKind.TEMPLATE_INSTANCE)
-        return type.name;
+export function baseTemplateName(
+    _context: ProgramAnalysisInternals,
+    type: TypeSpec,
+): string | null {
+    if (type.kind === AstKind.NAME) return type.name;
+    if (type.kind === AstKind.TEMPLATE_INSTANCE) return type.name;
     return null;
 }
 
-export function hasInstanceMethod(context: ProgramAnalysisInternals, name: string, methodName: string): boolean {
+export function hasInstanceMethod(
+    context: ProgramAnalysisInternals,
+    name: string,
+    methodName: string,
+): boolean {
     return context.methodOwnerNames(name).some((owner) => {
         const methods = context.templateMethods.get(owner);
-        return (methods?.has(methodName) ||
-            [...(methods?.keys() ?? [])].some((key) => key.startsWith(`${methodName}/`)));
+        return (
+            methods?.has(methodName) ||
+            [...(methods?.keys() ?? [])].some((key) => key.startsWith(`${methodName}/`))
+        );
     });
 }
 
@@ -88,15 +98,15 @@ export function resolveSourceMethodDefinition(
                 selectedInlineMethod.kind === AstKind.FUNCTION_TEMPLATE
                     ? selectedInlineMethod
                     : {
-                        kind: AstKind.FUNCTION_TEMPLATE,
-                        name: selectedInlineMethod.name,
-                        params: templateInstance.templateDeclaration.params,
-                        functionParameters: selectedInlineMethod.params,
-                        returnType: selectedInlineMethod.returnType,
-                        body: selectedInlineMethod.body,
-                        isConstexpr: selectedInlineMethod.isConstexpr,
-                        span: selectedInlineMethod.span,
-                    };
+                          kind: AstKind.FUNCTION_TEMPLATE,
+                          name: selectedInlineMethod.name,
+                          params: templateInstance.templateDeclaration.params,
+                          functionParameters: selectedInlineMethod.params,
+                          returnType: selectedInlineMethod.returnType,
+                          body: selectedInlineMethod.body,
+                          isConstexpr: selectedInlineMethod.isConstexpr,
+                          span: selectedInlineMethod.span,
+                      };
 
             context.namespaceContexts.set(
                 definition,
@@ -168,15 +178,11 @@ export function resolveSourceMethodDefinition(
         ...definition,
         functionParameters: (definition.functionParameters ?? []).map((parameter, index) => ({
             ...parameter,
-            defaultValue:
-                parameter.defaultValue ?? methodDeclaration.params[index]?.defaultValue,
+            defaultValue: parameter.defaultValue ?? methodDeclaration.params[index]?.defaultValue,
         })),
     };
 
-    context.namespaceContexts.set(
-        definitionWithDefaults,
-        context.namespaceContextOf(definition),
-    );
+    context.namespaceContexts.set(definitionWithDefaults, context.namespaceContextOf(definition));
 
     return {
         definition: definitionWithDefaults,
@@ -192,8 +198,7 @@ export function buildMethodSpecializationKey(
     ownerTemplateArguments: TypeSpec[],
     ownerBindings: TemplateBindings,
 ): string | undefined {
-    if (methodArgumentCount === undefined || !ownerTemplateArguments[0])
-        return undefined;
+    if (methodArgumentCount === undefined || !ownerTemplateArguments[0]) return undefined;
     const firstTemplateArgument = context.typeKey(
         context.resolveType(ownerTemplateArguments[0], ownerBindings),
     );
@@ -206,7 +211,6 @@ export function buildMethodOverloadKey(
     methodArgumentCount: number | undefined,
     parameterTypeDiscriminator: string | undefined,
 ): string | undefined {
-    if (methodArgumentCount === undefined || !parameterTypeDiscriminator)
-        return undefined;
+    if (methodArgumentCount === undefined || !parameterTypeDiscriminator) return undefined;
     return `${methodName}/${methodArgumentCount}@${parameterTypeDiscriminator}`;
 }

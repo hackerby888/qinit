@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  AbiScalarKind,
-  AbiTypeKind,
-  parseContractIdl,
-} from "@qinit/proto/contract-idl";
+import { AbiScalarKind, AbiTypeKind, parseContractIdl } from "@qinit/proto/contract-idl";
 import { layoutOf } from "@qinit/proto/abi-fmt";
 import { analyzeContract } from "../../src/analyzer";
 import { compileContract } from "../../src/driver/compile-contract";
@@ -49,68 +45,66 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 `;
 
 test("analyzer and compiler publish the same authoritative v4 IDL", async () => {
-  const analyzed = analyzeContract({
-    source: SOURCE,
-    contractName: "RichIdl",
-    slot: 21,
-  });
-
-  expect(analyzed.diagnostics).toEqual([]);
-  expect(analyzed.idl).toBeDefined();
-  expect(() => parseContractIdl(analyzed.idl)).not.toThrow();
-
-  const compiled = await compileContract({
-    source: SOURCE,
-    contractName: "RichIdl",
-    slot: 21,
-    qpiHeader: QPI_SNAPSHOT,
-    arenaSizeBytes: 1 << 20,
-  });
-
-  expect(compiled.diagnostics).toEqual([]);
-  expect(compiled.idl).toEqual(analyzed.idl);
-
-  const idl = analyzed.idl!;
-  const entry = idl.functions[0];
-  expect(entry.input.format).toBe("{ uint16, uint64 }");
-  expect(entry.output.format).toBe("uint64");
-  expect(entry.input.kind).toBe(AbiTypeKind.STRUCT);
-  if (entry.input.kind !== AbiTypeKind.STRUCT) {
-    throw new Error("Read input must remain a struct root");
-  }
-  expect(entry.input.fields[0].type.kind).toBe(AbiTypeKind.STRUCT);
-  expect(idl.state.size).toBe(512);
-  expect(idl.state.fields.map((field) => field.type.kind)).toEqual([
-    AbiTypeKind.HASH_MAP,
-    AbiTypeKind.HASH_SET,
-    AbiTypeKind.COLLECTION,
-    AbiTypeKind.ARRAY,
-  ]);
-  for (const field of idl.state.fields) {
-    expect(layoutOf(field.type.format)).toEqual({
-      size: field.type.size,
-      align: field.type.align,
+    const analyzed = analyzeContract({
+        source: SOURCE,
+        contractName: "RichIdl",
+        slot: 21,
     });
-  }
-  expect(idl.enums).toEqual([
-    {
-      name: "Event",
-      underlying: AbiScalarKind.UINT8,
-      members: {
-        "2": "Started",
-        "3": "Finished",
-      },
-    },
-  ]);
-  expect(idl.logs[0]?.type.format).toBe(
-    "uint32, { uint16, uint64 }",
-  );
-  expect(idl.migration?.oldState.format).toBe("uint64");
-  expect(idl.sysprocMask).toBe(1);
+
+    expect(analyzed.diagnostics).toEqual([]);
+    expect(analyzed.idl).toBeDefined();
+    expect(() => parseContractIdl(analyzed.idl)).not.toThrow();
+
+    const compiled = await compileContract({
+        source: SOURCE,
+        contractName: "RichIdl",
+        slot: 21,
+        qpiHeader: QPI_SNAPSHOT,
+        arenaSizeBytes: 1 << 20,
+    });
+
+    expect(compiled.diagnostics).toEqual([]);
+    expect(compiled.idl).toEqual(analyzed.idl);
+
+    const idl = analyzed.idl!;
+    const entry = idl.functions[0];
+    expect(entry.input.format).toBe("{ uint16, uint64 }");
+    expect(entry.output.format).toBe("uint64");
+    expect(entry.input.kind).toBe(AbiTypeKind.STRUCT);
+    if (entry.input.kind !== AbiTypeKind.STRUCT) {
+        throw new Error("Read input must remain a struct root");
+    }
+    expect(entry.input.fields[0].type.kind).toBe(AbiTypeKind.STRUCT);
+    expect(idl.state.size).toBe(512);
+    expect(idl.state.fields.map((field) => field.type.kind)).toEqual([
+        AbiTypeKind.HASH_MAP,
+        AbiTypeKind.HASH_SET,
+        AbiTypeKind.COLLECTION,
+        AbiTypeKind.ARRAY,
+    ]);
+    for (const field of idl.state.fields) {
+        expect(layoutOf(field.type.format)).toEqual({
+            size: field.type.size,
+            align: field.type.align,
+        });
+    }
+    expect(idl.enums).toEqual([
+        {
+            name: "Event",
+            underlying: AbiScalarKind.UINT8,
+            members: {
+                "2": "Started",
+                "3": "Finished",
+            },
+        },
+    ]);
+    expect(idl.logs[0]?.type.format).toBe("uint32, { uint16, uint64 }");
+    expect(idl.migration?.oldState.format).toBe("uint64");
+    expect(idl.sysprocMask).toBe(1);
 });
 
 test("emits exact scalar, array, and struct alias roots", () => {
-  const source = `
+    const source = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct Payload {
@@ -145,75 +139,73 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-  const result = analyzeContract({
-    source,
-    contractName: "AliasRoots",
-  });
+    const result = analyzeContract({
+        source,
+        contractName: "AliasRoots",
+    });
 
-  expect(result.diagnostics).toEqual([]);
-  expect(() => parseContractIdl(result.idl)).not.toThrow();
+    expect(result.diagnostics).toEqual([]);
+    expect(() => parseContractIdl(result.idl)).not.toThrow();
 
-  const entries = new Map(
-    result.idl?.functions.map((entry) => [entry.name, entry]),
-  );
-  expect(entries.get("Scalar")?.input).toMatchObject({
-    kind: AbiTypeKind.SCALAR,
-    scalar: AbiScalarKind.UINT64,
-    size: 8,
-    format: "uint64",
-  });
-  expect(entries.get("Scalar")?.output).toMatchObject({
-    kind: AbiTypeKind.SCALAR,
-    scalar: AbiScalarKind.SINT64,
-    size: 8,
-    format: "sint64",
-  });
-  expect(entries.get("Values")?.input).toMatchObject({
-    kind: AbiTypeKind.ARRAY,
-    count: 3,
-    size: 6,
-    element: {
-      kind: AbiTypeKind.SCALAR,
-      scalar: AbiScalarKind.UINT16,
-    },
-  });
-  expect(entries.get("Values")?.output).toMatchObject({
-    kind: AbiTypeKind.ARRAY,
-    count: 4,
-    size: 4,
-    element: {
-      kind: AbiTypeKind.SCALAR,
-      scalar: AbiScalarKind.UINT8,
-    },
-  });
-  expect(entries.get("Record")?.input).toMatchObject({
-    kind: AbiTypeKind.STRUCT,
-    name: "Payload",
-    size: 16,
-    format: "uint16, uint64",
-  });
-  expect(entries.get("Direct")?.input).toMatchObject({
-    kind: AbiTypeKind.STRUCT,
-    name: "Direct_input",
-    size: 1,
-    format: "uint8",
-  });
-  expect(entries.get("Bits")?.input).toMatchObject({
-    kind: AbiTypeKind.BIT_ARRAY,
-    bitCount: 128,
-    size: 16,
-    format: "[2;uint64]",
-  });
-  expect(entries.get("Bits")?.output).toMatchObject({
-    kind: AbiTypeKind.BIT_ARRAY,
-    bitCount: 4096,
-    size: 512,
-    format: "[64;uint64]",
-  });
+    const entries = new Map(result.idl?.functions.map((entry) => [entry.name, entry]));
+    expect(entries.get("Scalar")?.input).toMatchObject({
+        kind: AbiTypeKind.SCALAR,
+        scalar: AbiScalarKind.UINT64,
+        size: 8,
+        format: "uint64",
+    });
+    expect(entries.get("Scalar")?.output).toMatchObject({
+        kind: AbiTypeKind.SCALAR,
+        scalar: AbiScalarKind.SINT64,
+        size: 8,
+        format: "sint64",
+    });
+    expect(entries.get("Values")?.input).toMatchObject({
+        kind: AbiTypeKind.ARRAY,
+        count: 3,
+        size: 6,
+        element: {
+            kind: AbiTypeKind.SCALAR,
+            scalar: AbiScalarKind.UINT16,
+        },
+    });
+    expect(entries.get("Values")?.output).toMatchObject({
+        kind: AbiTypeKind.ARRAY,
+        count: 4,
+        size: 4,
+        element: {
+            kind: AbiTypeKind.SCALAR,
+            scalar: AbiScalarKind.UINT8,
+        },
+    });
+    expect(entries.get("Record")?.input).toMatchObject({
+        kind: AbiTypeKind.STRUCT,
+        name: "Payload",
+        size: 16,
+        format: "uint16, uint64",
+    });
+    expect(entries.get("Direct")?.input).toMatchObject({
+        kind: AbiTypeKind.STRUCT,
+        name: "Direct_input",
+        size: 1,
+        format: "uint8",
+    });
+    expect(entries.get("Bits")?.input).toMatchObject({
+        kind: AbiTypeKind.BIT_ARRAY,
+        bitCount: 128,
+        size: 16,
+        format: "[2;uint64]",
+    });
+    expect(entries.get("Bits")?.output).toMatchObject({
+        kind: AbiTypeKind.BIT_ARRAY,
+        bitCount: 4096,
+        size: 512,
+        format: "[64;uint64]",
+    });
 });
 
 test("emits rare scalar, enum, array, and migration ABI types", () => {
-  const source = `
+    const source = `
 using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -276,164 +268,157 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   MIGRATE() {}
 };`;
 
-  const result = analyzeContract({
-    source,
-    contractName: "RareAbiTypes",
-  });
-
-  expect(result.diagnostics).toEqual([]);
-  expect(() => parseContractIdl(result.idl)).not.toThrow();
-
-  const fields = new Map(
-    result.idl?.state.fields.map((field) => [field.name, field]),
-  );
-  const scalarCases: Array<[
-    string,
-    AbiScalarKind,
-    number,
-    number,
-  ]> = [
-    ["bitValue", AbiScalarKind.BIT, 1, 1],
-    ["idValue", AbiScalarKind.ID, 32, 8],
-    ["m256iValue", AbiScalarKind.M256I, 32, 8],
-    ["uint8Value", AbiScalarKind.UINT8, 1, 1],
-    ["uint16Value", AbiScalarKind.UINT16, 2, 2],
-    ["uint32Value", AbiScalarKind.UINT32, 4, 4],
-    ["uint64Value", AbiScalarKind.UINT64, 8, 8],
-    ["uint128Value", AbiScalarKind.UINT128, 16, 8],
-    ["sint8Value", AbiScalarKind.SINT8, 1, 1],
-    ["sint16Value", AbiScalarKind.SINT16, 2, 2],
-    ["sint32Value", AbiScalarKind.SINT32, 4, 4],
-    ["sint64Value", AbiScalarKind.SINT64, 8, 8],
-    ["boolValue", AbiScalarKind.UINT8, 1, 1],
-    ["signedCharValue", AbiScalarKind.SINT8, 1, 1],
-    ["unsignedCharValue", AbiScalarKind.UINT8, 1, 1],
-    ["signedShortValue", AbiScalarKind.SINT16, 2, 2],
-    ["unsignedShortValue", AbiScalarKind.UINT16, 2, 2],
-    ["signedIntValue", AbiScalarKind.SINT32, 4, 4],
-    ["unsignedIntValue", AbiScalarKind.UINT32, 4, 4],
-    ["longLongValue", AbiScalarKind.SINT64, 8, 8],
-    ["signedLongLongValue", AbiScalarKind.SINT64, 8, 8],
-    ["unsignedLongLongValue", AbiScalarKind.UINT64, 8, 8],
-    ["aliasValue", AbiScalarKind.UINT16, 2, 2],
-    ["plainValue", AbiScalarKind.SINT32, 4, 4],
-    ["tinyValue", AbiScalarKind.UINT8, 1, 1],
-    ["wideValue", AbiScalarKind.UINT64, 8, 8],
-    ["dateValue", AbiScalarKind.UINT64, 8, 8],
-  ];
-
-  for (const [name, scalar, size, align] of scalarCases) {
-    expect(fields.get(name)?.type).toMatchObject({
-      kind: AbiTypeKind.SCALAR,
-      scalar,
-      size,
-      align,
+    const result = analyzeContract({
+        source,
+        contractName: "RareAbiTypes",
     });
-    expect(fields.get(name)?.size).toBe(size);
-  }
 
-  expect(fields.get("bits2")?.type).toMatchObject({
-    kind: AbiTypeKind.BIT_ARRAY,
-    bitCount: 2,
-    size: 8,
-  });
-  expect(fields.get("bits64")?.type).toMatchObject({
-    kind: AbiTypeKind.BIT_ARRAY,
-    bitCount: 64,
-    size: 8,
-  });
-  expect(fields.get("bits128")?.type).toMatchObject({
-    kind: AbiTypeKind.BIT_ARRAY,
-    bitCount: 128,
-    size: 16,
-  });
-  expect(fields.get("bits4096")?.type).toMatchObject({
-    kind: AbiTypeKind.BIT_ARRAY,
-    bitCount: 4096,
-    size: 512,
-  });
-  expect(fields.get("words")?.type).toMatchObject({
-    kind: AbiTypeKind.ARRAY,
-    count: 2,
-    size: 16,
-    element: {
-      kind: AbiTypeKind.SCALAR,
-      scalar: AbiScalarKind.UINT64,
-    },
-  });
-  expect(fields.get("nestedBits")?.type).toMatchObject({
-    kind: AbiTypeKind.ARRAY,
-    count: 2,
-    size: 32,
-    element: {
-      kind: AbiTypeKind.BIT_ARRAY,
-      bitCount: 128,
-      size: 16,
-    },
-  });
-  expect(fields.get("history")?.type).toMatchObject({
-    kind: AbiTypeKind.LINKED_LIST,
-    capacity: 8,
-    size: 304,
-    align: 8,
-    value: {
-      kind: AbiTypeKind.STRUCT,
-      name: "PaddedValue",
-      size: 16,
-      align: 8,
-    },
-  });
-  expect(fields.get("wideValues")?.type).toMatchObject({
-    kind: AbiTypeKind.ARRAY,
-    count: 2,
-    size: 32,
-    element: {
-      kind: AbiTypeKind.SCALAR,
-      scalar: AbiScalarKind.UINT128,
-    },
-  });
-  expect(fields.get("nestedValues")?.type).toMatchObject({
-    kind: AbiTypeKind.ARRAY,
-    count: 3,
-    size: 12,
-    element: {
-      kind: AbiTypeKind.ARRAY,
-      count: 2,
-      size: 4,
-    },
-  });
-  expect(fields.get("slowValues")?.type).toMatchObject({
-    kind: AbiTypeKind.ARRAY,
-    count: 3,
-    size: 6,
-    element: {
-      kind: AbiTypeKind.SCALAR,
-      scalar: AbiScalarKind.UINT16,
-    },
-  });
-  expect(result.idl?.migration?.oldState).toMatchObject({
-    size: 16,
-    fields: [
-      {
-        name: "dateValue",
-        offset: 0,
+    expect(result.diagnostics).toEqual([]);
+    expect(() => parseContractIdl(result.idl)).not.toThrow();
+
+    const fields = new Map(result.idl?.state.fields.map((field) => [field.name, field]));
+    const scalarCases: Array<[string, AbiScalarKind, number, number]> = [
+        ["bitValue", AbiScalarKind.BIT, 1, 1],
+        ["idValue", AbiScalarKind.ID, 32, 8],
+        ["m256iValue", AbiScalarKind.M256I, 32, 8],
+        ["uint8Value", AbiScalarKind.UINT8, 1, 1],
+        ["uint16Value", AbiScalarKind.UINT16, 2, 2],
+        ["uint32Value", AbiScalarKind.UINT32, 4, 4],
+        ["uint64Value", AbiScalarKind.UINT64, 8, 8],
+        ["uint128Value", AbiScalarKind.UINT128, 16, 8],
+        ["sint8Value", AbiScalarKind.SINT8, 1, 1],
+        ["sint16Value", AbiScalarKind.SINT16, 2, 2],
+        ["sint32Value", AbiScalarKind.SINT32, 4, 4],
+        ["sint64Value", AbiScalarKind.SINT64, 8, 8],
+        ["boolValue", AbiScalarKind.UINT8, 1, 1],
+        ["signedCharValue", AbiScalarKind.SINT8, 1, 1],
+        ["unsignedCharValue", AbiScalarKind.UINT8, 1, 1],
+        ["signedShortValue", AbiScalarKind.SINT16, 2, 2],
+        ["unsignedShortValue", AbiScalarKind.UINT16, 2, 2],
+        ["signedIntValue", AbiScalarKind.SINT32, 4, 4],
+        ["unsignedIntValue", AbiScalarKind.UINT32, 4, 4],
+        ["longLongValue", AbiScalarKind.SINT64, 8, 8],
+        ["signedLongLongValue", AbiScalarKind.SINT64, 8, 8],
+        ["unsignedLongLongValue", AbiScalarKind.UINT64, 8, 8],
+        ["aliasValue", AbiScalarKind.UINT16, 2, 2],
+        ["plainValue", AbiScalarKind.SINT32, 4, 4],
+        ["tinyValue", AbiScalarKind.UINT8, 1, 1],
+        ["wideValue", AbiScalarKind.UINT64, 8, 8],
+        ["dateValue", AbiScalarKind.UINT64, 8, 8],
+    ];
+
+    for (const [name, scalar, size, align] of scalarCases) {
+        expect(fields.get(name)?.type).toMatchObject({
+            kind: AbiTypeKind.SCALAR,
+            scalar,
+            size,
+            align,
+        });
+        expect(fields.get(name)?.size).toBe(size);
+    }
+
+    expect(fields.get("bits2")?.type).toMatchObject({
+        kind: AbiTypeKind.BIT_ARRAY,
+        bitCount: 2,
         size: 8,
-      },
-      {
-        name: "bytes",
-        offset: 8,
-        size: 3,
-        type: {
-          kind: AbiTypeKind.ARRAY,
-          count: 3,
+    });
+    expect(fields.get("bits64")?.type).toMatchObject({
+        kind: AbiTypeKind.BIT_ARRAY,
+        bitCount: 64,
+        size: 8,
+    });
+    expect(fields.get("bits128")?.type).toMatchObject({
+        kind: AbiTypeKind.BIT_ARRAY,
+        bitCount: 128,
+        size: 16,
+    });
+    expect(fields.get("bits4096")?.type).toMatchObject({
+        kind: AbiTypeKind.BIT_ARRAY,
+        bitCount: 4096,
+        size: 512,
+    });
+    expect(fields.get("words")?.type).toMatchObject({
+        kind: AbiTypeKind.ARRAY,
+        count: 2,
+        size: 16,
+        element: {
+            kind: AbiTypeKind.SCALAR,
+            scalar: AbiScalarKind.UINT64,
         },
-      },
-    ],
-  });
+    });
+    expect(fields.get("nestedBits")?.type).toMatchObject({
+        kind: AbiTypeKind.ARRAY,
+        count: 2,
+        size: 32,
+        element: {
+            kind: AbiTypeKind.BIT_ARRAY,
+            bitCount: 128,
+            size: 16,
+        },
+    });
+    expect(fields.get("history")?.type).toMatchObject({
+        kind: AbiTypeKind.LINKED_LIST,
+        capacity: 8,
+        size: 304,
+        align: 8,
+        value: {
+            kind: AbiTypeKind.STRUCT,
+            name: "PaddedValue",
+            size: 16,
+            align: 8,
+        },
+    });
+    expect(fields.get("wideValues")?.type).toMatchObject({
+        kind: AbiTypeKind.ARRAY,
+        count: 2,
+        size: 32,
+        element: {
+            kind: AbiTypeKind.SCALAR,
+            scalar: AbiScalarKind.UINT128,
+        },
+    });
+    expect(fields.get("nestedValues")?.type).toMatchObject({
+        kind: AbiTypeKind.ARRAY,
+        count: 3,
+        size: 12,
+        element: {
+            kind: AbiTypeKind.ARRAY,
+            count: 2,
+            size: 4,
+        },
+    });
+    expect(fields.get("slowValues")?.type).toMatchObject({
+        kind: AbiTypeKind.ARRAY,
+        count: 3,
+        size: 6,
+        element: {
+            kind: AbiTypeKind.SCALAR,
+            scalar: AbiScalarKind.UINT16,
+        },
+    });
+    expect(result.idl?.migration?.oldState).toMatchObject({
+        size: 16,
+        fields: [
+            {
+                name: "dateValue",
+                offset: 0,
+                size: 8,
+            },
+            {
+                name: "bytes",
+                offset: 8,
+                size: 3,
+                type: {
+                    kind: AbiTypeKind.ARRAY,
+                    count: 3,
+                },
+            },
+        ],
+    });
 });
 
 test("emits resolved dependent scalar types in ABI trees", () => {
-  const source = `
+    const source = `
 using namespace QPI;
 template <bool Flag>
 struct Selector {
@@ -454,32 +439,32 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-  const result = analyzeContract({
-    source,
-    contractName: "DependentAbiType",
-  });
-  const output = result.idl?.functions[0]?.output;
+    const result = analyzeContract({
+        source,
+        contractName: "DependentAbiType",
+    });
+    const output = result.idl?.functions[0]?.output;
 
-  expect(result.diagnostics).toEqual([]);
-  expect(output?.kind).toBe(AbiTypeKind.STRUCT);
-  if (output?.kind !== AbiTypeKind.STRUCT) {
-    throw new Error("Read output must resolve to a struct");
-  }
-  expect(output.fields[0]?.type).toMatchObject({
-    kind: AbiTypeKind.ARRAY,
-    count: 2,
-    size: 2,
-    element: {
-      kind: AbiTypeKind.SCALAR,
-      scalar: AbiScalarKind.UINT8,
-      size: 1,
-    },
-  });
-  expect(() => parseContractIdl(result.idl)).not.toThrow();
+    expect(result.diagnostics).toEqual([]);
+    expect(output?.kind).toBe(AbiTypeKind.STRUCT);
+    if (output?.kind !== AbiTypeKind.STRUCT) {
+        throw new Error("Read output must resolve to a struct");
+    }
+    expect(output.fields[0]?.type).toMatchObject({
+        kind: AbiTypeKind.ARRAY,
+        count: 2,
+        size: 2,
+        element: {
+            kind: AbiTypeKind.SCALAR,
+            scalar: AbiScalarKind.UINT8,
+            size: 1,
+        },
+    });
+    expect(() => parseContractIdl(result.idl)).not.toThrow();
 });
 
 test("uses semantic registration constants for IDL and policy checks", () => {
-  const source = `
+    const source = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   static constexpr uint64 READ_INDEX = 7;
@@ -491,21 +476,19 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-  const result = analyzeContract({
-    source,
-    contractName: "NamedRegistration",
-  });
+    const result = analyzeContract({
+        source,
+        contractName: "NamedRegistration",
+    });
 
-  expect(result.idl?.functions[0]?.inputType).toBe(7);
-  expect(
-    result.diagnostics.some(
-      (diagnostic) => diagnostic.code === "qpi/unregistered",
-    ),
-  ).toBe(false);
+    expect(result.idl?.functions[0]?.inputType).toBe(7);
+    expect(result.diagnostics.some((diagnostic) => diagnostic.code === "qpi/unregistered")).toBe(
+        false,
+    );
 });
 
 test("keeps hexadecimal registration indices distinct", () => {
-  const source = `
+    const source = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct Read_input {};
@@ -520,23 +503,19 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-  const result = analyzeContract({
-    source,
-    contractName: "HexRegistrations",
-  });
+    const result = analyzeContract({
+        source,
+        contractName: "HexRegistrations",
+    });
 
-  expect(
-    result.idl?.functions.map((entry) => entry.inputType),
-  ).toEqual([0x10, 0x20]);
-  expect(
-    result.diagnostics.some(
-      (diagnostic) => diagnostic.code === "qpi/dup-fn-index",
-    ),
-  ).toBe(false);
+    expect(result.idl?.functions.map((entry) => entry.inputType)).toEqual([0x10, 0x20]);
+    expect(result.diagnostics.some((diagnostic) => diagnostic.code === "qpi/dup-fn-index")).toBe(
+        false,
+    );
 });
 
 test("rejects registration constants with unresolved dependencies", () => {
-  const source = `
+    const source = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   static constexpr uint64 READ_INDEX = MISSING_INDEX + 1;
@@ -548,22 +527,21 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-  const result = analyzeContract({
-    source,
-    contractName: "InvalidRegistration",
-  });
+    const result = analyzeContract({
+        source,
+        contractName: "InvalidRegistration",
+    });
 
-  expect(
-    result.diagnostics.some(
-      (diagnostic) =>
-        diagnostic.message.includes("integral constant expression"),
-    ),
-  ).toBe(true);
-  expect(result.idl).toBeUndefined();
+    expect(
+        result.diagnostics.some((diagnostic) =>
+            diagnostic.message.includes("integral constant expression"),
+        ),
+    ).toBe(true);
+    expect(result.idl).toBeUndefined();
 });
 
 test("keeps namespace-qualified nested ABI types distinct", () => {
-  const qpiHeader = `${QPI_SNAPSHOT}
+    const qpiHeader = `${QPI_SNAPSHOT}
 namespace BuildTestOI {
   struct Price {
     struct OracleQuery { id oracle; uint64 timestamp; };
@@ -572,7 +550,7 @@ namespace BuildTestOI {
     struct OracleQuery { uint64 value; };
   };
 }`;
-  const source = `
+    const source = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct Ask_input {
@@ -586,20 +564,18 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-  const result = analyzeContract({
-    source,
-    contractName: "OracleUser",
-    qpiHeader,
-  });
+    const result = analyzeContract({
+        source,
+        contractName: "OracleUser",
+        qpiHeader,
+    });
 
-  expect(result.diagnostics).toEqual([]);
-  expect(result.idl?.procedures[0]?.input.format).toBe(
-    "{ id, uint64 }, { uint64 }",
-  );
+    expect(result.diagnostics).toEqual([]);
+    expect(result.idl?.procedures[0]?.input.format).toBe("{ id, uint64 }, { uint64 }");
 });
 
 test("keeps same-named nested array element layouts distinct", () => {
-  const source = `
+    const source = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct Smaller_input {};
@@ -631,50 +607,47 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-  const result = analyzeContract({
-    source,
-    contractName: "NestedArrays",
-  });
+    const result = analyzeContract({
+        source,
+        contractName: "NestedArrays",
+    });
 
-  expect(result.diagnostics).toEqual([]);
-  const smaller = result.idl?.functions.find((entry) => entry.name === "Smaller");
-  const larger = result.idl?.functions.find((entry) => entry.name === "Larger");
+    expect(result.diagnostics).toEqual([]);
+    const smaller = result.idl?.functions.find((entry) => entry.name === "Smaller");
+    const larger = result.idl?.functions.find((entry) => entry.name === "Larger");
 
-  expect(smaller?.output.kind).toBe(AbiTypeKind.STRUCT);
-  expect(larger?.output.kind).toBe(AbiTypeKind.STRUCT);
-  if (
-    smaller?.output.kind !== AbiTypeKind.STRUCT ||
-    larger?.output.kind !== AbiTypeKind.STRUCT
-  ) {
-    throw new Error("nested array outputs must remain struct roots");
-  }
+    expect(smaller?.output.kind).toBe(AbiTypeKind.STRUCT);
+    expect(larger?.output.kind).toBe(AbiTypeKind.STRUCT);
+    if (smaller?.output.kind !== AbiTypeKind.STRUCT || larger?.output.kind !== AbiTypeKind.STRUCT) {
+        throw new Error("nested array outputs must remain struct roots");
+    }
 
-  expect(smaller.output.fields[0]).toMatchObject({
-    size: 96,
-    type: {
-      kind: AbiTypeKind.ARRAY,
-      size: 96,
-      element: {
-        kind: AbiTypeKind.STRUCT,
-        size: 48,
-      },
-    },
-  });
-  expect(larger.output.fields[0]).toMatchObject({
-    size: 112,
-    type: {
-      kind: AbiTypeKind.ARRAY,
-      size: 112,
-      element: {
-        kind: AbiTypeKind.STRUCT,
-        size: 56,
-      },
-    },
-  });
+    expect(smaller.output.fields[0]).toMatchObject({
+        size: 96,
+        type: {
+            kind: AbiTypeKind.ARRAY,
+            size: 96,
+            element: {
+                kind: AbiTypeKind.STRUCT,
+                size: 48,
+            },
+        },
+    });
+    expect(larger.output.fields[0]).toMatchObject({
+        size: 112,
+        type: {
+            kind: AbiTypeKind.ARRAY,
+            size: 112,
+            element: {
+                kind: AbiTypeKind.STRUCT,
+                size: 56,
+            },
+        },
+    });
 });
 
 test("resolves dependent array lengths in generic ABI types", () => {
-  const source = `
+    const source = `
 using namespace QPI;
 template <typename T, uint64 L>
 struct FixedValues {
@@ -686,27 +659,27 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   };
 };`;
 
-  const result = analyzeContract({
-    source,
-    contractName: "GenericLayout",
-  });
+    const result = analyzeContract({
+        source,
+        contractName: "GenericLayout",
+    });
 
-  expect(result.diagnostics).toEqual([]);
-  expect(result.idl?.state.fields[0]?.type).toMatchObject({
-    kind: AbiTypeKind.STRUCT,
-    fields: [
-      {
-        type: {
-          kind: AbiTypeKind.ARRAY,
-          count: 4,
-        },
-      },
-    ],
-  });
+    expect(result.diagnostics).toEqual([]);
+    expect(result.idl?.state.fields[0]?.type).toMatchObject({
+        kind: AbiTypeKind.STRUCT,
+        fields: [
+            {
+                type: {
+                    kind: AbiTypeKind.ARRAY,
+                    count: 4,
+                },
+            },
+        ],
+    });
 });
 
 test("does not publish IDL when layout analysis reports an error", () => {
-  const source = `
+    const source = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData { Array<uint64, UNKNOWN_CAPACITY> values; };
@@ -718,21 +691,19 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-  const result = analyzeContract({
-    source,
-    contractName: "InvalidLayout",
-  });
+    const result = analyzeContract({
+        source,
+        contractName: "InvalidLayout",
+    });
 
-  expect(
-    result.diagnostics.some((diagnostic) => (
-      diagnostic.message.includes("UNKNOWN_CAPACITY")
-    )),
-  ).toBe(true);
-  expect(result.idl).toBeUndefined();
+    expect(
+        result.diagnostics.some((diagnostic) => diagnostic.message.includes("UNKNOWN_CAPACITY")),
+    ).toBe(true);
+    expect(result.idl).toBeUndefined();
 });
 
 test("rejects positive array lengths containing unresolved constants", () => {
-  const source = `
+    const source = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData {
@@ -740,49 +711,49 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   };
 };`;
 
-  const result = analyzeContract({
-    source,
-    contractName: "InvalidExpressionLayout",
-  });
+    const result = analyzeContract({
+        source,
+        contractName: "InvalidExpressionLayout",
+    });
 
-  expect(
-    result.diagnostics.some((diagnostic) => (
-      diagnostic.message.includes("Array length")
-    )),
-  ).toBe(true);
-  expect(result.idl).toBeUndefined();
+    expect(
+        result.diagnostics.some((diagnostic) => diagnostic.message.includes("Array length")),
+    ).toBe(true);
+    expect(result.idl).toBeUndefined();
 });
 
 test("rejects invalid QPI container dimensions", () => {
-  for (const [field, label, requirement] of [
-    ["Array<uint64, 3> invalid;", "Array length", "positive power-of-two"],
-    ["SlowAnySizeArray<uint64, 0> invalid;", "SlowAnySizeArray length", "positive integer"],
-    ["BitArray<3> invalid;", "BitArray bit count", "positive power-of-two"],
-    ["BitArray<2251799813685249> invalid;", "BitArray bit count", "positive power-of-two"],
-    ["HashMap<uint64, uint64, 3> invalid;", "HashMap capacity", "positive power-of-two"],
-    ["HashSet<uint64, 6> invalid;", "HashSet capacity", "positive power-of-two"],
-    ["Collection<uint64, 0> invalid;", "Collection capacity", "positive power-of-two"],
-    ["LinkedList<uint64, 3> invalid;", "LinkedList capacity", "positive power-of-two"],
-  ]) {
-    const result = analyzeContract({
-      source: `
+    for (const [field, label, requirement] of [
+        ["Array<uint64, 3> invalid;", "Array length", "positive power-of-two"],
+        ["SlowAnySizeArray<uint64, 0> invalid;", "SlowAnySizeArray length", "positive integer"],
+        ["BitArray<3> invalid;", "BitArray bit count", "positive power-of-two"],
+        ["BitArray<2251799813685249> invalid;", "BitArray bit count", "positive power-of-two"],
+        ["HashMap<uint64, uint64, 3> invalid;", "HashMap capacity", "positive power-of-two"],
+        ["HashSet<uint64, 6> invalid;", "HashSet capacity", "positive power-of-two"],
+        ["Collection<uint64, 0> invalid;", "Collection capacity", "positive power-of-two"],
+        ["LinkedList<uint64, 3> invalid;", "LinkedList capacity", "positive power-of-two"],
+    ]) {
+        const result = analyzeContract({
+            source: `
 using namespace QPI;
 struct Contract : public ContractBase {
   struct StateData { ${field} };
 };`,
-    });
+        });
 
-    expect(result.idl).toBeUndefined();
-    expect(result.diagnostics.some((diagnostic) => (
-      diagnostic.message.includes(label) &&
-      diagnostic.message.includes(requirement)
-    ))).toBe(true);
-  }
+        expect(result.idl).toBeUndefined();
+        expect(
+            result.diagnostics.some(
+                (diagnostic) =>
+                    diagnostic.message.includes(label) && diagnostic.message.includes(requirement),
+            ),
+        ).toBe(true);
+    }
 });
 
 test("keeps raw C array dimension validation independent", () => {
-  const result = analyzeContract({
-    source: `
+    const result = analyzeContract({
+        source: `
 using namespace QPI;
 struct Contract : public ContractBase {
   struct StateData {
@@ -790,17 +761,17 @@ struct Contract : public ContractBase {
     uint64 empty[0];
   };
 };`,
-  });
+    });
 
-  expect(result.idl).toBeDefined();
-  expect(result.idl?.state.fields.map((field) => field.type)).toMatchObject([
-    { kind: AbiTypeKind.ARRAY, count: 3 },
-    { kind: AbiTypeKind.ARRAY, count: 0 },
-  ]);
+    expect(result.idl).toBeDefined();
+    expect(result.idl?.state.fields.map((field) => field.type)).toMatchObject([
+        { kind: AbiTypeKind.ARRAY, count: 3 },
+        { kind: AbiTypeKind.ARRAY, count: 0 },
+    ]);
 });
 
 test("compileContract rejects LinkedList throughout registered entry ABIs", async () => {
-  const source = `
+    const source = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData {};
@@ -822,33 +793,36 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-  const result = await compileContract({
-    source,
-    contractName: "LinkedListAbi",
-    slot: 28,
-    qpiHeader: QPI_SNAPSHOT,
-    arenaSizeBytes: 1 << 20,
-  });
+    const result = await compileContract({
+        source,
+        contractName: "LinkedListAbi",
+        slot: 28,
+        qpiHeader: QPI_SNAPSHOT,
+        arenaSizeBytes: 1 << 20,
+    });
 
-  expect(result.wasm).toHaveLength(0);
-  expect(result.idl).toBeUndefined();
-  for (const interfaceName of [
-    "Direct_input",
-    "Direct_output",
-    "Alias_input",
-    "Alias_output",
-    "Nested_input",
-    "Nested_output",
-  ]) {
-    expect(result.diagnostics.some((diagnostic) => (
-      diagnostic.message.includes("LinkedList is forbidden") &&
-      diagnostic.message.includes(interfaceName)
-    ))).toBe(true);
-  }
+    expect(result.wasm).toHaveLength(0);
+    expect(result.idl).toBeUndefined();
+    for (const interfaceName of [
+        "Direct_input",
+        "Direct_output",
+        "Alias_input",
+        "Alias_output",
+        "Nested_input",
+        "Nested_output",
+    ]) {
+        expect(
+            result.diagnostics.some(
+                (diagnostic) =>
+                    diagnostic.message.includes("LinkedList is forbidden") &&
+                    diagnostic.message.includes(interfaceName),
+            ),
+        ).toBe(true);
+    }
 });
 
 test("compileContract keeps BitArray registered entry ABIs valid", async () => {
-  const source = `
+    const source = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData {};
@@ -860,18 +834,18 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-  const result = await compileContract({
-    source,
-    contractName: "BitArrayAbi",
-    slot: 28,
-    qpiHeader: QPI_SNAPSHOT,
-    arenaSizeBytes: 1 << 20,
-  });
+    const result = await compileContract({
+        source,
+        contractName: "BitArrayAbi",
+        slot: 28,
+        qpiHeader: QPI_SNAPSHOT,
+        arenaSizeBytes: 1 << 20,
+    });
 
-  expect(result.diagnostics).toEqual([]);
-  expect(WebAssembly.validate(result.wasm)).toBe(true);
-  expect(result.idl?.functions[0]).toMatchObject({
-    input: { kind: AbiTypeKind.BIT_ARRAY, bitCount: 128 },
-    output: { kind: AbiTypeKind.BIT_ARRAY, bitCount: 128 },
-  });
+    expect(result.diagnostics).toEqual([]);
+    expect(WebAssembly.validate(result.wasm)).toBe(true);
+    expect(result.idl?.functions[0]).toMatchObject({
+        input: { kind: AbiTypeKind.BIT_ARRAY, bitCount: 128 },
+        output: { kind: AbiTypeKind.BIT_ARRAY, bitCount: 128 },
+    });
 });

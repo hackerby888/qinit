@@ -13,20 +13,25 @@ export function asUint8Array(bytes: Uint8Array | ArrayBuffer): Uint8Array {
 
 // Inspect a module against the production Wasm module ABI and JS+WAMR portability profile.
 // No imports are invoked and the module is never instantiated.
-export function inspectWasmModule(input: Uint8Array | ArrayBuffer, options: WasmModuleInspectionOptions = {}): WasmModuleInspection {
+export function inspectWasmModule(
+    input: Uint8Array | ArrayBuffer,
+    options: WasmModuleInspectionOptions = {},
+): WasmModuleInspection {
     const bytes = asUint8Array(input);
     const parsed = emptyParsed();
     try {
         parseModule(bytes, parsed);
-    }
-    catch (caught) {
+    } catch (caught) {
         const offset = caught instanceof WasmParseError ? caught.offset : undefined;
         const message = caught instanceof Error ? caught.message : String(caught);
         error(parsed.diagnostics, "malformed-module", message, offset);
         for (const feature of [...parsed.features].sort()) {
-            if (PORTABLE_FEATURES.has(feature))
-                continue;
-            error(parsed.diagnostics, "unsupported-feature", `unsupported Wasm feature: ${feature}`);
+            if (PORTABLE_FEATURES.has(feature)) continue;
+            error(
+                parsed.diagnostics,
+                "unsupported-feature",
+                `unsupported Wasm feature: ${feature}`,
+            );
         }
         return {
             ok: false,
@@ -40,35 +45,49 @@ export function inspectWasmModule(input: Uint8Array | ArrayBuffer, options: Wasm
     }
     // JS validation catches index/type/control-flow errors outside this structural parser.
     try {
-        if (typeof WebAssembly !== "undefined" &&
-            !WebAssembly.validate(bytes as Parameters<typeof WebAssembly.validate>[0])) {
-            error(parsed.diagnostics, "js-validation", "JavaScript WebAssembly.validate rejected the module");
+        if (
+            typeof WebAssembly !== "undefined" &&
+            !WebAssembly.validate(bytes as Parameters<typeof WebAssembly.validate>[0])
+        ) {
+            error(
+                parsed.diagnostics,
+                "js-validation",
+                "JavaScript WebAssembly.validate rejected the module",
+            );
         }
+    } catch (caught) {
+        error(
+            parsed.diagnostics,
+            "js-validation",
+            `JavaScript Wasm validation failed: ${caught instanceof Error ? caught.message : String(caught)}`,
+        );
     }
-    catch (caught) {
-        error(parsed.diagnostics, "js-validation", `JavaScript Wasm validation failed: ${caught instanceof Error ? caught.message : String(caught)}`);
-    }
-    validateImports(
-        parsed,
-        options.lhostAbi ?? toWasmFunctionSignatures(LHOST_ABI),
-    );
+    validateImports(parsed, options.lhostAbi ?? toWasmFunctionSignatures(LHOST_ABI));
     const memoryMode = classifyMemory(parsed.memories);
     if (parsed.memories.length !== 1) {
-        error(parsed.diagnostics, "memory-count", `expected exactly one wasm32 memory; found ${parsed.memories.length}`);
+        error(
+            parsed.diagnostics,
+            "memory-count",
+            `expected exactly one wasm32 memory; found ${parsed.memories.length}`,
+        );
     }
     const expectedMode = options.memoryMode ?? WasmModuleMemoryMode.DEFINED;
     if (expectedMode !== WasmModuleMemoryMode.EITHER) {
-        const expectedInspectedMode = expectedMode === WasmModuleMemoryMode.DEFINED
-            ? InspectedMemoryMode.DEFINED
-            : InspectedMemoryMode.IMPORTED;
+        const expectedInspectedMode =
+            expectedMode === WasmModuleMemoryMode.DEFINED
+                ? InspectedMemoryMode.DEFINED
+                : InspectedMemoryMode.IMPORTED;
         if (memoryMode !== expectedInspectedMode) {
-            error(parsed.diagnostics, "memory-mode", `expected ${expectedMode} memory; module uses ${memoryMode} memory`);
+            error(
+                parsed.diagnostics,
+                "memory-mode",
+                `expected ${expectedMode} memory; module uses ${memoryMode} memory`,
+            );
         }
     }
     validateExports(parsed, memoryMode);
     for (const feature of [...parsed.features].sort()) {
-        if (PORTABLE_FEATURES.has(feature))
-            continue;
+        if (PORTABLE_FEATURES.has(feature)) continue;
         error(parsed.diagnostics, "unsupported-feature", `unsupported Wasm feature: ${feature}`);
     }
     return {

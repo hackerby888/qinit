@@ -2,11 +2,7 @@ import { AstKind, LogPayloadDefect, UnaryOp, WatNodeType } from "../../../shared
 import { QUBIC_LOG_TYPE } from "@qinit/proto";
 import type { Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
-import {
-    LOG_TERMINATOR_FIELD,
-    logPayloadDefect,
-    logPayloadMessage,
-} from "../abi/log-payload";
+import { LOG_TERMINATOR_FIELD, logPayloadDefect, logPayloadMessage } from "../abi/log-payload";
 import { addrIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";
@@ -65,7 +61,8 @@ function emitKangarooTwelveCall(
     let outputExpression: Expression | undefined = expression.callArguments[2];
     while (
         outputExpression?.kind === AstKind.PAREN ||
-        (outputExpression?.kind === AstKind.UNARY_OP && outputExpression.operator === UnaryOp.ADDRESS_OF)
+        (outputExpression?.kind === AstKind.UNARY_OP &&
+            outputExpression.operator === UnaryOp.ADDRESS_OF)
     ) {
         outputExpression =
             outputExpression.kind === AstKind.PAREN
@@ -111,10 +108,7 @@ function emitKangarooTwelveCall(
     );
 }
 
-function emitLoggingCall(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-): void {
+function emitLoggingCall(context: FunctionEmissionContext, expression: CallExpression): void {
     const callName = expression.callee.kind === AstKind.IDENTIFIER ? expression.callee.name : "";
     const logLevel = LOG_LEVELS[callName];
 
@@ -143,18 +137,13 @@ function emitLogMessage(
     logLevel: number,
 ): void {
     const argument = expression.callArguments[0];
-    const payload = argument
-        ? context.lowering.resolveExpressionAddress(context, argument)
-        : null;
+    const payload = argument ? context.lowering.resolveExpressionAddress(context, argument) : null;
     // Report rather than throw, so the diagnostic carries a source location and the remaining
     // functions still get emitted. The module is discarded either way once an error is present.
     const span = argument?.span ?? expression.span;
 
     if (!payload) {
-        context.programAnalysis.error(
-            `${callName} payload must be an addressable aggregate`,
-            span,
-        );
+        context.programAnalysis.error(`${callName} payload must be an addressable aggregate`, span);
         return;
     }
 

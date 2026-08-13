@@ -1,31 +1,22 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 // The Wasm runner drives a separately deployed contract in an isolated simulator.
 import { test, expect } from "bun:test";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContractWithWasiClang, buildCorpusRunner } from "@qinit/build";
 import { wasiSdkPaths } from "@qinit/core/project";
 import { runContractTesting } from "@qinit/engine";
-import {
-  runStdGtest,
-  type StdGtestContractSpec,
-} from "../../src/ops/corpus-run";
+import { runStdGtest, type StdGtestContractSpec } from "../../src/ops/corpus-run";
 
 const CORE = CORE_PATH;
 const CONTRACT = `${import.meta.dir}/../../../../fixtures/Counter.h`;
 const PROXY = `${import.meta.dir}/../../../../fixtures/Proxy.h`;
 const SLOT = 100;
 const have =
-  existsSync(`${CORE}/test/contract_testing.h`) &&
-  existsSync(CONTRACT) &&
-  wasiSdkPaths() !== null;
+    existsSync(`${CORE}/test/contract_testing.h`) &&
+    existsSync(CONTRACT) &&
+    wasiSdkPaths() !== null;
 
 const TEST_SOURCE = `#define NO_UEFI
 #include "contract_testing.h"
@@ -126,95 +117,95 @@ TEST(Proxy, CallsCounter) {
 `;
 
 test.skipIf(!have)(
-  "a core-lite-style gtest runs in the engine (pass, isolation, captured failure)",
-  async () => {
-    const outDir = "/tmp/qinit-gtest-test";
-    const testPath = `${outDir}/Counter.test.cpp`;
-    mkdirSync(outDir, { recursive: true });
-    writeFileSync(testPath, TEST_SOURCE);
+    "a core-lite-style gtest runs in the engine (pass, isolation, captured failure)",
+    async () => {
+        const outDir = "/tmp/qinit-gtest-test";
+        const testPath = `${outDir}/Counter.test.cpp`;
+        mkdirSync(outDir, { recursive: true });
+        writeFileSync(testPath, TEST_SOURCE);
 
-    const runner = await buildCorpusRunner({
-      corpusPath: testPath,
-      contractPath: CONTRACT,
-      name: "Counter",
-      stateType: "Counter",
-      slot: SLOT,
-      corePath: CORE,
-      outDir: `${outDir}/runner`,
-      arenaSizeBytes: 64 * 1024 * 1024,
-    });
-    expect(runner.ok, runner.stderr).toBe(true);
+        const runner = await buildCorpusRunner({
+            corpusPath: testPath,
+            contractPath: CONTRACT,
+            name: "Counter",
+            stateType: "Counter",
+            slot: SLOT,
+            corePath: CORE,
+            outDir: `${outDir}/runner`,
+            arenaSizeBytes: 64 * 1024 * 1024,
+        });
+        expect(runner.ok, runner.stderr).toBe(true);
 
-    const contract = await buildContractWithWasiClang({
-      contractPath: CONTRACT,
-      name: "Counter",
-      slot: SLOT,
-      corePath: CORE,
-      outDir: `${outDir}/contract`,
-      skipVerify: true,
-      arenaSizeBytes: 64 * 1024 * 1024,
-    });
-    expect(contract.ok, contract.stderr).toBe(true);
+        const contract = await buildContractWithWasiClang({
+            contractPath: CONTRACT,
+            name: "Counter",
+            slot: SLOT,
+            corePath: CORE,
+            outDir: `${outDir}/contract`,
+            skipVerify: true,
+            arenaSizeBytes: 64 * 1024 * 1024,
+        });
+        expect(contract.ok, contract.stderr).toBe(true);
 
-    const results = await runContractTesting(
-      new Uint8Array(await Bun.file(runner.wasmPath!).arrayBuffer()),
-      { [SLOT]: new Uint8Array(await Bun.file(contract.wasmPath!).arrayBuffer()) },
-    );
-    const by = Object.fromEntries(results.map((result) => [result.name, result]));
-    expect(by["Counter.IncrementsTwice"]?.passed).toBe(true);
-    expect(by["Counter.FreshStatePerTest"]?.passed).toBe(true);
-    expect(
-      by["Counter.StateAtSlot100RoundTrips"]?.passed,
-      by["Counter.StateAtSlot100RoundTrips"]?.message,
-    ).toBe(true);
-    expect(by["Counter.ReportsFailures"]?.passed).toBe(false);
-    expect(by["Counter.ReportsFailures"]?.message).toContain("EXPECT_EQ");
-  },
-  120_000,
+        const results = await runContractTesting(
+            new Uint8Array(await Bun.file(runner.wasmPath!).arrayBuffer()),
+            { [SLOT]: new Uint8Array(await Bun.file(contract.wasmPath!).arrayBuffer()) },
+        );
+        const by = Object.fromEntries(results.map((result) => [result.name, result]));
+        expect(by["Counter.IncrementsTwice"]?.passed).toBe(true);
+        expect(by["Counter.FreshStatePerTest"]?.passed).toBe(true);
+        expect(
+            by["Counter.StateAtSlot100RoundTrips"]?.passed,
+            by["Counter.StateAtSlot100RoundTrips"]?.message,
+        ).toBe(true);
+        expect(by["Counter.ReportsFailures"]?.passed).toBe(false);
+        expect(by["Counter.ReportsFailures"]?.message).toContain("EXPECT_EQ");
+    },
+    120_000,
 );
 
 const dependency: StdGtestContractSpec = {
-  contractPath: CONTRACT,
-  name: "Counter",
-  stateType: "Counter",
-  slot: 100,
+    contractPath: CONTRACT,
+    name: "Counter",
+    stateType: "Counter",
+    slot: 100,
 };
 
 for (const backend of ["clang", "typescript"] as const) {
-  test.skipIf(!have)(
-    `Proxy GTest calls its Counter dependency with ${backend}`,
-    async () => {
-      const scratch = mkdtempSync(join(tmpdir(), `qinit-gtest-proxy-${backend}-`));
-      const testPath = join(scratch, "Proxy.test.cpp");
-      writeFileSync(testPath, PROXY_TEST_SOURCE);
+    test.skipIf(!have)(
+        `Proxy GTest calls its Counter dependency with ${backend}`,
+        async () => {
+            const scratch = mkdtempSync(join(tmpdir(), `qinit-gtest-proxy-${backend}-`));
+            const testPath = join(scratch, "Proxy.test.cpp");
+            writeFileSync(testPath, PROXY_TEST_SOURCE);
 
-      try {
-        const run = await runStdGtest({
-          contractPath: PROXY,
-          testPath,
-          name: "Proxy",
-          stateType: "Proxy",
-          slot: 101,
-          core: CORE,
-          backend,
-          scratch,
-          projectDependencies: [dependency],
-          dynCallees: {
-            Counter: {
-              header: CONTRACT,
-              index: dependency.slot,
-            },
-          },
-        });
+            try {
+                const run = await runStdGtest({
+                    contractPath: PROXY,
+                    testPath,
+                    name: "Proxy",
+                    stateType: "Proxy",
+                    slot: 101,
+                    core: CORE,
+                    backend,
+                    scratch,
+                    projectDependencies: [dependency],
+                    dynCallees: {
+                        Counter: {
+                            header: CONTRACT,
+                            index: dependency.slot,
+                        },
+                    },
+                });
 
-        expect(run.runnerOk, run.buildError).toBe(true);
-        expect(run.results).toHaveLength(1);
-        expect(run.results[0]?.name).toBe("Proxy.CallsCounter");
-        expect(run.results[0]?.passed, run.results[0]?.message).toBe(true);
-      } finally {
-        rmSync(scratch, { recursive: true, force: true });
-      }
-    },
-    180_000,
-  );
+                expect(run.runnerOk, run.buildError).toBe(true);
+                expect(run.results).toHaveLength(1);
+                expect(run.results[0]?.name).toBe("Proxy.CallsCounter");
+                expect(run.results[0]?.passed, run.results[0]?.message).toBe(true);
+            } finally {
+                rmSync(scratch, { recursive: true, force: true });
+            }
+        },
+        180_000,
+    );
 }

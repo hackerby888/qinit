@@ -4,10 +4,24 @@ import type { FunctionDecl, Statement } from "../../ast";
 import { isVoidType, isConstType } from "./validation-helpers";
 import type { FnSig, ValidatorInternals } from "./validator-context";
 
-export function walkScope(context: ValidatorInternals, statement: Statement, fn: FunctionDecl, memberFns: Map<string, FnSig>, allLocals: Set<string>, constParams: Set<string>, scopes: Array<Map<string, {
-    const: boolean;
-}>>): void {
-    const recurse = (statement: Statement) => context.walkScope(statement, fn, memberFns, allLocals, constParams, scopes);
+export function walkScope(
+    context: ValidatorInternals,
+    statement: Statement,
+    fn: FunctionDecl,
+    memberFns: Map<string, FnSig>,
+    allLocals: Set<string>,
+    constParams: Set<string>,
+    scopes: Array<
+        Map<
+            string,
+            {
+                const: boolean;
+            }
+        >
+    >,
+): void {
+    const recurse = (statement: Statement) =>
+        context.walkScope(statement, fn, memberFns, allLocals, constParams, scopes);
     const inOwnScope = (statement: Statement, extra?: () => void) => {
         scopes.push(new Map());
         if (extra) {
@@ -33,8 +47,17 @@ export function walkScope(context: ValidatorInternals, statement: Statement, fn:
             break;
         case AstKind.DECLARATION:
             context.checkDeclarationStatement(statement, scopes);
-            if (statement.declaration.kind === AstKind.VARIABLE && statement.declaration.initializer) {
-                context.checkExpression(statement.declaration.initializer, memberFns, allLocals, constParams, scopes);
+            if (
+                statement.declaration.kind === AstKind.VARIABLE &&
+                statement.declaration.initializer
+            ) {
+                context.checkExpression(
+                    statement.declaration.initializer,
+                    memberFns,
+                    allLocals,
+                    constParams,
+                    scopes,
+                );
             }
             break;
         case AstKind.IF:
@@ -50,10 +73,22 @@ export function walkScope(context: ValidatorInternals, statement: Statement, fn:
                 recurse(statement.initializer);
             }
             if (statement.condition) {
-                context.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
+                context.checkExpression(
+                    statement.condition,
+                    memberFns,
+                    allLocals,
+                    constParams,
+                    scopes,
+                );
             }
             if (statement.update) {
-                context.checkExpression(statement.update, memberFns, allLocals, constParams, scopes);
+                context.checkExpression(
+                    statement.update,
+                    memberFns,
+                    allLocals,
+                    constParams,
+                    scopes,
+                );
             }
             context.loopDepth++;
             inOwnScope(statement.body);
@@ -90,20 +125,38 @@ export function walkScope(context: ValidatorInternals, statement: Statement, fn:
             }
             break;
         case AstKind.EXPRESSION:
-            context.checkExpression(statement.expression, memberFns, allLocals, constParams, scopes);
+            context.checkExpression(
+                statement.expression,
+                memberFns,
+                allLocals,
+                constParams,
+                scopes,
+            );
             break;
     }
 }
 
-export function checkDeclarationStatement(context: ValidatorInternals, statement: Statement & {
-    kind: AstKind.DECLARATION;
-}, scopes: Array<Map<string, {
-    const: boolean;
-}>>): void {
+export function checkDeclarationStatement(
+    context: ValidatorInternals,
+    statement: Statement & {
+        kind: AstKind.DECLARATION;
+    },
+    scopes: Array<
+        Map<
+            string,
+            {
+                const: boolean;
+            }
+        >
+    >,
+): void {
     const decl = statement.declaration;
     if (decl.kind === AstKind.FUNCTION) {
         if (decl.body) {
-            context.error(`function '${decl.name}' cannot be defined nested inside another function`, statement.span);
+            context.error(
+                `function '${decl.name}' cannot be defined nested inside another function`,
+                statement.span,
+            );
         }
         return;
     }
@@ -118,19 +171,24 @@ export function checkDeclarationStatement(context: ValidatorInternals, statement
         context.error(`variable '${decl.name}' cannot have type void`, statement.span);
     }
     if (decl.isStatic && !decl.isConstexpr) {
-        context.error(`static local variable '${decl.name}' is not allowed in a contract — its lifetime would outlive the call and bypass consensus state`, statement.span);
+        context.error(
+            `static local variable '${decl.name}' is not allowed in a contract — its lifetime would outlive the call and bypass consensus state`,
+            statement.span,
+        );
     }
     if (decl.initializer)
         context.checkInitializerCardinality(decl.type, decl.initializer, statement.span);
     const current = scopes[scopes.length - 1];
     if (current.has(decl.name)) {
         context.error(`'${decl.name}' is already declared in this scope`, statement.span);
-    }
-    else if (decl.name !== "interContractCallError") {
+    } else if (decl.name !== "interContractCallError") {
         // Nested inter-contract calls may shadow their macro-generated error variable.
         for (let index = scopes.length - 2; index >= 0; index--) {
             if (scopes[index].has(decl.name)) {
-                context.error(`'${decl.name}' shadows a declaration in an enclosing scope — locals share one slot per name, so shadowing is not supported`, statement.span);
+                context.error(
+                    `'${decl.name}' shadows a declaration in an enclosing scope — locals share one slot per name, so shadowing is not supported`,
+                    statement.span,
+                );
                 break;
             }
         }

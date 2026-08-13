@@ -2,7 +2,12 @@ import { TokenKind } from "../../shared/enums";
 import type { LexerInternals } from "./lexer-context";
 import type { Token } from "./tokens";
 
-export function lexNumber(context: LexerInternals, start: number, startLine: number, startCol: number): Token {
+export function lexNumber(
+    context: LexerInternals,
+    start: number,
+    startLine: number,
+    startCol: number,
+): Token {
     let text = "";
     let isFloat = false;
     // Check for hex (0x / 0X) or binary (0b / 0B)
@@ -11,20 +16,35 @@ export function lexNumber(context: LexerInternals, start: number, startLine: num
         const next = context.peekChar().toLowerCase();
         if (next === "x") {
             text += context.advance();
-            while (!context.eof() && (context.isHexDigit(context.peekChar()) || context.peekChar() === "'")) {
+            while (
+                !context.eof() &&
+                (context.isHexDigit(context.peekChar()) || context.peekChar() === "'")
+            ) {
                 text += context.advance();
             }
             text += context.peekSuffix();
-            return { kind: TokenKind.INT_LITERAL, text, span: context.makeSpan(start, startLine, startCol) };
+            return {
+                kind: TokenKind.INT_LITERAL,
+                text,
+                span: context.makeSpan(start, startLine, startCol),
+            };
         }
         if (next === "b") {
             text += context.advance();
-            while (!context.eof() &&
-                (context.peekChar() === "0" || context.peekChar() === "1" || context.peekChar() === "'")) {
+            while (
+                !context.eof() &&
+                (context.peekChar() === "0" ||
+                    context.peekChar() === "1" ||
+                    context.peekChar() === "'")
+            ) {
                 text += context.advance();
             }
             text += context.peekSuffix();
-            return { kind: TokenKind.INT_LITERAL, text, span: context.makeSpan(start, startLine, startCol) };
+            return {
+                kind: TokenKind.INT_LITERAL,
+                text,
+                span: context.makeSpan(start, startLine, startCol),
+            };
         }
     }
     // Decimal number (might be float)
@@ -32,12 +52,10 @@ export function lexNumber(context: LexerInternals, start: number, startLine: num
         const ch = context.peekChar();
         if (ch >= "0" && ch <= "9") {
             text += context.advance();
-        }
-        else if (ch === "." && context.peekChar(1) >= "0" && context.peekChar(1) <= "9") {
+        } else if (ch === "." && context.peekChar(1) >= "0" && context.peekChar(1) <= "9") {
             isFloat = true;
             text += context.advance(); // .
-        }
-        else {
+        } else {
             break;
         }
     }
@@ -49,9 +67,17 @@ export function lexNumber(context: LexerInternals, start: number, startLine: num
         }
     }
     if (isFloat) {
-        return { kind: TokenKind.FLOAT_LITERAL, text, span: context.makeSpan(start, startLine, startCol) };
+        return {
+            kind: TokenKind.FLOAT_LITERAL,
+            text,
+            span: context.makeSpan(start, startLine, startCol),
+        };
     }
-    return { kind: TokenKind.INT_LITERAL, text, span: context.makeSpan(start, startLine, startCol) };
+    return {
+        kind: TokenKind.INT_LITERAL,
+        text,
+        span: context.makeSpan(start, startLine, startCol),
+    };
 }
 
 export function peekSuffix(context: LexerInternals): string {

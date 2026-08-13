@@ -17,36 +17,46 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function compile(source: string) {
-  return compileContract({
-    source,
-    contractName: "StaticAssertEdge",
-    slot: 27,
-    qpiHeader: HEADERS,
-    arenaSizeBytes: 1 << 20,
-  });
+    return compileContract({
+        source,
+        contractName: "StaticAssertEdge",
+        slot: 27,
+        qpiHeader: HEADERS,
+        arenaSizeBytes: 1 << 20,
+    });
 }
 
 async function expectFalseAssertionRejected(source: string) {
-  const result = await compile(source);
-  const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
-  expect(
-    errors.some((d) => /static.?assert|static assertion|edge assertion failed/i.test(d.message)),
-  ).toBe(true);
-  expect(result.wasm).toHaveLength(0);
+    const result = await compile(source);
+    const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
+    expect(
+        errors.some((d) =>
+            /static.?assert|static assertion|edge assertion failed/i.test(d.message),
+        ),
+    ).toBe(true);
+    expect(result.wasm).toHaveLength(0);
 }
 
 describe("edge audit — static_assert", () => {
-  test("a false class-scope static_assert rejects the contract", async () => {
-    await expectFalseAssertionRejected(wrap(`static_assert(1 == 2, "edge assertion failed");`, ""));
-  });
+    test("a false class-scope static_assert rejects the contract", async () => {
+        await expectFalseAssertionRejected(
+            wrap(`static_assert(1 == 2, "edge assertion failed");`, ""),
+        );
+    });
 
-  test("a false function-scope static_assert rejects the contract", async () => {
-    await expectFalseAssertionRejected(wrap("", `static_assert(false, "edge assertion failed");`));
-  });
+    test("a false function-scope static_assert rejects the contract", async () => {
+        await expectFalseAssertionRejected(
+            wrap("", `static_assert(false, "edge assertion failed");`),
+        );
+    });
 
-  test("a true static_assert remains accepted", async () => {
-    const result = await compile(wrap(`static_assert(sizeof(uint64) == 8, "uint64 layout");`, ""));
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    expect(WebAssembly.validate(result.wasm)).toBe(true);
-  });
+    test("a true static_assert remains accepted", async () => {
+        const result = await compile(
+            wrap(`static_assert(sizeof(uint64) == 8, "uint64 layout");`, ""),
+        );
+        expect(
+            result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+        expect(WebAssembly.validate(result.wasm)).toBe(true);
+    });
 });

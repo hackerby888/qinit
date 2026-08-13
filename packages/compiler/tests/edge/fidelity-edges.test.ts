@@ -54,8 +54,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 const GTEST = coreGtest(
-  "Edge",
-  `TEST(Fidelity, SemanticEdges) {
+    "Edge",
+    `TEST(Fidelity, SemanticEdges) {
   ContractTestingHarness t;
   CONTRACT_STATE_TYPE::Probe_input in{};
   in.sa = -8ll; in.sb = 2ll; in.ua = 9223372036854775818ull; in.ub = 3ull;
@@ -87,61 +87,63 @@ TEST(Fidelity, TernaryIsLazy) {
 );
 
 function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
+    try {
+        const { wasiSdkPaths } = require("@qinit/core/project");
+        return existsSync(wasiSdkPaths().clang);
+    } catch {
+        return false;
+    }
 }
 
 describe("differential gtest — semantic fidelity edges", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("my contract matches native C++ semantics on the edge vectors", async () => {
-    if (!wasiAvailable()) {
-      console.log("  (wasi-sdk clang not found — skipping)");
-      return;
-    }
-    const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "fidelity-edges-"));
-    const contractPath = join(dir, "Edge.h");
-    writeFileSync(contractPath, SRC);
-
-    const testPath = join(dir, "Edge.test.cpp");
-    writeFileSync(testPath, GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath,
-      contractPath,
-      name: "Edge",
-      stateType: "Edge",
-      slot: 28,
-      corePath: CORE,
-      outDir: dir,
+    beforeAll(async () => {
+        await initK12();
     });
-    expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
-    const mine = await compileContract({
-      source: SRC,
-      contractName: "Edge",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1024 * 1024,
-    });
-    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+    test("my contract matches native C++ semantics on the edge vectors", async () => {
+        if (!wasiAvailable()) {
+            console.log("  (wasi-sdk clang not found — skipping)");
+            return;
+        }
+        const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const dir = mkdtempSync(join(tmpdir(), "fidelity-edges-"));
+        const contractPath = join(dir, "Edge.h");
+        writeFileSync(contractPath, SRC);
 
-    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-    for (const r of results) {
-      console.log(
-        `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`,
-      );
-    }
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.every((r) => r.passed)).toBe(true);
-  }, 120000);
+        const testPath = join(dir, "Edge.test.cpp");
+        writeFileSync(testPath, GTEST);
+        const built = await buildCorpusRunner({
+            corpusPath: testPath,
+            contractPath,
+            name: "Edge",
+            stateType: "Edge",
+            slot: 28,
+            corePath: CORE,
+            outDir: dir,
+        });
+        expect(built.ok).toBe(true);
+        const runnerWasm = new Uint8Array(readFileSync(built.wasmPath!));
+
+        const mine = await compileContract({
+            source: SRC,
+            contractName: "Edge",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1024 * 1024,
+        });
+        expect(
+            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+
+        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+        for (const r of results) {
+            console.log(
+                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`,
+            );
+        }
+        expect(results.length).toBeGreaterThan(0);
+        expect(results.every((r) => r.passed)).toBe(true);
+    }, 120000);
 });

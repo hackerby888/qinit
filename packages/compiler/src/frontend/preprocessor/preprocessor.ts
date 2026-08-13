@@ -1,4 +1,3 @@
-
 import type { MacroDef, PreprocessOptions } from "./preprocessor-context";
 import * as preprocessorPart0 from "./preprocessor-core";
 import * as preprocessorPart1 from "./directive-handler";
@@ -105,7 +104,10 @@ export class Preprocessor {
         return preprocessorPart3.replaceParam(this, body, param, value);
     }
     // Read macro arguments from a string starting at the opening parenthesis.
-    readArgsFromString(text: string, openIdx: number): {
+    readArgsFromString(
+        text: string,
+        openIdx: number,
+    ): {
         callArguments: string[];
         end: number;
     } | null {

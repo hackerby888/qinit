@@ -4,7 +4,8 @@ import type { Layout } from "./framework-types";
 export function emitImports(gtest = false, lhostAbi?: LhostAbiSpec): string {
     return `  ;; ---- lhost imports ----
 ${emitLhostImports(lhostAbi)}
-${gtest
+${
+    gtest
         ? `  ;; ---- private TS gtest host imports ----
   (import "qtest" "invoke" (func $qt_invoke (param i32 i32 i32 i32 i32 i64 i32) (result i32)))
   (import "qtest" "query" (func $qt_query (param i32 i32 i32 i32 i32 i32) (result i32)))
@@ -16,7 +17,8 @@ ${gtest
   (import "qtest" "setTick" (func $qt_set_tick (param i32)))
   (import "qtest" "constructionEpoch" (func $qt_construction_epoch (param i32) (result i32)))
   (import "qtest" "fail" (func $qt_fail (param i32 i32)))`
-        : ""}`;
+        : ""
+}`;
 }
 
 export function emitGlobals(capacity: Layout): string {

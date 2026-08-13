@@ -18,50 +18,50 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function expectReadonlyRejection(source: string) {
-  const result = await compileContract({
-    source,
-    contractName: "ReadonlyAliasEdge",
-    slot: 27,
-    qpiHeader: HEADERS,
-    arenaSizeBytes: 1 << 20,
-  });
-  const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
-  expect(
-    errors.some((d) =>
-      /state\.get|read.?only|const.*reference|cannot.*bind|non.?const/i.test(d.message),
-    ),
-  ).toBe(true);
-  expect(result.wasm).toHaveLength(0);
+    const result = await compileContract({
+        source,
+        contractName: "ReadonlyAliasEdge",
+        slot: 27,
+        qpiHeader: HEADERS,
+        arenaSizeBytes: 1 << 20,
+    });
+    const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
+    expect(
+        errors.some((d) =>
+            /state\.get|read.?only|const.*reference|cannot.*bind|non.?const/i.test(d.message),
+        ),
+    ).toBe(true);
+    expect(result.wasm).toHaveLength(0);
 }
 
 describe("edge audit — state.get read-only aliasing", () => {
-  test("a procedure cannot pass a state.get scalar to a non-const reference", async () => {
-    await expectReadonlyRejection(
-      wrap(
-        `uint64 result;`,
-        `PUBLIC_PROCEDURE(Go) { bump(state.get().result); }`,
-        `REGISTER_USER_PROCEDURE(Go, 1);`,
-      ),
-    );
-  });
+    test("a procedure cannot pass a state.get scalar to a non-const reference", async () => {
+        await expectReadonlyRejection(
+            wrap(
+                `uint64 result;`,
+                `PUBLIC_PROCEDURE(Go) { bump(state.get().result); }`,
+                `REGISTER_USER_PROCEDURE(Go, 1);`,
+            ),
+        );
+    });
 
-  test("a function cannot mutate state.get through a non-const reference", async () => {
-    await expectReadonlyRejection(
-      wrap(
-        `uint64 result;`,
-        `PUBLIC_FUNCTION(Go) { bump(state.get().result); }`,
-        `REGISTER_USER_FUNCTION(Go, 1);`,
-      ),
-    );
-  });
+    test("a function cannot mutate state.get through a non-const reference", async () => {
+        await expectReadonlyRejection(
+            wrap(
+                `uint64 result;`,
+                `PUBLIC_FUNCTION(Go) { bump(state.get().result); }`,
+                `REGISTER_USER_FUNCTION(Go, 1);`,
+            ),
+        );
+    });
 
-  test("read-only protection follows nested aggregate members", async () => {
-    await expectReadonlyRejection(
-      wrap(
-        `Pair pair;`,
-        `PUBLIC_PROCEDURE(Go) { bump(state.get().pair.left); }`,
-        `REGISTER_USER_PROCEDURE(Go, 1);`,
-      ),
-    );
-  });
+    test("read-only protection follows nested aggregate members", async () => {
+        await expectReadonlyRejection(
+            wrap(
+                `Pair pair;`,
+                `PUBLIC_PROCEDURE(Go) { bump(state.get().pair.left); }`,
+                `REGISTER_USER_PROCEDURE(Go, 1);`,
+            ),
+        );
+    });
 });

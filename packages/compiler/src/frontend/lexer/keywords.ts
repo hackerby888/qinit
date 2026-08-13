@@ -59,10 +59,7 @@ export const KEYWORDS: Record<string, TokenKind> = {
 };
 
 // Multi-word type keywords formed by consecutive single keywords
-export const TYPE_COMPOUNDS: [
-    TokenKind[],
-    TokenKind
-][] = [
+export const TYPE_COMPOUNDS: [TokenKind[], TokenKind][] = [
     [[TokenKind.KW_SIGNED, TokenKind.KW_CHAR], TokenKind.KW_SIGNED_CHAR],
     [[TokenKind.KW_UNSIGNED, TokenKind.KW_CHAR], TokenKind.KW_UNSIGNED_CHAR],
     [[TokenKind.KW_SIGNED, TokenKind.KW_SHORT], TokenKind.KW_SIGNED_SHORT],
@@ -70,12 +67,16 @@ export const TYPE_COMPOUNDS: [
     [[TokenKind.KW_SIGNED, TokenKind.KW_INT], TokenKind.KW_SIGNED_INT],
     [[TokenKind.KW_UNSIGNED, TokenKind.KW_INT], TokenKind.KW_UNSIGNED_INT],
     [[TokenKind.KW_SIGNED, TokenKind.KW_LONG, TokenKind.KW_LONG], TokenKind.KW_SIGNED_LONG_LONG],
-    [[TokenKind.KW_UNSIGNED, TokenKind.KW_LONG, TokenKind.KW_LONG], TokenKind.KW_UNSIGNED_LONG_LONG],
+    [
+        [TokenKind.KW_UNSIGNED, TokenKind.KW_LONG, TokenKind.KW_LONG],
+        TokenKind.KW_UNSIGNED_LONG_LONG,
+    ],
     [[TokenKind.KW_LONG, TokenKind.KW_LONG], TokenKind.KW_LONG_LONG],
 ];
 
 export function isTypeKeyword(kind: TokenKind): boolean {
-    return (kind === TokenKind.KW_VOID ||
+    return (
+        kind === TokenKind.KW_VOID ||
         kind === TokenKind.KW_BOOL ||
         kind === TokenKind.KW_CHAR ||
         kind === TokenKind.KW_SHORT ||
@@ -93,5 +94,6 @@ export function isTypeKeyword(kind: TokenKind): boolean {
         kind === TokenKind.KW_UNSIGNED_LONG_LONG ||
         kind === TokenKind.KW_LONG_LONG ||
         kind === TokenKind.KW_DOUBLE ||
-        kind === TokenKind.KW_FLOAT);
+        kind === TokenKind.KW_FLOAT
+    );
 }

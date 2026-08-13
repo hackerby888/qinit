@@ -8,97 +8,97 @@ export { LITE_TX, CHUNK_DATA_MAX };
 
 // Define wire layouts once so the protocol encoder and engine decoder cannot drift.
 export const UploadBegin = defineStruct("UploadBegin", {
-  sessionId: u64, // @0
-  totalSize: u32, // @8
-  chunkCount: u32, // @12
-  finalHash: blob(32), // @16  (48 bytes total)
+    sessionId: u64, // @0
+    totalSize: u32, // @8
+    chunkCount: u32, // @12
+    finalHash: blob(32), // @16  (48 bytes total)
 });
 export const UploadChunkHeader = defineStruct(
-  "UploadChunkHeader",
-  {
-    sessionId: u64, // @0
-    seq: u32, // @8
-    len: u16, // @12  (14-byte header; the chunk payload follows at SIZE)
-  },
-  { packed: true },
+    "UploadChunkHeader",
+    {
+        sessionId: u64, // @0
+        seq: u32, // @8
+        len: u16, // @12  (14-byte header; the chunk payload follows at SIZE)
+    },
+    { packed: true },
 );
 export const DeployMessage = defineStruct(
-  "DeployMessage",
-  {
-    sessionId: u64, // @0
-    targetSlot: u32, // @8
-    finalHash: blob(32), // @12
-    abiVersion: u32, // @44
-    stateLayoutVersion: u32, // @48
-    name: blob(32), // @52  null-padded contract name (84 bytes total)
-  },
-  { packed: true },
+    "DeployMessage",
+    {
+        sessionId: u64, // @0
+        targetSlot: u32, // @8
+        finalHash: blob(32), // @12
+        abiVersion: u32, // @44
+        stateLayoutVersion: u32, // @48
+        name: blob(32), // @52  null-padded contract name (84 bytes total)
+    },
+    { packed: true },
 );
 
 export interface UploadBeginParams {
-  sessionId: bigint;
-  totalSize: number;
-  chunkCount: number;
-  finalHashHex: string; // 32-byte K12, hex
+    sessionId: bigint;
+    totalSize: number;
+    chunkCount: number;
+    finalHashHex: string; // 32-byte K12, hex
 }
 
 export function encodeUploadBegin(p: UploadBeginParams): Uint8Array {
-  const m = UploadBegin.alloc();
-  m.sessionId = p.sessionId;
-  m.totalSize = p.totalSize;
-  m.chunkCount = p.chunkCount;
-  m.finalHash = hexToBytes(p.finalHashHex, 32);
-  return m.bytes;
+    const m = UploadBegin.alloc();
+    m.sessionId = p.sessionId;
+    m.totalSize = p.totalSize;
+    m.chunkCount = p.chunkCount;
+    m.finalHash = hexToBytes(p.finalHashHex, 32);
+    return m.bytes;
 }
 
 export interface UploadChunkParams {
-  sessionId: bigint;
-  seq: number;
-  bytes: Uint8Array; // <= CHUNK_DATA_MAX
+    sessionId: bigint;
+    seq: number;
+    bytes: Uint8Array; // <= CHUNK_DATA_MAX
 }
 
 export function encodeUploadChunk(p: UploadChunkParams): Uint8Array {
-  if (p.bytes.length > CHUNK_DATA_MAX) throw new Error("chunk too large");
-  const b = new Uint8Array(UploadChunkHeader.SIZE + p.bytes.length);
-  const m = UploadChunkHeader.wrap(b);
-  m.sessionId = p.sessionId;
-  m.seq = p.seq;
-  m.len = p.bytes.length;
-  b.set(p.bytes, UploadChunkHeader.SIZE);
-  return b;
+    if (p.bytes.length > CHUNK_DATA_MAX) throw new Error("chunk too large");
+    const b = new Uint8Array(UploadChunkHeader.SIZE + p.bytes.length);
+    const m = UploadChunkHeader.wrap(b);
+    m.sessionId = p.sessionId;
+    m.seq = p.seq;
+    m.len = p.bytes.length;
+    b.set(p.bytes, UploadChunkHeader.SIZE);
+    return b;
 }
 
 export interface DeployParams {
-  sessionId: bigint;
-  targetSlot: number;
-  finalHashHex: string;
-  abiVersion?: number;
-  stateLayoutVersion?: number;
-  name?: string; // stored on-chain per slot -> tooling resolves name -> slot
+    sessionId: bigint;
+    targetSlot: number;
+    finalHashHex: string;
+    abiVersion?: number;
+    stateLayoutVersion?: number;
+    name?: string; // stored on-chain per slot -> tooling resolves name -> slot
 }
 
 export function encodeDeploy(p: DeployParams): Uint8Array {
-  const m = DeployMessage.alloc();
-  m.sessionId = p.sessionId;
-  m.targetSlot = p.targetSlot;
-  m.finalHash = hexToBytes(p.finalHashHex, 32);
-  m.abiVersion = p.abiVersion ?? WASM_ABI_VERSION;
-  m.stateLayoutVersion = p.stateLayoutVersion ?? 0;
-  const nm = (p.name ?? "").slice(0, 31);
-  const name = new Uint8Array(32);
-  for (let i = 0; i < nm.length; i++) name[i] = nm.charCodeAt(i) & 0x7f;
-  m.name = name;
-  return m.bytes;
+    const m = DeployMessage.alloc();
+    m.sessionId = p.sessionId;
+    m.targetSlot = p.targetSlot;
+    m.finalHash = hexToBytes(p.finalHashHex, 32);
+    m.abiVersion = p.abiVersion ?? WASM_ABI_VERSION;
+    m.stateLayoutVersion = p.stateLayoutVersion ?? 0;
+    const nm = (p.name ?? "").slice(0, 31);
+    const name = new Uint8Array(32);
+    for (let i = 0; i < nm.length; i++) name[i] = nm.charCodeAt(i) & 0x7f;
+    m.name = name;
+    return m.bytes;
 }
 
 export function splitUploadChunks(bytes: Uint8Array, size = CHUNK_DATA_MAX): Uint8Array[] {
-  const chunks: Uint8Array[] = [];
-  for (let off = 0; off < bytes.length; off += size) chunks.push(bytes.subarray(off, off + size));
-  return chunks;
+    const chunks: Uint8Array[] = [];
+    for (let off = 0; off < bytes.length; off += size) chunks.push(bytes.subarray(off, off + size));
+    return chunks;
 }
 
 export function createUploadSessionId(): bigint {
-  const r = new Uint8Array(8);
-  crypto.getRandomValues(r);
-  return new DataView(r.buffer).getBigUint64(0, true);
+    const r = new Uint8Array(8);
+    crypto.getRandomValues(r);
+    return new DataView(r.buffer).getBigUint64(0, true);
 }

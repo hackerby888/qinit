@@ -6,58 +6,58 @@ import { QubicSimulator } from "../../src/qubic-simulator";
 import { readUint64LE } from "../support/helpers";
 
 test("Proxy calls Counter: CALL function + INVOKE procedure cross the contract boundary", async () => {
-  await initK12();
+    await initK12();
 
-  const sim = new QubicSimulator();
-  sim.deploy(28, await wasm("Counter")); // callee (lower index)
-  sim.deploy(29, await wasm("Proxy")); // caller, built --callee Counter=...@28
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("Counter")); // callee (lower index)
+    sim.deploy(29, await wasm("Proxy")); // caller, built --callee Counter=...@28
 
-  // Proxy.ReadCounter (fn 1) -> Counter.Get
-  expect(readUint64LE(sim.query(29, 1))).toBe(0n);
-  expect(readUint64LE(sim.query(28, 1))).toBe(0n);
-  sim.setDebug(true);
+    // Proxy.ReadCounter (fn 1) -> Counter.Get
+    expect(readUint64LE(sim.query(29, 1))).toBe(0n);
+    expect(readUint64LE(sim.query(28, 1))).toBe(0n);
+    sim.setDebug(true);
 
-  // Proxy.BumpCounter (proc 1) -> Counter.Inc
-  sim.procedure(29, 1);
-  expect(readUint64LE(sim.query(28, 1))).toBe(1n); // Counter incremented through Proxy
-  expect(readUint64LE(sim.query(29, 1))).toBe(1n); // Proxy reads Counter == 1
+    // Proxy.BumpCounter (proc 1) -> Counter.Inc
+    sim.procedure(29, 1);
+    expect(readUint64LE(sim.query(28, 1))).toBe(1n); // Counter incremented through Proxy
+    expect(readUint64LE(sim.query(29, 1))).toBe(1n); // Proxy reads Counter == 1
 
-  sim.procedure(29, 1);
-  expect(readUint64LE(sim.query(28, 1))).toBe(2n);
+    sim.procedure(29, 1);
+    expect(readUint64LE(sim.query(28, 1))).toBe(2n);
 
-  const procedures = sim
-    .getTrace()
-    .entries.filter((entry) => entry.kind === 1 && entry.entry === 1);
-  expect(procedures.map((entry) => entry.index)).toEqual([28, 29, 28, 29]);
+    const procedures = sim
+        .getTrace()
+        .entries.filter((entry) => entry.kind === 1 && entry.entry === 1);
+    expect(procedures.map((entry) => entry.index)).toEqual([28, 29, 28, 29]);
 
-  const counterCalls = procedures.filter((entry) => entry.index === 28);
-  expect(counterCalls.map((entry) => entry.stateDiff)).toEqual([
-    [{ off: 0, before: "0000000000000000", after: "0100000000000000" }],
-    [{ off: 0, before: "0100000000000000", after: "0200000000000000" }],
-  ]);
-  expect(counterCalls.map((entry) => entry.hostCalls)).toEqual([[], []]);
+    const counterCalls = procedures.filter((entry) => entry.index === 28);
+    expect(counterCalls.map((entry) => entry.stateDiff)).toEqual([
+        [{ off: 0, before: "0000000000000000", after: "0100000000000000" }],
+        [{ off: 0, before: "0100000000000000", after: "0200000000000000" }],
+    ]);
+    expect(counterCalls.map((entry) => entry.hostCalls)).toEqual([[], []]);
 
-  const proxyCalls = procedures.filter((entry) => entry.index === 29);
-  expect(proxyCalls.map((entry) => entry.stateDiff)).toEqual([[], []]);
-  expect(proxyCalls.map((entry) => entry.hostCalls)).toEqual([
-    [{ name: "invokeProcedure", detail: "→ @28 proc #1 reward=0" }],
-    [{ name: "invokeProcedure", detail: "→ @28 proc #1 reward=0" }],
-  ]);
+    const proxyCalls = procedures.filter((entry) => entry.index === 29);
+    expect(proxyCalls.map((entry) => entry.stateDiff)).toEqual([[], []]);
+    expect(proxyCalls.map((entry) => entry.hostCalls)).toEqual([
+        [{ name: "invokeProcedure", detail: "→ @28 proc #1 reward=0" }],
+        [{ name: "invokeProcedure", detail: "→ @28 proc #1 reward=0" }],
+    ]);
 
-  expect(readUint64LE(sim.query(29, 1))).toBe(2n);
+    expect(readUint64LE(sim.query(29, 1))).toBe(2n);
 });
 
 test("inter-contract guards: missing callee + lower-index rule -> CallErrorContractInactive", async () => {
-  await initK12();
+    await initK12();
 
-  const sim = new QubicSimulator();
-  sim.deploy(29, await wasm("Proxy"));
-  const ORIG = new Uint8Array(32);
+    const sim = new QubicSimulator();
+    sim.deploy(29, await wasm("Proxy"));
+    const ORIG = new Uint8Array(32);
 
-  // callee 28 not deployed
-  expect(sim.doCallFunction(29, 28, 1, new Uint8Array(0), ORIG).error).toBe(4);
+    // callee 28 not deployed
+    expect(sim.doCallFunction(29, 28, 1, new Uint8Array(0), ORIG).error).toBe(4);
 
-  // lower-index rule: callee index >= caller index is rejected
-  sim.deploy(28, await wasm("Counter"));
-  expect(sim.doCallFunction(28, 29, 1, new Uint8Array(0), ORIG).error).toBe(4);
+    // lower-index rule: callee index >= caller index is rejected
+    sim.deploy(28, await wasm("Counter"));
+    expect(sim.doCallFunction(28, 29, 1, new Uint8Array(0), ORIG).error).toBe(4);
 });

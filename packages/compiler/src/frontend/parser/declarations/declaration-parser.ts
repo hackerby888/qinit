@@ -1,9 +1,4 @@
-import {
-    AstKind,
-    DiagnosticCategory,
-    DiagnosticSeverity,
-    TokenKind,
-} from "../../../shared/enums";
+import { AstKind, DiagnosticCategory, DiagnosticSeverity, TokenKind } from "../../../shared/enums";
 import type {
     ClassTemplateDecl,
     Declaration,
@@ -97,7 +92,15 @@ export class DeclarationParser {
                 this.parser.state.next();
                 const targetType = this.parser.types.parseTypeSpec();
                 const targetName = targetType.kind === AstKind.NAME ? targetType.name : "?";
-                return this.parser.functions.parseFunctionRest(`operator ${targetName}`, targetType, false, false, false, false, false);
+                return this.parser.functions.parseFunctionRest(
+                    `operator ${targetName}`,
+                    targetType,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                );
             }
             default:
                 // Record unsupported qpi.h constructs as fidelity warnings.
@@ -115,7 +118,11 @@ export class DeclarationParser {
     parsePreprocessorLine(): Declaration {
         // Skip # line directive remnants
         this.parser.state.next();
-        while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.EOF && this.parser.state.peek().text !== "\n") {
+        while (
+            !this.parser.state.eof() &&
+            this.parser.state.peek().kind !== TokenKind.EOF &&
+            this.parser.state.peek().text !== "\n"
+        ) {
             this.parser.state.next();
         }
         return { kind: AstKind.EMPTY };
@@ -127,8 +134,7 @@ export class DeclarationParser {
             const before = this.parser.state.position;
             const errsBefore = this.parser.state.diagnostics.length;
             const declaration = this.parser.declarations.parseDeclaration();
-            if (declaration && declaration.kind !== AstKind.EMPTY)
-                declarations.push(declaration);
+            if (declaration && declaration.kind !== AstKind.EMPTY) declarations.push(declaration);
             while (this.parser.state.pendingDeclarations.length)
                 declarations.push(this.parser.state.pendingDeclarations.shift()!);
             this.parser.recovery.recover(before, errsBefore);
@@ -140,7 +146,11 @@ export class DeclarationParser {
         const members: Declaration[] = [];
         while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
             const tok = this.parser.state.peek();
-            if (tok.kind === TokenKind.KW_PUBLIC || tok.kind === TokenKind.KW_PROTECTED || tok.kind === TokenKind.KW_PRIVATE) {
+            if (
+                tok.kind === TokenKind.KW_PUBLIC ||
+                tok.kind === TokenKind.KW_PROTECTED ||
+                tok.kind === TokenKind.KW_PRIVATE
+            ) {
                 this.parser.state.next();
                 this.parser.state.expect(TokenKind.COLON, "access spec");
                 continue;
@@ -153,8 +163,7 @@ export class DeclarationParser {
             const before = this.parser.state.position;
             const errsBefore = this.parser.state.diagnostics.length;
             const declaration = this.parser.declarations.parseDeclaration();
-            if (declaration && declaration.kind !== AstKind.EMPTY)
-                members.push(declaration);
+            if (declaration && declaration.kind !== AstKind.EMPTY) members.push(declaration);
             while (this.parser.state.pendingDeclarations.length)
                 members.push(this.parser.state.pendingDeclarations.shift()!);
             this.parser.recovery.recover(before, errsBefore);
@@ -197,8 +206,7 @@ export class DeclarationParser {
         const members: EnumeratorDecl[] = [];
         while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
             const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "enumerator name");
-            if (!nameTok)
-                break;
+            if (!nameTok) break;
             let value: Expression | undefined;
             if (this.parser.state.tryConsume(TokenKind.EQ)) {
                 value = this.parser.expressions.parseExpression();
@@ -215,10 +223,16 @@ export class DeclarationParser {
         const start = this.parser.state.next().span; // typedef
         let type = this.parser.types.parseTypeSpec();
         // Handle function pointer typedefs: typedef RetType (*Name)(Params);
-        if (this.parser.state.peek().kind === TokenKind.L_PAREN && this.parser.state.peek(1).kind === TokenKind.STAR) {
+        if (
+            this.parser.state.peek().kind === TokenKind.L_PAREN &&
+            this.parser.state.peek(1).kind === TokenKind.STAR
+        ) {
             this.parser.state.next(); // (
             this.parser.state.next(); // *
-            const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "typedef function pointer name");
+            const nameTok = this.parser.state.expect(
+                TokenKind.IDENTIFIER,
+                "typedef function pointer name",
+            );
             this.parser.state.expect(TokenKind.R_PAREN, "typedef function pointer");
             // Skip parameter list
             if (this.parser.state.peek().kind === TokenKind.L_PAREN) {
@@ -235,7 +249,12 @@ export class DeclarationParser {
         }
         const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "typedef name");
         this.parser.state.expect(TokenKind.SEMICOLON, "typedef");
-        return { kind: AstKind.TYPEDEF_DECL, name: nameTok?.text ?? "", type, span: this.parser.recovery.makeSpan(start) };
+        return {
+            kind: AstKind.TYPEDEF_DECL,
+            name: nameTok?.text ?? "",
+            type,
+            span: this.parser.recovery.makeSpan(start),
+        };
     }
 
     parseUsing(): Declaration {
@@ -283,7 +302,12 @@ export class DeclarationParser {
         }
         this.parser.state.expect(TokenKind.R_PAREN, "static_assert");
         this.parser.state.expect(TokenKind.SEMICOLON, "static_assert");
-        return { kind: AstKind.STATIC_ASSERT_DECL, condition, message, span: this.parser.recovery.makeSpan(start) };
+        return {
+            kind: AstKind.STATIC_ASSERT_DECL,
+            condition,
+            message,
+            span: this.parser.recovery.makeSpan(start),
+        };
     }
 
     parseExternBlock(): ExternBlockDecl | FunctionDecl {
@@ -294,14 +318,25 @@ export class DeclarationParser {
             if (this.parser.state.tryConsume(TokenKind.L_BRACE)) {
                 const body = this.parser.declarations.parseDeclarationList();
                 this.parser.state.expect(TokenKind.R_BRACE, "extern block");
-                return { kind: AstKind.EXTERN_BLOCK, linkage, body, span: this.parser.recovery.makeSpan(start) };
+                return {
+                    kind: AstKind.EXTERN_BLOCK,
+                    linkage,
+                    body,
+                    span: this.parser.recovery.makeSpan(start),
+                };
             }
             // extern "C" function declaration
-            const func = this.parser.functions.parseFunctionAfterReturnType({ kind: AstKind.NAME, name: "void" }, true);
+            const func = this.parser.functions.parseFunctionAfterReturnType(
+                { kind: AstKind.NAME, name: "void" },
+                true,
+            );
             return func;
         }
         // extern function
-        const func = this.parser.functions.parseFunctionAfterReturnType({ kind: AstKind.NAME, name: "void" }, true);
+        const func = this.parser.functions.parseFunctionAfterReturnType(
+            { kind: AstKind.NAME, name: "void" },
+            true,
+        );
         return func;
     }
 

@@ -30,50 +30,52 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 let idl: ContractIdl;
 
 describe("edge audit — compile result IDL fidelity", () => {
-  beforeAll(async () => {
-    const result = await compileContract({
-      source: SOURCE,
-      contractName: "IdlEdge",
-      slot: 27,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1 << 20,
+    beforeAll(async () => {
+        const result = await compileContract({
+            source: SOURCE,
+            contractName: "IdlEdge",
+            slot: 27,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1 << 20,
+        });
+        expect(
+            result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+        expect(WebAssembly.validate(result.wasm)).toBe(true);
+        if (!result.idl) {
+            throw new Error("successful compile returned no IDL");
+        }
+        idl = result.idl;
     });
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    expect(WebAssembly.validate(result.wasm)).toBe(true);
-    if (!result.idl) {
-      throw new Error("successful compile returned no IDL");
-    }
-    idl = result.idl;
-  });
 
-  test("reports naturally aligned persistent state size", () => {
-    expect(idl.state.size).toBe(16);
-  });
+    test("reports naturally aligned persistent state size", () => {
+        expect(idl.state.size).toBe(16);
+    });
 
-  test("reports procedure input/output layouts", () => {
-    expect(
-      idl.procedures.map(({ name, inputType, inSize, outSize }) => ({
-        name,
-        inputType,
-        inSize,
-        outSize,
-      })),
-    ).toEqual([{ name: "Put", inputType: 7, inSize: 16, outSize: 8 }]);
-  });
+    test("reports procedure input/output layouts", () => {
+        expect(
+            idl.procedures.map(({ name, inputType, inSize, outSize }) => ({
+                name,
+                inputType,
+                inSize,
+                outSize,
+            })),
+        ).toEqual([{ name: "Put", inputType: 7, inSize: 16, outSize: 8 }]);
+    });
 
-  test("reports function input/output layouts", () => {
-    expect(
-      idl.functions.map(({ name, inputType, inSize, outSize }) => ({
-        name,
-        inputType,
-        inSize,
-        outSize,
-      })),
-    ).toEqual([{ name: "Get", inputType: 9, inSize: 2, outSize: 8 }]);
-  });
+    test("reports function input/output layouts", () => {
+        expect(
+            idl.functions.map(({ name, inputType, inSize, outSize }) => ({
+                name,
+                inputType,
+                inSize,
+                outSize,
+            })),
+        ).toEqual([{ name: "Get", inputType: 9, inSize: 2, outSize: 8 }]);
+    });
 
-  test("reports lifecycle procedure mask", () => {
-    // INITIALIZE = bit 0, END_EPOCH = bit 2.
-    expect(idl.sysprocMask).toBe((1 << 0) | (1 << 2));
-  });
+    test("reports lifecycle procedure mask", () => {
+        // INITIALIZE = bit 0, END_EPOCH = bit 2.
+        expect(idl.sysprocMask).toBe((1 << 0) | (1 << 2));
+    });
 });

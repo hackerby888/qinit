@@ -2,10 +2,7 @@ import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { StructLayout } from "../../../analysis/types";
 import type { FunctionDecl, StructDecl, TypeSpec } from "../../../ast";
-import type {
-    ModuleSpecification,
-    SystemProcedureInfo,
-} from "../framework";
+import type { ModuleSpecification, SystemProcedureInfo } from "../framework";
 import { SYSPROC_IO } from "../abi/tables";
 import { emitFunction } from "../functions/function-emitter";
 import { findMemberFn } from "./contract-discovery";
@@ -17,12 +14,15 @@ interface LiteSystemProcedure {
     name: string;
 }
 
-type FunctionAliases = Map<string, {
-    wasmType: WatValueType;
-    isAddr: boolean;
-    type: TypeSpec;
-    local?: string;
-}>;
+type FunctionAliases = Map<
+    string,
+    {
+        wasmType: WatValueType;
+        isAddr: boolean;
+        type: TypeSpec;
+        local?: string;
+    }
+>;
 
 export interface SystemProcedureIndex {
     idsByImplementation: Map<string, number>;
@@ -80,10 +80,8 @@ export function emitSystemProcedures(
         }
 
         const label = `$sys_${procedures.length}`;
-        const localsPrefix = (
-            index.prefixesByImplementation.get(declaration.name) ??
-            declaration.name
-        );
+        const localsPrefix =
+            index.prefixesByImplementation.get(declaration.name) ?? declaration.name;
         const localsLayout = layouts.resolve(`${localsPrefix}_locals`);
         const io = SYSPROC_IO[declaration.name];
         const inputLayout = layouts.resolveOptional(io?.in);
@@ -175,20 +173,8 @@ function createTypedIoAliases(
 ): FunctionAliases {
     const aliases: FunctionAliases = new Map();
 
-    bindIoAlias(
-        aliases,
-        programAnalysis,
-        "input",
-        inputTypeName,
-        "__qinit_in",
-    );
-    bindIoAlias(
-        aliases,
-        programAnalysis,
-        "output",
-        outputTypeName,
-        "__qinit_out",
-    );
+    bindIoAlias(aliases, programAnalysis, "input", inputTypeName, "__qinit_in");
+    bindIoAlias(aliases, programAnalysis, "output", outputTypeName, "__qinit_out");
 
     return aliases;
 }
@@ -204,10 +190,9 @@ function bindIoAlias(
         return;
     }
 
-    const type = (
+    const type =
         programAnalysis.typedefs.get(typeName) ??
-        { kind: AstKind.NAME, name: typeName } as TypeSpec
-    );
+        ({ kind: AstKind.NAME, name: typeName } as TypeSpec);
 
     aliases.set(parameterName, {
         wasmType: WatNodeType.I32,

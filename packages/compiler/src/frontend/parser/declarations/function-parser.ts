@@ -23,24 +23,25 @@ export class FunctionParser {
         while (!this.parser.state.eof()) {
             if (this.parser.state.tryConsumeKeyword("constexpr")) {
                 isConstexpr = true;
-            }
-            else if (this.parser.state.tryConsumeKeyword("static")) {
+            } else if (this.parser.state.tryConsumeKeyword("static")) {
                 isStatic = true;
-            }
-            else if (this.parser.state.tryConsumeKeyword("inline")) {
+            } else if (this.parser.state.tryConsumeKeyword("inline")) {
                 isInline = true;
-            }
-            else if (this.parser.state.tryConsumeKeyword("virtual")) {
+            } else if (this.parser.state.tryConsumeKeyword("virtual")) {
                 isVirtual = true;
-            }
-            else if (this.parser.state.tryConsumeKeyword("extern")) {
+            } else if (this.parser.state.tryConsumeKeyword("extern")) {
                 isExtern = true;
-            }
-            else {
+            } else {
                 break;
             }
         }
-        return this.parser.functions.parseAfterModifiers(isConstexpr, isStatic, isInline, isVirtual, isExtern);
+        return this.parser.functions.parseAfterModifiers(
+            isConstexpr,
+            isStatic,
+            isInline,
+            isVirtual,
+            isExtern,
+        );
     }
 
     parseFunctionOrVariablePeekType(): Declaration {
@@ -66,7 +67,13 @@ export class FunctionParser {
         return this.parser.functions.parseAfterModifiers(false, false, false, false, false);
     }
 
-    parseAfterModifiers(isConstexpr: boolean, isStatic: boolean, isInline: boolean, isVirtual: boolean, isExtern: boolean): Declaration {
+    parseAfterModifiers(
+        isConstexpr: boolean,
+        isStatic: boolean,
+        isInline: boolean,
+        isVirtual: boolean,
+        isExtern: boolean,
+    ): Declaration {
         // Parse return type (or variable type)
         const type = this.parser.types.parseTypeSpec();
         // Check for function call syntax: Type(...) or Type::name(
@@ -74,7 +81,15 @@ export class FunctionParser {
         if (!name) {
             // Constructors and destructors have no return type.
             if (this.parser.state.peek().kind === TokenKind.L_PAREN && type.kind === AstKind.NAME) {
-                return this.parser.functions.parseFunctionRest(type.name, { kind: AstKind.VOID }, isConstexpr, isStatic, isInline, isVirtual, isExtern);
+                return this.parser.functions.parseFunctionRest(
+                    type.name,
+                    { kind: AstKind.VOID },
+                    isConstexpr,
+                    isStatic,
+                    isInline,
+                    isVirtual,
+                    isExtern,
+                );
             }
             // Just a type with no name — semicolon
             this.parser.state.expect(TokenKind.SEMICOLON, "declaration");
@@ -85,7 +100,15 @@ export class FunctionParser {
             if (this.parser.functions.looksLikeDirectInit()) {
                 return this.parser.functions.parseDirectInitVar(name, type, isConstexpr, isStatic);
             }
-            return this.parser.functions.parseFunctionRest(name, type, isConstexpr, isStatic, isInline, isVirtual, isExtern);
+            return this.parser.functions.parseFunctionRest(
+                name,
+                type,
+                isConstexpr,
+                isStatic,
+                isInline,
+                isVirtual,
+                isExtern,
+            );
         }
         // Variable: name; or name = init;
         return this.parser.functions.parseVariableRest(name, type, isConstexpr, isStatic);
@@ -93,7 +116,8 @@ export class FunctionParser {
 
     looksLikeDirectInit(): boolean {
         const after = this.parser.state.peek(1).kind;
-        return (after === TokenKind.KW_SIZEOF ||
+        return (
+            after === TokenKind.KW_SIZEOF ||
             after === TokenKind.INT_LITERAL ||
             after === TokenKind.FLOAT_LITERAL ||
             after === TokenKind.STRING_LITERAL ||
@@ -105,10 +129,16 @@ export class FunctionParser {
             // A parameter list cannot start with a braced constructor argument.
             after === TokenKind.BANG ||
             after === TokenKind.TILDE ||
-            after === TokenKind.L_BRACE);
+            after === TokenKind.L_BRACE
+        );
     }
 
-    parseDirectInitVar(name: string, type: TypeSpec, isConstexpr: boolean, isStatic: boolean): VariableDecl {
+    parseDirectInitVar(
+        name: string,
+        type: TypeSpec,
+        isConstexpr: boolean,
+        isStatic: boolean,
+    ): VariableDecl {
         const start = this.parser.state.peek().span;
         this.parser.state.expect(TokenKind.L_PAREN, "ctor args");
         const callArguments: Expression[] = [];
@@ -137,10 +167,26 @@ export class FunctionParser {
     parseFunctionAfterReturnType(retType: TypeSpec, isExternC: boolean): FunctionDecl {
         const name = this.parser.types.parseMaybeQualifiedName() ?? "";
         const isConstexpr = false;
-        return this.parser.functions.parseFunctionRest(name, retType, isConstexpr, false, false, false, isExternC);
+        return this.parser.functions.parseFunctionRest(
+            name,
+            retType,
+            isConstexpr,
+            false,
+            false,
+            false,
+            isExternC,
+        );
     }
 
-    parseFunctionRest(name: string, retType: TypeSpec, isConstexpr: boolean, isStatic: boolean, isInline: boolean, isVirtual: boolean, isExternC: boolean): FunctionDecl {
+    parseFunctionRest(
+        name: string,
+        retType: TypeSpec,
+        isConstexpr: boolean,
+        isStatic: boolean,
+        isInline: boolean,
+        isVirtual: boolean,
+        isExternC: boolean,
+    ): FunctionDecl {
         const start = this.parser.state.peek(-1)?.span || this.parser.state.peek().span;
         // Function parameters
         this.parser.state.expect(TokenKind.L_PAREN, "function params");
@@ -158,16 +204,13 @@ export class FunctionParser {
         if (this.parser.state.tryConsume(TokenKind.EQ)) {
             if (this.parser.state.tryConsumeKeyword("delete")) {
                 isDeleted = true;
-            }
-            else if (this.parser.state.tryConsumeKeyword("default")) {
+            } else if (this.parser.state.tryConsumeKeyword("default")) {
                 isDefault = true;
             }
             this.parser.state.expect(TokenKind.SEMICOLON, "function = delete/default");
-        }
-        else if (this.parser.state.peek().kind === TokenKind.L_BRACE) {
+        } else if (this.parser.state.peek().kind === TokenKind.L_BRACE) {
             body = this.parser.parseFunctionBody();
-        }
-        else {
+        } else {
             this.parser.state.expect(TokenKind.SEMICOLON, "function declaration");
         }
         return {
@@ -188,7 +231,12 @@ export class FunctionParser {
         };
     }
 
-    parseVariableRest(name: string, type: TypeSpec, isConstexpr: boolean, isStatic: boolean): Declaration {
+    parseVariableRest(
+        name: string,
+        type: TypeSpec,
+        isConstexpr: boolean,
+        isStatic: boolean,
+    ): Declaration {
         const vars = this.parser.functions.parseDeclaratorList(type, name, isConstexpr, isStatic);
         // First declarator is returned; the rest are queued for the enclosing member/decl loop.
         for (let varIndex = 1; varIndex < vars.length; varIndex++)
@@ -196,7 +244,12 @@ export class FunctionParser {
         return vars[0] ?? { kind: AstKind.EMPTY };
     }
 
-    parseDeclaratorList(baseType: TypeSpec, firstName: string, isConstexpr: boolean, isStatic: boolean): VariableDecl[] {
+    parseDeclaratorList(
+        baseType: TypeSpec,
+        firstName: string,
+        isConstexpr: boolean,
+        isStatic: boolean,
+    ): VariableDecl[] {
         const out: VariableDecl[] = [];
         let name = firstName;
         while (true) {
@@ -207,9 +260,12 @@ export class FunctionParser {
             while (this.parser.state.peek().kind === TokenKind.L_BRACKET) {
                 this.parser.state.next(); // [
                 if (this.parser.state.peek().kind === TokenKind.R_BRACKET) {
-                    dims.push({ kind: AstKind.INT_LITERAL, value: "0", span: this.parser.state.peek().span });
-                }
-                else {
+                    dims.push({
+                        kind: AstKind.INT_LITERAL,
+                        value: "0",
+                        span: this.parser.state.peek().span,
+                    });
+                } else {
                     dims.push(this.parser.expressions.parseExpression());
                 }
                 this.parser.state.expect(TokenKind.R_BRACKET, "array dimension");
@@ -220,14 +276,18 @@ export class FunctionParser {
             let initializer: Expression | undefined;
             if (this.parser.state.tryConsume(TokenKind.EQ)) {
                 initializer = this.parser.expressions.parseExpression();
-            }
-            else if (this.parser.state.peek().kind === TokenKind.L_BRACE) {
+            } else if (this.parser.state.peek().kind === TokenKind.L_BRACE) {
                 // Preserve direct-list initialization in the executable AST.
                 const list = this.parser.expressions.parseExpression();
                 initializer =
                     type.kind === AstKind.ARRAY || list.kind !== AstKind.INITIALIZER_LIST
                         ? list
-                        : { kind: AstKind.CONSTRUCT, type, callArguments: list.expressions, span: list.span };
+                        : {
+                              kind: AstKind.CONSTRUCT,
+                              type,
+                              callArguments: list.expressions,
+                              span: list.span,
+                          };
             }
             out.push({
                 kind: AstKind.VARIABLE,
@@ -243,7 +303,10 @@ export class FunctionParser {
             });
             if (this.parser.state.tryConsume(TokenKind.COMMA)) {
                 // next declarator: optional * / & then a name
-                while (this.parser.state.peek().kind === TokenKind.STAR || this.parser.state.peek().kind === TokenKind.AMP)
+                while (
+                    this.parser.state.peek().kind === TokenKind.STAR ||
+                    this.parser.state.peek().kind === TokenKind.AMP
+                )
                     this.parser.state.next();
                 const token = this.parser.state.peek();
                 if (token.kind === TokenKind.IDENTIFIER) {
@@ -262,7 +325,10 @@ export class FunctionParser {
         if (this.parser.state.peek().kind === TokenKind.R_PAREN) {
             return params;
         }
-        if (this.parser.state.peek().kind === TokenKind.KW_VOID && this.parser.state.peek(1).kind === TokenKind.R_PAREN) {
+        if (
+            this.parser.state.peek().kind === TokenKind.KW_VOID &&
+            this.parser.state.peek(1).kind === TokenKind.R_PAREN
+        ) {
             this.parser.state.next(); // void
             return params;
         }
@@ -271,7 +337,10 @@ export class FunctionParser {
             let name = "";
             // Function pointers remain addresses in the parsed ABI and still participate in overload
             // resolution; generated Wasm does not call their pointee signatures.
-            if (this.parser.state.peek().kind === TokenKind.L_PAREN && this.parser.state.peek(1).kind === TokenKind.STAR) {
+            if (
+                this.parser.state.peek().kind === TokenKind.L_PAREN &&
+                this.parser.state.peek(1).kind === TokenKind.STAR
+            ) {
                 this.parser.state.next();
                 this.parser.state.next();
                 if (this.parser.state.peek().kind === TokenKind.IDENTIFIER)
@@ -281,10 +350,8 @@ export class FunctionParser {
                 let depth = 1;
                 while (!this.parser.state.eof() && depth > 0) {
                     const token = this.parser.state.next();
-                    if (token.kind === TokenKind.L_PAREN)
-                        depth++;
-                    else if (token.kind === TokenKind.R_PAREN)
-                        depth--;
+                    if (token.kind === TokenKind.L_PAREN) depth++;
+                    else if (token.kind === TokenKind.R_PAREN) depth--;
                 }
                 type = { kind: AstKind.POINTER, pointee: type, span: type.span };
             }
@@ -295,7 +362,12 @@ export class FunctionParser {
             if (this.parser.state.tryConsume(TokenKind.EQ)) {
                 defaultVal = this.parser.expressions.parseExpression();
             }
-            params.push({ name, type, defaultValue: defaultVal, span: this.parser.state.peek().span });
+            params.push({
+                name,
+                type,
+                defaultValue: defaultVal,
+                span: this.parser.state.peek().span,
+            });
             if (!this.parser.state.tryConsume(TokenKind.COMMA)) {
                 break;
             }

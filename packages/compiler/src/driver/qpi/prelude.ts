@@ -40,73 +40,67 @@ typedef signed char int8_t;
 `;
 
 const REQUIRED_DEFINES = [
-  "MAX_NUMBER_OF_CONTRACTS",
-  "MAX_INPUT_SIZE",
-  "ISSUANCE_RATE",
-  "MAX_AMOUNT",
-  "MAX_SUPPLY",
+    "MAX_NUMBER_OF_CONTRACTS",
+    "MAX_INPUT_SIZE",
+    "ISSUANCE_RATE",
+    "MAX_AMOUNT",
+    "MAX_SUPPLY",
 ] as const;
 
 const REQUIRED_CONSTANTS = [
-  "MAX_ORACLE_QUERY_SIZE",
-  "MAX_ORACLE_REPLY_SIZE",
-  "ORACLE_QUERY_STATUS_UNKNOWN",
-  "ORACLE_QUERY_STATUS_PENDING",
-  "ORACLE_QUERY_STATUS_COMMITTED",
-  "ORACLE_QUERY_STATUS_SUCCESS",
-  "ORACLE_QUERY_STATUS_TIMEOUT",
-  "ORACLE_QUERY_STATUS_UNRESOLVABLE",
-  "OC_INVOCATION_STATUS_UNKNOWN",
-  "OC_INVOCATION_STATUS_PENDING_AUTH",
-  "OC_INVOCATION_STATUS_AUTHORIZED",
-  "OC_INVOCATION_STATUS_TIMEOUT",
+    "MAX_ORACLE_QUERY_SIZE",
+    "MAX_ORACLE_REPLY_SIZE",
+    "ORACLE_QUERY_STATUS_UNKNOWN",
+    "ORACLE_QUERY_STATUS_PENDING",
+    "ORACLE_QUERY_STATUS_COMMITTED",
+    "ORACLE_QUERY_STATUS_SUCCESS",
+    "ORACLE_QUERY_STATUS_TIMEOUT",
+    "ORACLE_QUERY_STATUS_UNRESOLVABLE",
+    "OC_INVOCATION_STATUS_UNKNOWN",
+    "OC_INVOCATION_STATUS_PENDING_AUTH",
+    "OC_INVOCATION_STATUS_AUTHORIZED",
+    "OC_INVOCATION_STATUS_TIMEOUT",
 ] as const;
 
 function requiredLine(source: string, pattern: RegExp, name: string): string {
-  const matches = source
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .filter((line) => pattern.test(line));
+    const matches = source
+        .replace(/\r\n?/g, "\n")
+        .split("\n")
+        .filter((line) => pattern.test(line));
 
-  if (matches.length !== 1) {
-    throw new Error(`core common_def.h must declare ${name} exactly once`);
-  }
+    if (matches.length !== 1) {
+        throw new Error(`core common_def.h must declare ${name} exactly once`);
+    }
 
-  return matches[0].replace(/\s*\/\/.*$/, "").trimEnd();
+    return matches[0].replace(/\s*\/\/.*$/, "").trimEnd();
 }
 
 /** Core-owned declarations required by the compiler's flattened QPI snapshot. */
 export function assembleQpiProtocolPrelude(commonDefinitions: string): string {
-  const lines = ["// Protocol declarations copied from core-lite common_def.h."];
+    const lines = ["// Protocol declarations copied from core-lite common_def.h."];
 
-  for (const name of REQUIRED_DEFINES) {
-    lines.push(
-      requiredLine(
-        commonDefinitions,
-        new RegExp(`^\\s*#define\\s+${name}\\b`),
-        name,
-      ),
-    );
-  }
+    for (const name of REQUIRED_DEFINES) {
+        lines.push(requiredLine(commonDefinitions, new RegExp(`^\\s*#define\\s+${name}\\b`), name));
+    }
 
-  for (const name of REQUIRED_CONSTANTS) {
-    lines.push(
-      requiredLine(
-        commonDefinitions,
-        new RegExp(`^\\s*constexpr\\s+[^;=]+\\s+${name}\\s*=`),
-        name,
-      ),
-    );
-  }
+    for (const name of REQUIRED_CONSTANTS) {
+        lines.push(
+            requiredLine(
+                commonDefinitions,
+                new RegExp(`^\\s*constexpr\\s+[^;=]+\\s+${name}\\s*=`),
+                name,
+            ),
+        );
+    }
 
-  return `${lines.join("\n")}\n`;
+    return `${lines.join("\n")}\n`;
 }
 
 export const QPI_PRELUDE = `${QPI_LANGUAGE_PRELUDE}\n${QPI_PROTOCOL_PRELUDE}`;
 
 // Defines fed to the preprocessor when parsing the real qpi.h (the lite wasm build profile).
 export const QPI_DEFINES: Record<string, string> = {
-  NO_UEFI: "",
-  LITE_WASM_TU_BUILD: "",
-  __CHAR_BIT__: "8",
+    NO_UEFI: "",
+    LITE_WASM_TU_BUILD: "",
+    __CHAR_BIT__: "8",
 };

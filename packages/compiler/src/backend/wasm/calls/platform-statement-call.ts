@@ -14,7 +14,8 @@ export function tryEmitPlatformStatementCall(
     }
 
     const primitive =
-        expression.callee.kind === AstKind.IDENTIFIER || expression.callee.kind === AstKind.QUALIFIED_NAME
+        expression.callee.kind === AstKind.IDENTIFIER ||
+        expression.callee.kind === AstKind.QUALIFIED_NAME
             ? platformPrimitive(expression.callee.name)
             : undefined;
 
@@ -23,10 +24,7 @@ export function tryEmitPlatformStatementCall(
             context,
             expression.callArguments[0],
         );
-        const sourceAddress = context.lowering.emitAddress(
-            context,
-            expression.callArguments[1],
-        );
+        const sourceAddress = context.lowering.emitAddress(context, expression.callArguments[1]);
 
         if (!destinationAddress || !sourceAddress) {
             throw new Error(`${primitive.name} operands must be addressable`);
@@ -44,9 +42,7 @@ export function tryEmitPlatformStatementCall(
 
     if (primitive?.kind === PlatformPrimitiveKind.CHAIN_RDRAND) {
         const randomValue = context.lowering.emitCallValueIr(context, expression);
-        context.lines.push(
-            `    ${watIr.serializeWatNode(watIr.operation("drop", randomValue))}`,
-        );
+        context.lines.push(`    ${watIr.serializeWatNode(watIr.operation("drop", randomValue))}`);
         return true;
     }
 

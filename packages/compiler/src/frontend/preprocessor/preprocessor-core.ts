@@ -1,10 +1,8 @@
-
 import type { MacroDef, PreprocessOptions, PreprocessorInternals } from "./preprocessor-context";
 
 export function condActive(context: PreprocessorInternals): boolean {
     for (const condStackItem of context.condStack) {
-        if (!condStackItem.active)
-            return false;
+        if (!condStackItem.active) return false;
     }
     return true;
 }
@@ -19,8 +17,7 @@ export function preprocess(context: PreprocessorInternals, options: PreprocessOp
     context.expandMacros = options.expandMacros !== false;
     context.preserveSourceOffsets = options.preserveSourceOffsets === true;
     if (options.seedMacros) {
-        for (const [k, v] of options.seedMacros)
-            context.defines.set(k, v);
+        for (const [k, v] of options.seedMacros) context.defines.set(k, v);
     }
     // Built-in defines
     context.define("__LINE__", "__LINE__"); // special-cased during expansion
@@ -67,9 +64,7 @@ export function buildLineMap(context: PreprocessorInternals, src: string): void 
 
 export function process(context: PreprocessorInternals, src: string): string {
     // Normalize line endings before joining backslash continuations.
-    context.input = context.preserveSourceOffsets
-        ? src
-        : src.replace(/\r\n?/g, "\n");
+    context.input = context.preserveSourceOffsets ? src : src.replace(/\r\n?/g, "\n");
     context.pos = 0;
     context.line = 1;
     context.result = "";
@@ -129,13 +124,10 @@ export function process(context: PreprocessorInternals, src: string): string {
         // Identifier — check for macro expansion
         if (context.isIdStart(ch)) {
             const ident = context.readIdentifier();
-            const expanded = context.expandMacros
-                ? context.tryExpandMacro(ident)
-                : null;
+            const expanded = context.expandMacros ? context.tryExpandMacro(ident) : null;
             if (expanded !== null) {
                 context.result += expanded;
-            }
-            else {
+            } else {
                 context.result += ident;
             }
             continue;

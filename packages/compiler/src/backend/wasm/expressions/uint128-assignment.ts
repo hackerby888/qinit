@@ -18,10 +18,7 @@ export function tryEmitUint128Assignment(
     const sourceAddress =
         expression.operator === AssignOp.ASSIGN
             ? context.lowering.lowerUint128Expression(context, expression.right)
-            : context.lowering.lowerUint128Expression(
-                  context,
-                  compoundToBinary(expression),
-              );
+            : context.lowering.lowerUint128Expression(context, compoundToBinary(expression));
     const copyCall = watIr.functionCall(
         "$copyMem",
         addrIr(target.addr),

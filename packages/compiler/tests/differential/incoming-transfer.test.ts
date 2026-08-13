@@ -32,48 +32,50 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 function u64(b: Uint8Array, off = 0): bigint {
-  return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(off, true);
+    return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(off, true);
 }
 
 describe("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("a reward-bearing procedure fires PIT with the right amount + type", async () => {
-    const sink = await compileContract({
-      source: SINK,
-      contractName: "Sink",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1024 * 1024,
+    beforeAll(async () => {
+        await initK12();
     });
-    expect(sink.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    sim.deploy(28, sink.wasm);
+    test("a reward-bearing procedure fires PIT with the right amount + type", async () => {
+        const sink = await compileContract({
+            source: SINK,
+            contractName: "Sink",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1024 * 1024,
+        });
+        expect(
+            sink.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
 
-    // No transfer yet — PIT never fired.
-    let g = sim.query(28, 1);
-    expect(u64(g, 0)).toBe(0n); // amount
-    expect(u64(g, 8)).toBe(0n); // type
-    expect(u64(g, 16)).toBe(0n); // count
+        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+        sim.deploy(28, sink.wasm);
 
-    // Reward credit fires PIT before the procedure body with procedureTransaction = 1.
-    const user = new Uint8Array(32).fill(7);
-    sim.fund(user, 1_000_000n);
-    sim.procedure(28, 1, undefined, { reward: 500n, invocator: user });
+        // No transfer yet — PIT never fired.
+        let g = sim.query(28, 1);
+        expect(u64(g, 0)).toBe(0n); // amount
+        expect(u64(g, 8)).toBe(0n); // type
+        expect(u64(g, 16)).toBe(0n); // count
 
-    g = sim.query(28, 1);
-    expect(u64(g, 0)).toBe(500n); // amount captured from input.amount
-    expect(u64(g, 8)).toBe(1n); // type == procedureTransaction
-    expect(u64(g, 16)).toBe(1n); // fired exactly once
+        // Reward credit fires PIT before the procedure body with procedureTransaction = 1.
+        const user = new Uint8Array(32).fill(7);
+        sim.fund(user, 1_000_000n);
+        sim.procedure(28, 1, undefined, { reward: 500n, invocator: user });
 
-    // A second reward-bearing call fires it again, accumulating count.
-    sim.procedure(28, 1, undefined, { reward: 250n, invocator: user });
-    g = sim.query(28, 1);
-    expect(u64(g, 0)).toBe(250n);
-    expect(u64(g, 8)).toBe(1n);
-    expect(u64(g, 16)).toBe(2n);
-  });
+        g = sim.query(28, 1);
+        expect(u64(g, 0)).toBe(500n); // amount captured from input.amount
+        expect(u64(g, 8)).toBe(1n); // type == procedureTransaction
+        expect(u64(g, 16)).toBe(1n); // fired exactly once
+
+        // A second reward-bearing call fires it again, accumulating count.
+        sim.procedure(28, 1, undefined, { reward: 250n, invocator: user });
+        g = sim.query(28, 1);
+        expect(u64(g, 0)).toBe(250n);
+        expect(u64(g, 8)).toBe(1n);
+        expect(u64(g, 16)).toBe(2n);
+    });
 });

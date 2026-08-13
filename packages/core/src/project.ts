@@ -4,35 +4,32 @@ import { resolve } from "node:path";
 import { readCurrent } from "./cache/paths";
 
 export interface QinitConfig {
-  contractName?: string;
-  contract?: string;
-  slot?: number;
-  coreDir?: string;
-  rpc?: string;
-  system?: string[]; // built-in system contracts to seed onto the simulator
+    contractName?: string;
+    contract?: string;
+    slot?: number;
+    coreDir?: string;
+    rpc?: string;
+    system?: string[]; // built-in system contracts to seed onto the simulator
 }
 
 // Per-project config (qinit.json). Precedence at the call site: CLI flag > qinit.json > default.
 export function loadConfig(path = "qinit.json"): QinitConfig {
-  try {
-    if (existsSync(path)) return JSON.parse(readFileSync(path, "utf8")) as QinitConfig;
-  } catch {}
-  return {};
+    try {
+        if (existsSync(path)) return JSON.parse(readFileSync(path, "utf8")) as QinitConfig;
+    } catch {}
+    return {};
 }
 
 // Where to find core headers for compiling: explicit checkout > env > fetched snapshot cache.
 // No checkout and no fetched snapshot => actionable error.
-export function resolveCoreDir(
-  cliCoreDir?: string,
-  configCoreDir?: string,
-): string {
-  const explicit = cliCoreDir || configCoreDir || process.env.QINIT_CORE;
-  if (explicit) return resolve(explicit);
-  const cur = readCurrent();
-  if (cur?.coreHeaders && existsSync(cur.coreHeaders)) return cur.coreHeaders;
-  throw new Error(
-    "no core headers: run `qinit setup` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>",
-  );
+export function resolveCoreDir(cliCoreDir?: string, configCoreDir?: string): string {
+    const explicit = cliCoreDir || configCoreDir || process.env.QINIT_CORE;
+    if (explicit) return resolve(explicit);
+    const cur = readCurrent();
+    if (cur?.coreHeaders && existsSync(cur.coreHeaders)) return cur.coreHeaders;
+    throw new Error(
+        "no core headers: run `qinit setup` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>",
+    );
 }
 
 // Lean, Bun-free re-exports of the toolchain readers, so a consumer can import everything

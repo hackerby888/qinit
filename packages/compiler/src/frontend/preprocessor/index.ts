@@ -1,10 +1,7 @@
 import { Preprocessor } from "./preprocessor";
 
 export { Preprocessor };
-export type {
-  MacroDef,
-  PreprocessOptions,
-} from "./preprocessor-context";
+export type { MacroDef, PreprocessOptions } from "./preprocessor-context";
 
 // Export a convenience function that embeds the qpi.h content
 export function createQpiHeader(_corePath: string): string {

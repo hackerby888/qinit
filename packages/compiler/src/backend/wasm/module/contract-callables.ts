@@ -29,21 +29,12 @@ export function registerContractCallables(
 
         const declaration = member as FunctionDecl;
 
-        if (!isCallableCandidate(
-            declaration,
-            contract,
-            entryNames,
-            systemProcedureIds,
-        )) {
+        if (!isCallableCandidate(declaration, contract, entryNames, systemProcedureIds)) {
             continue;
         }
 
         if (declaration.params[0]?.name === "qpi") {
-            registerPrivateFunction(
-                programAnalysis,
-                declaration,
-                privateFunctions,
-            );
+            registerPrivateFunction(programAnalysis, declaration, privateFunctions);
             continue;
         }
 
@@ -89,15 +80,11 @@ function registerPrivateFunction(
     declaration: FunctionDecl,
     privateFunctions: FunctionDecl[],
 ): void {
-    const localsDeclaration = programAnalysis["nested"].get(
-        `${declaration.name}_locals`,
-    );
+    const localsDeclaration = programAnalysis["nested"].get(`${declaration.name}_locals`);
 
     programAnalysis.privates.set(declaration.name, {
         label: `$priv_${declaration.name}`,
-        localsSize: localsDeclaration
-            ? programAnalysis.layoutOf(localsDeclaration).size
-            : 0,
+        localsSize: localsDeclaration ? programAnalysis.layoutOf(localsDeclaration).size : 0,
     });
 
     privateFunctions.push(declaration);
@@ -108,26 +95,19 @@ function registerHelperFunction(
     declaration: FunctionDecl,
 ): CompiledHelperMetadata {
     const parameters = declaration.params.map((parameter) => {
-        const isConstReference = (
+        const isConstReference =
             parameter.type.kind === AstKind.REFERENCE &&
-            parameter.type.referentType?.kind === AstKind.CONST
-        );
-        const isPointerOrMutableReference = (
+            parameter.type.referentType?.kind === AstKind.CONST;
+        const isPointerOrMutableReference =
             (parameter.type.kind === AstKind.REFERENCE && !isConstReference) ||
-            parameter.type.kind === AstKind.POINTER
-        );
-        const isAddress = (
-            isPointerOrMutableReference ||
-            programAnalysis.isAggregateType(parameter.type)
-        );
-        const isByValueAggregate = (
+            parameter.type.kind === AstKind.POINTER;
+        const isAddress =
+            isPointerOrMutableReference || programAnalysis.isAggregateType(parameter.type);
+        const isByValueAggregate =
             isAddress &&
             parameter.type.kind !== AstKind.REFERENCE &&
-            parameter.type.kind !== AstKind.POINTER
-        );
-        const wasmType: WatValueType = isAddress
-            ? WatNodeType.I32
-            : WatNodeType.I64;
+            parameter.type.kind !== AstKind.POINTER;
+        const wasmType: WatValueType = isAddress ? WatNodeType.I32 : WatNodeType.I64;
 
         return {
             name: parameter.name,
@@ -139,20 +119,16 @@ function registerHelperFunction(
     });
 
     const returnsVoid = programAnalysis.isVoidType(declaration.returnType);
-    const aggregateReturnSize = (
+    const aggregateReturnSize =
         !returnsVoid && programAnalysis.isAggregateType(declaration.returnType)
-    )
-        ? programAnalysis.sizeOfType(
-            programAnalysis.derefType(declaration.returnType),
-        )
-        : undefined;
+            ? programAnalysis.sizeOfType(programAnalysis.derefType(declaration.returnType))
+            : undefined;
 
-    const overloads = (
-        programAnalysis.helperOverloads.get(declaration.name) ?? []
-    );
-    const label = overloads.length === 0
-        ? `$h_${declaration.name}`
-        : `$h_${declaration.name}__ov${overloads.length}`;
+    const overloads = programAnalysis.helperOverloads.get(declaration.name) ?? [];
+    const label =
+        overloads.length === 0
+            ? `$h_${declaration.name}`
+            : `$h_${declaration.name}__ov${overloads.length}`;
     const namespaceContext = programAnalysis.namespaceContextOf(declaration);
 
     const metadata: CompiledHelperMetadata = {
@@ -160,9 +136,7 @@ function registerHelperFunction(
         params: parameters,
         retIsValue: !returnsVoid && !aggregateReturnSize,
         retAgg: aggregateReturnSize,
-        retType: returnsVoid
-            ? undefined
-            : programAnalysis.derefType(declaration.returnType),
+        retType: returnsVoid ? undefined : programAnalysis.derefType(declaration.returnType),
         sourceNamespace: namespaceContext.sourceNamespace,
         usingNamespaces: namespaceContext.usingNamespaces,
     };

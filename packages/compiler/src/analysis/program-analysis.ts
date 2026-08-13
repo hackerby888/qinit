@@ -1,6 +1,28 @@
 import { AstKind } from "../shared/enums";
-import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, ResolvedCalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
-import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, Span } from "../ast";
+import {
+    ClassTemplate,
+    CompiledMethod,
+    CompiledHelperMetadata,
+    PrivateFunctionMetadata,
+    ResolvedCalleeIdl,
+    StructLayout,
+    CodeGenerationWarning,
+    EMPTY_TEMPLATE_BINDINGS,
+    TemplateBindings,
+    FieldLayout,
+    NamespaceLookupContext,
+    ResolvedSourceMethod,
+} from "./types";
+import type {
+    TypeSpec,
+    Expression,
+    Declaration,
+    StructDecl,
+    FunctionDecl,
+    FunctionTemplateDecl,
+    VariableDecl,
+    Span,
+} from "../ast";
 import type { SemanticAnalyzer } from "./semantic-analysis";
 import type { PlatformCapability } from "../shared/enums";
 import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
@@ -19,18 +41,24 @@ export class ProgramAnalysis {
     assetEnumerationRecord: {
         size: number;
         capacity: number;
-        fields: Record<string, {
-            offset: number;
-            size: number;
-        }>;
+        fields: Record<
+            string,
+            {
+                offset: number;
+                size: number;
+            }
+        >;
     } = ASSET_ENUMERATION_RECORD;
     sema: SemanticAnalyzer;
     nested: Map<string, StructDecl> = new Map(); // contract-local nested structs
     templates: Map<string, ClassTemplate> = new Map(); // qpi.h templates (HashMap, Array, ...)
-    specializations: Map<string, {
-        specArgs: TypeSpec[];
-        templateDeclaration: ClassTemplate;
-    }[]> = new Map(); // partial/explicit specializations keyed by template name
+    specializations: Map<
+        string,
+        {
+            specArgs: TypeSpec[];
+            templateDeclaration: ClassTemplate;
+        }[]
+    > = new Map(); // partial/explicit specializations keyed by template name
     globalStructs: Map<string, StructDecl> = new Map(); // qpi.h global/namespace structs
     typedefs: Map<string, TypeSpec> = new Map(); // typedef aliases
     constexprInit: Map<string, Expression> = new Map(); // named constexpr → its init expression
@@ -68,8 +96,17 @@ export class ProgramAnalysis {
         this.sema = sema;
     }
     // ---- register declarations from the parsed TU into codegen lookup tables ----
-    registerTopLevelDeclarations(declarations: Declaration[], nsPrefix = "", inheritedUsing: string[] = []): void {
-        return analysisPart0.registerTopLevelDeclarations(this, declarations, nsPrefix, inheritedUsing);
+    registerTopLevelDeclarations(
+        declarations: Declaration[],
+        nsPrefix = "",
+        inheritedUsing: string[] = [],
+    ): void {
+        return analysisPart0.registerTopLevelDeclarations(
+            this,
+            declarations,
+            nsPrefix,
+            inheritedUsing,
+        );
     }
     captureMemberNamespaceContexts(members: Declaration[], context: NamespaceLookupContext): void {
         return analysisPart0.captureMemberNamespaceContexts(this, members, context);
@@ -85,7 +122,11 @@ export class ProgramAnalysis {
      * 4. bare/unqualified name (global), only when name is unqualified
      * First hit wins; no hardcoded QPI:: fallback.
      */
-    namespaceCandidates(name: string, sourceNamespace?: string, usingNamespaces: string[] = []): string[] {
+    namespaceCandidates(
+        name: string,
+        sourceNamespace?: string,
+        usingNamespaces: string[] = [],
+    ): string[] {
         return analysisPart0.namespaceCandidates(this, name, sourceNamespace, usingNamespaces);
     }
     // Collect named constexpr/const-with-initializer values and enum constants from a member list.
@@ -118,48 +159,84 @@ export class ProgramAnalysis {
         return analysisPart1.normalizeConst(this, value, type);
     }
     // Resolve a named constant (enum constant or constexpr) to its integer value, or null if unknown.
-    resolveConst(name: string, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): bigint | null {
+    resolveConst(
+        name: string,
+        templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
+    ): bigint | null {
         return analysisPart1.resolveConst(this, name, templateBindings);
     }
     // ---- struct sizing (binding-aware: template params resolve through `b`) ----
     sizeDepth = 0;
-    sizeOfType(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {
+    sizeOfType(
+        type: TypeSpec,
+        templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
+    ): number {
         return analysisPart2.sizeOfType(this, type, templateBindings);
     }
     sizeOfTypeInner(type: TypeSpec, templateBindings: TemplateBindings): number {
         return analysisPart2.sizeOfTypeInner(this, type, templateBindings);
     }
     // Resolve a dependent member type such as `Selector<args>::member`.
-    resolveDependentMember(type: Extract<TypeSpec, {
-        kind: AstKind.DEPENDENT_MEMBER;
-    }>, templateBindings: TemplateBindings): {
+    resolveDependentMember(
+        type: Extract<
+            TypeSpec,
+            {
+                kind: AstKind.DEPENDENT_MEMBER;
+            }
+        >,
+        templateBindings: TemplateBindings,
+    ): {
         type: TypeSpec;
         bindings: TemplateBindings;
     } | null {
         return analysisPart2.resolveDependentMember(this, type, templateBindings);
     }
     // Select the matching template definition and bind its parameters.
-    instantiateTemplate(name: string, callArguments: TypeSpec[], parent: TemplateBindings): {
+    instantiateTemplate(
+        name: string,
+        callArguments: TypeSpec[],
+        parent: TemplateBindings,
+    ): {
         templateDeclaration: ClassTemplate;
         b: TemplateBindings;
     } | null {
         return analysisPart3.instantiateTemplate(this, name, callArguments, parent);
     }
-    matchTemplateSpecialization(name: string, resolvedArguments: TypeSpec[], parent: TemplateBindings): {
+    matchTemplateSpecialization(
+        name: string,
+        resolvedArguments: TypeSpec[],
+        parent: TemplateBindings,
+    ): {
         templateDeclaration: ClassTemplate;
         b: TemplateBindings;
     } | null {
         return analysisPart3.matchTemplateSpecialization(this, name, resolvedArguments, parent);
     }
-    instantiateTemplateBindings(templateDeclaration: ClassTemplate, resolvedArguments: TypeSpec[], parent: TemplateBindings): TemplateBindings {
-        return analysisPart3.instantiateTemplateBindings(this, templateDeclaration, resolvedArguments, parent);
+    instantiateTemplateBindings(
+        templateDeclaration: ClassTemplate,
+        resolvedArguments: TypeSpec[],
+        parent: TemplateBindings,
+    ): TemplateBindings {
+        return analysisPart3.instantiateTemplateBindings(
+            this,
+            templateDeclaration,
+            resolvedArguments,
+            parent,
+        );
     }
     // Add a template's static constexpr members to its bindings.
-    withStaticConsts(templateDeclaration: ClassTemplate, templateBindings: TemplateBindings): TemplateBindings {
+    withStaticConsts(
+        templateDeclaration: ClassTemplate,
+        templateBindings: TemplateBindings,
+    ): TemplateBindings {
         return analysisPart3.withStaticConsts(this, templateDeclaration, templateBindings);
     }
     // Instantiate a template and compute its layout from concrete arguments.
-    layoutOfTemplate(name: string, callArguments: TypeSpec[], parent: TemplateBindings): StructLayout {
+    layoutOfTemplate(
+        name: string,
+        callArguments: TypeSpec[],
+        parent: TemplateBindings,
+    ): StructLayout {
         return analysisPart3.layoutOfTemplate(this, name, callArguments, parent);
     }
     // Add member structs to a child scope for sibling type references.
@@ -170,7 +247,11 @@ export class ProgramAnalysis {
     inlineNestedStruct(type: TypeSpec, templateBindings: TemplateBindings): TypeSpec {
         return analysisPart3.inlineNestedStruct(this, type, templateBindings);
     }
-    fallbackTemplateLayout(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings): StructLayout {
+    fallbackTemplateLayout(
+        name: string,
+        callArguments: TypeSpec[],
+        templateBindings: TemplateBindings,
+    ): StructLayout {
         return analysisPart3.fallbackTemplateLayout(this, name, callArguments, templateBindings);
     }
     // Resolve template bindings and contract or QPI typedefs to concrete types.
@@ -178,22 +259,47 @@ export class ProgramAnalysis {
         return analysisPart2.resolveType(this, type, templateBindings, depth);
     }
     // Resolve member types against their parent template instance.
-    concreteMemberType(type: TypeSpec, parent: TypeSpec & {
-        kind: AstKind.TEMPLATE_INSTANCE;
-    }, depth = 0): TypeSpec {
+    concreteMemberType(
+        type: TypeSpec,
+        parent: TypeSpec & {
+            kind: AstKind.TEMPLATE_INSTANCE;
+        },
+        depth = 0,
+    ): TypeSpec {
         return analysisPart2.concreteMemberType(this, type, parent, depth);
     }
-    resolveInScope(type: TypeSpec, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec {
+    resolveInScope(
+        type: TypeSpec,
+        scope: TemplateBindings,
+        nested: Map<string, TypeSpec>,
+        depth: number,
+    ): TypeSpec {
         return analysisPart2.resolveInScope(this, type, scope, nested, depth);
     }
-    resolveNamedTypeInScope(type: Extract<TypeSpec, {
-        kind: AstKind.NAME;
-    }>, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec {
+    resolveNamedTypeInScope(
+        type: Extract<
+            TypeSpec,
+            {
+                kind: AstKind.NAME;
+            }
+        >,
+        scope: TemplateBindings,
+        nested: Map<string, TypeSpec>,
+        depth: number,
+    ): TypeSpec {
         return analysisPart2.resolveNamedTypeInScope(this, type, scope, nested, depth);
     }
-    resolveTemplateInstanceArguments(type: Extract<TypeSpec, {
-        kind: AstKind.TEMPLATE_INSTANCE;
-    }>, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec[] {
+    resolveTemplateInstanceArguments(
+        type: Extract<
+            TypeSpec,
+            {
+                kind: AstKind.TEMPLATE_INSTANCE;
+            }
+        >,
+        scope: TemplateBindings,
+        nested: Map<string, TypeSpec>,
+        depth: number,
+    ): TypeSpec[] {
         return analysisPart2.resolveTemplateInstanceArguments(this, type, scope, nested, depth);
     }
     // Substitute concrete type and value bindings into a type.
@@ -201,7 +307,10 @@ export class ProgramAnalysis {
         return analysisPart2.substInBindings(this, type, bind);
     }
     // Public: recover the integer value of a (possibly value-) template arg, e.g. the `4` of Array<sint64,4>.
-    valueOfTypeArg(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): bigint {
+    valueOfTypeArg(
+        type: TypeSpec,
+        templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
+    ): bigint {
         return analysisPart2.valueOfTypeArg(this, type, templateBindings);
     }
     evalConstFromType(type: TypeSpec, templateBindings: TemplateBindings): bigint {
@@ -211,14 +320,21 @@ export class ProgramAnalysis {
         return analysisPart4.layoutOf(this, struct);
     }
     // Collect a base class's leading fields and static constants.
-    baseContribution(baseType: TypeSpec, parentB: TemplateBindings): {
+    baseContribution(
+        baseType: TypeSpec,
+        parentB: TemplateBindings,
+    ): {
         layout: StructLayout;
         consts: Map<string, bigint>;
     } | null {
         return analysisPart4.baseContribution(this, baseType, parentB);
     }
     // Evaluate a qualified static constexpr under the current bindings.
-    evalQualifiedConst(typeName: string, member: string, templateBindings: TemplateBindings): bigint | null {
+    evalQualifiedConst(
+        typeName: string,
+        member: string,
+        templateBindings: TemplateBindings,
+    ): bigint | null {
         return analysisPart4.evalQualifiedConst(this, typeName, member, templateBindings);
     }
     // Key layout caches by declaration identity, not a possibly shared name.
@@ -234,7 +350,13 @@ export class ProgramAnalysis {
     bindingSig(templateBindings: TemplateBindings): string {
         return analysisPart4.bindingSig(this, templateBindings);
     }
-    layoutOfMembers(members: Declaration[], bIn: TemplateBindings, cacheKey: string, isUnion = false, bases: TypeSpec[] = []): StructLayout {
+    layoutOfMembers(
+        members: Declaration[],
+        bIn: TemplateBindings,
+        cacheKey: string,
+        isUnion = false,
+        bases: TypeSpec[] = [],
+    ): StructLayout {
         return analysisPart4.layoutOfMembers(this, members, bIn, cacheKey, isUnion, bases);
     }
     alignOfTypeB(type: TypeSpec, templateBindings: TemplateBindings): number {
@@ -251,7 +373,10 @@ export class ProgramAnalysis {
         return analysisPart5.structAlign(this, members, templateBindings);
     }
     // Evaluate a constant expression, resolving template non-type params (e.g. L) through `b.values`.
-    evalConst(expression: Expression, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {
+    evalConst(
+        expression: Expression,
+        templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
+    ): number {
         return analysisPart1.evalConst(this, expression, templateBindings);
     }
     // Parse an integer literal token (hex/bin/octal/dec, with optional u/l/ull suffixes) to a bigint.
@@ -280,7 +405,10 @@ export class ProgramAnalysis {
         return analysisPart6.collectNestedStructs(this, parent, prefix);
     }
     // ---- type → layout / field resolution (used by body codegen for address computation) ----
-    alignOfType(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {
+    alignOfType(
+        type: TypeSpec,
+        templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
+    ): number {
         return analysisPart5.alignOfType(this, type, templateBindings);
     }
     // Resolve structs through binding, nested, and global tables.
@@ -291,7 +419,11 @@ export class ProgramAnalysis {
     qualifiedNestedType(name: string, templateBindings: TemplateBindings): TypeSpec | null {
         return analysisPart6.qualifiedNestedType(this, name, templateBindings);
     }
-    walkNestedSegments(sd: StructDecl | null, segs: string[], templateBindings: TemplateBindings): TypeSpec | null {
+    walkNestedSegments(
+        sd: StructDecl | null,
+        segs: string[],
+        templateBindings: TemplateBindings,
+    ): TypeSpec | null {
         return analysisPart6.walkNestedSegments(this, sd, segs, templateBindings);
     }
     // Strip const and reference wrappers to the underlying type.
@@ -307,15 +439,25 @@ export class ProgramAnalysis {
         return analysisPart2.isAggregateType(this, type);
     }
     // Resolve a struct-ish type to its (cached) field layout, or null for scalars/containers.
-    layoutOfType(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): StructLayout | null {
+    layoutOfType(
+        type: TypeSpec,
+        templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
+    ): StructLayout | null {
         return analysisPart5.layoutOfType(this, type, templateBindings);
     }
     // Resolve a type to its StructDecl (for inline member-method lookup), following typedefs/bindings.
-    structOf(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): StructDecl | null {
+    structOf(
+        type: TypeSpec,
+        templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
+    ): StructDecl | null {
         return analysisPart6.structOf(this, type, templateBindings);
     }
     // Look up a field within a struct-ish type, returning its offset/size/type.
-    fieldOf(type: TypeSpec, member: string, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): FieldLayout | null {
+    fieldOf(
+        type: TypeSpec,
+        member: string,
+        templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
+    ): FieldLayout | null {
         return analysisPart5.fieldOf(this, type, member, templateBindings);
     }
     // ---- public helpers for compiling instantiated container methods ----
@@ -323,12 +465,20 @@ export class ProgramAnalysis {
         return analysisPart2.typeKeyOf(this, type);
     }
     // The full layout of a container instantiation (HashMap<id,uint64,1024> → _elements/_occupationFlags/...).
-    containerLayout(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): StructLayout {
+    containerLayout(
+        name: string,
+        callArguments: TypeSpec[],
+        templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
+    ): StructLayout {
         return analysisPart8.containerLayout(this, name, callArguments, templateBindings);
     }
     // template params → concrete args (KeyT→id, L→1024), including authoritative defaults such as
     // HashFunc = HashFunction<KeyT>.
-    bindContainer(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): TemplateBindings {
+    bindContainer(
+        name: string,
+        callArguments: TypeSpec[],
+        templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
+    ): TemplateBindings {
         return analysisPart3.bindContainer(this, name, callArguments, templateBindings);
     }
     // Evaluate the container's static constexpr members (e.g. _nEncodedFlags = L>32?32:L) under bindings.

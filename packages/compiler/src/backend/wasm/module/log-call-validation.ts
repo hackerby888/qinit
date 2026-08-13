@@ -2,11 +2,7 @@ import { AstKind, LogPayloadDefect } from "../../../shared/enums";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { StructLayout } from "../../../analysis/types";
 import type { Expression, FunctionDecl, Statement, TypeSpec } from "../../../ast";
-import {
-    isKnownScalarType,
-    logPayloadDefect,
-    logPayloadMessage,
-} from "../abi/log-payload";
+import { isKnownScalarType, logPayloadDefect, logPayloadMessage } from "../abi/log-payload";
 import { SYSPROC_IO } from "../abi/tables";
 import { isStateAccessor } from "../memory/address-resolution";
 import type { PreparedContractModule } from "./module-analysis";
@@ -64,12 +60,7 @@ export function validateLogCalls(prepared: PreparedContractModule): void {
         const unreachable = logsCannotReachTheChain(prepared, declaration);
 
         visitStatement(declaration.body, (statement) => {
-            checkLogStatement(
-                prepared.programAnalysis,
-                roots,
-                unreachable,
-                statement,
-            );
+            checkLogStatement(prepared.programAnalysis, roots, unreachable, statement);
         });
     }
 }
@@ -94,17 +85,12 @@ function logsCannotReachTheChain(
     }
 
     const resolved = prepared.programAnalysis.derefType(context);
-    return (
-        resolved.kind === AstKind.NAME &&
-        resolved.name === QPI_FUNCTION_CONTEXT
-    );
+    return resolved.kind === AstKind.NAME && resolved.name === QPI_FUNCTION_CONTEXT;
 }
 
 // Helper functions are deliberately absent: emission binds them empty layouts, so their bodies
 // carry no resolvable payload root.
-function collectPayloadRoots(
-    prepared: PreparedContractModule,
-): Map<string, PayloadRoots> {
+function collectPayloadRoots(prepared: PreparedContractModule): Map<string, PayloadRoots> {
     const layouts = prepared.layouts;
     const state = prepared.stateLayout;
     const rootsByFunction = new Map<string, PayloadRoots>();
@@ -245,10 +231,7 @@ function resolvePayload(
     };
 }
 
-function rootLayout(
-    roots: PayloadRoots,
-    expression: Expression,
-): StructLayout | null {
+function rootLayout(roots: PayloadRoots, expression: Expression): StructLayout | null {
     if (isStateAccessor(expression)) {
         return roots.state;
     }
@@ -277,10 +260,7 @@ function scalarPayloadDefect(type: TypeSpec | null): LogPayloadDefect | null {
     return LogPayloadDefect.NOT_A_STRUCT;
 }
 
-function visitStatement(
-    statement: Statement,
-    visit: (statement: Statement) => void,
-): void {
+function visitStatement(statement: Statement, visit: (statement: Statement) => void): void {
     visit(statement);
 
     switch (statement.kind) {

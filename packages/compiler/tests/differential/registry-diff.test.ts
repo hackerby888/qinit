@@ -58,8 +58,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 `;
 
 const REGISTRY_GTEST = coreGtest(
-  "Registry",
-  `TEST(Registry, HashSetAddContainsRemovePopulation) {
+    "Registry",
+    `TEST(Registry, HashSetAddContainsRemovePopulation) {
   ContractTestingHarness t;
   QPI::id u1 = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   QPI::id u2 = t.idFromSeed("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
@@ -114,37 +114,41 @@ TEST(Registry, HashMapReuseRemovedSlot) {
 const wasi = wasiToolchain();
 
 describe("differential gtest — Registry (HashSet + HashMap iteration/remove)", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("my Registry.wasm passes the native Registry gtest", async () => {
-    if (!wasi.available) {
-      console.log("  (wasi-sdk clang not found — skipping)");
-      return;
-    }
-    const runnerWasm = await buildDifferentialRunner({
-      corePath: CORE,
-      source: REGISTRY,
-      testSource: REGISTRY_GTEST,
-      name: "Registry",
-      tempPrefix: "registry-diff-",
+    beforeAll(async () => {
+        await initK12();
     });
 
-    const mine = await compileContract({
-      source: REGISTRY,
-      contractName: "Registry",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1024 * 1024,
-    });
-    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+    test("my Registry.wasm passes the native Registry gtest", async () => {
+        if (!wasi.available) {
+            console.log("  (wasi-sdk clang not found — skipping)");
+            return;
+        }
+        const runnerWasm = await buildDifferentialRunner({
+            corePath: CORE,
+            source: REGISTRY,
+            testSource: REGISTRY_GTEST,
+            name: "Registry",
+            tempPrefix: "registry-diff-",
+        });
 
-    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-    for (const r of results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
-    }
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.every((r) => r.passed)).toBe(true);
-  }, 120000);
+        const mine = await compileContract({
+            source: REGISTRY,
+            contractName: "Registry",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1024 * 1024,
+        });
+        expect(
+            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+
+        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+        for (const r of results) {
+            console.log(
+                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+            );
+        }
+        expect(results.length).toBeGreaterThan(0);
+        expect(results.every((r) => r.passed)).toBe(true);
+    }, 120000);
 });

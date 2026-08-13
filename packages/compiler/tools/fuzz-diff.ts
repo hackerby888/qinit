@@ -4,10 +4,10 @@ import { encodeInput, generate } from "./fuzz-gen";
 import { runFuzzer } from "./fuzz-runner";
 
 await runFuzzer({
-  corePath: CORE_PATH,
-  contractPrefix: "F",
-  findingsDirectory: "fuzz-findings",
-  tempPrefix: "fuzz",
-  generate,
-  encodeInput,
+    corePath: CORE_PATH,
+    contractPrefix: "F",
+    findingsDirectory: "fuzz-findings",
+    tempPrefix: "fuzz",
+    generate,
+    encodeInput,
 });

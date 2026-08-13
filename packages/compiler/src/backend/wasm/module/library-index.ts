@@ -1,7 +1,14 @@
 import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { ClassTemplate, CompiledHelperMetadata, NamespaceLookupContext } from "../types";
-import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl } from "../../../ast";
+import type {
+    TypeSpec,
+    Expression,
+    Declaration,
+    StructDecl,
+    FunctionDecl,
+    FunctionTemplateDecl,
+} from "../../../ast";
 import type { SemanticAnalyzer } from "../../../analysis/semantic-analysis";
 import { type QpiContextLayout } from "../framework";
 import type { LhostAbiSpec } from "../lhost";
@@ -10,10 +17,13 @@ import type { WasmAbiSource } from "@qinit/core/wasm/abi-source";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 export interface LibrarySymbolIndex {
     templates: Map<string, ClassTemplate>;
-    specializations: Map<string, {
-        specArgs: TypeSpec[];
-        templateDeclaration: ClassTemplate;
-    }[]>;
+    specializations: Map<
+        string,
+        {
+            specArgs: TypeSpec[];
+            templateDeclaration: ClassTemplate;
+        }[]
+    >;
     libFns: Map<string, FunctionDecl>;
     libFnOverloads: Map<string, FunctionDecl[]>;
     libFnTemplates: Map<string, FunctionTemplateDecl[]>;
@@ -46,7 +56,10 @@ export interface GeneratedContractMetadata {
     idl?: ContractIdl;
     dependencies?: string[];
 }
-export function registerLibraryMetadata(programAnalysis: ProgramAnalysis, libraryTypes: LibrarySymbolIndex): LhostAbiSpec {
+export function registerLibraryMetadata(
+    programAnalysis: ProgramAnalysis,
+    libraryTypes: LibrarySymbolIndex,
+): LhostAbiSpec {
     if (libraryTypes.wasmAbi)
         programAnalysis.assetEnumerationRecord = libraryTypes.wasmAbi.records.AssetEntry;
     for (const [templateName, templateDeclaration] of libraryTypes.templates)
@@ -75,31 +88,34 @@ export function registerLibraryMetadata(programAnalysis: ProgramAnalysis, librar
         programAnalysis.enumUnderlying.set(typeName, enumUnderlyingType);
     for (const [typeName, enumValueType] of libraryTypes.enumConstType)
         programAnalysis.enumConstType.set(typeName, enumValueType);
-    for (const enumName of libraryTypes.enumNames)
-        programAnalysis.enumNames.add(enumName);
+    for (const enumName of libraryTypes.enumNames) programAnalysis.enumNames.add(enumName);
     for (const [className, methodsByName] of libraryTypes.templateMethods)
         programAnalysis.templateMethods.set(className, new Map(methodsByName));
     for (const [scope, namespaces] of libraryTypes.namespaceUsings)
         programAnalysis.namespaceUsings.set(scope, [...namespaces]);
     for (const [declaration, namespaceContext] of libraryTypes.namespaceContexts)
         programAnalysis.namespaceContexts.set(declaration, namespaceContext);
-    const lhostAbi: Record<string, {
-        params: readonly WatValueType[];
-        results: readonly WatValueType[];
-    }> = {};
+    const lhostAbi: Record<
+        string,
+        {
+            params: readonly WatValueType[];
+            results: readonly WatValueType[];
+        }
+    > = {};
     for (const [name, fn] of libraryTypes.importedFunctions) {
         const params = fn.params.map((param) => {
             const declared = programAnalysis.derefType(param.type);
-            const isAddr = param.type.kind === AstKind.REFERENCE ||
+            const isAddr =
+                param.type.kind === AstKind.REFERENCE ||
                 param.type.kind === AstKind.POINTER ||
                 programAnalysis.isAggregateType(declared);
             const width = isAddr ? 4 : programAnalysis.sizeOfType(declared);
             if (!isAddr && width !== 1 && width !== 2 && width !== 4 && width !== 8) {
-                throw new Error(`unsupported imported parameter '${name}.${param.name}' width ${width}`);
+                throw new Error(
+                    `unsupported imported parameter '${name}.${param.name}' width ${width}`,
+                );
             }
-            const wasmType: WatValueType = isAddr || width < 8
-                ? WatNodeType.I32
-                : WatNodeType.I64;
+            const wasmType: WatValueType = isAddr || width < 8 ? WatNodeType.I32 : WatNodeType.I64;
             return {
                 name: param.name,
                 wasmType,
@@ -108,22 +124,26 @@ export function registerLibraryMetadata(programAnalysis: ProgramAnalysis, librar
             };
         });
         const returnType = programAnalysis.derefType(fn.returnType);
-        const returnAggregate = !programAnalysis.isVoidType(returnType) && programAnalysis.isAggregateType(returnType);
+        const returnAggregate =
+            !programAnalysis.isVoidType(returnType) && programAnalysis.isAggregateType(returnType);
         if (returnAggregate)
-            throw new Error(`imported function '${name}' has an aggregate return; declare its hidden output address explicitly`);
-        const returnWidth = programAnalysis.isVoidType(returnType) ? 0 : programAnalysis.sizeOfType(returnType);
-        if (returnWidth !== 0 &&
+            throw new Error(
+                `imported function '${name}' has an aggregate return; declare its hidden output address explicitly`,
+            );
+        const returnWidth = programAnalysis.isVoidType(returnType)
+            ? 0
+            : programAnalysis.sizeOfType(returnType);
+        if (
+            returnWidth !== 0 &&
             returnWidth !== 1 &&
             returnWidth !== 2 &&
             returnWidth !== 4 &&
-            returnWidth !== 8) {
+            returnWidth !== 8
+        ) {
             throw new Error(`unsupported imported return '${name}' width ${returnWidth}`);
         }
-        const retWasmType: WatValueType | undefined = returnWidth === 0
-            ? undefined
-            : returnWidth < 8
-                ? WatNodeType.I32
-                : WatNodeType.I64;
+        const retWasmType: WatValueType | undefined =
+            returnWidth === 0 ? undefined : returnWidth < 8 ? WatNodeType.I32 : WatNodeType.I64;
         const helper: CompiledHelperMetadata = {
             label: `$lh_${name.slice("__lhost_".length)}`,
             params,
@@ -136,30 +156,35 @@ export function registerLibraryMetadata(programAnalysis: ProgramAnalysis, librar
         const abiParams = params.map((param) => param.wasmType);
         const results = helper.retWasmType ? [helper.retWasmType] : [];
         lhostAbi[importName] = { params: abiParams, results };
-        registerCallSig(helper.label, { params: abiParams, res: helper.retWasmType ?? WatNodeType.VOID });
+        registerCallSig(helper.label, {
+            params: abiParams,
+            res: helper.retWasmType ?? WatNodeType.VOID,
+        });
     }
     for (const row of libraryTypes.wasmAbi?.lhost ?? []) {
         const derived = lhostAbi[row.name];
-        if (!derived ||
+        if (
+            !derived ||
             derived.params.join(",") !== row.params.join(",") ||
-            derived.results.join(",") !== row.results.join(",")) {
-            throw new Error(`LH_IMPORT declaration for '${row.name}' does not match canonical core ABI metadata`);
+            derived.results.join(",") !== row.results.join(",")
+        ) {
+            throw new Error(
+                `LH_IMPORT declaration for '${row.name}' does not match canonical core ABI metadata`,
+            );
         }
     }
     return lhostAbi;
 }
 export function contextLayoutFromCodegen(programAnalysis: ProgramAnalysis): QpiContextLayout {
     const context = programAnalysis.globalStructs.get("QpiContext");
-    if (!context)
-        throw new Error("qpi.h is missing QpiContext");
+    if (!context) throw new Error("qpi.h is missing QpiContext");
     const bufferSize = programAnalysis.constexprInit.get("__qinit_qpi_context_buffer_size");
     if (!bufferSize)
         throw new Error("assembled core headers are missing the Wasm QpiContext buffer capacity");
     const layout = programAnalysis.layoutOf(context);
     const offset = (name: string): number => {
         const field = layout.fields.get(name);
-        if (!field)
-            throw new Error(`QpiContext is missing field '${name}'`);
+        if (!field) throw new Error(`QpiContext is missing field '${name}'`);
         return field.offset;
     };
     return {
@@ -176,7 +201,10 @@ export function deriveQpiContextLayout(libraryTypes: LibrarySymbolIndex): QpiCon
     return contextLayoutFromCodegen(programAnalysis);
 }
 // Parse-once: collect the qpi.h library type table (templates/structs/typedefs/constants/methods).
-export function indexLibraryDeclarations(declarations: Declaration[], inheritedNamespaceUsings?: Map<string, string[]>): LibrarySymbolIndex {
+export function indexLibraryDeclarations(
+    declarations: Declaration[],
+    inheritedNamespaceUsings?: Map<string, string[]>,
+): LibrarySymbolIndex {
     const programAnalysis = new ProgramAnalysis({} as SemanticAnalyzer);
     if (inheritedNamespaceUsings) {
         for (const [scope, namespaces] of inheritedNamespaceUsings)
@@ -186,12 +214,16 @@ export function indexLibraryDeclarations(declarations: Declaration[], inheritedN
     const importedFunctions = new Map<string, FunctionDecl>();
     const collectHostImportDeclarations = (items: Declaration[]): void => {
         for (const declaration of items) {
-            if (declaration.kind === AstKind.EXTERN_BLOCK || declaration.kind === AstKind.NAMESPACE) {
+            if (
+                declaration.kind === AstKind.EXTERN_BLOCK ||
+                declaration.kind === AstKind.NAMESPACE
+            ) {
                 collectHostImportDeclarations((declaration as any).body);
-            }
-            else if (declaration.kind === AstKind.FUNCTION &&
+            } else if (
+                declaration.kind === AstKind.FUNCTION &&
                 declaration.name.startsWith("__lhost_") &&
-                !declaration.body) {
+                !declaration.body
+            ) {
                 importedFunctions.set(declaration.name, declaration);
             }
         }

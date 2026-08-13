@@ -23,172 +23,154 @@ import VAULT_SOURCE from "../fixtures/Vault.h" with { type: "text" };
 import WATCHER_SOURCE from "../fixtures/Watcher.h" with { type: "text" };
 
 interface FixtureDefinitionBase {
-  readonly sourceFile: `${string}.h`;
-  readonly source: string;
-  readonly contractName: string;
-  readonly slot: number;
+    readonly sourceFile: `${string}.h`;
+    readonly source: string;
+    readonly contractName: string;
+    readonly slot: number;
 }
 
-interface FixtureDefinition<Dependencies extends readonly string[] | undefined>
-  extends FixtureDefinitionBase {
-  readonly dependencies?: Dependencies;
+interface FixtureDefinition<
+    Dependencies extends readonly string[] | undefined,
+> extends FixtureDefinitionBase {
+    readonly dependencies?: Dependencies;
 }
 
 function fixture<const Dependencies extends readonly string[] | undefined = undefined>(
-  sourceFile: `${string}.h`,
-  source: string,
-  contractName: string,
-  slot: number,
-  dependencies?: Dependencies,
+    sourceFile: `${string}.h`,
+    source: string,
+    contractName: string,
+    slot: number,
+    dependencies?: Dependencies,
 ): FixtureDefinition<Dependencies> {
-  return {
-    sourceFile,
-    source,
-    contractName,
-    slot,
-    ...(dependencies ? { dependencies } : {}),
-  };
+    return {
+        sourceFile,
+        source,
+        contractName,
+        slot,
+        ...(dependencies ? { dependencies } : {}),
+    };
 }
 
 export const wasmFixtureManifest = {
-  ApiProbe: fixture("ApiProbe.h", API_PROBE_SOURCE, "ApiProbe", 29),
-  BigState: fixture("BigState.h", BIG_STATE_SOURCE, "BigState", 28),
-  Counter: fixture("Counter.h", COUNTER_SOURCE, "Counter", 28),
-  Counter1: fixture("Counter.h", COUNTER_SOURCE, "Counter", 1),
-  Counter5: fixture("Counter.h", COUNTER_SOURCE, "Counter", 5),
-  Counter29: fixture("Counter.h", COUNTER_SOURCE, "Counter", 29),
-  Counter30: fixture("Counter.h", COUNTER_SOURCE, "Counter", 30),
-  Counter31: fixture("Counter.h", COUNTER_SOURCE, "Counter", 31),
-  Counter40: fixture("Counter.h", COUNTER_SOURCE, "Counter", 40),
-  CounterV1: fixture("Counter.h", COUNTER_SOURCE, "Counter", 28),
-  CounterV2: fixture("CounterV2.h", COUNTER_V2_SOURCE, "Counter", 28),
-  DigestProbe: fixture("DigestProbe.h", DIGEST_PROBE_SOURCE, "DigestProbe", 29),
-  Dividend: fixture("Dividend.h", DIVIDEND_SOURCE, "Dividend", 28),
-  Hooks: fixture("Hooks.h", HOOKS_SOURCE, "Hooks", 28),
-  IncomingLogger: fixture(
-    "IncomingLogger.h",
-    INCOMING_LOGGER_SOURCE,
-    "IncomingLogger",
-    29,
-  ),
-  OracleProbe: fixture("OracleProbe.h", ORACLE_PROBE_SOURCE, "OracleProbe", 29),
-  Proxy: fixture("Proxy.h", PROXY_SOURCE, "Proxy", 29, ["Counter"]),
-  QpiDualCallee: fixture(
-    "QpiDualCallee.h",
-    QPI_DUAL_CALLEE_SOURCE,
-    "QpiDualCallee",
-    28,
-  ),
-  QpiDual: fixture(
-    "QpiDual.h",
-    QPI_DUAL_SOURCE,
-    "QpiDual",
-    29,
-    ["QpiDualCallee"],
-  ),
-  Refund: fixture("Refund.h", REFUND_SOURCE, "Refund", 28),
-  ShareApprover: fixture("ShareApprover.h", SHARE_APPROVER_SOURCE, "ShareApprover", 28),
-  ShareManager: fixture("ShareManager.h", SHARE_MANAGER_SOURCE, "ShareManager", 29),
-  ShareProposer: fixture("ShareProposer.h", SHARE_PROPOSER_SOURCE, "ShareProposer", 29),
-  ShareReceiver: fixture("ShareReceiver.h", SHARE_RECEIVER_SOURCE, "ShareReceiver", 28),
-  Token: fixture("Token.h", TOKEN_SOURCE, "Token", 28),
-  Trap: fixture("Trap.h", TRAP_SOURCE, "Trap", 28),
-  Vault: fixture("Vault.h", VAULT_SOURCE, "Vault", 28),
-  Vault29: fixture("Vault.h", VAULT_SOURCE, "Vault", 29),
-  Watcher: fixture("Watcher.h", WATCHER_SOURCE, "Watcher", 28),
+    ApiProbe: fixture("ApiProbe.h", API_PROBE_SOURCE, "ApiProbe", 29),
+    BigState: fixture("BigState.h", BIG_STATE_SOURCE, "BigState", 28),
+    Counter: fixture("Counter.h", COUNTER_SOURCE, "Counter", 28),
+    Counter1: fixture("Counter.h", COUNTER_SOURCE, "Counter", 1),
+    Counter5: fixture("Counter.h", COUNTER_SOURCE, "Counter", 5),
+    Counter29: fixture("Counter.h", COUNTER_SOURCE, "Counter", 29),
+    Counter30: fixture("Counter.h", COUNTER_SOURCE, "Counter", 30),
+    Counter31: fixture("Counter.h", COUNTER_SOURCE, "Counter", 31),
+    Counter40: fixture("Counter.h", COUNTER_SOURCE, "Counter", 40),
+    CounterV1: fixture("Counter.h", COUNTER_SOURCE, "Counter", 28),
+    CounterV2: fixture("CounterV2.h", COUNTER_V2_SOURCE, "Counter", 28),
+    DigestProbe: fixture("DigestProbe.h", DIGEST_PROBE_SOURCE, "DigestProbe", 29),
+    Dividend: fixture("Dividend.h", DIVIDEND_SOURCE, "Dividend", 28),
+    Hooks: fixture("Hooks.h", HOOKS_SOURCE, "Hooks", 28),
+    IncomingLogger: fixture("IncomingLogger.h", INCOMING_LOGGER_SOURCE, "IncomingLogger", 29),
+    OracleProbe: fixture("OracleProbe.h", ORACLE_PROBE_SOURCE, "OracleProbe", 29),
+    Proxy: fixture("Proxy.h", PROXY_SOURCE, "Proxy", 29, ["Counter"]),
+    QpiDualCallee: fixture("QpiDualCallee.h", QPI_DUAL_CALLEE_SOURCE, "QpiDualCallee", 28),
+    QpiDual: fixture("QpiDual.h", QPI_DUAL_SOURCE, "QpiDual", 29, ["QpiDualCallee"]),
+    Refund: fixture("Refund.h", REFUND_SOURCE, "Refund", 28),
+    ShareApprover: fixture("ShareApprover.h", SHARE_APPROVER_SOURCE, "ShareApprover", 28),
+    ShareManager: fixture("ShareManager.h", SHARE_MANAGER_SOURCE, "ShareManager", 29),
+    ShareProposer: fixture("ShareProposer.h", SHARE_PROPOSER_SOURCE, "ShareProposer", 29),
+    ShareReceiver: fixture("ShareReceiver.h", SHARE_RECEIVER_SOURCE, "ShareReceiver", 28),
+    Token: fixture("Token.h", TOKEN_SOURCE, "Token", 28),
+    Trap: fixture("Trap.h", TRAP_SOURCE, "Trap", 28),
+    Vault: fixture("Vault.h", VAULT_SOURCE, "Vault", 28),
+    Vault29: fixture("Vault.h", VAULT_SOURCE, "Vault", 29),
+    Watcher: fixture("Watcher.h", WATCHER_SOURCE, "Watcher", 28),
 } as const;
 
 export type WasmFixtureName = keyof typeof wasmFixtureManifest;
 
 export interface WasmFixtureDefinition extends FixtureDefinitionBase {
-  readonly dependencies?: readonly WasmFixtureName[];
+    readonly dependencies?: readonly WasmFixtureName[];
 }
 
 export const wasmFixtureNames = Object.freeze(
-  Object.keys(wasmFixtureManifest) as WasmFixtureName[],
+    Object.keys(wasmFixtureManifest) as WasmFixtureName[],
 );
 
 const compilationCache = new Map<WasmFixtureName, Promise<CompileResult>>();
 const FIXTURE_ARENA_SIZE = 1024 * 1024;
 
-function toCalleeIdl(
-  definition: WasmFixtureDefinition,
-  result: CompileResult,
-): ContractIdl {
-  if (!result.idl) {
-    throw new Error(`successful ${definition.contractName} compile returned no IDL`);
-  }
-  return {
-    ...result.idl,
-    name: definition.contractName,
-    slot: definition.slot,
-  };
+function toCalleeIdl(definition: WasmFixtureDefinition, result: CompileResult): ContractIdl {
+    if (!result.idl) {
+        throw new Error(`successful ${definition.contractName} compile returned no IDL`);
+    }
+    return {
+        ...result.idl,
+        name: definition.contractName,
+        slot: definition.slot,
+    };
 }
 
 function formatDiagnostics(result: CompileResult): string {
-  if (result.diagnostics.length === 0) {
-    return "  no compiler diagnostics";
-  }
+    if (result.diagnostics.length === 0) {
+        return "  no compiler diagnostics";
+    }
 
-  return result.diagnostics
-    .map(
-      (diagnostic) =>
-        `  ${diagnostic.severity} L${diagnostic.span.line}:${diagnostic.span.column} ${diagnostic.message}`,
-    )
-    .join("\n");
+    return result.diagnostics
+        .map(
+            (diagnostic) =>
+                `  ${diagnostic.severity} L${diagnostic.span.line}:${diagnostic.span.column} ${diagnostic.message}`,
+        )
+        .join("\n");
 }
 
 async function compileFixture(name: WasmFixtureName): Promise<CompileResult> {
-  const cached = compilationCache.get(name);
-  if (cached) {
-    return cached;
-  }
+    const cached = compilationCache.get(name);
+    if (cached) {
+        return cached;
+    }
 
-  const compilation = compileFixtureUncached(name);
-  compilationCache.set(name, compilation);
-  return compilation;
+    const compilation = compileFixtureUncached(name);
+    compilationCache.set(name, compilation);
+    return compilation;
 }
 
 async function compileFixtureUncached(name: WasmFixtureName): Promise<CompileResult> {
-  const definition = wasmFixtureManifest[name];
+    const definition = wasmFixtureManifest[name];
 
-  try {
-    const dependencyNames = definition.dependencies ?? [];
-    const dependencyResults = await Promise.all(
-      dependencyNames.map((dependencyName) => compileFixture(dependencyName)),
-    );
-    const callees = dependencyNames.map((dependencyName, index) =>
-      toCalleeIdl(wasmFixtureManifest[dependencyName], dependencyResults[index]),
-    );
-    const calleeSources = dependencyNames.map((dependencyName) => ({
-      name: wasmFixtureManifest[dependencyName].contractName,
-      source: wasmFixtureManifest[dependencyName].source,
-    }));
+    try {
+        const dependencyNames = definition.dependencies ?? [];
+        const dependencyResults = await Promise.all(
+            dependencyNames.map((dependencyName) => compileFixture(dependencyName)),
+        );
+        const callees = dependencyNames.map((dependencyName, index) =>
+            toCalleeIdl(wasmFixtureManifest[dependencyName], dependencyResults[index]),
+        );
+        const calleeSources = dependencyNames.map((dependencyName) => ({
+            name: wasmFixtureManifest[dependencyName].contractName,
+            source: wasmFixtureManifest[dependencyName].source,
+        }));
 
-    const result = await compileContract({
-      source: definition.source,
-      contractName: definition.contractName,
-      slot: definition.slot,
-      arenaSizeBytes: FIXTURE_ARENA_SIZE,
-      ...(callees.length > 0 ? { callees, calleeSources } : {}),
-    });
-    const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+        const result = await compileContract({
+            source: definition.source,
+            contractName: definition.contractName,
+            slot: definition.slot,
+            arenaSizeBytes: FIXTURE_ARENA_SIZE,
+            ...(callees.length > 0 ? { callees, calleeSources } : {}),
+        });
+        const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
 
-    if (errors.length > 0 || result.wasm.byteLength === 0) {
-      throw new Error(formatDiagnostics(result));
+        if (errors.length > 0 || result.wasm.byteLength === 0) {
+            throw new Error(formatDiagnostics(result));
+        }
+
+        return result;
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(
+            `Failed to compile Wasm fixture '${name}' (${definition.sourceFile}) at slot ${definition.slot}:\n${detail}`,
+            { cause: error },
+        );
     }
-
-    return result;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Failed to compile Wasm fixture '${name}' (${definition.sourceFile}) at slot ${definition.slot}:\n${detail}`,
-      { cause: error },
-    );
-  }
 }
 
 export async function loadWasmFixture(name: WasmFixtureName): Promise<Uint8Array> {
-  const result = await compileFixture(name);
-  return Uint8Array.from(result.wasm);
+    const result = await compileFixture(name);
+    return Uint8Array.from(result.wasm);
 }

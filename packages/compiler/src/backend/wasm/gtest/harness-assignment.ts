@@ -18,8 +18,7 @@ export function tryEmitTestHarnessAssignment(
         return false;
     }
 
-    const hostFunction =
-        expression.left.member === "epoch" ? "$qt_set_epoch" : "$qt_set_tick";
+    const hostFunction = expression.left.member === "epoch" ? "$qt_set_epoch" : "$qt_set_tick";
     const assignedValue = context.lowering.lowerValueExpression(context, expression.right);
     const hostCall = watIr.functionCall(
         hostFunction,

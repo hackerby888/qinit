@@ -13,101 +13,101 @@ const A = new Uint8Array(32).fill(0x33);
 const B = new Uint8Array(32).fill(0x44);
 
 beforeAll(async () => {
-  await initK12();
+    await initK12();
 });
 
 // Count the votes that (a) carry a valid signature from their computor and (b) commit `expected` at the named
 // prev*Digest field — the generalized form of verifyEntityProof's spectrum check, for any of the three roots.
 function signedVotesCommitting(
-  votes: Tick[],
-  committee: ReturnType<QubicSimulator["getCommittee"]>,
-  field: "prevSpectrumDigest" | "prevUniverseDigest" | "prevComputerDigest",
-  expected: Uint8Array,
+    votes: Tick[],
+    committee: ReturnType<QubicSimulator["getCommittee"]>,
+    field: "prevSpectrumDigest" | "prevUniverseDigest" | "prevComputerDigest",
+    expected: Uint8Array,
 ): number {
-  let n = 0;
-  for (const vote of votes) {
-    const c = committee.computors[vote.computorIndex];
-    if (!c) {
-      continue;
+    let n = 0;
+    for (const vote of votes) {
+        const c = committee.computors[vote.computorIndex];
+        if (!c) {
+            continue;
+        }
+        if (!verifySync(c.publicKey, tickVoteMessage(vote.bytes), tickVoteSignature(vote.bytes))) {
+            continue;
+        }
+        if ((vote[field] as M256i).equals(expected)) {
+            n++;
+        }
     }
-    if (!verifySync(c.publicKey, tickVoteMessage(vote.bytes), tickVoteSignature(vote.bytes))) {
-      continue;
-    }
-    if ((vote[field] as M256i).equals(expected)) {
-      n++;
-    }
-  }
-  return n;
+    return n;
 }
 
 // A tick that mutates all three sub-states: fund two entities (spectrum), issue an asset (universe), deploy a
 // contract (computer), then finalize so the votes commit the post-mutation roots.
 async function loadedTick(): Promise<QubicSimulator> {
-  const sim = new QubicSimulator({
-    consensus: { computorSeeds: SEEDS4 },
-  });
-  sim.fund(A, 5000n);
-  sim.fund(B, 100n); // a second entity so A's spectrum path carries real siblings
+    const sim = new QubicSimulator({
+        consensus: { computorSeeds: SEEDS4 },
+    });
+    sim.fund(A, 5000n);
+    sim.fund(B, 100n); // a second entity so A's spectrum path carries real siblings
 
-  sim.deploy(28, await wasm("Token"));
-  const issue = new Uint8Array(16);
-  new DataView(issue.buffer).setBigUint64(0, 0x4e454b4f54n, true); // "TOKEN" packed LE
-  new DataView(issue.buffer).setBigInt64(8, 1000n, true);
-  sim.procedure(28, 1, issue); // id(28) issues + owns 1000 shares
+    sim.deploy(28, await wasm("Token"));
+    const issue = new Uint8Array(16);
+    new DataView(issue.buffer).setBigUint64(0, 0x4e454b4f54n, true); // "TOKEN" packed LE
+    new DataView(issue.buffer).setBigInt64(8, 1000n, true);
+    sim.procedure(28, 1, issue); // id(28) issues + owns 1000 shares
 
-  sim.advance(); // finalize: the votes commit the spectrum + universe + computer roots
-  return sim;
+    sim.advance(); // finalize: the votes commit the spectrum + universe + computer roots
+    return sim;
 }
 
 test("the spectrum root: proof reconstruction == spectrumDigest == a quorum of signed votes", async () => {
-  const sim = await loadedTick();
-  const committee = sim.getCommittee();
-  const rec = sim.tickRecord(sim.currentTick)!;
+    const sim = await loadedTick();
+    const committee = sim.getCommittee();
+    const rec = sim.tickRecord(sim.currentTick)!;
 
-  const proof = sim.spectrumProof(A);
-  const root = rootFromSiblings(proof.record, proof.index, proof.siblings);
-  expect(toHex(root)).toBe(toHex(sim.spectrumDigest()));
-  expect(
-    signedVotesCommitting(rec.votes, committee, "prevSpectrumDigest", root),
-  ).toBeGreaterThanOrEqual(committee.quorum);
+    const proof = sim.spectrumProof(A);
+    const root = rootFromSiblings(proof.record, proof.index, proof.siblings);
+    expect(toHex(root)).toBe(toHex(sim.spectrumDigest()));
+    expect(
+        signedVotesCommitting(rec.votes, committee, "prevSpectrumDigest", root),
+    ).toBeGreaterThanOrEqual(committee.quorum);
 });
 
 test("the universe root: an asset holding proof == universeDigest == a quorum of signed votes", async () => {
-  const sim = await loadedTick();
-  const committee = sim.getCommittee();
-  const rec = sim.tickRecord(sim.currentTick)!;
+    const sim = await loadedTick();
+    const committee = sim.getCommittee();
+    const rec = sim.tickRecord(sim.currentTick)!;
 
-  const owned = sim.universeProofOwned(contractId(28));
-  expect(owned.length).toBe(1);
-  const proof = owned[0];
-  const root = rootFromSiblings(proof.record, proof.index, proof.siblings);
-  expect(toHex(root)).toBe(toHex(sim.universeDigest()));
-  expect(
-    signedVotesCommitting(rec.votes, committee, "prevUniverseDigest", root),
-  ).toBeGreaterThanOrEqual(committee.quorum);
+    const owned = sim.universeProofOwned(contractId(28));
+    expect(owned.length).toBe(1);
+    const proof = owned[0];
+    const root = rootFromSiblings(proof.record, proof.index, proof.siblings);
+    expect(toHex(root)).toBe(toHex(sim.universeDigest()));
+    expect(
+        signedVotesCommitting(rec.votes, committee, "prevUniverseDigest", root),
+    ).toBeGreaterThanOrEqual(committee.quorum);
 });
 
 test("the computer root: computerDigest is committed by a quorum of signed votes", async () => {
-  const sim = await loadedTick();
-  const committee = sim.getCommittee();
-  const rec = sim.tickRecord(sim.currentTick)!;
+    const sim = await loadedTick();
+    const committee = sim.getCommittee();
+    const rec = sim.tickRecord(sim.currentTick)!;
 
-  const root = sim.computerDigest();
-  expect(
-    signedVotesCommitting(rec.votes, committee, "prevComputerDigest", root),
-  ).toBeGreaterThanOrEqual(committee.quorum);
+    const root = sim.computerDigest();
+    expect(
+        signedVotesCommitting(rec.votes, committee, "prevComputerDigest", root),
+    ).toBeGreaterThanOrEqual(committee.quorum);
 });
 
 test("a tampered asset record fails the universe digest chain (no votes commit the forged root)", async () => {
-  const sim = await loadedTick();
-  const committee = sim.getCommittee();
-  const rec = sim.tickRecord(sim.currentTick)!;
+    const sim = await loadedTick();
+    const committee = sim.getCommittee();
+    const rec = sim.tickRecord(sim.currentTick)!;
 
-  const proof = sim.universeProofOwned(contractId(28))[0];
-  const forged = proof.record.slice();
-  forged[40] ^= 0xff; // corrupt a share-count byte
-  const root = rootFromSiblings(forged, proof.index, proof.siblings);
+    const proof = sim.universeProofOwned(contractId(28))[0];
+    const forged = proof.record.slice();
+    forged[40] ^= 0xff; // corrupt a share-count byte
+    const root = rootFromSiblings(forged, proof.index, proof.siblings);
 
-  expect(toHex(root)).not.toBe(toHex(sim.universeDigest()));
-  expect(signedVotesCommitting(rec.votes, committee, "prevUniverseDigest", root)).toBe(0);
+    expect(toHex(root)).not.toBe(toHex(sim.universeDigest()));
+    expect(signedVotesCommitting(rec.votes, committee, "prevUniverseDigest", root)).toBe(0);
 });

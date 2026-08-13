@@ -33,112 +33,122 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 describe("QPI LOG_* lowering", () => {
-  beforeAll(initK12);
+    beforeAll(initK12);
 
-  test("emits all native severity imports with bytes before _terminator", async () => {
-    const result = await compileContract({
-      source: SOURCE,
-      contractName: "Logging",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 64 * 1024,
+    test("emits all native severity imports with bytes before _terminator", async () => {
+        const result = await compileContract({
+            source: SOURCE,
+            contractName: "Logging",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 64 * 1024,
+        });
+        expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toEqual(
+            [],
+        );
+        const imports = WebAssembly.Module.imports(
+            new WebAssembly.Module(result.wasm as BufferSource),
+        );
+        expect(imports.some((i) => i.module === "lhost" && i.name === "logBytes")).toBe(true);
+        expect(imports.some((i) => i.module === "lhost" && i.name === "pauseLog")).toBe(true);
+        expect(imports.some((i) => i.module === "lhost" && i.name === "resumeLog")).toBe(true);
+
+        const sim = new QubicSimulator();
+        sim.setDebug(true);
+        sim.deploy(28, result.wasm);
+        sim.procedure(28, 1, Uint8Array.of(42, 0, 0, 0, 0, 0, 0, 0));
+        const logs = sim.getTrace().entries.at(-1)?.logs ?? [];
+        expect(logs.map((l) => l.type)).toEqual([
+            QUBIC_LOG_TYPE.CONTRACT_ERROR_MESSAGE,
+            QUBIC_LOG_TYPE.CONTRACT_WARNING_MESSAGE,
+            QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE,
+            QUBIC_LOG_TYPE.CONTRACT_DEBUG_MESSAGE,
+            QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE,
+        ]);
+        expect(logs.every((l) => l.size === 17)).toBe(true);
+        expect(logs.every((l) => l.hex.length === 34)).toBe(true);
     });
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toEqual([]);
-    const imports = WebAssembly.Module.imports(new WebAssembly.Module(result.wasm as BufferSource));
-    expect(imports.some((i) => i.module === "lhost" && i.name === "logBytes")).toBe(true);
-    expect(imports.some((i) => i.module === "lhost" && i.name === "pauseLog")).toBe(true);
-    expect(imports.some((i) => i.module === "lhost" && i.name === "resumeLog")).toBe(true);
 
-    const sim = new QubicSimulator();
-    sim.setDebug(true);
-    sim.deploy(28, result.wasm);
-    sim.procedure(28, 1, Uint8Array.of(42, 0, 0, 0, 0, 0, 0, 0));
-    const logs = sim.getTrace().entries.at(-1)?.logs ?? [];
-    expect(logs.map((l) => l.type)).toEqual([
-      QUBIC_LOG_TYPE.CONTRACT_ERROR_MESSAGE,
-      QUBIC_LOG_TYPE.CONTRACT_WARNING_MESSAGE,
-      QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE,
-      QUBIC_LOG_TYPE.CONTRACT_DEBUG_MESSAGE,
-      QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE,
-    ]);
-    expect(logs.every((l) => l.size === 17)).toBe(true);
-    expect(logs.every((l) => l.hex.length === 34)).toBe(true);
-  });
-
-  test("the same import persists native records on VirtualNode", async () => {
-    const result = await compileContract({
-      source: SOURCE,
-      contractName: "Logging",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 64 * 1024,
+    test("the same import persists native records on VirtualNode", async () => {
+        const result = await compileContract({
+            source: SOURCE,
+            contractName: "Logging",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 64 * 1024,
+        });
+        const node = new VirtualNode({ mempool: false, fees: "off" });
+        node.deploy(28, result.wasm, "Logging");
+        const source = new Uint8Array(32).fill(1);
+        node.fund(source, 1n);
+        node.sim.applyTx(
+            source,
+            node.sim.contractId(28),
+            0n,
+            1,
+            Uint8Array.of(42, 0, 0, 0, 0, 0, 0, 0),
+            "tx",
+        );
+        node.advanceTick(1);
+        const range = node.logger.range(node.sim.currentTick, 0);
+        expect(range).toEqual({ fromLogId: 0n, length: 5n });
+        const records = node.logger.recordsBetween(
+            range.fromLogId + 1n,
+            range.fromLogId + range.length - 1n,
+        )!;
+        expect(new DataView(records.buffer).getUint32(26, true)).toBe(28);
     });
-    const node = new VirtualNode({ mempool: false, fees: "off" });
-    node.deploy(28, result.wasm, "Logging");
-    const source = new Uint8Array(32).fill(1);
-    node.fund(source, 1n);
-    node.sim.applyTx(
-      source,
-      node.sim.contractId(28),
-      0n,
-      1,
-      Uint8Array.of(42, 0, 0, 0, 0, 0, 0, 0),
-      "tx",
-    );
-    node.advanceTick(1);
-    const range = node.logger.range(node.sim.currentTick, 0);
-    expect(range).toEqual({ fromLogId: 0n, length: 5n });
-    const records = node.logger.recordsBetween(
-      range.fromLogId + 1n,
-      range.fromLogId + range.length - 1n,
-    )!;
-    expect(new DataView(records.buffer).getUint32(26, true)).toBe(28);
-  });
 
-  test("rejects malformed payload structs", async () => {
-    const source = SOURCE.replace(
-      "uint32 _contractIndex; uint32 _type; uint64 value; uint8 pad; sint8 _terminator;",
-      "uint32 value; sint8 _terminator;",
-    );
-    const result = await compileContract({
-      source,
-      contractName: "BadLogging",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 64 * 1024,
-    });
-    expect(
-      result.diagnostics.some(
-        (d) => d.severity === DiagnosticSeverity.ERROR && d.message.includes("at least 8 bytes"),
-      ),
-    ).toBe(true);
+    test("rejects malformed payload structs", async () => {
+        const source = SOURCE.replace(
+            "uint32 _contractIndex; uint32 _type; uint64 value; uint8 pad; sint8 _terminator;",
+            "uint32 value; sint8 _terminator;",
+        );
+        const result = await compileContract({
+            source,
+            contractName: "BadLogging",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 64 * 1024,
+        });
+        expect(
+            result.diagnostics.some(
+                (d) =>
+                    d.severity === DiagnosticSeverity.ERROR &&
+                    d.message.includes("at least 8 bytes"),
+            ),
+        ).toBe(true);
 
-    const missing = SOURCE.replace("sint8 _terminator;", "sint8 end;");
-    const missingResult = await compileContract({
-      source: missing,
-      contractName: "MissingTerminator",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 64 * 1024,
-    });
-    expect(
-      missingResult.diagnostics.some(
-        (d) => d.severity === DiagnosticSeverity.ERROR && d.message.includes("must contain _terminator"),
-      ),
-    ).toBe(true);
+        const missing = SOURCE.replace("sint8 _terminator;", "sint8 end;");
+        const missingResult = await compileContract({
+            source: missing,
+            contractName: "MissingTerminator",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 64 * 1024,
+        });
+        expect(
+            missingResult.diagnostics.some(
+                (d) =>
+                    d.severity === DiagnosticSeverity.ERROR &&
+                    d.message.includes("must contain _terminator"),
+            ),
+        ).toBe(true);
 
-    const scalar = SOURCE.replace("LOG_ERROR(locals.message);", "LOG_ERROR(input.value);");
-    const scalarResult = await compileContract({
-      source: scalar,
-      contractName: "ScalarLog",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 64 * 1024,
+        const scalar = SOURCE.replace("LOG_ERROR(locals.message);", "LOG_ERROR(input.value);");
+        const scalarResult = await compileContract({
+            source: scalar,
+            contractName: "ScalarLog",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 64 * 1024,
+        });
+        expect(
+            scalarResult.diagnostics.some(
+                (d) =>
+                    d.severity === DiagnosticSeverity.ERROR &&
+                    d.message.includes("must be a struct"),
+            ),
+        ).toBe(true);
     });
-    expect(
-      scalarResult.diagnostics.some(
-        (d) => d.severity === DiagnosticSeverity.ERROR && d.message.includes("must be a struct"),
-      ),
-    ).toBe(true);
-  });
 });

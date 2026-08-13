@@ -16,8 +16,8 @@ const BANK = readFileSync(QINIT_ROOT + "/fixtures/Bank.h", "utf8");
 
 // Two distinct funded ids; Set is a procedure (it=1), BalanceOf func it=1, Stats func it=2.
 const BANK_GTEST = coreGtest(
-  "Bank",
-  `TEST(Bank, SetThenBalanceOf) {
+    "Bank",
+    `TEST(Bank, SetThenBalanceOf) {
   ContractTestingHarness t;
   QPI::id u = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u, 1000000000);
@@ -72,37 +72,41 @@ TEST(Bank, TwoKeysPopulationTwo) {
 const wasi = wasiToolchain();
 
 describe("differential gtest — Bank (HashMap + Array)", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
-
-  test("my Bank.wasm passes the native Bank gtest", async () => {
-    if (!wasi.available) {
-      console.log("  (wasi-sdk clang not found — skipping)");
-      return;
-    }
-    const runnerWasm = await buildDifferentialRunner({
-      corePath: CORE,
-      source: BANK,
-      testSource: BANK_GTEST,
-      name: "Bank",
-      tempPrefix: "bank-diff-",
+    beforeAll(async () => {
+        await initK12();
     });
 
-    const mine = await compileContract({
-      source: BANK,
-      contractName: "Bank",
-      slot: 28,
-      qpiHeader: HEADERS,
-      arenaSizeBytes: 1024 * 1024,
-    });
-    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+    test("my Bank.wasm passes the native Bank gtest", async () => {
+        if (!wasi.available) {
+            console.log("  (wasi-sdk clang not found — skipping)");
+            return;
+        }
+        const runnerWasm = await buildDifferentialRunner({
+            corePath: CORE,
+            source: BANK,
+            testSource: BANK_GTEST,
+            name: "Bank",
+            tempPrefix: "bank-diff-",
+        });
 
-    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-    for (const r of results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
-    }
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.every((r) => r.passed)).toBe(true);
-  }, 120000);
+        const mine = await compileContract({
+            source: BANK,
+            contractName: "Bank",
+            slot: 28,
+            qpiHeader: HEADERS,
+            arenaSizeBytes: 1024 * 1024,
+        });
+        expect(
+            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+        ).toHaveLength(0);
+
+        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+        for (const r of results) {
+            console.log(
+                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+            );
+        }
+        expect(results.length).toBeGreaterThan(0);
+        expect(results.every((r) => r.passed)).toBe(true);
+    }, 120000);
 });

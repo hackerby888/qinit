@@ -7,11 +7,11 @@ import { loadQpiHeader } from "../../src/driver/header";
 import { QpiContext } from "@qinit/engine/contract/abi";
 
 test("live qpi.h context layout matches the engine ABI", () => {
-  const layout = deriveQpiContextLayout(getQpiContext(loadQpiHeader(CORE_PATH)).lib);
-  const O = (QpiContext as unknown as { OFFSETS: Record<string, number> }).OFFSETS;
-  expect(layout.size).toBe((QpiContext as unknown as { SIZE: number }).SIZE);
-  expect(layout.contractIndex).toBe(O.currentContractIndex);
-  expect(layout.originator).toBe(O.originator);
-  expect(layout.invocator).toBe(O.invocator);
-  expect(layout.invocationReward).toBe(O.invocationReward);
+    const layout = deriveQpiContextLayout(getQpiContext(loadQpiHeader(CORE_PATH)).lib);
+    const O = (QpiContext as unknown as { OFFSETS: Record<string, number> }).OFFSETS;
+    expect(layout.size).toBe((QpiContext as unknown as { SIZE: number }).SIZE);
+    expect(layout.contractIndex).toBe(O.currentContractIndex);
+    expect(layout.originator).toBe(O.originator);
+    expect(layout.invocator).toBe(O.invocator);
+    expect(layout.invocationReward).toBe(O.invocationReward);
 });

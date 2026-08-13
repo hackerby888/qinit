@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+*.vsix
+.vscode-test/
+.generated/
+packages/vscode/resources/
+packages/vscode/test-fixtures/ws/.vscode/
+packages/core/src/wasm/generated/
+packages/compiler/src/generated/

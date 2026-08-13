@@ -72,65 +72,67 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 const wasi = wasiToolchain();
 
 describe("differential — HashMap set-reuse + cleanup state parity", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
+    beforeAll(async () => {
+        await initK12();
+    });
 
-  toolchainTest(
-    "state bytes after remove/reuse/cleanup match native exactly",
-    wasi,
-    async () => {
-      const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-      const { tmpdir } = await import("node:os");
-      const { join } = await import("node:path");
-      const dir = mkdtempSync(join(tmpdir(), "hm-cleanup-"));
-      const contractPath = join(dir, "HmP.h");
-      writeFileSync(contractPath, SRC);
+    toolchainTest(
+        "state bytes after remove/reuse/cleanup match native exactly",
+        wasi,
+        async () => {
+            const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
+            const { tmpdir } = await import("node:os");
+            const { join } = await import("node:path");
+            const dir = mkdtempSync(join(tmpdir(), "hm-cleanup-"));
+            const contractPath = join(dir, "HmP.h");
+            writeFileSync(contractPath, SRC);
 
-      const built = await buildContractWithWasiClang({
-        contractPath,
-        name: "HmP",
-        slot: 28,
-        corePath: CORE,
-        outDir: dir,
-        skipVerify: true,
-      });
-      expect(built.ok).toBe(true);
-      const nativeWasm = new Uint8Array(readFileSync(built.wasmPath!));
+            const built = await buildContractWithWasiClang({
+                contractPath,
+                name: "HmP",
+                slot: 28,
+                corePath: CORE,
+                outDir: dir,
+                skipVerify: true,
+            });
+            expect(built.ok).toBe(true);
+            const nativeWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
-      const mine = await compileContract({
-        source: SRC,
-        contractName: "HmP",
-        slot: 28,
-        qpiHeader: HEADERS,
-        arenaSizeBytes: 4 * 1024 * 1024,
-      });
-      expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+            const mine = await compileContract({
+                source: SRC,
+                contractName: "HmP",
+                slot: 28,
+                qpiHeader: HEADERS,
+                arenaSizeBytes: 4 * 1024 * 1024,
+            });
+            expect(
+                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+            ).toHaveLength(0);
 
-      const run = (wasm: Uint8Array) => {
-        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-        sim.deploy(28, wasm);
-        const user = new Uint8Array(32).fill(7);
-        sim.fund(user, 1_000_000n);
-        sim.procedure(28, 1, undefined, { invocator: user });
-        return sim.contracts.get(28)!.state().slice();
-      };
+            const run = (wasm: Uint8Array) => {
+                const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+                sim.deploy(28, wasm);
+                const user = new Uint8Array(32).fill(7);
+                sim.fund(user, 1_000_000n);
+                sim.procedure(28, 1, undefined, { invocator: user });
+                return sim.contracts.get(28)!.state().slice();
+            };
 
-      const nat = run(nativeWasm);
-      const ours = run(mine.wasm);
+            const nat = run(nativeWasm);
+            const ours = run(mine.wasm);
 
-      const firstDiff = nat.findIndex((b, i) => ours[i] !== b);
-      if (firstDiff >= 0) {
-        let diffs = 0;
-        for (let i = 0; i < nat.length; i++) {
-          if (nat[i] !== ours[i]) diffs++;
-        }
-        console.log(
-          `  STATE DIVERGENCE at byte ${firstDiff}: native=${nat[firstDiff]} ours=${ours[firstDiff]} (${diffs} of ${nat.length} differ)`,
-        );
-      }
-      expect(firstDiff).toBe(-1);
-    },
-    180000,
-  );
+            const firstDiff = nat.findIndex((b, i) => ours[i] !== b);
+            if (firstDiff >= 0) {
+                let diffs = 0;
+                for (let i = 0; i < nat.length; i++) {
+                    if (nat[i] !== ours[i]) diffs++;
+                }
+                console.log(
+                    `  STATE DIVERGENCE at byte ${firstDiff}: native=${nat[firstDiff]} ours=${ours[firstDiff]} (${diffs} of ${nat.length} differ)`,
+                );
+            }
+            expect(firstDiff).toBe(-1);
+        },
+        180000,
+    );
 });

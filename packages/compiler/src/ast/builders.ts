@@ -15,19 +15,39 @@ export function templateInstance(name: string, callArguments: TypeSpec[]): TypeS
 }
 
 export function id(name: string, span?: Span): Expression {
-    return { kind: AstKind.IDENTIFIER, name, span: span ?? { start: 0, end: 0, line: 0, column: 0 } };
+    return {
+        kind: AstKind.IDENTIFIER,
+        name,
+        span: span ?? { start: 0, end: 0, line: 0, column: 0 },
+    };
 }
 
 export function member(obj: Expression, memberName: string, arrow?: boolean): Expression {
-    return { kind: AstKind.MEMBER_ACCESS, object: obj, member: memberName, arrow: !!arrow, span: obj.span };
+    return {
+        kind: AstKind.MEMBER_ACCESS,
+        object: obj,
+        member: memberName,
+        arrow: !!arrow,
+        span: obj.span,
+    };
 }
 
 export function call(callee: Expression, callArguments: Expression[]): Expression {
-    return { kind: AstKind.CALL, callee, callArguments, span: callee.span ?? { start: 0, end: 0, line: 0, column: 0 } };
+    return {
+        kind: AstKind.CALL,
+        callee,
+        callArguments,
+        span: callee.span ?? { start: 0, end: 0, line: 0, column: 0 },
+    };
 }
 
 export function intLit(value: string, suffix?: string): Expression {
-    return { kind: AstKind.INT_LITERAL, value, suffix, span: { start: 0, end: 0, line: 0, column: 0 } };
+    return {
+        kind: AstKind.INT_LITERAL,
+        value,
+        suffix,
+        span: { start: 0, end: 0, line: 0, column: 0 },
+    };
 }
 
 export function binary(left: Expression, operator: BinaryOp, right: Expression): Expression {
@@ -43,5 +63,9 @@ export function exprStmt(expression: Expression): Statement {
 }
 
 export function declStmt(declaration: Declaration): Statement {
-    return { kind: AstKind.DECLARATION, declaration, span: declaration.span ?? { start: 0, end: 0, line: 0, column: 0 } };
+    return {
+        kind: AstKind.DECLARATION,
+        declaration,
+        span: declaration.span ?? { start: 0, end: 0, line: 0, column: 0 },
+    };
 }

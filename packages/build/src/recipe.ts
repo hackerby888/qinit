@@ -13,69 +13,68 @@ import WASM_CONTRACT_TESTING_H_TEMPLATE from "./assets/wasm_contract_testing.h" 
 import TEST_UTIL_H from "./assets/test_util.h" with { type: "text" };
 
 const WASM_CONTRACT_TESTING_H = WASM_CONTRACT_TESTING_H_TEMPLATE.replace(
-  "__QINIT_CORE_WASM_ABI_METADATA__",
-  CORE_WASM_HEADERS.shared.abiMetadata,
+    "__QINIT_CORE_WASM_ABI_METADATA__",
+    CORE_WASM_HEADERS.shared.abiMetadata,
 );
 
 export interface WasmContractDescription {
-  index: number;
-  assetName: string;
-  constructionEpoch: number;
+    index: number;
+    assetName: string;
+    constructionEpoch: number;
 }
 
 export function generateWasmContractTestingHeader(
-  descriptions: readonly WasmContractDescription[] = [],
+    descriptions: readonly WasmContractDescription[] = [],
 ): string {
-  const byIndex = new Map(
-    descriptions.map((description) => [description.index, description]),
-  );
-  const highestIndex = Math.max(0, ...byIndex.keys());
-  const rows = Array.from({ length: highestIndex + 1 }, (_, index) => {
-    const description = byIndex.get(index);
-    if (!description) {
-      return "    {},";
-    }
-    const assetName = JSON.stringify(description.assetName.slice(0, 7));
-    return `    {${assetName}, ${description.constructionEpoch}, 10000, 0},`;
-  }).join("\n");
+    const byIndex = new Map(descriptions.map((description) => [description.index, description]));
+    const highestIndex = Math.max(0, ...byIndex.keys());
+    const rows = Array.from({ length: highestIndex + 1 }, (_, index) => {
+        const description = byIndex.get(index);
+        if (!description) {
+            return "    {},";
+        }
+        const assetName = JSON.stringify(description.assetName.slice(0, 7));
+        return `    {${assetName}, ${description.constructionEpoch}, 10000, 0},`;
+    }).join("\n");
 
-  return WASM_CONTRACT_TESTING_H
-    .replace("__QINIT_CONTRACT_DESCRIPTIONS__", rows)
-    .replace("__QINIT_CONTRACT_COUNT__", String(highestIndex + 1));
+    return WASM_CONTRACT_TESTING_H.replace("__QINIT_CONTRACT_DESCRIPTIONS__", rows).replace(
+        "__QINIT_CONTRACT_COUNT__",
+        String(highestIndex + 1),
+    );
 }
 
 export const WASM_CONTRACT_TESTING_HEADER = generateWasmContractTestingHeader();
 export const WASM_TEST_UTIL_HEADER = TEST_UTIL_H;
 
 export const WASM_CONTRACT_CLANG_FLAGS = [
-  "--target=wasm32-wasi",
-  "-std=c++20",
-  "-fno-rtti",
-  "-fno-exceptions",
-  "-DLITEDYN_CONTRACT_TU",
+    "--target=wasm32-wasi",
+    "-std=c++20",
+    "-fno-rtti",
+    "-fno-exceptions",
+    "-DLITEDYN_CONTRACT_TU",
 ] as const;
 
 export interface ContractBuildOptions {
-  contractPath: string; // absolute path to the contract .h
-  name: string;         // contract name (artifact filenames + IDL); also the C++ struct type unless stateType is set
-  stateType?: string;   // the C++ contract struct type for the wrapper #defines — differs from `name` when the
-                        // on-chain ticker isn't the struct name (e.g. system contract QTRY -> struct QUOTTERY)
-  slot: number;         // CONTRACT_INDEX
-  corePath: string;     // qubic-core-lite root
-  outDir: string;
-  calleePrelude?: string; // inter-contract: callee type headers + inputType consts (from intercontract.ts)
-  dynCallees?: Record<string, { header: string; index: number }>; // dynamic (Qinit-deployed) callees
-  wasmClang?: string;   // clang targeting wasm32-wasi; default env WASM_CLANG / the auto-fetched wasi-sdk
-  wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
-  skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some Wasm macros)
-  arenaSizeBytes?: number;     // contract-side arena size (WASM_ARENA_SIZE), default 1GB; shrink for browser IDE builds
-  testSource?: string;  // core-lite contract_testing.h-style source compiled into a private Wasm runner
-  testPath?: string;    // display path for the test source (a #line directive maps EXPECT_* file:line back to it)
-  extraCompileFlags?: string[]; // appended to the consuming compile only (not the PCH); used by the gtest
-                        // corpus path to relax test-harness-only diagnostics (e.g. -Wno-error=return-mismatch)
-  sharedMemoryBaseOffsetBytes?: number; // shared-memory gtest mode: link with --import-memory + --global-base=<this>, so the
-                        // module lives inside the corpus runner's memory at the given byte offset. The engine
-                        // instantiates it with the runner's Memory and the runner's contractStates[i] pointer
+    contractPath: string; // absolute path to the contract .h
+    name: string; // contract name (artifact filenames + IDL); also the C++ struct type unless stateType is set
+    stateType?: string; // the C++ contract struct type for the wrapper #defines — differs from `name` when the
+    // on-chain ticker isn't the struct name (e.g. system contract QTRY -> struct QUOTTERY)
+    slot: number; // CONTRACT_INDEX
+    corePath: string; // qubic-core-lite root
+    outDir: string;
+    calleePrelude?: string; // inter-contract: callee type headers + inputType consts (from intercontract.ts)
+    dynCallees?: Record<string, { header: string; index: number }>; // dynamic (Qinit-deployed) callees
+    wasmClang?: string; // clang targeting wasm32-wasi; default env WASM_CLANG / the auto-fetched wasi-sdk
+    wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
+    skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some Wasm macros)
+    arenaSizeBytes?: number; // contract-side arena size (WASM_ARENA_SIZE), default 1GB; shrink for browser IDE builds
+    testSource?: string; // core-lite contract_testing.h-style source compiled into a private Wasm runner
+    testPath?: string; // display path for the test source (a #line directive maps EXPECT_* file:line back to it)
+    extraCompileFlags?: string[]; // appended to the consuming compile only (not the PCH); used by the gtest
+    // corpus path to relax test-harness-only diagnostics (e.g. -Wno-error=return-mismatch)
+    sharedMemoryBaseOffsetBytes?: number; // shared-memory gtest mode: link with --import-memory + --global-base=<this>, so the
+    // module lives inside the corpus runner's memory at the given byte offset. The engine
+    // instantiates it with the runner's Memory and the runner's contractStates[i] pointer
 }
 
 // The stable preamble shared by every contract build — std headers, then the big QPI/core headers. It has no
@@ -103,15 +102,13 @@ const PREAMBLE_CORE = `#include "contract_core/pre_qpi_def.h"
 // Exactly what the Wasm wrapper emits before any per-contract content, so a PCH built from this is a valid
 // prefix of the wrapper TU.
 export function buildPreamble(): string {
-  return `${PREAMBLE_STD}#define LITE_WASM_TU_BUILD\n${PREAMBLE_CORE}`;
+    return `${PREAMBLE_STD}#define LITE_WASM_TU_BUILD\n${PREAMBLE_CORE}`;
 }
 
 // --- wasm contract target (contract compiled TO wasm, run by the node's WAMR engine) ---
-export function generateWasmWrapperSource(
-  o: ContractBuildOptions,
-): string {
-  const contractType = o.stateType ?? o.name;
-  const wrapper = `${buildPreamble()}${o.calleePrelude ?? ""}
+export function generateWasmWrapperSource(o: ContractBuildOptions): string {
+    const contractType = o.stateType ?? o.name;
+    const wrapper = `${buildPreamble()}${o.calleePrelude ?? ""}
 #define CONTRACT_INDEX ${o.slot}
 #define ${contractType}_CONTRACT_INDEX ${o.slot}
 #define CONTRACT_STATE_TYPE ${contractType}
@@ -136,12 +133,12 @@ export function generateWasmWrapperSource(
 #undef printf
 #include "${CORE_WASM_HEADERS.sdk.moduleRuntime}"
 `;
-  if (!o.testSource) {
-    return wrapper;
-  }
-  // Inject Qinit's private TEST/EXPECT registry before the core-lite-style test source.
-  const testPath = (o.testPath ?? `${o.name}.test.cpp`).replace(/\\/g, "/").replace(/"/g, "");
-  return `${wrapper}#define QINIT_WASM_GTEST
+    if (!o.testSource) {
+        return wrapper;
+    }
+    // Inject Qinit's private TEST/EXPECT registry before the core-lite-style test source.
+    const testPath = (o.testPath ?? `${o.name}.test.cpp`).replace(/\\/g, "/").replace(/"/g, "");
+    return `${wrapper}#define QINIT_WASM_GTEST
 ${WASM_GTEST_H}
 #line 1 "${testPath}"
 ${o.testSource}
@@ -149,13 +146,13 @@ ${o.testSource}
 }
 
 export interface WasmCompileResult {
-  ok: boolean;
-  wasm: string;
-  wrapper: string;
-  stderr: string;
-  exitCode: number | null;
-  debugWasmPath?: string; // -g DWARF sidecar; the deployed wasm is stripped
-  lineMapPath?: string;   // build-time {fileOffset -> file:line:func} map for trap backtraces (100% at -O0)
+    ok: boolean;
+    wasm: string;
+    wrapper: string;
+    stderr: string;
+    exitCode: number | null;
+    debugWasmPath?: string; // -g DWARF sidecar; the deployed wasm is stripped
+    lineMapPath?: string; // build-time {fileOffset -> file:line:func} map for trap backtraces (100% at -O0)
 }
 
 // --- precompiled header (PCH) of the stable preamble ----------------------------------------------------
@@ -163,156 +160,170 @@ let pchState: string | null | undefined;
 let pchInflight: Promise<string | null> | null = null;
 
 function disablePch(): void {
-  pchState = null;
+    pchState = null;
 }
 
 // Build or reuse a PCH keyed by clang, flags, and preamble. Returns null on failure.
 async function ensureWasmPch(clang: string, pchFlags: string[]): Promise<string | null> {
-  if (process.env.QINIT_NO_PCH) {
-    return null; // operational escape hatch — compile without a precompiled header
-  }
-  if (pchState !== undefined) {
-    return pchState;
-  }
-  if (pchInflight) {
-    return pchInflight;
-  }
-
-  pchInflight = (async () => {
-    try {
-      const preamble = buildPreamble();
-      const cacheKey = createHash("sha256")
-        .update(clang)
-        .update("\0")
-        .update(pchFlags.join(" "))
-        .update("\0")
-        .update(preamble)
-        .digest("hex")
-        .slice(0, 24);
-      const dir = join(tmpdir(), "qinit-pch");
-      mkdirSync(dir, { recursive: true });
-      const pch = join(dir, `wasm-${cacheKey}.pch`);
-      if (existsSync(pch)) {
-        pchState = pch;
-        return pch;
-      }
-
-      const hpp = join(dir, `wasm-${cacheKey}.hpp`);
-      writeFileSync(hpp, preamble);
-      const buildProcess = Bun.spawn([clang, ...pchFlags, "-x", "c++-header", hpp, "-o", pch], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      await new Response(buildProcess.stderr).text();
-      await buildProcess.exited;
-      pchState = buildProcess.exitCode === 0 && existsSync(pch) ? pch : null;
-      return pchState;
-    } catch {
-      pchState = null;
-      return null;
-    } finally {
-      pchInflight = null;
+    if (process.env.QINIT_NO_PCH) {
+        return null; // operational escape hatch — compile without a precompiled header
     }
-  })();
+    if (pchState !== undefined) {
+        return pchState;
+    }
+    if (pchInflight) {
+        return pchInflight;
+    }
 
-  return pchInflight;
+    pchInflight = (async () => {
+        try {
+            const preamble = buildPreamble();
+            const cacheKey = createHash("sha256")
+                .update(clang)
+                .update("\0")
+                .update(pchFlags.join(" "))
+                .update("\0")
+                .update(preamble)
+                .digest("hex")
+                .slice(0, 24);
+            const dir = join(tmpdir(), "qinit-pch");
+            mkdirSync(dir, { recursive: true });
+            const pch = join(dir, `wasm-${cacheKey}.pch`);
+            if (existsSync(pch)) {
+                pchState = pch;
+                return pch;
+            }
+
+            const hpp = join(dir, `wasm-${cacheKey}.hpp`);
+            writeFileSync(hpp, preamble);
+            const buildProcess = Bun.spawn(
+                [clang, ...pchFlags, "-x", "c++-header", hpp, "-o", pch],
+                {
+                    stdout: "pipe",
+                    stderr: "pipe",
+                },
+            );
+            await new Response(buildProcess.stderr).text();
+            await buildProcess.exited;
+            pchState = buildProcess.exitCode === 0 && existsSync(pch) ? pch : null;
+            return pchState;
+        } catch {
+            pchState = null;
+            return null;
+        } finally {
+            pchInflight = null;
+        }
+    })();
+
+    return pchInflight;
 }
 
 // clang must target wasm32-wasi (the bundled clang.wasm multitool has the WebAssembly backend; a native
 // wasi-sdk clang++ also works). wasmSysroot = the wasi-sysroot with libc++ headers.
 export async function compileWasmContract(
-  o: ContractBuildOptions & { wasmClang?: string; wasmSysroot?: string },
+    o: ContractBuildOptions & { wasmClang?: string; wasmSysroot?: string },
 ): Promise<WasmCompileResult> {
-  const src = join(o.corePath, "src");
-  await mkdir(o.outDir, { recursive: true });
-  const wrapper = join(o.outDir, `${o.name}.wasm.wrapper.cpp`);
-  await writeFile(wrapper, generateWasmWrapperSource(o));
-  const wasm = join(o.outDir, `${o.name}.wasm`);
-  const sdk = wasiSdkPaths();
-  const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang ?? "clang++";
-  const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT ?? sdk?.sysroot;
-  const shim = join(src, CORE_WASM_HEADERS.sdk.platformIntrinsics);
-  // Build a reactor library and leave lhost imports unresolved for the runtime.
-  const compileFlags = [
-    ...WASM_CONTRACT_CLANG_FLAGS,
-    "-O0",
-    "-g",
-    "-DNDEBUG",
-    ...(o.arenaSizeBytes ? [`-DWASM_ARENA_SIZE=${o.arenaSizeBytes}`] : []),
-    ...(sysroot ? [`--sysroot=${sysroot}`] : []),
-    `-I${o.corePath}`,
-    `-I${src}`,
-  ];
-  const shimFlag = ["-include", shim];
-  const linkFlags = ["-Wl,--no-entry", "-Wl,--allow-undefined", "-mexec-model=reactor"];
-  if (o.sharedMemoryBaseOffsetBytes !== undefined) {
-    // Relocate the module above the shared-memory base and import memory from the runner.
-    linkFlags.push(
-      "-Wl,--import-memory",
-      `-Wl,--global-base=${o.sharedMemoryBaseOffsetBytes >>> 0}`,
-      "-Wl,-z,stack-size=8388608",
-    );
-  }
-
-  // Reuse the precompiled preamble when available. The PCH already carries -include shim (whose static-inline
-  // defs aren't include-guarded), so the PCH-consuming compile must NOT repeat it; the no-PCH path keeps it.
-  const pch = await ensureWasmPch(clang, [...compileFlags, ...shimFlag]);
-
-  const runClang = async (prefixArgs: string[], withShim: boolean) => {
-    const args = [
-      ...prefixArgs,
-      ...compileFlags,
-      ...(withShim ? shimFlag : []),
-      ...(o.extraCompileFlags ?? []),
-      ...linkFlags,
-      wrapper,
-      "-o",
-      wasm,
+    const src = join(o.corePath, "src");
+    await mkdir(o.outDir, { recursive: true });
+    const wrapper = join(o.outDir, `${o.name}.wasm.wrapper.cpp`);
+    await writeFile(wrapper, generateWasmWrapperSource(o));
+    const wasm = join(o.outDir, `${o.name}.wasm`);
+    const sdk = wasiSdkPaths();
+    const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang ?? "clang++";
+    const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT ?? sdk?.sysroot;
+    const shim = join(src, CORE_WASM_HEADERS.sdk.platformIntrinsics);
+    // Build a reactor library and leave lhost imports unresolved for the runtime.
+    const compileFlags = [
+        ...WASM_CONTRACT_CLANG_FLAGS,
+        "-O0",
+        "-g",
+        "-DNDEBUG",
+        ...(o.arenaSizeBytes ? [`-DWASM_ARENA_SIZE=${o.arenaSizeBytes}`] : []),
+        ...(sysroot ? [`--sysroot=${sysroot}`] : []),
+        `-I${o.corePath}`,
+        `-I${src}`,
     ];
-    const clangProcess = Bun.spawn([clang, ...args], { stdout: "pipe", stderr: "pipe" });
-    const stderr = await new Response(clangProcess.stderr).text();
-    await clangProcess.exited;
-    return { exitCode: clangProcess.exitCode, stderr };
-  };
+    const shimFlag = ["-include", shim];
+    const linkFlags = ["-Wl,--no-entry", "-Wl,--allow-undefined", "-mexec-model=reactor"];
+    if (o.sharedMemoryBaseOffsetBytes !== undefined) {
+        // Relocate the module above the shared-memory base and import memory from the runner.
+        linkFlags.push(
+            "-Wl,--import-memory",
+            `-Wl,--global-base=${o.sharedMemoryBaseOffsetBytes >>> 0}`,
+            "-Wl,-z,stack-size=8388608",
+        );
+    }
 
-  let { exitCode, stderr } = pch ? await runClang(["-include-pch", pch], false) : await runClang([], true);
+    // Reuse the precompiled preamble when available. The PCH already carries -include shim (whose static-inline
+    // defs aren't include-guarded), so the PCH-consuming compile must NOT repeat it; the no-PCH path keeps it.
+    const pch = await ensureWasmPch(clang, [...compileFlags, ...shimFlag]);
 
-  // A stale/incompatible PCH surfaces as an AST/PCH error (not a contract error) — disable it and retry once
-  // without, so a bad PCH never fails a valid contract.
-  if (exitCode !== 0 && pch && /\b(PCH|AST file|precompiled header|module file)\b/i.test(stderr)) {
-    disablePch();
-    ({ exitCode, stderr } = await runClang([], true));
-  }
+    const runClang = async (prefixArgs: string[], withShim: boolean) => {
+        const args = [
+            ...prefixArgs,
+            ...compileFlags,
+            ...(withShim ? shimFlag : []),
+            ...(o.extraCompileFlags ?? []),
+            ...linkFlags,
+            wrapper,
+            "-o",
+            wasm,
+        ];
+        const clangProcess = Bun.spawn([clang, ...args], { stdout: "pipe", stderr: "pipe" });
+        const stderr = await new Response(clangProcess.stderr).text();
+        await clangProcess.exited;
+        return { exitCode: clangProcess.exitCode, stderr };
+    };
 
-  // -g leaves DWARF in `wasm`: copy it as the debug sidecar (qinit symbolizes trap offsets against it), then
-  // strip DWARF from the deployed wasm in place -> code byte-identical, so offsets still match the sidecar.
-  let debugWasmPath: string | undefined;
-  let lineMapPath: string | undefined;
-  if (exitCode === 0) {
-    try {
-      // Handle both path separators when resolving LLVM tools beside clang.
-      const cut = Math.max(clang.lastIndexOf("/"), clang.lastIndexOf("\\"));
-      const dir = cut >= 0 ? clang.slice(0, cut + 1) : "";
-      const exe = process.platform === "win32" ? ".exe" : "";
-      const tool = (name: string) => dir + name + exe;
-      const dbg = join(o.outDir, `${o.name}.debug.wasm`);
-      await copyFile(wasm, dbg);
-      const lj = join(o.outDir, `${o.name}.lines.json`);
-      if (writeLineMap(dbg, lj, { objdump: tool("llvm-objdump"), dwarfdump: tool("llvm-dwarfdump") })) {
-        lineMapPath = lj;
-      }
-      if (Bun.spawnSync([tool("llvm-strip"), "--strip-debug", wasm]).exitCode === 0) {
-        debugWasmPath = dbg;
-      }
-    } catch {}
-  }
-  return {
-    ok: exitCode === 0,
-    wasm,
-    wrapper,
-    stderr,
-    exitCode,
-    debugWasmPath,
-    lineMapPath,
-  };
+    let { exitCode, stderr } = pch
+        ? await runClang(["-include-pch", pch], false)
+        : await runClang([], true);
+
+    // A stale/incompatible PCH surfaces as an AST/PCH error (not a contract error) — disable it and retry once
+    // without, so a bad PCH never fails a valid contract.
+    if (
+        exitCode !== 0 &&
+        pch &&
+        /\b(PCH|AST file|precompiled header|module file)\b/i.test(stderr)
+    ) {
+        disablePch();
+        ({ exitCode, stderr } = await runClang([], true));
+    }
+
+    // -g leaves DWARF in `wasm`: copy it as the debug sidecar (qinit symbolizes trap offsets against it), then
+    // strip DWARF from the deployed wasm in place -> code byte-identical, so offsets still match the sidecar.
+    let debugWasmPath: string | undefined;
+    let lineMapPath: string | undefined;
+    if (exitCode === 0) {
+        try {
+            // Handle both path separators when resolving LLVM tools beside clang.
+            const cut = Math.max(clang.lastIndexOf("/"), clang.lastIndexOf("\\"));
+            const dir = cut >= 0 ? clang.slice(0, cut + 1) : "";
+            const exe = process.platform === "win32" ? ".exe" : "";
+            const tool = (name: string) => dir + name + exe;
+            const dbg = join(o.outDir, `${o.name}.debug.wasm`);
+            await copyFile(wasm, dbg);
+            const lj = join(o.outDir, `${o.name}.lines.json`);
+            if (
+                writeLineMap(dbg, lj, {
+                    objdump: tool("llvm-objdump"),
+                    dwarfdump: tool("llvm-dwarfdump"),
+                })
+            ) {
+                lineMapPath = lj;
+            }
+            if (Bun.spawnSync([tool("llvm-strip"), "--strip-debug", wasm]).exitCode === 0) {
+                debugWasmPath = dbg;
+            }
+        } catch {}
+    }
+    return {
+        ok: exitCode === 0,
+        wasm,
+        wrapper,
+        stderr,
+        exitCode,
+        debugWasmPath,
+        lineMapPath,
+    };
 }

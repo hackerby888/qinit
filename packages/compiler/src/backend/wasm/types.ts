@@ -12,10 +12,13 @@ export interface FunctionEmissionContext {
     in: StructLayout;
     out: StructLayout;
     locals: StructLayout;
-    localVars: Map<string, {
-        wasmType: WatValueType;
-        type?: TypeSpec;
-    }>;
+    localVars: Map<
+        string,
+        {
+            wasmType: WatValueType;
+            type?: TypeSpec;
+        }
+    >;
     lines: string[];
     tmpCount: number;
     loops: {
@@ -24,12 +27,15 @@ export interface FunctionEmissionContext {
         scratchDepth: number;
     }[]; // innermost loop's break/continue labels are last
     loopCount: number;
-    params?: Map<string, {
-        wasmType: WatValueType;
-        isAddr: boolean;
-        type: TypeSpec;
-        local?: string;
-    }>; // value-helper / method parameters (local overrides the wasm slot name when inlining)
+    params?: Map<
+        string,
+        {
+            wasmType: WatValueType;
+            isAddr: boolean;
+            type: TypeSpec;
+            local?: string;
+        }
+    >; // value-helper / method parameters (local overrides the wasm slot name when inlining)
     retIsValue?: boolean; // function returns a scalar value (return <expr>)
     retIsAddr?: boolean; // function returns a reference/pointer as a wasm32 address
     retTypeName?: string; // declared scalar return type name: `return e` narrows to it (C++ conversion)
@@ -40,10 +46,13 @@ export interface FunctionEmissionContext {
     thisType?: TypeSpec; // the container template_instance (HashMap<id,uint64,1024>)
     thisBind?: TemplateBindings; // template-param bindings (KeyT→id, L→1024, ...) for the body
     staticConsts?: Map<string, bigint>; // the container's static constexpr members (_nEncodedFlags, ...)
-    gotoLabels?: Map<string, {
-        label: string;
-        scratchDepth: number;
-    }>; // C++ label → wasm block + RAII unwind depth
+    gotoLabels?: Map<
+        string,
+        {
+            label: string;
+            scratchDepth: number;
+        }
+    >; // C++ label → wasm block + RAII unwind depth
     refLocals?: Map<string, TypeSpec>; // reference/pointer locals: name → referent type (holds an address)
     scratchpadLocals?: Set<string>; // __ScopedScratchpad locals: an i32 holding the scratch buffer base; `.ptr` reads it
     scratchpadScope?: string[]; // scratchpads live in the current scope chain — released LIFO at compound exit

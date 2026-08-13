@@ -17,8 +17,10 @@ export function unwrapType(type: TypeSpec): TypeSpec {
 
 export function isVoidType(type: TypeSpec): boolean {
     const unwrappedType = unwrapType(type);
-    return unwrappedType.kind === AstKind.VOID ||
-        (unwrappedType.kind === AstKind.NAME && unwrappedType.name === "void");
+    return (
+        unwrappedType.kind === AstKind.VOID ||
+        (unwrappedType.kind === AstKind.NAME && unwrappedType.name === "void")
+    );
 }
 
 export function isConstType(type: TypeSpec): boolean {
@@ -36,8 +38,7 @@ export function constKey(expression: Expression): string | null {
     if (expression.kind === AstKind.INT_LITERAL) {
         try {
             return `#${BigInt(expression.value.replace(/[uUlL]+$/, ""))}`;
-        }
-        catch {
+        } catch {
             return `#${expression.value}`;
         }
     }
@@ -66,15 +67,20 @@ export function isZeroLiteral(expression: Expression): boolean {
 }
 
 export function isLiteral(expression: Expression): boolean {
-    return (expression.kind === AstKind.INT_LITERAL ||
+    return (
+        expression.kind === AstKind.INT_LITERAL ||
         expression.kind === AstKind.FLOAT_LITERAL ||
         expression.kind === AstKind.BOOL_LITERAL ||
         expression.kind === AstKind.CHAR_LITERAL ||
-        expression.kind === AstKind.STRING_LITERAL);
+        expression.kind === AstKind.STRING_LITERAL
+    );
 }
 
 // Evaluate integral constants; unresolved identifiers return null.
-export function evalIntegralConst(expression: Expression, resolve?: (name: string) => bigint | null): bigint | null {
+export function evalIntegralConst(
+    expression: Expression,
+    resolve?: (name: string) => bigint | null,
+): bigint | null {
     try {
         switch (expression.kind) {
             case AstKind.INT_LITERAL:
@@ -91,14 +97,10 @@ export function evalIntegralConst(expression: Expression, resolve?: (name: strin
                 return evalIntegralConst(expression.expression, resolve);
             case AstKind.UNARY_OP: {
                 const numericValue = evalIntegralConst(expression.argument, resolve);
-                if (numericValue === null)
-                    return null;
-                if (expression.operator === UnaryOp.MINUS)
-                    return -numericValue;
-                if (expression.operator === UnaryOp.PLUS)
-                    return numericValue;
-                if (expression.operator === UnaryOp.BITWISE_NOT)
-                    return ~numericValue;
+                if (numericValue === null) return null;
+                if (expression.operator === UnaryOp.MINUS) return -numericValue;
+                if (expression.operator === UnaryOp.PLUS) return numericValue;
+                if (expression.operator === UnaryOp.BITWISE_NOT) return ~numericValue;
                 if (expression.operator === UnaryOp.LOGICAL_NOT)
                     return numericValue === 0n ? 1n : 0n;
                 return null;
@@ -106,8 +108,7 @@ export function evalIntegralConst(expression: Expression, resolve?: (name: strin
             case AstKind.BINARY_OP: {
                 const leftValue = evalIntegralConst(expression.left, resolve);
                 const rightValue = evalIntegralConst(expression.right, resolve);
-                if (leftValue === null || rightValue === null)
-                    return null;
+                if (leftValue === null || rightValue === null) return null;
                 switch (expression.operator) {
                     case BinaryOp.ADD:
                         return leftValue + rightValue;
@@ -151,25 +152,22 @@ export function evalIntegralConst(expression: Expression, resolve?: (name: strin
             }
             case AstKind.TERNARY: {
                 const numericValue = evalIntegralConst(expression.condition, resolve);
-                if (numericValue === null)
-                    return null;
+                if (numericValue === null) return null;
                 const branch = numericValue !== 0n ? expression.then : expression.else_;
                 return evalIntegralConst(branch, resolve);
             }
             case AstKind.CALL:
             case AstKind.TEMPLATE_CALL: {
                 const callee = expression.callee;
-                const name = callee.kind === AstKind.IDENTIFIER ||
-                    callee.kind === AstKind.QUALIFIED_NAME
-                    ? callee.name
-                    : null;
-                if (!name)
-                    return null;
+                const name =
+                    callee.kind === AstKind.IDENTIFIER || callee.kind === AstKind.QUALIFIED_NAME
+                        ? callee.name
+                        : null;
+                if (!name) return null;
                 const values: bigint[] = [];
                 for (const argument of expression.callArguments) {
                     const value = evalIntegralConst(argument, resolve);
-                    if (value === null)
-                        return null;
+                    if (value === null) return null;
                     values.push(value);
                 }
                 switch (name) {
@@ -201,8 +199,7 @@ export function evalIntegralConst(expression: Expression, resolve?: (name: strin
             default:
                 return null;
         }
-    }
-    catch {
+    } catch {
         return null;
     }
 }

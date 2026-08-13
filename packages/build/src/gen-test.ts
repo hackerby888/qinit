@@ -6,7 +6,7 @@ export const testRuntimeSource: string = generateRuntimeMacro();
 
 // A starter bun:test spec for the counter template (overwritten only if no test exists).
 export function sampleTest(name: string): string {
-  return `import { test, expect, beforeAll } from "bun:test";
+    return `import { test, expect, beforeAll } from "bun:test";
 import { ${name}, provider } from "./.qinit";
 
 let c: ${name};

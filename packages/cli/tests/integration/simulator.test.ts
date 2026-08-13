@@ -14,323 +14,322 @@ const INC = 1; // Counter procedure id: Inc
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 beforeAll(async () => {
-  await initK12();
+    await initK12();
 });
 
 // Boot the same EngineServer used by the simulator with Counter armed on an available port.
 async function bootCounter() {
-  const wasm = await loadWasmFixture("Counter");
-  const srv = new EngineServer();
-  srv.engine.deploy(SLOT, wasm);
-  const h = await srv.start(0);
-  return {
-    rpc: new LiteRpc(h.rpcBaseUrl),
-    rpcBaseUrl: h.rpcBaseUrl,
-    stop: h.stop,
-    engine: srv.engine,
-  };
+    const wasm = await loadWasmFixture("Counter");
+    const srv = new EngineServer();
+    srv.engine.deploy(SLOT, wasm);
+    const h = await srv.start(0);
+    return {
+        rpc: new LiteRpc(h.rpcBaseUrl),
+        rpcBaseUrl: h.rpcBaseUrl,
+        stop: h.stop,
+        engine: srv.engine,
+    };
 }
 
 test("portFromRpc: parses the port, defaults to 41841", () => {
-  expect(portFromRpc("http://127.0.0.1:54321")).toBe(54321);
-  expect(portFromRpc("http://127.0.0.1")).toBe(41841);
+    expect(portFromRpc("http://127.0.0.1:54321")).toBe(54321);
+    expect(portFromRpc("http://127.0.0.1")).toBe(41841);
 });
 
 test("the simulator ticks (what `node run` waits on before deploying)", async () => {
-  const { rpc, stop } = await bootCounter();
-  try {
-    const a = (await rpc.tickInfo()).tick ?? 0;
-    await sleep(300);
-    const b = (await rpc.tickInfo()).tick ?? 0;
-    expect(b).toBeGreaterThan(a);
-  } finally {
-    stop();
-  }
+    const { rpc, stop } = await bootCounter();
+    try {
+        const a = (await rpc.tickInfo()).tick ?? 0;
+        await sleep(300);
+        const b = (await rpc.tickInfo()).tick ?? 0;
+        expect(b).toBeGreaterThan(a);
+    } finally {
+        stop();
+    }
 });
 
 test("callFunction reads Counter state over the CLI's RPC client", async () => {
-  const { rpc, stop } = await bootCounter();
-  try {
-    const count = await callFunction(rpc, SLOT, GET, "", "uint64");
-    expect(BigInt(count)).toBe(0n);
-  } finally {
-    stop();
-  }
+    const { rpc, stop } = await bootCounter();
+    try {
+        const count = await callFunction(rpc, SLOT, GET, "", "uint64");
+        expect(BigInt(count)).toBe(0n);
+    } finally {
+        stop();
+    }
 });
 
 test("invokeProcedure signs + broadcasts Inc; it processes and state advances", async () => {
-  const { rpc, rpcBaseUrl, stop } = await bootCounter();
-  try {
-    const ti = await rpc.tickInfo();
-    const tick = ((ti.tick ?? 0) as number) + TX_TICK_OFFSET;
-    const r = await invokeProcedure({
-      seed: SEED,
-      rpcBaseUrl,
-      contractIndex: SLOT,
-      procedureId: INC,
-      amount: 0,
-      inputFormat: "",
-      tick,
-      confirm: true,
-      rpc,
-    });
-    expect(r.ok).toBe(true);
-    expect(r.confirmed).toBe(true);
-    expect(r.included).toBe(true);
+    const { rpc, rpcBaseUrl, stop } = await bootCounter();
+    try {
+        const ti = await rpc.tickInfo();
+        const tick = ((ti.tick ?? 0) as number) + TX_TICK_OFFSET;
+        const r = await invokeProcedure({
+            seed: SEED,
+            rpcBaseUrl,
+            contractIndex: SLOT,
+            procedureId: INC,
+            amount: 0,
+            inputFormat: "",
+            tick,
+            confirm: true,
+            rpc,
+        });
+        expect(r.ok).toBe(true);
+        expect(r.confirmed).toBe(true);
+        expect(r.included).toBe(true);
 
-    // txStatus is processed-on-broadcast for the single-authority engine, so poll the state until the Inc has
-    // actually executed (the engine reaches the tx's tick) rather than racing it.
-    let count = 0n;
-    for (let i = 0; i < 40 && count !== 1n; i++) {
-      count = BigInt(await callFunction(rpc, SLOT, GET, "", "uint64"));
-      if (count !== 1n) {
-        await sleep(50);
-      }
+        // txStatus is processed-on-broadcast for the single-authority engine, so poll the state until the Inc has
+        // actually executed (the engine reaches the tx's tick) rather than racing it.
+        let count = 0n;
+        for (let i = 0; i < 40 && count !== 1n; i++) {
+            count = BigInt(await callFunction(rpc, SLOT, GET, "", "uint64"));
+            if (count !== 1n) {
+                await sleep(50);
+            }
+        }
+        expect(count).toBe(1n);
+    } finally {
+        stop();
     }
-    expect(count).toBe(1n);
-  } finally {
-    stop();
-  }
 });
 
 // A node records from boot, so a `qinit debug` opened after the fact still finds the call.
 test("the node captures a call without anyone enabling debug first", async () => {
-  const { rpc, stop } = await bootCounter();
-  try {
-    const before = await rpc.debugTrace();
-    expect(before.enabled).toBe(true);
+    const { rpc, stop } = await bootCounter();
+    try {
+        const before = await rpc.debugTrace();
+        expect(before.enabled).toBe(true);
 
-    await callFunction(rpc, SLOT, GET, "", "uint64");
+        await callFunction(rpc, SLOT, GET, "", "uint64");
 
-    const after = await rpc.debugTrace();
-    expect(after.entries.length).toBeGreaterThan(before.entries.length);
-    expect(after.entries.at(-1)?.index).toBe(SLOT);
-  } finally {
-    stop();
-  }
+        const after = await rpc.debugTrace();
+        expect(after.entries.length).toBeGreaterThan(before.entries.length);
+        expect(after.entries.at(-1)?.index).toBe(SLOT);
+    } finally {
+        stop();
+    }
 });
 
 test("confirm waits for execution: a read right after confirm sees the mutation (no poll)", async () => {
-  // Regression: txStatus.processed used to be hard-true on broadcast, so confirm() returned before the tx's
-  // tick ran and a read right after saw stale state — which broke the default `await proc(); read()` sample.
-  const { rpc, rpcBaseUrl, stop } = await bootCounter();
-  try {
-    const ti = await rpc.tickInfo();
-    const tick = ((ti.tick ?? 0) as number) + TX_TICK_OFFSET;
-    const r = await invokeProcedure({
-      seed: SEED,
-      rpcBaseUrl,
-      contractIndex: SLOT,
-      procedureId: INC,
-      amount: 0,
-      inputFormat: "",
-      tick,
-      confirm: true,
-      rpc,
-    });
-    expect(r.confirmed).toBe(true);
-    // no poll loop: confirm must not resolve until the tx's tick executed, so the Inc is already visible
-    expect(BigInt(await callFunction(rpc, SLOT, GET, "", "uint64"))).toBe(1n);
-  } finally {
-    stop();
-  }
+    // Regression: txStatus.processed used to be hard-true on broadcast, so confirm() returned before the tx's
+    // tick ran and a read right after saw stale state — which broke the default `await proc(); read()` sample.
+    const { rpc, rpcBaseUrl, stop } = await bootCounter();
+    try {
+        const ti = await rpc.tickInfo();
+        const tick = ((ti.tick ?? 0) as number) + TX_TICK_OFFSET;
+        const r = await invokeProcedure({
+            seed: SEED,
+            rpcBaseUrl,
+            contractIndex: SLOT,
+            procedureId: INC,
+            amount: 0,
+            inputFormat: "",
+            tick,
+            confirm: true,
+            rpc,
+        });
+        expect(r.confirmed).toBe(true);
+        // no poll loop: confirm must not resolve until the tx's tick executed, so the Inc is already visible
+        expect(BigInt(await callFunction(rpc, SLOT, GET, "", "uint64"))).toBe(1n);
+    } finally {
+        stop();
+    }
 });
 
 // The wallet's whole point: move QU between two pool accounts and have the balances actually change.
 test("sendTransfer moves QU between two funded accounts (qinit explorer wallet)", async () => {
-  const { rpc, rpcBaseUrl, stop } = await bootCounter();
-  try {
-    const { seeds } = await rpc.fundedSeeds(32);
-    const senderSeed = seeds[0];
-    const recipientIdentity = (await deriveIdentity(seeds[1])).identity;
-    const senderIdentity = (await deriveIdentity(senderSeed)).identity;
+    const { rpc, rpcBaseUrl, stop } = await bootCounter();
+    try {
+        const { seeds } = await rpc.fundedSeeds(32);
+        const senderSeed = seeds[0];
+        const recipientIdentity = (await deriveIdentity(seeds[1])).identity;
+        const senderIdentity = (await deriveIdentity(senderSeed)).identity;
 
-    const balanceOf = async (identity: string) =>
-      BigInt((await rpc.balance(identity)).balance);
-    const senderBefore = await balanceOf(senderIdentity);
-    const recipientBefore = await balanceOf(recipientIdentity);
+        const balanceOf = async (identity: string) => BigInt((await rpc.balance(identity)).balance);
+        const senderBefore = await balanceOf(senderIdentity);
+        const recipientBefore = await balanceOf(recipientIdentity);
 
-    const amount = 250_000;
-    const tick = ((await rpc.tickInfo()).tick ?? 0) + TX_TICK_OFFSET;
-    const sent = await sendTransfer({
-      seed: senderSeed,
-      destination: identityToBytes(recipientIdentity),
-      amount,
-      tick,
-      rpcBaseUrl,
-      confirm: true,
-      rpc,
-    });
+        const amount = 250_000;
+        const tick = ((await rpc.tickInfo()).tick ?? 0) + TX_TICK_OFFSET;
+        const sent = await sendTransfer({
+            seed: senderSeed,
+            destination: identityToBytes(recipientIdentity),
+            amount,
+            tick,
+            rpcBaseUrl,
+            confirm: true,
+            rpc,
+        });
 
-    expect(sent.ok).toBe(true);
-    expect(sent.confirmed).toBe(true);
-    expect(sent.txId).toMatch(/^[a-z]{60}$/);
-    // confirm must not resolve before the tx's tick executed, so the balances are already settled
-    expect(await balanceOf(recipientIdentity)).toBe(recipientBefore + BigInt(amount));
-    expect(await balanceOf(senderIdentity)).toBe(senderBefore - BigInt(amount));
-  } finally {
-    stop();
-  }
+        expect(sent.ok).toBe(true);
+        expect(sent.confirmed).toBe(true);
+        expect(sent.txId).toMatch(/^[a-z]{60}$/);
+        // confirm must not resolve before the tx's tick executed, so the balances are already settled
+        expect(await balanceOf(recipientIdentity)).toBe(recipientBefore + BigInt(amount));
+        expect(await balanceOf(senderIdentity)).toBe(senderBefore - BigInt(amount));
+    } finally {
+        stop();
+    }
 });
 
 test("funded-seeds returns a pool of spendable seeds (qinit seed)", async () => {
-  const { rpc, stop } = await bootCounter();
-  try {
-    const r = await rpc.fundedSeeds(32);
-    expect(r.count).toBe(16);
-    expect(r.seeds[0]).toBe(SEED); // pool[0] = the universal default "a"*55
-    // every returned seed must be a real, funded account — not just listed
-    for (const seed of r.seeds) {
-      const { identity } = await deriveIdentity(seed);
-      const info = await rpc.balance(identity);
-      expect(BigInt(info.balance)).toBeGreaterThan(0n);
+    const { rpc, stop } = await bootCounter();
+    try {
+        const r = await rpc.fundedSeeds(32);
+        expect(r.count).toBe(16);
+        expect(r.seeds[0]).toBe(SEED); // pool[0] = the universal default "a"*55
+        // every returned seed must be a real, funded account — not just listed
+        for (const seed of r.seeds) {
+            const { identity } = await deriveIdentity(seed);
+            const info = await rpc.balance(identity);
+            expect(BigInt(info.balance)).toBeGreaterThan(0n);
+        }
+    } finally {
+        stop();
     }
-  } finally {
-    stop();
-  }
 });
 
 test("epoch-info reports a coherent tick window (qinit tick / epoch)", async () => {
-  const { rpc, engine, stop } = await bootCounter();
-  try {
-    const e = await rpc.epochInfo();
-    expect(e.duration).toBe(engine.sim.epochLength);
-    expect(e.tick).toBeGreaterThanOrEqual(e.initialTick);
-    expect(e.tick).toBeLessThanOrEqual(e.epochLastTick);
-    expect(e.ticksLeft).toBe(e.epochLastTick - e.tick);
-  } finally {
-    stop();
-  }
+    const { rpc, engine, stop } = await bootCounter();
+    try {
+        const e = await rpc.epochInfo();
+        expect(e.duration).toBe(engine.sim.epochLength);
+        expect(e.tick).toBeGreaterThanOrEqual(e.initialTick);
+        expect(e.tick).toBeLessThanOrEqual(e.epochLastTick);
+        expect(e.ticksLeft).toBe(e.epochLastTick - e.tick);
+    } finally {
+        stop();
+    }
 });
 
 test("advance-tick caps at the epoch's last tick (qinit tick advance)", async () => {
-  const { rpc, engine, stop } = await bootCounter();
-  try {
-    engine.sim.epochLength = 50; // keep the boundary near so the cap is reached without ticking 3000×
-    const e = await rpc.epochInfo();
-    const r = await rpc.advanceTick(10_000_000);
-    expect(r.cappedAtEpochEnd).toBe(true);
-    expect(r.reached).toBeLessThanOrEqual(e.epochLastTick);
-    expect(r.epochLastTick).toBe(e.epochLastTick);
-  } finally {
-    stop();
-  }
+    const { rpc, engine, stop } = await bootCounter();
+    try {
+        engine.sim.epochLength = 50; // keep the boundary near so the cap is reached without ticking 3000×
+        const e = await rpc.epochInfo();
+        const r = await rpc.advanceTick(10_000_000);
+        expect(r.cappedAtEpochEnd).toBe(true);
+        expect(r.reached).toBeLessThanOrEqual(e.epochLastTick);
+        expect(r.epochLastTick).toBe(e.epochLastTick);
+    } finally {
+        stop();
+    }
 });
 
 test("hurryToTick pulls the chain to a near target and refuses a far one", async () => {
-  const { rpc, stop } = await bootCounter();
-  try {
-    const from = (await rpc.tickInfo()).tick;
-    expect(await rpc.hurryToTick(from + 4)).toBeGreaterThanOrEqual(from + 4);
+    const { rpc, stop } = await bootCounter();
+    try {
+        const from = (await rpc.tickInfo()).tick;
+        expect(await rpc.hurryToTick(from + 4)).toBeGreaterThanOrEqual(from + 4);
 
-    // Past the span cap the chain is left alone — a wide gap means a stale read.
-    const before = (await rpc.tickInfo()).tick;
-    expect(await rpc.hurryToTick(before + 500)).toBeLessThan(before + 500);
-  } finally {
-    stop();
-  }
+        // Past the span cap the chain is left alone — a wide gap means a stale read.
+        const before = (await rpc.tickInfo()).tick;
+        expect(await rpc.hurryToTick(before + 500)).toBeLessThan(before + 500);
+    } finally {
+        stop();
+    }
 });
 
 test("hurryToTick gives up quietly on a node without the dev route", async () => {
-  // A mainnet node: it answers tick-info and 404s the testnet-only advance route.
-  let advanceRequests = 0;
-  const server = Bun.serve({
-    port: 0,
-    fetch: (request) => {
-      if (new URL(request.url).pathname === "/live/v1/dev/advance-tick") {
-        advanceRequests++;
-        return new Response("{}", { status: 404 });
-      }
+    // A mainnet node: it answers tick-info and 404s the testnet-only advance route.
+    let advanceRequests = 0;
+    const server = Bun.serve({
+        port: 0,
+        fetch: (request) => {
+            if (new URL(request.url).pathname === "/live/v1/dev/advance-tick") {
+                advanceRequests++;
+                return new Response("{}", { status: 404 });
+            }
 
-      return new Response(JSON.stringify({ tick: 100, epoch: 1 }), {
-        headers: { "content-type": "application/json" },
-      });
-    },
-  });
+            return new Response(JSON.stringify({ tick: 100, epoch: 1 }), {
+                headers: { "content-type": "application/json" },
+            });
+        },
+    });
 
-  try {
-    const rpc = new LiteRpc(`http://127.0.0.1:${server.port}`);
-    expect(await rpc.hurryToTick(104)).toBe(100);
-    expect(await rpc.hurryToTick(104)).toBe(0); // remembered as missing — never probed again
-    expect(advanceRequests).toBe(1);
-  } finally {
-    server.stop(true);
-  }
+    try {
+        const rpc = new LiteRpc(`http://127.0.0.1:${server.port}`);
+        expect(await rpc.hurryToTick(104)).toBe(100);
+        expect(await rpc.hurryToTick(104)).toBe(0); // remembered as missing — never probed again
+        expect(advanceRequests).toBe(1);
+    } finally {
+        server.stop(true);
+    }
 });
 
 // `qinit debug` appends what each poll returns, so a route ignoring `since` re-counts every call.
 test("debug-trace honours since and limit (what qinit debug polls with)", async () => {
-  const { rpc, stop } = await bootCounter();
-  try {
-    await rpc.setDebug(true);
-    for (let i = 0; i < 3; i++) {
-      await callFunction(rpc, SLOT, GET, "", "uint64");
+    const { rpc, stop } = await bootCounter();
+    try {
+        await rpc.setDebug(true);
+        for (let i = 0; i < 3; i++) {
+            await callFunction(rpc, SLOT, GET, "", "uint64");
+        }
+
+        const all = (await rpc.debugTrace(0, 500)).entries;
+        expect(all.length).toBe(3);
+        expect(all[0].seq).toBe(1); // 1-based, so since=0 does not swallow the first entry
+
+        const latest = all[all.length - 1].seq;
+        expect((await rpc.debugTrace(latest, 500)).entries).toEqual([]);
+        expect((await rpc.debugTrace(all[0].seq, 500)).entries.map((e) => e.seq)).toEqual([
+            all[1].seq,
+            all[2].seq,
+        ]);
+
+        // The limit keeps the newest entries.
+        expect((await rpc.debugTrace(0, 2)).entries.map((e) => e.seq)).toEqual([
+            all[1].seq,
+            all[2].seq,
+        ]);
+    } finally {
+        await rpc.setDebug(false);
+        stop();
     }
-
-    const all = (await rpc.debugTrace(0, 500)).entries;
-    expect(all.length).toBe(3);
-    expect(all[0].seq).toBe(1); // 1-based, so since=0 does not swallow the first entry
-
-    const latest = all[all.length - 1].seq;
-    expect((await rpc.debugTrace(latest, 500)).entries).toEqual([]);
-    expect((await rpc.debugTrace(all[0].seq, 500)).entries.map((e) => e.seq)).toEqual([
-      all[1].seq,
-      all[2].seq,
-    ]);
-
-    // The limit keeps the newest entries.
-    expect((await rpc.debugTrace(0, 2)).entries.map((e) => e.seq)).toEqual([
-      all[1].seq,
-      all[2].seq,
-    ]);
-  } finally {
-    await rpc.setDebug(false);
-    stop();
-  }
 });
 
 test("advance-epoch crosses into the next epoch (qinit epoch advance)", async () => {
-  const { rpc, engine, stop } = await bootCounter();
-  try {
-    engine.sim.epochLength = 10; // small window so the boundary is near
-    const r = await rpc.advanceEpoch();
-    expect(r.switched).toBe(true);
-    expect(r.toEpoch).toBe(r.fromEpoch + 1);
-  } finally {
-    stop();
-  }
+    const { rpc, engine, stop } = await bootCounter();
+    try {
+        engine.sim.epochLength = 10; // small window so the boundary is near
+        const r = await rpc.advanceEpoch();
+        expect(r.switched).toBe(true);
+        expect(r.toEpoch).toBe(r.fromEpoch + 1);
+    } finally {
+        stop();
+    }
 });
 
 test("directDeploy arms a system slot, runs, surfaces in registry, undeploys", async () => {
-  const wasm = await loadWasmFixture("Counter1");
-  const srv = new EngineServer();
-  const h = await srv.start(0);
-  const rpc = new LiteRpc(h.rpcBaseUrl);
-  try {
-    const r = await rpc.directDeploy(1, wasm, "SYSISH", "system");
-    expect(r?.ok).toBe(true);
-    expect(r?.slot).toBe(1);
+    const wasm = await loadWasmFixture("Counter1");
+    const srv = new EngineServer();
+    const h = await srv.start(0);
+    const rpc = new LiteRpc(h.rpcBaseUrl);
+    try {
+        const r = await rpc.directDeploy(1, wasm, "SYSISH", "system");
+        expect(r?.ok).toBe(true);
+        expect(r?.slot).toBe(1);
 
-    expect(BigInt(await callFunction(rpc, 1, GET, "", "uint64"))).toBe(0n); // runs at slot 1
+        expect(BigInt(await callFunction(rpc, 1, GET, "", "uint64"))).toBe(0n); // runs at slot 1
 
-    const reg = await rpc.dynRegistry();
-    expect((reg.contracts ?? []).some((c) => c.index === 1 && c.armed)).toBe(true); // surfaced out-of-window
+        const reg = await rpc.dynRegistry();
+        expect((reg.contracts ?? []).some((c) => c.index === 1 && c.armed)).toBe(true); // surfaced out-of-window
 
-    expect(await rpc.undeploy(1)).toBe(true);
-    expect(((await rpc.dynRegistry()).contracts ?? []).some((c) => c.index === 1)).toBe(false);
-  } finally {
-    h.stop();
-  }
+        expect(await rpc.undeploy(1)).toBe(true);
+        expect(((await rpc.dynRegistry()).contracts ?? []).some((c) => c.index === 1)).toBe(false);
+    } finally {
+        h.stop();
+    }
 });
 
 test("tick rate is adjustable on a running node, no respawn (qinit tick rate)", async () => {
-  const { rpc, engine, stop } = await bootCounter();
-  try {
-    expect((await rpc.setTickMs(0)).tickMs).toBe(0); // 0 = fastest
-    expect(engine.sim.tickDuration).toBe(0);
-    expect((await rpc.setTickMs(250)).tickMs).toBe(250);
-    expect(engine.sim.tickDuration).toBe(250); // live chain-clock step updated too
-  } finally {
-    stop();
-  }
+    const { rpc, engine, stop } = await bootCounter();
+    try {
+        expect((await rpc.setTickMs(0)).tickMs).toBe(0); // 0 = fastest
+        expect(engine.sim.tickDuration).toBe(0);
+        expect((await rpc.setTickMs(250)).tickMs).toBe(250);
+        expect(engine.sim.tickDuration).toBe(250); // live chain-clock step updated too
+    } finally {
+        stop();
+    }
 });

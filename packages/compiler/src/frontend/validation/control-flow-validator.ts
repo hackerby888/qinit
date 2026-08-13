@@ -3,16 +3,30 @@ import type { Statement, Expression } from "../../ast";
 import { evalIntegralConst } from "./validation-helpers";
 import type { ValidatorInternals } from "./validator-context";
 
-export function checkSwitchCases(context: ValidatorInternals, body: Statement, allLocals: Set<string>): void {
+export function checkSwitchCases(
+    context: ValidatorInternals,
+    body: Statement,
+    allLocals: Set<string>,
+): void {
     const keys = new Set<string>();
     let defaults = 0;
     const scan = (statement: Statement): void => {
         switch (statement.kind) {
             case AstKind.CASE: {
-                const value = evalIntegralConst(statement.value, (name) => context.constants.get(name) ?? null);
+                const value = evalIntegralConst(
+                    statement.value,
+                    (name) => context.constants.get(name) ?? null,
+                );
                 const key = value === null ? null : `#${value}`;
-                if (value === null && statement.value.kind === AstKind.IDENTIFIER && allLocals.has(statement.value.name)) {
-                    context.error(`case label must be an integral constant expression`, statement.span);
+                if (
+                    value === null &&
+                    statement.value.kind === AstKind.IDENTIFIER &&
+                    allLocals.has(statement.value.name)
+                ) {
+                    context.error(
+                        `case label must be an integral constant expression`,
+                        statement.span,
+                    );
                 }
                 if (key !== null) {
                     if (keys.has(key)) {
@@ -24,8 +38,7 @@ export function checkSwitchCases(context: ValidatorInternals, body: Statement, a
             }
             case AstKind.DEFAULT:
                 defaults++;
-                if (defaults > 1)
-                    context.error(`duplicate default label`, statement.span);
+                if (defaults > 1) context.error(`duplicate default label`, statement.span);
                 break;
             case AstKind.COMPOUND:
                 for (const bodyItem of statement.body) {
@@ -48,7 +61,11 @@ export function checkSwitchCases(context: ValidatorInternals, body: Statement, a
     scan(body);
 }
 
-export function walkStatements(context: ValidatorInternals, statement: Statement, visit: (statement: Statement) => void): void {
+export function walkStatements(
+    context: ValidatorInternals,
+    statement: Statement,
+    visit: (statement: Statement) => void,
+): void {
     visit(statement);
     switch (statement.kind) {
         case AstKind.COMPOUND:
@@ -76,7 +93,11 @@ export function walkStatements(context: ValidatorInternals, statement: Statement
     }
 }
 
-export function walkExpressions(_context: ValidatorInternals, statement: Statement, visit: (expression: Expression) => void): void {
+export function walkExpressions(
+    _context: ValidatorInternals,
+    statement: Statement,
+    visit: (expression: Expression) => void,
+): void {
     const walkE = (expression: Expression): void => {
         visit(expression);
         switch (expression.kind) {
@@ -127,7 +148,9 @@ export function walkExpressions(_context: ValidatorInternals, statement: Stateme
                 break;
             case AstKind.CONSTRUCT:
             case AstKind.INITIALIZER_LIST:
-                for (const item of (expression as any).callArguments ?? (expression as any).expressions ?? []) {
+                for (const item of (expression as any).callArguments ??
+                    (expression as any).expressions ??
+                    []) {
                     walkE(item);
                 }
                 break;
@@ -141,7 +164,10 @@ export function walkExpressions(_context: ValidatorInternals, statement: Stateme
             walkE(statement.expression);
             break;
         case AstKind.DECLARATION:
-            if (statement.declaration.kind === AstKind.VARIABLE && statement.declaration.initializer) {
+            if (
+                statement.declaration.kind === AstKind.VARIABLE &&
+                statement.declaration.initializer
+            ) {
                 walkE(statement.declaration.initializer);
             }
             break;

@@ -30,7 +30,10 @@ export function tryEmitContractStatementCall(
         return true;
     }
 
-    if (context.lowering.emitAssetIter(context, expression, ContainerEmissionMode.STATEMENT) !== null) {
+    if (
+        context.lowering.emitAssetIter(context, expression, ContainerEmissionMode.STATEMENT) !==
+        null
+    ) {
         return true;
     }
 
@@ -144,9 +147,7 @@ function tryEmitInterContractCall(
             "unconverted: inter-contract call",
         );
         context.lines.push(
-            `    ${watIr.serializeWatNode(
-                watIr.operation("drop", interContractCall),
-            )}`,
+            `    ${watIr.serializeWatNode(watIr.operation("drop", interContractCall))}`,
         );
     } else {
         const contractName =

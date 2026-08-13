@@ -18,69 +18,77 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function compile(source: string) {
-  return compileContract({
-    source,
-    contractName: "CArrayEdge",
-    slot: 27,
-    qpiHeader: HEADERS,
-    arenaSizeBytes: 1 << 20,
-  });
+    return compileContract({
+        source,
+        contractName: "CArrayEdge",
+        slot: 27,
+        qpiHeader: HEADERS,
+        arenaSizeBytes: 1 << 20,
+    });
 }
 
 async function run(stateFields: string, body: string): Promise<bigint> {
-  const result = await compile(wrap(stateFields, body));
-  expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-  expect(WebAssembly.validate(result.wasm)).toBe(true);
-  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-  const user = new Uint8Array(32).fill(7);
-  sim.fund(user, 1_000_000n);
-  sim.deploy(27, result.wasm);
-  sim.procedure(27, 1, undefined, { invocator: user });
-  const state = sim.contracts.get(27)!.state();
-  return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
+    const result = await compile(wrap(stateFields, body));
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
+        0,
+    );
+    expect(WebAssembly.validate(result.wasm)).toBe(true);
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+    const user = new Uint8Array(32).fill(7);
+    sim.fund(user, 1_000_000n);
+    sim.deploy(27, result.wasm);
+    sim.procedure(27, 1, undefined, { invocator: user });
+    const state = sim.contracts.get(27)!.state();
+    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
 }
 
 describe("edge audit — fixed C arrays", () => {
-  beforeAll(async () => {
-    await initK12();
-  });
+    beforeAll(async () => {
+        await initK12();
+    });
 
-  test("an exact local initializer populates every element", async () => {
-    expect(await run("", `uint64 xs[2] = {7, 9}; state.mut().result = xs[0] + xs[1];`)).toBe(16n);
-  });
+    test("an exact local initializer populates every element", async () => {
+        expect(await run("", `uint64 xs[2] = {7, 9}; state.mut().result = xs[0] + xs[1];`)).toBe(
+            16n,
+        );
+    });
 
-  test("an omitted local bound is inferred from the initializer", async () => {
-    expect(await run("", `uint64 xs[] = {7, 9}; state.mut().result = xs[0] + xs[1];`)).toBe(16n);
-  });
+    test("an omitted local bound is inferred from the initializer", async () => {
+        expect(await run("", `uint64 xs[] = {7, 9}; state.mut().result = xs[0] + xs[1];`)).toBe(
+            16n,
+        );
+    });
 
-  test("missing local initializers zero-fill the remaining elements", async () => {
-    expect(await run("", `uint64 xs[3] = {7}; state.mut().result = xs[0] + xs[1] + xs[2];`)).toBe(
-      7n,
-    );
-  });
+    test("missing local initializers zero-fill the remaining elements", async () => {
+        expect(
+            await run("", `uint64 xs[3] = {7}; state.mut().result = xs[0] + xs[1] + xs[2];`),
+        ).toBe(7n);
+    });
 
-  test("multidimensional state arrays preserve row-major indexing", async () => {
-    const body = `state.mut().grid[0][0] = 1; state.mut().grid[0][1] = 2;
+    test("multidimensional state arrays preserve row-major indexing", async () => {
+        const body = `state.mut().grid[0][0] = 1; state.mut().grid[0][1] = 2;
       state.mut().grid[1][0] = 4; state.mut().grid[1][1] = 8;
       state.mut().result = state.get().grid[0][1] + state.get().grid[1][1];`;
-    expect(await run(`uint64 grid[2][2];`, body)).toBe(10n);
-  });
+        expect(await run(`uint64 grid[2][2];`, body)).toBe(10n);
+    });
 
-  test("nested initializer lists populate a multidimensional local array", async () => {
-    expect(
-      await run(
-        "",
-        `uint64 xs[2][2] = {{1, 2}, {3, 4}}; state.mut().result = xs[0][1] + xs[1][1];`,
-      ),
-    ).toBe(6n);
-  });
+    test("nested initializer lists populate a multidimensional local array", async () => {
+        expect(
+            await run(
+                "",
+                `uint64 xs[2][2] = {{1, 2}, {3, 4}}; state.mut().result = xs[0][1] + xs[1][1];`,
+            ),
+        ).toBe(6n);
+    });
 
-  test("too many local array initializers are rejected", async () => {
-    const result = await compile(wrap("", `uint64 xs[2] = {1, 2, 3}; state.mut().result = xs[0];`));
-    const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
-    expect(
-      errors.some((d) => /initializer|too many|array.*bound|array.*size/i.test(d.message)),
-    ).toBe(true);
-    expect(result.wasm).toHaveLength(0);
-  });
+    test("too many local array initializers are rejected", async () => {
+        const result = await compile(
+            wrap("", `uint64 xs[2] = {1, 2, 3}; state.mut().result = xs[0];`),
+        );
+        const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
+        expect(
+            errors.some((d) => /initializer|too many|array.*bound|array.*size/i.test(d.message)),
+        ).toBe(true);
+        expect(result.wasm).toHaveLength(0);
+    });
 });

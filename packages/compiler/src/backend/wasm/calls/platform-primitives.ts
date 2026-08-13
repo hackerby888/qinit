@@ -25,12 +25,15 @@ export interface PlatformPrimitive {
     readonly width?: 16 | 32 | 64;
     readonly capabilities?: readonly PlatformCapability[];
 }
-const primitive = (descriptor: PlatformPrimitive): PlatformPrimitive => Object.freeze({
-    ...descriptor,
-    aliases: Object.freeze([...descriptor.aliases]),
-    operands: Object.freeze([...descriptor.operands]),
-    capabilities: descriptor.capabilities ? Object.freeze([...descriptor.capabilities]) : undefined,
-});
+const primitive = (descriptor: PlatformPrimitive): PlatformPrimitive =>
+    Object.freeze({
+        ...descriptor,
+        aliases: Object.freeze([...descriptor.aliases]),
+        operands: Object.freeze([...descriptor.operands]),
+        capabilities: descriptor.capabilities
+            ? Object.freeze([...descriptor.capabilities])
+            : undefined,
+    });
 export const PLATFORM_PRIMITIVES = Object.freeze([
     primitive({
         name: "_mm256_setzero_si256",
@@ -42,7 +45,12 @@ export const PLATFORM_PRIMITIVES = Object.freeze([
     primitive({
         name: "_mm256_set_epi64x",
         aliases: [],
-        operands: [PrimitiveOperand.VALUE, PrimitiveOperand.VALUE, PrimitiveOperand.VALUE, PrimitiveOperand.VALUE],
+        operands: [
+            PrimitiveOperand.VALUE,
+            PrimitiveOperand.VALUE,
+            PrimitiveOperand.VALUE,
+            PrimitiveOperand.VALUE,
+        ],
         result: PrimitiveResultChannel.ADDRESS,
         kind: PlatformPrimitiveKind.LANE_PACK_64,
     }),
@@ -91,7 +99,11 @@ export const PLATFORM_PRIMITIVES = Object.freeze([
     primitive({
         name: "_mul128",
         aliases: [],
-        operands: [PrimitiveOperand.VALUE, PrimitiveOperand.VALUE, PrimitiveOperand.OUTPUT_DESTINATION],
+        operands: [
+            PrimitiveOperand.VALUE,
+            PrimitiveOperand.VALUE,
+            PrimitiveOperand.OUTPUT_DESTINATION,
+        ],
         result: PrimitiveResultChannel.VALUE,
         kind: PlatformPrimitiveKind.MULTIPLY_HIGH,
         signed: true,
@@ -99,7 +111,11 @@ export const PLATFORM_PRIMITIVES = Object.freeze([
     primitive({
         name: "_umul128",
         aliases: [],
-        operands: [PrimitiveOperand.VALUE, PrimitiveOperand.VALUE, PrimitiveOperand.OUTPUT_DESTINATION],
+        operands: [
+            PrimitiveOperand.VALUE,
+            PrimitiveOperand.VALUE,
+            PrimitiveOperand.OUTPUT_DESTINATION,
+        ],
         result: PrimitiveResultChannel.VALUE,
         kind: PlatformPrimitiveKind.MULTIPLY_HIGH,
         signed: false,
@@ -153,7 +169,9 @@ for (const descriptor of PLATFORM_PRIMITIVES) {
     for (const spelling of [descriptor.name, ...descriptor.aliases]) {
         const previous = byAlias.get(spelling);
         if (previous)
-            throw new Error(`duplicate platform primitive alias '${spelling}' (${previous.name}, ${descriptor.name})`);
+            throw new Error(
+                `duplicate platform primitive alias '${spelling}' (${previous.name}, ${descriptor.name})`,
+            );
         byAlias.set(spelling, descriptor);
     }
 }
