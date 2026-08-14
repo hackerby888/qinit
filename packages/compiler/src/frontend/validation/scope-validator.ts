@@ -2,10 +2,11 @@ import { AstKind } from "../../shared/enums";
 // Validation runs after parse and before codegen.
 import type { FunctionDecl, Statement } from "../../ast";
 import { isVoidType, isConstType } from "./validation-helpers";
-import type { FnSig, ValidatorInternals } from "./validator-context";
+import type { Validator } from "./validator";
+import type { FnSig } from "./validator-context";
 
 export function walkScope(
-    context: ValidatorInternals,
+    validator: Validator,
     statement: Statement,
     fn: FunctionDecl,
     memberFns: Map<string, FnSig>,
@@ -21,7 +22,7 @@ export function walkScope(
     >,
 ): void {
     const recurse = (statement: Statement) =>
-        context.walkScope(statement, fn, memberFns, allLocals, constParams, scopes);
+        validator.walkScope(statement, fn, memberFns, allLocals, constParams, scopes);
     const inOwnScope = (statement: Statement, extra?: () => void) => {
         scopes.push(new Map());
         if (extra) {
@@ -46,12 +47,12 @@ export function walkScope(
             scopes.pop();
             break;
         case AstKind.DECLARATION:
-            context.checkDeclarationStatement(statement, scopes);
+            validator.checkDeclarationStatement(statement, scopes);
             if (
                 statement.declaration.kind === AstKind.VARIABLE &&
                 statement.declaration.initializer
             ) {
-                context.checkExpression(
+                validator.checkExpression(
                     statement.declaration.initializer,
                     memberFns,
                     allLocals,
@@ -61,7 +62,13 @@ export function walkScope(
             }
             break;
         case AstKind.IF:
-            context.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
+            validator.checkExpression(
+                statement.condition,
+                memberFns,
+                allLocals,
+                constParams,
+                scopes,
+            );
             inOwnScope(statement.then);
             if (statement.else_) {
                 inOwnScope(statement.else_);
@@ -73,7 +80,7 @@ export function walkScope(
                 recurse(statement.initializer);
             }
             if (statement.condition) {
-                context.checkExpression(
+                validator.checkExpression(
                     statement.condition,
                     memberFns,
                     allLocals,
@@ -82,7 +89,7 @@ export function walkScope(
                 );
             }
             if (statement.update) {
-                context.checkExpression(
+                validator.checkExpression(
                     statement.update,
                     memberFns,
                     allLocals,
@@ -90,42 +97,66 @@ export function walkScope(
                     scopes,
                 );
             }
-            context.loopDepth++;
+            validator.loopDepth++;
             inOwnScope(statement.body);
-            context.loopDepth--;
+            validator.loopDepth--;
             scopes.pop();
             break;
         case AstKind.WHILE:
-            context.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
-            context.loopDepth++;
+            validator.checkExpression(
+                statement.condition,
+                memberFns,
+                allLocals,
+                constParams,
+                scopes,
+            );
+            validator.loopDepth++;
             inOwnScope(statement.body);
-            context.loopDepth--;
+            validator.loopDepth--;
             break;
         case AstKind.DO_WHILE:
-            context.loopDepth++;
+            validator.loopDepth++;
             inOwnScope(statement.body);
-            context.loopDepth--;
-            context.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
+            validator.loopDepth--;
+            validator.checkExpression(
+                statement.condition,
+                memberFns,
+                allLocals,
+                constParams,
+                scopes,
+            );
             break;
         case AstKind.SWITCH:
-            context.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
-            context.checkSwitchCases(statement.body, allLocals);
+            validator.checkExpression(
+                statement.condition,
+                memberFns,
+                allLocals,
+                constParams,
+                scopes,
+            );
+            validator.checkSwitchCases(statement.body, allLocals);
             inOwnScope(statement.body);
             break;
         case AstKind.CONTINUE:
-            if (context.loopDepth === 0)
-                context.error(`continue statement is outside a loop`, statement.span);
+            if (validator.loopDepth === 0)
+                validator.error(`continue statement is outside a loop`, statement.span);
             break;
         case AstKind.STATIC_ASSERT:
-            context.checkStaticAssert(statement.condition, statement.message, statement.span);
+            validator.checkStaticAssert(statement.condition, statement.message, statement.span);
             break;
         case AstKind.RETURN:
             if (statement.value) {
-                context.checkExpression(statement.value, memberFns, allLocals, constParams, scopes);
+                validator.checkExpression(
+                    statement.value,
+                    memberFns,
+                    allLocals,
+                    constParams,
+                    scopes,
+                );
             }
             break;
         case AstKind.EXPRESSION:
-            context.checkExpression(
+            validator.checkExpression(
                 statement.expression,
                 memberFns,
                 allLocals,
@@ -137,7 +168,7 @@ export function walkScope(
 }
 
 export function checkDeclarationStatement(
-    context: ValidatorInternals,
+    validator: Validator,
     statement: Statement & {
         kind: AstKind.DECLARATION;
     },
@@ -153,7 +184,7 @@ export function checkDeclarationStatement(
     const decl = statement.declaration;
     if (decl.kind === AstKind.FUNCTION) {
         if (decl.body) {
-            context.error(
+            validator.error(
                 `function '${decl.name}' cannot be defined nested inside another function`,
                 statement.span,
             );
@@ -161,31 +192,31 @@ export function checkDeclarationStatement(
         return;
     }
     if (decl.kind === AstKind.STRUCT) {
-        context.checkStruct(decl);
+        validator.checkStruct(decl);
         return;
     }
     if (decl.kind !== AstKind.VARIABLE) {
         return;
     }
     if (isVoidType(decl.type)) {
-        context.error(`variable '${decl.name}' cannot have type void`, statement.span);
+        validator.error(`variable '${decl.name}' cannot have type void`, statement.span);
     }
     if (decl.isStatic && !decl.isConstexpr) {
-        context.error(
+        validator.error(
             `static local variable '${decl.name}' is not allowed in a contract — its lifetime would outlive the call and bypass consensus state`,
             statement.span,
         );
     }
     if (decl.initializer)
-        context.checkInitializerCardinality(decl.type, decl.initializer, statement.span);
+        validator.checkInitializerCardinality(decl.type, decl.initializer, statement.span);
     const current = scopes[scopes.length - 1];
     if (current.has(decl.name)) {
-        context.error(`'${decl.name}' is already declared in this scope`, statement.span);
+        validator.error(`'${decl.name}' is already declared in this scope`, statement.span);
     } else if (decl.name !== "interContractCallError") {
         // Nested inter-contract calls may shadow their macro-generated error variable.
         for (let index = scopes.length - 2; index >= 0; index--) {
             if (scopes[index].has(decl.name)) {
-                context.error(
+                validator.error(
                     `'${decl.name}' shadows a declaration in an enclosing scope — locals share one slot per name, so shadowing is not supported`,
                     statement.span,
                 );

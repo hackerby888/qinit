@@ -2,68 +2,73 @@ import { AstKind } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout } from "./types";
 import type { TypeSpec, Declaration, VariableDecl } from "../ast";
-import type { ProgramAnalysisInternals } from "./program-analysis-context";
+import type { ProgramAnalysis } from "./program-analysis";
 
 export function alignOfTypeB(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     type: TypeSpec,
     templateBindings: TemplateBindings,
 ): number {
-    if (type.kind === AstKind.CONST) return context.alignOfTypeB(type.valueType, templateBindings);
+    if (type.kind === AstKind.CONST)
+        return programAnalysis.alignOfTypeB(type.valueType, templateBindings);
     if (type.kind === AstKind.REFERENCE || type.kind === AstKind.POINTER) return 4;
-    if (type.kind === AstKind.ARRAY) return context.alignOfTypeB(type.element, templateBindings);
+    if (type.kind === AstKind.ARRAY)
+        return programAnalysis.alignOfTypeB(type.element, templateBindings);
     if (type.kind === AstKind.INLINE_STRUCT) {
         // Reuse cached aggregate alignment to avoid another recursive layout walk.
-        return context.layoutOfStruct(type.struct, templateBindings).align;
+        return programAnalysis.layoutOfStruct(type.struct, templateBindings).align;
     }
     if (type.kind === AstKind.NAME) {
-        return context.alignOfNameType(type.name, templateBindings);
+        return programAnalysis.alignOfNameType(type.name, templateBindings);
     }
     if (type.kind === AstKind.TEMPLATE_INSTANCE) {
         if (type.name === "Array") {
             const elementType = type.callArguments[0];
-            return Math.min(context.alignOfTypeB(elementType, templateBindings), 8);
+            return Math.min(programAnalysis.alignOfTypeB(elementType, templateBindings), 8);
         }
-        if (context.templates.get(type.name))
-            return context.layoutOfTemplate(type.name, type.callArguments, templateBindings).align;
+        if (programAnalysis.templates.get(type.name))
+            return programAnalysis.layoutOfTemplate(type.name, type.callArguments, templateBindings)
+                .align;
         return 8;
     }
     if (type.kind === AstKind.DEPENDENT_MEMBER) {
-        const resolvedMember = context.resolveDependentMember(type, templateBindings);
+        const resolvedMember = programAnalysis.resolveDependentMember(type, templateBindings);
         return resolvedMember
-            ? context.alignOfTypeB(resolvedMember.type, resolvedMember.bindings)
+            ? programAnalysis.alignOfTypeB(resolvedMember.type, resolvedMember.bindings)
             : 1;
     }
     return 8;
 }
 
 export function alignOfNameType(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     typeName: string,
     templateBindings: TemplateBindings,
 ): number {
     const boundType = templateBindings.types.get(typeName);
-    if (boundType) return context.alignOfTypeB(boundType, templateBindings);
+    if (boundType) return programAnalysis.alignOfTypeB(boundType, templateBindings);
     const scalarSize = SCALAR_SIZE[typeName];
     if (scalarSize !== undefined) return Math.min(scalarSize, 8);
-    const typedefType = context.typedefs.get(typeName);
-    if (typedefType) return context.alignOfTypeB(typedefType, templateBindings);
-    const resolvedStruct = context.structByName(typeName, templateBindings);
-    if (resolvedStruct) return context.layoutOfStruct(resolvedStruct, templateBindings).align;
-    const qualifiedNested = context.qualifiedNestedType(typeName, templateBindings);
-    if (qualifiedNested) return context.alignOfTypeB(qualifiedNested, templateBindings);
+    const typedefType = programAnalysis.typedefs.get(typeName);
+    if (typedefType) return programAnalysis.alignOfTypeB(typedefType, templateBindings);
+    const resolvedStruct = programAnalysis.structByName(typeName, templateBindings);
+    if (resolvedStruct)
+        return programAnalysis.layoutOfStruct(resolvedStruct, templateBindings).align;
+    const qualifiedNested = programAnalysis.qualifiedNestedType(typeName, templateBindings);
+    if (qualifiedNested) return programAnalysis.alignOfTypeB(qualifiedNested, templateBindings);
     const enumAlignment =
-        context.enumSize.get(typeName) ?? context.enumSize.get(typeName.split("::").pop()!);
+        programAnalysis.enumSize.get(typeName) ??
+        programAnalysis.enumSize.get(typeName.split("::").pop()!);
     return enumAlignment ?? 4;
 }
 
 export function structAlign(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     members: Declaration[],
     templateBindings: TemplateBindings,
 ): number {
-    if (context.alignDepth > 80) return 8;
-    context.alignDepth++;
+    if (programAnalysis.alignDepth > 80) return 8;
+    programAnalysis.alignDepth++;
     try {
         let maximumAlignment = 1;
         for (const member of members) {
@@ -74,18 +79,18 @@ export function structAlign(
             ) {
                 maximumAlignment = Math.max(
                     maximumAlignment,
-                    context.alignOfTypeB((member as VariableDecl).type, templateBindings),
+                    programAnalysis.alignOfTypeB((member as VariableDecl).type, templateBindings),
                 );
             }
         }
         return Math.min(maximumAlignment, 8);
     } finally {
-        context.alignDepth--;
+        programAnalysis.alignDepth--;
     }
 }
 
 export function alignUp(
-    _programAnalysis: ProgramAnalysisInternals,
+    _programAnalysis: ProgramAnalysis,
     value: number,
     alignment: number,
 ): number {
@@ -93,24 +98,25 @@ export function alignUp(
 }
 
 export function alignOfType(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     type: TypeSpec,
     templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
 ): number {
-    return context.alignOfTypeB(type, templateBindings);
+    return programAnalysis.alignOfTypeB(type, templateBindings);
 }
 
 export function layoutOfType(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     type: TypeSpec,
     templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
 ): StructLayout | null {
-    if (type.kind === AstKind.CONST) return context.layoutOfType(type.valueType, templateBindings);
+    if (type.kind === AstKind.CONST)
+        return programAnalysis.layoutOfType(type.valueType, templateBindings);
     if (type.kind === AstKind.INLINE_STRUCT)
-        return context.layoutOfStruct(type.struct, templateBindings);
+        return programAnalysis.layoutOfStruct(type.struct, templateBindings);
     if (type.kind === AstKind.TEMPLATE_INSTANCE) {
-        return context.templates.get(type.name)
-            ? context.layoutOfTemplate(type.name, type.callArguments, templateBindings)
+        return programAnalysis.templates.get(type.name)
+            ? programAnalysis.layoutOfTemplate(type.name, type.callArguments, templateBindings)
             : null;
     }
     if (type.kind === AstKind.NAME) {
@@ -118,25 +124,27 @@ export function layoutOfType(
             ? type.name.slice(type.name.lastIndexOf("::") + 2)
             : type.name;
         const bound = templateBindings.types.get(type.name) ?? templateBindings.types.get(baseName);
-        if (bound) return context.layoutOfType(bound, templateBindings);
+        if (bound) return programAnalysis.layoutOfType(bound, templateBindings);
         if (SCALAR_SIZE[type.name] !== undefined || SCALAR_SIZE[baseName] !== undefined)
             return null;
-        const td = context.typedefs.get(type.name) ?? context.typedefs.get(baseName);
-        if (td) return context.layoutOfType(td, templateBindings);
-        const structDeclaration = context.structByName(type.name, templateBindings);
-        if (structDeclaration) return context.layoutOfStruct(structDeclaration, templateBindings);
-        const qn = context.qualifiedNestedType(type.name, templateBindings);
-        if (qn) return context.layoutOfType(qn, templateBindings);
+        const td =
+            programAnalysis.typedefs.get(type.name) ?? programAnalysis.typedefs.get(baseName);
+        if (td) return programAnalysis.layoutOfType(td, templateBindings);
+        const structDeclaration = programAnalysis.structByName(type.name, templateBindings);
+        if (structDeclaration)
+            return programAnalysis.layoutOfStruct(structDeclaration, templateBindings);
+        const qn = programAnalysis.qualifiedNestedType(type.name, templateBindings);
+        if (qn) return programAnalysis.layoutOfType(qn, templateBindings);
     }
     return null;
 }
 
 export function fieldOf(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     type: TypeSpec,
     member: string,
     templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
 ): FieldLayout | null {
-    const layout = context.layoutOfType(type, templateBindings);
+    const layout = programAnalysis.layoutOfType(type, templateBindings);
     return layout ? (layout.fields.get(member) ?? null) : null;
 }

@@ -2,10 +2,10 @@ import { AstKind } from "../../shared/enums";
 // Validation runs after parse and before codegen.
 import type { Expression, TypeSpec, Span } from "../../ast";
 import { unwrapType, evalIntegralConst } from "./validation-helpers";
-import type { ValidatorInternals } from "./validator-context";
+import type { Validator } from "./validator";
 
 export function checkInitializerCardinality(
-    context: ValidatorInternals,
+    validator: Validator,
     type: TypeSpec,
     initializer: Expression,
     span: Span,
@@ -21,19 +21,19 @@ export function checkInitializerCardinality(
     if (unwrappedType.kind === AstKind.ARRAY) {
         const size = evalIntegralConst(
             unwrappedType.size,
-            (name) => context.constants.get(name) ?? null,
+            (name) => validator.constants.get(name) ?? null,
         );
         if (size !== null && size > 0n && BigInt(callArguments.length) > size) {
-            context.error(`too many initializers for array bound ${size}`, span);
+            validator.error(`too many initializers for array bound ${size}`, span);
         }
         for (const argument of callArguments)
-            context.checkInitializerCardinality(unwrappedType.element, argument, argument.span);
+            validator.checkInitializerCardinality(unwrappedType.element, argument, argument.span);
         return;
     }
     if (type.kind === AstKind.NAME) {
-        const fields = context.aggregateFieldCount.get(type.name);
+        const fields = validator.aggregateFieldCount.get(type.name);
         if (fields !== undefined && callArguments.length > fields) {
-            context.error(
+            validator.error(
                 `too many initializers for aggregate '${type.name}' (${fields} fields)`,
                 span,
             );

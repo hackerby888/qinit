@@ -1,28 +1,28 @@
 import { TokenKind } from "../../shared/enums";
-import type { LexerInternals } from "./lexer-context";
+import type { Lexer } from "./lexer";
 import type { Token } from "./tokens";
 
 export function lexOperator(
-    context: LexerInternals,
+    lexer: Lexer,
     start: number,
     startLine: number,
     startCol: number,
 ): Token {
-    const ch = context.advance();
-    const next = context.peekChar();
+    const ch = lexer.advance();
+    const next = lexer.peekChar();
     const mk = (kind: TokenKind): Token => ({
         kind,
         text: ch,
-        span: context.makeSpan(start, startLine, startCol),
+        span: lexer.makeSpan(start, startLine, startCol),
     });
     const mk2 = (kind: TokenKind, ch2: string): Token => {
-        context.advance();
-        return { kind, text: ch + ch2, span: context.makeSpan(start, startLine, startCol) };
+        lexer.advance();
+        return { kind, text: ch + ch2, span: lexer.makeSpan(start, startLine, startCol) };
     };
     const mk3 = (kind: TokenKind, ch2: string, ch3: string): Token => {
-        context.advance();
-        context.advance();
-        return { kind, text: ch + ch2 + ch3, span: context.makeSpan(start, startLine, startCol) };
+        lexer.advance();
+        lexer.advance();
+        return { kind, text: ch + ch2 + ch3, span: lexer.makeSpan(start, startLine, startCol) };
     };
     switch (ch) {
         case "{":
@@ -51,7 +51,7 @@ export function lexOperator(
             if (next === "*") {
                 return mk2(TokenKind.DOT_STAR, "*");
             }
-            if (next === "." && context.peekChar(2) === ".") {
+            if (next === "." && lexer.peekChar(2) === ".") {
                 return mk3(TokenKind.ELLIPSIS, ".", ".");
             }
             return mk(TokenKind.DOT);
@@ -71,7 +71,7 @@ export function lexOperator(
                 return mk2(TokenKind.MINUS_MINUS, "-");
             }
             if (next === ">") {
-                const after = context.peekChar(1);
+                const after = lexer.peekChar(1);
                 if (after === "*") {
                     return mk3(TokenKind.ARROW_STAR, ">", "*");
                 }
@@ -105,14 +105,14 @@ export function lexOperator(
             return mk(TokenKind.BANG);
         case "<":
             if (next === "=") {
-                const after = context.peekChar(1);
+                const after = lexer.peekChar(1);
                 if (after === ">") {
                     return mk3(TokenKind.SPACESHIP, "=", ">");
                 }
                 return mk2(TokenKind.LT_EQ, "=");
             }
             if (next === "<") {
-                const after = context.peekChar(1);
+                const after = lexer.peekChar(1);
                 if (after === "=") {
                     return mk3(TokenKind.L_SHIFT_EQ, "<", "=");
                 }
@@ -124,7 +124,7 @@ export function lexOperator(
                 return mk2(TokenKind.GT_EQ, "=");
             }
             if (next === ">") {
-                const after = context.peekChar(1);
+                const after = lexer.peekChar(1);
                 if (after === "=") {
                     return mk3(TokenKind.R_SHIFT_EQ, ">", "=");
                 }
@@ -162,7 +162,7 @@ export function lexOperator(
             return {
                 kind: TokenKind.IDENTIFIER,
                 text: ch,
-                span: context.makeSpan(start, startLine, startCol),
+                span: lexer.makeSpan(start, startLine, startCol),
             };
     }
 }

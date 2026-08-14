@@ -3,35 +3,35 @@ import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, Expression } from "../ast";
 import { parseIntLiteral as lexParseIntLiteral } from "../frontend/lexer";
-import type { ProgramAnalysisInternals } from "./program-analysis-context";
+import type { ProgramAnalysis } from "./program-analysis";
 
-export function typeOfConstant(context: ProgramAnalysisInternals, name: string): TypeSpec | null {
+export function typeOfConstant(programAnalysis: ProgramAnalysis, name: string): TypeSpec | null {
     return (
-        context.constexprType.get(name) ??
-        context.enumConstType.get(name) ??
+        programAnalysis.constexprType.get(name) ??
+        programAnalysis.enumConstType.get(name) ??
         (name.includes("::")
-            ? context.typeOfConstant(name.slice(name.lastIndexOf("::") + 2))
+            ? programAnalysis.typeOfConstant(name.slice(name.lastIndexOf("::") + 2))
             : null)
     );
 }
 
-export function scalarStorageType(context: ProgramAnalysisInternals, type: TypeSpec): TypeSpec {
-    const dereferencedType = context.derefType(type);
+export function scalarStorageType(programAnalysis: ProgramAnalysis, type: TypeSpec): TypeSpec {
+    const dereferencedType = programAnalysis.derefType(type);
     if (dereferencedType.kind !== AstKind.NAME) return dereferencedType;
     const base = dereferencedType.name.includes("::")
         ? dereferencedType.name.slice(dereferencedType.name.lastIndexOf("::") + 2)
         : dereferencedType.name;
     const normalized =
         SCALAR_SIZE[base] !== undefined ? { ...dereferencedType, name: base } : dereferencedType;
-    return context.enumUnderlying.get(normalized.name) ?? normalized;
+    return programAnalysis.enumUnderlying.get(normalized.name) ?? normalized;
 }
 
 export function normalizeConst(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     value: bigint,
     type: TypeSpec,
 ): bigint {
-    const storageType = context.scalarStorageType(type);
+    const storageType = programAnalysis.scalarStorageType(type);
     if (storageType.kind !== AstKind.NAME) return value;
     const size = SCALAR_SIZE[storageType.name];
     if (size === undefined || size >= 8) return value;
@@ -47,65 +47,65 @@ export function normalizeConst(
 }
 
 export function resolveConst(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
 ): bigint | null {
     const separator = name.lastIndexOf("::");
     if (separator > 0) {
-        const qualified = context.evalQualifiedConst(
+        const qualified = programAnalysis.evalQualifiedConst(
             name.slice(0, separator),
             name.slice(separator + 2),
             templateBindings,
         );
         if (qualified !== null) return qualified;
     }
-    const cached = context.constCache.get(name);
+    const cached = programAnalysis.constCache.get(name);
     if (cached !== undefined) return cached;
-    const en = context.enumConst.get(name);
+    const en = programAnalysis.enumConst.get(name);
     if (en !== undefined) {
-        context.constCache.set(name, en);
+        programAnalysis.constCache.set(name, en);
         return en;
     }
-    const initializer = context.constexprInit.get(name);
+    const initializer = programAnalysis.constexprInit.get(name);
     if (initializer === undefined) {
         // Resolve a callee's contract-index constant from its supplied metadata.
         const ci = name.match(/^(\w+)_CONTRACT_INDEX$/);
         if (ci) {
-            const candidate = context.callees.get(ci[1]);
+            const candidate = programAnalysis.callees.get(ci[1]);
             if (candidate !== undefined) {
-                context.constCache.set(name, BigInt(candidate.index));
+                programAnalysis.constCache.set(name, BigInt(candidate.index));
                 return BigInt(candidate.index);
             }
         }
         // Fall back to the unqualified tail of a namespace constant.
         return separator >= 0
-            ? context.resolveConst(name.slice(separator + 2), templateBindings)
+            ? programAnalysis.resolveConst(name.slice(separator + 2), templateBindings)
             : null;
     }
-    if (context.constInProgress.has(name)) return null; // cyclic constexpr — give up
-    context.constInProgress.add(name);
+    if (programAnalysis.constInProgress.has(name)) return null; // cyclic constexpr — give up
+    programAnalysis.constInProgress.add(name);
     try {
-        const numericValue = context.normalizeConst(
-            context.evalConstBig(initializer, EMPTY_TEMPLATE_BINDINGS),
-            context.constexprType.get(name) ?? { kind: AstKind.NAME, name: "sint64" },
+        const numericValue = programAnalysis.normalizeConst(
+            programAnalysis.evalConstBig(initializer, EMPTY_TEMPLATE_BINDINGS),
+            programAnalysis.constexprType.get(name) ?? { kind: AstKind.NAME, name: "sint64" },
         );
-        context.constCache.set(name, numericValue);
+        programAnalysis.constCache.set(name, numericValue);
         return numericValue;
     } finally {
-        context.constInProgress.delete(name);
+        programAnalysis.constInProgress.delete(name);
     }
 }
 
 export function evalConst(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     expression: Expression,
     templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
 ): number {
-    return Number(context.evalConstBig(expression, templateBindings));
+    return Number(programAnalysis.evalConstBig(expression, templateBindings));
 }
 
-export function parseIntLiteral(_context: ProgramAnalysisInternals, value: string): bigint {
+export function parseIntLiteral(value: string): bigint {
     try {
         return lexParseIntLiteral(value);
     } catch {
@@ -114,36 +114,45 @@ export function parseIntLiteral(_context: ProgramAnalysisInternals, value: strin
 }
 
 export function evalConstBig(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     expression: Expression,
     templateBindings: TemplateBindings,
 ): bigint {
     switch (expression.kind) {
         case AstKind.INT_LITERAL:
-            return context.parseIntLiteral(expression.value);
+            return programAnalysis.parseIntLiteral(expression.value);
         case AstKind.BOOL_LITERAL:
             return expression.value ? 1n : 0n;
         case AstKind.CHAR_LITERAL:
             return BigInt(expression.value);
         case AstKind.PAREN:
-            return context.evalConstBig(expression.expression, templateBindings);
+            return programAnalysis.evalConstBig(expression.expression, templateBindings);
         case AstKind.IDENTIFIER: {
             const numericValue = templateBindings.values.get(expression.name);
             if (numericValue !== undefined) return numericValue;
-            const resolvedConstant = context.resolveConst(expression.name, templateBindings);
+            const resolvedConstant = programAnalysis.resolveConst(
+                expression.name,
+                templateBindings,
+            );
             if (resolvedConstant !== null) return resolvedConstant;
             return 0n;
         }
         case AstKind.UNARY_OP: {
-            const constantValue = context.evalConstBig(expression.argument, templateBindings);
+            const constantValue = programAnalysis.evalConstBig(
+                expression.argument,
+                templateBindings,
+            );
             if (expression.operator === UnaryOp.MINUS) return -constantValue;
             if (expression.operator === UnaryOp.BITWISE_NOT) return ~constantValue;
             if (expression.operator === UnaryOp.LOGICAL_NOT) return constantValue === 0n ? 1n : 0n;
             return constantValue;
         }
         case AstKind.BINARY_OP: {
-            const constantValue = context.evalConstBig(expression.left, templateBindings);
-            const constantValueCandidate = context.evalConstBig(expression.right, templateBindings);
+            const constantValue = programAnalysis.evalConstBig(expression.left, templateBindings);
+            const constantValueCandidate = programAnalysis.evalConstBig(
+                expression.right,
+                templateBindings,
+            );
             switch (expression.operator) {
                 case BinaryOp.ADD:
                     return constantValue + constantValueCandidate;
@@ -186,15 +195,15 @@ export function evalConstBig(
             }
         }
         case AstKind.TERNARY:
-            return context.evalConstBig(expression.condition, templateBindings) !== 0n
-                ? context.evalConstBig(expression.then, templateBindings)
-                : context.evalConstBig(expression.else_, templateBindings);
+            return programAnalysis.evalConstBig(expression.condition, templateBindings) !== 0n
+                ? programAnalysis.evalConstBig(expression.then, templateBindings)
+                : programAnalysis.evalConstBig(expression.else_, templateBindings);
         case AstKind.SIZEOF_TYPE:
-            return BigInt(context.sizeOfType(expression.type, templateBindings));
+            return BigInt(programAnalysis.sizeOfType(expression.type, templateBindings));
         case AstKind.C_CAST:
         case AstKind.STATIC_CAST:
-            return context.normalizeConst(
-                context.evalConstBig(expression.expression, templateBindings),
+            return programAnalysis.normalizeConst(
+                programAnalysis.evalConstBig(expression.expression, templateBindings),
                 expression.type,
             );
         case AstKind.CALL:
@@ -209,7 +218,7 @@ export function evalConstBig(
                       : null;
             if (fn) {
                 const numericValue = expression.callArguments.map((argument) =>
-                    context.evalConstBig(argument, templateBindings),
+                    programAnalysis.evalConstBig(argument, templateBindings),
                 );
                 switch (fn) {
                     case "div":
@@ -236,9 +245,9 @@ export function evalConstBig(
 }
 
 export function evalConstNum(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     expression: Expression,
     templateBindings: TemplateBindings,
 ): number {
-    return Number(context.evalConstBig(expression, templateBindings));
+    return Number(programAnalysis.evalConstBig(expression, templateBindings));
 }

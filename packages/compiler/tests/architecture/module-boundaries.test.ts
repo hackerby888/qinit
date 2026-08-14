@@ -26,7 +26,7 @@ const FORBIDDEN_LAYER_IMPORTS: Record<string, Set<string>> = Object.fromEntries(
 );
 
 // Cross-layer cycles are the ones that matter; the type-only cycles inside a single layer are the
-// established `*-context.ts` pattern, where a split class hands itself back to its own parts.
+// established split-class pattern, where a class hands itself back to the parts it delegates to.
 const MAX_FILE_LINES = 750;
 
 interface ModuleReference {

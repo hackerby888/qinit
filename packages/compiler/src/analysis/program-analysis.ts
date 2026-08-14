@@ -26,16 +26,16 @@ import type {
 import type { SemanticAnalyzer } from "./semantic-analysis";
 import type { PlatformCapability } from "../shared/enums";
 import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
-import * as analysisPart0 from "./declaration-index";
-import * as analysisPart1 from "./constant-evaluator";
-import * as analysisPart2 from "./type-resolver";
-import * as analysisPart3 from "./template-resolver";
-import * as analysisPart4 from "./struct-layout";
-import * as analysisPart5 from "./type-layout";
-import * as analysisPart6 from "./struct-index";
-import * as analysisPart7 from "./function-index";
-import * as analysisPart8 from "./container-layout";
-import * as analysisPart9 from "./analysis-diagnostics";
+import * as declarationIndex from "./declaration-index";
+import * as constantEvaluator from "./constant-evaluator";
+import * as typeResolver from "./type-resolver";
+import * as templateResolver from "./template-resolver";
+import * as structLayout from "./struct-layout";
+import * as typeLayout from "./type-layout";
+import * as structIndex from "./struct-index";
+import * as functionIndex from "./function-index";
+import * as containerLayout from "./container-layout";
+import * as analysisDiagnostics from "./analysis-diagnostics";
 
 export class ProgramAnalysis {
     assetEnumerationRecord: {
@@ -101,7 +101,7 @@ export class ProgramAnalysis {
         nsPrefix = "",
         inheritedUsing: string[] = [],
     ): void {
-        return analysisPart0.registerTopLevelDeclarations(
+        return declarationIndex.registerTopLevelDeclarations(
             this,
             declarations,
             nsPrefix,
@@ -109,10 +109,10 @@ export class ProgramAnalysis {
         );
     }
     captureMemberNamespaceContexts(members: Declaration[], context: NamespaceLookupContext): void {
-        return analysisPart0.captureMemberNamespaceContexts(this, members, context);
+        return declarationIndex.captureMemberNamespaceContexts(this, members, context);
     }
     namespaceContextOf(declaration?: object | null): NamespaceLookupContext {
-        return analysisPart0.namespaceContextOf(this, declaration);
+        return declarationIndex.namespaceContextOf(this, declaration);
     }
     /**
      * Ordered lookup keys for a free helper / lib-fn call.
@@ -127,17 +127,17 @@ export class ProgramAnalysis {
         sourceNamespace?: string,
         usingNamespaces: string[] = [],
     ): string[] {
-        return analysisPart0.namespaceCandidates(this, name, sourceNamespace, usingNamespaces);
+        return declarationIndex.namespaceCandidates(name, sourceNamespace, usingNamespaces);
     }
     // Collect named constexpr/const-with-initializer values and enum constants from a member list.
     collectConstants(members: Declaration[]): void {
-        return analysisPart0.collectConstants(this, members);
+        return declarationIndex.collectConstants(this, members);
     }
     registerLibFnTemplate(key: string, fn: FunctionTemplateDecl): void {
-        return analysisPart0.registerLibFnTemplate(this, key, fn);
+        return declarationIndex.registerLibFnTemplate(this, key, fn);
     }
     collectConstant(variableDeclaration: VariableDecl): void {
-        return analysisPart0.collectConstant(this, variableDeclaration);
+        return declarationIndex.collectConstant(this, variableDeclaration);
     }
     collectEnum(type: {
         name?: string;
@@ -147,23 +147,23 @@ export class ProgramAnalysis {
             value?: Expression;
         }[];
     }): void {
-        return analysisPart0.collectEnum(this, type);
+        return declarationIndex.collectEnum(this, type);
     }
     typeOfConstant(name: string): TypeSpec | null {
-        return analysisPart1.typeOfConstant(this, name);
+        return constantEvaluator.typeOfConstant(this, name);
     }
     scalarStorageType(type: TypeSpec): TypeSpec {
-        return analysisPart1.scalarStorageType(this, type);
+        return constantEvaluator.scalarStorageType(this, type);
     }
     normalizeConst(value: bigint, type: TypeSpec): bigint {
-        return analysisPart1.normalizeConst(this, value, type);
+        return constantEvaluator.normalizeConst(this, value, type);
     }
     // Resolve a named constant (enum constant or constexpr) to its integer value, or null if unknown.
     resolveConst(
         name: string,
         templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
     ): bigint | null {
-        return analysisPart1.resolveConst(this, name, templateBindings);
+        return constantEvaluator.resolveConst(this, name, templateBindings);
     }
     // ---- struct sizing (binding-aware: template params resolve through `b`) ----
     sizeDepth = 0;
@@ -171,10 +171,10 @@ export class ProgramAnalysis {
         type: TypeSpec,
         templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
     ): number {
-        return analysisPart2.sizeOfType(this, type, templateBindings);
+        return typeResolver.sizeOfType(this, type, templateBindings);
     }
     sizeOfTypeInner(type: TypeSpec, templateBindings: TemplateBindings): number {
-        return analysisPart2.sizeOfTypeInner(this, type, templateBindings);
+        return typeResolver.sizeOfTypeInner(this, type, templateBindings);
     }
     // Resolve a dependent member type such as `Selector<args>::member`.
     resolveDependentMember(
@@ -189,7 +189,7 @@ export class ProgramAnalysis {
         type: TypeSpec;
         bindings: TemplateBindings;
     } | null {
-        return analysisPart2.resolveDependentMember(this, type, templateBindings);
+        return typeResolver.resolveDependentMember(this, type, templateBindings);
     }
     // Select the matching template definition and bind its parameters.
     instantiateTemplate(
@@ -200,7 +200,7 @@ export class ProgramAnalysis {
         templateDeclaration: ClassTemplate;
         b: TemplateBindings;
     } | null {
-        return analysisPart3.instantiateTemplate(this, name, callArguments, parent);
+        return templateResolver.instantiateTemplate(this, name, callArguments, parent);
     }
     matchTemplateSpecialization(
         name: string,
@@ -210,14 +210,14 @@ export class ProgramAnalysis {
         templateDeclaration: ClassTemplate;
         b: TemplateBindings;
     } | null {
-        return analysisPart3.matchTemplateSpecialization(this, name, resolvedArguments, parent);
+        return templateResolver.matchTemplateSpecialization(this, name, resolvedArguments, parent);
     }
     instantiateTemplateBindings(
         templateDeclaration: ClassTemplate,
         resolvedArguments: TypeSpec[],
         parent: TemplateBindings,
     ): TemplateBindings {
-        return analysisPart3.instantiateTemplateBindings(
+        return templateResolver.instantiateTemplateBindings(
             this,
             templateDeclaration,
             resolvedArguments,
@@ -229,7 +229,7 @@ export class ProgramAnalysis {
         templateDeclaration: ClassTemplate,
         templateBindings: TemplateBindings,
     ): TemplateBindings {
-        return analysisPart3.withStaticConsts(this, templateDeclaration, templateBindings);
+        return templateResolver.withStaticConsts(this, templateDeclaration, templateBindings);
     }
     // Instantiate a template and compute its layout from concrete arguments.
     layoutOfTemplate(
@@ -237,26 +237,26 @@ export class ProgramAnalysis {
         callArguments: TypeSpec[],
         parent: TemplateBindings,
     ): StructLayout {
-        return analysisPart3.layoutOfTemplate(this, name, callArguments, parent);
+        return templateResolver.layoutOfTemplate(this, name, callArguments, parent);
     }
     // Add member structs to a child scope for sibling type references.
     withLocalStructs(members: Declaration[], templateBindings: TemplateBindings): TemplateBindings {
-        return analysisPart3.withLocalStructs(this, members, templateBindings);
+        return templateResolver.withLocalStructs(members, templateBindings);
     }
     // Carry sibling nested structs and unions as inline types.
     inlineNestedStruct(type: TypeSpec, templateBindings: TemplateBindings): TypeSpec {
-        return analysisPart3.inlineNestedStruct(this, type, templateBindings);
+        return templateResolver.inlineNestedStruct(this, type, templateBindings);
     }
     fallbackTemplateLayout(
         name: string,
         callArguments: TypeSpec[],
         templateBindings: TemplateBindings,
     ): StructLayout {
-        return analysisPart3.fallbackTemplateLayout(this, name, callArguments, templateBindings);
+        return templateResolver.fallbackTemplateLayout(this, name, callArguments, templateBindings);
     }
     // Resolve template bindings and contract or QPI typedefs to concrete types.
     resolveType(type: TypeSpec, templateBindings: TemplateBindings, depth = 0): TypeSpec {
-        return analysisPart2.resolveType(this, type, templateBindings, depth);
+        return typeResolver.resolveType(this, type, templateBindings, depth);
     }
     // Resolve member types against their parent template instance.
     concreteMemberType(
@@ -266,7 +266,7 @@ export class ProgramAnalysis {
         },
         depth = 0,
     ): TypeSpec {
-        return analysisPart2.concreteMemberType(this, type, parent, depth);
+        return typeResolver.concreteMemberType(this, type, parent, depth);
     }
     resolveInScope(
         type: TypeSpec,
@@ -274,7 +274,7 @@ export class ProgramAnalysis {
         nested: Map<string, TypeSpec>,
         depth: number,
     ): TypeSpec {
-        return analysisPart2.resolveInScope(this, type, scope, nested, depth);
+        return typeResolver.resolveInScope(this, type, scope, nested, depth);
     }
     resolveNamedTypeInScope(
         type: Extract<
@@ -287,7 +287,7 @@ export class ProgramAnalysis {
         nested: Map<string, TypeSpec>,
         depth: number,
     ): TypeSpec {
-        return analysisPart2.resolveNamedTypeInScope(this, type, scope, nested, depth);
+        return typeResolver.resolveNamedTypeInScope(this, type, scope, nested, depth);
     }
     resolveTemplateInstanceArguments(
         type: Extract<
@@ -300,24 +300,24 @@ export class ProgramAnalysis {
         nested: Map<string, TypeSpec>,
         depth: number,
     ): TypeSpec[] {
-        return analysisPart2.resolveTemplateInstanceArguments(this, type, scope, nested, depth);
+        return typeResolver.resolveTemplateInstanceArguments(this, type, scope, nested, depth);
     }
     // Substitute concrete type and value bindings into a type.
     substInBindings(type: TypeSpec, bind: TemplateBindings): TypeSpec {
-        return analysisPart2.substInBindings(this, type, bind);
+        return typeResolver.substInBindings(this, type, bind);
     }
     // Public: recover the integer value of a (possibly value-) template arg, e.g. the `4` of Array<sint64,4>.
     valueOfTypeArg(
         type: TypeSpec,
         templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
     ): bigint {
-        return analysisPart2.valueOfTypeArg(this, type, templateBindings);
+        return typeResolver.valueOfTypeArg(this, type, templateBindings);
     }
     evalConstFromType(type: TypeSpec, templateBindings: TemplateBindings): bigint {
-        return analysisPart2.evalConstFromType(this, type, templateBindings);
+        return typeResolver.evalConstFromType(this, type, templateBindings);
     }
     layoutOf(struct: StructDecl): StructLayout {
-        return analysisPart4.layoutOf(this, struct);
+        return structLayout.layoutOf(this, struct);
     }
     // Collect a base class's leading fields and static constants.
     baseContribution(
@@ -327,7 +327,7 @@ export class ProgramAnalysis {
         layout: StructLayout;
         consts: Map<string, bigint>;
     } | null {
-        return analysisPart4.baseContribution(this, baseType, parentB);
+        return structLayout.baseContribution(this, baseType, parentB);
     }
     // Evaluate a qualified static constexpr under the current bindings.
     evalQualifiedConst(
@@ -335,20 +335,20 @@ export class ProgramAnalysis {
         member: string,
         templateBindings: TemplateBindings,
     ): bigint | null {
-        return analysisPart4.evalQualifiedConst(this, typeName, member, templateBindings);
+        return structLayout.evalQualifiedConst(this, typeName, member, templateBindings);
     }
     // Key layout caches by declaration identity, not a possibly shared name.
     structKeys = new WeakMap<StructDecl, string>();
     structKeyCounter = 0;
     structCacheKey(struct: StructDecl): string {
-        return analysisPart4.structCacheKey(this, struct);
+        return structLayout.structCacheKey(this, struct);
     }
     layoutOfStruct(struct: StructDecl, templateBindings: TemplateBindings): StructLayout {
-        return analysisPart4.layoutOfStruct(this, struct, templateBindings);
+        return structLayout.layoutOfStruct(this, struct, templateBindings);
     }
     inProgress = new Set<string>();
     bindingSig(templateBindings: TemplateBindings): string {
-        return analysisPart4.bindingSig(this, templateBindings);
+        return structLayout.bindingSig(this, templateBindings);
     }
     layoutOfMembers(
         members: Declaration[],
@@ -357,100 +357,100 @@ export class ProgramAnalysis {
         isUnion = false,
         bases: TypeSpec[] = [],
     ): StructLayout {
-        return analysisPart4.layoutOfMembers(this, members, bIn, cacheKey, isUnion, bases);
+        return structLayout.layoutOfMembers(this, members, bIn, cacheKey, isUnion, bases);
     }
     alignOfTypeB(type: TypeSpec, templateBindings: TemplateBindings): number {
-        return analysisPart5.alignOfTypeB(this, type, templateBindings);
+        return typeLayout.alignOfTypeB(this, type, templateBindings);
     }
     alignOfNameType(typeName: string, templateBindings: TemplateBindings): number {
-        return analysisPart5.alignOfNameType(this, typeName, templateBindings);
+        return typeLayout.alignOfNameType(this, typeName, templateBindings);
     }
     typeKey(type: TypeSpec): string {
-        return analysisPart2.typeKey(this, type);
+        return typeResolver.typeKey(this, type);
     }
     alignDepth = 0;
     structAlign(members: Declaration[], templateBindings: TemplateBindings): number {
-        return analysisPart5.structAlign(this, members, templateBindings);
+        return typeLayout.structAlign(this, members, templateBindings);
     }
     // Evaluate a constant expression, resolving template non-type params (e.g. L) through `b.values`.
     evalConst(
         expression: Expression,
         templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
     ): number {
-        return analysisPart1.evalConst(this, expression, templateBindings);
+        return constantEvaluator.evalConst(this, expression, templateBindings);
     }
     // Parse an integer literal token (hex/bin/octal/dec, with optional u/l/ull suffixes) to a bigint.
     parseIntLiteral(value: string): bigint {
-        return analysisPart1.parseIntLiteral(this, value);
+        return constantEvaluator.parseIntLiteral(value);
     }
     evalConstBig(expression: Expression, templateBindings: TemplateBindings): bigint {
-        return analysisPart1.evalConstBig(this, expression, templateBindings);
+        return constantEvaluator.evalConstBig(this, expression, templateBindings);
     }
     alignUp(count: number, argument: number): number {
-        return analysisPart5.alignUp(this, count, argument);
+        return typeLayout.alignUp(this, count, argument);
     }
     // ---- collect nested structs ----
     collectNested(contract: StructDecl): void {
-        return analysisPart6.collectNested(this, contract);
+        return structIndex.collectNested(this, contract);
     }
     // Register nested declarations from a callee contract translation unit under `${name}::`.
     registerCalleeContractDeclarations(name: string, declarations: Declaration[]): void {
-        return analysisPart6.registerCalleeContractDeclarations(this, name, declarations);
+        return structIndex.registerCalleeContractDeclarations(this, name, declarations);
     }
     // Register nested-struct methods in the shared method table.
     captureStructMethods(structDeclaration: StructDecl, names: string[]): void {
-        return analysisPart6.captureStructMethods(this, structDeclaration, names);
+        return structIndex.captureStructMethods(this, structDeclaration, names);
     }
     collectNestedStructs(parent: StructDecl, prefix: string): void {
-        return analysisPart6.collectNestedStructs(this, parent, prefix);
+        return structIndex.collectNestedStructs(this, parent, prefix);
     }
     // ---- type → layout / field resolution (used by body codegen for address computation) ----
     alignOfType(
         type: TypeSpec,
         templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
     ): number {
-        return analysisPart5.alignOfType(this, type, templateBindings);
+        return typeLayout.alignOfType(this, type, templateBindings);
     }
     // Resolve structs through binding, nested, and global tables.
     structByName(name: string, templateBindings: TemplateBindings): StructDecl | undefined {
-        return analysisPart6.structByName(this, name, templateBindings);
+        return structIndex.structByName(this, name, templateBindings);
     }
     // Resolve qualified nested types through bindings, typedefs, and structs.
     qualifiedNestedType(name: string, templateBindings: TemplateBindings): TypeSpec | null {
-        return analysisPart6.qualifiedNestedType(this, name, templateBindings);
+        return structIndex.qualifiedNestedType(this, name, templateBindings);
     }
     walkNestedSegments(
         sd: StructDecl | null,
         segs: string[],
         templateBindings: TemplateBindings,
     ): TypeSpec | null {
-        return analysisPart6.walkNestedSegments(this, sd, segs, templateBindings);
+        return structIndex.walkNestedSegments(this, sd, segs, templateBindings);
     }
     // Strip const and reference wrappers to the underlying type.
     derefType(type: TypeSpec): TypeSpec {
-        return analysisPart2.derefType(this, type);
+        return typeResolver.derefType(this, type);
     }
     // True for a void return type. The parser spells void with both {kind:"void"} nodes and dedicated tokens.
     isVoidType(type: TypeSpec): boolean {
-        return analysisPart2.isVoidType(this, type);
+        return typeResolver.isVoidType(this, type);
     }
     // True if a type is an aggregate (id/m256i/struct/array/container) — passed/returned by address rather than as an i64 value.
     isAggregateType(type: TypeSpec): boolean {
-        return analysisPart2.isAggregateType(this, type);
+        return typeResolver.isAggregateType(this, type);
     }
     // Resolve a struct-ish type to its (cached) field layout, or null for scalars/containers.
     layoutOfType(
         type: TypeSpec,
         templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
     ): StructLayout | null {
-        return analysisPart5.layoutOfType(this, type, templateBindings);
+        return typeLayout.layoutOfType(this, type, templateBindings);
     }
     // Resolve a type to its StructDecl (for inline member-method lookup), following typedefs/bindings.
     structOf(
         type: TypeSpec,
         templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
     ): StructDecl | null {
-        return analysisPart6.structOf(this, type, templateBindings);
+        return structIndex.structOf(this, type, templateBindings);
     }
     // Look up a field within a struct-ish type, returning its offset/size/type.
     fieldOf(
@@ -458,11 +458,11 @@ export class ProgramAnalysis {
         member: string,
         templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
     ): FieldLayout | null {
-        return analysisPart5.fieldOf(this, type, member, templateBindings);
+        return typeLayout.fieldOf(this, type, member, templateBindings);
     }
     // ---- public helpers for compiling instantiated container methods ----
     typeKeyOf(type: TypeSpec): string {
-        return analysisPart2.typeKeyOf(this, type);
+        return typeResolver.typeKeyOf(this, type);
     }
     // The full layout of a container instantiation (HashMap<id,uint64,1024> → _elements/_occupationFlags/...).
     containerLayout(
@@ -470,7 +470,7 @@ export class ProgramAnalysis {
         callArguments: TypeSpec[],
         templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
     ): StructLayout {
-        return analysisPart8.containerLayout(this, name, callArguments, templateBindings);
+        return containerLayout.containerLayout(this, name, callArguments, templateBindings);
     }
     // template params → concrete args (KeyT→id, L→1024), including authoritative defaults such as
     // HashFunc = HashFunction<KeyT>.
@@ -479,23 +479,23 @@ export class ProgramAnalysis {
         callArguments: TypeSpec[],
         templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
     ): TemplateBindings {
-        return analysisPart3.bindContainer(this, name, callArguments, templateBindings);
+        return templateResolver.bindContainer(this, name, callArguments, templateBindings);
     }
     // Evaluate the container's static constexpr members (e.g. _nEncodedFlags = L>32?32:L) under bindings.
     staticConstsOf(name: string, templateBindings: TemplateBindings): Map<string, bigint> {
-        return analysisPart3.staticConstsOf(this, name, templateBindings);
+        return templateResolver.staticConstsOf(this, name, templateBindings);
     }
     evalConstNum(expression: Expression, templateBindings: TemplateBindings): number {
-        return analysisPart1.evalConstNum(this, expression, templateBindings);
+        return constantEvaluator.evalConstNum(this, expression, templateBindings);
     }
     methodOwnerNames(name: string, seen = new Set<string>()): string[] {
-        return analysisPart7.methodOwnerNames(this, name, seen);
+        return functionIndex.methodOwnerNames(this, name, seen);
     }
     baseTemplateName(type: TypeSpec): string | null {
-        return analysisPart7.baseTemplateName(this, type);
+        return functionIndex.baseTemplateName(type);
     }
     hasInstanceMethod(name: string, methodName: string): boolean {
-        return analysisPart7.hasInstanceMethod(this, name, methodName);
+        return functionIndex.hasInstanceMethod(this, name, methodName);
     }
     resolveSourceMethodDefinition(
         ownerTypeName: string,
@@ -504,7 +504,7 @@ export class ProgramAnalysis {
         methodArgumentCount?: number,
         parameterTypeDiscriminator?: string,
     ): ResolvedSourceMethod | null {
-        return analysisPart7.resolveSourceMethodDefinition(
+        return functionIndex.resolveSourceMethodDefinition(
             this,
             ownerTypeName,
             ownerTemplateArguments,
@@ -519,7 +519,7 @@ export class ProgramAnalysis {
         ownerTemplateArguments: TypeSpec[],
         ownerBindings: TemplateBindings,
     ): string | undefined {
-        return analysisPart7.buildMethodSpecializationKey(
+        return functionIndex.buildMethodSpecializationKey(
             this,
             methodName,
             methodArgumentCount,
@@ -532,18 +532,17 @@ export class ProgramAnalysis {
         methodArgumentCount: number | undefined,
         parameterTypeDiscriminator: string | undefined,
     ): string | undefined {
-        return analysisPart7.buildMethodOverloadKey(
-            this,
+        return functionIndex.buildMethodOverloadKey(
             methodName,
             methodArgumentCount,
             parameterTypeDiscriminator,
         );
     }
     warn(message: string, at: number | Span): void {
-        return analysisPart9.warn(this, message, at);
+        return analysisDiagnostics.warn(this, message, at);
     }
     // Deduplicate hard semantic errors raised during speculative emission.
     error(message: string, at: number | Span): void {
-        return analysisPart9.error(this, message, at);
+        return analysisDiagnostics.error(this, message, at);
     }
 }

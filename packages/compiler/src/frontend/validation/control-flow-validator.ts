@@ -1,10 +1,10 @@
 import { AstKind } from "../../shared/enums";
 import type { Statement, Expression } from "../../ast";
 import { evalIntegralConst } from "./validation-helpers";
-import type { ValidatorInternals } from "./validator-context";
+import type { Validator } from "./validator";
 
 export function checkSwitchCases(
-    context: ValidatorInternals,
+    validator: Validator,
     body: Statement,
     allLocals: Set<string>,
 ): void {
@@ -15,7 +15,7 @@ export function checkSwitchCases(
             case AstKind.CASE: {
                 const value = evalIntegralConst(
                     statement.value,
-                    (name) => context.constants.get(name) ?? null,
+                    (name) => validator.constants.get(name) ?? null,
                 );
                 const key = value === null ? null : `#${value}`;
                 if (
@@ -23,14 +23,14 @@ export function checkSwitchCases(
                     statement.value.kind === AstKind.IDENTIFIER &&
                     allLocals.has(statement.value.name)
                 ) {
-                    context.error(
+                    validator.error(
                         `case label must be an integral constant expression`,
                         statement.span,
                     );
                 }
                 if (key !== null) {
                     if (keys.has(key)) {
-                        context.error(`duplicate case label`, statement.span);
+                        validator.error(`duplicate case label`, statement.span);
                     }
                     keys.add(key);
                 }
@@ -38,7 +38,7 @@ export function checkSwitchCases(
             }
             case AstKind.DEFAULT:
                 defaults++;
-                if (defaults > 1) context.error(`duplicate default label`, statement.span);
+                if (defaults > 1) validator.error(`duplicate default label`, statement.span);
                 break;
             case AstKind.COMPOUND:
                 for (const bodyItem of statement.body) {
@@ -62,7 +62,7 @@ export function checkSwitchCases(
 }
 
 export function walkStatements(
-    context: ValidatorInternals,
+    validator: Validator,
     statement: Statement,
     visit: (statement: Statement) => void,
 ): void {
@@ -70,31 +70,30 @@ export function walkStatements(
     switch (statement.kind) {
         case AstKind.COMPOUND:
             for (const bodyItem of statement.body) {
-                context.walkStatements(bodyItem, visit);
+                validator.walkStatements(bodyItem, visit);
             }
             break;
         case AstKind.IF:
-            context.walkStatements(statement.then, visit);
+            validator.walkStatements(statement.then, visit);
             if (statement.else_) {
-                context.walkStatements(statement.else_, visit);
+                validator.walkStatements(statement.else_, visit);
             }
             break;
         case AstKind.FOR:
             if (statement.initializer) {
-                context.walkStatements(statement.initializer, visit);
+                validator.walkStatements(statement.initializer, visit);
             }
-            context.walkStatements(statement.body, visit);
+            validator.walkStatements(statement.body, visit);
             break;
         case AstKind.WHILE:
         case AstKind.DO_WHILE:
         case AstKind.SWITCH:
-            context.walkStatements(statement.body, visit);
+            validator.walkStatements(statement.body, visit);
             break;
     }
 }
 
 export function walkExpressions(
-    _context: ValidatorInternals,
     statement: Statement,
     visit: (expression: Expression) => void,
 ): void {

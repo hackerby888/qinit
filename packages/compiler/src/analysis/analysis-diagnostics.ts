@@ -1,7 +1,7 @@
 import type { Span } from "../ast";
-import type { ProgramAnalysisInternals } from "./program-analysis-context";
+import type { ProgramAnalysis } from "./program-analysis";
 
-export function warn(context: ProgramAnalysisInternals, message: string, at: number | Span): void {
+export function warn(programAnalysis: ProgramAnalysis, message: string, at: number | Span): void {
     if (
         (globalThis as any).process?.env?.QINIT_WARN_TRACE &&
         message.includes((globalThis as any).process.env.QINIT_WARN_TRACE)
@@ -10,18 +10,18 @@ export function warn(context: ProgramAnalysisInternals, message: string, at: num
     }
     const line = typeof at === "number" ? at : at.line;
     const column = typeof at === "number" ? 0 : at.column;
-    context.warnings.push({ message, line, column });
+    programAnalysis.warnings.push({ message, line, column });
 }
 
-export function error(context: ProgramAnalysisInternals, message: string, at: number | Span): void {
+export function error(programAnalysis: ProgramAnalysis, message: string, at: number | Span): void {
     const line = typeof at === "number" ? at : at.line;
     const column = typeof at === "number" ? 0 : at.column;
     if (
-        context.errors.some(
+        programAnalysis.errors.some(
             (error) => error.message === message && error.line === line && error.column === column,
         )
     ) {
         return;
     }
-    context.errors.push({ message, line, column });
+    programAnalysis.errors.push({ message, line, column });
 }

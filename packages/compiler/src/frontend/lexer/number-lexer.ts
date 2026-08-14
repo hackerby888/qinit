@@ -1,67 +1,60 @@
 import { TokenKind } from "../../shared/enums";
-import type { LexerInternals } from "./lexer-context";
+import type { Lexer } from "./lexer";
 import type { Token } from "./tokens";
 
-export function lexNumber(
-    context: LexerInternals,
-    start: number,
-    startLine: number,
-    startCol: number,
-): Token {
+export function lexNumber(lexer: Lexer, start: number, startLine: number, startCol: number): Token {
     let text = "";
     let isFloat = false;
     // Check for hex (0x / 0X) or binary (0b / 0B)
-    if (context.peekChar() === "0") {
-        text += context.advance();
-        const next = context.peekChar().toLowerCase();
+    if (lexer.peekChar() === "0") {
+        text += lexer.advance();
+        const next = lexer.peekChar().toLowerCase();
         if (next === "x") {
-            text += context.advance();
+            text += lexer.advance();
             while (
-                !context.eof() &&
-                (context.isHexDigit(context.peekChar()) || context.peekChar() === "'")
+                !lexer.eof() &&
+                (lexer.isHexDigit(lexer.peekChar()) || lexer.peekChar() === "'")
             ) {
-                text += context.advance();
+                text += lexer.advance();
             }
-            text += context.peekSuffix();
+            text += lexer.peekSuffix();
             return {
                 kind: TokenKind.INT_LITERAL,
                 text,
-                span: context.makeSpan(start, startLine, startCol),
+                span: lexer.makeSpan(start, startLine, startCol),
             };
         }
         if (next === "b") {
-            text += context.advance();
+            text += lexer.advance();
             while (
-                !context.eof() &&
-                (context.peekChar() === "0" ||
-                    context.peekChar() === "1" ||
-                    context.peekChar() === "'")
+                !lexer.eof() &&
+                (lexer.peekChar() === "0" || lexer.peekChar() === "1" || lexer.peekChar() === "'")
             ) {
-                text += context.advance();
+                text += lexer.advance();
             }
-            text += context.peekSuffix();
+            text += lexer.peekSuffix();
             return {
                 kind: TokenKind.INT_LITERAL,
                 text,
-                span: context.makeSpan(start, startLine, startCol),
+                span: lexer.makeSpan(start, startLine, startCol),
             };
         }
     }
     // Decimal number (might be float)
-    while (!context.eof()) {
-        const ch = context.peekChar();
+    while (!lexer.eof()) {
+        const ch = lexer.peekChar();
         if (ch >= "0" && ch <= "9") {
-            text += context.advance();
-        } else if (ch === "." && context.peekChar(1) >= "0" && context.peekChar(1) <= "9") {
+            text += lexer.advance();
+        } else if (ch === "." && lexer.peekChar(1) >= "0" && lexer.peekChar(1) <= "9") {
             isFloat = true;
-            text += context.advance(); // .
+            text += lexer.advance(); // .
         } else {
             break;
         }
     }
     // Integer suffix: u, l, ll, ul, ull, lu, llu
-    if (!isFloat && !context.eof()) {
-        const suf = context.peekSuffix();
+    if (!isFloat && !lexer.eof()) {
+        const suf = lexer.peekSuffix();
         if (suf) {
             text += suf;
         }
@@ -70,42 +63,42 @@ export function lexNumber(
         return {
             kind: TokenKind.FLOAT_LITERAL,
             text,
-            span: context.makeSpan(start, startLine, startCol),
+            span: lexer.makeSpan(start, startLine, startCol),
         };
     }
     return {
         kind: TokenKind.INT_LITERAL,
         text,
-        span: context.makeSpan(start, startLine, startCol),
+        span: lexer.makeSpan(start, startLine, startCol),
     };
 }
 
-export function peekSuffix(context: LexerInternals): string {
-    const rest = context.src.slice(context.pos, context.pos + 4).toLowerCase();
+export function peekSuffix(lexer: Lexer): string {
+    const rest = lexer.src.slice(lexer.pos, lexer.pos + 4).toLowerCase();
     // ull, llu
     if (rest.startsWith("ull")) {
-        return context.advanceN(3);
+        return lexer.advanceN(3);
     }
     if (rest.startsWith("llu")) {
-        return context.advanceN(3);
+        return lexer.advanceN(3);
     }
     // ul, lu, ll
     if (rest.startsWith("ul")) {
-        return context.advanceN(2);
+        return lexer.advanceN(2);
     }
     if (rest.startsWith("lu")) {
-        return context.advanceN(2);
+        return lexer.advanceN(2);
     }
     if (rest.startsWith("ll")) {
-        return context.advanceN(2);
+        return lexer.advanceN(2);
     }
     // u, l
     if (rest[0] === "u" || rest[0] === "l") {
-        return context.advanceN(1);
+        return lexer.advanceN(1);
     }
     return "";
 }
 
-export function isHexDigit(_context: LexerInternals, ch: string): boolean {
+export function isHexDigit(ch: string): boolean {
     return (ch >= "0" && ch <= "9") || (ch >= "a" && ch <= "f") || (ch >= "A" && ch <= "F");
 }

@@ -2,18 +2,19 @@ import { AstKind, ValidationVisitState } from "../../shared/enums";
 // Validation runs after parse and before codegen.
 import type { StructDecl, FunctionDecl, Statement } from "../../ast";
 import { unwrapType, isVoidType, isConstType, typeKey } from "./validation-helpers";
-import type { FnSig, ValidatorInternals } from "./validator-context";
+import type { Validator } from "./validator";
+import type { FnSig } from "./validator-context";
 
 export function checkRecursion(
-    context: ValidatorInternals,
+    validator: Validator,
     _structDeclaration: StructDecl,
     fnBodies: Map<string, FunctionDecl>,
 ): void {
     const edges = new Map<string, Set<string>>();
     for (const [name, fn] of fnBodies) {
         const callees = new Set<string>();
-        context.walkStatements(fn.body!, (statement) => {
-            context.walkExpressions(statement, (expression) => {
+        validator.walkStatements(fn.body!, (statement) => {
+            validator.walkExpressions(statement, (expression) => {
                 if (expression.kind === AstKind.CALL) {
                     if (
                         expression.callee.kind === AstKind.IDENTIFIER &&
@@ -42,7 +43,7 @@ export function checkRecursion(
         }
         if (st === ValidationVisitState.VISITING) {
             const cycle = [...path.slice(path.indexOf(name)), name].join(" -> ");
-            context.error(
+            validator.error(
                 `recursion is not allowed in a contract: ${cycle}`,
                 fnBodies.get(name)?.span,
             );
@@ -60,27 +61,29 @@ export function checkRecursion(
 }
 
 export function checkFunctionBody(
-    context: ValidatorInternals,
+    validator: Validator,
     fn: FunctionDecl,
     memberFns: Map<string, FnSig>,
 ): void {
-    context.currentFn = fn;
-    context.loopDepth = 0;
-    context.currentMemberFns = memberFns;
-    context.currentTypes = new Map(fn.params.map((parameter) => [parameter.name, parameter.type]));
+    validator.currentFn = fn;
+    validator.loopDepth = 0;
+    validator.currentMemberFns = memberFns;
+    validator.currentTypes = new Map(
+        fn.params.map((parameter) => [parameter.name, parameter.type]),
+    );
     // Every local declared anywhere in the function, for classifying bare identifiers: names outside this set belong to members/parameters/constants
     const allLocals = new Set<string>();
-    context.walkStatements(fn.body!, (statement) => {
+    validator.walkStatements(fn.body!, (statement) => {
         if (
             statement.kind === AstKind.DECLARATION &&
             statement.declaration.kind === AstKind.VARIABLE &&
             !statement.declaration.isMember
         ) {
             allLocals.add(statement.declaration.name);
-            context.currentTypes.set(statement.declaration.name, statement.declaration.type);
+            validator.currentTypes.set(statement.declaration.name, statement.declaration.type);
         }
     });
-    context.checkReturns(fn);
+    validator.checkReturns(fn);
     const constParams = new Set<string>();
     for (const parameter of fn.params) {
         if (isConstType(parameter.type)) {
@@ -95,38 +98,38 @@ export function checkFunctionBody(
             }
         >
     > = [new Map()];
-    context.walkScope(fn.body!, fn, memberFns, allLocals, constParams, scopes);
+    validator.walkScope(fn.body!, fn, memberFns, allLocals, constParams, scopes);
 }
 
-export function checkReturns(context: ValidatorInternals, fn: FunctionDecl): void {
+export function checkReturns(validator: Validator, fn: FunctionDecl): void {
     const isVoid = isVoidType(fn.returnType);
     let valueReturns = 0;
-    context.walkStatements(fn.body!, (statement) => {
+    validator.walkStatements(fn.body!, (statement) => {
         if (statement.kind !== AstKind.RETURN) {
             return;
         }
         if (statement.value && isVoid) {
-            context.error(`void function '${fn.name}' cannot return a value`, statement.span);
+            validator.error(`void function '${fn.name}' cannot return a value`, statement.span);
         }
         if (statement.value) {
             valueReturns++;
-            const actual = context.inferSimpleType(statement.value);
+            const actual = validator.inferSimpleType(statement.value);
             if (
-                context.isAggregateType(fn.returnType) &&
+                validator.isAggregateType(fn.returnType) &&
                 actual &&
-                !context.isAggregateType(actual)
+                !validator.isAggregateType(actual)
             ) {
-                context.error(
+                validator.error(
                     `return type is incompatible: cannot convert scalar expression to aggregate '${typeKey(fn.returnType)}'`,
                     statement.span,
                 );
             } else if (
                 actual &&
-                context.isAggregateType(fn.returnType) &&
-                context.isAggregateType(actual) &&
-                context.canonTypeKey(actual) !== context.canonTypeKey(fn.returnType)
+                validator.isAggregateType(fn.returnType) &&
+                validator.isAggregateType(actual) &&
+                validator.canonTypeKey(actual) !== validator.canonTypeKey(fn.returnType)
             ) {
-                context.error(
+                validator.error(
                     `return type mismatch: cannot convert '${typeKey(actual)}' to '${typeKey(fn.returnType)}'`,
                     statement.span,
                 );
@@ -134,26 +137,26 @@ export function checkReturns(context: ValidatorInternals, fn: FunctionDecl): voi
         }
     });
     if (!isVoid && valueReturns === 0) {
-        context.error(`function '${fn.name}' must return a value`, fn.span);
-    } else if (!isVoid && !context.guaranteesReturn(fn.body!)) {
-        context.error(
+        validator.error(`function '${fn.name}' must return a value`, fn.span);
+    } else if (!isVoid && !validator.guaranteesReturn(fn.body!)) {
+        validator.error(
             `non-void function '${fn.name}' has a reachable fallthrough path without a return value`,
             fn.span,
         );
     }
 }
 
-export function guaranteesReturn(context: ValidatorInternals, statement: Statement): boolean {
+export function guaranteesReturn(validator: Validator, statement: Statement): boolean {
     if (statement.kind === AstKind.RETURN) return true;
     if (statement.kind === AstKind.COMPOUND) {
-        for (const child of statement.body) if (context.guaranteesReturn(child)) return true;
+        for (const child of statement.body) if (validator.guaranteesReturn(child)) return true;
         return false;
     }
     if (statement.kind === AstKind.IF)
         return (
             !!statement.else_ &&
-            context.guaranteesReturn(statement.then) &&
-            context.guaranteesReturn(statement.else_)
+            validator.guaranteesReturn(statement.then) &&
+            validator.guaranteesReturn(statement.else_)
         );
     if (statement.kind === AstKind.SWITCH) {
         // A switch returns on all paths only with a default, no break, and a returning tail.
@@ -173,15 +176,15 @@ export function guaranteesReturn(context: ValidatorInternals, statement: Stateme
             body.some((bodyItem) => bodyItem.kind === AstKind.DEFAULT) &&
             !body.some(breaksOut) &&
             !!last &&
-            context.guaranteesReturn(last)
+            validator.guaranteesReturn(last)
         );
     }
     return false;
 }
 
-export function isPublicFunctionContext(context: ValidatorInternals): boolean {
-    if (context.currentFn?.name === "__impl_migrate") return false;
-    const first = context.currentFn?.params[0]?.type;
+export function isPublicFunctionContext(validator: Validator): boolean {
+    if (validator.currentFn?.name === "__impl_migrate") return false;
+    const first = validator.currentFn?.params[0]?.type;
     if (!first) return false;
     const type = unwrapType(first);
     return type.kind === AstKind.NAME && type.name === "QpiContextFunctionCall";

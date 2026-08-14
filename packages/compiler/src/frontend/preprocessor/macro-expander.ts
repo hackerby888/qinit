@@ -1,88 +1,89 @@
-import type { MacroDef, PreprocessorInternals } from "./preprocessor-context";
+import type { Preprocessor } from "./preprocessor";
+import type { MacroDef } from "./preprocessor-context";
 
-export function tryExpandMacro(context: PreprocessorInternals, name: string): string | null {
+export function tryExpandMacro(preprocessor: Preprocessor, name: string): string | null {
     // __LINE__ special case
     if (name === "__LINE__") {
-        return String(context.line);
+        return String(preprocessor.line);
     }
-    const def = context.defines.get(name);
+    const def = preprocessor.defines.get(name);
     if (!def) {
         return null;
     }
     // Object-like macro
     if (def.params === null) {
-        if (context.expanding.has(name)) {
+        if (preprocessor.expanding.has(name)) {
             return name; // recursion guard
         }
         // Body might have parameter references from outer scope — no args to bind.
-        return context.expandBody(def, []);
+        return preprocessor.expandBody(def, []);
     }
     // Function-like macro — need to read arguments
-    const savePos = context.pos;
-    const saveLine = context.line;
+    const savePos = preprocessor.pos;
+    const saveLine = preprocessor.line;
     // Expect opening paren
-    context.skipWhitespaceAndNewlines();
-    if (context.peek(0) !== "(") {
-        context.pos = savePos;
-        context.line = saveLine;
+    preprocessor.skipWhitespaceAndNewlines();
+    if (preprocessor.peek(0) !== "(") {
+        preprocessor.pos = savePos;
+        preprocessor.line = saveLine;
         return null; // not invoked as function-like macro
     }
-    context.pos++; // skip (
+    preprocessor.pos++; // skip (
     // Read arguments
     const callArguments: string[] = [];
     let argument = "";
     let depth = 1;
-    while (context.pos < context.input.length && depth > 0) {
-        const ch = context.input[context.pos];
+    while (preprocessor.pos < preprocessor.input.length && depth > 0) {
+        const ch = preprocessor.input[preprocessor.pos];
         if (ch === "(") {
             depth++;
             argument += ch;
-            context.pos++;
+            preprocessor.pos++;
         } else if (ch === ")") {
             depth--;
             if (depth === 0) {
                 callArguments.push(argument.trim());
-                context.pos++; // skip )
+                preprocessor.pos++; // skip )
                 break;
             }
             argument += ch;
-            context.pos++;
+            preprocessor.pos++;
         } else if (ch === "," && depth === 1) {
             callArguments.push(argument.trim());
             argument = "";
-            context.pos++;
+            preprocessor.pos++;
         } else if (ch === "\n") {
-            context.line++;
+            preprocessor.line++;
             argument += ch;
-            context.pos++;
+            preprocessor.pos++;
         } else {
             argument += ch;
-            context.pos++;
+            preprocessor.pos++;
         }
     }
-    if (context.expanding.has(name)) {
+    if (preprocessor.expanding.has(name)) {
         return name; // recursion guard
     }
-    return context.expandBody(def, callArguments);
+    return preprocessor.expandBody(def, callArguments);
 }
 
 export function expandBody(
-    context: PreprocessorInternals,
+    preprocessor: Preprocessor,
     def: MacroDef,
     callArguments: string[],
 ): string {
     const macroName = def.name;
-    context.expanding.add(macroName);
+    preprocessor.expanding.add(macroName);
     let result = def.body;
     // Handle # (stringify) FIRST — operates on the original parameter name
     if (def.params && def.params.length > 0) {
-        result = context.processStringify(result, callArguments, def);
+        result = preprocessor.processStringify(result, callArguments, def);
     }
     // Substitute parameters BEFORE ## pasting — so p##_input with p=Inc becomes Inc##_input, then paste → Inc_input
     if (def.params) {
         for (let index = 0; index < def.params.length && index < callArguments.length; index++) {
             const param = def.params[index];
-            result = context.replaceParamInBody(result, param, callArguments[index]);
+            result = preprocessor.replaceParamInBody(result, param, callArguments[index]);
         }
         if (def.isVarArgs) {
             const extraArgs = callArguments.slice(def.params.length);
@@ -90,21 +91,21 @@ export function expandBody(
         }
     }
     // Handle ## (token paste) AFTER substitution — removes ## and adjacent whitespace
-    result = context.processTokenPaste(result);
+    result = preprocessor.processTokenPaste(result);
     // Recursively expand macros in the result
-    result = context.expandRecursive(result);
-    context.expanding.delete(macroName);
+    result = preprocessor.expandRecursive(result);
+    preprocessor.expanding.delete(macroName);
     return result;
 }
 
 export function replaceParamInBody(
-    context: PreprocessorInternals,
+    preprocessor: Preprocessor,
     body: string,
     param: string,
     value: string,
 ): string {
     // Replace `param` with `value` when it's a standalone word or adjacent to ##
-    const escaped = context.escapeRegex(param);
+    const escaped = preprocessor.escapeRegex(param);
     // Allow param preceded/followed by ## or non-word chars
     let result = body;
     // Replace param that's a standalone word (with optional ## on either side)
@@ -114,7 +115,7 @@ export function replaceParamInBody(
     return result;
 }
 
-export function processTokenPaste(_context: PreprocessorInternals, body: string): string {
+export function processTokenPaste(body: string): string {
     // Replace `a ## b` with `ab` (remove whitespace + ##)
     let result = "";
     let index = 0;
@@ -135,7 +136,7 @@ export function processTokenPaste(_context: PreprocessorInternals, body: string)
 }
 
 export function processStringify(
-    context: PreprocessorInternals,
+    preprocessor: Preprocessor,
     body: string,
     callArguments: string[],
     def: MacroDef,
@@ -146,7 +147,7 @@ export function processStringify(
             const param = def.params[index];
             // #param but not ##param
             result = result.replace(
-                new RegExp(`(?<!#)#${context.escapeRegex(param)}\\b`, "g"),
+                new RegExp(`(?<!#)#${preprocessor.escapeRegex(param)}\\b`, "g"),
                 `"${callArguments[index].replace(/"/g, '\\"')}"`,
             );
         }
@@ -155,18 +156,17 @@ export function processStringify(
 }
 
 export function replaceParam(
-    context: PreprocessorInternals,
+    preprocessor: Preprocessor,
     body: string,
     param: string,
     value: string,
 ): string {
     // Replace occurrences of param that are NOT part of a larger identifier or following #/##
-    const escaped = context.escapeRegex(param);
+    const escaped = preprocessor.escapeRegex(param);
     return body.replace(new RegExp(`(?<![#\\w])${escaped}(?!\\w)`, "g"), value);
 }
 
 export function readArgsFromString(
-    _context: PreprocessorInternals,
     text: string,
     openIdx: number,
 ): {
@@ -200,7 +200,7 @@ export function readArgsFromString(
     return null;
 }
 
-export function expandRecursive(context: PreprocessorInternals, text: string): string {
+export function expandRecursive(preprocessor: Preprocessor, text: string): string {
     // Rescan expanded text to expand nested macro references.
     let result = text;
     for (let pass = 0; pass < 3; pass++) {
@@ -209,17 +209,17 @@ export function expandRecursive(context: PreprocessorInternals, text: string): s
         // Simple identifier scanning within the result text
         for (let resultItemIndex = 0; resultItemIndex < result.length; resultItemIndex++) {
             const ch = result[resultItemIndex];
-            if (context.isIdStart(ch)) {
-                const ident = context.readIdentAt(result, resultItemIndex);
-                const def = context.defines.get(ident);
-                if (def && def.params === null && !context.expanding.has(ident)) {
+            if (preprocessor.isIdStart(ch)) {
+                const ident = preprocessor.readIdentAt(result, resultItemIndex);
+                const def = preprocessor.defines.get(ident);
+                if (def && def.params === null && !preprocessor.expanding.has(ident)) {
                     // Object-like macro
-                    context.expanding.add(ident);
-                    expanded += context.expandBody(def, []);
-                    context.expanding.delete(ident);
+                    preprocessor.expanding.add(ident);
+                    expanded += preprocessor.expandBody(def, []);
+                    preprocessor.expanding.delete(ident);
                     resultItemIndex += ident.length - 1;
                     changed = true;
-                } else if (def && def.params !== null && !context.expanding.has(ident)) {
+                } else if (def && def.params !== null && !preprocessor.expanding.has(ident)) {
                     // Expand function-like macros only when an argument list follows.
                     let nestedIndex = resultItemIndex + ident.length;
                     while (
@@ -231,12 +231,12 @@ export function expandRecursive(context: PreprocessorInternals, text: string): s
                         nestedIndex++;
                     const parsed =
                         result[nestedIndex] === "("
-                            ? context.readArgsFromString(result, nestedIndex)
+                            ? preprocessor.readArgsFromString(result, nestedIndex)
                             : null;
                     if (parsed) {
-                        context.expanding.add(ident);
-                        expanded += context.expandBody(def, parsed.callArguments);
-                        context.expanding.delete(ident);
+                        preprocessor.expanding.add(ident);
+                        expanded += preprocessor.expandBody(def, parsed.callArguments);
+                        preprocessor.expanding.delete(ident);
                         resultItemIndex = parsed.end - 1;
                         changed = true;
                     } else {

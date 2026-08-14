@@ -11,12 +11,12 @@ import type {
     Span,
 } from "../../ast";
 import type { FnSig, ValidateDiagnostic } from "./validator-context";
-import * as validatorPart0 from "./declaration-validator";
-import * as validatorPart1 from "./function-validator";
-import * as validatorPart2 from "./scope-validator";
-import * as validatorPart3 from "./initializer-validator";
-import * as validatorPart4 from "./control-flow-validator";
-import * as validatorPart5 from "./expression-validator";
+import * as declarationValidator from "./declaration-validator";
+import * as functionValidator from "./function-validator";
+import * as scopeValidator from "./scope-validator";
+import * as initializerValidator from "./initializer-validator";
+import * as controlFlowValidator from "./control-flow-validator";
+import * as expressionValidator from "./expression-validator";
 
 const NO_SPAN: Span = {
     start: 0,
@@ -42,7 +42,7 @@ export class Validator {
     currentTypes = new Map<string, TypeSpec>();
     currentMemberFns = new Map<string, FnSig>();
     canonTypeKey(type: TypeSpec): string {
-        return validatorPart0.canonTypeKey(this, type);
+        return declarationValidator.canonTypeKey(this, type);
     }
     error(message: string, span: Span | undefined): void {
         const sp = span ?? NO_SPAN;
@@ -55,39 +55,39 @@ export class Validator {
     }
     // ---- Top level ----
     runTopLevel(declarations: Declaration[]): void {
-        return validatorPart0.runTopLevel(this, declarations);
+        return declarationValidator.runTopLevel(this, declarations);
     }
     // Reject mutable file-scope data because it lies outside consensus state.
     checkGlobalVariable(variableDeclaration: VariableDecl): void {
-        return validatorPart0.checkGlobalVariable(this, variableDeclaration);
+        return declarationValidator.checkGlobalVariable(this, variableDeclaration);
     }
     // ---- Structs ----
     checkStruct(structDeclaration: StructDecl): void {
-        return validatorPart0.checkStruct(this, structDeclaration);
+        return declarationValidator.checkStruct(this, structDeclaration);
     }
     // Qubic contracts must have statically bounded stacks: any call cycle among a struct's member functions (direct or mutual)
     checkRecursion(structDeclaration: StructDecl, fnBodies: Map<string, FunctionDecl>): void {
-        return validatorPart1.checkRecursion(this, structDeclaration, fnBodies);
+        return functionValidator.checkRecursion(this, structDeclaration, fnBodies);
     }
     // ---- Function bodies ----
     checkFunctionBody(fn: FunctionDecl, memberFns: Map<string, FnSig>): void {
-        return validatorPart1.checkFunctionBody(this, fn, memberFns);
+        return functionValidator.checkFunctionBody(this, fn, memberFns);
     }
     checkReturns(fn: FunctionDecl): void {
-        return validatorPart1.checkReturns(this, fn);
+        return functionValidator.checkReturns(this, fn);
     }
     guaranteesReturn(statement: Statement): boolean {
-        return validatorPart1.guaranteesReturn(this, statement);
+        return functionValidator.guaranteesReturn(this, statement);
     }
     collectEnumConstants(
         entry: Declaration & {
             kind: AstKind.ENUM;
         },
     ): void {
-        return validatorPart0.collectEnumConstants(this, entry);
+        return declarationValidator.collectEnumConstants(this, entry);
     }
     checkStaticAssert(condition: Expression, message: Expression | undefined, span: Span): void {
-        return validatorPart0.checkStaticAssert(this, condition, message, span);
+        return declarationValidator.checkStaticAssert(this, condition, message, span);
     }
     // Resolve identifiers against an ordered stack of lexical scopes.
     walkScope(
@@ -105,7 +105,7 @@ export class Validator {
             >
         >,
     ): void {
-        return validatorPart2.walkScope(
+        return scopeValidator.walkScope(
             this,
             statement,
             fn,
@@ -128,13 +128,13 @@ export class Validator {
             >
         >,
     ): void {
-        return validatorPart2.checkDeclarationStatement(this, statement, scopes);
+        return scopeValidator.checkDeclarationStatement(this, statement, scopes);
     }
     checkInitializerCardinality(type: TypeSpec, initializer: Expression, span: Span): void {
-        return validatorPart3.checkInitializerCardinality(this, type, initializer, span);
+        return initializerValidator.checkInitializerCardinality(this, type, initializer, span);
     }
     checkSwitchCases(body: Statement, allLocals: Set<string>): void {
-        return validatorPart4.checkSwitchCases(this, body, allLocals);
+        return controlFlowValidator.checkSwitchCases(this, body, allLocals);
     }
     // ---- Expressions ----
     checkExpression(
@@ -151,7 +151,7 @@ export class Validator {
             >
         >,
     ): void {
-        return validatorPart5.checkExpression(
+        return expressionValidator.checkExpression(
             this,
             root,
             memberFns,
@@ -168,19 +168,19 @@ export class Validator {
             const: boolean;
         } | null,
     ): void {
-        return validatorPart5.checkAssignTarget(this, target, constParams, lookup);
+        return expressionValidator.checkAssignTarget(this, target, constParams, lookup);
     }
     isPublicFunctionContext(): boolean {
-        return validatorPart1.isPublicFunctionContext(this);
+        return functionValidator.isPublicFunctionContext(this);
     }
     isAggregateType(type: TypeSpec): boolean {
-        return validatorPart5.isAggregateType(this, type);
+        return expressionValidator.isAggregateType(this, type);
     }
     inferSimpleType(expression: Expression): TypeSpec | null {
-        return validatorPart5.inferSimpleType(this, expression);
+        return expressionValidator.inferSimpleType(this, expression);
     }
     isReadonlyStateExpression(expression: Expression): boolean {
-        return validatorPart5.isReadonlyStateExpression(this, expression);
+        return expressionValidator.isReadonlyStateExpression(expression);
     }
     isWritableReferenceArgument(
         argument: Expression,
@@ -189,13 +189,13 @@ export class Validator {
             const: boolean;
         } | null,
     ): boolean {
-        return validatorPart5.isWritableReferenceArgument(this, argument, constParams, lookup);
+        return expressionValidator.isWritableReferenceArgument(this, argument, constParams, lookup);
     }
     // ---- Generic walkers ----
     walkStatements(statement: Statement, visit: (statement: Statement) => void): void {
-        return validatorPart4.walkStatements(this, statement, visit);
+        return controlFlowValidator.walkStatements(this, statement, visit);
     }
     walkExpressions(statement: Statement, visit: (expression: Expression) => void): void {
-        return validatorPart4.walkExpressions(this, statement, visit);
+        return controlFlowValidator.walkExpressions(statement, visit);
     }
 }

@@ -1,33 +1,34 @@
-import type { MacroDef, PreprocessOptions, PreprocessorInternals } from "./preprocessor-context";
+import type { Preprocessor } from "./preprocessor";
+import type { MacroDef, PreprocessOptions } from "./preprocessor-context";
 
-export function condActive(context: PreprocessorInternals): boolean {
-    for (const condStackItem of context.condStack) {
+export function condActive(preprocessor: Preprocessor): boolean {
+    for (const condStackItem of preprocessor.condStack) {
         if (!condStackItem.active) return false;
     }
     return true;
 }
 
-export function getDefines(context: PreprocessorInternals): Map<string, MacroDef> {
-    return new Map(context.defines);
+export function getDefines(preprocessor: Preprocessor): Map<string, MacroDef> {
+    return new Map(preprocessor.defines);
 }
 
-export function preprocess(context: PreprocessorInternals, options: PreprocessOptions): string {
-    context.defines.clear();
-    context.condStack = [];
-    context.expandMacros = options.expandMacros !== false;
-    context.preserveSourceOffsets = options.preserveSourceOffsets === true;
+export function preprocess(preprocessor: Preprocessor, options: PreprocessOptions): string {
+    preprocessor.defines.clear();
+    preprocessor.condStack = [];
+    preprocessor.expandMacros = options.expandMacros !== false;
+    preprocessor.preserveSourceOffsets = options.preserveSourceOffsets === true;
     if (options.seedMacros) {
-        for (const [k, v] of options.seedMacros) context.defines.set(k, v);
+        for (const [k, v] of options.seedMacros) preprocessor.defines.set(k, v);
     }
     // Built-in defines
-    context.define("__LINE__", "__LINE__"); // special-cased during expansion
-    context.define("LITE_WASM_TU_BUILD", "");
-    context.define("LITEDYN_CONTRACT_TU", "");
+    preprocessor.define("__LINE__", "__LINE__"); // special-cased during expansion
+    preprocessor.define("LITE_WASM_TU_BUILD", "");
+    preprocessor.define("LITEDYN_CONTRACT_TU", "");
     // Contract-specific defines
-    context.define("CONTRACT_INDEX", String(options.contractIndex));
-    context.define(`${options.contractName}_CONTRACT_INDEX`, String(options.contractIndex));
-    context.define("CONTRACT_STATE_TYPE", options.contractName);
-    context.define("CONTRACT_STATE2_TYPE", `${options.contractName}2`);
+    preprocessor.define("CONTRACT_INDEX", String(options.contractIndex));
+    preprocessor.define(`${options.contractName}_CONTRACT_INDEX`, String(options.contractIndex));
+    preprocessor.define("CONTRACT_STATE_TYPE", options.contractName);
+    preprocessor.define("CONTRACT_STATE2_TYPE", `${options.contractName}2`);
     // Assemble full input: qpi.h + callee prelude + contract source
     let fullSource = options.qpiHeader;
     if (options.calleePrelude) {
@@ -35,11 +36,11 @@ export function preprocess(context: PreprocessorInternals, options: PreprocessOp
     }
     fullSource += "\n" + options.source;
     // Build line offset map
-    context.buildLineMap(fullSource);
-    return context.process(fullSource);
+    preprocessor.buildLineMap(fullSource);
+    return preprocessor.process(fullSource);
 }
 
-export function define(context: PreprocessorInternals, name: string, body: string): void {
+export function define(preprocessor: Preprocessor, name: string, body: string): void {
     // Parse function-like: NAME(args) body
     const member = name.match(/^(\w+)\(([^)]*)\)$/);
     if (member) {
@@ -47,96 +48,102 @@ export function define(context: PreprocessorInternals, name: string, body: strin
         const paramStr = member[2].trim();
         const params = paramStr ? paramStr.split(",").map((text) => text.trim()) : [];
         const isVarArgs = paramStr.endsWith("...");
-        context.defines.set(macroName, { name: macroName, params, body, isVarArgs });
+        preprocessor.defines.set(macroName, { name: macroName, params, body, isVarArgs });
         return;
     }
-    context.defines.set(name, { name, params: null, body, isVarArgs: false });
+    preprocessor.defines.set(name, { name, params: null, body, isVarArgs: false });
 }
 
-export function buildLineMap(context: PreprocessorInternals, src: string): void {
-    context.srcLine = [0];
+export function buildLineMap(preprocessor: Preprocessor, src: string): void {
+    preprocessor.srcLine = [0];
     for (let srcItemIndex = 0; srcItemIndex < src.length; srcItemIndex++) {
         if (src[srcItemIndex] === "\n") {
-            context.srcLine.push(srcItemIndex + 1);
+            preprocessor.srcLine.push(srcItemIndex + 1);
         }
     }
 }
 
-export function process(context: PreprocessorInternals, src: string): string {
+export function process(preprocessor: Preprocessor, src: string): string {
     // Normalize line endings before joining backslash continuations.
-    context.input = context.preserveSourceOffsets ? src : src.replace(/\r\n?/g, "\n");
-    context.pos = 0;
-    context.line = 1;
-    context.result = "";
-    context.expanding.clear();
-    while (context.pos < context.input.length) {
-        const ch = context.input[context.pos];
+    preprocessor.input = preprocessor.preserveSourceOffsets ? src : src.replace(/\r\n?/g, "\n");
+    preprocessor.pos = 0;
+    preprocessor.line = 1;
+    preprocessor.result = "";
+    preprocessor.expanding.clear();
+    while (preprocessor.pos < preprocessor.input.length) {
+        const ch = preprocessor.input[preprocessor.pos];
         // Line directives
         if (ch === "#") {
-            const start = context.pos;
-            const resultLength = context.result.length;
-            context.handleDirective();
-            if (context.preserveSourceOffsets) {
-                context.result = context.result.slice(0, resultLength);
-                context.result += maskSource(context.input.slice(start, context.pos));
+            const start = preprocessor.pos;
+            const resultLength = preprocessor.result.length;
+            preprocessor.handleDirective();
+            if (preprocessor.preserveSourceOffsets) {
+                preprocessor.result = preprocessor.result.slice(0, resultLength);
+                preprocessor.result += maskSource(
+                    preprocessor.input.slice(start, preprocessor.pos),
+                );
             }
             continue;
         }
         // Whitespace — pass through but track newlines
         if (ch === "\n") {
-            context.result += ch;
-            context.line++;
-            context.pos++;
+            preprocessor.result += ch;
+            preprocessor.line++;
+            preprocessor.pos++;
             continue;
         }
         if (ch === " " || ch === "\t" || ch === "\r") {
-            context.result += ch;
-            context.pos++;
+            preprocessor.result += ch;
+            preprocessor.pos++;
             continue;
         }
         // Comment stripping
-        if (ch === "/" && context.peek(1) === "/") {
-            const start = context.pos;
-            context.skipLineComment();
-            if (context.preserveSourceOffsets) {
-                context.result += maskSource(context.input.slice(start, context.pos));
+        if (ch === "/" && preprocessor.peek(1) === "/") {
+            const start = preprocessor.pos;
+            preprocessor.skipLineComment();
+            if (preprocessor.preserveSourceOffsets) {
+                preprocessor.result += maskSource(
+                    preprocessor.input.slice(start, preprocessor.pos),
+                );
             }
             continue;
         }
-        if (ch === "/" && context.peek(1) === "*") {
-            const start = context.pos;
-            const resultLength = context.result.length;
-            context.skipBlockComment();
-            if (context.preserveSourceOffsets) {
-                context.result = context.result.slice(0, resultLength);
-                context.result += maskSource(context.input.slice(start, context.pos));
+        if (ch === "/" && preprocessor.peek(1) === "*") {
+            const start = preprocessor.pos;
+            const resultLength = preprocessor.result.length;
+            preprocessor.skipBlockComment();
+            if (preprocessor.preserveSourceOffsets) {
+                preprocessor.result = preprocessor.result.slice(0, resultLength);
+                preprocessor.result += maskSource(
+                    preprocessor.input.slice(start, preprocessor.pos),
+                );
             }
             continue;
         }
         // Inside an inactive conditional branch: consume text without emitting/expanding.
-        if (!context.condActive()) {
-            if (context.preserveSourceOffsets) {
-                context.result += " ";
+        if (!preprocessor.condActive()) {
+            if (preprocessor.preserveSourceOffsets) {
+                preprocessor.result += " ";
             }
-            context.pos++;
+            preprocessor.pos++;
             continue;
         }
         // Identifier — check for macro expansion
-        if (context.isIdStart(ch)) {
-            const ident = context.readIdentifier();
-            const expanded = context.expandMacros ? context.tryExpandMacro(ident) : null;
+        if (preprocessor.isIdStart(ch)) {
+            const ident = preprocessor.readIdentifier();
+            const expanded = preprocessor.expandMacros ? preprocessor.tryExpandMacro(ident) : null;
             if (expanded !== null) {
-                context.result += expanded;
+                preprocessor.result += expanded;
             } else {
-                context.result += ident;
+                preprocessor.result += ident;
             }
             continue;
         }
         // Pass through everything else
-        context.result += ch;
-        context.pos++;
+        preprocessor.result += ch;
+        preprocessor.pos++;
     }
-    return context.result;
+    return preprocessor.result;
 }
 
 function maskSource(source: string): string {

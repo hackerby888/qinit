@@ -1,42 +1,42 @@
 import { TokenKind } from "../../shared/enums";
-import type { LexerInternals } from "./lexer-context";
+import type { Lexer } from "./lexer";
 import type { Token } from "./tokens";
 
-export function tokenize(context: LexerInternals): Token[] {
-    context.tokens = [];
-    while (!context.eof()) {
-        const tok = context.nextToken();
+export function tokenize(lexer: Lexer): Token[] {
+    lexer.tokens = [];
+    while (!lexer.eof()) {
+        const tok = lexer.nextToken();
         if (tok) {
-            context.tokens.push(tok);
+            lexer.tokens.push(tok);
         }
     }
-    context.tokens.push({ kind: TokenKind.EOF, text: "", span: context.span() });
-    context.collapseTypeKeywords();
-    return context.tokens;
+    lexer.tokens.push({ kind: TokenKind.EOF, text: "", span: lexer.span() });
+    lexer.collapseTypeKeywords();
+    return lexer.tokens;
 }
 
-export function getTokens(context: LexerInternals): Token[] {
-    return context.tokens;
+export function getTokens(lexer: Lexer): Token[] {
+    return lexer.tokens;
 }
 
-export function reset(context: LexerInternals): void {
-    context.index = 0;
+export function reset(lexer: Lexer): void {
+    lexer.index = 0;
 }
 
-export function peek(context: LexerInternals, offset: number = 0): Token {
-    const index = context.index + offset;
-    if (index >= context.tokens.length) {
-        return context.tokens[context.tokens.length - 1]; // eof
+export function peek(lexer: Lexer, offset: number = 0): Token {
+    const index = lexer.index + offset;
+    if (index >= lexer.tokens.length) {
+        return lexer.tokens[lexer.tokens.length - 1]; // eof
     }
-    return context.tokens[index];
+    return lexer.tokens[index];
 }
 
-export function next(context: LexerInternals): Token {
-    const tok = context.peek();
-    context.index++;
+export function next(lexer: Lexer): Token {
+    const tok = lexer.peek();
+    lexer.index++;
     return tok;
 }
 
-export function eof(context: LexerInternals): boolean {
-    return context.pos >= context.src.length;
+export function eof(lexer: Lexer): boolean {
+    return lexer.pos >= lexer.src.length;
 }

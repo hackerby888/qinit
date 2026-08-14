@@ -11,5 +11,3 @@ export interface FnSig {
     minArgs: number;
     maxArgs: number;
 }
-
-export type { Validator as ValidatorInternals } from "./validator";

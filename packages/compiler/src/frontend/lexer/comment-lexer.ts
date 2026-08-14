@@ -1,19 +1,19 @@
-import type { LexerInternals } from "./lexer-context";
+import type { Lexer } from "./lexer";
 
-export function skipLineComment(context: LexerInternals): void {
-    while (!context.eof() && context.peekChar() !== "\n") {
-        context.advance();
+export function skipLineComment(lexer: Lexer): void {
+    while (!lexer.eof() && lexer.peekChar() !== "\n") {
+        lexer.advance();
     }
 }
 
-export function skipBlockComment(context: LexerInternals): void {
-    context.advance(); // *
-    while (!context.eof()) {
-        if (context.peekChar() === "*" && context.peekChar(1) === "/") {
-            context.advance(); // *
-            context.advance(); // /
+export function skipBlockComment(lexer: Lexer): void {
+    lexer.advance(); // *
+    while (!lexer.eof()) {
+        if (lexer.peekChar() === "*" && lexer.peekChar(1) === "/") {
+            lexer.advance(); // *
+            lexer.advance(); // /
             return;
         }
-        context.advance();
+        lexer.advance();
     }
 }

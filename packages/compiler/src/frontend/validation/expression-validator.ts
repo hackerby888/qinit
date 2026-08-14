@@ -1,10 +1,11 @@
 import { AstKind, BinaryOp, UnaryOp } from "../../shared/enums";
 import type { Expression, TypeSpec } from "../../ast";
 import { unwrapType, isConstType, isZeroLiteral, isLiteral, typeKey } from "./validation-helpers";
-import type { FnSig, ValidatorInternals } from "./validator-context";
+import type { Validator } from "./validator";
+import type { FnSig } from "./validator-context";
 
 export function checkExpression(
-    context: ValidatorInternals,
+    validator: Validator,
     root: Expression,
     memberFns: Map<string, FnSig>,
     allLocals: Set<string>,
@@ -35,40 +36,40 @@ export function checkExpression(
         switch (expression.kind) {
             case AstKind.IDENTIFIER:
                 if (allLocals.has(expression.name) && !lookup(expression.name)) {
-                    context.error(
+                    validator.error(
                         `'${expression.name}' is used before its declaration (or outside the scope that declares it)`,
                         expression.span,
                     );
                 }
                 break;
             case AstKind.ASSIGN: {
-                const leftType = context.inferSimpleType(expression.left);
-                const rightType = context.inferSimpleType(expression.right);
+                const leftType = validator.inferSimpleType(expression.left);
+                const rightType = validator.inferSimpleType(expression.right);
                 if (
                     leftType &&
                     rightType &&
-                    context.isAggregateType(leftType) &&
-                    context.isAggregateType(rightType) &&
-                    context.canonTypeKey(leftType) !== context.canonTypeKey(rightType)
+                    validator.isAggregateType(leftType) &&
+                    validator.isAggregateType(rightType) &&
+                    validator.canonTypeKey(leftType) !== validator.canonTypeKey(rightType)
                 ) {
-                    context.error(
+                    validator.error(
                         `incompatible aggregate assignment from '${typeKey(rightType)}' to '${typeKey(leftType)}'`,
                         expression.span,
                     );
                 }
-                context.checkAssignTarget(expression.left, constParams, lookup);
+                validator.checkAssignTarget(expression.left, constParams, lookup);
                 walk(expression.left);
                 walk(expression.right);
                 break;
             }
             case AstKind.PREFIX_OP:
             case AstKind.POSTFIX_OP:
-                context.checkAssignTarget(expression.argument, constParams, lookup);
+                validator.checkAssignTarget(expression.argument, constParams, lookup);
                 walk(expression.argument);
                 break;
             case AstKind.UNARY_OP:
                 if (expression.operator === UnaryOp.ADDRESS_OF && isLiteral(expression.argument)) {
-                    context.error(`cannot take the address of a literal`, expression.span);
+                    validator.error(`cannot take the address of a literal`, expression.span);
                 }
                 walk(expression.argument);
                 break;
@@ -78,7 +79,7 @@ export function checkExpression(
                         expression.operator === BinaryOp.MODULO) &&
                     isZeroLiteral(expression.right)
                 ) {
-                    context.error(`constant division by zero`, expression.span);
+                    validator.error(`constant division by zero`, expression.span);
                 }
                 walk(expression.left);
                 walk(expression.right);
@@ -95,30 +96,30 @@ export function checkExpression(
                 if (expression.callee.kind === AstKind.MEMBER_ACCESS) {
                     const method = expression.callee.member;
                     const object = expression.callee.object;
-                    const receiverType = context.inferSimpleType(object);
+                    const receiverType = validator.inferSimpleType(object);
                     const receiver = receiverType ? unwrapType(receiverType) : null;
                     const isArray =
                         receiver?.kind === AstKind.TEMPLATE_INSTANCE && receiver.name === "Array";
                     if (isArray && method === "set" && expression.callArguments.length !== 2) {
-                        context.error(
+                        validator.error(
                             `container set expects 2 argument(s) but got ${expression.callArguments.length}`,
                             expression.span,
                         );
                     }
                     // state.get() is a zero-argument accessor; a get call with operands is a container get.
                     if (isArray && method === "get" && expression.callArguments.length !== 1) {
-                        context.error(
+                        validator.error(
                             `container get expects 1 argument but got ${expression.callArguments.length}`,
                             expression.span,
                         );
                     }
                     if (
-                        context.isPublicFunctionContext() &&
+                        validator.isPublicFunctionContext() &&
                         object.kind === AstKind.IDENTIFIER &&
                         object.name === "state" &&
                         method === "mut"
                     ) {
-                        context.error(
+                        validator.error(
                             `public function is read-only and cannot call state.mut()`,
                             expression.span,
                         );
@@ -130,8 +131,8 @@ export function checkExpression(
                         : undefined;
                 if (sig) {
                     // Entry bodies are static, so reject bare non-static member calls.
-                    if (context.currentFn?.isStatic && !sig.declaration.isStatic) {
-                        context.error(
+                    if (validator.currentFn?.isStatic && !sig.declaration.isStatic) {
+                        validator.error(
                             `cannot call non-static member function '${name}' from a static context — declare it static`,
                             expression.span,
                         );
@@ -144,7 +145,7 @@ export function checkExpression(
                             sig.minArgs === sig.maxArgs
                                 ? `${sig.maxArgs}`
                                 : `${sig.minArgs}..${sig.maxArgs}`;
-                        context.error(
+                        validator.error(
                             `'${name}' expects ${want} argument(s) but got ${expression.callArguments.length}`,
                             expression.span,
                         );
@@ -167,14 +168,14 @@ export function checkExpression(
                         index++
                     ) {
                         const paramType = sig.declaration.params[index].type;
-                        const argType = context.inferSimpleType(expression.callArguments[index]);
+                        const argType = validator.inferSimpleType(expression.callArguments[index]);
                         if (
                             argType &&
-                            context.isAggregateType(paramType) &&
-                            context.isAggregateType(argType) &&
-                            context.canonTypeKey(paramType) !== context.canonTypeKey(argType)
+                            validator.isAggregateType(paramType) &&
+                            validator.isAggregateType(argType) &&
+                            validator.canonTypeKey(paramType) !== validator.canonTypeKey(argType)
                         ) {
-                            context.error(
+                            validator.error(
                                 `argument ${index + 1} to '${name}' has incompatible aggregate type '${typeKey(argType)}'; expected '${typeKey(paramType)}'`,
                                 expression.callArguments[index].span,
                             );
@@ -182,8 +183,8 @@ export function checkExpression(
                         if (paramType.kind !== AstKind.REFERENCE || isConstType(paramType))
                             continue;
                         const argument = expression.callArguments[index];
-                        if (!context.isWritableReferenceArgument(argument, constParams, lookup)) {
-                            context.error(
+                        if (!validator.isWritableReferenceArgument(argument, constParams, lookup)) {
+                            validator.error(
                                 `argument ${index + 1} to '${name}' cannot bind to a non-const reference`,
                                 argument.span,
                             );
@@ -242,7 +243,7 @@ export function checkExpression(
 }
 
 export function checkAssignTarget(
-    context: ValidatorInternals,
+    validator: Validator,
     target: Expression,
     constParams: Set<string>,
     lookup: (name: string) => {
@@ -258,7 +259,7 @@ export function checkAssignTarget(
         root.callee.kind === AstKind.MEMBER_ACCESS &&
         root.callee.member === "get"
     ) {
-        context.error(
+        validator.error(
             `cannot modify through get(): it returns a read-only view — use mut()`,
             target.span,
         );
@@ -267,30 +268,27 @@ export function checkAssignTarget(
     if (root.kind === AstKind.IDENTIFIER) {
         const local = lookup(root.name);
         if (local?.const) {
-            context.error(`cannot assign to const '${root.name}'`, target.span);
+            validator.error(`cannot assign to const '${root.name}'`, target.span);
         } else if (!local && constParams.has(root.name)) {
-            context.error(`cannot assign to const parameter '${root.name}'`, target.span);
+            validator.error(`cannot assign to const parameter '${root.name}'`, target.span);
         }
     }
 }
 
-export function isAggregateType(context: ValidatorInternals, type: TypeSpec): boolean {
+export function isAggregateType(validator: Validator, type: TypeSpec): boolean {
     const unwrappedType = unwrapType(type);
     return (
         unwrappedType.kind === AstKind.INLINE_STRUCT ||
         unwrappedType.kind === AstKind.ARRAY ||
         unwrappedType.kind === AstKind.TEMPLATE_INSTANCE ||
-        (unwrappedType.kind === AstKind.NAME && context.aggregateNames.has(unwrappedType.name))
+        (unwrappedType.kind === AstKind.NAME && validator.aggregateNames.has(unwrappedType.name))
     );
 }
 
-export function inferSimpleType(
-    context: ValidatorInternals,
-    expression: Expression,
-): TypeSpec | null {
+export function inferSimpleType(validator: Validator, expression: Expression): TypeSpec | null {
     switch (expression.kind) {
         case AstKind.IDENTIFIER:
-            return context.currentTypes.get(expression.name) ?? null;
+            return validator.currentTypes.get(expression.name) ?? null;
         case AstKind.INT_LITERAL:
             return { kind: AstKind.NAME, name: "uint64" };
         case AstKind.BOOL_LITERAL:
@@ -298,7 +296,7 @@ export function inferSimpleType(
         case AstKind.CHAR_LITERAL:
             return { kind: AstKind.NAME, name: "int" };
         case AstKind.PAREN:
-            return context.inferSimpleType(expression.expression);
+            return validator.inferSimpleType(expression.expression);
         case AstKind.C_CAST:
         case AstKind.STATIC_CAST:
         case AstKind.REINTERPRET_CAST:
@@ -317,14 +315,14 @@ export function inferSimpleType(
                 return { kind: AstKind.NAME, name: "StateData" };
             }
             return name
-                ? (context.currentMemberFns.get(name)?.declaration.returnType ?? null)
+                ? (validator.currentMemberFns.get(name)?.declaration.returnType ?? null)
                 : null;
         }
         case AstKind.MEMBER_ACCESS: {
-            const owner = context.inferSimpleType(expression.object);
+            const owner = validator.inferSimpleType(expression.object);
             const concrete = owner ? unwrapType(owner) : null;
             return concrete?.kind === AstKind.NAME
-                ? (context.structFields.get(concrete.name)?.get(expression.member) ?? null)
+                ? (validator.structFields.get(concrete.name)?.get(expression.member) ?? null)
                 : null;
         }
         default:
@@ -332,10 +330,7 @@ export function inferSimpleType(
     }
 }
 
-export function isReadonlyStateExpression(
-    _context: ValidatorInternals,
-    expression: Expression,
-): boolean {
+export function isReadonlyStateExpression(expression: Expression): boolean {
     let root = expression;
     while (root.kind === AstKind.MEMBER_ACCESS || root.kind === AstKind.SUBSCRIPT)
         root = root.object;
@@ -349,14 +344,14 @@ export function isReadonlyStateExpression(
 }
 
 export function isWritableReferenceArgument(
-    context: ValidatorInternals,
+    validator: Validator,
     argument: Expression,
     constParams: Set<string>,
     lookup: (name: string) => {
         const: boolean;
     } | null,
 ): boolean {
-    if (context.isReadonlyStateExpression(argument)) return false;
+    if (validator.isReadonlyStateExpression(argument)) return false;
     if (argument.kind === AstKind.IDENTIFIER) {
         const local = lookup(argument.name);
         if (local?.const || (!local && constParams.has(argument.name))) return false;

@@ -1,17 +1,19 @@
 import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec } from "../ast";
-import type { ProgramAnalysisInternals } from "./program-analysis-context";
+import type { ProgramAnalysis } from "./program-analysis";
 
 export function containerLayout(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     callArguments: TypeSpec[],
     templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
 ): StructLayout {
     // Resolve plain zero-argument struct instances without a template definition.
-    if (!context.templates.has(name) && !context.specializations.has(name)) {
-        const structDeclaration = context.globalStructs.get(name) ?? context.nested.get(name);
-        if (structDeclaration) return context.layoutOfStruct(structDeclaration, templateBindings);
+    if (!programAnalysis.templates.has(name) && !programAnalysis.specializations.has(name)) {
+        const structDeclaration =
+            programAnalysis.globalStructs.get(name) ?? programAnalysis.nested.get(name);
+        if (structDeclaration)
+            return programAnalysis.layoutOfStruct(structDeclaration, templateBindings);
     }
-    return context.layoutOfTemplate(name, callArguments, templateBindings);
+    return programAnalysis.layoutOfTemplate(name, callArguments, templateBindings);
 }

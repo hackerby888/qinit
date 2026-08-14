@@ -1,11 +1,11 @@
-import type { PreprocessorInternals } from "./preprocessor-context";
+import type { Preprocessor } from "./preprocessor";
 
-export function readIdentAt(context: PreprocessorInternals, text: string, start: number): string {
+export function readIdentAt(preprocessor: Preprocessor, text: string, start: number): string {
     let ident = "";
     let cursor = start;
     while (
         cursor < text.length &&
-        (context.isIdStart(text[cursor]) ||
+        (preprocessor.isIdStart(text[cursor]) ||
             (cursor > start && text[cursor] >= "0" && text[cursor] <= "9"))
     ) {
         ident += text[cursor];
@@ -14,120 +14,133 @@ export function readIdentAt(context: PreprocessorInternals, text: string, start:
     return ident;
 }
 
-export function isIdStart(_context: PreprocessorInternals, ch: string): boolean {
+export function isIdStart(ch: string): boolean {
     return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch === "_";
 }
 
-export function readIdentifier(context: PreprocessorInternals): string {
+export function readIdentifier(preprocessor: Preprocessor): string {
     let ident = "";
-    while (context.pos < context.input.length && context.isIdContinue(context.input[context.pos])) {
-        ident += context.input[context.pos];
-        context.pos++;
+    while (
+        preprocessor.pos < preprocessor.input.length &&
+        preprocessor.isIdContinue(preprocessor.input[preprocessor.pos])
+    ) {
+        ident += preprocessor.input[preprocessor.pos];
+        preprocessor.pos++;
     }
     return ident;
 }
 
-export function isIdContinue(context: PreprocessorInternals, ch: string): boolean {
-    return context.isIdStart(ch) || (ch >= "0" && ch <= "9");
+export function isIdContinue(preprocessor: Preprocessor, ch: string): boolean {
+    return preprocessor.isIdStart(ch) || (ch >= "0" && ch <= "9");
 }
 
-export function peek(context: PreprocessorInternals, offset: number): string {
-    const index = context.pos + offset;
-    if (index >= context.input.length) {
+export function peek(preprocessor: Preprocessor, offset: number): string {
+    const index = preprocessor.pos + offset;
+    if (index >= preprocessor.input.length) {
         return "\0";
     }
-    return context.input[index];
+    return preprocessor.input[index];
 }
 
-export function skipWhitespace(context: PreprocessorInternals): void {
+export function skipWhitespace(preprocessor: Preprocessor): void {
     while (
-        context.pos < context.input.length &&
-        (context.input[context.pos] === " " || context.input[context.pos] === "\t")
+        preprocessor.pos < preprocessor.input.length &&
+        (preprocessor.input[preprocessor.pos] === " " ||
+            preprocessor.input[preprocessor.pos] === "\t")
     ) {
-        context.pos++;
+        preprocessor.pos++;
     }
 }
 
-export function skipWhitespaceAndNewlines(context: PreprocessorInternals): void {
+export function skipWhitespaceAndNewlines(preprocessor: Preprocessor): void {
     while (
-        context.pos < context.input.length &&
-        (context.input[context.pos] === " " ||
-            context.input[context.pos] === "\t" ||
-            context.input[context.pos] === "\n" ||
-            context.input[context.pos] === "\r")
+        preprocessor.pos < preprocessor.input.length &&
+        (preprocessor.input[preprocessor.pos] === " " ||
+            preprocessor.input[preprocessor.pos] === "\t" ||
+            preprocessor.input[preprocessor.pos] === "\n" ||
+            preprocessor.input[preprocessor.pos] === "\r")
     ) {
-        if (context.input[context.pos] === "\n") {
-            context.line++;
-            context.result += "\n";
+        if (preprocessor.input[preprocessor.pos] === "\n") {
+            preprocessor.line++;
+            preprocessor.result += "\n";
         }
-        context.pos++;
+        preprocessor.pos++;
     }
 }
 
-export function readToNewline(context: PreprocessorInternals): string {
+export function readToNewline(preprocessor: Preprocessor): string {
     let text = "";
-    while (context.pos < context.input.length && context.input[context.pos] !== "\n") {
+    while (
+        preprocessor.pos < preprocessor.input.length &&
+        preprocessor.input[preprocessor.pos] !== "\n"
+    ) {
         // Handle backslash-newline continuation
-        if (context.input[context.pos] === "\\" && context.peek(1) === "\n") {
-            context.pos += 2;
-            context.line++;
+        if (preprocessor.input[preprocessor.pos] === "\\" && preprocessor.peek(1) === "\n") {
+            preprocessor.pos += 2;
+            preprocessor.line++;
             continue;
         }
-        text += context.input[context.pos];
-        context.pos++;
+        text += preprocessor.input[preprocessor.pos];
+        preprocessor.pos++;
     }
-    if (context.input[context.pos] === "\n") {
-        context.pos++;
-        context.line++;
+    if (preprocessor.input[preprocessor.pos] === "\n") {
+        preprocessor.pos++;
+        preprocessor.line++;
     }
     return text.trim();
 }
 
-export function skipToNewline(context: PreprocessorInternals): void {
-    while (context.pos < context.input.length && context.input[context.pos] !== "\n") {
-        context.pos++;
+export function skipToNewline(preprocessor: Preprocessor): void {
+    while (
+        preprocessor.pos < preprocessor.input.length &&
+        preprocessor.input[preprocessor.pos] !== "\n"
+    ) {
+        preprocessor.pos++;
     }
-    if (context.input[context.pos] === "\n") {
-        context.pos++;
-        context.line++;
+    if (preprocessor.input[preprocessor.pos] === "\n") {
+        preprocessor.pos++;
+        preprocessor.line++;
     }
 }
 
-export function readUntil(context: PreprocessorInternals, stop: string): string {
+export function readUntil(preprocessor: Preprocessor, stop: string): string {
     let text = "";
     while (
-        context.pos < context.input.length &&
-        context.input[context.pos] !== stop &&
-        context.input[context.pos] !== "\n"
+        preprocessor.pos < preprocessor.input.length &&
+        preprocessor.input[preprocessor.pos] !== stop &&
+        preprocessor.input[preprocessor.pos] !== "\n"
     ) {
-        text += context.input[context.pos];
-        context.pos++;
+        text += preprocessor.input[preprocessor.pos];
+        preprocessor.pos++;
     }
     return text;
 }
 
-export function skipLineComment(context: PreprocessorInternals): void {
-    while (context.pos < context.input.length && context.input[context.pos] !== "\n") {
-        context.pos++;
+export function skipLineComment(preprocessor: Preprocessor): void {
+    while (
+        preprocessor.pos < preprocessor.input.length &&
+        preprocessor.input[preprocessor.pos] !== "\n"
+    ) {
+        preprocessor.pos++;
     }
 }
 
-export function skipBlockComment(context: PreprocessorInternals): void {
-    context.pos += 2; // skip /*
-    while (context.pos < context.input.length) {
-        if (context.input[context.pos] === "\n") {
-            context.result += "\n";
-            context.line++;
-            context.pos++;
-        } else if (context.input[context.pos] === "*" && context.peek(1) === "/") {
-            context.pos += 2; // skip */
+export function skipBlockComment(preprocessor: Preprocessor): void {
+    preprocessor.pos += 2; // skip /*
+    while (preprocessor.pos < preprocessor.input.length) {
+        if (preprocessor.input[preprocessor.pos] === "\n") {
+            preprocessor.result += "\n";
+            preprocessor.line++;
+            preprocessor.pos++;
+        } else if (preprocessor.input[preprocessor.pos] === "*" && preprocessor.peek(1) === "/") {
+            preprocessor.pos += 2; // skip */
             return;
         } else {
-            context.pos++;
+            preprocessor.pos++;
         }
     }
 }
 
-export function escapeRegex(_context: PreprocessorInternals, text: string): string {
+export function escapeRegex(text: string): string {
     return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

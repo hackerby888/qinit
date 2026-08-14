@@ -1,34 +1,34 @@
-import type { PreprocessorInternals } from "./preprocessor-context";
+import type { Preprocessor } from "./preprocessor";
 
-export function evalIfCondition(context: PreprocessorInternals): boolean {
-    const raw = context.readToNewline();
-    return context.evalConstCondition(raw) !== 0n;
+export function evalIfCondition(preprocessor: Preprocessor): boolean {
+    const raw = preprocessor.readToNewline();
+    return preprocessor.evalConstCondition(raw) !== 0n;
 }
 
-export function evalConstCondition(context: PreprocessorInternals, expression: string): bigint {
+export function evalConstCondition(preprocessor: Preprocessor, expression: string): bigint {
     // Replace defined(X) / defined X → 1/0
     let text = expression.replace(/defined\s*\(\s*(\w+)\s*\)/g, (_m, exprItemIndex) =>
-        context.defines.has(exprItemIndex) ? "1" : "0",
+        preprocessor.defines.has(exprItemIndex) ? "1" : "0",
     );
     text = text.replace(/defined\s+(\w+)/g, (_m, sItemIndex) =>
-        context.defines.has(sItemIndex) ? "1" : "0",
+        preprocessor.defines.has(sItemIndex) ? "1" : "0",
     );
     // Expand remaining identifiers: a defined macro's body if numeric, else 0.
     text = text.replace(/\b([A-Za-z_]\w*)\b/g, (_m, id) => {
         if (id === "true") return "1";
         if (id === "false") return "0";
-        const def = context.defines.get(id);
+        const def = preprocessor.defines.get(id);
         if (def && def.params === null && /^-?\d+$/.test(def.body.trim())) return def.body.trim();
         return "0";
     });
     try {
-        return context.evalArith(text);
+        return preprocessor.evalArith(text);
     } catch {
         return 0n;
     }
 }
 
-export function evalArith(_context: PreprocessorInternals, text: string): bigint {
+export function evalArith(text: string): bigint {
     const toks = text.match(/\d+|&&|\|\||==|!=|<=|>=|<<|>>|[()+\-*/%<>!&|^]/g) ?? [];
     let index = 0;
     const peek = () => toks[index];

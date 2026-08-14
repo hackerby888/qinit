@@ -1,10 +1,10 @@
 import { AstKind } from "../shared/enums";
 import { ClassTemplate, StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, Declaration, StructDecl, VariableDecl } from "../ast";
-import type { ProgramAnalysisInternals } from "./program-analysis-context";
+import type { ProgramAnalysis } from "./program-analysis";
 
 export function instantiateTemplate(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     callArguments: TypeSpec[],
     parent: TemplateBindings,
@@ -13,29 +13,33 @@ export function instantiateTemplate(
     b: TemplateBindings;
 } | null {
     const resolvedArguments = callArguments.map((argument) =>
-        context.resolveType(argument, parent),
+        programAnalysis.resolveType(argument, parent),
     );
     const templateDeclaration =
-        context.templates.get(name) ??
+        programAnalysis.templates.get(name) ??
         (name.includes("::")
-            ? context.templates.get(name.slice(name.lastIndexOf("::") + 2))
+            ? programAnalysis.templates.get(name.slice(name.lastIndexOf("::") + 2))
             : undefined);
     if (!templateDeclaration) return null;
-    const specialization = context.matchTemplateSpecialization(name, resolvedArguments, parent);
+    const specialization = programAnalysis.matchTemplateSpecialization(
+        name,
+        resolvedArguments,
+        parent,
+    );
     if (specialization) return specialization;
-    const templateBindings = context.instantiateTemplateBindings(
+    const templateBindings = programAnalysis.instantiateTemplateBindings(
         templateDeclaration,
         resolvedArguments,
         parent,
     );
     return {
         templateDeclaration,
-        b: context.withStaticConsts(templateDeclaration, templateBindings),
+        b: programAnalysis.withStaticConsts(templateDeclaration, templateBindings),
     };
 }
 
 export function matchTemplateSpecialization(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     resolvedArguments: TypeSpec[],
     parent: TemplateBindings,
@@ -43,7 +47,7 @@ export function matchTemplateSpecialization(
     templateDeclaration: ClassTemplate;
     b: TemplateBindings;
 } | null {
-    const specializations = context.specializations.get(name);
+    const specializations = programAnalysis.specializations.get(name);
     if (!specializations) return null;
     for (const specialization of specializations) {
         if (specialization.specArgs.length !== resolvedArguments.length) continue;
@@ -73,7 +77,7 @@ export function matchTemplateSpecialization(
                 }
                 templateBindings.values.set(
                     specializedParameter.name,
-                    context.evalConstFromType(instantiationArg, parent),
+                    programAnalysis.evalConstFromType(instantiationArg, parent),
                 );
                 continue;
             }
@@ -91,8 +95,8 @@ export function matchTemplateSpecialization(
                 continue;
             }
             if (
-                context.evalConstFromType(instantiationArg, parent) !==
-                context.evalConstFromType(specializationArg, parent)
+                programAnalysis.evalConstFromType(instantiationArg, parent) !==
+                programAnalysis.evalConstFromType(specializationArg, parent)
             ) {
                 match = false;
                 break;
@@ -101,14 +105,17 @@ export function matchTemplateSpecialization(
         if (match)
             return {
                 templateDeclaration: specialization.templateDeclaration,
-                b: context.withStaticConsts(specialization.templateDeclaration, templateBindings),
+                b: programAnalysis.withStaticConsts(
+                    specialization.templateDeclaration,
+                    templateBindings,
+                ),
             };
     }
     return null;
 }
 
 export function instantiateTemplateBindings(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     templateDeclaration: ClassTemplate,
     resolvedArguments: TypeSpec[],
     parent: TemplateBindings,
@@ -127,7 +134,7 @@ export function instantiateTemplateBindings(
         const argument =
             resolvedArguments[parameterIndex] ??
             (templateParam.kind === AstKind.TYPE && templateParam.default
-                ? context.substInBindings(templateParam.default, templateBindings)
+                ? programAnalysis.substInBindings(templateParam.default, templateBindings)
                 : templateParam.kind === AstKind.NON_TYPE_DEFAULT
                   ? ({ kind: AstKind.EXPR_VALUE, expression: templateParam.default } as TypeSpec)
                   : undefined);
@@ -137,14 +144,14 @@ export function instantiateTemplateBindings(
         else
             templateBindings.values.set(
                 templateParam.name,
-                context.evalConstFromType(argument, parent),
+                programAnalysis.evalConstFromType(argument, parent),
             );
     }
     return templateBindings;
 }
 
 export function withStaticConsts(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     templateDeclaration: ClassTemplate,
     templateBindings: TemplateBindings,
 ): TemplateBindings {
@@ -159,7 +166,7 @@ export function withStaticConsts(
             try {
                 templateBindings.values.set(
                     variableDeclaration.name,
-                    context.evalConstBig(variableDeclaration.initializer, templateBindings),
+                    programAnalysis.evalConstBig(variableDeclaration.initializer, templateBindings),
                 );
             } catch {
                 /* non-integer constexpr (e.g. a typedef selector flag) — not a dimension */
@@ -170,27 +177,26 @@ export function withStaticConsts(
 }
 
 export function layoutOfTemplate(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     callArguments: TypeSpec[],
     parent: TemplateBindings,
 ): StructLayout {
-    const inst = context.instantiateTemplate(name, callArguments, parent);
-    const resolved = callArguments.map((argument) => context.resolveType(argument, parent));
+    const inst = programAnalysis.instantiateTemplate(name, callArguments, parent);
+    const resolved = callArguments.map((argument) => programAnalysis.resolveType(argument, parent));
     if (!inst) {
-        return context.fallbackTemplateLayout(name, resolved, parent);
+        return programAnalysis.fallbackTemplateLayout(name, resolved, parent);
     }
-    return context.layoutOfMembers(
+    return programAnalysis.layoutOfMembers(
         inst.templateDeclaration.members,
         inst.b,
-        `${name}<${resolved.map((resolvedItem) => context.typeKey(resolvedItem)).join(",")}>`,
+        `${name}<${resolved.map((resolvedItem) => programAnalysis.typeKey(resolvedItem)).join(",")}>`,
         false,
         inst.templateDeclaration.bases,
     );
 }
 
 export function withLocalStructs(
-    _context: ProgramAnalysisInternals,
     members: Declaration[],
     templateBindings: TemplateBindings,
 ): TemplateBindings {
@@ -211,7 +217,7 @@ export function withLocalStructs(
 }
 
 export function inlineNestedStruct(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     type: TypeSpec,
     templateBindings: TemplateBindings,
 ): TypeSpec {
@@ -220,35 +226,35 @@ export function inlineNestedStruct(
         const structDeclaration = templateBindings.structs.get(bare.name);
         if (structDeclaration) return { kind: AstKind.INLINE_STRUCT, struct: structDeclaration };
         // Resolve dependent nested types under the active template bindings.
-        const qn = context.qualifiedNestedType(bare.name, templateBindings);
+        const qn = programAnalysis.qualifiedNestedType(bare.name, templateBindings);
         if (qn) return qn;
     }
     return type;
 }
 
 export function fallbackTemplateLayout(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     callArguments: TypeSpec[],
     _templateBindings: TemplateBindings,
 ): StructLayout {
-    const rendered = callArguments.map((argument) => context.typeKey(argument)).join(", ");
+    const rendered = callArguments.map((argument) => programAnalysis.typeKey(argument)).join(", ");
     throw new Error(
         `template '${name}<${rendered}>' was not captured from core source; refusing an approximate layout`,
     );
 }
 
 export function bindContainer(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     callArguments: TypeSpec[],
     templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
 ): TemplateBindings {
-    const templateDeclaration = context.templates.get(name);
+    const templateDeclaration = programAnalysis.templates.get(name);
     const out: TemplateBindings = { types: new Map(), values: new Map(), structs: new Map() };
     if (!templateDeclaration) return out;
     const resolved = callArguments.map((argument) =>
-        context.resolveType(argument, templateBindings),
+        programAnalysis.resolveType(argument, templateBindings),
     );
     for (
         let parameterIndex = 0;
@@ -259,7 +265,7 @@ export function bindContainer(
         const parameterArgument =
             resolved[parameterIndex] ??
             (parameter.kind === AstKind.TYPE && parameter.default
-                ? context.substInBindings(parameter.default, out)
+                ? programAnalysis.substInBindings(parameter.default, out)
                 : parameter.kind === AstKind.NON_TYPE_DEFAULT
                   ? ({ kind: AstKind.EXPR_VALUE, expression: parameter.default } as TypeSpec)
                   : undefined);
@@ -268,7 +274,7 @@ export function bindContainer(
         else
             out.values.set(
                 parameter.name,
-                context.evalConstFromType(parameterArgument, templateBindings),
+                programAnalysis.evalConstFromType(parameterArgument, templateBindings),
             );
     }
     for (const member of templateDeclaration.members) {
@@ -293,7 +299,7 @@ export function bindContainer(
             try {
                 out.values.set(
                     variableDeclaration.name,
-                    context.evalConstBig(variableDeclaration.initializer, out),
+                    programAnalysis.evalConstBig(variableDeclaration.initializer, out),
                 );
             } catch {
                 /* a const that can't be evaluated under these bindings is simply omitted */
@@ -304,12 +310,12 @@ export function bindContainer(
 }
 
 export function staticConstsOf(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     templateBindings: TemplateBindings,
 ): Map<string, bigint> {
     const out = new Map<string, bigint>();
-    const templateDeclaration = context.templates.get(name);
+    const templateDeclaration = programAnalysis.templates.get(name);
     if (!templateDeclaration) return out;
     for (const member of templateDeclaration.members) {
         if (member.kind === AstKind.VARIABLE) {
@@ -320,7 +326,7 @@ export function staticConstsOf(
             )
                 out.set(
                     variableDeclaration.name,
-                    context.evalConstBig(variableDeclaration.initializer, templateBindings),
+                    programAnalysis.evalConstBig(variableDeclaration.initializer, templateBindings),
                 );
         }
     }

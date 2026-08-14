@@ -16,5 +16,3 @@ export interface MacroDef {
     body: string;
     isVarArgs: boolean;
 }
-
-export type { Preprocessor as PreprocessorInternals } from "./preprocessor";

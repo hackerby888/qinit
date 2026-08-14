@@ -1,10 +1,10 @@
 import { AstKind } from "../shared/enums";
 import { EMPTY_TEMPLATE_BINDINGS, ResolvedSourceMethod, TemplateBindings } from "./types";
 import type { TypeSpec, FunctionDecl, FunctionTemplateDecl } from "../ast";
-import type { ProgramAnalysisInternals } from "./program-analysis-context";
+import type { ProgramAnalysis } from "./program-analysis";
 
 export function methodOwnerNames(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     seen = new Set<string>(),
 ): string[] {
@@ -13,35 +13,32 @@ export function methodOwnerNames(
     seen.add(bare);
     const out = [bare];
     const struct =
-        context.globalStructs.get(name) ??
-        context.nested.get(name) ??
-        context.globalStructs.get(bare) ??
-        context.nested.get(bare);
+        programAnalysis.globalStructs.get(name) ??
+        programAnalysis.nested.get(name) ??
+        programAnalysis.globalStructs.get(bare) ??
+        programAnalysis.nested.get(bare);
     const directBases = struct?.bases ?? [];
     for (const baseType of directBases) {
-        const resolvedBase = context.resolveType(baseType, EMPTY_TEMPLATE_BINDINGS);
-        const baseName = context.baseTemplateName(resolvedBase);
-        if (baseName) out.push(...context.methodOwnerNames(baseName, seen));
+        const resolvedBase = programAnalysis.resolveType(baseType, EMPTY_TEMPLATE_BINDINGS);
+        const baseName = programAnalysis.baseTemplateName(resolvedBase);
+        if (baseName) out.push(...programAnalysis.methodOwnerNames(baseName, seen));
     }
     return out;
 }
 
-export function baseTemplateName(
-    _context: ProgramAnalysisInternals,
-    type: TypeSpec,
-): string | null {
+export function baseTemplateName(type: TypeSpec): string | null {
     if (type.kind === AstKind.NAME) return type.name;
     if (type.kind === AstKind.TEMPLATE_INSTANCE) return type.name;
     return null;
 }
 
 export function hasInstanceMethod(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     methodName: string,
 ): boolean {
-    return context.methodOwnerNames(name).some((owner) => {
-        const methods = context.templateMethods.get(owner);
+    return programAnalysis.methodOwnerNames(name).some((owner) => {
+        const methods = programAnalysis.templateMethods.get(owner);
         return (
             methods?.has(methodName) ||
             [...(methods?.keys() ?? [])].some((key) => key.startsWith(`${methodName}/`))
@@ -50,15 +47,15 @@ export function hasInstanceMethod(
 }
 
 export function resolveSourceMethodDefinition(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     ownerTypeName: string,
     ownerTemplateArguments: TypeSpec[],
     methodName: string,
     methodArgumentCount?: number,
     parameterTypeDiscriminator?: string,
 ): ResolvedSourceMethod | null {
-    const ownerBindings = context.bindContainer(ownerTypeName, ownerTemplateArguments);
-    const templateInstance = context.instantiateTemplate(
+    const ownerBindings = programAnalysis.bindContainer(ownerTypeName, ownerTemplateArguments);
+    const templateInstance = programAnalysis.instantiateTemplate(
         ownerTypeName,
         ownerTemplateArguments,
         EMPTY_TEMPLATE_BINDINGS,
@@ -108,9 +105,9 @@ export function resolveSourceMethodDefinition(
                           span: selectedInlineMethod.span,
                       };
 
-            context.namespaceContexts.set(
+            programAnalysis.namespaceContexts.set(
                 definition,
-                context.namespaceContextOf(selectedInlineMethod),
+                programAnalysis.namespaceContextOf(selectedInlineMethod),
             );
 
             return {
@@ -122,21 +119,21 @@ export function resolveSourceMethodDefinition(
         }
     }
 
-    const specializationKey = context.buildMethodSpecializationKey(
+    const specializationKey = programAnalysis.buildMethodSpecializationKey(
         methodName,
         methodArgumentCount,
         ownerTemplateArguments,
         ownerBindings,
     );
-    const overloadKey = context.buildMethodOverloadKey(
+    const overloadKey = programAnalysis.buildMethodOverloadKey(
         methodName,
         methodArgumentCount,
         parameterTypeDiscriminator,
     );
     let definition: FunctionTemplateDecl | undefined;
 
-    for (const ownerName of context.methodOwnerNames(ownerTypeName)) {
-        const methodsByName = context.templateMethods.get(ownerName);
+    for (const ownerName of programAnalysis.methodOwnerNames(ownerTypeName)) {
+        const methodsByName = programAnalysis.templateMethods.get(ownerName);
         definition =
             (overloadKey ? methodsByName?.get(overloadKey) : undefined) ??
             (specializationKey ? methodsByName?.get(specializationKey) : undefined) ??
@@ -164,7 +161,7 @@ export function resolveSourceMethodDefinition(
         },
     );
     const requiresMethodTemplateInference =
-        !context.templates.has(ownerTypeName) && definition.params.length > 0;
+        !programAnalysis.templates.has(ownerTypeName) && definition.params.length > 0;
 
     if (!methodDeclaration) {
         return {
@@ -182,7 +179,10 @@ export function resolveSourceMethodDefinition(
         })),
     };
 
-    context.namespaceContexts.set(definitionWithDefaults, context.namespaceContextOf(definition));
+    programAnalysis.namespaceContexts.set(
+        definitionWithDefaults,
+        programAnalysis.namespaceContextOf(definition),
+    );
 
     return {
         definition: definitionWithDefaults,
@@ -192,21 +192,20 @@ export function resolveSourceMethodDefinition(
 }
 
 export function buildMethodSpecializationKey(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     methodName: string,
     methodArgumentCount: number | undefined,
     ownerTemplateArguments: TypeSpec[],
     ownerBindings: TemplateBindings,
 ): string | undefined {
     if (methodArgumentCount === undefined || !ownerTemplateArguments[0]) return undefined;
-    const firstTemplateArgument = context.typeKey(
-        context.resolveType(ownerTemplateArguments[0], ownerBindings),
+    const firstTemplateArgument = programAnalysis.typeKey(
+        programAnalysis.resolveType(ownerTemplateArguments[0], ownerBindings),
     );
     return `${methodName}/${methodArgumentCount}@${firstTemplateArgument}`;
 }
 
 export function buildMethodOverloadKey(
-    _context: ProgramAnalysisInternals,
     methodName: string,
     methodArgumentCount: number | undefined,
     parameterTypeDiscriminator: string | undefined,

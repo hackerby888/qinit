@@ -1,27 +1,27 @@
 import { TYPE_COMPOUNDS } from "./keywords";
-import type { LexerInternals } from "./lexer-context";
+import type { Lexer } from "./lexer";
 import type { Token } from "./tokens";
 
-export function collapseTypeKeywords(context: LexerInternals): void {
+export function collapseTypeKeywords(lexer: Lexer): void {
     const result: Token[] = [];
     let index = 0;
-    while (index < context.tokens.length) {
+    while (index < lexer.tokens.length) {
         let collapsed = false;
         for (const [seq, compound] of TYPE_COMPOUNDS) {
             let match = true;
             for (let seqItemIndex = 0; seqItemIndex < seq.length; seqItemIndex++) {
                 if (
-                    index + seqItemIndex >= context.tokens.length ||
-                    context.tokens[index + seqItemIndex].kind !== seq[seqItemIndex]
+                    index + seqItemIndex >= lexer.tokens.length ||
+                    lexer.tokens[index + seqItemIndex].kind !== seq[seqItemIndex]
                 ) {
                     match = false;
                     break;
                 }
             }
             if (match) {
-                const startTok = context.tokens[index];
-                const endTok = context.tokens[index + seq.length - 1];
-                const text = context.tokens
+                const startTok = lexer.tokens[index];
+                const endTok = lexer.tokens[index + seq.length - 1];
+                const text = lexer.tokens
                     .slice(index, index + seq.length)
                     .map((token) => token.text)
                     .join(" ");
@@ -41,10 +41,10 @@ export function collapseTypeKeywords(context: LexerInternals): void {
             }
         }
         if (!collapsed) {
-            result.push(context.tokens[index]);
+            result.push(lexer.tokens[index]);
             index++;
         }
     }
-    context.tokens = result;
-    context.index = 0;
+    lexer.tokens = result;
+    lexer.index = 0;
 }

@@ -8,38 +8,39 @@ import type {
     FunctionTemplateDecl,
     VariableDecl,
 } from "../ast";
-import type { ProgramAnalysisInternals } from "./program-analysis-context";
+import type { ProgramAnalysis } from "./program-analysis";
 
-export function collectNested(context: ProgramAnalysisInternals, contract: StructDecl): void {
+export function collectNested(programAnalysis: ProgramAnalysis, contract: StructDecl): void {
     for (const member of contract.members) {
         if (member.kind === AstKind.STRUCT) {
             const structDeclaration = member as StructDecl;
             if (structDeclaration.hasBody === false) continue;
-            context.nested.set(structDeclaration.name, structDeclaration);
-            context.captureStructMethods(structDeclaration, [structDeclaration.name]);
+            programAnalysis.nested.set(structDeclaration.name, structDeclaration);
+            programAnalysis.captureStructMethods(structDeclaration, [structDeclaration.name]);
             // Also register structs nested INSIDE this one under their qualified name (`Outer::Inner`), recursively.
-            context.collectNestedStructs(structDeclaration, structDeclaration.name);
+            programAnalysis.collectNestedStructs(structDeclaration, structDeclaration.name);
         } else if (member.kind === AstKind.VARIABLE) {
-            context.collectConstant(member as VariableDecl);
+            programAnalysis.collectConstant(member as VariableDecl);
         } else if (member.kind === AstKind.ENUM) {
-            context.collectEnum(member as any);
+            programAnalysis.collectEnum(member as any);
         } else if (member.kind === AstKind.TYPEDEF_DECL) {
             // contract-member typedef (typedef Order _Order;) — register the alias so _Order-typed locals resolve their layout/fields.
             const td = member as any;
-            if (!context.typedefs.has(td.name)) context.typedefs.set(td.name, td.type);
+            if (!programAnalysis.typedefs.has(td.name))
+                programAnalysis.typedefs.set(td.name, td.type);
         } else if (member.kind === AstKind.CLASS_TEMPLATE) {
             // Register nested templates and their inline methods like file-scope templates.
             const ct = member as any;
             if (ct.hasBody === false) continue;
-            const prev = context.templates.get(ct.name);
+            const prev = programAnalysis.templates.get(ct.name);
             if (!prev || (prev.members?.length ?? 0) < (ct.members?.length ?? 0))
-                context.templates.set(ct.name, ct);
+                programAnalysis.templates.set(ct.name, ct);
             for (const mm of ct.specializationArgs ? [] : ct.members) {
                 if (mm.kind !== AstKind.FUNCTION || !(mm as FunctionDecl).body) continue;
                 const fn = mm as FunctionDecl;
-                if (!context.templateMethods.has(ct.name))
-                    context.templateMethods.set(ct.name, new Map());
-                const into = context.templateMethods.get(ct.name)!;
+                if (!programAnalysis.templateMethods.has(ct.name))
+                    programAnalysis.templateMethods.set(ct.name, new Map());
+                const into = programAnalysis.templateMethods.get(ct.name)!;
                 const def: FunctionTemplateDecl = {
                     kind: AstKind.FUNCTION_TEMPLATE,
                     name: fn.name,
@@ -56,7 +57,7 @@ export function collectNested(context: ProgramAnalysisInternals, contract: Struc
             }
         } else if (member.kind === AstKind.FUNCTION_TEMPLATE) {
             // Register contract-level function templates as source helpers.
-            context.registerLibFnTemplate(
+            programAnalysis.registerLibFnTemplate(
                 (member as FunctionTemplateDecl).name,
                 member as FunctionTemplateDecl,
             );
@@ -65,15 +66,15 @@ export function collectNested(context: ProgramAnalysisInternals, contract: Struc
 }
 
 export function registerCalleeContractDeclarations(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     declarations: Declaration[],
 ): void {
     for (const declaration of declarations) {
         if (declaration.kind === AstKind.VARIABLE) {
-            context.collectConstant(declaration as VariableDecl);
+            programAnalysis.collectConstant(declaration as VariableDecl);
         } else if (declaration.kind === AstKind.ENUM) {
-            context.collectEnum(declaration as any);
+            programAnalysis.collectEnum(declaration as any);
         } else if (declaration.kind === AstKind.STRUCT) {
             const structDeclaration = declaration as StructDecl;
             if (
@@ -87,24 +88,25 @@ export function registerCalleeContractDeclarations(
                 if (member.kind === AstKind.STRUCT) {
                     const nested = member as StructDecl;
                     if (nested.hasBody === false) continue;
-                    context.globalStructs.set(`${name}::${nested.name}`, nested);
-                    context.collectNestedStructs(nested, `${name}::${nested.name}`);
+                    programAnalysis.globalStructs.set(`${name}::${nested.name}`, nested);
+                    programAnalysis.collectNestedStructs(nested, `${name}::${nested.name}`);
                 } else if (member.kind === AstKind.TYPEDEF_DECL) {
                     const td = member as {
                         name: string;
                         type: TypeSpec;
                     };
-                    context.typedefs.set(`${name}::${td.name}`, td.type);
-                    if (!context.typedefs.has(td.name)) context.typedefs.set(td.name, td.type);
+                    programAnalysis.typedefs.set(`${name}::${td.name}`, td.type);
+                    if (!programAnalysis.typedefs.has(td.name))
+                        programAnalysis.typedefs.set(td.name, td.type);
                 } else if (member.kind === AstKind.FUNCTION) {
                     const fn = member as FunctionDecl;
                     if (!fn.body || !fn.isStatic) continue;
                     const key = `${name}::${fn.name}`;
-                    if (!context.libFns.has(key)) context.libFns.set(key, fn);
+                    if (!programAnalysis.libFns.has(key)) programAnalysis.libFns.set(key, fn);
                 } else if (member.kind === AstKind.FUNCTION_TEMPLATE) {
                     // Register callee templates for qualified calls despite their dropped static flag.
                     const fn = member as FunctionTemplateDecl;
-                    context.registerLibFnTemplate(`${name}::${fn.name}`, fn);
+                    programAnalysis.registerLibFnTemplate(`${name}::${fn.name}`, fn);
                 }
             }
         }
@@ -112,7 +114,7 @@ export function registerCalleeContractDeclarations(
 }
 
 export function captureStructMethods(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     structDeclaration: StructDecl,
     names: string[],
 ): void {
@@ -131,8 +133,9 @@ export function captureStructMethods(
             span: fn.span,
         };
         for (const cls of names) {
-            if (!context.templateMethods.has(cls)) context.templateMethods.set(cls, new Map());
-            const into = context.templateMethods.get(cls)!;
+            if (!programAnalysis.templateMethods.has(cls))
+                programAnalysis.templateMethods.set(cls, new Map());
+            const into = programAnalysis.templateMethods.get(cls)!;
             const akey = `${fn.name}/${(fn.params ?? []).length}`;
             if (!into.has(akey)) into.set(akey, def);
             if (!into.has(fn.name)) into.set(fn.name, def);
@@ -141,7 +144,7 @@ export function captureStructMethods(
 }
 
 export function collectNestedStructs(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     parent: StructDecl,
     prefix: string,
 ): void {
@@ -150,62 +153,67 @@ export function collectNestedStructs(
             const structDeclaration = member as StructDecl;
             if (structDeclaration.hasBody === false) continue;
             const key = `${prefix}::${structDeclaration.name}`;
-            if (!context.nested.has(key)) context.nested.set(key, structDeclaration);
+            if (!programAnalysis.nested.has(key))
+                programAnalysis.nested.set(key, structDeclaration);
             // Register nested structs unqualified for references within their owner.
             if (
-                !context.nested.has(structDeclaration.name) &&
-                !context.globalStructs.has(structDeclaration.name)
+                !programAnalysis.nested.has(structDeclaration.name) &&
+                !programAnalysis.globalStructs.has(structDeclaration.name)
             )
-                context.nested.set(structDeclaration.name, structDeclaration);
-            context.captureStructMethods(structDeclaration, [structDeclaration.name, key]);
-            context.collectNestedStructs(structDeclaration, key);
+                programAnalysis.nested.set(structDeclaration.name, structDeclaration);
+            programAnalysis.captureStructMethods(structDeclaration, [structDeclaration.name, key]);
+            programAnalysis.collectNestedStructs(structDeclaration, key);
         }
     }
 }
 
 export function structByName(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     templateBindings: TemplateBindings,
 ): StructDecl | undefined {
     const hit =
         templateBindings.structs.get(name) ??
-        context.nested.get(name) ??
-        context.globalStructs.get(name);
+        programAnalysis.nested.get(name) ??
+        programAnalysis.globalStructs.get(name);
     if (hit) return hit;
     const index = name.lastIndexOf("::");
     if (index >= 0) {
         const unqualifiedName = name.slice(index + 2);
         return (
             templateBindings.structs.get(unqualifiedName) ??
-            context.nested.get(unqualifiedName) ??
-            context.globalStructs.get(unqualifiedName)
+            programAnalysis.nested.get(unqualifiedName) ??
+            programAnalysis.globalStructs.get(unqualifiedName)
         );
     }
     return undefined;
 }
 
 export function qualifiedNestedType(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     name: string,
     templateBindings: TemplateBindings,
 ): TypeSpec | null {
     for (let sep = name.indexOf("::"); sep > 0; sep = name.indexOf("::", sep + 2)) {
         const head = name.slice(0, sep);
-        const headType = templateBindings.types.get(head) ?? context.typedefs.get(head);
+        const headType = templateBindings.types.get(head) ?? programAnalysis.typedefs.get(head);
         const structDeclaration = headType
-            ? context.structOf(headType, templateBindings)
-            : (context.structByName(head, templateBindings) ?? null);
+            ? programAnalysis.structOf(headType, templateBindings)
+            : (programAnalysis.structByName(head, templateBindings) ?? null);
         if (!structDeclaration) continue;
         const segments = name.slice(sep + 2).split("::");
-        const walked = context.walkNestedSegments(structDeclaration, segments, templateBindings);
+        const walked = programAnalysis.walkNestedSegments(
+            structDeclaration,
+            segments,
+            templateBindings,
+        );
         if (walked) return walked;
     }
     return null;
 }
 
 export function walkNestedSegments(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     sd: StructDecl | null,
     segs: string[],
     templateBindings: TemplateBindings,
@@ -228,29 +236,30 @@ export function walkNestedSegments(
         ) as any;
         if (!mt) return null;
         if (last) return mt.type;
-        sd = context.structOf(mt.type, templateBindings);
+        sd = programAnalysis.structOf(mt.type, templateBindings);
     }
     return null;
 }
 
 export function structOf(
-    context: ProgramAnalysisInternals,
+    programAnalysis: ProgramAnalysis,
     type: TypeSpec,
     templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
 ): StructDecl | null {
-    if (type.kind === AstKind.CONST) return context.structOf(type.valueType, templateBindings);
+    if (type.kind === AstKind.CONST)
+        return programAnalysis.structOf(type.valueType, templateBindings);
     if (type.kind === AstKind.REFERENCE)
-        return context.structOf(type.referentType, templateBindings);
+        return programAnalysis.structOf(type.referentType, templateBindings);
     if (type.kind === AstKind.INLINE_STRUCT) return type.struct;
     if (type.kind === AstKind.NAME) {
         const bound = templateBindings.types.get(type.name);
-        if (bound) return context.structOf(bound, templateBindings);
-        const td = context.typedefs.get(type.name);
-        if (td) return context.structOf(td, templateBindings);
-        const structDeclaration = context.structByName(type.name, templateBindings);
+        if (bound) return programAnalysis.structOf(bound, templateBindings);
+        const td = programAnalysis.typedefs.get(type.name);
+        if (td) return programAnalysis.structOf(td, templateBindings);
+        const structDeclaration = programAnalysis.structByName(type.name, templateBindings);
         if (structDeclaration) return structDeclaration;
-        const qn = context.qualifiedNestedType(type.name, templateBindings);
-        return qn ? context.structOf(qn, templateBindings) : null;
+        const qn = programAnalysis.qualifiedNestedType(type.name, templateBindings);
+        return qn ? programAnalysis.structOf(qn, templateBindings) : null;
     }
     return null;
 }

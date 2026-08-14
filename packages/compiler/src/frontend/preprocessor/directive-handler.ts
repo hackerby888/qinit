@@ -1,83 +1,83 @@
-import type { PreprocessorInternals } from "./preprocessor-context";
+import type { Preprocessor } from "./preprocessor";
 
-export function handleDirective(context: PreprocessorInternals): void {
-    context.pos++; // skip #
+export function handleDirective(preprocessor: Preprocessor): void {
+    preprocessor.pos++; // skip #
     // Skip whitespace after #
-    context.skipWhitespace();
-    const directive = context.readIdentifier();
+    preprocessor.skipWhitespace();
+    const directive = preprocessor.readIdentifier();
     // Conditional directives are always processed (to keep the stack balanced), even when inactive.
     switch (directive) {
         case "if":
-            context.pushCond(context.evalIfCondition());
+            preprocessor.pushCond(preprocessor.evalIfCondition());
             return;
         case "ifdef": {
-            const name = context.readDirectiveWord();
-            context.skipToNewline();
-            context.pushCond(context.defines.has(name));
+            const name = preprocessor.readDirectiveWord();
+            preprocessor.skipToNewline();
+            preprocessor.pushCond(preprocessor.defines.has(name));
             return;
         }
         case "ifndef": {
-            const name = context.readDirectiveWord();
-            context.skipToNewline();
-            context.pushCond(!context.defines.has(name));
+            const name = preprocessor.readDirectiveWord();
+            preprocessor.skipToNewline();
+            preprocessor.pushCond(!preprocessor.defines.has(name));
             return;
         }
         case "elif": {
             const condition =
-                context.condStack.length > 0 &&
-                !context.condStack[context.condStack.length - 1].taken
-                    ? context.evalIfCondition()
-                    : (context.skipToNewline(), false);
-            context.applyElif(condition);
+                preprocessor.condStack.length > 0 &&
+                !preprocessor.condStack[preprocessor.condStack.length - 1].taken
+                    ? preprocessor.evalIfCondition()
+                    : (preprocessor.skipToNewline(), false);
+            preprocessor.applyElif(condition);
             return;
         }
         case "else":
-            context.skipToNewline();
-            context.applyElse();
+            preprocessor.skipToNewline();
+            preprocessor.applyElse();
             return;
         case "endif":
-            context.skipToNewline();
-            context.condStack.pop();
+            preprocessor.skipToNewline();
+            preprocessor.condStack.pop();
             return;
     }
     // Non-conditional directives only act in an active branch.
-    if (!context.condActive()) {
-        context.skipToNewline();
+    if (!preprocessor.condActive()) {
+        preprocessor.skipToNewline();
         return;
     }
     switch (directive) {
         case "include":
-            context.handleInclude();
+            preprocessor.handleInclude();
             break;
         case "define":
-            context.handleDefine();
+            preprocessor.handleDefine();
             break;
         case "undef":
-            context.handleUndef();
+            preprocessor.handleUndef();
             break;
         case "pragma":
-            context.handlePragma();
+            preprocessor.handlePragma();
             break;
         case "error":
-            context.skipToNewline();
+            preprocessor.skipToNewline();
             break;
         default:
-            context.skipToNewline();
+            preprocessor.skipToNewline();
             break;
     }
 }
 
-export function pushCond(context: PreprocessorInternals, condition: boolean): void {
-    const parentActive = context.condActive();
-    context.condStack.push({
+export function pushCond(preprocessor: Preprocessor, condition: boolean): void {
+    const parentActive = preprocessor.condActive();
+    preprocessor.condStack.push({
         active: parentActive && condition,
         taken: parentActive && condition,
         parentActive,
     });
 }
 
-export function applyElif(context: PreprocessorInternals, condition: boolean): void {
-    const condStackItem = context.condStack[context.condStack.length - 1];
+export function applyElif(preprocessor: Preprocessor, condition: boolean): void {
+    const condStackItem = preprocessor.condStack[preprocessor.condStack.length - 1];
     if (!condStackItem) return;
     if (condStackItem.taken) {
         condStackItem.active = false;
@@ -87,72 +87,72 @@ export function applyElif(context: PreprocessorInternals, condition: boolean): v
     }
 }
 
-export function applyElse(context: PreprocessorInternals): void {
-    const condStackItem = context.condStack[context.condStack.length - 1];
+export function applyElse(preprocessor: Preprocessor): void {
+    const condStackItem = preprocessor.condStack[preprocessor.condStack.length - 1];
     if (!condStackItem) return;
     condStackItem.active = condStackItem.parentActive && !condStackItem.taken;
     condStackItem.taken = true;
 }
 
-export function readDirectiveWord(context: PreprocessorInternals): string {
-    context.skipWhitespace();
-    return context.readIdentifier();
+export function readDirectiveWord(preprocessor: Preprocessor): string {
+    preprocessor.skipWhitespace();
+    return preprocessor.readIdentifier();
 }
 
-export function handleInclude(context: PreprocessorInternals): void {
-    context.skipWhitespace();
-    const ch = context.input[context.pos];
+export function handleInclude(preprocessor: Preprocessor): void {
+    preprocessor.skipWhitespace();
+    const ch = preprocessor.input[preprocessor.pos];
     let filename = "";
     if (ch === '"') {
-        context.pos++; // skip opening "
+        preprocessor.pos++; // skip opening "
         while (
-            context.pos < context.input.length &&
-            context.input[context.pos] !== '"' &&
-            context.input[context.pos] !== "\n"
+            preprocessor.pos < preprocessor.input.length &&
+            preprocessor.input[preprocessor.pos] !== '"' &&
+            preprocessor.input[preprocessor.pos] !== "\n"
         ) {
-            filename += context.input[context.pos];
-            context.pos++;
+            filename += preprocessor.input[preprocessor.pos];
+            preprocessor.pos++;
         }
-        if (context.input[context.pos] === '"') {
-            context.pos++; // skip closing "
+        if (preprocessor.input[preprocessor.pos] === '"') {
+            preprocessor.pos++; // skip closing "
         }
-        context.skipToNewline();
+        preprocessor.skipToNewline();
     } else if (ch === "<") {
-        context.pos++; // skip opening <
+        preprocessor.pos++; // skip opening <
         while (
-            context.pos < context.input.length &&
-            context.input[context.pos] !== ">" &&
-            context.input[context.pos] !== "\n"
+            preprocessor.pos < preprocessor.input.length &&
+            preprocessor.input[preprocessor.pos] !== ">" &&
+            preprocessor.input[preprocessor.pos] !== "\n"
         ) {
-            filename += context.input[context.pos];
-            context.pos++;
+            filename += preprocessor.input[preprocessor.pos];
+            preprocessor.pos++;
         }
-        if (context.input[context.pos] === ">") {
-            context.pos++; // skip closing >
+        if (preprocessor.input[preprocessor.pos] === ">") {
+            preprocessor.pos++; // skip closing >
         }
-        context.skipToNewline();
+        preprocessor.skipToNewline();
     } else {
-        context.skipToNewline();
+        preprocessor.skipToNewline();
     }
     // #include directives in preprocessed source are no-ops (qpi.h is already embedded).
-    context.result += "\n";
+    preprocessor.result += "\n";
 }
 
-export function handleDefine(context: PreprocessorInternals): void {
-    context.skipWhitespace();
-    const name = context.readIdentifier();
+export function handleDefine(preprocessor: Preprocessor): void {
+    preprocessor.skipWhitespace();
+    const name = preprocessor.readIdentifier();
     if (!name) {
-        context.skipToNewline();
+        preprocessor.skipToNewline();
         return;
     }
     // Check for function-like macro: NAME(...)
     let params: string[] | null = null;
     let isVarArgs = false;
-    if (context.peek(0) === "(") {
-        context.pos++; // skip (
-        context.skipWhitespace();
-        const paramStr = context.readUntil(")");
-        context.pos++; // skip )
+    if (preprocessor.peek(0) === "(") {
+        preprocessor.pos++; // skip (
+        preprocessor.skipWhitespace();
+        const paramStr = preprocessor.readUntil(")");
+        preprocessor.pos++; // skip )
         if (paramStr === "...") {
             params = [];
             isVarArgs = true;
@@ -169,29 +169,29 @@ export function handleDefine(context: PreprocessorInternals): void {
             params = [];
         }
     }
-    context.skipWhitespace();
-    const body = context.readToNewline();
-    context.defines.set(name, { name, params, body, isVarArgs });
+    preprocessor.skipWhitespace();
+    const body = preprocessor.readToNewline();
+    preprocessor.defines.set(name, { name, params, body, isVarArgs });
     // Directive is consumed — don't add to output
 }
 
-export function handleUndef(context: PreprocessorInternals): void {
-    context.skipWhitespace();
-    const name = context.readIdentifier();
+export function handleUndef(preprocessor: Preprocessor): void {
+    preprocessor.skipWhitespace();
+    const name = preprocessor.readIdentifier();
     if (name) {
-        context.defines.delete(name);
+        preprocessor.defines.delete(name);
     }
-    context.skipToNewline();
+    preprocessor.skipToNewline();
 }
 
-export function handlePragma(context: PreprocessorInternals): void {
-    context.skipWhitespace();
-    const pragma = context.readIdentifier();
+export function handlePragma(preprocessor: Preprocessor): void {
+    preprocessor.skipWhitespace();
+    const pragma = preprocessor.readIdentifier();
     // Ignore #pragma once; include ownership stays with the caller.
     if (pragma === "once") {
-        context.skipToNewline();
+        preprocessor.skipToNewline();
     } else {
-        const rest = context.readToNewline();
-        context.result += `// #pragma ${pragma} ${rest}\n`;
+        const rest = preprocessor.readToNewline();
+        preprocessor.result += `// #pragma ${pragma} ${rest}\n`;
     }
 }

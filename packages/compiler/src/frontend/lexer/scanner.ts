@@ -1,92 +1,87 @@
-import type { LexerInternals } from "./lexer-context";
+import type { Lexer } from "./lexer";
 import type { Token } from "./tokens";
 import type { Span } from "../../ast";
 
-export function span(context: LexerInternals): Span {
-    return { start: context.pos, end: context.pos, line: context.line, column: context.column };
+export function span(lexer: Lexer): Span {
+    return { start: lexer.pos, end: lexer.pos, line: lexer.line, column: lexer.column };
 }
 
-export function makeSpan(
-    context: LexerInternals,
-    start: number,
-    startLine: number,
-    startCol: number,
-): Span {
-    return { start, end: context.pos, line: startLine, column: startCol };
+export function makeSpan(lexer: Lexer, start: number, startLine: number, startCol: number): Span {
+    return { start, end: lexer.pos, line: startLine, column: startCol };
 }
 
-export function peekChar(context: LexerInternals, offset: number = 0): string {
-    const index = context.pos + offset;
-    if (index >= context.src.length) {
+export function peekChar(lexer: Lexer, offset: number = 0): string {
+    const index = lexer.pos + offset;
+    if (index >= lexer.src.length) {
         return "\0";
     }
-    return context.src[index];
+    return lexer.src[index];
 }
 
-export function advance(context: LexerInternals): string {
-    const ch = context.src[context.pos];
-    context.pos++;
+export function advance(lexer: Lexer): string {
+    const ch = lexer.src[lexer.pos];
+    lexer.pos++;
     if (ch === "\n") {
-        context.line++;
-        context.column = 1;
+        lexer.line++;
+        lexer.column = 1;
     } else {
-        context.column++;
+        lexer.column++;
     }
     return ch;
 }
 
-export function nextToken(context: LexerInternals): Token | null {
+export function nextToken(lexer: Lexer): Token | null {
     // Skip whitespace and comments
-    while (!context.eof()) {
-        const ch = context.peekChar();
+    while (!lexer.eof()) {
+        const ch = lexer.peekChar();
         if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r") {
-            context.advance();
+            lexer.advance();
             continue;
         }
         if (ch === "/") {
-            const next = context.peekChar(1);
+            const next = lexer.peekChar(1);
             if (next === "/") {
-                context.skipLineComment();
+                lexer.skipLineComment();
                 continue;
             }
             if (next === "*") {
-                context.skipBlockComment();
+                lexer.skipBlockComment();
                 continue;
             }
         }
         break;
     }
-    if (context.eof()) {
+    if (lexer.eof()) {
         return null;
     }
-    const start = context.pos;
-    const startLine = context.line;
-    const startCol = context.column;
-    const ch = context.peekChar();
+    const start = lexer.pos;
+    const startLine = lexer.line;
+    const startCol = lexer.column;
+    const ch = lexer.peekChar();
     // Identifiers and keywords
-    if (context.isIdStart(ch)) {
-        return context.lexIdOrKeyword(start, startLine, startCol);
+    if (lexer.isIdStart(ch)) {
+        return lexer.lexIdOrKeyword(start, startLine, startCol);
     }
     // Numbers
     if (ch >= "0" && ch <= "9") {
-        return context.lexNumber(start, startLine, startCol);
+        return lexer.lexNumber(start, startLine, startCol);
     }
     // Character literal
     if (ch === "'") {
-        return context.lexCharLiteral(start, startLine, startCol);
+        return lexer.lexCharLiteral(start, startLine, startCol);
     }
     // String literal
     if (ch === '"') {
-        return context.lexStringLiteral(start, startLine, startCol);
+        return lexer.lexStringLiteral(start, startLine, startCol);
     }
     // Operators and punctuators
-    return context.lexOperator(start, startLine, startCol);
+    return lexer.lexOperator(start, startLine, startCol);
 }
 
-export function advanceN(context: LexerInternals, count: number): string {
+export function advanceN(lexer: Lexer, count: number): string {
     let text = "";
-    for (let index = 0; index < count && !context.eof(); index++) {
-        text += context.advance();
+    for (let index = 0; index < count && !lexer.eof(); index++) {
+        text += lexer.advance();
     }
     return text;
 }
