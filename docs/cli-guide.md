@@ -1917,8 +1917,8 @@ should know them before relying on metadata or a successful exit status.
   while `--plain` is not shown in generated usage. `explorer` is the one command
   that rejects `--json` (and a non-TTY stdin) outright, because it has no
   structured form.
-- Unknown commands currently render help and a suggestion but do not set a
-  failing exit status.
+- An unresolved command renders help plus a suggestion and exits 1. A dash-prefixed token is not
+  announced as an unknown command name, but it fails the same way.
 - An unknown subcommand is only rejected when `--help` is also present.
   Otherwise it stays a positional: `qinit node bogus` reaches `Node` with
   `subcommand: undefined`, and the component falls back to

@@ -119,8 +119,28 @@ test("integrate help is canonical and upstream is unknown", async () => {
     expect(integrateHelp.stdout).toContain("--construction-epoch <n>");
     expect(integrateHelp.stderr).toBe("");
 
+    expect(legacyCommand.code).toBe(1);
     expect(legacyCommand.stdout).toContain("unknown command: upstream");
     expect(legacyCommand.stderr).toBe("");
+});
+
+test("an unresolved invocation fails even when it renders help", async () => {
+    const [unknownName, unknownFlag, helpForUnknown] = await Promise.all([
+        run("buidl"),
+        run("--bogus"),
+        run("help", "buidl"),
+    ]);
+
+    for (const result of [unknownName, helpForUnknown]) {
+        expect(result.code).toBe(1);
+        expect(result.stdout).toContain("unknown command: buidl");
+        expect(result.stdout).toContain("did you mean");
+    }
+
+    // A dash-prefixed token is not announced as a command name, but it is still not a valid call.
+    expect(unknownFlag.code).toBe(1);
+    expect(unknownFlag.stdout).not.toContain("unknown command:");
+    expect(unknownFlag.stdout).toContain("usage: qinit <command>");
 });
 
 test("node subcommand help shows only the resolved option scope", async () => {
@@ -173,6 +193,7 @@ test("prototype-shaped command names stay unknown", async () => {
     const results = await Promise.all([run("toString"), run("__proto__"), run("help", "toString")]);
 
     for (const result of results) {
+        expect(result.code).toBe(1);
         expect(result.stdout).toContain("unknown command:");
         expect(result.stdout).not.toContain("qinit crashed");
         expect(result.stderr).toBe("");

@@ -104,7 +104,7 @@ function unknownCommand(command: string): ReactNode {
     const suggestable = COMMANDS.filter((name) => !META[name].hidden);
     return (
         <Help
-            unknown={!command.startsWith("-")}
+            unknown
             command={command}
             suggestion={REMOVED.get(command) ?? nearest(command, suggestable)}
         />

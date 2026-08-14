@@ -25,8 +25,10 @@ export function Help({
 }) {
     const { exit } = useApp();
     useEffect(() => {
+        // An invocation qinit could not resolve has to fail, so a typo in a script is not a success.
+        if (unknown) process.exitCode = 1;
         exit();
-    }, [exit]);
+    }, [exit, unknown]);
     const listed = COMMANDS.filter((c) => !META[c].hidden);
     const w = Math.max(...listed.map((c) => c.length)) + 2; // align descriptions across all groups
     const pad = "  " + " ".repeat(w); // indent for example/note lines
@@ -36,7 +38,7 @@ export function Help({
     }));
     return (
         <Box flexDirection="column">
-            {unknown && (
+            {unknown && !command?.startsWith("-") && (
                 <Box marginBottom={1} flexDirection="column">
                     <Text>
                         <Text color={theme.warn}>✗ unknown command:</Text>{" "}
