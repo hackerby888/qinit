@@ -11,7 +11,8 @@
         "./intercontract": "./src/intercontract.ts",
         "./project-dependencies": "./src/project-dependencies.ts",
         "./project-slots": "./src/project-slots.ts",
-        "./idl": "./src/idl.ts"
+        "./idl": "./src/idl.ts",
+        "./templates": "./src/templates.ts"
     },
     "dependencies": {
         "@qinit/compiler": "workspace:*",
