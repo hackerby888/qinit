@@ -1,17 +1,18 @@
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { buildContractWithWasiClang, systemNames, type ContractBuildResult, type ContractIdl } from "@qinit/build";
+import { buildContractWithWasiClang, type ContractBuildResult, type ContractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
-import { LiteRpc, k12Hex, readCurrent, autoUpdateVerifyTool, type NodeBackendIdentity } from "@qinit/core";
+import { LiteRpc, k12Hex, type NodeBackendIdentity } from "@qinit/core";
 import { encodeDeploy, LITE_TX, resolveDeploymentSlot, TX_TICK_OFFSET } from "@qinit/proto";
-import { savedSeed, savedCompilerBackend, resolveCoreDir, type CompilerBackend } from "../../config";
+import { savedCompilerBackend, type CompilerBackend } from "../../config";
 import { buildContractWithTypeScript } from "../typescript-build";
 import { saveContractIdl } from "../../contracts/idl-file";
 import { resolveNodeCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
-import { classifyConfirm, tickFailureMessage, type DeploymentEvent } from "./steps";
-import { activeUploadError, buildUploadTx, uploadContract } from "./upload";
+import { classifyConfirm, type DeploymentEvent } from "./steps";
+import { buildUploadTx, uploadContract } from "./upload";
 import { resolveFundedSigner, unfundedSignerMessage } from "../signer";
+import { assertChainFastEnough, deployToSimulator, resolveSigningSeed, runPreflightChecks, waitForTickReadiness } from "./phases";
 export { resolveNodeCallees } from "../../contracts/callees";
 export { STEPS, classifyConfirm, tickFailureMessage, updateDeploymentSteps } from "./steps";
 export type { DeploymentEvent, DeploymentStepEvent, DeploymentStepState, StepKey } from "./steps";
@@ -56,103 +57,18 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
     const slotOverride = options.slotOverride === undefined ? undefined : parseContractSlot(options.slotOverride);
     const rpc = options.rpc ?? new LiteRpc(options.rpcBaseUrl);
 
-    // Reject a competing upload before doing build or network work.
-    try {
-        const upload = await rpc.dynUpload();
-        if (upload.active) {
-            const error = activeUploadError(upload);
-            emit({ step: "upload", state: "fail", detail: error });
-            return { ok: false, error };
-        }
-    } catch {
-        // Older nodes do not expose dyn-upload; the normal reachability check below remains authoritative.
+    const preflight = await runPreflightChecks(rpc, options, emit);
+    if (preflight) {
+        return { ok: false, error: preflight.error };
     }
 
-    try {
-        if (systemNames(resolveCoreDir(options.core)).has(options.name.toLowerCase())) {
-            emit({
-                step: "build",
-                state: "fail",
-                detail: `'${options.name}' is a system contract name`,
-            });
-            return {
-                ok: false,
-                error: `'${options.name}' is a reserved system contract name — pick another`,
-            };
-        }
-    } catch {
-        // The build step reports a missing core snapshot with more context.
+    const readiness = await waitForTickReadiness(rpc, options.rpcBaseUrl, emit);
+    if (!readiness.ok) {
+        return { ok: false, error: readiness.error };
     }
+    let currentTick = readiness.tick;
 
-    const pin = readCurrent();
-    if (pin?.headersVersion && pin?.nodeVersion && pin.headersVersion !== pin.nodeVersion) {
-        emit({
-            note: `⚠ version drift: headers ${pin.headersVersion} ≠ node ${pin.nodeVersion} — run 'qinit setup'`,
-        });
-    }
-
-    if (!options.artifact) {
-        const verifyUpdate = await autoUpdateVerifyTool();
-        if (verifyUpdate.action === "updated" || verifyUpdate.action === "installed") {
-            emit({
-                note: `↻ contractverify ${verifyUpdate.action} → ${verifyUpdate.version}`,
-            });
-        }
-    }
-
-    emit({ step: "tick", state: "active", detail: "waiting for node…" });
-    let initialTick = -1;
-    let currentTick = 0;
-    let reached = false;
-    let misses = 0;
-
-    for (let i = 0; i < 300; i++) {
-        try {
-            const tickInfo = await rpc.tickInfo();
-            reached = true;
-            misses = 0;
-            currentTick = tickInfo.tick;
-            if (initialTick < 0) {
-                initialTick = currentTick;
-                // A dev node jumps the readiness margin at once; one that cannot answers 0 and the loop waits.
-                currentTick = Math.max(currentTick, await rpc.hurryToTick(initialTick + 4));
-            }
-            emit({ step: "tick", state: "active", detail: `tick ${currentTick}` });
-            if (currentTick > initialTick + 3) {
-                break;
-            }
-        } catch {
-            misses++;
-            if (!reached && misses >= 15) {
-                break;
-            }
-        }
-        await sleep(1000);
-    }
-
-    if (!reached || currentTick <= initialTick + 3) {
-        emit({ step: "tick", state: "fail", detail: reached ? "not ticking" : "unreachable" });
-        return { ok: false, error: tickFailureMessage(reached, options.rpcBaseUrl) };
-    }
-
-    emit({ step: "tick", state: "ok", detail: `tick ${currentTick}` });
-
-    let seed = options.seed;
-    if (!seed) {
-        const saved = savedSeed();
-        if (saved) {
-            seed = saved;
-            emit({ note: "using saved seed (qinit seed)" });
-        }
-    }
-    if (!seed) {
-        const funded = await rpc.fundedSeed();
-        if (funded) {
-            seed = funded;
-            emit({ note: "using node funded seed" });
-        }
-    }
-    seed = seed ?? "a".repeat(55);
+    let seed = await resolveSigningSeed(rpc, options.seed, emit);
 
     emit({ step: "slot", state: "active" });
     const { slot, reused } = await resolveDeploymentSlot(rpc, options.name, slotOverride);
@@ -266,36 +182,21 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
     }
 
     if (backend === "simulator") {
-        const directDeployment = await rpc.directDeploy(slot, new Uint8Array(wasm), options.name, "dynamic");
-        if (!directDeployment) {
-            return {
-                ok: false,
-                slot,
-                hash,
-                error: "simulator does not expose direct deployment; upgrade the Qinit simulator",
-            };
-        }
-
-        emit({ step: "upload", state: "ok", detail: "direct (simulator)" });
-        emit({ step: "deploy", state: "ok", detail: `slot ${slot}` });
-
-        try {
-            await rpc.putContractSource(slot, readFileSync(options.contractPath, "utf8"));
-        } catch {
-            // Source metadata is optional for a successful deployment.
-        }
-
-        saveIdl();
-        emit({ step: "confirm", state: "ok", detail: `ready · ${hash}` });
-        return {
-            ok: true,
+        const direct = await deployToSimulator({
+            rpc,
             slot,
-            reused,
+            wasm: new Uint8Array(wasm),
             hash,
-            armed: true,
-            constructed: true,
-            idl: build.idl,
-        };
+            name: options.name,
+            contractPath: options.contractPath,
+            saveIdl,
+            emit,
+        });
+        if (!direct.ok) {
+            return { ok: false, slot, hash, error: direct.error };
+        }
+
+        return { ok: true, slot, reused, hash, armed: true, constructed: true, idl: build.idl };
     }
 
     // Only this path signs anything — the direct route above deploys without a transaction, so a node that
@@ -341,37 +242,9 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
         return tick;
     };
 
-    // Upload spends a transaction per tick, so a crawling chain fails slowly. Only worth measuring on a
-    // node we cannot drive ourselves.
-    const driveable = (await rpc.hurryToTick(currentTick + 3)) >= currentTick + 3;
-    if (!driveable) {
-        const startedAt = Date.now();
-        const baseTick = currentTick;
-        let ticksAdvanced = 0;
-
-        while (Date.now() - startedAt < 30000) {
-            await sleep(2000);
-            ticksAdvanced = (await readTick()) - baseTick;
-            if (ticksAdvanced >= 3) {
-                break;
-            }
-        }
-
-        if (ticksAdvanced < 2) {
-            const secondsPerTick = ticksAdvanced > 0 ? Math.round((Date.now() - startedAt) / 1000 / ticksAdvanced) : Infinity;
-            const speed = secondsPerTick === Infinity ? ">30" : String(secondsPerTick);
-            emit({
-                step: "upload",
-                state: "fail",
-                detail: `chain too slow (~${speed}s/tick)`,
-            });
-            return {
-                ok: false,
-                slot,
-                hash,
-                error: `node ticking far too slowly (~${speed}s/tick) to deploy within budget — aborting before upload (under-provisioned runner?)`,
-            };
-        }
+    const slowChain = await assertChainFastEnough(rpc, currentTick, readTick, emit);
+    if (slowChain) {
+        return { ok: false, slot, hash, error: slowChain.error };
     }
 
     currentTick = await readTick();
