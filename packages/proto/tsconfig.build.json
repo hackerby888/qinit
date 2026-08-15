@@ -1,15 +1,15 @@
 {
-  "extends": "../../tsconfig.json",
-  "compilerOptions": {
-    "noEmit": false,
-    "declaration": true,
-    "emitDeclarationOnly": true,
-    "outDir": "dist",
-    "rootDir": "src",
-    "skipLibCheck": true,
-    "paths": {
-      "@qinit/core": ["packages/core/dist/browser.d.ts"]
-    }
-  },
-  "include": ["src/index.ts", "src/qpi-layout.ts", "src/contract-idl.ts"]
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "noEmit": false,
+        "declaration": true,
+        "emitDeclarationOnly": true,
+        "outDir": "dist",
+        "rootDir": "src",
+        "skipLibCheck": true,
+        "paths": {
+            "@qinit/core": ["packages/core/dist/browser.d.ts"]
+        }
+    },
+    "include": ["src/index.ts", "src/qpi-layout.ts", "src/contract-idl.ts"]
 }

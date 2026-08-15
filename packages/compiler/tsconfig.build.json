@@ -1,17 +1,17 @@
 {
-  "extends": "../../tsconfig.json",
-  "compilerOptions": {
-    "noEmit": false,
-    "declaration": true,
-    "emitDeclarationOnly": true,
-    "outDir": "dist",
-    "rootDir": "src",
-    "skipLibCheck": true,
-    "paths": {
-      "@qinit/core": ["packages/compiler/types-build/core-abi.d.ts"],
-      "@qinit/proto/contract-idl": ["packages/proto/dist/contract-idl.d.ts"],
-      "@qinit/proto/qpi-layout": ["packages/proto/dist/qpi-layout.d.ts"]
-    }
-  },
-  "files": ["src/index.ts", "src/browser.ts", "src/analyzer/index.ts"]
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "noEmit": false,
+        "declaration": true,
+        "emitDeclarationOnly": true,
+        "outDir": "dist",
+        "rootDir": "src",
+        "skipLibCheck": true,
+        "paths": {
+            "@qinit/core": ["packages/compiler/types-build/core-abi.d.ts"],
+            "@qinit/proto/contract-idl": ["packages/proto/dist/contract-idl.d.ts"],
+            "@qinit/proto/qpi-layout": ["packages/proto/dist/qpi-layout.d.ts"]
+        }
+    },
+    "files": ["src/index.ts", "src/browser.ts", "src/analyzer/index.ts"]
 }

@@ -3,18 +3,18 @@
 // node-only/Bun bits (fetch.ts downloader, project.ts, backtrace.ts) and the `require()`-based K12 path. Bun
 // and the CLI keep using the full src/index.ts via the `bun` condition. @qubic-lib stays external.
 const r = await Bun.build({
-  entrypoints: ["src/browser.ts"],
-  outdir: "dist",
-  format: "esm",
-  target: "node",
-  external: ["@qubic-lib/qubic-ts-library"],
+    entrypoints: ["src/browser.ts"],
+    outdir: "dist",
+    format: "esm",
+    target: "node",
+    external: ["@qubic-lib/qubic-ts-library"],
 });
 
 if (!r.success) {
-  for (const log of r.logs) {
-    console.error(log);
-  }
-  process.exit(1);
+    for (const log of r.logs) {
+        console.error(log);
+    }
+    process.exit(1);
 }
 
 console.log("built dist/browser.js");

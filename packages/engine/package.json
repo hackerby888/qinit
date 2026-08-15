@@ -1,43 +1,43 @@
 {
-  "name": "@qinit/engine",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Framework-agnostic Qubic smart-contract simulation engine — deploy wasm contracts, advance ticks/epochs, call functions/procedures, read state, all in-process (browser or Node).",
-  "license": "MIT",
-  "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "bun": "./src/index.ts",
-      "import": "./dist/index.js"
+    "name": "@qinit/engine",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Framework-agnostic Qubic smart-contract simulation engine — deploy wasm contracts, advance ticks/epochs, call functions/procedures, read state, all in-process (browser or Node).",
+    "license": "MIT",
+    "type": "module",
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "bun": "./src/index.ts",
+            "import": "./dist/index.js"
+        },
+        "./server": {
+            "types": "./dist/server.d.ts",
+            "bun": "./src/server.ts",
+            "import": "./dist/server.js"
+        },
+        "./peer": {
+            "types": "./dist/peer-server.d.ts",
+            "bun": "./src/peer-server.ts",
+            "import": "./dist/peer-server.js"
+        }
     },
-    "./server": {
-      "types": "./dist/server.d.ts",
-      "bun": "./src/server.ts",
-      "import": "./dist/server.js"
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "bun bundle.mjs && tsc -p tsconfig.build.json",
+        "test": "bun test"
     },
-    "./peer": {
-      "types": "./dist/peer-server.d.ts",
-      "bun": "./src/peer-server.ts",
-      "import": "./dist/peer-server.js"
+    "dependencies": {
+        "@qubic-lib/qubic-ts-library": "0.1.6"
+    },
+    "devDependencies": {
+        "@qinit/core": "workspace:*",
+        "@qinit/proto": "workspace:*"
     }
-  },
-  "files": [
-    "dist",
-    "README.md"
-  ],
-  "scripts": {
-    "build": "bun bundle.mjs && tsc -p tsconfig.build.json",
-    "test": "bun test"
-  },
-  "dependencies": {
-    "@qubic-lib/qubic-ts-library": "0.1.6"
-  },
-  "devDependencies": {
-    "@qinit/core": "workspace:*",
-    "@qinit/proto": "workspace:*"
-  }
 }

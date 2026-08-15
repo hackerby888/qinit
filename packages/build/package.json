@@ -1,25 +1,25 @@
 {
-  "name": "@qinit/build",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "module": "src/index.ts",
-  "exports": {
-    ".": "./src/index.ts",
-    "./recipe": "./src/recipe.ts",
-    "./system-contracts": "./src/system-contracts.ts",
-    "./intercontract": "./src/intercontract.ts",
-    "./project-dependencies": "./src/project-dependencies.ts",
-    "./project-slots": "./src/project-slots.ts",
-    "./idl": "./src/idl.ts"
-  },
-  "dependencies": {
-    "@qinit/compiler": "workspace:*",
-    "@qinit/core": "workspace:*",
-    "@qinit/proto": "workspace:*"
-  },
-  "devDependencies": {
-    "@qubic.org/crypto": "1.0.0",
-    "@qubic.org/tx": "1.0.0"
-  }
+    "name": "@qinit/build",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "module": "src/index.ts",
+    "exports": {
+        ".": "./src/index.ts",
+        "./recipe": "./src/recipe.ts",
+        "./system-contracts": "./src/system-contracts.ts",
+        "./intercontract": "./src/intercontract.ts",
+        "./project-dependencies": "./src/project-dependencies.ts",
+        "./project-slots": "./src/project-slots.ts",
+        "./idl": "./src/idl.ts"
+    },
+    "dependencies": {
+        "@qinit/compiler": "workspace:*",
+        "@qinit/core": "workspace:*",
+        "@qinit/proto": "workspace:*"
+    },
+    "devDependencies": {
+        "@qubic.org/crypto": "1.0.0",
+        "@qubic.org/tx": "1.0.0"
+    }
 }

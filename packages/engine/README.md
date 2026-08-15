@@ -15,8 +15,8 @@ import { VirtualNode } from "@qinit/engine";
 
 const node = await VirtualNode.create({ mempool: false });
 const contract = node.deploy(wasmBytes, {
-  name: "Counter",
-  slot: 28,
+    name: "Counter",
+    slot: 28,
 });
 
 const before = node.query(contract.slot, 1);

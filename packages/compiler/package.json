@@ -1,40 +1,42 @@
 {
-  "name": "@qinit/compiler",
-  "version": "0.1.0",
-  "private": true,
-  "description": "QPI contract compiler — TypeScript C++ subset → WASM, shared between browser IDE and qinit CLI",
-  "license": "MIT",
-  "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "bun": "./src/index.ts",
-      "import": "./dist/index.js"
+    "name": "@qinit/compiler",
+    "version": "0.1.0",
+    "private": true,
+    "description": "QPI contract compiler — TypeScript C++ subset → WASM, shared between browser IDE and qinit CLI",
+    "license": "MIT",
+    "type": "module",
+    "main": "./dist/index.js",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "bun": "./src/index.ts",
+            "import": "./dist/index.js"
+        },
+        "./browser": {
+            "types": "./dist/browser.d.ts",
+            "bun": "./src/browser.ts",
+            "import": "./dist/browser.js"
+        },
+        "./analyzer": {
+            "types": "./dist/analyzer/index.d.ts",
+            "bun": "./src/analyzer/index.ts",
+            "import": "./dist/analyzer/index.js"
+        }
     },
-    "./browser": {
-      "types": "./dist/browser.d.ts",
-      "bun": "./src/browser.ts",
-      "import": "./dist/browser.js"
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "bun bundle.mjs && tsc -p tsconfig.build.json",
+        "test": "bun test"
     },
-    "./analyzer": {
-      "types": "./dist/analyzer/index.d.ts",
-      "bun": "./src/analyzer/index.ts",
-      "import": "./dist/analyzer/index.js"
+    "devDependencies": {
+        "@qinit/core": "workspace:*"
+    },
+    "dependencies": {
+        "@qinit/proto": "workspace:*",
+        "wabt": "1.0.39"
     }
-  },
-  "files": ["dist"],
-  "scripts": {
-    "build": "bun bundle.mjs && tsc -p tsconfig.build.json",
-    "test": "bun test"
-  },
-  "devDependencies": {
-    "@qinit/core": "workspace:*"
-  },
-  "dependencies": {
-    "@qinit/proto": "workspace:*",
-    "wabt": "1.0.39"
-  }
 }

@@ -1,32 +1,34 @@
 {
-  "name": "@qinit/proto",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "bun": "./src/index.ts",
-      "import": "./dist/index.js"
+    "name": "@qinit/proto",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "bun": "./src/index.ts",
+            "import": "./dist/index.js"
+        },
+        "./qpi-layout": {
+            "types": "./dist/qpi-layout.d.ts",
+            "bun": "./src/qpi-layout.ts",
+            "import": "./dist/qpi-layout.js"
+        },
+        "./contract-idl": {
+            "types": "./dist/contract-idl.d.ts",
+            "bun": "./src/contract-idl.ts",
+            "import": "./dist/contract-idl.js"
+        }
     },
-    "./qpi-layout": {
-      "types": "./dist/qpi-layout.d.ts",
-      "bun": "./src/qpi-layout.ts",
-      "import": "./dist/qpi-layout.js"
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "bun bundle.mjs && tsc -p tsconfig.build.json"
     },
-    "./contract-idl": {
-      "types": "./dist/contract-idl.d.ts",
-      "bun": "./src/contract-idl.ts",
-      "import": "./dist/contract-idl.js"
+    "dependencies": {
+        "@qinit/core": "workspace:*"
     }
-  },
-  "files": ["dist"],
-  "scripts": {
-    "build": "bun bundle.mjs && tsc -p tsconfig.build.json"
-  },
-  "dependencies": {
-    "@qinit/core": "workspace:*"
-  }
 }

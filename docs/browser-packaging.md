@@ -11,11 +11,7 @@
 Browser applications import:
 
 ```ts
-import {
-  compileContract,
-  compilerInfo,
-  qpiSnapshot,
-} from "@qinit/compiler/browser";
+import { compileContract, compilerInfo, qpiSnapshot } from "@qinit/compiler/browser";
 ```
 
 The entry embeds `packages/compiler/src/generated/qpi-snapshot.ts`; it does not

@@ -8,27 +8,27 @@ const coreBrowser = resolve(import.meta.dir, "../core/src/browser.ts");
 const signSyncStub = resolve(import.meta.dir, "../core/src/crypto/sign-sync-stub.ts");
 
 const aliasCoreBrowser = {
-  name: "alias-qinit-core-browser",
-  setup(build) {
-    build.onResolve({ filter: /^@qinit\/core$/ }, () => ({ path: coreBrowser }));
-    build.onResolve({ filter: /sign-sync-esm$/ }, () => ({ path: signSyncStub }));
-  },
+    name: "alias-qinit-core-browser",
+    setup(build) {
+        build.onResolve({ filter: /^@qinit\/core$/ }, () => ({ path: coreBrowser }));
+        build.onResolve({ filter: /sign-sync-esm$/ }, () => ({ path: signSyncStub }));
+    },
 };
 
 const r = await Bun.build({
-  entrypoints: ["src/index.ts", "src/qpi-layout.ts", "src/contract-idl.ts"],
-  outdir: "dist",
-  format: "esm",
-  target: "node",
-  external: [],
-  plugins: [aliasCoreBrowser],
+    entrypoints: ["src/index.ts", "src/qpi-layout.ts", "src/contract-idl.ts"],
+    outdir: "dist",
+    format: "esm",
+    target: "node",
+    external: [],
+    plugins: [aliasCoreBrowser],
 });
 
 if (!r.success) {
-  for (const log of r.logs) {
-    console.error(log);
-  }
-  process.exit(1);
+    for (const log of r.logs) {
+        console.error(log);
+    }
+    process.exit(1);
 }
 
 console.log("built dist/index.js + dist/qpi-layout.js + dist/contract-idl.js");

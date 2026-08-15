@@ -1,32 +1,32 @@
 {
-  "name": "@qinit/core",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "module": "src/index.ts",
-  "types": "./dist/browser.d.ts",
-  "exports": {
-    ".": {
-      "bun": "./src/index.ts",
-      "types": "./dist/browser.d.ts",
-      "import": {
-        "types": "./dist/browser.d.ts",
-        "default": "./dist/browser.js"
-      }
+    "name": "@qinit/core",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "module": "src/index.ts",
+    "types": "./dist/browser.d.ts",
+    "exports": {
+        ".": {
+            "bun": "./src/index.ts",
+            "types": "./dist/browser.d.ts",
+            "import": {
+                "types": "./dist/browser.d.ts",
+                "default": "./dist/browser.js"
+            }
+        },
+        "./*": "./src/*.ts"
     },
-    "./*": "./src/*.ts"
-  },
-  "files": [
-    "dist",
-    "src",
-    "README.md"
-  ],
-  "scripts": {
-    "build": "bun bundle.mjs && tsc -p tsconfig.build.json"
-  },
-  "dependencies": {
-    "@qubic.org/crypto": "1.0.0",
-    "@qubic.org/tx": "1.0.0",
-    "@qubic-lib/qubic-ts-library": "0.1.6"
-  }
+    "files": [
+        "dist",
+        "src",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "bun bundle.mjs && tsc -p tsconfig.build.json"
+    },
+    "dependencies": {
+        "@qubic.org/crypto": "1.0.0",
+        "@qubic.org/tx": "1.0.0",
+        "@qubic-lib/qubic-ts-library": "0.1.6"
+    }
 }

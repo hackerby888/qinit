@@ -64,14 +64,14 @@ qinit __serve
 
 ### Package ownership
 
-| Package | What the CLI expects it to own |
-|---|---|
-| [`packages/cli`](../packages/cli) | Command routing, argument policy, configuration, terminal UI, orchestration |
-| [`packages/core`](../packages/core) | RPC client, signing, Qubic primitives, cache/downloads, core path resolution |
-| [`packages/build`](../packages/build) | Clang and TypeScript build adapters, dependency graphs, slot planning, IDL, source generation, protocol verification |
-| [`packages/compiler`](../packages/compiler) | In-process TypeScript-to-Wasm compiler and source analysis |
-| [`packages/proto`](../packages/proto) | ABI input/output codecs and deployment/call wire formats |
-| [`packages/engine`](../packages/engine) | In-process simulator, HTTP server, and gtest execution |
+| Package                                     | What the CLI expects it to own                                                                                       |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| [`packages/cli`](../packages/cli)           | Command routing, argument policy, configuration, terminal UI, orchestration                                          |
+| [`packages/core`](../packages/core)         | RPC client, signing, Qubic primitives, cache/downloads, core path resolution                                         |
+| [`packages/build`](../packages/build)       | Clang and TypeScript build adapters, dependency graphs, slot planning, IDL, source generation, protocol verification |
+| [`packages/compiler`](../packages/compiler) | In-process TypeScript-to-Wasm compiler and source analysis                                                           |
+| [`packages/proto`](../packages/proto)       | ABI input/output codecs and deployment/call wire formats                                                             |
+| [`packages/engine`](../packages/engine)     | In-process simulator, HTTP server, and gtest execution                                                               |
 
 The CLI should orchestrate these packages rather than duplicate their domain
 logic. For example, `commands/deploy-interact/deploy.tsx` owns display state,
@@ -265,16 +265,16 @@ The return shape is:
 
 ```ts
 interface CommandInvocation {
-  readonly command: CommandName;
-  readonly subcommand?: string;
-  readonly commandArgs: CommandArguments;
+    readonly command: CommandName;
+    readonly subcommand?: string;
+    readonly commandArgs: CommandArguments;
 }
 
 interface CommandArguments {
-  readonly positionals: readonly string[];
-  has(name: string): boolean;
-  get(name: string): string | undefined;
-  getAll(name: string): readonly string[];
+    readonly positionals: readonly string[];
+    has(name: string): boolean;
+    get(name: string): string | undefined;
+    getAll(name: string): readonly string[];
 }
 ```
 
@@ -334,14 +334,14 @@ The invariants to remember are:
 
 `GROUP_ORDER` in `meta.ts` is the print order, and the directory is the kebab-cased group.
 
-| Workflow | `META` group | Directory | Commands |
-|---|---|---|---|
-| Install and maintain qinit | `setup` | `commands/setup/` | `setup`, `doctor`, `clean`, `self-update`, `uninstall` |
-| Run the dev chain | `node` | `commands/node/` | `node`, `tick`, `epoch` |
-| Develop | `develop` | `commands/develop/` | `new`, `integrate`, `dev`, `build`, `gen`, `verify` |
-| Deploy and interact | `deploy & interact` | `commands/deploy-interact/` | `deploy`, `call`, `seed`, `ls`, `state`, `explorer`, `debug`, `test`, `gtest`, `system` |
-| Editor integration | `editor` | `commands/editor/` | `ext` |
-| Miscellaneous | `misc` | `commands/misc/` | `runtime`, `compiler`, `theme`, `cheat-sheet`, `version`, `help` (plus hidden `smoke`) |
+| Workflow                   | `META` group        | Directory                   | Commands                                                                                |
+| -------------------------- | ------------------- | --------------------------- | --------------------------------------------------------------------------------------- |
+| Install and maintain qinit | `setup`             | `commands/setup/`           | `setup`, `doctor`, `clean`, `self-update`, `uninstall`                                  |
+| Run the dev chain          | `node`              | `commands/node/`            | `node`, `tick`, `epoch`                                                                 |
+| Develop                    | `develop`           | `commands/develop/`         | `new`, `integrate`, `dev`, `build`, `gen`, `verify`                                     |
+| Deploy and interact        | `deploy & interact` | `commands/deploy-interact/` | `deploy`, `call`, `seed`, `ls`, `state`, `explorer`, `debug`, `test`, `gtest`, `system` |
+| Editor integration         | `editor`            | `commands/editor/`          | `ext`                                                                                   |
+| Miscellaneous              | `misc`              | `commands/misc/`            | `runtime`, `compiler`, `theme`, `cheat-sheet`, `version`, `help` (plus hidden `smoke`)  |
 
 Within a group, commands print in `META` declaration order — `Help` filters `COMMANDS`, which is
 `Object.keys(META)`. Keep a new entry beside its group's other entries.
@@ -363,12 +363,12 @@ directories. Its current shape is:
 
 ```ts
 interface QinitConfig {
-  contractName?: string;
-  contract?: string;
-  slot?: number;
-  coreDir?: string;
-  rpc?: string;
-  system?: string[];
+    contractName?: string;
+    contract?: string;
+    slot?: number;
+    coreDir?: string;
+    rpc?: string;
+    system?: string[];
 }
 ```
 
@@ -404,12 +404,12 @@ $XDG_CONFIG_HOME/qinit                     when XDG_CONFIG_HOME is set
 
 It contains independent files:
 
-| File | Meaning | Default |
-|---|---|---|
-| `seed` | Saved 55-character signing seed | none |
-| `theme` | Ink color theme | default theme |
-| `runtime` | `core` or `simulator` | `core` |
-| `compiler-backend` | `clang` or `typescript` | `clang` |
+| File               | Meaning                         | Default       |
+| ------------------ | ------------------------------- | ------------- |
+| `seed`             | Saved 55-character signing seed | none          |
+| `theme`            | Ink color theme                 | default theme |
+| `runtime`          | `core` or `simulator`           | `core`        |
+| `compiler-backend` | `clang` or `typescript`         | `clang`       |
 
 The seed is written with mode `0600` where the platform honors Unix modes.
 Signing seed resolution is:
@@ -697,14 +697,14 @@ and simulator startup resolve:
 The UI component is [`commands/develop/build.tsx`](../packages/cli/src/commands/develop/build.tsx).
 It resolves:
 
-| Value | Resolution |
-|---|---|
-| Contract | `--contract` -> first positional -> config -> `fixtures/Counter.h` |
-| Name | `--contract-name` -> config -> filename without extension |
-| Output | `--out` -> `dist/contracts` |
-| Slot | `--slot` -> config -> live registry plan -> offline hypothetical plan |
-| Core | normal `resolveCoreDir()` chain |
-| Compiler | `--compiler` -> saved choice -> clang |
+| Value    | Resolution                                                            |
+| -------- | --------------------------------------------------------------------- |
+| Contract | `--contract` -> first positional -> config -> `fixtures/Counter.h`    |
+| Name     | `--contract-name` -> config -> filename without extension             |
+| Output   | `--out` -> `dist/contracts`                                           |
+| Slot     | `--slot` -> config -> live registry plan -> offline hypothetical plan |
+| Core     | normal `resolveCoreDir()` chain                                       |
+| Compiler | `--compiler` -> saved choice -> clang                                 |
 
 Build never mutates the node. It resolves the complete source graph first:
 
@@ -1084,8 +1084,8 @@ is no source, decoded state fails even if `qinit.idl.json` exists.
 
 ```ts
 extractIdl(source, name, {
-  slot: contractIndex,
-  qpiHeader,
+    slot: contractIndex,
+    qpiHeader,
 });
 ```
 
@@ -1342,11 +1342,11 @@ Resolving that deep also finds bookkeeping a contract author never wrote — fre
 heads, BST links, per-PoV counters — so each row is classified and the default view
 keeps only two of the three classes:
 
-| Class | Rows | Default |
-|---|---|---|
-| payload | scalars, struct members, `Array`/`BitArray` elements, `slot[i].key`/`.value`, node and element values, a `Collection` element's `priority`, a PoV id | shown |
-| count | a container's `_population`, rendered as `trail  1 → 2 entries` | shown |
-| internal | occupation flags, `_headIndex`/`_tailIndex`/`_freeHeadIndex`/`_nextUnusedIndex`, `bst*Index`, `povIndex`, per-PoV counters, `_markRemovalCounter`, node `nextIndex`/`prevIndex` | hidden |
+| Class    | Rows                                                                                                                                                                            | Default |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| payload  | scalars, struct members, `Array`/`BitArray` elements, `slot[i].key`/`.value`, node and element values, a `Collection` element's `priority`, a PoV id                            | shown   |
+| count    | a container's `_population`, rendered as `trail  1 → 2 entries`                                                                                                                 | shown   |
+| internal | occupation flags, `_headIndex`/`_tailIndex`/`_freeHeadIndex`/`_nextUnusedIndex`, `bst*Index`, `povIndex`, per-PoV counters, `_markRemovalCounter`, node `nextIndex`/`prevIndex` | hidden  |
 
 Each row therefore carries two labels: the shown one drops the internal path segments
 (`trail._nodes[1].value` reads as `trail[1]`), and the full path returns with the
@@ -1392,7 +1392,7 @@ node release older than that default. No CLI path turns capture off; the toggle 
 global, so one that did would blind every other client. `GET /live/v1/dev/debug?on=0`
 remains for anyone who wants the cycles back.
 
-The ring holds 8192 entries on both runtimes, and a slot is spent per *dispatch*
+The ring holds 8192 entries on both runtimes, and a slot is spent per _dispatch_
 rather than per tick: a contract registering `BEGIN_TICK`/`END_TICK` spends two every
 tick whether or not anything happened, which turns the depth into a time window.
 
@@ -1480,7 +1480,7 @@ The shell budgets terminal rows itself — `rows - 1 - CHROME_ROWS -
 controlBarRows(...)` — so a hint line that wraps unexpectedly pushes the control
 bar off-screen. That is why `hintLines()` is unit-tested against several
 terminal widths in `tests/format/ui-format.test.ts`. The control bar also lights
-the key of the section the stack is *rooted* in — `TAB_KEY` in `chrome.tsx` — with
+the key of the section the stack is _rooted_ in — `TAB_KEY` in `chrome.tsx` — with
 a gradient that sweeps on a `useFrame` tick, so drilling into a tick or a
 transaction still shows `1 overview` as the current tab.
 
@@ -1634,15 +1634,15 @@ verifier updates.
 
 Other maintenance commands are intentionally thin:
 
-| Command | Main responsibility |
-|---|---|
-| `doctor` | Check the Wasm compiler, Node.js executable, QPI headers, Qubic library, and verifier |
-| `clean` | Stop the tracked node and remove the cache |
-| `self-update` | Resolve a CLI release, download it, and replace the executable |
-| `uninstall` | Preview or remove discovered CLI binaries and optionally the cache |
-| `ext` | Invoke a supported editor's extension installer |
-| `theme` | Select and persist the terminal palette |
-| `runtime` | Select and persist core or simulator |
+| Command       | Main responsibility                                                                   |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `doctor`      | Check the Wasm compiler, Node.js executable, QPI headers, Qubic library, and verifier |
+| `clean`       | Stop the tracked node and remove the cache                                            |
+| `self-update` | Resolve a CLI release, download it, and replace the executable                        |
+| `uninstall`   | Preview or remove discovered CLI binaries and optionally the cache                    |
+| `ext`         | Invoke a supported editor's extension installer                                       |
+| `theme`       | Select and persist the terminal palette                                               |
+| `runtime`     | Select and persist core or simulator                                                  |
 
 ## 14. Testing commands are two different systems
 
@@ -1721,47 +1721,47 @@ of throwing.
 
 Chain and contract routes:
 
-| Method | Endpoint | Primary CLI consumers |
-|---|---|---|
-| `tickInfo()` | `GET /tick-info` | deploy, procedure call, state reachability, node health |
-| `latestCreatedTickInfo()` | `GET /latest-created-tick-info` | tick freshness checks |
-| `faultInfo()` | `GET /live/v1/dev/fault` | simulator fault reporting |
-| `whoami()` | `GET /live/v1/whoami` | explicit core/simulator orchestration |
-| `raw()` | any GET path | escape hatch for routes with no method |
-| `dynRegistry()` | `GET /live/v1/dyn-registry` | deploy/slot planning, call, state, debug, list |
-| `dynUpload()` | `GET /live/v1/dyn-upload` | upload ownership and assembly |
-| `querySmartContract()` | `POST /live/v1/querySmartContract` | function calls |
-| `broadcastTx()` | `POST /live/v1/broadcast-transaction` | procedures and deployment protocol |
-| `txStatus()` | `GET /live/v1/tx-status/<tick>/<id>` | procedure settlement |
-| `balance()` | `GET /live/v1/balances/<id>` | seed selector, explorer identity view |
-| `directDeploy()` | `POST /live/v1/dev/deploy` | simulator deployment |
-| `undeploy()` | `POST /live/v1/dev/undeploy?slot=N` | simulator system removal |
-| `putContractSource()` | `POST /live/v1/dev/contract-source?slot=N` | post-deployment source metadata |
-| `fundedSeed()` | `GET /live/v1/dev/funded-seed` | development signing fallback |
-| `fundedSeeds()` | `GET /live/v1/dev/funded-seeds?limit=N` | seed selector |
-| `setDebug()` | `GET /live/v1/dev/debug?on=0|1` | debug and call trace |
-| `debugTrace()` | `GET /live/v1/debug-trace?since=N&limit=N` | debug and call trace |
-| `stateRead()` | `GET /live/v1/dev/state-read?...` | decoded state and containers |
-| `contractDigest()` | `GET /live/v1/dev/contract-digest?slot=N` | canonical state digest |
-| `epochInfo()` | `GET /live/v1/dev/epoch-info` | tick, epoch, node status |
-| `advanceTick()` | `GET /live/v1/dev/advance-tick?n=N` | testnet tick controls |
-| `advanceToLast()` | `GET /live/v1/dev/advance-to-last?gap=N` | jump to the end of an epoch |
-| `advanceEpoch()` | `GET /live/v1/dev/advance-epoch` | testnet epoch control |
-| `setTickMs()` | `GET /live/v1/dev/tick-ms?ms=N` | `tick` retunes a running simulator |
+| Method                    | Endpoint                                   | Primary CLI consumers                                   |
+| ------------------------- | ------------------------------------------ | ------------------------------------------------------- |
+| `tickInfo()`              | `GET /tick-info`                           | deploy, procedure call, state reachability, node health |
+| `latestCreatedTickInfo()` | `GET /latest-created-tick-info`            | tick freshness checks                                   |
+| `faultInfo()`             | `GET /live/v1/dev/fault`                   | simulator fault reporting                               |
+| `whoami()`                | `GET /live/v1/whoami`                      | explicit core/simulator orchestration                   |
+| `raw()`                   | any GET path                               | escape hatch for routes with no method                  |
+| `dynRegistry()`           | `GET /live/v1/dyn-registry`                | deploy/slot planning, call, state, debug, list          |
+| `dynUpload()`             | `GET /live/v1/dyn-upload`                  | upload ownership and assembly                           |
+| `querySmartContract()`    | `POST /live/v1/querySmartContract`         | function calls                                          |
+| `broadcastTx()`           | `POST /live/v1/broadcast-transaction`      | procedures and deployment protocol                      |
+| `txStatus()`              | `GET /live/v1/tx-status/<tick>/<id>`       | procedure settlement                                    |
+| `balance()`               | `GET /live/v1/balances/<id>`               | seed selector, explorer identity view                   |
+| `directDeploy()`          | `POST /live/v1/dev/deploy`                 | simulator deployment                                    |
+| `undeploy()`              | `POST /live/v1/dev/undeploy?slot=N`        | simulator system removal                                |
+| `putContractSource()`     | `POST /live/v1/dev/contract-source?slot=N` | post-deployment source metadata                         |
+| `fundedSeed()`            | `GET /live/v1/dev/funded-seed`             | development signing fallback                            |
+| `fundedSeeds()`           | `GET /live/v1/dev/funded-seeds?limit=N`    | seed selector                                           |
+| `setDebug()`              | `GET /live/v1/dev/debug?on=0               | 1`                                                      | debug and call trace |
+| `debugTrace()`            | `GET /live/v1/debug-trace?since=N&limit=N` | debug and call trace                                    |
+| `stateRead()`             | `GET /live/v1/dev/state-read?...`          | decoded state and containers                            |
+| `contractDigest()`        | `GET /live/v1/dev/contract-digest?slot=N`  | canonical state digest                                  |
+| `epochInfo()`             | `GET /live/v1/dev/epoch-info`              | tick, epoch, node status                                |
+| `advanceTick()`           | `GET /live/v1/dev/advance-tick?n=N`        | testnet tick controls                                   |
+| `advanceToLast()`         | `GET /live/v1/dev/advance-to-last?gap=N`   | jump to the end of an epoch                             |
+| `advanceEpoch()`          | `GET /live/v1/dev/advance-epoch`           | testnet epoch control                                   |
+| `setTickMs()`             | `GET /live/v1/dev/tick-ms?ms=N`            | `tick` retunes a running simulator                      |
 
 Explorer read models — the `/query/v1` family, consumed only by
 `commands/deploy-interact/explorer/`:
 
-| Method | Endpoint | Explorer view |
-|---|---|---|
-| `explorerData()` | `GET /explorer/data` | overview tiles and recent ticks |
-| `getTickData()` | `POST /query/v1/getTickData` | tick header; `null` for an empty tick |
-| `explorerTickTransactions()` | `POST /query/v1/getTransactionsForTick` | tick transaction list |
-| `getTransactionByHash()` | `POST /query/v1/getTransactionByHash` | transaction detail; `null` when unknown |
-| `getTransfersForIdentity()` | `POST /query/v1/getTransfersForIdentity` | identity transfer history |
-| `getContractCalls()` | `POST /query/v1/getContractCalls` | paged contract-call list |
-| `getContracts()` | `GET /query/v1/getContracts` | contract catalog |
-| `tickTransactions()` | `POST /query/v1/getTransactionsForTick` | lite tickdata for non-explorer callers |
+| Method                       | Endpoint                                 | Explorer view                           |
+| ---------------------------- | ---------------------------------------- | --------------------------------------- |
+| `explorerData()`             | `GET /explorer/data`                     | overview tiles and recent ticks         |
+| `getTickData()`              | `POST /query/v1/getTickData`             | tick header; `null` for an empty tick   |
+| `explorerTickTransactions()` | `POST /query/v1/getTransactionsForTick`  | tick transaction list                   |
+| `getTransactionByHash()`     | `POST /query/v1/getTransactionByHash`    | transaction detail; `null` when unknown |
+| `getTransfersForIdentity()`  | `POST /query/v1/getTransfersForIdentity` | identity transfer history               |
+| `getContractCalls()`         | `POST /query/v1/getContractCalls`        | paged contract-call list                |
+| `getContracts()`             | `GET /query/v1/getContracts`             | contract catalog                        |
+| `tickTransactions()`         | `POST /query/v1/getTransactionsForTick`  | lite tickdata for non-explorer callers  |
 
 The simulator HTTP adapter mirrors these routes so most CLI orchestration does
 not branch after constructing `LiteRpc`.
@@ -1770,64 +1770,64 @@ not branch after constructing `LiteRpc`.
 
 Paths below are relative to `packages/cli/src/`.
 
-| Command | Main implementation | Important downstream owner |
-|---|---|---|
-| `setup` | `commands/setup/setup.tsx` | `@qinit/core` cache/downloads |
-| `doctor` | `commands/setup/doctor.tsx` | config and tool lookup |
-| `clean` | `commands/setup/clean.tsx` | `ops/cache.ts`, `ops/node.ts` |
-| `self-update` | `commands/setup/update.tsx` | `ops/update.ts`, `@qinit/core` release helpers |
-| `uninstall` | `commands/setup/uninstall.tsx` | filesystem/cache helpers |
-| `node run` | `commands/node/node-run.tsx` | `ops/node-core.ts`, `ops/node.ts`, engine |
-| `node status/stop/get` | `commands/node/node.tsx` | `ops/node.ts`, `LiteRpc` |
-| `tick` | `commands/node/tick.tsx` | `LiteRpc` testnet controls |
-| `epoch` | `commands/node/epoch.tsx` | `LiteRpc` testnet controls |
-| `new` | `commands/develop/new.tsx` | `contracts/templates.ts`, IDL/gtest generators |
-| `integrate` | `commands/develop/integrate.tsx` | `ops/core-integration.ts`, Git, Core Visual Studio projects |
-| `dev` | `commands/develop/dev.tsx` | `ops/project-deploy.ts`, `ops/deploy/` |
-| `build` | `commands/develop/build.tsx` | `ops/project-build.ts`, `@qinit/build` |
-| `gen` | `commands/develop/gen.tsx` | IDL/client generator |
-| `verify` | `commands/develop/verify.tsx` | external `contractverify` |
-| `deploy` | `commands/deploy-interact/deploy.tsx` | `ops/project-deploy.ts`, `ops/deploy/`, proto wire codecs |
-| `call` | `commands/deploy-interact/call*.tsx` | proto call helpers, `LiteRpc` |
-| `seed` | `commands/deploy-interact/seed.tsx` | config store, funded-seed RPC |
-| `ls` | `commands/deploy-interact/ls.tsx` | registry plus system catalog |
-| `state` | `commands/deploy-interact/state.tsx` | `trace/format.ts`, proto decoders |
-| `explorer` | `commands/deploy-interact/explorer/` | `LiteRpc` explorer read models, `contracts/idl-lookup.ts` |
-| `debug` | `commands/deploy-interact/debug.tsx` | `trace/format.ts`, backtrace helpers |
-| `test` | `commands/deploy-interact/test.tsx` | deploy, generated SDK, Bun tests |
-| `gtest` | `commands/deploy-interact/gtest.tsx` | `ops/corpus-run.ts`, engine |
-| `system` | `commands/deploy-interact/system.tsx` | Core catalog, `contracts/system-wasm.ts`, `LiteRpc` |
-| `ext` | `commands/editor/ext.tsx` | external editor process |
-| `runtime` | `commands/misc/runtime.tsx` | `commands/misc/backend-picker.tsx`, config store |
-| `compiler` | `commands/misc/compiler.tsx` | `commands/misc/backend-picker.tsx`, config store |
-| `theme` | `commands/misc/theme.tsx` | config store and `ui/theme.tsx` |
-| `cheat-sheet` | `commands/misc/cheat.tsx` | static Ink view |
-| `smoke` | `commands/misc/smoke.tsx` | core crypto primitives |
-| `version` | `commands/misc/version.tsx` | generated/version constant |
-| `help` | `commands/misc/help.tsx` | command metadata |
+| Command                | Main implementation                   | Important downstream owner                                  |
+| ---------------------- | ------------------------------------- | ----------------------------------------------------------- |
+| `setup`                | `commands/setup/setup.tsx`            | `@qinit/core` cache/downloads                               |
+| `doctor`               | `commands/setup/doctor.tsx`           | config and tool lookup                                      |
+| `clean`                | `commands/setup/clean.tsx`            | `ops/cache.ts`, `ops/node.ts`                               |
+| `self-update`          | `commands/setup/update.tsx`           | `ops/update.ts`, `@qinit/core` release helpers              |
+| `uninstall`            | `commands/setup/uninstall.tsx`        | filesystem/cache helpers                                    |
+| `node run`             | `commands/node/node-run.tsx`          | `ops/node-core.ts`, `ops/node.ts`, engine                   |
+| `node status/stop/get` | `commands/node/node.tsx`              | `ops/node.ts`, `LiteRpc`                                    |
+| `tick`                 | `commands/node/tick.tsx`              | `LiteRpc` testnet controls                                  |
+| `epoch`                | `commands/node/epoch.tsx`             | `LiteRpc` testnet controls                                  |
+| `new`                  | `commands/develop/new.tsx`            | `contracts/templates.ts`, IDL/gtest generators              |
+| `integrate`            | `commands/develop/integrate.tsx`      | `ops/core-integration.ts`, Git, Core Visual Studio projects |
+| `dev`                  | `commands/develop/dev.tsx`            | `ops/project-deploy.ts`, `ops/deploy/`                      |
+| `build`                | `commands/develop/build.tsx`          | `ops/project-build.ts`, `@qinit/build`                      |
+| `gen`                  | `commands/develop/gen.tsx`            | IDL/client generator                                        |
+| `verify`               | `commands/develop/verify.tsx`         | external `contractverify`                                   |
+| `deploy`               | `commands/deploy-interact/deploy.tsx` | `ops/project-deploy.ts`, `ops/deploy/`, proto wire codecs   |
+| `call`                 | `commands/deploy-interact/call*.tsx`  | proto call helpers, `LiteRpc`                               |
+| `seed`                 | `commands/deploy-interact/seed.tsx`   | config store, funded-seed RPC                               |
+| `ls`                   | `commands/deploy-interact/ls.tsx`     | registry plus system catalog                                |
+| `state`                | `commands/deploy-interact/state.tsx`  | `trace/format.ts`, proto decoders                           |
+| `explorer`             | `commands/deploy-interact/explorer/`  | `LiteRpc` explorer read models, `contracts/idl-lookup.ts`   |
+| `debug`                | `commands/deploy-interact/debug.tsx`  | `trace/format.ts`, backtrace helpers                        |
+| `test`                 | `commands/deploy-interact/test.tsx`   | deploy, generated SDK, Bun tests                            |
+| `gtest`                | `commands/deploy-interact/gtest.tsx`  | `ops/corpus-run.ts`, engine                                 |
+| `system`               | `commands/deploy-interact/system.tsx` | Core catalog, `contracts/system-wasm.ts`, `LiteRpc`         |
+| `ext`                  | `commands/editor/ext.tsx`             | external editor process                                     |
+| `runtime`              | `commands/misc/runtime.tsx`           | `commands/misc/backend-picker.tsx`, config store            |
+| `compiler`             | `commands/misc/compiler.tsx`          | `commands/misc/backend-picker.tsx`, config store            |
+| `theme`                | `commands/misc/theme.tsx`             | config store and `ui/theme.tsx`                             |
+| `cheat-sheet`          | `commands/misc/cheat.tsx`             | static Ink view                                             |
+| `smoke`                | `commands/misc/smoke.tsx`             | core crypto primitives                                      |
+| `version`              | `commands/misc/version.tsx`           | generated/version constant                                  |
+| `help`                 | `commands/misc/help.tsx`              | command metadata                                            |
 
 ## 17. Tests to run when changing the CLI
 
 The smallest useful validation depends on the boundary changed.
 
-| Change | Focused tests |
-|---|---|
-| Metadata or parsing | `packages/cli/tests/commands/args.test.ts`, `cli-args.test.ts`, `meta.test.ts` |
-| Configuration | `packages/cli/tests/commands/config.test.ts` |
-| Build JSON or compiler adapter | `build-json.test.ts`, `build-callee-cli.test.ts`, `contracts/build-contract-with-typescript.test.ts` |
-| Callee parsing/discovery | `commands/callees.test.ts`, `build/tests/pipeline/project-dependencies.test.ts` |
-| Core integration | `contracts/core-integration.test.ts`, `commands/args.test.ts`, `commands/meta.test.ts` |
-| Slot planning | `contracts/project-slots.test.ts`, `proto/tests/protocol/call.test.ts` |
-| Deployment state machine | `contracts/deploy-ops.test.ts`, `contracts/project-deploy.test.ts`, `integration/simulator.test.ts` |
-| Contract/IDL selection | `contracts/contracts.test.ts`, `format/idl-file.test.ts` |
-| State and trace decoding | `format/trace-format.test.ts`, `commands/state-digest*.test.ts` |
-| Node preparation/process tracking | `commands/node-run-core.test.ts`, `rpc/node-ops.test.ts` |
-| Backend identity and simulator RPC | `core/tests/network/rpc.test.ts`, `engine/tests/network/server.test.ts`, `integration/simulator.test.ts` |
-| Explorer read models or views | `rpc/explorer-rpc.test.ts`, `format/ui-format.test.ts` |
-| Interactive call prompts/completion | `commands/complete.test.ts` |
-| Gtest orchestration | `contracts/corpus-run.test.ts`, `contracts/gtest.test.ts` |
-| VS Code project graph | `vscode/tests/language/project-context.test.ts`, extension integration test |
-| Cross-runtime contract state | `integration/cross-host.test.ts`, `integration/wasm-shim-e2e.test.ts` |
+| Change                              | Focused tests                                                                                            |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Metadata or parsing                 | `packages/cli/tests/commands/args.test.ts`, `cli-args.test.ts`, `meta.test.ts`                           |
+| Configuration                       | `packages/cli/tests/commands/config.test.ts`                                                             |
+| Build JSON or compiler adapter      | `build-json.test.ts`, `build-callee-cli.test.ts`, `contracts/build-contract-with-typescript.test.ts`     |
+| Callee parsing/discovery            | `commands/callees.test.ts`, `build/tests/pipeline/project-dependencies.test.ts`                          |
+| Core integration                    | `contracts/core-integration.test.ts`, `commands/args.test.ts`, `commands/meta.test.ts`                   |
+| Slot planning                       | `contracts/project-slots.test.ts`, `proto/tests/protocol/call.test.ts`                                   |
+| Deployment state machine            | `contracts/deploy-ops.test.ts`, `contracts/project-deploy.test.ts`, `integration/simulator.test.ts`      |
+| Contract/IDL selection              | `contracts/contracts.test.ts`, `format/idl-file.test.ts`                                                 |
+| State and trace decoding            | `format/trace-format.test.ts`, `commands/state-digest*.test.ts`                                          |
+| Node preparation/process tracking   | `commands/node-run-core.test.ts`, `rpc/node-ops.test.ts`                                                 |
+| Backend identity and simulator RPC  | `core/tests/network/rpc.test.ts`, `engine/tests/network/server.test.ts`, `integration/simulator.test.ts` |
+| Explorer read models or views       | `rpc/explorer-rpc.test.ts`, `format/ui-format.test.ts`                                                   |
+| Interactive call prompts/completion | `commands/complete.test.ts`                                                                              |
+| Gtest orchestration                 | `contracts/corpus-run.test.ts`, `contracts/gtest.test.ts`                                                |
+| VS Code project graph               | `vscode/tests/language/project-context.test.ts`, extension integration test                              |
+| Cross-runtime contract state        | `integration/cross-host.test.ts`, `integration/wasm-shim-e2e.test.ts`                                    |
 
 The test folders are grouped by concern, not by the `src/` layout, so a test for
 `ops/deploy/` still lives in `tests/contracts/deploy-ops.test.ts`.
@@ -1860,7 +1860,7 @@ directory because it writes runtime data relative to its current directory.
 2. Add its canonical name, usage, and complete option schema to `META`, declared beside its group's
    other entries — declaration order is the print order within a group.
 3. Import it in `app.tsx` and add a `HANDLERS` entry; the `satisfies
-   Record<CommandName, CommandHandler>` constraint fails the build otherwise.
+Record<CommandName, CommandHandler>` constraint fails the build otherwise.
 4. Accept a `commandArgs: CommandArguments` prop rather than parsing anything
    privately.
 5. Decide whether it is one-shot, interactive, or persistent.

@@ -30,13 +30,13 @@ verifier. Unavailable platform assets are reported without removing the CLI.
 
 Release assets:
 
-| OS | Architecture | Asset |
-|---|---|---|
-| Linux | x64 | `qinit-linux-x64` |
-| Linux | arm64 | `qinit-linux-arm64` |
-| macOS | Apple Silicon | `qinit-darwin-arm64` |
-| macOS | Intel | `qinit-darwin-x64` |
-| Windows | x64 | `qinit-windows-x64.exe` |
+| OS      | Architecture  | Asset                   |
+| ------- | ------------- | ----------------------- |
+| Linux   | x64           | `qinit-linux-x64`       |
+| Linux   | arm64         | `qinit-linux-arm64`     |
+| macOS   | Apple Silicon | `qinit-darwin-arm64`    |
+| macOS   | Intel         | `qinit-darwin-x64`      |
+| Windows | x64           | `qinit-windows-x64.exe` |
 
 After a manual download, run `qinit setup` and `qinit doctor`.
 
@@ -95,18 +95,18 @@ MSBuild, and test commands.
 
 ## Workspace
 
-| Path | Responsibility |
-|---|---|
-| `packages/cli` | Ink command interface and standalone binary entry |
-| `packages/core` | Qubic primitives, signing, RPC, tool downloads, and source metadata |
-| `packages/build` | Contract builds, dependency graphs, slot planning, IDL, and project generation |
-| `packages/compiler` | TypeScript-to-Wasm compiler and browser entry |
-| `packages/engine` | In-process contract simulation and protocol adapters |
-| `packages/proto` | Dynamic-contract wire, ABI, and IDL codecs |
-| `packages/vscode` | QPI language support extension |
-| `fixtures` | Shared contract fixtures |
-| `scripts` | CI, release, live-node, and compatibility automation |
-| `test-utils` | Shared test helpers |
+| Path                | Responsibility                                                                 |
+| ------------------- | ------------------------------------------------------------------------------ |
+| `packages/cli`      | Ink command interface and standalone binary entry                              |
+| `packages/core`     | Qubic primitives, signing, RPC, tool downloads, and source metadata            |
+| `packages/build`    | Contract builds, dependency graphs, slot planning, IDL, and project generation |
+| `packages/compiler` | TypeScript-to-Wasm compiler and browser entry                                  |
+| `packages/engine`   | In-process contract simulation and protocol adapters                           |
+| `packages/proto`    | Dynamic-contract wire, ABI, and IDL codecs                                     |
+| `packages/vscode`   | QPI language support extension                                                 |
+| `fixtures`          | Shared contract fixtures                                                       |
+| `scripts`           | CI, release, live-node, and compatibility automation                           |
+| `test-utils`        | Shared test helpers                                                            |
 
 Workspace packages are private while their distribution contracts are being
 stabilized. Qinit releases the standalone CLI and contract-verifier artifacts;

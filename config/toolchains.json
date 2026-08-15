@@ -1,23 +1,23 @@
 {
-  "bun": {
-    "version": "1.3.14"
-  },
-  "wasiSdk": {
-    "repository": "WebAssembly/wasi-sdk",
-    "releaseTag": "wasi-sdk-29",
-    "assetVersion": "29.0"
-  },
-  "clangd": {
-    "repository": "clangd/clangd",
-    "version": "20.1.0"
-  },
-  "contractVerifier": {
-    "repository": "Franziska-Mueller/qubic-contract-verify"
-  },
-  "qubicCli": {
-    "repository": "qubic/qubic-cli"
-  },
-  "qlogging": {
-    "repository": "qubic/qlogging"
-  }
+    "bun": {
+        "version": "1.3.14"
+    },
+    "wasiSdk": {
+        "repository": "WebAssembly/wasi-sdk",
+        "releaseTag": "wasi-sdk-29",
+        "assetVersion": "29.0"
+    },
+    "clangd": {
+        "repository": "clangd/clangd",
+        "version": "20.1.0"
+    },
+    "contractVerifier": {
+        "repository": "Franziska-Mueller/qubic-contract-verify"
+    },
+    "qubicCli": {
+        "repository": "qubic/qubic-cli"
+    },
+    "qlogging": {
+        "repository": "qubic/qlogging"
+    }
 }

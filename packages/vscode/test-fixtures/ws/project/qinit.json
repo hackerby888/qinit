@@ -1,4 +1,4 @@
 {
-  "contractName": "Proxy",
-  "contract": "contracts/Proxy.h"
+    "contractName": "Proxy",
+    "contract": "contracts/Proxy.h"
 }

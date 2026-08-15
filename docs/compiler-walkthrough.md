@@ -99,9 +99,9 @@ With:
 
 ```ts
 compileContract({
-  source,
-  contractName: "IdlEdge",
-  slot: 27,
+    source,
+    contractName: "IdlEdge",
+    slot: 27,
 });
 ```
 
@@ -156,10 +156,10 @@ The public function in [`index.ts`](../packages/compiler/src/index.ts) is:
 
 ```ts
 export async function compileContract(opts: CompileOptions): Promise<CompileResult> {
-  return compileContractWithHeader({
-    ...opts,
-    qpiHeader: opts.qpiHeader ?? loadQpiHeader(),
-  });
+    return compileContractWithHeader({
+        ...opts,
+        qpiHeader: opts.qpiHeader ?? loadQpiHeader(),
+    });
 }
 ```
 
@@ -169,10 +169,10 @@ The returned value is:
 
 ```ts
 interface CompileResult {
-  wasm: Uint8Array;
-  diagnostics: ParserDiagnostic[];
-  idl?: ContractIdl;
-  timings?: Record<string, number>;
+    wasm: Uint8Array;
+    diagnostics: ParserDiagnostic[];
+    idl?: ContractIdl;
+    timings?: Record<string, number>;
 }
 ```
 
@@ -248,15 +248,13 @@ That JSON exists only in Qinit's assembled in-memory header snapshot. It is not 
 
 ```ts
 export function embeddedWasmAbi(headers: string): WasmAbiSource {
-  const line = headers
-    .split(/\r?\n/)
-    .find((value) => value.startsWith(WASM_ABI_MARKER));
+    const line = headers.split(/\r?\n/).find((value) => value.startsWith(WASM_ABI_MARKER));
 
-  if (!line) {
-    throw new Error("QPI headers are missing embedded core ABI metadata");
-  }
+    if (!line) {
+        throw new Error("QPI headers are missing embedded core ABI metadata");
+    }
 
-  return JSON.parse(line.slice(WASM_ABI_MARKER.length)) as WasmAbiSource;
+    return JSON.parse(line.slice(WASM_ABI_MARKER.length)) as WasmAbiSource;
 }
 ```
 
@@ -352,17 +350,15 @@ QpiContext wrapper implementations
 
 ```ts
 interface QpiContext {
-  macros: Map<string, MacroDef>;
-  lib: LibTypes;
+    macros: Map<string, MacroDef>;
+    lib: LibTypes;
 }
 ```
 
 It preprocesses and parses the main core headers:
 
 ```ts
-const coreHeaderTu = new Parser(
-  new Lexer(libText).tokenize(),
-).parseTranslationUnit();
+const coreHeaderTu = new Parser(new Lexer(libText).tokenize()).parseTranslationUnit();
 
 const coreLibrary = collectLibraryTypes(coreHeaderTu.declarations);
 ```
@@ -402,11 +398,11 @@ It runs the preprocessor with core's macro table:
 
 ```ts
 const text = new Preprocessor().preprocess({
-  source,
-  qpiHeader: "",
-  contractName: opts.contractName,
-  contractIndex: opts.slot,
-  seedMacros: qpi.macros,
+    source,
+    qpiHeader: "",
+    contractName: opts.contractName,
+    contractIndex: opts.slot,
+    seedMacros: qpi.macros,
 });
 ```
 
@@ -564,8 +560,8 @@ The parser returns:
 
 ```ts
 interface TranslationUnit {
-  declarations: Declaration[];
-  span: Span;
+    declarations: Declaration[];
+    span: Span;
 }
 ```
 
@@ -724,18 +720,18 @@ The pipeline calls:
 
 ```ts
 generateWasmModule({
-  translationUnit: unit,
-  semanticAnalysis: semanticAnalyzer,
-  contractName,
-  contractSlot: slot,
-  arenaSize: arenaSizeBytes,
-  libraryIndex: qpi.lib,
-  callees,
-  calleeStructs,
-  calleeTranslationUnits,
-  sharedMemoryBase: sharedMemoryBaseOffsetBytes,
-  metadataOutput: metadata,
-  gtestMode: false,
+    translationUnit: unit,
+    semanticAnalysis: semanticAnalyzer,
+    contractName,
+    contractSlot: slot,
+    arenaSize: arenaSizeBytes,
+    libraryIndex: qpi.lib,
+    callees,
+    calleeStructs,
+    calleeTranslationUnits,
+    sharedMemoryBase: sharedMemoryBaseOffsetBytes,
+    metadataOutput: metadata,
+    gtestMode: false,
 });
 ```
 
@@ -876,17 +872,17 @@ round final struct size to maximum alignment
 
 The layouts are:
 
-| Struct | Field | Offset | Size |
-|---|---|---:|---:|
-| `StateData` | `balance` | 0 | 8 |
-| `StateData` | `flags` | 8 | 4 |
-| `StateData` | trailing padding | 12 | 4 |
-| `Put_input` | `tag` | 0 | 4 |
-| `Put_input` | padding | 4 | 4 |
-| `Put_input` | `amount` | 8 | 8 |
-| `Put_output` | `ok` | 0 | 1 |
-| `Put_output` | padding | 1 | 3 |
-| `Put_output` | `code` | 4 | 4 |
+| Struct       | Field            | Offset | Size |
+| ------------ | ---------------- | -----: | ---: |
+| `StateData`  | `balance`        |      0 |    8 |
+| `StateData`  | `flags`          |      8 |    4 |
+| `StateData`  | trailing padding |     12 |    4 |
+| `Put_input`  | `tag`            |      0 |    4 |
+| `Put_input`  | padding          |      4 |    4 |
+| `Put_input`  | `amount`         |      8 |    8 |
+| `Put_output` | `ok`             |      0 |    1 |
+| `Put_output` | padding          |      1 |    3 |
+| `Put_output` | `code`           |      4 |    4 |
 
 Therefore:
 
@@ -913,19 +909,19 @@ qpi.__registerUserFunction((void*)Get, 9, ...);
 
 ```ts
 [
-  {
-    fnName: "Put",
-    kind: 1,
-    inputType: 7,
-    constant: true
-  },
-  {
-    fnName: "Get",
-    kind: 0,
-    inputType: 9,
-    constant: true
-  }
-]
+    {
+        fnName: "Put",
+        kind: 1,
+        inputType: 7,
+        constant: true,
+    },
+    {
+        fnName: "Get",
+        kind: 0,
+        inputType: 9,
+        constant: true,
+    },
+];
 ```
 
 Runtime kinds are:
@@ -1436,9 +1432,7 @@ const parsed = module.parseWat("contract.wat", wat);
 
 parsed.validate();
 
-const wasm = new Uint8Array(
-  parsed.toBinary({}).buffer,
-);
+const wasm = new Uint8Array(parsed.toBinary({}).buffer);
 ```
 
 Then Qinit runs:
@@ -1470,22 +1464,22 @@ The final result is:
 
 ## Why every layer is needed
 
-| Layer | Why it exists |
-|---|---|
-| `assembleQpiHeader()` | Turns the live core checkout into one compiler-consumable snapshot. |
-| Embedded ABI JSON | Carries core's canonical numeric/Wasm ABI without another handwritten table. |
-| QPI library parsing | Gives codegen real QPI types, templates, constants, and method bodies. |
-| Preprocessor | Converts QPI macros and contract-specific names into parseable declarations. |
-| Lexer | Converts text into structured tokens with source positions. |
-| Parser | Converts tokens into declarations, statements, and expressions. |
-| Validator | Rejects invalid or unsupported constructs before emission. |
-| `registerTopLevelDeclarations()` | Builds symbol/type/namespace lookup tables and enables forward references. |
-| Layout computation | Makes Wasm memory byte-compatible with native core structs. |
-| Registration extraction | Connects C++ method names to the numeric runtime protocol. |
-| Codegen | Converts AST expressions into typed Wasm loads, stores, calls, and control flow. |
-| Framework emitter | Adds memory, imports, metadata, helpers, and dispatch required by core-lite. |
-| WABT | Encodes textual WAT into binary Wasm. |
-| Wasm inspection | Confirms that the final artifact obeys the lite runtime ABI. |
+| Layer                            | Why it exists                                                                    |
+| -------------------------------- | -------------------------------------------------------------------------------- |
+| `assembleQpiHeader()`            | Turns the live core checkout into one compiler-consumable snapshot.              |
+| Embedded ABI JSON                | Carries core's canonical numeric/Wasm ABI without another handwritten table.     |
+| QPI library parsing              | Gives codegen real QPI types, templates, constants, and method bodies.           |
+| Preprocessor                     | Converts QPI macros and contract-specific names into parseable declarations.     |
+| Lexer                            | Converts text into structured tokens with source positions.                      |
+| Parser                           | Converts tokens into declarations, statements, and expressions.                  |
+| Validator                        | Rejects invalid or unsupported constructs before emission.                       |
+| `registerTopLevelDeclarations()` | Builds symbol/type/namespace lookup tables and enables forward references.       |
+| Layout computation               | Makes Wasm memory byte-compatible with native core structs.                      |
+| Registration extraction          | Connects C++ method names to the numeric runtime protocol.                       |
+| Codegen                          | Converts AST expressions into typed Wasm loads, stores, calls, and control flow. |
+| Framework emitter                | Adds memory, imports, metadata, helpers, and dispatch required by core-lite.     |
+| WABT                             | Encodes textual WAT into binary Wasm.                                            |
+| Wasm inspection                  | Confirms that the final artifact obeys the lite runtime ABI.                     |
 
 ## Shortest accurate summary
 

@@ -1,57 +1,77 @@
 {
-  "name": "qpi-vscode",
-  "displayName": "Qubic QPI",
-  "description": "Standalone IntelliSense and QPI diagnostics for Qubic smart contracts.",
-  "version": "0.1.0",
-  "private": true,
-  "publisher": "qinit",
-  "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/hackerby888/qinit.git" },
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Programming Languages", "Linters"],
-  "extensionDependencies": ["llvm-vs-code-extensions.vscode-clangd"],
-  "main": "./dist/extension.js",
-  "activationEvents": ["onLanguage:c", "onLanguage:cpp"],
-  "contributes": {
-    "commands": [
-      { "command": "qpi.regenerateConfig", "title": "Regenerate clangd config", "category": "Qubic QPI" }
+    "name": "qpi-vscode",
+    "displayName": "Qubic QPI",
+    "description": "Standalone IntelliSense and QPI diagnostics for Qubic smart contracts.",
+    "version": "0.1.0",
+    "private": true,
+    "publisher": "qinit",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/hackerby888/qinit.git"
+    },
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Programming Languages",
+        "Linters"
     ],
-    "configuration": {
-      "title": "Qubic QPI",
-      "properties": {
-        "qpi.completionFilter": {
-          "type": "string",
-          "enum": ["qpi", "off"],
-          "default": "qpi",
-          "enumDescriptions": [
-            "In contracts, complete only what QPI allows a contract to write.",
-            "Leave clangd's completion list untouched."
-          ],
-          "description": "Filter clangd's completions in QPI contracts down to the QPI surface."
+    "extensionDependencies": [
+        "llvm-vs-code-extensions.vscode-clangd"
+    ],
+    "main": "./dist/extension.js",
+    "activationEvents": [
+        "onLanguage:c",
+        "onLanguage:cpp"
+    ],
+    "contributes": {
+        "commands": [
+            {
+                "command": "qpi.regenerateConfig",
+                "title": "Regenerate clangd config",
+                "category": "Qubic QPI"
+            }
+        ],
+        "configuration": {
+            "title": "Qubic QPI",
+            "properties": {
+                "qpi.completionFilter": {
+                    "type": "string",
+                    "enum": [
+                        "qpi",
+                        "off"
+                    ],
+                    "default": "qpi",
+                    "enumDescriptions": [
+                        "In contracts, complete only what QPI allows a contract to write.",
+                        "Leave clangd's completion list untouched."
+                    ],
+                    "description": "Filter clangd's completions in QPI contracts down to the QPI surface."
+                }
+            }
         }
-      }
+    },
+    "scripts": {
+        "build": "bun esbuild.mjs",
+        "watch": "bun esbuild.mjs --watch",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "prepare:headers": "bun scripts/prepare-headers.ts",
+        "package": "bun scripts/prepare-headers.ts --check && bun esbuild.mjs && vsce package --no-dependencies -o qpi-vscode.vsix",
+        "gate": "bun run scripts/clangd-gate.ts",
+        "test:int": "bun esbuild.mjs && bun scripts/prepare-itest-env.ts && vscode-test"
+    },
+    "devDependencies": {
+        "@qinit/build": "workspace:*",
+        "@qinit/compiler": "workspace:*",
+        "@qinit/core": "workspace:*",
+        "@types/mocha": "^10.0.7",
+        "@types/node": "^20.14.0",
+        "@types/vscode": "^1.85.0",
+        "@vscode/test-cli": "^0.0.10",
+        "@vscode/test-electron": "^2.4.1",
+        "@vscode/vsce": "^3.2.0",
+        "esbuild": "^0.28.0",
+        "mocha": "^10.7.0"
     }
-  },
-  "scripts": {
-    "build": "bun esbuild.mjs",
-    "watch": "bun esbuild.mjs --watch",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepare:headers": "bun scripts/prepare-headers.ts",
-    "package": "bun scripts/prepare-headers.ts --check && bun esbuild.mjs && vsce package --no-dependencies -o qpi-vscode.vsix",
-    "gate": "bun run scripts/clangd-gate.ts",
-    "test:int": "bun esbuild.mjs && bun scripts/prepare-itest-env.ts && vscode-test"
-  },
-  "devDependencies": {
-    "@qinit/build": "workspace:*",
-    "@qinit/compiler": "workspace:*",
-    "@qinit/core": "workspace:*",
-    "@types/mocha": "^10.0.7",
-    "@types/node": "^20.14.0",
-    "@types/vscode": "^1.85.0",
-    "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.4.1",
-    "@vscode/vsce": "^3.2.0",
-    "esbuild": "^0.28.0",
-    "mocha": "^10.7.0"
-  }
 }

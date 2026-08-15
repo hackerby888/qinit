@@ -1,11 +1,11 @@
 {
-  "qinit": {
-    "repository": "hackerby888/qinit",
-    "defaultBranch": "main"
-  },
-  "coreLite": {
-    "repository": "hackerby888/core-lite",
-    "developmentRef": "feat/dynamic-contracts",
-    "pinnedCommit": ""
-  }
+    "qinit": {
+        "repository": "hackerby888/qinit",
+        "defaultBranch": "main"
+    },
+    "coreLite": {
+        "repository": "hackerby888/core-lite",
+        "developmentRef": "feat/dynamic-contracts",
+        "pinnedCommit": ""
+    }
 }
