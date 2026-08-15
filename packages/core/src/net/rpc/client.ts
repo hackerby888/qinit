@@ -60,7 +60,8 @@ export class LiteRpc implements NodeTransport {
                 const body = (await r.json().catch(() => null)) as { message?: unknown } | null;
                 const detail = typeof body?.message === "string" ? `: ${body.message}` : "";
 
-                throw new Error(`RPC GET ${path} → HTTP ${r.status}${detail}`);
+                // The status rides along so callers can tell "route is missing" from "node is unwell".
+                throw Object.assign(new Error(`RPC GET ${path} → HTTP ${r.status}${detail}`), { status: r.status });
             }
             try {
                 return (await r.json()) as T;
@@ -224,9 +225,12 @@ export class LiteRpc implements NodeTransport {
                 }
 
                 tick = advanced.reached;
-            } catch {
-                // Gone for the life of this client, so later calls skip the probe entirely.
-                this.devAdvanceMissing = true;
+            } catch (e) {
+                // Only a 404 means the route will never exist; a timeout or a 5xx is transient, and
+                // latching on those would disable the fast path for the life of the client.
+                if ((e as { status?: number }).status === 404) {
+                    this.devAdvanceMissing = true;
+                }
                 return tick;
             }
         }
