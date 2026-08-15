@@ -520,22 +520,10 @@ export async function runContractTesting(
         prevSpectrumDigest: (out: number) => mem().set((sim.prevSpectrumDigestOverride ?? new Uint8Array(32)).subarray(0, 32), out >>> 0),
         // Live spectrum entity record (a corpus runs contract functions in-runner: QTF's CheckContractBalance
         // reads qpi.getEntity(SELF).incoming - outgoing; a noop stub made every such balance check fail).
-        transfer: (destOff: number, amount: bigint): bigint => {
-            const self = sim.contractId(mainSlot);
-            const bal = sim.balance(self);
-            if (amount < 0n) return -1n;
-            if (bal < amount) return bal - amount;
-            sim.debit(self, amount);
-            sim.credit(id32(destOff), amount);
-            return bal - amount;
-        },
-        burn: (amount: bigint, ciBurnedFor: number): bigint => {
-            const self = sim.contractId(ciBurnedFor >>> 0 || mainSlot);
-            const bal = sim.balance(self);
-            if (amount < 0n || bal < amount) return -1n;
-            sim.debit(self, amount);
-            return bal - amount;
-        },
+        // Delegated to the same host services the deployed runtime uses, so a gtest cannot pass on
+        // semantics production does not have (PIT guards, amount bounds, transfer logging).
+        transfer: (destOff: number, amount: bigint): bigint => sim.host.transfer(mainSlot, id32(destOff), amount, 2 /*qpiTransfer*/),
+        burn: (amount: bigint, ciBurnedFor: number): bigint => sim.host.burn(mainSlot, amount, ciBurnedFor >>> 0),
         // In-runner inter-contract calls (QTF's ProcessTierPayout invokes QRP's top-up procedure through the
         // corpus qpi context). Caller is the contract under test; reward moves caller -> callee like runtime.ts.
         liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number): number => {
@@ -544,18 +532,12 @@ export async function runContractTesting(
             return 0;
         },
         liteInvokeProcedure: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number, reward: bigint): number => {
-            const self = sim.contractId(mainSlot);
-            if (reward > 0n) {
-                if (sim.balance(self) < reward) return 4; // InsufficientFunds
-                sim.debit(self, reward);
+            const originator = sim.contractId(mainSlot);
+            const result = sim.host.invokeProcedure(mainSlot, calleeIdx >>> 0, inputType & 0xffff, read(inOff, inSize), reward, originator);
+            if (result.error === 0 && result.output.length > 0) {
+                write(outOff, result.output.subarray(0, Math.min(outSize >>> 0, result.output.length)));
             }
-            const out = sim.procedure(calleeIdx >>> 0, inputType & 0xffff, read(inOff, inSize), {
-                reward,
-                invocator: self,
-                originator: self,
-            });
-            if (out.length) write(outOff, out.subarray(0, Math.min(outSize >>> 0, out.length)));
-            return 0;
+            return result.error;
         },
         getEntity: (idOff: number, entityOff: number): number => {
             const id = id32(idOff);
