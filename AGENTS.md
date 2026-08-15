@@ -22,7 +22,7 @@ Live-core checks need a sibling checkout: `QINIT_CORE=/path/to/core-lite bun run
 
 ## Coding Style & Naming Conventions
 
-Follow surrounding TypeScript: two-space indentation, double quotes, semicolons, trailing commas, and readable multiline expressions. Use `camelCase` for functions and variables, `PascalCase` for types and components, `UPPER_SNAKE_CASE` for constants, and kebab-case filenames. No general formatter is configured, so keep diffs narrow and run typechecking. Preserve public APIs and behavior unless the change explicitly requires otherwise; comments should be brief and useful.
+Follow surrounding TypeScript: four-space indentation, a 100-column limit, double quotes, semicolons, trailing commas, and readable multiline expressions. Use `camelCase` for functions and variables, `PascalCase` for types and components, `UPPER_SNAKE_CASE` for constants, and kebab-case filenames. Prettier owns the layout (`.prettierrc.json`): run `bun run format` before committing, and `bun run format:check` matches the CI gate. Preserve public APIs and behavior unless the change explicitly requires otherwise; comments should be brief and useful.
 
 Read CODING_RULES.md for more details.
 

@@ -1,35 +1,39 @@
 {
-  "name": "qinit",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "workspaces": ["packages/*"],
-  "bin": {
-    "qinit": "./dist/qinit"
-  },
-  "scripts": {
-    "dev": "bun run packages/cli/src/index.tsx",
-    "build:bin": "bun run scripts/release/build-host.ts",
-    "build:all": "bun run scripts/release/build-matrix.ts",
-    "snapshot:core": "bun run scripts/release/build-core-headers.ts",
-    "ci:core-lite-smoke": "bun run scripts/core-compat/core-smoke.ts",
-    "smoke": "bun run packages/cli/src/index.tsx smoke",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "bun test",
-    "test:sc": "bun run scripts/core-compat/test-system-gtests.ts --light",
-    "test:sc:light": "bun run scripts/core-compat/test-system-gtests.ts --light",
-    "test:sc:heavy": "bun run scripts/core-compat/test-system-gtests.ts --heavy",
-    "test:sc:all": "bun run scripts/core-compat/test-system-gtests.ts --all",
-    "test:compiled": "bash scripts/release/check-compiled.sh",
-    "test:node": "bash scripts/live-node/smoke-node.sh",
-    "check:idl:native": "bun run scripts/core-compat/check-idl-native.ts",
-    "generate:core-abi": "bun packages/core/tools/gen-wasm-abi.ts",
-    "sources:sync": "bun run scripts/config/sync-sources.ts",
-    "sources:check": "bun run scripts/config/sync-sources.ts --check"
-  },
-  "devDependencies": {
-    "bun-types": "1.3.14",
-    "prettier": "3.9.6",
-    "typescript": "^5.6.0"
-  }
+    "name": "qinit",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "workspaces": [
+        "packages/*"
+    ],
+    "bin": {
+        "qinit": "./dist/qinit"
+    },
+    "scripts": {
+        "dev": "bun run packages/cli/src/index.tsx",
+        "build:bin": "bun run scripts/release/build-host.ts",
+        "build:all": "bun run scripts/release/build-matrix.ts",
+        "snapshot:core": "bun run scripts/release/build-core-headers.ts",
+        "ci:core-lite-smoke": "bun run scripts/core-compat/core-smoke.ts",
+        "smoke": "bun run packages/cli/src/index.tsx smoke",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "test": "bun test",
+        "test:sc": "bun run scripts/core-compat/test-system-gtests.ts --light",
+        "test:sc:light": "bun run scripts/core-compat/test-system-gtests.ts --light",
+        "test:sc:heavy": "bun run scripts/core-compat/test-system-gtests.ts --heavy",
+        "test:sc:all": "bun run scripts/core-compat/test-system-gtests.ts --all",
+        "test:compiled": "bash scripts/release/check-compiled.sh",
+        "test:node": "bash scripts/live-node/smoke-node.sh",
+        "check:idl:native": "bun run scripts/core-compat/check-idl-native.ts",
+        "generate:core-abi": "bun packages/core/tools/gen-wasm-abi.ts",
+        "sources:sync": "bun run scripts/config/sync-sources.ts",
+        "sources:check": "bun run scripts/config/sync-sources.ts --check"
+    },
+    "devDependencies": {
+        "bun-types": "1.3.14",
+        "prettier": "3.9.6",
+        "typescript": "^5.6.0"
+    }
 }

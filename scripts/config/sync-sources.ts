@@ -260,9 +260,9 @@ function editsFor(
         case "packages/vscode/package.json":
             return [
                 {
-                    pattern:
-                        /"repository": \{ "type": "git", "url": "https:\/\/github\.com\/[^"]+\.git" \}/g,
-                    replacement: `"repository": { "type": "git", "url": "https://github.com/${qinit.repository}.git" }`,
+                    // Matches the repository URL alone so reformatting the surrounding object is safe.
+                    pattern: /"url": "https:\/\/github\.com\/[^"]+\.git"/g,
+                    replacement: `"url": "https://github.com/${qinit.repository}.git"`,
                 },
             ];
         case ".github/workflows/test.yml":

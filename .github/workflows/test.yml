@@ -110,6 +110,10 @@ jobs:
       - name: Verify source configuration
         run: bun run sources:check
       - run: bun install
+      # Formatting is host-independent, so one runner is enough.
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        run: bun run format:check
       - name: Verify generated core ABI
         run: bun packages/core/tools/gen-wasm-abi.ts --check
       - name: Verify bundled browser snapshot

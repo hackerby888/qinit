@@ -8,3 +8,10 @@ packages/vscode/resources/
 packages/vscode/test-fixtures/ws/.vscode/
 packages/core/src/wasm/generated/
 packages/compiler/src/generated/
+# Agent scratch output, not project source.
+.superpowers/
+# Byte-compared fixtures and generator-owned manifests.
+packages/core/tests/__fixtures__/
+packages/compiler/core-snapshot.json
+# `sources:sync` substitutes layout-sensitive blocks here, so reformatting breaks its drift check.
+.github/workflows/
