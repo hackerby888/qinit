@@ -219,6 +219,11 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     );
     const timestampKey = timestampTicks.join(",");
 
+    // The error banner stays up once a poll fails, so the exit code reports the same failure.
+    useEffect(() => {
+        if (err) process.exitCode = 1;
+    }, [err]);
+
     useEffect(() => {
         if (!timestampTicks.length) {
             return;

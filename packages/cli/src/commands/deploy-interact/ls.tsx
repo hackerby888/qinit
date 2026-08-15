@@ -67,6 +67,7 @@ export function Ls({ commandArgs }: { commandArgs: CommandArguments }) {
                         nodeDown: !!s.nodeDown,
                     }) + "\n",
                 );
+            process.exitCode = s.nodeDown ? 1 : 0;
             const t = setTimeout(() => exit(), 20);
             return () => clearTimeout(t);
         }

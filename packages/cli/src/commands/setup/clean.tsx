@@ -46,6 +46,7 @@ export function Clean({ commandArgs }: { commandArgs: CommandArguments }) {
     }, []);
     useEffect(() => {
         if (s.phase !== "run") {
+            process.exitCode = s.phase === "err" ? 1 : 0;
             const t = setTimeout(() => exit(), 20);
             return () => clearTimeout(t);
         }

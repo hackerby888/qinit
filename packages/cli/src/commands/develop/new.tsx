@@ -29,29 +29,34 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
     const requestedCoreDir = commandArgs.get("core-dir");
     const [log, setLog] = useState<string[]>([]);
     const [done, setDone] = useState(false);
+    const [failed, setFailed] = useState(false);
     const add = (s: string) => setLog((l) => [...l, s]);
+
+    // Reports the reason and ends the run with a non-zero exit code.
+    const fail = (s: string) => {
+        add(s);
+        setFailed(true);
+        setDone(true);
+    };
 
     useEffect(() => {
         try {
             if (!projectName) {
-                add(
+                fail(
                     `usage: qinit new <name> [--template ${TEMPLATE_KINDS.join("|")}] [--core-dir PATH]`,
                 );
-                setDone(true);
                 return;
             }
             const kind = (requestedTemplate || "counter") as TemplateKind;
             if (!TEMPLATE_KINDS.includes(kind)) {
-                add(`✗ unknown template '${kind}' — pick: ${TEMPLATE_KINDS.join(", ")}`);
-                setDone(true);
+                fail(`✗ unknown template '${kind}' — pick: ${TEMPLATE_KINDS.join(", ")}`);
                 return;
             }
             // refuse nesting: a folder created by `qinit new` has qinit.json — making another project here gets messy
             if (existsSync("qinit.json")) {
-                add(
+                fail(
                     "✗ already inside a qinit project (qinit.json is here) — cd out before `qinit new`",
                 );
-                setDone(true);
                 return;
             }
             const dir = projectName;
@@ -59,22 +64,19 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
             // a contract named after a QPI type (Asset, Entity, …) makes the generated wrapper ambiguous -> won't compile
             const RESERVED = ["Asset", "Entity", "Array", "Collection", "HashMap", "HashSet"];
             if (RESERVED.includes(name)) {
-                add(
+                fail(
                     `✗ '${name}' collides with a QPI type — pick another name (reserved: ${RESERVED.join(", ")})`,
                 );
-                setDone(true);
                 return;
             }
             // also refuse a built-in system-contract name (best-effort: needs the snapshot; deploy re-checks authoritatively)
             if (loadSystem().some((c) => c.name.toLowerCase() === name.toLowerCase())) {
-                add(`✗ '${name}' is a system contract name — pick another`);
-                setDone(true);
+                fail(`✗ '${name}' is a system contract name — pick another`);
                 return;
             }
             const coreDir = requestedCoreDir ?? process.env.QINIT_CORE;
             if (existsSync(dir)) {
-                add(`✗ '${dir}' already exists`);
-                setDone(true);
+                fail(`✗ '${dir}' already exists`);
                 return;
             }
 
@@ -139,12 +141,14 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
             add(`next:  cd ${dir} && qinit node run && qinit dev`);
             setDone(true);
         } catch (e: any) {
-            add("ERROR: " + String(e?.message ?? e));
-            setDone(true);
+            fail("ERROR: " + String(e?.message ?? e));
         }
     }, []);
     useEffect(() => {
-        if (done) exit();
+        if (done) {
+            process.exitCode = failed ? 1 : 0;
+            exit();
+        }
     }, [done]);
 
     const lineColor = (l: string) =>

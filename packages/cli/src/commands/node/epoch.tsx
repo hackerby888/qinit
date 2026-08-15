@@ -63,6 +63,7 @@ export function Epoch({ commandArgs }: { commandArgs: CommandArguments }) {
     }, []);
     useEffect(() => {
         if (rows || err) {
+            process.exitCode = err ? 1 : 0;
             const t = setTimeout(() => exit(), 30);
             return () => clearTimeout(t);
         }

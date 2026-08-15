@@ -179,6 +179,10 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
         },
         { isActive: !!process.stdin.isTTY },
     );
+    // A missing core checkout is fatal, so the watch session reports failure when it ends.
+    useEffect(() => {
+        if (coreErr) process.exitCode = 1;
+    }, [coreErr]);
 
     if (coreErr)
         return (
