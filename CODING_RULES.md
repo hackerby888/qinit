@@ -15,6 +15,6 @@
 
 - Follow this conceptually this clang format (apply for ts,js,cpp,... too):
   IndentWidth: 4
-  ColumnLimit: 100
+  ColumnLimit: 160 # effectively unlimited for ordinary code; still wraps long lists/arguments (But be smart about it, don't make it unreadable)
   BinPackArguments: true
   BinPackParameters: true

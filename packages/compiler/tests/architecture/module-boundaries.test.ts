@@ -10,24 +10,13 @@ const SOURCE_ROOT = fileURLToPath(new URL("../../src/", import.meta.url));
 const ROOT_ENTRIES = new Set(["index.ts", "browser.ts"]);
 
 // Lowest first. `generated` holds committed build artefacts and depends on nothing.
-const LAYERS = [
-    "generated",
-    "shared",
-    "ast",
-    "frontend",
-    "analysis",
-    "backend",
-    "driver",
-    "analyzer",
-];
+const LAYERS = ["generated", "shared", "ast", "frontend", "analysis", "backend", "driver", "analyzer"];
 
-const FORBIDDEN_LAYER_IMPORTS: Record<string, Set<string>> = Object.fromEntries(
-    LAYERS.map((layer, index) => [layer, new Set(LAYERS.slice(index + 1))]),
-);
+const FORBIDDEN_LAYER_IMPORTS: Record<string, Set<string>> = Object.fromEntries(LAYERS.map((layer, index) => [layer, new Set(LAYERS.slice(index + 1))]));
 
 // Cross-layer cycles are the ones that matter; the type-only cycles inside a single layer are the
 // established split-class pattern, where a class hands itself back to the parts it delegates to.
-const MAX_FILE_LINES = 750;
+const MAX_FILE_LINES = 700;
 
 interface ModuleReference {
     specifier: string;
@@ -61,8 +50,7 @@ function sourceLayer(path: string): string | undefined {
 function collectModuleReferences(source: string): ModuleReference[] {
     const references: ModuleReference[] = [];
     const importPattern = /\bimport\s+(type\s+)?(?:(?:[\w$*,\s{}]+)\s+from\s+)?["']([^"']+)["']/g;
-    const exportPattern =
-        /\bexport\s+(type\s+)?(?:\*\s*(?:as\s+[\w$]+\s+)?|\{[^}]*\}\s*)from\s+["']([^"']+)["']/g;
+    const exportPattern = /\bexport\s+(type\s+)?(?:\*\s*(?:as\s+[\w$]+\s+)?|\{[^}]*\}\s*)from\s+["']([^"']+)["']/g;
 
     for (const match of source.matchAll(importPattern)) {
         references.push({
@@ -166,17 +154,13 @@ describe("compiler module boundaries", () => {
     });
 
     test("keeps the source root free of anything but the bundler entry points", () => {
-        const strays = sourceFiles
-            .map(sourcePath)
-            .filter((path) => !path.includes("/") && !ROOT_ENTRIES.has(path));
+        const strays = sourceFiles.map(sourcePath).filter((path) => !path.includes("/") && !ROOT_ENTRIES.has(path));
 
         expect(strays).toEqual([]);
     });
 
     test("keeps every source file in a known layer", () => {
-        const unknown = sourceFiles
-            .map(sourcePath)
-            .filter((path) => path.includes("/") && !LAYERS.includes(path.split("/")[0]));
+        const unknown = sourceFiles.map(sourcePath).filter((path) => path.includes("/") && !LAYERS.includes(path.split("/")[0]));
 
         expect(unknown).toEqual([]);
     });

@@ -54,7 +54,7 @@ enforces this, and four more rules that keep the tree honest:
 - every other file sits under one of the layers named above,
 - runtime imports are acyclic, and type-only cycles never cross a layer boundary — the `*-context.ts`
   pattern, where a split class hands itself back to its own parts, stays inside one layer,
-- no file exceeds 750 lines.
+- no file exceeds 700 lines.
 
 ## Source Map
 
