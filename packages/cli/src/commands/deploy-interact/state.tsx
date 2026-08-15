@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc, type DynamicContractRegistryEntry } from "@qinit/core";
-import { LARGE_STATE_CONTAINER_BYTES, loadStateContainer, readState, stateIsComplete, type DecodedState, type StateContainer } from "../../trace/format";
+import { LARGE_STATE_CONTAINER_BYTES, loadStateContainer, readState, stateIsComplete, type DecodedState, type StateContainer } from "../../trace/state-read";
 import { StateView } from "../../trace/views";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
 import { loadContracts, mergeContracts } from "../../contracts/registry";

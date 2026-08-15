@@ -7,7 +7,7 @@ import { extractIdl } from "@qinit/build";
 import { loadConfiguredQpiHeader, resolveSeed } from "../../config";
 import { loadContracts, mergeContracts } from "../../contracts/registry";
 import { contractIdlForSlot, emptyContractIdlFile, loadContractIdlFile } from "../../contracts/idl-file";
-import { fmtVal, formatStateValue } from "../../trace/format";
+import { fmtVal, formatStateValue } from "../../trace/state-format";
 import { Header, Spinner, Panel, theme } from "../../ui";
 import { Select, TextPrompt } from "../../ui/prompt";
 

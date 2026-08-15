@@ -15,7 +15,8 @@ import {
     type WordType,
 } from "@qinit/proto/qpi-layout";
 import type { DebugStateRegion } from "@qinit/core";
-import { formatStateValue, hexToBytes, type StateField, type StateLine } from "./format";
+import { formatStateValue, type StateField, type StateLine } from "./state-format";
+import { hexToBytes } from "@qinit/core";
 
 // A diff row keeps both label forms: `label` is what the default view shows, `detail` the full resolved
 // path. `internal` marks container bookkeeping a contract author never wrote, hidden until the full view.

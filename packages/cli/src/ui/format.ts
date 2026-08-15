@@ -38,3 +38,6 @@ export const truncMid = (s: string, max: number) => {
     const tail = keep - head;
     return s.slice(0, head) + "…" + s.slice(s.length - tail);
 };
+
+// Log severity to an Ink color; anything else keeps the default foreground.
+export const sevColor = (severity: string) => (severity === "ERROR" ? "red" : severity === "WARN" ? "yellow" : severity === "INFO" ? "green" : undefined);

@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { extractIdl } from "@qinit/build";
-import { stateFieldsOf } from "../../src/trace/format";
+import { stateFieldsOf } from "../../src/trace/state-format";
 
 const SRC = `using namespace QPI;
 constexpr uint64 CAP = 4 * 2;

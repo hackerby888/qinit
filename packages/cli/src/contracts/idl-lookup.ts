@@ -5,7 +5,7 @@ import { extractIdl } from "@qinit/build";
 import { loadConfiguredQpiHeader } from "../config";
 import { contractIdlForSlot, loadContractIdlFile } from "./idl-file";
 import { loadContracts, mergeContracts } from "./registry";
-import { formatStateValue } from "../trace/format";
+import { formatStateValue } from "../trace/state-format";
 
 export type ContractIdls = Map<number, ContractIdl>;
 

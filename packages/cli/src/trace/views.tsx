@@ -3,7 +3,10 @@
 import { Box, Text } from "ink";
 import { type DebugEntry } from "@qinit/core";
 import { Status, theme, truncEnd, truncMid, termCols } from "../ui";
-import { type DecodedTrace, type DecodedState, type StateContainer, sevColor, formatStateValue, jstr } from "./format";
+import { type DecodedTrace } from "./format";
+import { type DecodedState, type StateContainer } from "./state-read";
+import { formatStateValue, jstr } from "./state-format";
+import { sevColor } from "../ui";
 import { entryLabel } from "./entry-label";
 import { type StateDiffLine } from "./state-diff";
 

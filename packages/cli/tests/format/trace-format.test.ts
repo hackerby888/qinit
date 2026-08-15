@@ -1,14 +1,8 @@
 import { test, expect } from "bun:test";
 import { AbiScalarKind, AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
-import {
-    describeTrace,
-    keyLabel,
-    LARGE_STATE_CONTAINER_BYTES,
-    loadStateContainer,
-    readState,
-    type StateReader,
-    type StateContainer,
-} from "../../src/trace/format";
+import { describeTrace } from "../../src/trace/format";
+import { keyLabel } from "../../src/trace/state-format";
+import { LARGE_STATE_CONTAINER_BYTES, loadStateContainer, readState, type StateReader, type StateContainer } from "../../src/trace/state-read";
 
 // A block's rows in the one-line form, for assertions where the label/text split adds nothing.
 const flatLines = (container: StateContainer) => container.lines.map((line) => `${line.label} ${line.text}`);
@@ -834,7 +828,7 @@ test("readState reports incomplete scalar and container reads", async () => {
     ]);
 });
 
-import { fmtVal } from "../../src/trace/format";
+import { fmtVal } from "../../src/trace/state-format";
 test("fmtVal: run-length-group long runs, keep short literal, cap unless full", () => {
     expect(fmtVal([0, 0, 0])).toBe("[0, 0, 0]"); // short run kept literal
     expect(fmtVal(Array(100).fill(0))).toBe("[0 ×100]"); // long run collapsed

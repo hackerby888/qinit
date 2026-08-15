@@ -2,7 +2,7 @@
 // whole difference between a trace that reads like `qinit state` and one that reads like a hex dump.
 import { test, expect } from "bun:test";
 import { extractIdl } from "@qinit/build";
-import { stateFieldsOf } from "../../src/trace/format";
+import { stateFieldsOf } from "../../src/trace/state-format";
 import { stateDiffLines } from "../../src/trace/state-diff";
 
 const SRC = `using namespace QPI;
