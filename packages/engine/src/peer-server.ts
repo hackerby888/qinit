@@ -20,8 +20,7 @@ export interface PeerServerHandle {
 
 export class PeerServer {
     readonly engine: VirtualNode;
-    private server: { stop(closeActiveConnections?: boolean): void; readonly port: number } | null =
-        null;
+    private server: { stop(closeActiveConnections?: boolean): void; readonly port: number } | null = null;
     private ticker: ReturnType<typeof setInterval> | null = null;
 
     constructor(engine: VirtualNode = new VirtualNode()) {
@@ -52,12 +51,7 @@ export class PeerServer {
         await this.engine.seedFaucet();
         this.engine.sim.tickDuration = tickMs;
 
-        if (
-            autoTick &&
-            this.engine.sim.currentEpoch === 0 &&
-            this.engine.sim.currentTick === 0 &&
-            this.engine.sim.contracts.size === 0
-        ) {
+        if (autoTick && this.engine.sim.currentEpoch === 0 && this.engine.sim.currentTick === 0 && this.engine.sim.contracts.size === 0) {
             this.engine.sim.bootstrapEpoch(1);
         }
 
@@ -121,20 +115,24 @@ export class PeerServer {
 
             const payload = buf.subarray(codec.HEADER_SIZE, header.size);
             try {
-                if (process.env.QINIT_PEER_DEBUG)
-                    console.error(
-                        `peer request type=${header.type} size=${header.size} dejavu=${header.dejavu}`,
-                    );
+                if (process.env.QINIT_PEER_DEBUG) {
+                    const req = `type=${header.type} size=${header.size} dejavu=${header.dejavu}`;
+                    console.error(`peer request ${req}`);
+                }
                 const resp = await this.dispatch(header.type, payload, header.dejavu);
                 if (resp) {
-                    if (process.env.QINIT_PEER_DEBUG)
-                        console.error(
-                            `peer response type=${codec.readHeader(resp)?.type} size=${resp.length}`,
-                        );
+                    if (process.env.QINIT_PEER_DEBUG) {
+                        const kind = codec.readHeader(resp)?.type;
+                        console.error(`peer response type=${kind} size=${resp.length}`);
+                    }
                     socket.write(resp);
                 }
-            } catch {
-                // a malformed request must not kill the connection — drop it and keep serving
+            } catch (e) {
+                // A malformed request must not kill the connection — drop it and keep serving. The
+                // failure is still reported, because this also catches bugs in the respond* handlers,
+                // and swallowing those silently leaves the peer waiting for a response that never comes.
+                const reason = String((e as Error)?.message ?? e);
+                console.error(`peer request type=${header.type} failed: ${reason}`);
             }
 
             buf = buf.subarray(header.size);
@@ -143,11 +141,7 @@ export class PeerServer {
         socket.data.buf = buf.slice();
     }
 
-    private async dispatch(
-        type: number,
-        payload: Uint8Array,
-        dejavu: number,
-    ): Promise<Uint8Array | null> {
+    private async dispatch(type: number, payload: Uint8Array, dejavu: number): Promise<Uint8Array | null> {
         if (this.engine.sim.isFaulted()) {
             switch (type) {
                 case MSG.REQUEST_CURRENT_TICK_INFO:
@@ -246,20 +240,11 @@ export class PeerServer {
             latestOutgoingTransferTick: 0,
         };
         const proof = sim.spectrumProof(id);
-        const enc = codec.encodeRespondEntity(
-            id,
-            fields,
-            sim.currentTick,
-            proof.index,
-            proof.siblings,
-        );
+        const enc = codec.encodeRespondEntity(id, fields, sim.currentTick, proof.index, proof.siblings);
         return codec.frame(MSG.RESPOND_ENTITY, enc, dejavu);
     }
 
-    private async respondContractFunction(
-        payload: Uint8Array,
-        dejavu: number,
-    ): Promise<Uint8Array> {
+    private async respondContractFunction(payload: Uint8Array, dejavu: number): Promise<Uint8Array> {
         const req = codec.decodeContractFunction(payload);
         let out: Uint8Array = new Uint8Array(0);
         try {
@@ -298,40 +283,26 @@ export class PeerServer {
         const req = codec.decodeLogRangeRequest(payload);
         if (!req) return codec.endResponse(dejavu);
         const range = this.engine.logger.range(req.tick, req.txId);
-        return codec.frame(
-            MSG.RESPOND_LOG_ID_RANGE_FROM_TX,
-            codec.encodeLogRange(range.fromLogId, range.length),
-            dejavu,
-        );
+        return codec.frame(MSG.RESPOND_LOG_ID_RANGE_FROM_TX, codec.encodeLogRange(range.fromLogId, range.length), dejavu);
     }
 
     private respondAllLogRanges(payload: Uint8Array, dejavu: number): Uint8Array {
         const tick = codec.decodeAllLogRangesRequest(payload);
         if (tick === null) return codec.endResponse(dejavu);
-        return codec.frame(
-            MSG.RESPOND_ALL_LOG_ID_RANGES_FROM_TX,
-            codec.encodeAllLogRanges(this.engine.logger.tickRanges(tick)),
-            dejavu,
-        );
+        return codec.frame(MSG.RESPOND_ALL_LOG_ID_RANGES_FROM_TX, codec.encodeAllLogRanges(this.engine.logger.tickRanges(tick)), dejavu);
     }
 
     private respondPruneLog(payload: Uint8Array, dejavu: number): Uint8Array {
         const req = codec.decodePruneLogRequest(payload);
         if (!req) return codec.endResponse(dejavu);
-        return codec.frame(
-            MSG.RESPOND_PRUNING_LOG,
-            codec.encodePruneResult(this.engine.logger.prune(req.from, req.to)),
-            dejavu,
-        );
+        return codec.frame(MSG.RESPOND_PRUNING_LOG, codec.encodePruneResult(this.engine.logger.prune(req.from, req.to)), dejavu);
     }
 
     private respondLogDigest(payload: Uint8Array, dejavu: number): Uint8Array {
         const tick = codec.decodeLogDigestRequest(payload);
         if (tick === null) return codec.endResponse(dejavu);
         const digest = this.engine.logger.digest(tick);
-        return digest
-            ? codec.frame(MSG.RESPOND_LOG_STATE_DIGEST, digest, dejavu)
-            : codec.endResponse(dejavu);
+        return digest ? codec.frame(MSG.RESPOND_LOG_STATE_DIGEST, digest, dejavu) : codec.endResponse(dejavu);
     }
 
     private respondTxStatus(payload: Uint8Array, dejavu: number): Uint8Array {
@@ -348,9 +319,7 @@ export class PeerServer {
     private respondTickData(payload: Uint8Array, dejavu: number): Uint8Array {
         const tick = codec.decodeTick(payload);
         const tickData = this.engine.sim.tickData(tick)?.bytes;
-        return tickData
-            ? codec.frame(MSG.BROADCAST_FUTURE_TICK_DATA, tickData, dejavu)
-            : codec.endResponse(dejavu);
+        return tickData ? codec.frame(MSG.BROADCAST_FUTURE_TICK_DATA, tickData, dejavu) : codec.endResponse(dejavu);
     }
 
     // Stream raw transactions whose request flags are clear, then END_RESPONSE.
