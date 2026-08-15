@@ -12,29 +12,12 @@ afterAll(() => {
 });
 
 test("intercontract scaffold relies on workspace discovery, not config callees", async () => {
-    const child = Bun.spawn(
-        [
-            process.execPath,
-            cli,
-            "new",
-            "Proxy",
-            "--template",
-            "intercontract",
-            "--core-dir",
-            core,
-            "--plain",
-        ],
-        {
-            cwd: workDir,
-            stdout: "pipe",
-            stderr: "pipe",
-        },
-    );
-    const [stdout, stderr, exitCode] = await Promise.all([
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-        child.exited,
-    ]);
+    const child = Bun.spawn([process.execPath, cli, "new", "Proxy", "--template", "intercontract", "--core-dir", core, "--plain"], {
+        cwd: workDir,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
 
     expect(exitCode, `${stdout}\n${stderr}`).toBe(0);
     expect(existsSync(join(workDir, "Proxy", "contracts", "Counter.h"))).toBe(true);

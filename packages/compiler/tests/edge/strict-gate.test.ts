@@ -45,13 +45,7 @@ describe("strict fidelity gate", () => {
         expect(r.wasm.length).toBe(0);
         const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
         expect(errs.length).toBeGreaterThan(0);
-        expect(
-            errs.some(
-                (d) =>
-                    d.category === "fidelity" &&
-                    /unknown identifier 'UNKNOWN_FIDELITY_CONST'/.test(d.message),
-            ),
-        ).toBe(true);
+        expect(errs.some((d) => d.category === "fidelity" && /unknown identifier 'UNKNOWN_FIDELITY_CONST'/.test(d.message))).toBe(true);
     });
 
     test("strict: false keeps the legacy placeholder build, warning only", async () => {
@@ -65,18 +59,11 @@ describe("strict fidelity gate", () => {
 
         expect(r.wasm.length).toBeGreaterThan(0);
         expect(r.diagnostics.some((d) => d.severity === DiagnosticSeverity.ERROR)).toBe(false);
-        expect(
-            r.diagnostics.some(
-                (d) => d.severity === DiagnosticSeverity.WARNING && d.category === "fidelity",
-            ),
-        ).toBe(true);
+        expect(r.diagnostics.some((d) => d.severity === DiagnosticSeverity.WARNING && d.category === "fidelity")).toBe(true);
     });
 
     test("a clean contract passes strict untouched", async () => {
-        const clean = SRC.replace("UNKNOWN_FIDELITY_CONST", "input.v + 1").replace(
-            "struct Probe_input {};",
-            "struct Probe_input { uint64 v; };",
-        );
+        const clean = SRC.replace("UNKNOWN_FIDELITY_CONST", "input.v + 1").replace("struct Probe_input {};", "struct Probe_input { uint64 v; };");
         const r = await compileContract({
             source: clean,
             contractName: "StrictProbe",

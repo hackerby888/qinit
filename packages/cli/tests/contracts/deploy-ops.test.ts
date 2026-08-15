@@ -7,20 +7,11 @@ import { join } from "node:path";
 import { LITE_TX, UploadBegin } from "@qinit/proto";
 import { VirtualNode } from "@qinit/engine";
 import { loadWasmFixture as wasm, wasmFixtureManifest } from "../../../../test-utils/wasm-fixtures";
-import {
-    deployContract,
-    tickFailureMessage,
-    classifyConfirm,
-    updateDeploymentSteps,
-} from "../../src/ops/deploy";
+import { deployContract, tickFailureMessage, classifyConfirm, updateDeploymentSteps } from "../../src/ops/deploy";
 
 test("updateDeploymentSteps preserves detail and records elapsed time", () => {
     const active = updateDeploymentSteps({}, { step: "build", state: "active", pct: 25 }, 100);
-    const done = updateDeploymentSteps(
-        active,
-        { step: "build", state: "ok", detail: "built" },
-        145,
-    );
+    const done = updateDeploymentSteps(active, { step: "build", state: "ok", detail: "built" }, 145);
 
     expect(done.build).toEqual({
         state: "ok",
@@ -40,12 +31,8 @@ test("tickFailureMessage: unreachable is distinct from not-ticking", () => {
 });
 
 test("classifyConfirm: registry-unreadable vs slot-empty vs wrong-code", () => {
-    expect(classifyConfirm({ present: false, regOk: false, onNode: "", want: "ab" }).reason).toBe(
-        "registry-unreadable",
-    );
-    expect(classifyConfirm({ present: false, regOk: true, onNode: "", want: "ab" }).reason).toBe(
-        "empty",
-    );
+    expect(classifyConfirm({ present: false, regOk: false, onNode: "", want: "ab" }).reason).toBe("registry-unreadable");
+    expect(classifyConfirm({ present: false, regOk: true, onNode: "", want: "ab" }).reason).toBe("empty");
     const wc = classifyConfirm({
         present: true,
         regOk: true,
@@ -56,9 +43,7 @@ test("classifyConfirm: registry-unreadable vs slot-empty vs wrong-code", () => {
     expect(wc.note).toContain("deadbeef");
     expect(wc.note).toContain("cafebabe");
     // the key fix: a registry that never read back is NOT reported as "slot empty"
-    expect(
-        classifyConfirm({ present: false, regOk: false, onNode: "", want: "x" }).detail,
-    ).not.toContain("slot empty");
+    expect(classifyConfirm({ present: false, regOk: false, onNode: "", want: "x" }).detail).not.toContain("slot empty");
 });
 
 const envPrev = process.env.QINIT_NO_UPDATE;
@@ -127,8 +112,7 @@ test("deployContract: an active upload fails before tick waiting, slot resolutio
         (event) => events.push(event),
     );
 
-    const error =
-        "another contract upload is active (session 77, 3/9 chunks); wait for it to complete";
+    const error = "another contract upload is active (session 77, 3/9 chunks); wait for it to complete";
     expect(r).toEqual({ ok: false, error });
     expect(tickCalls).toBe(0);
     expect(registryCalls).toBe(0);
@@ -194,12 +178,7 @@ test("deployContract: racing deployments preserve the winner's occupied slot", a
                     await preflightBarrier;
                 }
                 const state = await node.dynUpload();
-                if (
-                    state.active &&
-                    stats.sessionId !== null &&
-                    state.sessionId !== String(stats.sessionId)
-                )
-                    releaseWinner();
+                if (state.active && stats.sessionId !== null && state.sessionId !== String(stats.sessionId)) releaseWinner();
                 return state;
             },
             tickInfo: async () => ({ tick: (tick += 10), epoch: 1 }),
@@ -207,8 +186,7 @@ test("deployContract: racing deployments preserve the winner's occupied slot", a
             fundedSeed: async () => undefined,
             dynRegistry: () => node.dynRegistry(),
             directDeploy: async () => null,
-            putContractSource: (slot: number, source: string) =>
-                node.putContractSource(slot, source),
+            putContractSource: (slot: number, source: string) => node.putContractSource(slot, source),
             broadcastTx: async (bytes: Uint8Array) => {
                 const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
                 const inputType = view.getUint16(76, true);
@@ -242,22 +220,15 @@ test("deployContract: racing deployments preserve the winner's occupied slot", a
         rpc,
     });
 
-    const first = await Promise.all([
-        deployContract(opts("RaceA", rpcA), () => {}),
-        deployContract(opts("RaceB", rpcB), () => {}),
-    ]);
+    const first = await Promise.all([deployContract(opts("RaceA", rpcA), () => {}), deployContract(opts("RaceB", rpcB), () => {})]);
     const winner = first.findIndex((r) => r.ok);
     const loser = 1 - winner;
     expect(winner).toBeGreaterThanOrEqual(0);
-    expect(first[loser].error).toMatch(
-        /^another contract upload is active \(session \d+, \d+\/\d+ chunks\); wait for it to complete$/,
-    );
+    expect(first[loser].error).toMatch(/^another contract upload is active \(session \d+, \d+\/\d+ chunks\); wait for it to complete$/);
     const rpcs = [rpcA, rpcB];
     expect(rpcs[winner].stats.chunks).toBeGreaterThan(0);
     expect(rpcs[loser].stats.chunks).toBe(0);
 
-    await expect(
-        deployContract(opts(loser === 0 ? "RaceA" : "RaceB", rpcs[loser]), () => {}),
-    ).rejects.toThrow(/slot \d+ is occupied by 'Race[AB]'/);
+    await expect(deployContract(opts(loser === 0 ? "RaceA" : "RaceB", rpcs[loser]), () => {})).rejects.toThrow(/slot \d+ is occupied by 'Race[AB]'/);
     expect(rpcs[loser].stats.chunks).toBe(0);
 }, 20000);

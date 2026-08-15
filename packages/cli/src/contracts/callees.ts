@@ -69,9 +69,7 @@ export async function resolveNodeCallees(
             : await probe;
 
         for (const name of pending) {
-            const contract = (registry.contracts ?? []).find(
-                (candidate) => candidate.name === name && candidate.armed && candidate.source,
-            );
+            const contract = (registry.contracts ?? []).find((candidate) => candidate.name === name && candidate.armed && candidate.source);
             if (!contract) {
                 continue;
             }

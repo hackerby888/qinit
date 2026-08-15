@@ -54,9 +54,7 @@ async function runProgressStep<T>(
     options: CoreIntegrationOptions,
     step: CoreIntegrationStep,
     initialDetail: string,
-    operation: (
-        updateDetail: (detail: string) => void,
-    ) => Promise<{ value: T; detail: string }> | { value: T; detail: string },
+    operation: (updateDetail: (detail: string) => void) => Promise<{ value: T; detail: string }> | { value: T; detail: string },
 ): Promise<T> {
     const startedAt = Date.now();
     let activeDetail = initialDetail;
@@ -172,18 +170,14 @@ function contractMarkers(source: string): number[] {
 function descriptions(source: string): ContractDescription[] {
     const markers = contractMarkers(source);
     if (markers.length !== 3) {
-        throw new Error(
-            `unsupported contract_def.h: expected 3 contract markers, found ${markers.length}`,
-        );
+        throw new Error(`unsupported contract_def.h: expected 3 contract markers, found ${markers.length}`);
     }
 
     const descriptionSource = source.slice(markers[0] + CONTRACT_MARKER.length, markers[1]);
     const rows: ContractDescription[] = [];
 
     for (const line of descriptionSource.split(/\r?\n/)) {
-        const match = line.match(
-            /^\s*\{\s*"([^"]*)"\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(.*?)\s*\}\s*,?(?:\s*\/\/.*)?$/,
-        );
+        const match = line.match(/^\s*\{\s*"([^"]*)"\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(.*?)\s*\}\s*,?(?:\s*\/\/.*)?$/);
         if (!match) {
             continue;
         }
@@ -202,20 +196,11 @@ function descriptions(source: string): ContractDescription[] {
 
 function registrationCount(source: string, contractName: string): number {
     const escapedName = contractName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return [
-        ...source.matchAll(
-            new RegExp(
-                `REGISTER_CONTRACT_FUNCTIONS_AND_PROCEDURES\\s*\\(\\s*${escapedName}\\s*\\)`,
-                "g",
-            ),
-        ),
-    ].length;
+    return [...source.matchAll(new RegExp(`REGISTER_CONTRACT_FUNCTIONS_AND_PROCEDURES\\s*\\(\\s*${escapedName}\\s*\\)`, "g"))].length;
 }
 
 function xmlIncludes(source: string, tag: "ClInclude" | "ClCompile"): string[] {
-    return [...source.matchAll(new RegExp(`<${tag}\\s+Include="([^"]+)"`, "g"))].map(
-        (match) => match[1],
-    );
+    return [...source.matchAll(new RegExp(`<${tag}\\s+Include="([^"]+)"`, "g"))].map((match) => match[1]);
 }
 
 function normalizedWindowsPath(path: string): string {
@@ -224,28 +209,18 @@ function normalizedWindowsPath(path: string): string {
 
 function hasXmlInclude(source: string, tag: "ClInclude" | "ClCompile", include: string): boolean {
     const wanted = normalizedWindowsPath(include);
-    return xmlIncludes(source, tag).some(
-        (candidate) => normalizedWindowsPath(candidate) === wanted,
-    );
+    return xmlIncludes(source, tag).some((candidate) => normalizedWindowsPath(candidate) === wanted);
 }
 
-function findRegistration(
-    corePath: string,
-    contractName: string,
-    files: CoreFiles,
-): (CoreIntegrationRegistration & { include: string }) | null {
+function findRegistration(corePath: string, contractName: string, files: CoreFiles): (CoreIntegrationRegistration & { include: string }) | null {
     const definitions = parseContractDef(corePath);
-    const caseInsensitiveMatch = [...definitions.entries()].find(
-        ([stateType]) => stateType.toLowerCase() === contractName.toLowerCase(),
-    );
+    const caseInsensitiveMatch = [...definitions.entries()].find(([stateType]) => stateType.toLowerCase() === contractName.toLowerCase());
 
     if (!caseInsensitiveMatch) {
         return null;
     }
     if (caseInsensitiveMatch[0] !== contractName) {
-        throw new Error(
-            `contract name '${contractName}' collides with registered '${caseInsensitiveMatch[0]}'`,
-        );
+        throw new Error(`contract name '${contractName}' collides with registered '${caseInsensitiveMatch[0]}'`);
     }
 
     const definition = caseInsensitiveMatch[1];
@@ -259,9 +234,7 @@ function findRegistration(
         !hasXmlInclude(files.project.text, "ClInclude", projectInclude) ||
         !hasXmlInclude(files.projectFilters.text, "ClInclude", projectInclude)
     ) {
-        throw new Error(
-            `contract '${contractName}' is only partially registered in this Core checkout`,
-        );
+        throw new Error(`contract '${contractName}' is only partially registered in this Core checkout`);
     }
 
     return {
@@ -273,10 +246,7 @@ function findRegistration(
     };
 }
 
-export function inspectCoreIntegration(
-    corePath: string,
-    contractName: string,
-): CoreIntegrationRegistration | null {
+export function inspectCoreIntegration(corePath: string, contractName: string): CoreIntegrationRegistration | null {
     const resolvedCorePath = resolve(corePath);
     const files = loadCoreFiles(resolvedCorePath);
     const registration = findRegistration(resolvedCorePath, contractName, files);
@@ -299,44 +269,24 @@ function validateContractName(contractName: string): void {
     }
 }
 
-function validateMetadata(
-    options: CoreIntegrationOptions,
-    existing: CoreIntegrationRegistration | null,
-): void {
+function validateMetadata(options: CoreIntegrationOptions, existing: CoreIntegrationRegistration | null): void {
     const metadata = {
         assetName: options.assetName ?? existing?.assetName,
         constructionEpoch: options.constructionEpoch ?? existing?.constructionEpoch,
-        destructionEpoch:
-            options.destructionEpoch ??
-            existing?.destructionEpoch ??
-            (options.requireDestructionEpoch ? undefined : 10_000),
+        destructionEpoch: options.destructionEpoch ?? existing?.destructionEpoch ?? (options.requireDestructionEpoch ? undefined : 10_000),
     };
 
-    if (
-        metadata.assetName === undefined ||
-        metadata.constructionEpoch === undefined ||
-        metadata.destructionEpoch === undefined
-    ) {
+    if (metadata.assetName === undefined || metadata.constructionEpoch === undefined || metadata.destructionEpoch === undefined) {
         throw new CoreIntegrationMetadataRequiredError();
     }
     if (!/^[A-Z][A-Z0-9]{0,6}$/.test(metadata.assetName)) {
         throw new Error("asset must be 1-7 uppercase letters or digits and start with a letter");
     }
-    if (
-        !Number.isInteger(metadata.constructionEpoch) ||
-        metadata.constructionEpoch < 1 ||
-        metadata.constructionEpoch > 65_535
-    ) {
+    if (!Number.isInteger(metadata.constructionEpoch) || metadata.constructionEpoch < 1 || metadata.constructionEpoch > 65_535) {
         throw new Error("construction epoch must be an integer from 1 to 65535");
     }
-    if (
-        !Number.isInteger(metadata.destructionEpoch) ||
-        metadata.destructionEpoch <= metadata.constructionEpoch ||
-        metadata.destructionEpoch > 65_535
-    ) {
-        throw new Error(
-            "destruction epoch must be an integer after construction and at most 65535",
-        );
+    if (!Number.isInteger(metadata.destructionEpoch) || metadata.destructionEpoch <= metadata.constructionEpoch || metadata.destructionEpoch > 65_535) {
+        throw new Error("destruction epoch must be an integer after construction and at most 65535");
     }
 
     if (!existing) {
@@ -351,21 +301,13 @@ function validateMetadata(
     }
 }
 
-async function runGit(
-    args: string[],
-    cwd?: string,
-    allowFailure = false,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+async function runGit(args: string[], cwd?: string, allowFailure = false): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     const child = Bun.spawn(["git", ...args], {
         cwd,
         stdout: "pipe",
         stderr: "pipe",
     });
-    const [stdout, stderr, exitCode] = await Promise.all([
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-        child.exited,
-    ]);
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
 
     if (exitCode !== 0 && !allowFailure) {
         const detail = stderr.trim() || stdout.trim() || `exit ${exitCode}`;
@@ -383,11 +325,7 @@ async function requireCleanCheckout(corePath: string): Promise<void> {
 }
 
 async function branchExists(corePath: string, branch: string): Promise<boolean> {
-    const result = await runGit(
-        ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`],
-        corePath,
-        true,
-    );
+    const result = await runGit(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], corePath, true);
     return result.exitCode === 0;
 }
 
@@ -422,12 +360,7 @@ function localHeaderNames(projectRoot: string, contractPath: string): string[] {
     return [...names];
 }
 
-function scanDependencies(
-    contractSource: string,
-    testSource: string | undefined,
-    contractName: string,
-    knownTypes: Iterable<string>,
-): Set<string> {
+function scanDependencies(contractSource: string, testSource: string | undefined, contractName: string, knownTypes: Iterable<string>): Set<string> {
     const dependencies = scanCallees(contractSource, { contractName }, knownTypes);
 
     if (testSource) {
@@ -441,22 +374,14 @@ function scanDependencies(
     return dependencies;
 }
 
-function assertDependencyOrder(
-    dependencies: Iterable<string>,
-    definitions: ReturnType<typeof parseContractDef>,
-    contractIndex: number,
-): void {
+function assertDependencyOrder(dependencies: Iterable<string>, definitions: ReturnType<typeof parseContractDef>, contractIndex: number): void {
     for (const dependency of dependencies) {
         const registered = definitions.get(dependency);
         if (!registered) {
-            throw new Error(
-                `callee '${dependency}' must already be registered in this Core checkout`,
-            );
+            throw new Error(`callee '${dependency}' must already be registered in this Core checkout`);
         }
         if (registered.index >= contractIndex) {
-            throw new Error(
-                `callee '${dependency}' must use a lower contract index than ${contractIndex}`,
-            );
+            throw new Error(`callee '${dependency}' must use a lower contract index than ${contractIndex}`);
         }
     }
 }
@@ -471,9 +396,7 @@ function calleeDefinitions(
         if (!description.assetName || callees.has(description.assetName)) {
             continue;
         }
-        const definition = [...definitions.values()].find(
-            (candidate) => candidate.index === description.index,
-        );
+        const definition = [...definitions.values()].find((candidate) => candidate.index === description.index);
         if (definition) {
             callees.set(description.assetName, definition);
         }
@@ -485,9 +408,7 @@ function calleeDefinitions(
 function insertAtMarker(source: string, markerNumber: number, block: string, eol: string): string {
     const markers = contractMarkers(source);
     if (markers.length !== 3) {
-        throw new Error(
-            `unsupported contract_def.h: expected 3 contract markers, found ${markers.length}`,
-        );
+        throw new Error(`unsupported contract_def.h: expected 3 contract markers, found ${markers.length}`);
     }
 
     const markerOffset = markers[markerNumber];
@@ -495,12 +416,7 @@ function insertAtMarker(source: string, markerNumber: number, block: string, eol
     return source.slice(0, markerLineOffset) + block + eol + source.slice(markerLineOffset);
 }
 
-function addXmlEntry(
-    source: string,
-    tag: "ClInclude" | "ClCompile",
-    entry: string,
-    eol: string,
-): string {
+function addXmlEntry(source: string, tag: "ClInclude" | "ClCompile", entry: string, eol: string): string {
     const groupStart = source.indexOf(`<${tag} `);
     const groupEnd = source.indexOf("  </ItemGroup>", groupStart);
     if (groupStart < 0 || groupEnd < 0) {
@@ -537,17 +453,7 @@ function planMutations(options: {
     testPath?: string;
     warnings: string[];
 } {
-    const {
-        corePath,
-        projectRoot,
-        contractPath,
-        contractName,
-        contractSource,
-        testSource,
-        existing,
-        metadata,
-        files,
-    } = options;
+    const { corePath, projectRoot, contractPath, contractName, contractSource, testSource, existing, metadata, files } = options;
     const definitions = parseContractDef(corePath);
     const indexes = [...definitions.values()].map((definition) => definition.index);
     const highestIndex = Math.max(0, ...indexes);
@@ -572,14 +478,8 @@ function planMutations(options: {
         }
 
         const escapedContractName = contractName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const contractMacro = new RegExp(
-            `#define\\s+${escapedContractName}_CONTRACT_INDEX\\b`,
-            "i",
-        );
-        const contractRegistration = new RegExp(
-            `REGISTER_CONTRACT_FUNCTIONS_AND_PROCEDURES\\s*\\(\\s*${escapedContractName}\\s*\\)`,
-            "i",
-        );
+        const contractMacro = new RegExp(`#define\\s+${escapedContractName}_CONTRACT_INDEX\\b`, "i");
+        const contractRegistration = new RegExp(`REGISTER_CONTRACT_FUNCTIONS_AND_PROCEDURES\\s*\\(\\s*${escapedContractName}\\s*\\)`, "i");
         if (contractMacro.test(files.contractDefinition.text)) {
             throw new Error(`contract index macro '${contractName}_CONTRACT_INDEX' already exists`);
         }
@@ -587,40 +487,23 @@ function planMutations(options: {
             throw new Error(`contract '${contractName}' has a partial Core registration`);
         }
 
-        const nameAlias = definitionDescriptions.find(
-            (description) => description.assetName.toLowerCase() === contractName.toLowerCase(),
-        );
+        const nameAlias = definitionDescriptions.find((description) => description.assetName.toLowerCase() === contractName.toLowerCase());
         if (nameAlias) {
-            const stateType = [...definitions.entries()].find(
-                ([, definition]) => definition.index === nameAlias.index,
-            )?.[0];
-            throw new Error(
-                `contract name '${contractName}' is already used by ` +
-                    `${stateType ?? "contract"} at index ${nameAlias.index}`,
-            );
+            const stateType = [...definitions.entries()].find(([, definition]) => definition.index === nameAlias.index)?.[0];
+            throw new Error(`contract name '${contractName}' is already used by ` + `${stateType ?? "contract"} at index ${nameAlias.index}`);
         }
 
-        const includeCollision = [...definitions.values()].find(
-            (definition) =>
-                normalizedWindowsPath(definition.include) === normalizedWindowsPath(include),
-        );
+        const includeCollision = [...definitions.values()].find((definition) => normalizedWindowsPath(definition.include) === normalizedWindowsPath(include));
         if (includeCollision || existsSync(contractDestination)) {
             throw new Error(`Core contract header '${include}' already exists`);
         }
-        if (
-            hasXmlInclude(files.project.text, "ClInclude", windowsInclude) ||
-            hasXmlInclude(files.projectFilters.text, "ClInclude", windowsInclude)
-        ) {
+        if (hasXmlInclude(files.project.text, "ClInclude", windowsInclude) || hasXmlInclude(files.projectFilters.text, "ClInclude", windowsInclude)) {
             throw new Error(`Visual Studio already contains '${windowsInclude}'`);
         }
 
-        const assetCollision = definitionDescriptions.find(
-            (description) => description.assetName === metadata.assetName,
-        );
+        const assetCollision = definitionDescriptions.find((description) => description.assetName === metadata.assetName);
         if (assetCollision) {
-            throw new Error(
-                `asset '${metadata.assetName}' is already used by contract index ${assetCollision.index}`,
-            );
+            throw new Error(`asset '${metadata.assetName}' is already used by contract index ${assetCollision.index}`);
         }
 
         if (
@@ -633,10 +516,7 @@ function planMutations(options: {
     }
 
     const knownCallees = calleeDefinitions(definitions, definitionDescriptions);
-    const knownTypes = new Set([
-        ...knownCallees.keys(),
-        ...localHeaderNames(projectRoot, contractPath),
-    ]);
+    const knownTypes = new Set([...knownCallees.keys(), ...localHeaderNames(projectRoot, contractPath)]);
     const dependencies = scanDependencies(contractSource, testSource, contractName, knownTypes);
     for (const [reference, definition] of knownCallees) {
         if (definition.index === contractIndex) {
@@ -649,13 +529,9 @@ function planMutations(options: {
     if (testSource) {
         for (const dependency of dependencies) {
             const escapedName = dependency.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const initializesDependency = new RegExp(
-                `\\bINIT_CONTRACT\\s*\\(\\s*${escapedName}\\s*\\)`,
-            ).test(testSource);
+            const initializesDependency = new RegExp(`\\bINIT_CONTRACT\\s*\\(\\s*${escapedName}\\s*\\)`).test(testSource);
             if (!initializesDependency) {
-                warnings.push(
-                    `${testFileName} references ${dependency} without INIT_CONTRACT(${dependency})`,
-                );
+                warnings.push(`${testFileName} references ${dependency} without INIT_CONTRACT(${dependency})`);
             }
         }
     }
@@ -683,53 +559,25 @@ function planMutations(options: {
         ].join(eol);
         contractDefinition = insertAtMarker(contractDefinition, 0, stateBlock, eol);
 
-        const stateSize =
-            `sizeof(${contractName}::StateData) < sizeof(IPO) ` +
-            `? sizeof(IPO) : sizeof(${contractName}::StateData)`;
-        const description =
-            `    {"${metadata.assetName}", ${metadata.constructionEpoch}, ` +
-            `${metadata.destructionEpoch}, ${stateSize}},`;
+        const stateSize = `sizeof(${contractName}::StateData) < sizeof(IPO) ` + `? sizeof(IPO) : sizeof(${contractName}::StateData)`;
+        const description = `    {"${metadata.assetName}", ${metadata.constructionEpoch}, ` + `${metadata.destructionEpoch}, ${stateSize}},`;
         contractDefinition = insertAtMarker(contractDefinition, 1, description, eol);
-        contractDefinition = insertAtMarker(
-            contractDefinition,
-            2,
-            `    REGISTER_CONTRACT_FUNCTIONS_AND_PROCEDURES(${contractName});`,
-            eol,
-        );
+        contractDefinition = insertAtMarker(contractDefinition, 2, `    REGISTER_CONTRACT_FUNCTIONS_AND_PROCEDURES(${contractName});`, eol);
 
-        project = addXmlEntry(
-            project,
-            "ClInclude",
-            `    <ClInclude Include="${windowsInclude}" />`,
-            files.project.eol,
-        );
+        project = addXmlEntry(project, "ClInclude", `    <ClInclude Include="${windowsInclude}" />`, files.project.eol);
         projectFilters = addXmlEntry(
             projectFilters,
             "ClInclude",
-            [
-                `    <ClInclude Include="${windowsInclude}">`,
-                "      <Filter>contracts</Filter>",
-                "    </ClInclude>",
-            ].join(files.projectFilters.eol),
+            [`    <ClInclude Include="${windowsInclude}">`, "      <Filter>contracts</Filter>", "    </ClInclude>"].join(files.projectFilters.eol),
             files.projectFilters.eol,
         );
     }
 
     if (testSource && !hasXmlInclude(testProject, "ClCompile", testFileName)) {
-        testProject = addXmlEntry(
-            testProject,
-            "ClCompile",
-            `    <ClCompile Include="${testFileName}" />`,
-            files.testProject.eol,
-        );
+        testProject = addXmlEntry(testProject, "ClCompile", `    <ClCompile Include="${testFileName}" />`, files.testProject.eol);
     }
     if (testSource && !hasXmlInclude(testProjectFilters, "ClCompile", testFileName)) {
-        testProjectFilters = addXmlEntry(
-            testProjectFilters,
-            "ClCompile",
-            `    <ClCompile Include="${testFileName}" />`,
-            files.testProjectFilters.eol,
-        );
+        testProjectFilters = addXmlEntry(testProjectFilters, "ClCompile", `    <ClCompile Include="${testFileName}" />`, files.testProjectFilters.eol);
     }
 
     const mutations: FileMutation[] = [
@@ -767,9 +615,7 @@ function planMutations(options: {
     };
 }
 
-export async function runCoreIntegration(
-    options: CoreIntegrationOptions,
-): Promise<CoreIntegrationResult> {
+export async function runCoreIntegration(options: CoreIntegrationOptions): Promise<CoreIntegrationResult> {
     const projectRoot = resolve(options.projectRoot);
     const contractPath = resolveFromProject(projectRoot, options.contractPath);
     const corePath = resolveFromProject(projectRoot, options.outputPath);
@@ -777,11 +623,7 @@ export async function runCoreIntegration(
     const sourceFileName = basename(contractPath);
     const contract = await runProgressStep(options, "contract", sourceFileName, () => {
         validateContractName(contractName);
-        if (
-            !existsSync(contractPath) ||
-            !statSync(contractPath).isFile() ||
-            extname(contractPath).toLowerCase() !== ".h"
-        ) {
+        if (!existsSync(contractPath) || !statSync(contractPath).isFile() || extname(contractPath).toLowerCase() !== ".h") {
             throw new Error(`contract header not found: ${contractPath}`);
         }
         if (!/^[A-Za-z_][A-Za-z0-9_-]*\.h$/.test(sourceFileName)) {
@@ -789,17 +631,14 @@ export async function runCoreIntegration(
         }
 
         const sourceFromOutput = relative(corePath, contractPath);
-        const sourceOutsideOutput =
-            sourceFromOutput === ".." || sourceFromOutput.startsWith(`..${sep}`);
+        const sourceOutsideOutput = sourceFromOutput === ".." || sourceFromOutput.startsWith(`..${sep}`);
         if (sourceFromOutput === "" || (!sourceOutsideOutput && !isAbsolute(sourceFromOutput))) {
             throw new Error("contract source must be outside the Core output checkout");
         }
 
         const contractSource = readFileSync(contractPath, "utf8");
         const localTestPath = join(projectRoot, "tests", `${contractName}.test.cpp`);
-        const testSource = existsSync(localTestPath)
-            ? readFileSync(localTestPath, "utf8")
-            : undefined;
+        const testSource = existsSync(localTestPath) ? readFileSync(localTestPath, "utf8") : undefined;
 
         return {
             value: { contractSource, testSource },
@@ -807,60 +646,45 @@ export async function runCoreIntegration(
         };
     });
     const checkoutExists = existsSync(corePath);
-    const checkout = await runProgressStep(
-        options,
-        "checkout",
-        checkoutExists ? "checking checkout" : "cloning main",
-        async (updateDetail) => {
-            if (checkoutExists) {
-                if (!existsSync(join(corePath, ".git"))) {
-                    throw new Error(`output path exists but is not a git checkout: ${corePath}`);
-                }
-                await requireCleanCheckout(corePath);
-            } else {
-                await runGit([
-                    "clone",
-                    "--branch",
-                    "main",
-                    "--single-branch",
-                    options.repositoryUrl ?? CORE_REPOSITORY_URL,
-                    corePath,
-                ]);
+    const checkout = await runProgressStep(options, "checkout", checkoutExists ? "checking checkout" : "cloning main", async (updateDetail) => {
+        if (checkoutExists) {
+            if (!existsSync(join(corePath, ".git"))) {
+                throw new Error(`output path exists but is not a git checkout: ${corePath}`);
             }
+            await requireCleanCheckout(corePath);
+        } else {
+            await runGit(["clone", "--branch", "main", "--single-branch", options.repositoryUrl ?? CORE_REPOSITORY_URL, corePath]);
+        }
 
-            let files = loadCoreFiles(corePath);
-            const branch = (await runGit(["branch", "--show-current"], corePath)).stdout;
-            if (!branch) {
-                throw new Error("Core checkout has a detached HEAD");
-            }
+        let files = loadCoreFiles(corePath);
+        const branch = (await runGit(["branch", "--show-current"], corePath)).stdout;
+        if (!branch) {
+            throw new Error("Core checkout has a detached HEAD");
+        }
 
-            let detail = "cloned main";
-            if (checkoutExists && branch === "main") {
-                updateDetail("updating main");
-                await runGit(["fetch", "origin", "main"], corePath);
-                await runGit(["merge", "--ff-only", "origin/main"], corePath);
-                await requireCleanCheckout(corePath);
-                files = loadCoreFiles(corePath);
-                detail = "updated main";
-            } else if (checkoutExists) {
-                detail = `using ${branch}`;
-                updateDetail(detail);
-            }
+        let detail = "cloned main";
+        if (checkoutExists && branch === "main") {
+            updateDetail("updating main");
+            await runGit(["fetch", "origin", "main"], corePath);
+            await runGit(["merge", "--ff-only", "origin/main"], corePath);
+            await requireCleanCheckout(corePath);
+            files = loadCoreFiles(corePath);
+            detail = "updated main";
+        } else if (checkoutExists) {
+            detail = `using ${branch}`;
+            updateDetail(detail);
+        }
 
-            return {
-                value: { files, branch },
-                detail,
-            };
-        },
-    );
+        return {
+            value: { files, branch },
+            detail,
+        };
+    });
 
     return runProgressStep(options, "wire", "checking registration", async (updateDetail) => {
         const existing = findRegistration(corePath, contractName, checkout.files);
         if (checkoutExists && checkout.branch !== "main" && !existing) {
-            throw new Error(
-                `contract '${contractName}' is not registered on existing branch ` +
-                    `'${checkout.branch}'`,
-            );
+            throw new Error(`contract '${contractName}' is not registered on existing branch ` + `'${checkout.branch}'`);
         }
         validateMetadata(options, existing);
 

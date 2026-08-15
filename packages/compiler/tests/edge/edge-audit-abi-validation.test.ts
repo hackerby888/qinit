@@ -21,45 +21,27 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 const CASES: Record<string, RejectCase> = {
     "input type zero": {
-        source: contract(
-            `struct P_input {}; struct P_output {}; PUBLIC_PROCEDURE(P) {}`,
-            `REGISTER_USER_PROCEDURE(P, 0);`,
-        ),
+        source: contract(`struct P_input {}; struct P_output {}; PUBLIC_PROCEDURE(P) {}`, `REGISTER_USER_PROCEDURE(P, 0);`),
         diagnostic: /input.?type.*1.*65535|input.?type.*range/i,
     },
     "input type above uint16 range": {
-        source: contract(
-            `struct P_input {}; struct P_output {}; PUBLIC_PROCEDURE(P) {}`,
-            `REGISTER_USER_PROCEDURE(P, 65536);`,
-        ),
+        source: contract(`struct P_input {}; struct P_output {}; PUBLIC_PROCEDURE(P) {}`, `REGISTER_USER_PROCEDURE(P, 65536);`),
         diagnostic: /input.?type.*1.*65535|input.?type.*range/i,
     },
     "procedure registered as a function": {
-        source: contract(
-            `struct P_input {}; struct P_output {}; PUBLIC_PROCEDURE(P) {}`,
-            `REGISTER_USER_FUNCTION(P, 1);`,
-        ),
+        source: contract(`struct P_input {}; struct P_output {}; PUBLIC_PROCEDURE(P) {}`, `REGISTER_USER_FUNCTION(P, 1);`),
         diagnostic: /P.*procedure|procedure.*function|registration.*kind/i,
     },
     "function registered as a procedure": {
-        source: contract(
-            `struct F_input {}; struct F_output {}; PUBLIC_FUNCTION(F) {}`,
-            `REGISTER_USER_PROCEDURE(F, 1);`,
-        ),
+        source: contract(`struct F_input {}; struct F_output {}; PUBLIC_FUNCTION(F) {}`, `REGISTER_USER_PROCEDURE(F, 1);`),
         diagnostic: /F.*function|function.*procedure|registration.*kind/i,
     },
     "procedure input exceeds MAX_INPUT_SIZE": {
-        source: contract(
-            `struct P_input { uint8 bytes[1025]; }; struct P_output {}; PUBLIC_PROCEDURE(P) {}`,
-            `REGISTER_USER_PROCEDURE(P, 1);`,
-        ),
+        source: contract(`struct P_input { uint8 bytes[1025]; }; struct P_output {}; PUBLIC_PROCEDURE(P) {}`, `REGISTER_USER_PROCEDURE(P, 1);`),
         diagnostic: /input.*(too large|1024|MAX_INPUT_SIZE)/i,
     },
     "entry output exceeds uint16 metadata": {
-        source: contract(
-            `struct F_input {}; struct F_output { uint8 bytes[65536]; }; PUBLIC_FUNCTION(F) {}`,
-            `REGISTER_USER_FUNCTION(F, 1);`,
-        ),
+        source: contract(`struct F_input {}; struct F_output { uint8 bytes[65536]; }; PUBLIC_FUNCTION(F) {}`, `REGISTER_USER_FUNCTION(F, 1);`),
         diagnostic: /output.*(too large|65535)/i,
     },
     "entry locals exceed MAX_SIZE_OF_CONTRACT_LOCALS": {
@@ -94,9 +76,7 @@ describe("edge audit — QPI ABI validation", () => {
                 qpiHeader: HEADERS,
                 arenaSizeBytes: 1 << 20,
             });
-            const errors = result.diagnostics.filter(
-                (d) => d.severity === DiagnosticSeverity.ERROR,
-            );
+            const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
             expect(errors.some((d) => c.diagnostic.test(d.message))).toBe(true);
             expect(result.wasm).toHaveLength(0);
         });

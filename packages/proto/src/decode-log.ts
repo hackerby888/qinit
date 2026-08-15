@@ -29,13 +29,7 @@ export function loggedSizeOf(fmt: string | AbiStruct): number {
 
 // Match a log's full byte size (NOT the possibly-capped hex) against the catalog; a unique struct decodes.
 // `enums` (value -> member name) resolves the `_type` discriminator field to its enum name (DecodedLog.typeName).
-export async function decodeLog(
-    type: number,
-    size: number,
-    hex: string,
-    catalog: ContractLog[],
-    enums?: Record<string, string>,
-): Promise<DecodedLog> {
+export async function decodeLog(type: number, size: number, hex: string, catalog: ContractLog[], enums?: Record<string, string>): Promise<DecodedLog> {
     const severity = SEVERITY[type] ?? `type${type}`;
     const base: DecodedLog = {
         severity,
@@ -61,10 +55,7 @@ export async function decodeLog(
                 fields[field.name] = vals[index];
             });
             const tv = fields["_type"];
-            const typeName =
-                enums && (typeof tv === "number" || typeof tv === "bigint")
-                    ? enums[String(tv)]
-                    : undefined;
+            const typeName = enums && (typeof tv === "number" || typeof tv === "bigint") ? enums[String(tv)] : undefined;
             return {
                 ...base,
                 name: hit[0].name,

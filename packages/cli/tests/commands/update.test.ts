@@ -190,10 +190,7 @@ test("self-update removes the temporary file after a Unix rename failure", async
                 },
             }),
         ),
-    ).rejects.toThrow(
-        "could not replace /opt/qinit (EACCES) — bin dir not writable; " +
-            "re-run install.sh or use sudo",
-    );
+    ).rejects.toThrow("could not replace /opt/qinit (EACCES) — bin dir not writable; " + "re-run install.sh or use sudo");
     expect(unlinked).toEqual(["/opt/qinit.new"]);
 });
 
@@ -223,9 +220,7 @@ test("self-update removes partial staging files after write or chmod failures", 
                     },
                 }),
             ),
-        ).rejects.toThrow(
-            operation === "write" ? "write failed" : "could not replace /opt/qinit (EACCES)",
-        );
+        ).rejects.toThrow(operation === "write" ? "write failed" : "could not replace /opt/qinit (EACCES)");
         expect(unlinked).toEqual(["/opt/qinit.new"]);
     }
 });
@@ -253,10 +248,7 @@ test("self-update restores a Windows executable when the swap fails", async () =
                 },
             }),
         ),
-    ).rejects.toThrow(
-        `could not replace ${executablePath} (EPERM) — ` +
-            "close other qinit processes or re-run install.ps1",
-    );
+    ).rejects.toThrow(`could not replace ${executablePath} (EPERM) — ` + "close other qinit processes or re-run install.ps1");
     expect(calls).toEqual([
         "unlink:C:\\qinit\\qinit.exe.old",
         "rename:C:\\qinit\\qinit.exe:C:\\qinit\\qinit.exe.old",
@@ -286,15 +278,11 @@ test("self-update does not restore a stale Windows backup when the first rename 
             }),
         ),
     ).rejects.toThrow(`could not replace ${executablePath} (EPERM)`);
-    expect(calls).toEqual([
-        "unlink:C:\\qinit\\qinit.exe.old",
-        "rename:C:\\qinit\\qinit.exe:C:\\qinit\\qinit.exe.old",
-        "unlink:C:\\qinit\\qinit.exe.new",
-    ]);
+    expect(calls).toEqual(["unlink:C:\\qinit\\qinit.exe.old", "rename:C:\\qinit\\qinit.exe:C:\\qinit\\qinit.exe.old", "unlink:C:\\qinit\\qinit.exe.new"]);
 });
 
 test("self-update rejects an invalid release pointer", async () => {
-    await expect(
-        runSelfUpdate({}, selfUpdateDeps({ resolveCliTag: async () => null })),
-    ).rejects.toThrow("latest.txt does not contain a valid qinit-cli release tag");
+    await expect(runSelfUpdate({}, selfUpdateDeps({ resolveCliTag: async () => null }))).rejects.toThrow(
+        "latest.txt does not contain a valid qinit-cli release tag",
+    );
 });

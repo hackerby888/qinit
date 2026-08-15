@@ -5,13 +5,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 
 import { loadConfig, resolveCompilerBackend, resolveCoreDir, resolveRuntime } from "../../config";
 import type { DeploymentEvent } from "../../ops/deploy";
 import { deployProjectContracts } from "../../ops/project-deploy";
-import {
-    activeNodeScratchDir,
-    ensureNodeBinary,
-    killNode,
-    launchNode,
-    waitTicking,
-} from "../../ops/node";
+import { activeNodeScratchDir, ensureNodeBinary, killNode, launchNode, waitTicking } from "../../ops/node";
 import { DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
 import { testRuntimeSource, sampleTest, generateClient, extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
@@ -60,16 +54,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
     const cfg = loadConfig();
     const root = process.cwd();
     const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
-    const contractPath = resolve(
-        commandArgs.get("contract") ??
-            commandArgs.positionals[0] ??
-            cfg.contract ??
-            "contracts/" + (cfg.contractName ?? "") + ".h",
-    );
-    const contractName =
-        commandArgs.get("contract-name") ??
-        cfg.contractName ??
-        basename(contractPath).replace(/\.[^.]+$/, "");
+    const contractPath = resolve(commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract ?? "contracts/" + (cfg.contractName ?? "") + ".h");
+    const contractName = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
     const requestedCompiler = commandArgs.get("compiler");
     const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
     const explicitCallees = parseCallees(commandArgs.getAll("callee"));
@@ -116,9 +102,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                 } else {
                     spin("checking node");
                     const ticking = await isTicking(activeRpc);
-                    const runningBackend = ticking
-                        ? (await new LiteRpc(activeRpc).whoami()).backend
-                        : undefined;
+                    const runningBackend = ticking ? (await new LiteRpc(activeRpc).whoami()).backend : undefined;
                     if (!ticking || runningBackend !== "core") {
                         spin("starting core node");
                         // Reuse a compatible ticking Core node; otherwise launch the selected binary.
@@ -128,26 +112,14 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                         if (!nodeBinary) {
                             spin("resolving node");
                             const r = await ensureNodeBinary(commandArgs.get("ref"), (rc, tt) =>
-                                spin(
-                                    tt
-                                        ? `node ${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB`
-                                        : `node ${(rc / 1e6) | 0} MB`,
-                                ),
+                                spin(tt ? `node ${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `node ${(rc / 1e6) | 0} MB`),
                             );
                             nodeBinary = r.nodeBinaryPath;
                             if (r.cached) nodeNote = ` · cached ${r.version}`;
                         }
                         await killNode();
-                        if (
-                            runningBackend &&
-                            runningBackend !== "core" &&
-                            (await isTicking(activeRpc))
-                        ) {
-                            add(
-                                "node",
-                                false,
-                                `${activeRpc} is served by an untracked ${runningBackend} node`,
-                            );
+                        if (runningBackend && runningBackend !== "core" && (await isTicking(activeRpc))) {
+                            add("node", false, `${activeRpc} is served by an untracked ${runningBackend} node`);
                             setS({ phase: "done", lines, ok: false, output: "", rows: [] });
                             return;
                         }
@@ -158,10 +130,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                         });
                         ownNode = true;
                         spin("waiting for ticking");
-                        const w = await waitTicking(
-                            activeRpc,
-                            Number(commandArgs.get("wait") || 60),
-                        );
+                        const w = await waitTicking(activeRpc, Number(commandArgs.get("wait") || 60));
                         if (!w.ticking) {
                             add("node", false, w.exited ? "exited early — see log" : "not ticking");
                             setS({ phase: "done", lines, ok: false, output: "", rows: [] });
@@ -184,19 +153,14 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                         rpcBaseUrl: activeRpc,
                         seed,
                         explicitCallees,
-                        slotOverride:
-                            requestedSlot === undefined
-                                ? undefined
-                                : parseContractSlot(requestedSlot),
+                        slotOverride: requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot),
                         skipVerify,
                         compiler: resolveCompilerBackend(requestedCompiler),
                     },
                     (e: DeploymentEvent) => {
                         if ("note" in e) return;
-                        if (e.state === "active" && e.detail)
-                            spin(`deploy · ${STEP_LABEL[e.step] ?? e.step}: ${e.detail}`);
-                        if (e.step === "build" && e.state === "fail")
-                            depDetail = e.detail ?? "build failed";
+                        if (e.state === "active" && e.detail) spin(`deploy · ${STEP_LABEL[e.step] ?? e.step}: ${e.detail}`);
+                        if (e.step === "build" && e.state === "fail") depDetail = e.detail ?? "build failed";
                     },
                 );
                 if (!dep.ok || dep.slot === undefined) {
@@ -204,25 +168,10 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                     setS({ phase: "done", lines, ok: false, output: "", rows: [] });
                     return;
                 }
-                add(
-                    "deploy",
-                    true,
-                    `${contractName} @ slot ${dep.slot}${dep.reused ? " (reuse)" : ""}`,
-                );
-                const synchronized = dep.deployments.filter(
-                    (deployment) => deployment.kind !== "main",
-                );
+                add("deploy", true, `${contractName} @ slot ${dep.slot}${dep.reused ? " (reuse)" : ""}`);
+                const synchronized = dep.deployments.filter((deployment) => deployment.kind !== "main");
                 if (synchronized.length) {
-                    add(
-                        "dependencies",
-                        true,
-                        synchronized
-                            .map(
-                                (deployment) =>
-                                    `${deployment.name}@${deployment.slot} ${deployment.action}`,
-                            )
-                            .join(" · "),
-                    );
+                    add("dependencies", true, synchronized.map((deployment) => `${deployment.name}@${deployment.slot} ${deployment.action}`).join(" · "));
                 }
 
                 spin("generating test SDK");
@@ -235,39 +184,23 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                 const sdkDir = join(root, "tests", ".qinit");
                 mkdirSync(sdkDir, { recursive: true });
                 writeFileSync(join(sdkDir, "runtime.ts"), testRuntimeSource);
-                writeFileSync(
-                    join(sdkDir, `${contractName}.ts`),
-                    generateClient(idl, dep.slot, { runtimeImport: "./runtime" }),
-                );
-                writeFileSync(
-                    join(sdkDir, "index.ts"),
-                    `export * from "./runtime";\nexport { ${contractName} } from "./${contractName}";\n`,
-                );
+                writeFileSync(join(sdkDir, `${contractName}.ts`), generateClient(idl, dep.slot, { runtimeImport: "./runtime" }));
+                writeFileSync(join(sdkDir, "index.ts"), `export * from "./runtime";\nexport { ${contractName} } from "./${contractName}";\n`);
                 // scaffold a sample test if the project has none
                 const testsDir = join(root, "tests");
                 const hasTest = readdirSync(testsDir).some((f) => f.endsWith(".test.ts"));
                 if (!hasTest) {
-                    writeFileSync(
-                        join(testsDir, `${contractName}.test.ts`),
-                        sampleTest(contractName),
-                    );
+                    writeFileSync(join(testsDir, `${contractName}.test.ts`), sampleTest(contractName));
                 }
-                add(
-                    "sdk",
-                    true,
-                    `tests/.qinit/ (${idl.functions.length} fn / ${idl.procedures.length} proc)`,
-                );
+                add("sdk", true, `tests/.qinit/ (${idl.functions.length} fn / ${idl.procedures.length} proc)`);
 
                 // The generated SDK bundles its own crypto, so the project needs no dependency — only ESM.
                 const pkgPath = join(root, "package.json");
-                const pkg: any = existsSync(pkgPath)
-                    ? JSON.parse(readFileSync(pkgPath, "utf8"))
-                    : { name: basename(root), private: true };
+                const pkg: any = existsSync(pkgPath) ? JSON.parse(readFileSync(pkgPath, "utf8")) : { name: basename(root), private: true };
                 pkg.type ??= "module";
                 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 
-                const testSeed =
-                    seed || (await new LiteRpc(activeRpc).fundedSeed()) || "a".repeat(55);
+                const testSeed = seed || (await new LiteRpc(activeRpc).fundedSeed()) || "a".repeat(55);
                 setS({ phase: "testing", lines: [...lines] });
                 const env = {
                     ...process.env,
@@ -276,23 +209,14 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                     QINIT_CONTRACT: String(dep.slot),
                 };
                 // generous per-test timeout — procedures wait ~tick offset (settle), well past bun's 5s default.
-                const bunArgs = [
-                    "test",
-                    existsSync(testsDir) ? "tests" : ".",
-                    "--timeout",
-                    timeout,
-                    ...(filter ? ["-t", filter] : []),
-                ];
+                const bunArgs = ["test", existsSync(testsDir) ? "tests" : ".", "--timeout", timeout, ...(filter ? ["-t", filter] : [])];
                 const p = Bun.spawn(["bun", ...bunArgs], {
                     cwd: root,
                     env,
                     stdout: "pipe",
                     stderr: "pipe",
                 });
-                const [out, err] = await Promise.all([
-                    new Response(p.stdout).text(),
-                    new Response(p.stderr).text(),
-                ]);
+                const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
                 await p.exited;
                 let output = stripAnsi((out + err).trim());
                 const ok = p.exitCode === 0;
@@ -321,16 +245,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                     rows: [
                         ["contract", `${contractName} @ ${dep.slot}`],
                         ["rpc", activeRpc],
-                        [
-                            "node",
-                            engineSrv
-                                ? "simulator"
-                                : ownNode
-                                  ? !keepNode
-                                      ? "launched for test (stopped)"
-                                      : "launched for test (kept)"
-                                  : "reused",
-                        ],
+                        ["node", engineSrv ? "simulator" : ownNode ? (!keepNode ? "launched for test (stopped)" : "launched for test (kept)") : "reused"],
                     ],
                 });
             } catch (e: any) {
@@ -375,10 +290,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
             {s.phase === "done" && (
                 <Box flexDirection="column" marginTop={1}>
                     {s.output && (
-                        <Panel
-                            title={s.ok ? "bun test ✓" : "bun test ✗"}
-                            color={s.ok ? theme.ok : theme.err}
-                        >
+                        <Panel title={s.ok ? "bun test ✓" : "bun test ✗"} color={s.ok ? theme.ok : theme.err}>
                             <Box flexDirection="column">
                                 {s.output
                                     .split("\n")
@@ -393,10 +305,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                     )}
                     {s.rows.length > 0 && (
                         <Box marginTop={1}>
-                            <Panel
-                                title={s.ok ? "passed ✓" : "failed"}
-                                color={s.ok ? theme.ok : theme.err}
-                            >
+                            <Panel title={s.ok ? "passed ✓" : "failed"} color={s.ok ? theme.ok : theme.err}>
                                 <KV rows={s.rows} />
                             </Panel>
                         </Box>

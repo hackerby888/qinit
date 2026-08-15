@@ -24,9 +24,7 @@ async function stateSize(name: string, qpiHeader: string): Promise<number> {
         qpiHeader,
         arenaSizeBytes: 1 << 20,
     });
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
-        0,
-    );
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(27, result.wasm);
     return sim.contracts.get(27)!.state().byteLength;

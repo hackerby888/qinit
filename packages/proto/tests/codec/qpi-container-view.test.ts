@@ -45,25 +45,14 @@ const uint64Type: AbiScalar = {
 };
 
 function setInt64(bytes: Uint8Array, offset: number, value: bigint | number) {
-    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).setBigInt64(
-        offset,
-        BigInt(value),
-        true,
-    );
+    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).setBigInt64(offset, BigInt(value), true);
 }
 
 function setUint64(bytes: Uint8Array, offset: number, value: bigint | number) {
-    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).setBigUint64(
-        offset,
-        BigInt(value),
-        true,
-    );
+    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).setBigUint64(offset, BigInt(value), true);
 }
 
-function sourceOf(
-    bytes: Uint8Array,
-    maxReadLength = bytes.length || 1,
-): { source: QpiByteSource; reads: Array<[number, number]> } {
+function sourceOf(bytes: Uint8Array, maxReadLength = bytes.length || 1): { source: QpiByteSource; reads: Array<[number, number]> } {
     const reads: Array<[number, number]> = [];
     return {
         reads,
@@ -201,9 +190,7 @@ test("BitArray view ignores padding and rejects invalid indexes and capacity", a
     expect(await bits.get(1)).toBe(0);
     await expect(bits.get(-1)).rejects.toBeInstanceOf(RangeError);
 
-    expect(
-        () => new QpiBitArrayView({ ...bitType, bitCount: 3 }, qpiSnapshotSource(bitBytes)),
-    ).toThrow("positive power of two");
+    expect(() => new QpiBitArrayView({ ...bitType, bitCount: 3 }, qpiSnapshotSource(bitBytes))).toThrow("positive power of two");
 });
 
 test("HashMap view groups occupied ranges across flag words", async () => {
@@ -243,9 +230,7 @@ test("HashMap view groups occupied ranges across flag words", async () => {
     ]);
 
     setUint64(mapBytes, mapGeometry.populationOffset, 2);
-    await expect(
-        new QpiHashMapView(mapType, qpiSnapshotSource(mapBytes)).entries(),
-    ).rejects.toBeInstanceOf(QpiContainerConsistencyError);
+    await expect(new QpiHashMapView(mapType, qpiSnapshotSource(mapBytes)).entries()).rejects.toBeInstanceOf(QpiContainerConsistencyError);
 });
 
 test("HashSet view excludes marked-for-removal slots", async () => {
@@ -262,9 +247,7 @@ test("HashSet view excludes marked-for-removal slots", async () => {
     setUint64(setBytes, setGeometry.recordStride * 3, 33);
     setBytes[setGeometry.flagsOffset] = (2 << 2) | (1 << 6);
     setUint64(setBytes, setGeometry.populationOffset, 1);
-    expect(await new QpiHashSetView(setType, qpiSnapshotSource(setBytes)).entries()).toEqual([
-        { slot: 3, key: 33n },
-    ]);
+    expect(await new QpiHashSetView(setType, qpiSnapshotSource(setBytes)).entries()).toEqual([{ slot: 3, key: 33n }]);
     expect(await decodeOutput(setBytes, setType)).toEqual([{ slot: 3, key: 33n }]);
 });
 
@@ -293,15 +276,7 @@ test("Collection view validates and walks each active PoV tree", async () => {
     setInt64(bytes, secondPov + geometry.povTailOffset, 3);
     setInt64(bytes, secondPov + geometry.povBstRootOffset, 3);
 
-    const element = (
-        index: number,
-        value: number,
-        priority: number,
-        parent: number,
-        left: number,
-        right: number,
-        pov = 0,
-    ) => {
+    const element = (index: number, value: number, priority: number, parent: number, left: number, right: number, pov = 0) => {
         const offset = geometry.elementsOffset + index * geometry.elementStride;
         setUint64(bytes, offset + geometry.elementValueOffset, value);
         setInt64(bytes, offset + geometry.elementPriorityOffset, priority);
@@ -332,14 +307,8 @@ test("Collection view validates and walks each active PoV tree", async () => {
     expect(entries[0].pov).not.toBe(entries[3].pov);
     expect(await decodeOutput(bytes, type)).toEqual(entries);
 
-    setInt64(
-        bytes,
-        geometry.elementsOffset + geometry.elementStride + geometry.elementBstParentOffset,
-        2,
-    );
-    await expect(
-        new QpiCollectionView(type, qpiSnapshotSource(bytes)).entries(),
-    ).rejects.toBeInstanceOf(QpiContainerConsistencyError);
+    setInt64(bytes, geometry.elementsOffset + geometry.elementStride + geometry.elementBstParentOffset, 2);
+    await expect(new QpiCollectionView(type, qpiSnapshotSource(bytes)).entries()).rejects.toBeInstanceOf(QpiContainerConsistencyError);
 });
 
 test("LinkedList view follows logical order and rejects broken links", async () => {
@@ -375,9 +344,7 @@ test("LinkedList view follows logical order and rejects broken links", async () 
     ]);
 
     setInt64(bytes, geometry.nodeStride + geometry.prevOffset, 2);
-    await expect(
-        new QpiLinkedListView(type, qpiSnapshotSource(bytes)).entries(),
-    ).rejects.toBeInstanceOf(QpiContainerConsistencyError);
+    await expect(new QpiLinkedListView(type, qpiSnapshotSource(bytes)).entries()).rejects.toBeInstanceOf(QpiContainerConsistencyError);
 });
 
 test("HashMap view reads only population when empty", async () => {

@@ -49,12 +49,7 @@ export function resolveDumpPath(name: string, slot: number, out?: string): strin
 }
 
 // Stream rather than buffer state images that can span hundreds of megabytes.
-export async function dumpContractState(
-    rpc: StateDumpRpc,
-    slot: number,
-    name: string,
-    options: StateDumpOptions = {},
-): Promise<StateDumpResult> {
+export async function dumpContractState(rpc: StateDumpRpc, slot: number, name: string, options: StateDumpOptions = {}): Promise<StateDumpResult> {
     const path = resolveDumpPath(name, slot, options.out);
     mkdirSync(dirname(path), { recursive: true });
 

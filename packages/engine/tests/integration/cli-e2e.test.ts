@@ -25,9 +25,7 @@ async function runCli(port: number, args: string[]): Promise<string> {
 }
 
 // Start a PeerServer on an ephemeral port over a configured engine; returns the port + a stop fn.
-async function serve(
-    setup?: (e: VirtualNode) => void | Promise<void>,
-): Promise<{ port: number; stop: () => void }> {
+async function serve(setup?: (e: VirtualNode) => void | Promise<void>): Promise<{ port: number; stop: () => void }> {
     await initK12();
     const engine = new VirtualNode({ mempool: true, verifySigs: true });
     engine.sim.bootstrapEpoch(1);
@@ -140,11 +138,7 @@ it("-gettickdata + -readtickdata verify the leader's signed TickData", async () 
         await runCli(port, ["-getcomputorlist", compFile]);
 
         // Epoch 1 starts at tick 3000; startup finalizes ticks 3001-3005.
-        const got = await runCli(port, [
-            "-gettickdata",
-            String(PRE_ADVANCED_FINALIZED_TICK),
-            tdFile,
-        ]);
+        const got = await runCli(port, ["-gettickdata", String(PRE_ADVANCED_FINALIZED_TICK), tdFile]);
         expect(got).toContain("Found");
         expect(got).toContain("written to");
 
@@ -211,11 +205,7 @@ it("-getquorumtick returns the tick's verifiable votes", async () => {
         const compFile = "/tmp/qinit-cli-qt-comps.bin";
         await runCli(port, ["-getcomputorlist", compFile]);
 
-        const out = await runCli(port, [
-            "-getquorumtick",
-            compFile,
-            String(PRE_ADVANCED_FINALIZED_TICK),
-        ]);
+        const out = await runCli(port, ["-getquorumtick", compFile, String(PRE_ADVANCED_FINALIZED_TICK)]);
         expect(out).toContain(`quorum tick #${PRE_ADVANCED_FINALIZED_TICK}`);
         expect(out).toContain("Number of unique votes:");
     } finally {
@@ -231,16 +221,7 @@ it("-sendcustomtransaction runs a contract procedure over the wire, and -gettxin
     try {
         const id = await bytesToIdentity(contractId(28));
         // inputType 1 = Counter Inc; amount 0; no extra data
-        const sent = await runCli(port, [
-            "-seed",
-            "a".repeat(55),
-            "-sendcustomtransaction",
-            id,
-            "1",
-            "0",
-            "0",
-            "",
-        ]);
+        const sent = await runCli(port, ["-seed", "a".repeat(55), "-sendcustomtransaction", id, "1", "0", "0", ""]);
         const hint = sent.match(/-checktxontick (\d+) ([a-z]+)/);
         expect(hint).not.toBeNull();
         const txTick = Number(hint![1]);

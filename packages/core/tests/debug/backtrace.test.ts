@@ -1,9 +1,5 @@
 import { test, expect } from "bun:test";
-import {
-    resolveTrapBacktrace,
-    decodeTrapCause,
-    formatTrapBacktrace,
-} from "../../src/debug/backtrace";
+import { resolveTrapBacktrace, decodeTrapCause, formatTrapBacktrace } from "../../src/debug/backtrace";
 import { join } from "node:path";
 
 // Build-time line map generated from the -O0 -g trap fixture (test/wasm_trap_fixture.c).

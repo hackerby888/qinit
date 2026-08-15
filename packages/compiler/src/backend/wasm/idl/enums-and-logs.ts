@@ -21,17 +21,12 @@ export function contractEnums(prepared: PreparedContractModule): ContractEnum[] 
         if (!name) {
             continue;
         }
-        const underlyingName =
-            enumDeclaration.underlyingType?.kind === AstKind.NAME
-                ? enumDeclaration.underlyingType.name
-                : "sint32";
+        const underlyingName = enumDeclaration.underlyingType?.kind === AstKind.NAME ? enumDeclaration.underlyingType.name : "sint32";
         const underlying = scalarKindForName(underlyingName) ?? AbiScalarKind.SINT32;
         const members: Record<string, string> = {};
 
         for (const member of enumDeclaration.members) {
-            const value =
-                prepared.programAnalysis.resolveConst(`${name}::${member.name}`) ??
-                prepared.programAnalysis.resolveConst(member.name);
+            const value = prepared.programAnalysis.resolveConst(`${name}::${member.name}`) ?? prepared.programAnalysis.resolveConst(member.name);
 
             if (value !== null) {
                 members[value.toString()] = member.name;
@@ -48,10 +43,7 @@ export function contractEnums(prepared: PreparedContractModule): ContractEnum[] 
     return enums;
 }
 
-export function contractLogs(
-    prepared: PreparedContractModule,
-    builder: AbiTypeBuilder,
-): ContractLog[] {
+export function contractLogs(prepared: PreparedContractModule, builder: AbiTypeBuilder): ContractLog[] {
     const logs: ContractLog[] = [];
 
     for (const declaration of userDeclarations(prepared)) {
@@ -61,9 +53,7 @@ export function contractLogs(
 
         const struct = declaration as StructDecl;
         const terminatorIndex = struct.members.findIndex(
-            (member) =>
-                member.kind === AstKind.VARIABLE &&
-                (member as VariableDecl).name === LOG_TERMINATOR_FIELD,
+            (member) => member.kind === AstKind.VARIABLE && (member as VariableDecl).name === LOG_TERMINATOR_FIELD,
         );
 
         if (terminatorIndex < 0) {
@@ -77,17 +67,8 @@ export function contractLogs(
             continue;
         }
 
-        const fields = new Map(
-            [...fullLayout.fields].filter(([name]) => name !== LOG_TERMINATOR_FIELD),
-        );
-        const align =
-            fields.size === 0
-                ? 1
-                : Math.max(
-                      ...[...fields.values()].map((field) =>
-                          prepared.programAnalysis.alignOfType(field.type),
-                      ),
-                  );
+        const fields = new Map([...fullLayout.fields].filter(([name]) => name !== LOG_TERMINATOR_FIELD));
+        const align = fields.size === 0 ? 1 : Math.max(...[...fields.values()].map((field) => prepared.programAnalysis.alignOfType(field.type)));
 
         logs.push({
             name: struct.name,
@@ -127,11 +108,7 @@ function userDeclarations(prepared: PreparedContractModule): Declaration[] {
                 declaration.kind === AstKind.CLASS_TEMPLATE
             ) {
                 const children = (
-                    "members" in declaration
-                        ? declaration.members
-                        : "body" in declaration && Array.isArray(declaration.body)
-                          ? declaration.body
-                          : []
+                    "members" in declaration ? declaration.members : "body" in declaration && Array.isArray(declaration.body) ? declaration.body : []
                 ) as Declaration[];
                 visit(children);
             }

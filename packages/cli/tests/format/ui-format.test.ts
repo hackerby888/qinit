@@ -5,15 +5,10 @@ import { fmtCompact, truncMid, truncEnd } from "../../src/ui";
 import { initialView, parseFindQuery } from "../../src/commands/deploy-interact/explorer";
 import { parseCommandInvocation } from "../../src/args";
 import { hintLines } from "../../src/commands/deploy-interact/explorer/chrome";
-import {
-    classifyWalletInput,
-    poolSeedForIdentity,
-} from "../../src/commands/deploy-interact/explorer/wallet";
+import { classifyWalletInput, poolSeedForIdentity } from "../../src/commands/deploy-interact/explorer/wallet";
 
 const SEPARATOR = 5; // "  ·  " between hints on a line
-const lineWidth = (line: [string, string][]) =>
-    line.reduce((total, [key, label]) => total + key.length + 1 + label.length, 0) +
-    SEPARATOR * (line.length - 1);
+const lineWidth = (line: [string, string][]) => line.reduce((total, [key, label]) => total + key.length + 1 + label.length, 0) + SEPARATOR * (line.length - 1);
 
 test("fmtCompact scales by magnitude and keeps one decimal", () => {
     expect(fmtCompact("0")).toBe("0");
@@ -88,8 +83,7 @@ test("find query routes by shape", () => {
 // The command line runs through the same shape rule the search prompt uses.
 test("the explorer's opening view is resolved from its one argument", () => {
     const identity = "A".repeat(60);
-    const opening = (args: string[]) =>
-        initialView(parseCommandInvocation("explorer", args).commandArgs);
+    const opening = (args: string[]) => initialView(parseCommandInvocation("explorer", args).commandArgs);
 
     expect(opening([])).toEqual({ kind: "overview" });
     expect(opening(["7474"])).toEqual({ kind: "tick", tick: 7474 });
@@ -148,15 +142,11 @@ test("funded-pool lookup separates a miss from an unreachable route", () => {
     // A node built without TESTNET 404s the route; saying "not prefunded" there would be a lie.
     expect(() => poolSeedForIdentity(identity, null, "404 Not Found")).toThrow(/route unavailable/);
 
-    expect(() => poolSeedForIdentity("B".repeat(60), pool, "")).toThrow(
-        /not in the node's funded-seed pool — the pool holds 1 seed/,
-    );
+    expect(() => poolSeedForIdentity("B".repeat(60), pool, "")).toThrow(/not in the node's funded-seed pool — the pool holds 1 seed/);
 
     // A short reply must report how short it was, so a miss is not mistaken for proof of absence.
     const truncated = { ...pool, received: 32, total: 676 };
-    expect(() => poolSeedForIdentity("B".repeat(60), truncated, "")).toThrow(
-        /only 32 of 676 pool seeds/,
-    );
+    expect(() => poolSeedForIdentity("B".repeat(60), truncated, "")).toThrow(/only 32 of 676 pool seeds/);
 });
 
 test("truncation helpers keep values inside a fixed cell width", () => {

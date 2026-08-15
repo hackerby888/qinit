@@ -22,16 +22,12 @@ function inDynamicWindow(index: number, layout: ProjectSlotLayout): boolean {
     return index >= layout.slotBase && index < layout.slotBase + layout.slotCount;
 }
 
-function armedDynamicContracts(
-    registry: DynamicContractRegistry | undefined,
-): DynamicContractRegistryEntry[] {
+function armedDynamicContracts(registry: DynamicContractRegistry | undefined): DynamicContractRegistryEntry[] {
     if (!registry) {
         return [];
     }
 
-    return (registry.contracts ?? []).filter(
-        (contract) => contract.armed && inDynamicWindow(contract.index, registry),
-    );
+    return (registry.contracts ?? []).filter((contract) => contract.armed && inDynamicWindow(contract.index, registry));
 }
 
 export function planProjectSlots<T extends ProjectSlotNode>(
@@ -59,32 +55,22 @@ export function planProjectSlots<T extends ProjectSlotNode>(
     for (const node of customNodes) {
         const matching = deployed.filter((contract) => contract.name === node.name);
         if (matching.length > 1) {
-            throw new Error(
-                `multiple deployed contracts are named '${node.name}': ${matching
-                    .map((contract) => contract.index)
-                    .join(", ")}`,
-            );
+            throw new Error(`multiple deployed contracts are named '${node.name}': ${matching.map((contract) => contract.index).join(", ")}`);
         }
 
         if (node.index !== undefined) {
             if (!inDynamicWindow(node.index, layout)) {
                 throw new Error(
-                    `${node.name} slot ${node.index} is outside the dynamic window ` +
-                        `${layout.slotBase}..${layout.slotBase + layout.slotCount - 1}`,
+                    `${node.name} slot ${node.index} is outside the dynamic window ` + `${layout.slotBase}..${layout.slotBase + layout.slotCount - 1}`,
                 );
             }
 
             const occupant = deployedBySlot.get(node.index);
             if (occupant && occupant.name !== node.name) {
-                throw new Error(
-                    `slot ${node.index} is occupied by '${occupant.name}', not '${node.name}'`,
-                );
+                throw new Error(`slot ${node.index} is occupied by '${occupant.name}', not '${node.name}'`);
             }
             if (matching[0] && matching[0].index !== node.index) {
-                throw new Error(
-                    `'${node.name}' is already deployed at slot ${matching[0].index}, ` +
-                        `not requested slot ${node.index}`,
-                );
+                throw new Error(`'${node.name}' is already deployed at slot ${matching[0].index}, ` + `not requested slot ${node.index}`);
             }
 
             fixed.set(node.stateType, {
@@ -106,19 +92,13 @@ export function planProjectSlots<T extends ProjectSlotNode>(
     for (const [stateType, planned] of fixed) {
         const previous = fixedSlots.get(planned.index);
         if (previous && previous !== stateType) {
-            throw new Error(
-                `project contracts '${previous}' and '${stateType}' both require slot ${planned.index}`,
-            );
+            throw new Error(`project contracts '${previous}' and '${stateType}' both require slot ${planned.index}`);
         }
         fixedSlots.set(planned.index, stateType);
     }
 
     const graphNames = new Set(customNodes.map((node) => node.name));
-    const unavailableSlots = new Set(
-        deployed
-            .filter((contract) => !graphNames.has(contract.name))
-            .map((contract) => contract.index),
-    );
+    const unavailableSlots = new Set(deployed.filter((contract) => !graphNames.has(contract.name)).map((contract) => contract.index));
     const assignments = new Map<string, number>();
     for (const [stateType, planned] of fixed) {
         assignments.set(stateType, planned.index);
@@ -138,11 +118,7 @@ export function planProjectSlots<T extends ProjectSlotNode>(
         for (const [dependency, caller] of edges) {
             const dependencySlot = assignments.get(dependency);
             const callerSlot = assignments.get(caller);
-            if (
-                dependencySlot !== undefined &&
-                callerSlot !== undefined &&
-                dependencySlot >= callerSlot
-            ) {
+            if (dependencySlot !== undefined && callerSlot !== undefined && dependencySlot >= callerSlot) {
                 return false;
             }
         }
@@ -154,10 +130,9 @@ export function planProjectSlots<T extends ProjectSlotNode>(
     }
 
     const unassigned = customNodes.filter((node) => !assignments.has(node.stateType));
-    const candidates = Array.from(
-        { length: layout.slotCount },
-        (_, offset) => layout.slotBase + offset,
-    ).filter((index) => !unavailableSlots.has(index) && !fixedSlots.has(index));
+    const candidates = Array.from({ length: layout.slotCount }, (_, offset) => layout.slotBase + offset).filter(
+        (index) => !unavailableSlots.has(index) && !fixedSlots.has(index),
+    );
 
     const assignNext = (position: number): boolean => {
         if (position >= unassigned.length) {

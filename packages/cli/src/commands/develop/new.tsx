@@ -6,12 +6,7 @@ import { Header, theme } from "../../ui";
 import { loadSystem } from "../../contracts/registry";
 import { extractIdl, genStdGtest } from "@qinit/build";
 import { DEFAULT_RPC_BASE } from "@qinit/core";
-import {
-    TEMPLATE_KINDS,
-    TEMPLATE_NOTE,
-    templateSource,
-    type TemplateKind,
-} from "../../contracts/templates";
+import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, type TemplateKind } from "../../contracts/templates";
 import { loadConfiguredQpiHeader } from "../../config";
 import type { CommandArguments } from "../../args";
 
@@ -42,9 +37,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
     useEffect(() => {
         try {
             if (!projectName) {
-                fail(
-                    `usage: qinit new <name> [--template ${TEMPLATE_KINDS.join("|")}] [--core-dir PATH]`,
-                );
+                fail(`usage: qinit new <name> [--template ${TEMPLATE_KINDS.join("|")}] [--core-dir PATH]`);
                 return;
             }
             const kind = (requestedTemplate || "counter") as TemplateKind;
@@ -54,9 +47,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
             }
             // refuse nesting: a folder created by `qinit new` has qinit.json — making another project here gets messy
             if (existsSync("qinit.json")) {
-                fail(
-                    "✗ already inside a qinit project (qinit.json is here) — cd out before `qinit new`",
-                );
+                fail("✗ already inside a qinit project (qinit.json is here) — cd out before `qinit new`");
                 return;
             }
             const dir = projectName;
@@ -64,9 +55,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
             // a contract named after a QPI type (Asset, Entity, …) makes the generated wrapper ambiguous -> won't compile
             const RESERVED = ["Asset", "Entity", "Array", "Collection", "HashMap", "HashSet"];
             if (RESERVED.includes(name)) {
-                fail(
-                    `✗ '${name}' collides with a QPI type — pick another name (reserved: ${RESERVED.join(", ")})`,
-                );
+                fail(`✗ '${name}' collides with a QPI type — pick another name (reserved: ${RESERVED.join(", ")})`);
                 return;
             }
             // also refuse a built-in system-contract name (best-effort: needs the snapshot; deploy re-checks authoritatively)
@@ -111,12 +100,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
                 writeFileSync(join(dir, "contracts", "Counter.h"), templateSource("counter"));
             }
             writeFileSync(join(dir, "qinit.json"), JSON.stringify(cfg, null, 2) + "\n");
-            writeFileSync(
-                join(dir, ".gitignore"),
-                ["dist/", "*.wasm", "*.log", "qinit.idl.json", "contracts_dyn/", ".DS_Store"].join(
-                    "\n",
-                ) + "\n",
-            );
+            writeFileSync(join(dir, ".gitignore"), ["dist/", "*.wasm", "*.log", "qinit.idl.json", "contracts_dyn/", ".DS_Store"].join("\n") + "\n");
             writeFileSync(
                 join(dir, "README.md"),
                 `# ${name}\n\nQubic dynamic contract (\`qinit new --template ${kind}\`).\n\n` +
@@ -151,12 +135,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
         }
     }, [done]);
 
-    const lineColor = (l: string) =>
-        l.startsWith("✓")
-            ? theme.ok
-            : l.startsWith("✗") || l.startsWith("ERROR")
-              ? theme.err
-              : undefined;
+    const lineColor = (l: string) => (l.startsWith("✓") ? theme.ok : l.startsWith("✗") || l.startsWith("ERROR") ? theme.err : undefined);
     return (
         <Box flexDirection="column">
             <Header cmd="new" />

@@ -48,9 +48,7 @@ describe("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () =
             qpiHeader: HEADERS,
             arenaSizeBytes: 1024 * 1024,
         });
-        expect(
-            sink.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-        ).toHaveLength(0);
+        expect(sink.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
         const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         sim.deploy(28, sink.wasm);

@@ -10,16 +10,9 @@ export type ContractSets = {
 };
 
 export function parseContractSlot(value: unknown): number {
-    const slot =
-        typeof value === "number"
-            ? value
-            : typeof value === "string" && value.trim()
-              ? Number(value)
-              : Number.NaN;
+    const slot = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
     if (!Number.isInteger(slot) || slot < 1 || slot >= MAX_NUMBER_OF_CONTRACTS) {
-        throw new Error(
-            `contract slot must be an integer from 1 to ${MAX_NUMBER_OF_CONTRACTS - 1}`,
-        );
+        throw new Error(`contract slot must be an integer from 1 to ${MAX_NUMBER_OF_CONTRACTS - 1}`);
     }
     return slot;
 }
@@ -81,9 +74,7 @@ export function mergeContracts(sets: ContractSets): {
     userCount: number;
 } {
     const catalog = new Map(sets.system.map((contract) => [contract.index, contract]));
-    const user = sets.user.map((contract) =>
-        contract.source ? contract : { ...contract, source: catalog.get(contract.index)?.source },
-    );
+    const user = sets.user.map((contract) => (contract.source ? contract : { ...contract, source: catalog.get(contract.index)?.source }));
     const deployed = new Set(user.map((contract) => contract.index));
     const system = sets.system.filter((contract) => !deployed.has(contract.index)).map(systemAsDyn);
 
@@ -101,10 +92,7 @@ export type ResolvedContract = {
 export function resolveContract(target: string, sets: ContractSets): ResolvedContract | null {
     const normalized = target.trim().toLowerCase();
     const index = Number(target);
-    const userContract = sets.user.find(
-        (contract) =>
-            contract.index === index || (contract.name || "").toLowerCase() === normalized,
-    );
+    const userContract = sets.user.find((contract) => contract.index === index || (contract.name || "").toLowerCase() === normalized);
 
     if (userContract) {
         const catalogEntry = sets.system.find((contract) => contract.index === userContract.index);
@@ -117,9 +105,7 @@ export function resolveContract(target: string, sets: ContractSets): ResolvedCon
         };
     }
 
-    const systemContract = sets.system.find(
-        (contract) => contract.index === index || contract.name.toLowerCase() === normalized,
-    );
+    const systemContract = sets.system.find((contract) => contract.index === index || contract.name.toLowerCase() === normalized);
     if (systemContract) {
         return {
             index: systemContract.index,

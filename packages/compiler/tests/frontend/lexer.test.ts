@@ -156,12 +156,7 @@ describe("operators and punctuators", () => {
 
     test("single = vs == vs => (arrow)", () => {
         const src = "= == ->";
-        const expected: TokenKind[] = [
-            TokenKind.EQ,
-            TokenKind.EQ_EQ,
-            TokenKind.ARROW,
-            TokenKind.EOF,
-        ];
+        const expected: TokenKind[] = [TokenKind.EQ, TokenKind.EQ_EQ, TokenKind.ARROW, TokenKind.EOF];
         expect(kinds(src)).toEqual(expected);
     });
 
@@ -181,25 +176,13 @@ describe("operators and punctuators", () => {
 
     test("< vs << vs <= vs <=>", () => {
         const src = "< << <= <=>";
-        const expected: TokenKind[] = [
-            TokenKind.L_ANGLE,
-            TokenKind.L_SHIFT,
-            TokenKind.LT_EQ,
-            TokenKind.SPACESHIP,
-            TokenKind.EOF,
-        ];
+        const expected: TokenKind[] = [TokenKind.L_ANGLE, TokenKind.L_SHIFT, TokenKind.LT_EQ, TokenKind.SPACESHIP, TokenKind.EOF];
         expect(kinds(src)).toEqual(expected);
     });
 
     test("> vs >> vs >= vs >>=", () => {
         const src = "> >> >= >>=";
-        const expected: TokenKind[] = [
-            TokenKind.R_ANGLE,
-            TokenKind.R_SHIFT,
-            TokenKind.GT_EQ,
-            TokenKind.R_SHIFT_EQ,
-            TokenKind.EOF,
-        ];
+        const expected: TokenKind[] = [TokenKind.R_ANGLE, TokenKind.R_SHIFT, TokenKind.GT_EQ, TokenKind.R_SHIFT_EQ, TokenKind.EOF];
         expect(kinds(src)).toEqual(expected);
     });
 
@@ -235,24 +218,13 @@ describe("operators and punctuators", () => {
 
     test("- vs -- vs -= vs ->", () => {
         const src = "- -- -= ->";
-        const expected: TokenKind[] = [
-            TokenKind.MINUS,
-            TokenKind.MINUS_MINUS,
-            TokenKind.MINUS_EQ,
-            TokenKind.ARROW,
-            TokenKind.EOF,
-        ];
+        const expected: TokenKind[] = [TokenKind.MINUS, TokenKind.MINUS_MINUS, TokenKind.MINUS_EQ, TokenKind.ARROW, TokenKind.EOF];
         expect(kinds(src)).toEqual(expected);
     });
 
     test("+ vs ++ vs +=", () => {
         const src = "+ ++ +=";
-        const expected: TokenKind[] = [
-            TokenKind.PLUS,
-            TokenKind.PLUS_PLUS,
-            TokenKind.PLUS_EQ,
-            TokenKind.EOF,
-        ];
+        const expected: TokenKind[] = [TokenKind.PLUS, TokenKind.PLUS_PLUS, TokenKind.PLUS_EQ, TokenKind.EOF];
         expect(kinds(src)).toEqual(expected);
     });
 });

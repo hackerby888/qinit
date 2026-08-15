@@ -17,9 +17,7 @@ import { planProjectSlots } from "../../contracts/project-slots";
 import { parseContractSlot } from "../../contracts/registry";
 
 export function resolveGtestSlot(core: string, requestedSlot?: unknown): number {
-    return parseContractSlot(
-        requestedSlot === undefined ? loadCoreWasmSlotLayout(core).slotBase : requestedSlot,
-    );
+    return parseContractSlot(requestedSlot === undefined ? loadCoreWasmSlotLayout(core).slotBase : requestedSlot);
 }
 
 // Render the TS compiler's per-phase timings as a one-line breakdown (short labels, in pipeline order).
@@ -33,9 +31,7 @@ function fmtTimings(t?: Record<string, number>): string | undefined {
         ["generating wasm", "codegen"],
         ["assembling wasm", "wabt"],
     ];
-    const parts = order
-        .filter(([k]) => t[k] != null)
-        .map(([k, lbl]) => `${lbl} ${Math.round(t[k])}ms`);
+    const parts = order.filter(([k]) => t[k] != null).map(([k, lbl]) => `${lbl} ${Math.round(t[k])}ms`);
     if (!parts.length) return undefined;
     const total = Math.round(Object.values(t).reduce((a, b) => a + b, 0));
     return `${parts.join(" · ")} · total ${total}ms`;
@@ -47,13 +43,8 @@ interface Line {
     detail?: string;
 }
 // Keep completed output in Static items; reserve the live tail for the spinner or summary.
-type Item =
-    | { kind: "header" }
-    | { kind: "line"; line: Line }
-    | { kind: "test"; t: TestResult }
-    | { kind: "note"; text: string };
-type Tail =
-    { phase: "work"; spin: string } | { phase: "done"; ok: boolean; rows: [string, string][] };
+type Item = { kind: "header" } | { kind: "line"; line: Line } | { kind: "test"; t: TestResult } | { kind: "note"; text: string };
+type Tail = { phase: "work"; spin: string } | { phase: "done"; ok: boolean; rows: [string, string][] };
 
 export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
@@ -65,14 +56,12 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
     const [s, setS] = useState<Tail>({ phase: "work", spin: "starting" });
 
     useEffect(() => {
-        const add = (label: string, ok?: boolean | null, detail?: string) =>
-            setItems((it) => [...it, { kind: "line", line: { label, ok, detail } }]);
+        const add = (label: string, ok?: boolean | null, detail?: string) => setItems((it) => [...it, { kind: "line", line: { label, ok, detail } }]);
         const note = (text: string) => setItems((it) => [...it, { kind: "note", text }]); // full-width, wraps (no truncation)
         const spin = (t: string) => setS({ phase: "work", spin: t });
         const done = (ok: boolean, rows: [string, string][]) => setS({ phase: "done", ok, rows });
 
-        const matches = (name: string) =>
-            !filter || name.toLowerCase().includes(filter.toLowerCase());
+        const matches = (name: string) => !filter || name.toLowerCase().includes(filter.toLowerCase());
         let ran = 0;
         // Stream each finished test the moment the engine reports it (engine yields a macrotask per test so
         // this paints). Filtered-out tests still execute engine-side; we just don't surface them.
@@ -123,10 +112,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     const ctiming = fmtTimings(run.timings);
                     if (ctiming) note(`  compile   ${ctiming}`);
                     return done(ok, [
-                        [
-                            "contract",
-                            `${run.name} @ ${run.slot}${run.heavy ? " (heavy/shared-mem)" : ""}`,
-                        ],
+                        ["contract", `${run.name} @ ${run.slot}${run.heavy ? " (heavy/shared-mem)" : ""}`],
                         ["backend", backend === "typescript" ? "TypeScript compiler" : "clang"],
                         ["test", `real gtest — ${run.name.toLowerCase()} suite`],
                         ["node", "in-process engine (isolated genesis)"],
@@ -134,37 +120,24 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
 
                 // One accepted source format: core-lite contract_testing.h / ContractTesting.
-                const contractPath = resolve(
-                    commandArgs.get("contract") ??
-                        cfg.contract ??
-                        "contracts/" + (cfg.contractName ?? "") + ".h",
-                );
+                const contractPath = resolve(commandArgs.get("contract") ?? cfg.contract ?? "contracts/" + (cfg.contractName ?? "") + ".h");
                 if (!existsSync(contractPath)) {
                     add("contract", false, contractPath + " not found");
                     return done(false, []);
                 }
-                const name =
-                    commandArgs.get("contract-name") ??
-                    cfg.contractName ??
-                    basename(contractPath).replace(/\.[^.]+$/, "");
+                const name = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
                 const stateType = commandArgs.get("state-type") ?? name;
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
                 const contractSrc = readFileSync(contractPath, "utf8");
                 const testPath = resolve(firstPositional ?? join("tests", `${name}.test.cpp`));
-                const existingTestSource =
-                    existsSync(testPath) && !commandArgs.has("new")
-                        ? readFileSync(testPath, "utf8")
-                        : undefined;
+                const existingTestSource = existsSync(testPath) && !commandArgs.has("new") ? readFileSync(testPath, "utf8") : undefined;
                 const slotLayout = loadCoreWasmSlotLayout(core);
                 const dependencyGraph = resolveProjectDependencies({
                     projectRoot: process.cwd(),
                     corePath: core,
                     contractName: stateType,
                     contractPath,
-                    contractIndex:
-                        requestedSlot === undefined
-                            ? undefined
-                            : resolveGtestSlot(core, requestedSlot),
+                    contractIndex: requestedSlot === undefined ? undefined : resolveGtestSlot(core, requestedSlot),
                     explicitCallees,
                     additionalRootSource: existingTestSource,
                 });
@@ -205,11 +178,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     });
                     mkdirSync(join(testPath, ".."), { recursive: true });
                     writeFileSync(testPath, genStdGtest(idl, name, stateType));
-                    add(
-                        "scaffold",
-                        true,
-                        `${testPath.replace(process.cwd() + "/", "")} (core-lite)`,
-                    );
+                    add("scaffold", true, `${testPath.replace(process.cwd() + "/", "")} (core-lite)`);
                 }
 
                 spin(`building the gtest for ${name} (${backend})`);
@@ -265,13 +234,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     it.kind === "header" ? (
                         <Header key={i} cmd="gtest" />
                     ) : it.kind === "line" ? (
-                        <Status
-                            key={i}
-                            ok={it.line.ok}
-                            label={it.line.label}
-                            detail={it.line.detail}
-                            pad={10}
-                        />
+                        <Status key={i} ok={it.line.ok} label={it.line.label} detail={it.line.detail} pad={10} />
                     ) : it.kind === "note" ? (
                         <Text key={i} dimColor>
                             {it.text}
@@ -281,9 +244,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                             <Text color={it.t.passed ? theme.ok : theme.err}>
                                 {it.t.passed ? "✓" : "✗"} {it.t.name}
                             </Text>
-                            {!it.t.passed && it.t.message ? (
-                                <Text dimColor>{it.t.message.trim()}</Text>
-                            ) : null}
+                            {!it.t.passed && it.t.message ? <Text dimColor>{it.t.message.trim()}</Text> : null}
                         </Box>
                     )
                 }

@@ -27,17 +27,12 @@ export function Epoch({ commandArgs }: { commandArgs: CommandArguments }) {
                     // 1) fast-tick to the last tick (progress); 2) let the node run its seamless transition.
                     const target = e.epochLastTick;
                     setProg({ from: e.tick, cur: e.tick, target });
-                    await advanceTo(rpc, target, e.tick, (c) =>
-                        setProg((p) => p && { ...p, cur: c }),
-                    );
+                    await advanceTo(rpc, target, e.tick, (c) => setProg((p) => p && { ...p, cur: c }));
                     setProg(null);
                     setBusy("transitioning to the next epoch");
                     let r = await rpc.advanceEpoch();
                     for (let i = 0; i < 3 && !r.switched; i++) r = await rpc.advanceEpoch(); // a few nudges if the boundary needs more ticks
-                    if (!r.switched)
-                        throw new Error(
-                            `epoch did not switch (still ${r.toEpoch}, tick ${r.tick}) — node may have timed out`,
-                        );
+                    if (!r.switched) throw new Error(`epoch did not switch (still ${r.toEpoch}, tick ${r.tick}) — node may have timed out`);
                     setRows([
                         ["epoch", `${r.fromEpoch} → ${r.toEpoch}`],
                         ["tick", `${e.tick} → ${r.tick}`],
@@ -69,8 +64,7 @@ export function Epoch({ commandArgs }: { commandArgs: CommandArguments }) {
         }
     }, [rows, err]);
 
-    const pct =
-        prog && prog.target > prog.from ? (prog.cur - prog.from) / (prog.target - prog.from) : 1;
+    const pct = prog && prog.target > prog.from ? (prog.cur - prog.from) / (prog.target - prog.from) : 1;
     return (
         <Box flexDirection="column">
             <Header cmd="epoch" />

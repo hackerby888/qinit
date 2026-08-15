@@ -29,9 +29,7 @@ interface FixtureDefinitionBase {
     readonly slot: number;
 }
 
-interface FixtureDefinition<
-    Dependencies extends readonly string[] | undefined,
-> extends FixtureDefinitionBase {
+interface FixtureDefinition<Dependencies extends readonly string[] | undefined> extends FixtureDefinitionBase {
     readonly dependencies?: Dependencies;
 }
 
@@ -89,9 +87,7 @@ export interface WasmFixtureDefinition extends FixtureDefinitionBase {
     readonly dependencies?: readonly WasmFixtureName[];
 }
 
-export const wasmFixtureNames = Object.freeze(
-    Object.keys(wasmFixtureManifest) as WasmFixtureName[],
-);
+export const wasmFixtureNames = Object.freeze(Object.keys(wasmFixtureManifest) as WasmFixtureName[]);
 
 const compilationCache = new Map<WasmFixtureName, Promise<CompileResult>>();
 const FIXTURE_ARENA_SIZE = 1024 * 1024;
@@ -113,10 +109,7 @@ function formatDiagnostics(result: CompileResult): string {
     }
 
     return result.diagnostics
-        .map(
-            (diagnostic) =>
-                `  ${diagnostic.severity} L${diagnostic.span.line}:${diagnostic.span.column} ${diagnostic.message}`,
-        )
+        .map((diagnostic) => `  ${diagnostic.severity} L${diagnostic.span.line}:${diagnostic.span.column} ${diagnostic.message}`)
         .join("\n");
 }
 
@@ -136,12 +129,8 @@ async function compileFixtureUncached(name: WasmFixtureName): Promise<CompileRes
 
     try {
         const dependencyNames = definition.dependencies ?? [];
-        const dependencyResults = await Promise.all(
-            dependencyNames.map((dependencyName) => compileFixture(dependencyName)),
-        );
-        const callees = dependencyNames.map((dependencyName, index) =>
-            toCalleeIdl(wasmFixtureManifest[dependencyName], dependencyResults[index]),
-        );
+        const dependencyResults = await Promise.all(dependencyNames.map((dependencyName) => compileFixture(dependencyName)));
+        const callees = dependencyNames.map((dependencyName, index) => toCalleeIdl(wasmFixtureManifest[dependencyName], dependencyResults[index]));
         const calleeSources = dependencyNames.map((dependencyName) => ({
             name: wasmFixtureManifest[dependencyName].contractName,
             source: wasmFixtureManifest[dependencyName].source,
@@ -163,10 +152,7 @@ async function compileFixtureUncached(name: WasmFixtureName): Promise<CompileRes
         return result;
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        throw new Error(
-            `Failed to compile Wasm fixture '${name}' (${definition.sourceFile}) at slot ${definition.slot}:\n${detail}`,
-            { cause: error },
-        );
+        throw new Error(`Failed to compile Wasm fixture '${name}' (${definition.sourceFile}) at slot ${definition.slot}:\n${detail}`, { cause: error });
     }
 }
 

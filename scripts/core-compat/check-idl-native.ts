@@ -146,12 +146,8 @@ function alias(expression: string): string {
 }
 
 function assertType(contract: string, path: string, type: AbiType, nativeType: string): void {
-    lines.push(
-        `static_assert(sizeof(${nativeType}) == ${type.size}, ${message(contract, path, "size", type.size)});`,
-    );
-    lines.push(
-        `static_assert(alignof(${nativeType}) == ${type.align}, ${message(contract, path, "align", type.align)});`,
-    );
+    lines.push(`static_assert(sizeof(${nativeType}) == ${type.size}, ${message(contract, path, "size", type.size)});`);
+    lines.push(`static_assert(alignof(${nativeType}) == ${type.align}, ${message(contract, path, "align", type.align)});`);
 
     switch (type.kind) {
         case AbiTypeKind.SCALAR:
@@ -167,18 +163,14 @@ function assertType(contract: string, path: string, type: AbiType, nativeType: s
             return;
         case AbiTypeKind.ARRAY: {
             const traits = `QinitArrayTraits<${nativeType}>`;
-            lines.push(
-                `static_assert(${traits}::count == ${type.count}, ${message(contract, path, "count", type.count)});`,
-            );
+            lines.push(`static_assert(${traits}::count == ${type.count}, ${message(contract, path, "count", type.count)});`);
             const elementType = alias(`typename ${traits}::Element`);
             assertType(contract, `${path}[]`, type.element, elementType);
             return;
         }
         case AbiTypeKind.HASH_MAP: {
             const traits = `QinitHashMapTraits<${nativeType}>`;
-            lines.push(
-                `static_assert(${traits}::capacity == ${type.capacity}, ${message(contract, path, "capacity", type.capacity)});`,
-            );
+            lines.push(`static_assert(${traits}::capacity == ${type.capacity}, ${message(contract, path, "capacity", type.capacity)});`);
             const keyType = alias(`typename ${traits}::Key`);
             const valueType = alias(`typename ${traits}::Value`);
             assertType(contract, `${path}.key`, type.key, keyType);
@@ -187,18 +179,14 @@ function assertType(contract: string, path: string, type: AbiType, nativeType: s
         }
         case AbiTypeKind.HASH_SET: {
             const traits = `QinitHashSetTraits<${nativeType}>`;
-            lines.push(
-                `static_assert(${traits}::capacity == ${type.capacity}, ${message(contract, path, "capacity", type.capacity)});`,
-            );
+            lines.push(`static_assert(${traits}::capacity == ${type.capacity}, ${message(contract, path, "capacity", type.capacity)});`);
             const keyType = alias(`typename ${traits}::Key`);
             assertType(contract, `${path}.key`, type.key, keyType);
             return;
         }
         case AbiTypeKind.COLLECTION: {
             const traits = `QinitCollectionTraits<${nativeType}>`;
-            lines.push(
-                `static_assert(${traits}::capacity == ${type.capacity}, ${message(contract, path, "capacity", type.capacity)});`,
-            );
+            lines.push(`static_assert(${traits}::capacity == ${type.capacity}, ${message(contract, path, "capacity", type.capacity)});`);
             const valueType = alias(`typename ${traits}::Value`);
             assertType(contract, `${path}.value`, type.value, valueType);
         }
@@ -216,14 +204,10 @@ function assertOracleLayout(
     const path = `${interfaceName}.${layoutName}`;
     const nativeType = `OI::${interfaceName}::${layoutName}`;
 
-    lines.push(
-        `static_assert(sizeof(${nativeType}) == ${layout.SIZE}, ${message("OI", path, "size", layout.SIZE)});`,
-    );
+    lines.push(`static_assert(sizeof(${nativeType}) == ${layout.SIZE}, ${message("OI", path, "size", layout.SIZE)});`);
 
     for (const [fieldName, offset] of Object.entries(layout.OFFSETS)) {
-        lines.push(
-            `static_assert(__builtin_offsetof(${nativeType}, ${fieldName}) == ${offset}, ${message("OI", `${path}.${fieldName}`, "offset", offset)});`,
-        );
+        lines.push(`static_assert(__builtin_offsetof(${nativeType}, ${fieldName}) == ${offset}, ${message("OI", `${path}.${fieldName}`, "offset", offset)});`);
     }
 }
 
@@ -234,9 +218,7 @@ function assertMutationLogLayout(
         readonly OFFSETS: Readonly<Record<string, number>>;
     },
 ): void {
-    lines.push(
-        `static_assert(sizeof(::${structName}) == ${layout.SIZE}, ${message("LOG", structName, "size", layout.SIZE)});`,
-    );
+    lines.push(`static_assert(sizeof(::${structName}) == ${layout.SIZE}, ${message("LOG", structName, "size", layout.SIZE)});`);
 
     for (const [fieldName, offset] of Object.entries(layout.OFFSETS)) {
         lines.push(
@@ -267,15 +249,11 @@ for (const contract of catalog) {
     }
 }
 
-lines.push(
-    `static_assert(OI::oracleInterfacesCount == ${ORACLE_INTERFACES.length}, ${message("OI", "oracleInterfaces", "count", ORACLE_INTERFACES.length)});`,
-);
+lines.push(`static_assert(OI::oracleInterfacesCount == ${ORACLE_INTERFACES.length}, ${message("OI", "oracleInterfaces", "count", ORACLE_INTERFACES.length)});`);
 
 for (const [interfaceIndex, oracleInterface] of ORACLE_INTERFACES.entries()) {
     if (oracleInterface.index !== interfaceIndex) {
-        throw new Error(
-            `${oracleInterface.name} registry index ${interfaceIndex} does not match declared index ${oracleInterface.index}`,
-        );
+        throw new Error(`${oracleInterface.name} registry index ${interfaceIndex} does not match declared index ${oracleInterface.index}`);
     }
 
     lines.push(
@@ -296,18 +274,7 @@ try {
     const source = join(scratch, "probe.cpp");
     writeFileSync(source, lines.join("\n"));
     const result = Bun.spawnSync(
-        [
-            nativeClang,
-            "-std=c++20",
-            "-fno-access-control",
-            "-fshort-wchar",
-            "-w",
-            "-DNO_UEFI",
-            `-I${core}`,
-            `-I${join(core, "src")}`,
-            "-fsyntax-only",
-            source,
-        ],
+        [nativeClang, "-std=c++20", "-fno-access-control", "-fshort-wchar", "-w", "-DNO_UEFI", `-I${core}`, `-I${join(core, "src")}`, "-fsyntax-only", source],
         {
             cwd: scratch,
             stdout: "pipe",

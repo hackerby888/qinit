@@ -9,15 +9,7 @@ const COMPLETION_DELAY_MS = 300;
 export type SelItem<T> = { label: string; value?: T; header?: boolean };
 
 // A vertical picker. `header` items are non-selectable group labels that ↑/↓ skips over.
-export function Select<T>({
-    label,
-    items,
-    onSelect,
-}: {
-    label: string;
-    items: SelItem<T>[];
-    onSelect: (value: T) => void;
-}) {
+export function Select<T>({ label, items, onSelect }: { label: string; items: SelItem<T>[]; onSelect: (value: T) => void }) {
     const firstSelectable = Math.max(
         0,
         items.findIndex((item) => !item.header),
@@ -68,10 +60,7 @@ export function Select<T>({
                             ) : (
                                 <Text>{"  "}</Text>
                             )}
-                            <Text
-                                color={index === selected ? theme.info : undefined}
-                                bold={index === selected}
-                            >
+                            <Text color={index === selected ? theme.info : undefined} bold={index === selected}>
                                 {item.label}
                             </Text>
                         </Text>
@@ -111,10 +100,7 @@ export function TextPrompt({
     const [caret, setCaret] = useState((initial ?? "").length);
     const [completionIdle, setCompletionIdle] = useState(false);
     const completion = complete?.(value, completionIdle) ?? null;
-    const completionSuffix =
-        completion && completion.length > value.length && completion.startsWith(value)
-            ? completion.slice(value.length)
-            : "";
+    const completionSuffix = completion && completion.length > value.length && completion.startsWith(value) ? completion.slice(value.length) : "";
 
     const update = (nextValue: string, nextCaret?: number) => {
         setCompletionIdle(false);
@@ -207,12 +193,7 @@ export function TextPrompt({
                 <Text color={theme.mute} dimColor>
                     {" "}
                     {label}
-                    {completionSuffix
-                        ? `    ⇥ tab → ${completion}`
-                        : value === "" && placeholder
-                          ? "    → fill template · ↵ submit"
-                          : "    ↵ submit"}{" "}
-                    esc back
+                    {completionSuffix ? `    ⇥ tab → ${completion}` : value === "" && placeholder ? "    → fill template · ↵ submit" : "    ↵ submit"} esc back
                 </Text>
             ) : (
                 <Text color={theme.mute} dimColor>

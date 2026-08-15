@@ -2,16 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import type { ContractCall, ContractListEntry } from "@qinit/core";
 import { Grad, KV, SectionHeader, Spinner, Table, theme, type Column } from "../../../ui";
-import {
-    SectionBody,
-    entryLabel,
-    errText,
-    fmtAmount,
-    fmtTime,
-    sectionTableWidth,
-    windowOf,
-    type ViewProps,
-} from "./chrome";
+import { SectionBody, entryLabel, errText, fmtAmount, fmtTime, sectionTableWidth, windowOf, type ViewProps } from "./chrome";
 
 // The web explorer scans the last 500 ticks for contract calls; the same window keeps a page cheap here.
 const CONTRACT_CALL_WINDOW = 500;
@@ -26,17 +17,7 @@ const CONTRACT_COLS: Column[] = [
     { header: "calls", align: "right", max: 8 },
 ];
 
-export function ContractsView({
-    rpc,
-    refreshToken,
-    selected,
-    push,
-    rowCount,
-    openRow,
-    bodyRows,
-    columns,
-    page,
-}: ViewProps & { page: number }) {
+export function ContractsView({ rpc, refreshToken, selected, push, rowCount, openRow, bodyRows, columns, page }: ViewProps & { page: number }) {
     const [contracts, setContracts] = useState<ContractListEntry[]>([]);
     const [calls, setCalls] = useState<Map<number, number>>(new Map());
     const [window, setWindow] = useState<{ from: number; to: number } | null>(null);
@@ -48,18 +29,12 @@ export function ContractsView({
         setLoading(true);
         void (async () => {
             try {
-                const [{ contracts: list }, data] = await Promise.all([
-                    rpc.getContracts(),
-                    rpc.explorerData(),
-                ]);
+                const [{ contracts: list }, data] = await Promise.all([rpc.getContracts(), rpc.explorerData()]);
                 if (!alive) return;
                 setContracts(list);
 
                 const toTick = data.header.tick;
-                const fromTick = Math.max(
-                    data.header.initialTick,
-                    toTick - CONTRACT_CALL_WINDOW + 1,
-                );
+                const fromTick = Math.max(data.header.initialTick, toTick - CONTRACT_CALL_WINDOW + 1);
                 setWindow({ from: fromTick, to: toTick });
 
                 const callPage = await rpc.getContractCalls({
@@ -99,11 +74,7 @@ export function ContractsView({
         <Box flexDirection="column">
             <SectionHeader
                 title="contracts"
-                detail={
-                    window
-                        ? `${contracts.length} deployed · calls counted over ticks ${window.from}–${window.to}`
-                        : `${contracts.length} deployed`
-                }
+                detail={window ? `${contracts.length} deployed · calls counted over ticks ${window.from}–${window.to}` : `${contracts.length} deployed`}
                 error={err}
                 width={columns}
             />
@@ -117,12 +88,7 @@ export function ContractsView({
                 ) : (
                     <Table
                         columns={CONTRACT_COLS}
-                        rows={win.map((c) => [
-                            String(c.index),
-                            c.name || "—",
-                            `${c.stateSize} B`,
-                            String(calls.get(c.index) ?? 0),
-                        ])}
+                        rows={win.map((c) => [String(c.index), c.name || "—", `${c.stateSize} B`, String(calls.get(c.index) ?? 0)])}
                         selected={selected - offset}
                         width={sectionTableWidth(columns)}
                     />
@@ -141,18 +107,7 @@ const CALL_COLS: Column[] = [
     { header: "timestamp", max: 20 },
 ];
 
-export function ContractView({
-    rpc,
-    refreshToken,
-    selected,
-    contractIdls,
-    push,
-    rowCount,
-    openRow,
-    bodyRows,
-    columns,
-    index,
-}: ViewProps & { index: number }) {
+export function ContractView({ rpc, refreshToken, selected, contractIdls, push, rowCount, openRow, bodyRows, columns, index }: ViewProps & { index: number }) {
     const [meta, setMeta] = useState<ContractListEntry | null>(null);
     const [calls, setCalls] = useState<ContractCall[]>([]);
     const [err, setErr] = useState("");
@@ -163,10 +118,7 @@ export function ContractView({
         setLoading(true);
         void (async () => {
             try {
-                const [{ contracts }, data] = await Promise.all([
-                    rpc.getContracts(),
-                    rpc.explorerData(),
-                ]);
+                const [{ contracts }, data] = await Promise.all([rpc.getContracts(), rpc.explorerData()]);
                 if (!alive) return;
                 setMeta(contracts.find((c) => c.index === index) ?? null);
 
@@ -219,12 +171,7 @@ export function ContractView({
                     />
                 </Box>
             ) : null}
-            <SectionHeader
-                title="calls"
-                detail={`${calls.length} in the recent window`}
-                error={err}
-                width={columns}
-            />
+            <SectionHeader title="calls" detail={`${calls.length} in the recent window`} error={err} width={columns} />
             <SectionBody>
                 {loading && calls.length === 0 ? (
                     <Text color={theme.brand}>

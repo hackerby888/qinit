@@ -120,10 +120,7 @@ export class Parser {
         bodyParser.state.next();
         const body = bodyParser.statements.parseCompoundStatement();
 
-        this.state.bodyDiagnostics.push(
-            ...bodyParser.state.diagnostics,
-            ...bodyParser.state.bodyDiagnostics,
-        );
+        this.state.bodyDiagnostics.push(...bodyParser.state.diagnostics, ...bodyParser.state.bodyDiagnostics);
         this.state.position = closeBraceIndex + 1;
 
         return body;

@@ -30,9 +30,7 @@ async function compile(source: string) {
 
 async function registeredInputType(source: string): Promise<number | undefined> {
     const result = await compile(source);
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
-        0,
-    );
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(WebAssembly.validate(result.wasm)).toBe(true);
     const simulator = new QubicSimulator({
         mempool: false,
@@ -46,9 +44,7 @@ async function registeredInputType(source: string): Promise<number | undefined> 
 async function expectRangeRejection(source: string) {
     const result = await compile(source);
     const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
-    expect(
-        errors.some((d) => /input.?type.*range|1.*65535|registration.*constant/i.test(d.message)),
-    ).toBe(true);
+    expect(errors.some((d) => /input.?type.*range|1.*65535|registration.*constant/i.test(d.message))).toBe(true);
     expect(result.wasm).toHaveLength(0);
 }
 
@@ -62,9 +58,7 @@ describe("edge audit — registration constant expressions", () => {
     });
 
     test("an enum constant input type is registered", async () => {
-        expect(await registeredInputType(wrap(`enum InputType { GO_TYPE = 7 };`, `GO_TYPE`))).toBe(
-            7,
-        );
+        expect(await registeredInputType(wrap(`enum InputType { GO_TYPE = 7 };`, `GO_TYPE`))).toBe(7);
     });
 
     test("a negative folded input type is rejected instead of dropping the entry", async () => {
@@ -80,8 +74,6 @@ describe("edge audit — registration constant expressions", () => {
     });
 
     test("an unresolved named constant is rejected", async () => {
-        await expectRangeRejection(
-            wrap(`static constexpr uint64 GO_TYPE = MISSING_TYPE + 1;`, `GO_TYPE`),
-        );
+        await expectRangeRejection(wrap(`static constexpr uint64 GO_TYPE = MISSING_TYPE + 1;`, `GO_TYPE`));
     });
 });

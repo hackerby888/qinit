@@ -26,12 +26,7 @@ export interface Manifest {
 
 // A manifest may name an asset by filename instead of a full URL; expand it against the release tag.
 // Anything that is neither a plain https URL nor a safe filename is rejected rather than fetched.
-export function resolveReleaseAsset(
-    asset: AssetRef,
-    repo: string,
-    tag: string,
-    label: string,
-): AssetRef {
+export function resolveReleaseAsset(asset: AssetRef, repo: string, tag: string, label: string): AssetRef {
     const value = asset?.url;
     if (typeof value !== "string") {
         throw new Error(`${label} URL must be an HTTPS URL or asset filename`);
@@ -53,21 +48,11 @@ export function resolveReleaseAsset(
     };
 }
 
-export function resolveReleaseAssets(
-    assets: Record<string, AssetRef>,
-    repo: string,
-    tag: string,
-    label: string,
-): Record<string, AssetRef> {
+export function resolveReleaseAssets(assets: Record<string, AssetRef>, repo: string, tag: string, label: string): Record<string, AssetRef> {
     if (!assets || typeof assets !== "object" || Array.isArray(assets)) {
         throw new Error(`${label} assets must be an object`);
     }
-    return Object.fromEntries(
-        Object.entries(assets).map(([key, asset]) => [
-            key,
-            resolveReleaseAsset(asset, repo, tag, `${label} asset ${key}`),
-        ]),
-    );
+    return Object.fromEntries(Object.entries(assets).map(([key, asset]) => [key, resolveReleaseAsset(asset, repo, tag, `${label} asset ${key}`)]));
 }
 
 // Pull the release manifest that pins {node, headers} for one version (ABI-consistent set).
@@ -86,12 +71,7 @@ export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise
         manifest.nodes = resolveReleaseAssets(manifest.nodes, repo, manifest.version, "core node");
     }
     if (manifest.headers !== undefined) {
-        manifest.headers = resolveReleaseAsset(
-            manifest.headers,
-            repo,
-            manifest.version,
-            "core headers",
-        );
+        manifest.headers = resolveReleaseAsset(manifest.headers, repo, manifest.version, "core headers");
     }
     return manifest;
 }

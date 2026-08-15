@@ -1,12 +1,6 @@
 // Exercises NodeTransport through real codecs, signed transactions, and deploy wire data.
 import { test, expect } from "bun:test";
-import {
-    buildSignedTx,
-    k12Hex,
-    deriveIdentity,
-    identityToBytes,
-    LITE_DEPLOY_ADDRESS,
-} from "@qinit/core";
+import { buildSignedTx, k12Hex, deriveIdentity, identityToBytes, LITE_DEPLOY_ADDRESS } from "@qinit/core";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import {
     encodeInput,
@@ -26,11 +20,7 @@ const UNSIGNED_SOURCE = new Uint8Array(32).fill(0x99);
 const ORACLE = "4b31b54f2213f1396cec4a1bd633b9409112d5969592c2c5fa66ddc1656f63c9";
 
 // Build an unsigned canonical transaction for deploy-wire tests with real header offsets.
-function wrapTx(
-    inputType: number,
-    payload: Uint8Array,
-    destination: Uint8Array = LITE_DEPLOY_ADDRESS,
-): Uint8Array {
+function wrapTx(inputType: number, payload: Uint8Array, destination: Uint8Array = LITE_DEPLOY_ADDRESS): Uint8Array {
     const b = new Uint8Array(80 + payload.length + 64);
     const v = new DataView(b.buffer);
     b.set(UNSIGNED_SOURCE, 0);
@@ -56,9 +46,7 @@ test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)
     expect(c.procedures.map((p) => p.inputType)).toContain(1);
 
     // Get (function) via querySmartContract + the real proto decode
-    expect(
-        await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64"),
-    ).toBe(0n);
+    expect(await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64")).toBe(0n);
 
     // Inc (procedure) via a REAL @qubic-lib signed tx -> broadcastTx (validates the engine decodes the real wire)
     const tx = await buildSignedTx(SEED, {
@@ -70,9 +58,7 @@ test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)
     });
     expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
 
-    expect(
-        await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64"),
-    ).toBe(1n);
+    expect(await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64")).toBe(1n);
 });
 
 test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe -> oracle)", async () => {
@@ -96,34 +82,19 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
             }),
         ),
     );
-    for (let i = 0; i < chunks.length; i++)
-        await eng.broadcastTx(
-            wrapTx(
-                LITE_TX.UPLOAD_CHUNK,
-                encodeUploadChunk({ sessionId, seq: i, bytes: chunks[i] }),
-            ),
-        );
+    for (let i = 0; i < chunks.length; i++) await eng.broadcastTx(wrapTx(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId, seq: i, bytes: chunks[i] })));
     expect((await eng.dynUpload()).complete).toBe(true);
 
-    await eng.broadcastTx(
-        wrapTx(
-            LITE_TX.DEPLOY,
-            encodeDeploy({ sessionId, targetSlot: 29, finalHashHex, name: "DigestProbe" }),
-        ),
-    );
+    await eng.broadcastTx(wrapTx(LITE_TX.DEPLOY, encodeDeploy({ sessionId, targetSlot: 29, finalHashHex, name: "DigestProbe" })));
     const reg = await eng.dynRegistry();
     expect(reg.contracts.find((x) => x.index === 29)?.constructed).toBe(true);
     expect(reg.contracts.find((x) => x.index === 29)?.name).toBe("DigestProbe");
 
     // Exercise the wire-deployed contract + reproduce the cross-platform digest oracle through the seam.
-    expect(
-        await decodeOutput(await eng.querySmartContract(29, 1, await encodeInput("")), "uint64"),
-    ).toBe(0n);
+    expect(await decodeOutput(await eng.querySmartContract(29, 1, await encodeInput("")), "uint64")).toBe(0n);
     eng.fund(UNSIGNED_SOURCE, 1n);
     await eng.broadcastTx(wrapTx(1, new Uint8Array(0), contractAddress(29))); // Inc (procedure it=1)
-    expect(
-        await decodeOutput(await eng.querySmartContract(29, 1, await encodeInput("")), "uint64"),
-    ).toBe(1n);
+    expect(await decodeOutput(await eng.querySmartContract(29, 1, await encodeInput("")), "uint64")).toBe(1n);
     expect(eng.sim.digest(29)).toBe(ORACLE);
 });
 
@@ -155,10 +126,7 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
     const eng = await VirtualNode.create({ mempool: false });
     const first = 11n;
     const begin = (sessionId: bigint, totalSize: number, chunkCount: number, hash: string) =>
-        (eng as any).handleDeployTx(
-            LITE_TX.UPLOAD_BEGIN,
-            encodeUploadBegin({ sessionId, totalSize, chunkCount, finalHashHex: hash }),
-        );
+        (eng as any).handleDeployTx(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId, totalSize, chunkCount, finalHashHex: hash }));
 
     begin(first, 2017, 3, "11".repeat(32));
     (eng as any).handleDeployTx(
@@ -204,9 +172,7 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
     });
     expect([...(eng as any).upload.buf]).toEqual(buffer);
 
-    expect(() => begin(22n, 4, 1, "22".repeat(32))).toThrow(
-        "another contract upload is active (session 11, 1/3 chunks); wait for it to complete",
-    );
+    expect(() => begin(22n, 4, 1, "22".repeat(32))).toThrow("another contract upload is active (session 11, 1/3 chunks); wait for it to complete");
     expect((eng as any).upload).toBe(active);
     expect([...(eng as any).upload.buf]).toEqual(buffer);
     expect((await eng.dynUpload()).receivedCount).toBe(1);
@@ -214,8 +180,7 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
 
 test("deployment sessions reject oversized modules, malformed chunks, and mismatched hashes", async () => {
     const engine = new VirtualNode({ verifySigs: false });
-    const handle = (inputType: number, payload: Uint8Array) =>
-        (engine as any).handleDeployTx(inputType, payload);
+    const handle = (inputType: number, payload: Uint8Array) => (engine as any).handleDeployTx(inputType, payload);
 
     expect(() =>
         handle(
@@ -273,9 +238,7 @@ test("signature verification (opt-in): valid signed tx accepted, tampered one re
         payload: await encodeInput(""),
     });
     expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
-    expect(
-        await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64"),
-    ).toBe(1n); // applied
+    expect(await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64")).toBe(1n); // applied
 
     const bad = tx.bytes.slice();
     bad[bad.length - 1] ^= 0xff; // flip a signature byte
@@ -365,9 +328,7 @@ test("engine emits a diagnostic log stream (deploy/tick/tx events via onLog)", a
     expect(ev.some((e) => e.cat === "deploy" && e.level === "info")).toBe(true);
 
     eng.advanceTick(1);
-    expect(ev.some((e) => e.cat === "tick" && e.level === "debug" && /begin/.test(e.msg))).toBe(
-        true,
-    );
+    expect(ev.some((e) => e.cat === "tick" && e.level === "debug" && /begin/.test(e.msg))).toBe(true);
     expect(ev.some((e) => e.cat === "tick" && /end/.test(e.msg))).toBe(true);
 
     ev.length = 0;

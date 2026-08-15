@@ -14,11 +14,7 @@ function binTargets(): string[] {
     const self = process.execPath;
     if (basename(self) !== "bun" && basename(self) !== "node") out.push(self);
     // canonical install dir: install.ps1 -> %LOCALAPPDATA%\qinit\bin (qinit.exe); install.sh -> ~/.local/bin (qinit)
-    const dir =
-        process.env.QINIT_BIN ||
-        (isWin
-            ? join(process.env.LOCALAPPDATA || homedir(), "qinit", "bin")
-            : join(homedir(), ".local", "bin"));
+    const dir = process.env.QINIT_BIN || (isWin ? join(process.env.LOCALAPPDATA || homedir(), "qinit", "bin") : join(homedir(), ".local", "bin"));
     const installed = join(dir, isWin ? "qinit.exe" : "qinit");
     if (existsSync(installed)) out.push(installed);
     return out.filter((p, i, a) => a.indexOf(p) === i);
@@ -94,12 +90,7 @@ export function Uninstall({ commandArgs }: { commandArgs: CommandArguments }) {
                         <KV
                             rows={[
                                 ...s.bins!.map((b) => ["binary", b] as [string, string]),
-                                [
-                                    "cache",
-                                    keepCache
-                                        ? "(kept — --keep-cache)"
-                                        : `${cacheInfo().root}  ${human(s.cacheTotal!)}`,
-                                ],
+                                ["cache", keepCache ? "(kept — --keep-cache)" : `${cacheInfo().root}  ${human(s.cacheTotal!)}`],
                             ]}
                         />
                     </Box>
@@ -113,10 +104,7 @@ export function Uninstall({ commandArgs }: { commandArgs: CommandArguments }) {
             )}
             {s.phase === "done" && (
                 <Box flexDirection="column">
-                    <Status
-                        ok={true}
-                        label={`uninstalled${keepCache ? " (cache kept)" : ` · freed ${human(s.freed!)}`}`}
-                    />
+                    <Status ok={true} label={`uninstalled${keepCache ? " (cache kept)" : ` · freed ${human(s.freed!)}`}`} />
                     {s.removed!.length ? (
                         <Box marginLeft={2} flexDirection="column">
                             {s.removed!.map((b, i) => (

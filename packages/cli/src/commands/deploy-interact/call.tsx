@@ -2,22 +2,9 @@ import { useEffect, useState } from "react";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
-import {
-    DEFAULT_RPC_BASE,
-    LiteRpc,
-    resolveTrapBacktrace,
-    formatTrapBacktrace,
-    type DebugEntry,
-} from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
 import { activeNodeScratchDir } from "../../ops/node";
-import {
-    callFunction,
-    invokeProcedure,
-    encodeInput,
-    encodeInputJson,
-    zeroInputFormat,
-    TX_TICK_OFFSET,
-} from "@qinit/proto";
+import { callFunction, invokeProcedure, encodeInput, encodeInputJson, zeroInputFormat, TX_TICK_OFFSET } from "@qinit/proto";
 import { AbiTypeKind, type ContractEntry } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { describeTrace, fmtVal, formatStateValue, type DecodedTrace } from "../../trace/format";
@@ -63,15 +50,7 @@ export function Call({ commandArgs }: { commandArgs: CommandArguments }) {
     if (!mode) {
         return <CallInteractive rpcBaseUrl={rpcBaseUrl} seed={commandArgs.get("seed")} />;
     }
-    return (
-        <CallOneShot
-            commandArgs={commandArgs}
-            mode={mode}
-            contract={contract!}
-            entryName={entryName!}
-            rpcBaseUrl={rpcBaseUrl}
-        />
-    );
+    return <CallOneShot commandArgs={commandArgs} mode={mode} contract={contract!} entryName={entryName!} rpcBaseUrl={rpcBaseUrl} />;
 }
 
 function CallOneShot({
@@ -112,10 +91,7 @@ function CallOneShot({
                 // contract: resolve a name or index across user-deployed (first) then built-in system contracts.
                 const sets = await loadContracts(rpc);
                 const rc = resolveContract(contract, sets);
-                if (!rc)
-                    throw new Error(
-                        `no contract '${contract}' (deployed or system — run \`qinit node run\` to load system contracts)`,
-                    );
+                if (!rc) throw new Error(`no contract '${contract}' (deployed or system — run \`qinit node run\` to load system contracts)`);
                 const idx = rc.index;
                 // entry: accept a fn/proc name or an inputType number. Prefer local qinit.idl.json, else derive from the
                 // contract source (node dyn-registry source for user contracts, snapshot source for system contracts).
@@ -131,17 +107,11 @@ function CallOneShot({
                 }
                 entries ??= [];
                 let entry = Number(entryName);
-                let entryIdl: ContractEntry | undefined = entries.find(
-                    (candidate) => candidate.inputType === entry,
-                );
+                let entryIdl: ContractEntry | undefined = entries.find((candidate) => candidate.inputType === entry);
                 if (Number.isNaN(entry)) {
-                    entryIdl = entries.find(
-                        (candidate) => candidate.name.toLowerCase() === entryName.toLowerCase(),
-                    );
+                    entryIdl = entries.find((candidate) => candidate.name.toLowerCase() === entryName.toLowerCase());
                     if (!entryIdl) {
-                        throw new Error(
-                            `no ${mode} named '${entryName}' on contract ${idx} (no local IDL and node has no source for this slot)`,
-                        );
+                        throw new Error(`no ${mode} named '${entryName}' on contract ${idx} (no local IDL and node has no source for this slot)`);
                     }
                     entry = entryIdl.inputType;
                 }
@@ -164,19 +134,11 @@ function CallOneShot({
                     } catch (enc: any) {
                         let z = "";
                         try {
-                            if (
-                                entryIdl &&
-                                !(
-                                    entryIdl.input.kind === AbiTypeKind.STRUCT &&
-                                    entryIdl.input.fields.length === 0
-                                )
-                            ) {
+                            if (entryIdl && !(entryIdl.input.kind === AbiTypeKind.STRUCT && entryIdl.input.fields.length === 0)) {
                                 z = zeroInputFormat(entryIdl.input);
                             }
                         } catch {}
-                        throw new Error(
-                            `bad input: ${enc?.message ?? enc}${z ? `\nall-zero sample: ${z}` : ""}`,
-                        );
+                        throw new Error(`bad input: ${enc?.message ?? enc}${z ? `\nall-zero sample: ${z}` : ""}`);
                     }
                 }
 
@@ -188,10 +150,7 @@ function CallOneShot({
                 if (wantTrace) {
                     try {
                         await rpc.setDebug(true);
-                        sinceSeq = ((await rpc.debugTrace(0, 500)).entries ?? []).reduce(
-                            (mx, en) => Math.max(mx, en.seq),
-                            0,
-                        );
+                        sinceSeq = ((await rpc.debugTrace(0, 500)).entries ?? []).reduce((mx, en) => Math.max(mx, en.seq), 0);
                     } catch {}
                 }
 
@@ -223,15 +182,8 @@ function CallOneShot({
                 const label = `${contract}.${entryIdl?.name ?? (mode === "fn" ? "fn#" : "proc#") + entry}`;
 
                 if (mode === "fn") {
-                    const out = await callFunction(
-                        rpc,
-                        idx,
-                        entry,
-                        input,
-                        outputFormat ?? entryIdl?.output ?? "",
-                    );
-                    const empty =
-                        out == null || (typeof out === "object" && Object.keys(out).length === 0);
+                    const out = await callFunction(rpc, idx, entry, input, outputFormat ?? entryIdl?.output ?? "");
+                    const empty = out == null || (typeof out === "object" && Object.keys(out).length === 0);
                     const ne = empty ? await nodeErr() : "";
                     setResult({
                         ok: ne ? false : true,
@@ -240,9 +192,7 @@ function CallOneShot({
                             [
                                 "out",
                                 // An explicit --out format overrides the IDL, and only the IDL type carries field names.
-                                !outputFormat && entryIdl
-                                    ? formatStateValue(out, entryIdl.output, showAll, true)
-                                    : fmtVal(out, showAll),
+                                !outputFormat && entryIdl ? formatStateValue(out, entryIdl.output, showAll, true) : fmtVal(out, showAll),
                             ],
                         ],
                         err: await enrichErr(ne),
@@ -266,8 +216,7 @@ function CallOneShot({
                         tick,
                         confirm: settle,
                         rpc,
-                        onProgress: ({ tick: net, target }) =>
-                            setConfirm((c) => ({ start: c?.start ?? net, net, target })),
+                        onProgress: ({ tick: net, target }) => setConfirm((c) => ({ start: c?.start ?? net, net, target })),
                     });
                     setConfirm(null);
                     const txs = (r.txId ?? "") || "—"; // full txid — user pastes it into the explorer
@@ -294,9 +243,7 @@ function CallOneShot({
                         err:
                             (await enrichErr(await nodeErr())) ||
                             (!r.ok ? r.message : undefined) ||
-                            (dropped && signer.unfunded
-                                ? unfundedSignerMessage(signer.identity)
-                                : undefined),
+                            (dropped && signer.unfunded ? unfundedSignerMessage(signer.identity) : undefined),
                     });
                 }
 
@@ -305,13 +252,7 @@ function CallOneShot({
                     for (let i = 0; i < 12 && !te; i++) {
                         const t = await rpc.debugTrace(sinceSeq, 200);
                         te = (t.entries ?? [])
-                            .filter(
-                                (x) =>
-                                    x.index === idx &&
-                                    x.seq > sinceSeq &&
-                                    x.kind === (mode === "fn" ? 0 : 1) &&
-                                    x.entry === entry,
-                            )
+                            .filter((x) => x.index === idx && x.seq > sinceSeq && x.kind === (mode === "fn" ? 0 : 1) && x.entry === entry)
                             .pop();
                         if (!te) await sleep(700);
                     }
@@ -320,17 +261,9 @@ function CallOneShot({
                             e: te,
                             name: traceName,
                             entry: entryLabel(mode === "fn" ? 0 : 1, entry, entryIdl?.name),
-                            view: await describeTrace(
-                                te,
-                                traceSrc,
-                                traceName,
-                                traceSrc ? loadConfiguredQpiHeader() : undefined,
-                            ),
+                            view: await describeTrace(te, traceSrc, traceName, traceSrc ? loadConfiguredQpiHeader() : undefined),
                         });
-                    else
-                        setNote(
-                            "(no trace captured — is the debug toggle available on this node?)",
-                        );
+                    else setNote("(no trace captured — is the debug toggle available on this node?)");
                     try {
                         await rpc.setDebug(false);
                     } catch {}
@@ -350,21 +283,13 @@ function CallOneShot({
     }, [done]); // failure -> non-zero for scripts/CI
 
     const rw = Math.max(2, ...(result?.rows ?? []).map(([k]) => k.length));
-    const pct =
-        confirm && confirm.target > confirm.start
-            ? (confirm.net - confirm.start) / (confirm.target - confirm.start)
-            : 1;
+    const pct = confirm && confirm.target > confirm.start ? (confirm.net - confirm.start) / (confirm.target - confirm.start) : 1;
     return (
         <Box flexDirection="column">
             <Header cmd="call" />
             {result && (
                 <Box flexDirection="column">
-                    <Status
-                        ok={result.ok}
-                        label={result.label}
-                        detail={result.detail}
-                        pad={Math.max(14, result.label.length + 2)}
-                    />
+                    <Status ok={result.ok} label={result.label} detail={result.detail} pad={Math.max(14, result.label.length + 2)} />
                     {result.rows?.length ? (
                         <Box flexDirection="column" marginLeft={2}>
                             {result.rows.map(([k, v], i) => (
@@ -383,14 +308,7 @@ function CallOneShot({
             )}
             {trace && (
                 <Box marginTop={1}>
-                    <TraceView
-                        e={trace.e}
-                        name={trace.name}
-                        entry={trace.entry}
-                        view={trace.view}
-                        showInternals={showInternals}
-                        internalsHint="--trace-full"
-                    />
+                    <TraceView e={trace.e} name={trace.name} entry={trace.entry} view={trace.view} showInternals={showInternals} internalsHint="--trace-full" />
                 </Box>
             )}
             {note && <Text dimColor>{note}</Text>}

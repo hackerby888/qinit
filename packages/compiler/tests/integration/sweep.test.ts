@@ -8,12 +8,7 @@ import { systemContracts } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { parseContractIdl } from "@qinit/proto/contract-idl";
-import {
-    compileContract,
-    loadQpiHeader,
-    type ContractIdl,
-    type CompileResult,
-} from "../../src/index";
+import { compileContract, loadQpiHeader, type ContractIdl, type CompileResult } from "../../src/index";
 
 const QPI = loadQpiHeader(CORE_PATH);
 
@@ -23,17 +18,7 @@ const SYSTEM = CORE_PATH + "/src/contracts";
 const SYSTEM_CONTRACTS = systemContracts(CORE_PATH);
 
 // simple user-level fixtures
-const FIXTURE_FILES = [
-    "Counter.h",
-    "Counter5.h",
-    "Bank.h",
-    "Token.h",
-    "Vault.h",
-    "Dividend.h",
-    "Proxy.h",
-    "DigestProbe.h",
-    "BigState.h",
-];
+const FIXTURE_FILES = ["Counter.h", "Counter5.h", "Bank.h", "Token.h", "Vault.h", "Dividend.h", "Proxy.h", "DigestProbe.h", "BigState.h"];
 
 interface DependencySpec {
     name: string;
@@ -138,13 +123,9 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
                 callees: priorIdl.length ? priorIdl : undefined,
                 calleeSources: priorSources.length ? priorSources : undefined,
             });
-            const dependencyErrors = dependencyResult.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            );
+            const dependencyErrors = dependencyResult.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
             if (dependencyErrors.length) {
-                throw new Error(
-                    `${dependency.name}: ${dependencyErrors.map((diagnostic) => `L${diagnostic.span.line} ${diagnostic.message}`).join("; ")}`,
-                );
+                throw new Error(`${dependency.name}: ${dependencyErrors.map((diagnostic) => `L${diagnostic.span.line} ${diagnostic.message}`).join("; ")}`);
             }
             dependencyResults.push(dependencyResult);
         }
@@ -199,38 +180,21 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
             loadErrors.push("compiled artifact has no IDL");
         } else {
             if (r.idl.state.size !== stateSize) {
-                loadErrors.push(
-                    `IDL state size ${r.idl.state.size} != Wasm state_size() ${stateSize}`,
-                );
+                loadErrors.push(`IDL state size ${r.idl.state.size} != Wasm state_size() ${stateSize}`);
             }
 
-            const idlEntries = [
-                ...r.idl.functions.map((entry) => ({ ...entry, kind: 0 })),
-                ...r.idl.procedures.map((entry) => ({ ...entry, kind: 1 })),
-            ];
+            const idlEntries = [...r.idl.functions.map((entry) => ({ ...entry, kind: 0 })), ...r.idl.procedures.map((entry) => ({ ...entry, kind: 1 }))];
             if (idlEntries.length !== c.entries.length) {
-                loadErrors.push(
-                    `IDL entry count ${idlEntries.length} != Wasm reg_count() ${c.entries.length}`,
-                );
+                loadErrors.push(`IDL entry count ${idlEntries.length} != Wasm reg_count() ${c.entries.length}`);
             }
             for (const entry of idlEntries) {
-                const registered = c.entries.find(
-                    (candidate) =>
-                        candidate.kind === entry.kind && candidate.inputType === entry.inputType,
-                );
+                const registered = c.entries.find((candidate) => candidate.kind === entry.kind && candidate.inputType === entry.inputType);
                 if (!registered) {
-                    loadErrors.push(
-                        `missing Wasm registration for ${entry.name} (${entry.kind}:${entry.inputType})`,
-                    );
+                    loadErrors.push(`missing Wasm registration for ${entry.name} (${entry.kind}:${entry.inputType})`);
                     continue;
                 }
-                if (
-                    registered.inputSizeBytes !== entry.inSize ||
-                    registered.outputSizeBytes !== entry.outSize
-                ) {
-                    loadErrors.push(
-                        `${entry.name} IDL ${entry.inSize}/${entry.outSize} != Wasm ${registered.inputSizeBytes}/${registered.outputSizeBytes}`,
-                    );
+                if (registered.inputSizeBytes !== entry.inSize || registered.outputSizeBytes !== entry.outSize) {
+                    loadErrors.push(`${entry.name} IDL ${entry.inSize}/${entry.outSize} != Wasm ${registered.inputSizeBytes}/${registered.outputSizeBytes}`);
                 }
             }
         }
@@ -259,9 +223,7 @@ test("conformance sweep — fixtures + system contracts", async () => {
         ...FIXTURE_FILES.map((file) => file.replace(".h", "")),
         ...SYSTEM_CONTRACTS.map((contract) => contract.file.replace(".h", "")),
     ]);
-    expect(Object.keys(LINKED_DEPENDENCIES).filter((name) => !declaredTargets.has(name))).toEqual(
-        [],
-    );
+    expect(Object.keys(LINKED_DEPENDENCIES).filter((name) => !declaredTargets.has(name))).toEqual([]);
     expect(
         Object.values(LINKED_DEPENDENCIES)
             .flat()
@@ -278,33 +240,20 @@ test("conformance sweep — fixtures + system contracts", async () => {
 
     // Print the table
     const pad = (s: string, n: number) => s.padEnd(n);
-    console.log(
-        "\n" + pad("CONTRACT", 22) + pad("PARSE", 10) + pad("WASM", 10) + pad("LOAD", 8) + "STATE",
-    );
+    console.log("\n" + pad("CONTRACT", 22) + pad("PARSE", 10) + pad("WASM", 10) + pad("LOAD", 8) + "STATE");
     console.log("-".repeat(62));
     for (const r of rows) {
-        console.log(
-            pad(r.name, 22) + pad(r.parse, 10) + pad(r.wasm, 10) + pad(r.load, 8) + r.state,
-        );
+        console.log(pad(r.name, 22) + pad(r.parse, 10) + pad(r.wasm, 10) + pad(r.load, 8) + r.state);
     }
 
     const real = rows.filter((r) => r.name !== "---");
     const parsed = real.filter((r) => r.parse === "ok").length;
     const wasmd = real.filter((r) => r.wasm.endsWith("b")).length;
     const loaded = real.filter((r) => r.load === "ok").length;
-    const failures = real.filter(
-        (row) => row.parse !== "ok" || !row.wasm.endsWith("b") || row.load !== "ok",
-    );
-    const failureReport = failures
-        .map(
-            (row) =>
-                `${row.name}: ${row.errors.join("; ") || `${row.parse}/${row.wasm}/${row.load}`}`,
-        )
-        .join("\n");
+    const failures = real.filter((row) => row.parse !== "ok" || !row.wasm.endsWith("b") || row.load !== "ok");
+    const failureReport = failures.map((row) => `${row.name}: ${row.errors.join("; ") || `${row.parse}/${row.wasm}/${row.load}`}`).join("\n");
     console.log("-".repeat(62));
-    console.log(
-        `TOTAL ${real.length}  ·  parsed ${parsed}  ·  wasm ${wasmd}  ·  engine-loaded ${loaded}\n`,
-    );
+    console.log(`TOTAL ${real.length}  ·  parsed ${parsed}  ·  wasm ${wasmd}  ·  engine-loaded ${loaded}\n`);
 
     // Dependency-aware coverage is deterministic, so drift is now a gating failure rather than a table-only measurement.
     expect(

@@ -14,10 +14,7 @@ const LOG_LEVELS: Readonly<Record<string, number>> = {
     __qinit_log_debug: QUBIC_LOG_TYPE.CONTRACT_DEBUG_MESSAGE,
 };
 
-export function tryEmitHostIntrinsicCall(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-): boolean {
+export function tryEmitHostIntrinsicCall(context: FunctionEmissionContext, expression: CallExpression): boolean {
     if (expression.callee.kind !== AstKind.IDENTIFIER) {
         return false;
     }
@@ -35,76 +32,37 @@ export function tryEmitHostIntrinsicCall(
     return false;
 }
 
-function emitKangarooTwelveCall(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-): void {
+function emitKangarooTwelveCall(context: FunctionEmissionContext, expression: CallExpression): void {
     const inputAddress = expression.callArguments[0]
         ? (context.lowering.emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)")
         : "(i32.const 0)";
-    const inputSize = expression.callArguments[1]
-        ? context.lowering.lowerValueExpression(context, expression.callArguments[1])
-        : watIr.i64Constant(0);
+    const inputSize = expression.callArguments[1] ? context.lowering.lowerValueExpression(context, expression.callArguments[1]) : watIr.i64Constant(0);
     const digestAddress = context.lowering.allocateScratchSlotNode(context, 32);
 
     context.lines.push(
-        `    ${watIr.serializeWatNode(
-            watIr.functionCall(
-                "$lh_k12",
-                addrIr(inputAddress),
-                watIr.operation("i32.wrap_i64", inputSize),
-                digestAddress,
-            ),
-        )}`,
+        `    ${watIr.serializeWatNode(watIr.functionCall("$lh_k12", addrIr(inputAddress), watIr.operation("i32.wrap_i64", inputSize), digestAddress))}`,
     );
 
     let outputExpression: Expression | undefined = expression.callArguments[2];
-    while (
-        outputExpression?.kind === AstKind.PAREN ||
-        (outputExpression?.kind === AstKind.UNARY_OP &&
-            outputExpression.operator === UnaryOp.ADDRESS_OF)
-    ) {
-        outputExpression =
-            outputExpression.kind === AstKind.PAREN
-                ? outputExpression.expression
-                : outputExpression.argument;
+    while (outputExpression?.kind === AstKind.PAREN || (outputExpression?.kind === AstKind.UNARY_OP && outputExpression.operator === UnaryOp.ADDRESS_OF)) {
+        outputExpression = outputExpression.kind === AstKind.PAREN ? outputExpression.expression : outputExpression.argument;
     }
 
-    if (
-        outputExpression?.kind === AstKind.IDENTIFIER &&
-        context.localVars.get(outputExpression.name)?.wasmType === WatNodeType.I64
-    ) {
-        context.lines.push(
-            `    ${context.lowering.setLocal(
-                context,
-                outputExpression.name,
-                watIr.rawLoad("i64.load", null, digestAddress),
-            )}`,
-        );
+    if (outputExpression?.kind === AstKind.IDENTIFIER && context.localVars.get(outputExpression.name)?.wasmType === WatNodeType.I64) {
+        context.lines.push(`    ${context.lowering.setLocal(context, outputExpression.name, watIr.rawLoad("i64.load", null, digestAddress))}`);
         return;
     }
 
-    const outputAddress = expression.callArguments[2]
-        ? context.lowering.emitAddress(context, expression.callArguments[2])
-        : null;
+    const outputAddress = expression.callArguments[2] ? context.lowering.emitAddress(context, expression.callArguments[2]) : null;
 
     if (!outputAddress) {
         throw new Error("KangarooTwelve output is not addressable");
     }
 
-    const outputSize = expression.callArguments[3]
-        ? context.lowering.lowerValueExpression(context, expression.callArguments[3])
-        : watIr.i64Constant(32);
+    const outputSize = expression.callArguments[3] ? context.lowering.lowerValueExpression(context, expression.callArguments[3]) : watIr.i64Constant(32);
 
     context.lines.push(
-        `    ${watIr.serializeWatNode(
-            watIr.functionCall(
-                "$copyMem",
-                addrIr(outputAddress),
-                digestAddress,
-                watIr.operation("i32.wrap_i64", outputSize),
-            ),
-        )}`,
+        `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(outputAddress), digestAddress, watIr.operation("i32.wrap_i64", outputSize)))}`,
     );
 }
 
@@ -130,12 +88,7 @@ function emitLoggingCall(context: FunctionEmissionContext, expression: CallExpre
     throw new Error(`unknown logging intrinsic '${callName}'`);
 }
 
-function emitLogMessage(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-    callName: string,
-    logLevel: number,
-): void {
+function emitLogMessage(context: FunctionEmissionContext, expression: CallExpression, callName: string, logLevel: number): void {
     const argument = expression.callArguments[0];
     const payload = argument ? context.lowering.resolveExpressionAddress(context, argument) : null;
     // Report rather than throw, so the diagnostic carries a source location and the remaining
@@ -148,10 +101,7 @@ function emitLogMessage(
     }
 
     if (!payload.layout) {
-        context.programAnalysis.error(
-            logPayloadMessage(callName, LogPayloadDefect.NOT_A_STRUCT),
-            span,
-        );
+        context.programAnalysis.error(logPayloadMessage(callName, LogPayloadDefect.NOT_A_STRUCT), span);
         return;
     }
 
@@ -174,9 +124,5 @@ function emitLogMessage(
 
     context.lines.push(`    ${watIr.serializeWatNode(loggingCall)}`);
     // Restore the host-stamped contract index so logging cannot alter contract state.
-    context.lines.push(
-        `    ${watIr.serializeWatNode(
-            watIr.rawStore("i32.store", null, payloadAddress, watIr.i32Constant(0)),
-        )}`,
-    );
+    context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i32.store", null, payloadAddress, watIr.i32Constant(0)))}`);
 }

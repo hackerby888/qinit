@@ -6,10 +6,7 @@ export function contractId(slot: number): Uint8Array {
 }
 
 export function readUint64LE(bytes: Uint8Array, offset = 0): bigint {
-    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(
-        offset,
-        true,
-    );
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(offset, true);
 }
 
 export function readInt64LE(bytes: Uint8Array, offset = 0): bigint {

@@ -3,11 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { CORE_WASM_HEADERS } from "../../src/wasm/headers";
-import {
-    CONTRACT_ENTRY_POINTS,
-    SYSTEM_PROCEDURE_COUNT,
-    SYSTEM_PROCEDURES,
-} from "../../src/wasm/lhost-abi";
+import { CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURE_COUNT, SYSTEM_PROCEDURES } from "../../src/wasm/lhost-abi";
 
 test("contract entry points follow the generated system-procedure range", () => {
     expect(Object.keys(SYSTEM_PROCEDURES).length).toBe(SYSTEM_PROCEDURE_COUNT as number);
@@ -50,22 +46,15 @@ describe.if(coreOk)("canonical core Wasm header layout", () => {
 
     test("runtime and SDK do not include each other", () => {
         for (const path of Object.values(CORE_WASM_HEADERS.runtime)) {
-            expect(readFileSync(join(sourceRoot, path), "utf8")).not.toContain(
-                '#include "extensions/wasm/sdk/',
-            );
+            expect(readFileSync(join(sourceRoot, path), "utf8")).not.toContain('#include "extensions/wasm/sdk/');
         }
         for (const path of Object.values(CORE_WASM_HEADERS.sdk)) {
-            expect(readFileSync(join(sourceRoot, path), "utf8")).not.toContain(
-                '#include "extensions/wasm/runtime/',
-            );
+            expect(readFileSync(join(sourceRoot, path), "utf8")).not.toContain('#include "extensions/wasm/runtime/');
         }
     });
 
     test("reserved-slot fragment remains repeatedly includable", () => {
-        const source = readFileSync(
-            join(sourceRoot, CORE_WASM_HEADERS.runtime.reservedSlotContract),
-            "utf8",
-        );
+        const source = readFileSync(join(sourceRoot, CORE_WASM_HEADERS.runtime.reservedSlotContract), "utf8");
         expect(source).not.toContain("#pragma once");
         expect(source).not.toMatch(/^\s*#ifndef\b/m);
     });

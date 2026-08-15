@@ -16,11 +16,7 @@ export async function encodeWat(wat: string, sourceName: string): Promise<Uint8A
     return new Uint8Array(parsedModule.toBinary({}).buffer);
 }
 
-export async function encodeAndInspectWat(
-    wat: string,
-    options: CompileOptions,
-    metadata: GeneratedContractMetadata,
-): Promise<Uint8Array> {
+export async function encodeAndInspectWat(wat: string, options: CompileOptions, metadata: GeneratedContractMetadata): Promise<Uint8Array> {
     const wasm = await encodeWat(wat, "contract.wat");
 
     if (!WebAssembly.validate(wasm)) {
@@ -28,10 +24,7 @@ export async function encodeAndInspectWat(
     }
 
     const inspection = inspectWasmModule(wasm, {
-        memoryMode:
-            options.sharedMemoryBaseOffsetBytes === undefined
-                ? WasmModuleMemoryMode.DEFINED
-                : WasmModuleMemoryMode.IMPORTED,
+        memoryMode: options.sharedMemoryBaseOffsetBytes === undefined ? WasmModuleMemoryMode.DEFINED : WasmModuleMemoryMode.IMPORTED,
         lhostAbi: metadata.lhostAbi ? toWasmFunctionSignatures(metadata.lhostAbi) : undefined,
     });
 

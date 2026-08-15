@@ -3,22 +3,14 @@ import { AccessSpec, AstKind } from "../../src/shared/enums";
 import { describe, test, expect } from "bun:test";
 import { ProgramAnalysis } from "../../src/analysis";
 import { SemanticAnalyzer } from "../../src/analysis/semantic-analysis";
-import type {
-    TypeSpec,
-    StructDecl,
-    VariableDecl,
-    TemplateParam,
-    Declaration,
-    Expression,
-} from "../../src/ast";
+import type { TypeSpec, StructDecl, VariableDecl, TemplateParam, Declaration, Expression } from "../../src/ast";
 import type { TemplateBindings } from "../../src/backend/wasm/types";
 
 const NO_SPAN = { start: 0, end: 0, line: 0, column: 0 };
 
 const n = (name: string): TypeSpec => ({ kind: AstKind.NAME, name }) as TypeSpec;
 
-const tinst = (name: string, callArguments: TypeSpec[]): TypeSpec =>
-    ({ kind: AstKind.TEMPLATE_INSTANCE, name, callArguments }) as TypeSpec;
+const tinst = (name: string, callArguments: TypeSpec[]): TypeSpec => ({ kind: AstKind.TEMPLATE_INSTANCE, name, callArguments }) as TypeSpec;
 
 const exprVal = (value: number): TypeSpec =>
     ({
@@ -26,8 +18,7 @@ const exprVal = (value: number): TypeSpec =>
         expression: { kind: AstKind.INT_LITERAL, value: String(value), span: NO_SPAN },
     }) as TypeSpec;
 
-const ident = (name: string): Expression =>
-    ({ kind: AstKind.IDENTIFIER, name, span: NO_SPAN }) as Expression;
+const ident = (name: string): Expression => ({ kind: AstKind.IDENTIFIER, name, span: NO_SPAN }) as Expression;
 
 const array = (element: TypeSpec, size: number): TypeSpec =>
     ({
@@ -88,11 +79,9 @@ const sdecl = (
 
 const ctmpl = (params: TemplateParam[], members: Declaration[]) => ({ params, members });
 
-const tparam = (name: string): TemplateParam =>
-    ({ kind: AstKind.TYPE, name, span: NO_SPAN }) as TemplateParam;
+const tparam = (name: string): TemplateParam => ({ kind: AstKind.TYPE, name, span: NO_SPAN }) as TemplateParam;
 
-const ntparam = (name: string): TemplateParam =>
-    ({ kind: AstKind.NON_TYPE, name, type: n("uint64"), span: NO_SPAN }) as TemplateParam;
+const ntparam = (name: string): TemplateParam => ({ kind: AstKind.NON_TYPE, name, type: n("uint64"), span: NO_SPAN }) as TemplateParam;
 
 const makeCg = (): ProgramAnalysis => new ProgramAnalysis(new SemanticAnalyzer());
 
@@ -156,11 +145,7 @@ describe("Codegen — simple struct layout", () => {
 
     test("mixed-width with natural alignment", () => {
         const codeGenerationContext = makeCg();
-        const s = sdecl("S", [
-            fld("v1", n("uint8")),
-            fld("v2", n("uint64")),
-            fld("v3", n("uint16")),
-        ]);
+        const s = sdecl("S", [fld("v1", n("uint8")), fld("v2", n("uint64")), fld("v3", n("uint16"))]);
         const layout = codeGenerationContext.layoutOf(s);
         expect(layout.fields.get("v1")!.offset).toBe(0);
         expect(layout.fields.get("v1")!.size).toBe(1);
@@ -228,9 +213,7 @@ describe("Codegen — simple struct layout", () => {
 
         const forward = codeGenerationContext.layoutOf(sdecl("Forward", [], { hasBody: false }));
         const recursiveLayout = codeGenerationContext.layoutOf(recursive);
-        const zeroArray = codeGenerationContext.layoutOf(
-            sdecl("ZeroArray", [fld("values", array(n("uint8"), 0))]),
-        );
+        const zeroArray = codeGenerationContext.layoutOf(sdecl("ZeroArray", [fld("values", array(n("uint8"), 0))]));
 
         expect(forward.size).toBe(0);
         expect(recursiveLayout.size).toBe(0);
@@ -244,10 +227,7 @@ describe("Codegen — nested struct layout", () => {
     test("struct containing another struct as a field", () => {
         const codeGenerationContext = makeCg();
         const inner = sdecl("Inner", [fld("x", n("uint32")), fld("y", n("uint32"))]);
-        const outer = sdecl("Outer", [
-            fld("flag", n("uint8")),
-            fld("data", { kind: AstKind.INLINE_STRUCT, struct: inner } as TypeSpec),
-        ]);
+        const outer = sdecl("Outer", [fld("flag", n("uint8")), fld("data", { kind: AstKind.INLINE_STRUCT, struct: inner } as TypeSpec)]);
         const layout = codeGenerationContext.layoutOf(outer);
         expect(layout.fields.get("flag")!.offset).toBe(0);
         expect(layout.fields.get("flag")!.size).toBe(1);
@@ -287,14 +267,9 @@ describe("Codegen — union layout", () => {
         const codeGenerationContext = makeCg();
         const sixBytes = sdecl("SixBytes", [fld("values", array(n("uint16"), 3))]);
         const layout = codeGenerationContext.layoutOf(
-            sdecl(
-                "PaddedUnion",
-                [
-                    fld("sixBytes", { kind: AstKind.INLINE_STRUCT, struct: sixBytes } as TypeSpec),
-                    fld("fourBytes", n("uint32")),
-                ],
-                { isUnion: true },
-            ),
+            sdecl("PaddedUnion", [fld("sixBytes", { kind: AstKind.INLINE_STRUCT, struct: sixBytes } as TypeSpec), fld("fourBytes", n("uint32"))], {
+                isUnion: true,
+            }),
         );
 
         expect(layout.size).toBe(8);
@@ -303,11 +278,7 @@ describe("Codegen — union layout", () => {
 
     test("all fields at offset 0, size = max field size", () => {
         const codeGenerationContext = makeCg();
-        const s = sdecl(
-            "U",
-            [fld("as_u8", n("uint8")), fld("as_u64", n("uint64")), fld("as_u32", n("uint32"))],
-            { isUnion: true },
-        );
+        const s = sdecl("U", [fld("as_u8", n("uint8")), fld("as_u64", n("uint64")), fld("as_u32", n("uint32"))], { isUnion: true });
         const layout = codeGenerationContext.layoutOf(s);
         expect(layout.fields.get("as_u8")!.offset).toBe(0);
         expect(layout.fields.get("as_u8")!.size).toBe(1);
@@ -353,11 +324,7 @@ describe("Codegen — base class layout", () => {
         // Register base in globalStructs so baseContribution resolves it
         codeGenerationContext.globalStructs.set("Base", base);
 
-        const derived = sdecl(
-            "Derived",
-            [fld("derived_x", n("uint32")), fld("derived_y", n("uint64"))],
-            { bases: [n("Base")] },
-        );
+        const derived = sdecl("Derived", [fld("derived_x", n("uint32")), fld("derived_y", n("uint64"))], { bases: [n("Base")] });
         const layout = codeGenerationContext.layoutOf(derived);
 
         expect(layout.fields.get("base_a")!.offset).toBe(0);
@@ -402,9 +369,7 @@ describe("Codegen — template layout", () => {
             ),
         );
 
-        const layout = codeGenerationContext.layoutOfType(
-            tinst("Array", [n("uint64"), exprVal(4)]),
-        );
+        const layout = codeGenerationContext.layoutOfType(tinst("Array", [n("uint64"), exprVal(4)]));
         expect(layout).not.toBeNull();
         expect(layout!.size).toBe(32); // 8 * 4
         expect(layout!.align).toBe(8);
@@ -425,9 +390,7 @@ describe("Codegen — template layout", () => {
                 ],
             ),
         );
-        expect(
-            codeGenerationContext.layoutOfType(tinst("Array", [n("uint8"), exprVal(4)]))!.size,
-        ).toBe(4);
+        expect(codeGenerationContext.layoutOfType(tinst("Array", [n("uint8"), exprVal(4)]))!.size).toBe(4);
     });
 
     test("template instantiation is cached (same key → same object)", () => {
@@ -452,16 +415,12 @@ describe("Codegen — template layout", () => {
 
     test("missing Array template fails instead of using an approximate formula", () => {
         const codeGenerationContext = makeCg();
-        expect(() =>
-            codeGenerationContext.sizeOfType(tinst("Array", [n("uint64"), exprVal(4)])),
-        ).toThrow(/not captured.*refusing an approximate layout/);
+        expect(() => codeGenerationContext.sizeOfType(tinst("Array", [n("uint64"), exprVal(4)]))).toThrow(/not captured.*refusing an approximate layout/);
     });
 
     test("missing BitArray template fails instead of using an approximate formula", () => {
         const codeGenerationContext = makeCg();
-        expect(() => codeGenerationContext.sizeOfType(tinst("BitArray", [exprVal(256)]))).toThrow(
-            /not captured.*refusing an approximate layout/,
-        );
+        expect(() => codeGenerationContext.sizeOfType(tinst("BitArray", [exprVal(256)]))).toThrow(/not captured.*refusing an approximate layout/);
     });
 });
 
@@ -526,36 +485,24 @@ describe("Codegen — layoutOfType via global structs", () => {
         codeGenerationContext.globalStructs.set("Interface", sdecl("Interface", [query]));
 
         expect(codeGenerationContext.alignOfType(n("Interface::Query"))).toBe(8);
-        expect(
-            codeGenerationContext.layoutOf(
-                sdecl("Input", [fld("query", n("Interface::Query")), fld("timeout", n("uint32"))]),
-            ).size,
-        ).toBe(24);
+        expect(codeGenerationContext.layoutOf(sdecl("Input", [fld("query", n("Interface::Query")), fld("timeout", n("uint32"))])).size).toBe(24);
     });
 
     test("qualified constants resolve through template bindings", () => {
         const codeGenerationContext = makeCg();
-        codeGenerationContext.globalStructs.set(
-            "Price",
-            sdecl("Price", [stat("oracleInterfaceIndex", 0)]),
-        );
+        codeGenerationContext.globalStructs.set("Price", sdecl("Price", [stat("oracleInterfaceIndex", 0)]));
         const bindings: TemplateBindings = {
             types: new Map([["OracleInterface", n("Price")]]),
             values: new Map(),
             structs: new Map(),
         };
 
-        expect(
-            codeGenerationContext.resolveConst("OracleInterface::oracleInterfaceIndex", bindings),
-        ).toBe(0n);
+        expect(codeGenerationContext.resolveConst("OracleInterface::oracleInterfaceIndex", bindings)).toBe(0n);
     });
 
     test("qualified constants resolve nested owners before global tail names", () => {
         const codeGenerationContext = makeCg();
-        codeGenerationContext.globalStructs.set(
-            "Outer",
-            sdecl("Outer", [sdecl("Nested", [stat("VALUE", 17)])]),
-        );
+        codeGenerationContext.globalStructs.set("Outer", sdecl("Outer", [sdecl("Nested", [stat("VALUE", 17)])]));
         codeGenerationContext.globalStructs.set("Nested", sdecl("Nested", [stat("VALUE", 99)]));
 
         expect(codeGenerationContext.resolveConst("Outer::Nested::VALUE")).toBe(17n);
@@ -563,10 +510,7 @@ describe("Codegen — layoutOfType via global structs", () => {
 
     test("qualified constants walk nested owners through template bindings", () => {
         const codeGenerationContext = makeCg();
-        codeGenerationContext.globalStructs.set(
-            "Concrete",
-            sdecl("Concrete", [sdecl("Nested", [stat("VALUE", 23)])]),
-        );
+        codeGenerationContext.globalStructs.set("Concrete", sdecl("Concrete", [sdecl("Nested", [stat("VALUE", 23)])]));
         codeGenerationContext.globalStructs.set("Nested", sdecl("Nested", [stat("VALUE", 99)]));
         const bindings: TemplateBindings = {
             types: new Map([["T", n("Concrete")]]),

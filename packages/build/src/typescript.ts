@@ -1,11 +1,6 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-    compileContract,
-    DiagnosticSeverity,
-    loadQpiHeader,
-    type ContractIdl,
-} from "@qinit/compiler";
+import { compileContract, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { analyzeContract, type SourceAnalysisResult } from "@qinit/compiler/analyzer";
 import { k12Hex } from "@qinit/core";
 import type { ContractBuildResult } from "./index";
@@ -25,11 +20,7 @@ interface DynamicCalleeSource {
     source: string;
 }
 
-function analyzeCallee(
-    callee: DynamicCalleeSource,
-    allCallees: DynamicCalleeSource[],
-    qpiHeader: string,
-): SourceAnalysisResult {
+function analyzeCallee(callee: DynamicCalleeSource, allCallees: DynamicCalleeSource[], qpiHeader: string): SourceAnalysisResult {
     return analyzeContract({
         source: callee.source,
         contractName: callee.stateType,
@@ -45,13 +36,8 @@ function analyzeCallee(
     });
 }
 
-function requireCalleeIdl(
-    callee: DynamicCalleeSource,
-    result: SourceAnalysisResult,
-): ContractIdl | string {
-    const errors = result.diagnostics.filter(
-        (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-    );
+function requireCalleeIdl(callee: DynamicCalleeSource, result: SourceAnalysisResult): ContractIdl | string {
+    const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
     if (errors.length > 0) {
         return `callee ${callee.name}: ${errors.map((diagnostic) => diagnostic.message).join("; ")}`;
     }
@@ -83,14 +69,12 @@ export async function buildContractWithTypeScript(o: {
     }
     const source = readFileSync(o.contractPath, "utf8");
 
-    const dynamicCallees = Object.entries(o.dynCallees ?? {}).map(
-        ([name, { header, index, stateType }]) => ({
-            name,
-            stateType: stateType ?? name,
-            slot: index,
-            source: readFileSync(header, "utf8"),
-        }),
-    );
+    const dynamicCallees = Object.entries(o.dynCallees ?? {}).map(([name, { header, index, stateType }]) => ({
+        name,
+        stateType: stateType ?? name,
+        slot: index,
+        source: readFileSync(header, "utf8"),
+    }));
 
     const callees: ContractIdl[] = [];
     for (const callee of dynamicCallees) {
@@ -116,9 +100,7 @@ export async function buildContractWithTypeScript(o: {
         callees: callees.length ? callees : undefined,
         calleeSources: calleeSources.length ? calleeSources : undefined,
     });
-    const errors = result.diagnostics.filter(
-        (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-    );
+    const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
     if (errors.length) {
         return {
             ok: false,
@@ -129,9 +111,7 @@ export async function buildContractWithTypeScript(o: {
         return { ok: false, stderr: "compiler did not produce IDL" };
     }
 
-    const warnings = result.diagnostics.filter(
-        (diagnostic) => diagnostic.severity === DiagnosticSeverity.WARNING,
-    );
+    const warnings = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.WARNING);
     const idl =
         contractStateType === o.name
             ? result.idl
@@ -149,8 +129,6 @@ export async function buildContractWithTypeScript(o: {
         wasmSizeBytes: statSync(wasmPath).size,
         wasmK12DigestHex: await k12Hex(result.wasm),
         idl,
-        stderr: warnings.length
-            ? warnings.map((diagnostic) => `warning: ${diagnostic.message}`).join("\n")
-            : undefined,
+        stderr: warnings.length ? warnings.map((diagnostic) => `warning: ${diagnostic.message}`).join("\n") : undefined,
     };
 }

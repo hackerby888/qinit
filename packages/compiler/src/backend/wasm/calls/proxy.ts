@@ -3,13 +3,7 @@ import { getFunctionLoweringServices } from "../functions/function-lowering-regi
 import { classifyMethodParam } from "./containers";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { qpiWrapperMethod } from "./call-shape";
-import {
-    FunctionEmissionContext,
-    EMPTY_TEMPLATE_BINDINGS,
-    CompiledMethod,
-    TemplateBindings,
-    FieldLayout,
-} from "../types";
+import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS, CompiledMethod, TemplateBindings, FieldLayout } from "../types";
 import type { TypeSpec, Expression, FunctionTemplateDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
 export const PROXY_PROCEDURE_METHODS = new Set(["setProposal", "clearProposal", "vote"]);
@@ -26,14 +20,10 @@ export function resolveProxyTarget(
     const node = context.lowering.resolveExpressionAddress(context, xExpr);
     if (!node || !node.type) return null;
     let pvt: TypeSpec | null = node.type;
-    for (let index = 0; index < 8 && pvt?.kind === AstKind.NAME; index++)
-        pvt = context.programAnalysis.typedefs.get(pvt.name) ?? null;
-    if (!pvt || pvt.kind !== AstKind.TEMPLATE_INSTANCE || pvt.name !== "ProposalVoting")
-        return null;
+    for (let index = 0; index < 8 && pvt?.kind === AstKind.NAME; index++) pvt = context.programAnalysis.typedefs.get(pvt.name) ?? null;
+    if (!pvt || pvt.kind !== AstKind.TEMPLATE_INSTANCE || pvt.name !== "ProposalVoting") return null;
     // resolve the ProposalVoting args (ProposersAndVotersT/ProposalDataT contract typedefs) to concrete types
-    const callArguments = pvt.callArguments.map((argument) =>
-        context.programAnalysis.resolveType(argument, EMPTY_TEMPLATE_BINDINGS),
-    );
+    const callArguments = pvt.callArguments.map((argument) => context.programAnalysis.resolveType(argument, EMPTY_TEMPLATE_BINDINGS));
     return {
         addr: node.addr,
         pvType: {
@@ -62,19 +52,10 @@ export function emitProposalProxyCall(
     if (!xExpr) return null;
     const target = resolveProxyTarget(context, xExpr);
     if (!target) return null;
-    const proxyClass = PROXY_PROCEDURE_METHODS.has(method)
-        ? "QpiContextProposalProcedureCall"
-        : "QpiContextProposalFunctionCall";
+    const proxyClass = PROXY_PROCEDURE_METHODS.has(method) ? "QpiContextProposalProcedureCall" : "QpiContextProposalFunctionCall";
     const cm = compileProxyMethod(context.programAnalysis, target.pvType, proxyClass, method);
     if (!cm) return null;
-    return callProxy(
-        context,
-        cm,
-        target.addr,
-        target.pvType,
-        expression.callArguments,
-        valueWanted,
-    );
+    return callProxy(context, cm, target.addr, target.pvType, expression.callArguments, valueWanted);
 }
 // `qpi(X).method(args)` whose method returns an aggregate: emit the call writing into a fresh slot and return the slot
 export function emitProposalProxyAddr(
@@ -97,34 +78,24 @@ export function emitProposalProxyAddr(
     if (!xExpr) return null;
     const target = resolveProxyTarget(context, xExpr);
     if (!target) return null;
-    const proxyClass = PROXY_PROCEDURE_METHODS.has(method)
-        ? "QpiContextProposalProcedureCall"
-        : "QpiContextProposalFunctionCall";
+    const proxyClass = PROXY_PROCEDURE_METHODS.has(method) ? "QpiContextProposalProcedureCall" : "QpiContextProposalFunctionCall";
     const cm = compileProxyMethod(context.programAnalysis, target.pvType, proxyClass, method);
     if (!cm || !cm.retAgg) return null;
-    const bind = context.programAnalysis.bindContainer(
-        target.pvType.name,
-        target.pvType.callArguments,
-    );
-    const methodArgumentOperands = cm.functionParameters.map(
-        (methodParameter, methodParameterIndex) => {
-            const callArgument = expression.callArguments[methodParameterIndex];
-            if (!callArgument) return methodParameter.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-            const paramType = context.programAnalysis.substInBindings(
-                context.programAnalysis.derefType(methodParameter.type),
-                bind,
-            );
-            return methodParameter.isAddr
-                ? context.lowering.argAddr(
-                      context,
-                      callArgument,
-                      context.programAnalysis.sizeOfType(paramType, bind),
-                      paramType,
-                      methodParameter.readOnlyRef === true,
-                  )
-                : context.lowering.emitValue(context, callArgument);
-        },
-    );
+    const bind = context.programAnalysis.bindContainer(target.pvType.name, target.pvType.callArguments);
+    const methodArgumentOperands = cm.functionParameters.map((methodParameter, methodParameterIndex) => {
+        const callArgument = expression.callArguments[methodParameterIndex];
+        if (!callArgument) return methodParameter.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+        const paramType = context.programAnalysis.substInBindings(context.programAnalysis.derefType(methodParameter.type), bind);
+        return methodParameter.isAddr
+            ? context.lowering.argAddr(
+                  context,
+                  callArgument,
+                  context.programAnalysis.sizeOfType(paramType, bind),
+                  paramType,
+                  methodParameter.readOnlyRef === true,
+              )
+            : context.lowering.emitValue(context, callArgument);
+    });
     const scratchAddress = context.lowering.allocateScratchSlot(context, cm.retAgg!);
     context.lines.push(
         `    (call ${cm.label} ${scratchAddress} ${target.addr} (i32.const 0)${methodArgumentOperands.length ? " " + methodArgumentOperands.join(" ") : ""})`,
@@ -163,25 +134,20 @@ export function callProxy(
     valueWanted: boolean,
 ): string {
     const bind = context.programAnalysis.bindContainer(pvType.name, pvType.callArguments);
-    const methodArgumentOperands = cm.functionParameters.map(
-        (methodParameter, methodParameterIndex) => {
-            const callArgument = callArguments[methodParameterIndex];
-            if (!callArgument) return methodParameter.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-            const paramType = context.programAnalysis.substInBindings(
-                context.programAnalysis.derefType(methodParameter.type),
-                bind,
-            );
-            return methodParameter.isAddr
-                ? context.lowering.argAddr(
-                      context,
-                      callArgument,
-                      context.programAnalysis.sizeOfType(paramType, bind),
-                      paramType,
-                      methodParameter.readOnlyRef === true,
-                  )
-                : context.lowering.emitValue(context, callArgument);
-        },
-    );
+    const methodArgumentOperands = cm.functionParameters.map((methodParameter, methodParameterIndex) => {
+        const callArgument = callArguments[methodParameterIndex];
+        if (!callArgument) return methodParameter.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+        const paramType = context.programAnalysis.substInBindings(context.programAnalysis.derefType(methodParameter.type), bind);
+        return methodParameter.isAddr
+            ? context.lowering.argAddr(
+                  context,
+                  callArgument,
+                  context.programAnalysis.sizeOfType(paramType, bind),
+                  paramType,
+                  methodParameter.readOnlyRef === true,
+              )
+            : context.lowering.emitValue(context, callArgument);
+    });
     // Write aggregate proxy returns through a leading destination slot.
     if (cm.retAgg) {
         const scratchAddress = context.lowering.allocateScratchSlot(context, cm.retAgg);
@@ -213,8 +179,7 @@ export function compileProxyMethod(
     method: string,
 ): CompiledMethod | null {
     let def = programAnalysis.templateMethods.get(proxyClass)?.get(method);
-    if (!def)
-        def = programAnalysis.templateMethods.get("QpiContextProposalFunctionCall")?.get(method); // FunctionCall base
+    if (!def) def = programAnalysis.templateMethods.get("QpiContextProposalFunctionCall")?.get(method); // FunctionCall base
     if (!def || !def.body) return null;
     const [proposalHandlingType, proposalDataType] = pvType.callArguments;
     const cacheKey = `proxy:${proxyClass}<${programAnalysis.typeKeyOf(proposalHandlingType)},${programAnalysis.typeKeyOf(proposalDataType)}>::${method}`;
@@ -228,14 +193,10 @@ export function compileProxyMethod(
         values: new Map(),
         structs: new Map(),
     };
-    const functionParameters = (def.functionParameters ?? []).map((parameter) =>
-        classifyMethodParam(programAnalysis, parameter, bind),
-    );
+    const functionParameters = (def.functionParameters ?? []).map((parameter) => classifyMethodParam(programAnalysis, parameter, bind));
     const retT = programAnalysis.substInBindings(programAnalysis.derefType(def.returnType), bind);
-    const isAggRet =
-        !programAnalysis.isVoidType(def.returnType) && programAnalysis.isAggregateType(retT);
-    const retKind =
-        programAnalysis.isVoidType(def.returnType) || isAggRet ? WatNodeType.VOID : WatNodeType.I64;
+    const isAggRet = !programAnalysis.isVoidType(def.returnType) && programAnalysis.isAggregateType(retT);
+    const retKind = programAnalysis.isVoidType(def.returnType) || isAggRet ? WatNodeType.VOID : WatNodeType.I64;
     const retAgg = isAggRet ? programAnalysis.sizeOfType(retT, bind) : undefined;
     const cm: CompiledMethod = {
         label: `$PV${programAnalysis.compiledMethods.size}_${proxyClass}_${method}`,
@@ -246,14 +207,9 @@ export function compileProxyMethod(
     };
     programAnalysis.compiledMethods.set(cacheKey, cm); // register before emitting so recursive/sibling calls resolve
     try {
-        programAnalysis.emittedMethodOrder.push(
-            emitProxyMethodFn(programAnalysis, cm, def, pvType, bind, proxyClass),
-        );
+        programAnalysis.emittedMethodOrder.push(emitProxyMethodFn(programAnalysis, cm, def, pvType, bind, proxyClass));
     } catch (entry: any) {
-        programAnalysis.warn(
-            `failed to compile proxy ${cacheKey}: ${entry.message}`,
-            def.span?.line ?? 0,
-        );
+        programAnalysis.warn(`failed to compile proxy ${cacheKey}: ${entry.message}`, def.span?.line ?? 0);
         programAnalysis.compiledMethods.delete(cacheKey);
         throw entry;
     }
@@ -311,18 +267,10 @@ export function emitProxyMethodFn(
     if (def.body) context.lowering.collectFunctionLocals(def.body, context);
     if (def.body) context.lowering.emitStatement(context, def.body);
     const retParam = cm.retAgg ? "(param $__qinit_ret i32) " : "";
-    const paramDecls = cm.functionParameters
-        .map((fnParam) => `(param $${fnParam.name} ${fnParam.wasmType})`)
-        .join(" ");
+    const paramDecls = cm.functionParameters.map((fnParam) => `(param $${fnParam.name} ${fnParam.wasmType})`).join(" ");
     const result = cm.retKind === WatNodeType.I64 ? " (result i64)" : "";
-    const header =
-        `  (func ${cm.label} ${retParam}(param $pv i32) (param $qpi i32) ${paramDecls}${result}`.replace(
-            /\s+\)/,
-            ")",
-        );
-    const localDecls = [...context.localVars.entries()].map(
-        ([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`,
-    );
+    const header = `  (func ${cm.label} ${retParam}(param $pv i32) (param $qpi i32) ${paramDecls}${result}`.replace(/\s+\)/, ")");
+    const localDecls = [...context.localVars.entries()].map(([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`);
     const tail = cm.retKind === WatNodeType.I64 ? ["    (i64.const 0)"] : [];
     return [header, ...localDecls, ...context.lines, ...tail, "  )"].join("\n");
 }

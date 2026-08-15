@@ -55,9 +55,7 @@ test("arrays of nested structs retain the complete element tree", () => {
     const leaf = items.element.fields[0].type;
     expect(leaf.kind).toBe(AbiTypeKind.STRUCT);
     if (leaf.kind === AbiTypeKind.STRUCT) {
-        expect(leaf.fields.map((field) => [field.name, field.type.format])).toEqual([
-            ["value", "sint64"],
-        ]);
+        expect(leaf.fields.map((field) => [field.name, field.type.format])).toEqual([["value", "sint64"]]);
     }
 });
 
@@ -77,13 +75,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         throw new Error("Many_input must be a struct");
     }
     expect(input.fields.map((field) => field.name)).toEqual(["a", "b", "c", "d", "x", "y"]);
-    expect(input.fields.map((field) => field.type.format)).toEqual([
-        "id",
-        "id",
-        "id",
-        "id",
-        "sint64",
-        "sint64",
-    ]);
+    expect(input.fields.map((field) => field.type.format)).toEqual(["id", "id", "id", "id", "sint64", "sint64"]);
     expect(input.format).toBe("id, id, id, id, sint64, sint64");
 });

@@ -21,12 +21,7 @@ export function toolsDir(): string {
 // e.g. linux-x64, darwin-arm64, windows-x64 — the manifest key for this host.
 export function releasePlatformKey(): string {
     const arch = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : process.arch;
-    const os =
-        process.platform === "darwin"
-            ? "darwin"
-            : process.platform === "win32"
-              ? "windows"
-              : "linux";
+    const os = process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "windows" : "linux";
     return `${os}-${arch}`;
 }
 

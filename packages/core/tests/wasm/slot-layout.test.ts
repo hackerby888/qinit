@@ -41,45 +41,18 @@ describe.if(haveCore)("core-derived Wasm slot layout", () => {
     });
 
     test.each([
-        [
-            "missing layout declaration",
-            source.replace(/constexpr unsigned short WASM_RESERVED_SLOT_BASE[^;]+;\r?\n/, ""),
-        ],
-        [
-            "missing dynamic slot",
-            source.replace(/constexpr unsigned short LITEDYN2_CONTRACT_INDEX[^;]+;\r?\n/, ""),
-        ],
-        [
-            "duplicate slot",
-            source.replace(
-                "constexpr unsigned short LITEDYN1_CONTRACT_INDEX",
-                "constexpr unsigned short LITEDYN0_CONTRACT_INDEX",
-            ),
-        ],
-        [
-            "non-contiguous slots",
-            source.replace(
-                "constexpr unsigned short LITEDYN1_CONTRACT_INDEX",
-                "constexpr unsigned short LITEDYN4_CONTRACT_INDEX",
-            ),
-        ],
-        [
-            "count mismatch",
-            source.replace(
-                "constexpr unsigned short WASM_RESERVED_SLOT_COUNT = 4;",
-                "constexpr unsigned short WASM_RESERVED_SLOT_COUNT = 3;",
-            ),
-        ],
+        ["missing layout declaration", source.replace(/constexpr unsigned short WASM_RESERVED_SLOT_BASE[^;]+;\r?\n/, "")],
+        ["missing dynamic slot", source.replace(/constexpr unsigned short LITEDYN2_CONTRACT_INDEX[^;]+;\r?\n/, "")],
+        ["duplicate slot", source.replace("constexpr unsigned short LITEDYN1_CONTRACT_INDEX", "constexpr unsigned short LITEDYN0_CONTRACT_INDEX")],
+        ["non-contiguous slots", source.replace("constexpr unsigned short LITEDYN1_CONTRACT_INDEX", "constexpr unsigned short LITEDYN4_CONTRACT_INDEX")],
+        ["count mismatch", source.replace("constexpr unsigned short WASM_RESERVED_SLOT_COUNT = 4;", "constexpr unsigned short WASM_RESERVED_SLOT_COUNT = 3;")],
     ])("rejects %s", (_label, invalidSource) => {
         expect(() => parseWasmSlotLayoutSource(invalidSource)).toThrow();
     });
 
     test("generated defaults, the live core, runtime source, and VirtualNode agree", () => {
         const live = loadCoreWasmSlotLayout(corePath);
-        const runtime = readFileSync(
-            join(corePath, "src", "extensions", "wasm", "runtime", "contract_slots.h"),
-            "utf8",
-        );
+        const runtime = readFileSync(join(corePath, "src", "extensions", "wasm", "runtime", "contract_slots.h"), "utf8");
         const node = new VirtualNode();
 
         expect(DEFAULT_WASM_SLOT_LAYOUT).toEqual(live);

@@ -23,11 +23,7 @@ export class ParserRecovery {
         const newError = this.parser.state.diagnostics.length > errsBefore;
         if (!noProgress && !newError) return;
         // A declaration that consumed its full balanced body ends on `}` or `;`. Its inner errors are already
-        if (
-            !noProgress &&
-            (this.parser.state.lastToken?.kind === TokenKind.R_BRACE ||
-                this.parser.state.lastToken?.kind === TokenKind.SEMICOLON)
-        ) {
+        if (!noProgress && (this.parser.state.lastToken?.kind === TokenKind.R_BRACE || this.parser.state.lastToken?.kind === TokenKind.SEMICOLON)) {
             return;
         }
         if (noProgress) {

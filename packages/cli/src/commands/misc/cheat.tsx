@@ -3,9 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { Grad, Panel, theme } from "../../ui";
 
 // qinit cheat-sheet — one-screen guide: setup -> contract -> deploy -> call (incl input/output formats).
-const C = ({ children }: { children: React.ReactNode }) => (
-    <Text color={theme.accent}>{children}</Text>
-); // command
+const C = ({ children }: { children: React.ReactNode }) => <Text color={theme.accent}>{children}</Text>; // command
 const D = ({ children }: { children: React.ReactNode }) => <Text dimColor>{children}</Text>; // comment
 
 // ---- minimal QPI syntax highlighter (good enough for the cheat-sheet snippet) -------------------------
@@ -134,8 +132,7 @@ export function Cheat() {
                     <C>qinit node run</C> <D>prepare node + headers, run a local testnet node</D>
                 </Text>
                 <Text>
-                    <C>qinit new mytoken && cd mytoken</C>{" "}
-                    <D>scaffold (contracts/Mytoken.h, qinit.json)</D>
+                    <C>qinit new mytoken && cd mytoken</C> <D>scaffold (contracts/Mytoken.h, qinit.json)</D>
                 </Text>
             </Panel>
 
@@ -148,8 +145,7 @@ export function Cheat() {
                     <C>qinit deploy</C> <D>build + upload + arm</D>
                 </Text>
                 <Text>
-                    <C>qinit call</C>{" "}
-                    <D>interactive picker (Tab-completes types; auto-fills known in/out)</D>
+                    <C>qinit call</C> <D>interactive picker (Tab-completes types; auto-fills known in/out)</D>
                 </Text>
                 <D>non-interactive (--in "&lt;format&gt;", the standard):</D>
                 <Text>
@@ -173,27 +169,19 @@ export function Cheat() {
                 <Fmt k="m256i" ex="<64 hex>m256i" note="a digest" />
                 <Fmt k="struct" ex="{ 5uint64, 1bit }" />
                 <Fmt k="array" ex="[3; 1uint64, 2uint64, 3uint64]" />
-                <Fmt
-                    k="json"
-                    ex={`--args '{"to":"<ID>","amount":100}'`}
-                    note="optional alt, keyed by field name"
-                />
+                <Fmt k="json" ex={`--args '{"to":"<ID>","amount":100}'`} note="optional alt, keyed by field name" />
                 <Box marginTop={1}>
                     <Text bold>output</Text>
                 </Box>
                 <D> types only (no values):</D>
                 <Fmt k="scalar" ex="uint64" />
                 <Fmt k="struct" ex="{ id, uint16 }" />
-                <D>
-                    {" "}
-                    the picker fills these from the contract — no-input / known-output ⇒ no prompt.
-                </D>
+                <D> the picker fills these from the contract — no-input / known-output ⇒ no prompt.</D>
             </Panel>
 
             <Panel title="5 · inspect" color={theme.mute}>
                 <Text>
-                    <C>qinit ls</C> <D>deployed contracts</D> <C>qinit state {"<name>"}</C>{" "}
-                    <D>decoded state</D> <C>qinit debug</C> <D>live call tracer</D>
+                    <C>qinit ls</C> <D>deployed contracts</D> <C>qinit state {"<name>"}</C> <D>decoded state</D> <C>qinit debug</C> <D>live call tracer</D>
                 </Text>
             </Panel>
         </Box>

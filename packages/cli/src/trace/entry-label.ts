@@ -8,9 +8,7 @@ const PROCEDURE = 1;
 const SYSPROC = 2;
 const MIGRATE = 3;
 
-const SYSPROC_NAMES = new Map<number, string>(
-    Object.entries(SYSTEM_PROCEDURES).map(([name, id]) => [id, name]),
-);
+const SYSPROC_NAMES = new Map<number, string>(Object.entries(SYSTEM_PROCEDURES).map(([name, id]) => [id, name]));
 
 // `from` is the contract's IDL, or the entry name when the caller already resolved it.
 export function entryLabel(kind: number, entry: number, from?: ContractIdl | string): string {
@@ -26,11 +24,7 @@ export function entryLabel(kind: number, entry: number, from?: ContractIdl | str
 
     const prefix = kind === FUNCTION ? "fn" : kind === PROCEDURE ? "proc" : `kind${kind}`;
     const idl = typeof from === "string" ? undefined : from;
-    const registered =
-        kind === FUNCTION ? idl?.functions : kind === PROCEDURE ? idl?.procedures : undefined;
-    const name =
-        typeof from === "string"
-            ? from
-            : registered?.find((candidate) => candidate.inputType === entry)?.name;
+    const registered = kind === FUNCTION ? idl?.functions : kind === PROCEDURE ? idl?.procedures : undefined;
+    const name = typeof from === "string" ? from : registered?.find((candidate) => candidate.inputType === entry)?.name;
     return name ? `${prefix}#${entry} (${name})` : `${prefix}#${entry}`;
 }

@@ -40,9 +40,7 @@ async function runChecks(): Promise<Check[]> {
         name: "qubic-core-lite headers",
         ok: hasQpi,
         detail: hasQpi ? qpi : coreErr || "headers not found",
-        fix: hasQpi
-            ? undefined
-            : "qinit setup (fetch published snapshot) or set QINIT_CORE=<core-checkout>",
+        fix: hasQpi ? undefined : "qinit setup (fetch published snapshot) or set QINIT_CORE=<core-checkout>",
     });
 
     const vtool = resolveVerifyTool();
@@ -79,10 +77,7 @@ export function Doctor() {
             <Header cmd="doctor" />
             {!checks && <Spinner label="running checks" />}
             {checks && (
-                <Panel
-                    title={allOk ? "toolchain ✓" : "toolchain"}
-                    color={allOk ? theme.ok : theme.err}
-                >
+                <Panel title={allOk ? "toolchain ✓" : "toolchain"} color={allOk ? theme.ok : theme.err}>
                     {checks.map((c) => (
                         <Status key={c.name} ok={c.ok} label={c.name} detail={c.detail} pad={30} />
                     ))}

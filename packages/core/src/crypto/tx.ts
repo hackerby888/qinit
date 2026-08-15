@@ -27,9 +27,7 @@ export interface TxInput {
 // seed otherwise silently produces a wrong identity / unspendable tx.
 export function assertSeed(seed: string): void {
     if (!/^[a-z]{55}$/.test(seed)) {
-        throw new Error(
-            `invalid seed: must be 55 lowercase letters a-z (got ${seed.length} char(s))`,
-        );
+        throw new Error(`invalid seed: must be 55 lowercase letters a-z (got ${seed.length} char(s))`);
     }
 }
 

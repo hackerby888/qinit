@@ -4,13 +4,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { resolveProjectDependencies } from "../../src/project-dependencies";
 
-const CORE =
-    process.env.QINIT_CORE ?? resolve(import.meta.dir, "../../../vscode/resources/core-headers");
+const CORE = process.env.QINIT_CORE ?? resolve(import.meta.dir, "../../../vscode/resources/core-headers");
 
 function calls(...names: string[]): string {
-    return names
-        .map((name) => `CALL_OTHER_CONTRACT_FUNCTION(${name}, Get, input, output);`)
-        .join("\n");
+    return names.map((name) => `CALL_OTHER_CONTRACT_FUNCTION(${name}, Get, input, output);`).join("\n");
 }
 
 function project(files: Record<string, string>, run: (root: string) => void): void {
@@ -43,16 +40,8 @@ test("resolves recursive workspace callees in dependency-first order", () => {
                 contractPath: "contracts/Main.h",
             });
 
-            expect(graph.map((node) => node.stateType)).toEqual([
-                "Leaf",
-                "Shared",
-                "Middle",
-                "Main",
-            ]);
-            expect(graph.find((node) => node.stateType === "Middle")?.dependencies).toEqual([
-                "Leaf",
-                "Shared",
-            ]);
+            expect(graph.map((node) => node.stateType)).toEqual(["Leaf", "Shared", "Middle", "Main"]);
+            expect(graph.find((node) => node.stateType === "Middle")?.dependencies).toEqual(["Leaf", "Shared"]);
         },
     );
 });
@@ -169,9 +158,7 @@ test("rejects missing and ambiguous workspace callees deterministically", () => 
                     contractName: "Main",
                     contractPath: "contracts/Main.h",
                 }),
-            ).toThrow(
-                "unknown callee 'Missing' referenced by Main; expected --callee Missing=path[@index] or contracts/**/Missing.h",
-            );
+            ).toThrow("unknown callee 'Missing' referenced by Main; expected --callee Missing=path[@index] or contracts/**/Missing.h");
         },
     );
 
@@ -189,9 +176,7 @@ test("rejects missing and ambiguous workspace callees deterministically", () => 
                     contractName: "Main",
                     contractPath: "contracts/Main.h",
                 }),
-            ).toThrow(
-                "callee 'Counter' referenced by Main is ambiguous: contracts/one/Counter.h, contracts/two/Counter.h",
-            );
+            ).toThrow("callee 'Counter' referenced by Main is ambiguous: contracts/one/Counter.h, contracts/two/Counter.h");
         },
     );
 });

@@ -11,8 +11,7 @@ import {
 } from "../../src/trace/format";
 
 // A block's rows in the one-line form, for assertions where the label/text split adds nothing.
-const flatLines = (container: StateContainer) =>
-    container.lines.map((line) => `${line.label} ${line.text}`);
+const flatLines = (container: StateContainer) => container.lines.map((line) => `${line.label} ${line.text}`);
 
 // LE bytes / hex helpers
 const le = (n: bigint | number, w: number) => {
@@ -154,14 +153,7 @@ test("readState: reads a complete sparse array across the 4 MiB boundary", async
     const calls: StateReadCall[] = [];
     const progress: [string, number, number][] = [];
 
-    const state = await readState(
-        fakeRpc(bytes, calls),
-        7,
-        source,
-        "Big",
-        undefined,
-        (field, completed, total) => progress.push([field, completed, total]),
-    );
+    const state = await readState(fakeRpc(bytes, calls), 7, source, "Big", undefined, (field, completed, total) => progress.push([field, completed, total]));
 
     expect(state.fields).toEqual([]); // an Array is a block of its own, not a scalar row
     expect(state.containers).toMatchObject([
@@ -293,18 +285,10 @@ test("readState: an explicitly selected large container is loaded", async () => 
     bytes.set(le(9, 8), 16);
     const calls: StateReadCall[] = [];
 
-    const state = await readState(
-        fakeRpc(bytes, calls),
-        7,
-        source,
-        "Selected",
-        undefined,
-        undefined,
-        {
-            collapseContainersAtBytes: 1,
-            containerIndexes: new Set([1]),
-        },
-    );
+    const state = await readState(fakeRpc(bytes, calls), 7, source, "Selected", undefined, undefined, {
+        collapseContainersAtBytes: 1,
+        containerIndexes: new Set([1]),
+    });
 
     expect(calls).toEqual([{ slot: 7, off: 0, len: 32 }]);
     expect(state.containers[0]).toMatchObject({
@@ -312,11 +296,7 @@ test("readState: an explicitly selected large container is loaded", async () => 
         status: "loaded",
         occupiedSlots: 1,
     });
-    expect(flatLines(state.containers[0])).toEqual([
-        "[0..1] =0 ×2 (skipped)",
-        "[2] 9",
-        "[3] =0 (skipped)",
-    ]);
+    expect(flatLines(state.containers[0])).toEqual(["[0..1] =0 ×2 (skipped)", "[2] 9", "[3] =0 (skipped)"]);
 });
 
 test("readState: rejects an unknown container index before state reads", async () => {
@@ -333,15 +313,7 @@ test("readState: rejects an unknown container index before state reads", async (
     const calls: StateReadCall[] = [];
 
     await expect(
-        readState(
-            fakeRpc(new Uint8Array(40), calls),
-            7,
-            source,
-            "InvalidSelection",
-            undefined,
-            undefined,
-            { containerIndexes: new Set([2]) },
-        ),
+        readState(fakeRpc(new Uint8Array(40), calls), 7, source, "InvalidSelection", undefined, undefined, { containerIndexes: new Set([2]) }),
     ).rejects.toThrow("container index 2 is outside 1..1");
     expect(calls).toEqual([]);
 });
@@ -472,12 +444,7 @@ const HASHMAP_SOURCE = `using namespace QPI; struct CONTRACT_STATE_TYPE : public
 
 test("readState: an empty HashMap only reads population", async () => {
     const calls: StateReadCall[] = [];
-    const state = await readState(
-        fakeRpc(new Uint8Array(152), calls),
-        3,
-        HASHMAP_SOURCE,
-        "EmptyMap",
-    );
+    const state = await readState(fakeRpc(new Uint8Array(152), calls), 3, HASHMAP_SOURCE, "EmptyMap");
 
     expect(calls).toEqual([{ slot: 3, off: 136, len: 8 }]);
     expect(state.complete).toBe(true);
@@ -498,11 +465,7 @@ test("readState: blocks keep the order their fields are declared in", async () =
     const state = await readState(fakeRpc(new Uint8Array(216)), 3, source, "Mixed");
 
     expect(state.fields.map((field) => field.name)).toEqual(["count"]);
-    expect(state.containers.map((container) => container.name)).toEqual([
-        "first",
-        "middle",
-        "last",
-    ]);
+    expect(state.containers.map((container) => container.name)).toEqual(["first", "middle", "last"]);
 });
 
 test("readState: does not retry an incomplete container read", async () => {
@@ -589,11 +552,7 @@ test("readState: one-field struct values inside HashMap keep their boundary", as
 
     const state = await readState(fakeRpc(bytes), 6, source, "MapStructs");
 
-    expect(flatLines(state.containers[0])).toEqual([
-        "slots[0..1] (unoccupied ×2; skipped)",
-        "slot[2] 7 = {number: 9}",
-        "slot[3] (unoccupied ×1; skipped)",
-    ]);
+    expect(flatLines(state.containers[0])).toEqual(["slots[0..1] (unoccupied ×2; skipped)", "slot[2] 7 = {number: 9}", "slot[3] (unoccupied ×1; skipped)"]);
 });
 
 test("readState: LinkedList values inside HashMap stay semantic", async () => {
@@ -650,12 +609,7 @@ const linkedListState = () => {
 
 test("readState: an empty LinkedList only reads population", async () => {
     const calls: StateReadCall[] = [];
-    const state = await readState(
-        fakeRpc(new Uint8Array(240), calls),
-        10,
-        LINKED_LIST_SOURCE,
-        "EmptyList",
-    );
+    const state = await readState(fakeRpc(new Uint8Array(240), calls), 10, LINKED_LIST_SOURCE, "EmptyList");
 
     expect(calls).toEqual([{ slot: 10, off: 232, len: 8 }]);
     expect(state.complete).toBe(true);
@@ -673,12 +627,7 @@ test("readState: an empty LinkedList only reads population", async () => {
 
 test("readState: LinkedList reads occupied nodes and renders logical order", async () => {
     const calls: StateReadCall[] = [];
-    const state = await readState(
-        fakeRpc(linkedListState(), calls),
-        11,
-        LINKED_LIST_SOURCE,
-        "SparseList",
-    );
+    const state = await readState(fakeRpc(linkedListState(), calls), 11, LINKED_LIST_SOURCE, "SparseList");
 
     expect(calls).toEqual([
         { slot: 11, off: 232, len: 8 },
@@ -813,11 +762,7 @@ const mkEntry = (o: Partial<any>): any => ({
 
 test("describeTrace: multi-field input decodes to named fields", async () => {
     const SRC_MULTI = `using namespace QPI; struct CONTRACT_STATE2_TYPE {}; struct CONTRACT_STATE_TYPE : public ContractBase { struct Pair_input { uint64 a; uint64 b; }; struct Pair_output {}; PUBLIC_PROCEDURE(Pair) {} REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Pair, 1); } INITIALIZE() {} };`;
-    const v = await describeTrace(
-        mkEntry({ inHex: hx([...le(5, 8), ...le(7, 8)]) }),
-        SRC_MULTI,
-        "M",
-    );
+    const v = await describeTrace(mkEntry({ inHex: hx([...le(5, 8), ...le(7, 8)]) }), SRC_MULTI, "M");
     expect(v.inDecoded).toBe("{a: 5, b: 7}");
 });
 
@@ -860,11 +805,7 @@ test("readState: a sparse HashSet fetches only occupied key ranges", async () =>
 
 test("describeTrace: no StateData -> empty fields, io still decoded, fn caller (none)", async () => {
     const SRC_NS = `using namespace QPI; struct CONTRACT_STATE2_TYPE {}; struct CONTRACT_STATE_TYPE : public ContractBase { struct Foo_input { uint64 a; }; struct Foo_output { uint64 r; }; PUBLIC_FUNCTION(Foo) {} REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Foo, 1); } INITIALIZE() {} };`;
-    const v = await describeTrace(
-        mkEntry({ kind: 0, inHex: hx(le(5, 8)), outHex: hx(le(9, 8)) }),
-        SRC_NS,
-        "NS",
-    );
+    const v = await describeTrace(mkEntry({ kind: 0, inHex: hx(le(5, 8)), outHex: hx(le(9, 8)) }), SRC_NS, "NS");
     expect(v.fields).toHaveLength(0);
     expect(v.inDecoded).toBe("5");
     expect(v.outDecoded).toBe("9");

@@ -70,11 +70,9 @@ export async function runContractTesting(
     const sharedSlots = new Set<number>();
     for (const [idx, wasm] of Object.entries(contracts)) {
         const m = new WebAssembly.Module(wasm as BufferSource);
-        if (WebAssembly.Module.imports(m).some((im) => im.module === "env" && im.kind === "memory"))
-            sharedSlots.add(Number(idx));
+        if (WebAssembly.Module.imports(m).some((im) => im.module === "env" && im.kind === "memory")) sharedSlots.add(Number(idx));
     }
-    const runnerMemory = (): WebAssembly.Memory | undefined =>
-        runner?.exports?.memory as WebAssembly.Memory | undefined;
+    const runnerMemory = (): WebAssembly.Memory | undefined => runner?.exports?.memory as WebAssembly.Memory | undefined;
 
     const deployAll = () => {
         // The corpus `system` proxy (epoch / tick / chain clock) mirrors real Qubic's persistent global `system`:
@@ -111,15 +109,8 @@ export async function runContractTesting(
         touched.clear();
         for (const [idx, wasm] of Object.entries(contracts)) {
             const shared = sharedSlots.has(Number(idx));
-            if (shared && !runnerMemory())
-                throw new Error(
-                    `gtest: contract slot ${idx} is a shared-memory build but the runner is not instantiated yet`,
-                );
-            handles[Number(idx)] = sim.deploy(
-                Number(idx),
-                wasm,
-                shared ? runnerMemory() : undefined,
-            );
+            if (shared && !runnerMemory()) throw new Error(`gtest: contract slot ${idx} is a shared-memory build but the runner is not instantiated yet`);
+            handles[Number(idx)] = sim.deploy(Number(idx), wasm, shared ? runnerMemory() : undefined);
         }
         // slot -> share-asset ticker (contract_def.h contractDescriptions.assetName) — distributeDividends
         // iterates the possessors of this asset.
@@ -134,8 +125,7 @@ export async function runContractTesting(
         for (const i of touched) {
             const m = materialized.get(i);
             const c = handles[i];
-            if (m && c && !engineDirty.has(i))
-                syncChunked(mem().subarray(m.dst, m.dst + m.len), c.stateView(m.len));
+            if (m && c && !engineDirty.has(i)) syncChunked(mem().subarray(m.dst, m.dst + m.len), c.stateView(m.len));
         }
         touched.clear();
     };
@@ -195,16 +185,7 @@ export async function runContractTesting(
 
         // A contract trap (OOB, unreachable) inside a dispatch fails the CURRENT TEST, not the whole corpus run
         // — the native harness likewise contains a contract fault per test. The trap is surfaced on stderr once;
-        q_invoke: (
-            idx: number,
-            it: number,
-            inPtr: number,
-            inLen: number,
-            amount: bigint,
-            originPtr: number,
-            outPtr: number,
-            outCap: number,
-        ): number => {
+        q_invoke: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number => {
             if (env_.QINIT_GTEST_PROGRESS && ++dispatchCount % 500 === 0) {
                 (globalThis as any).process?.stderr?.write?.(
                     `[gtest] ${dispatchCount} dispatches (${((performance.now() - t0Progress) / 1000).toFixed(1)}s)\n`,
@@ -224,9 +205,7 @@ export async function runContractTesting(
                     }),
                 );
             } catch (e: any) {
-                (globalThis as any).process?.stderr?.write?.(
-                    `[gtest] invoke[${idx >>> 0}:${it >>> 0}] trapped: ${String(e?.message ?? e).slice(0, 120)}\n`,
-                );
+                (globalThis as any).process?.stderr?.write?.(`[gtest] invoke[${idx >>> 0}:${it >>> 0}] trapped: ${String(e?.message ?? e).slice(0, 120)}\n`);
                 out = new Uint8Array(0);
             }
             const n = Math.min(out.length, outCap >>> 0);
@@ -258,35 +237,20 @@ export async function runContractTesting(
                         const c2 = handles[ws];
                         const fs = require("node:fs");
                         const f = `${prefix}.${dispatchCount}.bin`;
-                        if (c2)
-                            fs.writeFileSync(
-                                fs.existsSync(f) ? f.replace(/\.bin$/, ".simulator.bin") : f,
-                                c2.stateView(c2.stateSize),
-                            );
+                        if (c2) fs.writeFileSync(fs.existsSync(f) ? f.replace(/\.bin$/, ".simulator.bin") : f, c2.stateView(c2.stateSize));
                     }
                 }
             }
             return n >>> 0;
         },
 
-        q_query: (
-            idx: number,
-            it: number,
-            inPtr: number,
-            inLen: number,
-            outPtr: number,
-            outCap: number,
-        ): number => {
+        q_query: (idx: number, it: number, inPtr: number, inLen: number, outPtr: number, outCap: number): number => {
             flushState();
             let out: Uint8Array;
             try {
-                out = traceDisp(`query[${idx >>> 0}:${it >>> 0}]`, () =>
-                    sim.query(idx >>> 0, it >>> 0, read(inPtr, inLen)),
-                );
+                out = traceDisp(`query[${idx >>> 0}:${it >>> 0}]`, () => sim.query(idx >>> 0, it >>> 0, read(inPtr, inLen)));
             } catch (e: any) {
-                (globalThis as any).process?.stderr?.write?.(
-                    `[gtest] query[${idx >>> 0}:${it >>> 0}] trapped: ${String(e?.message ?? e).slice(0, 120)}\n`,
-                );
+                (globalThis as any).process?.stderr?.write?.(`[gtest] query[${idx >>> 0}:${it >>> 0}] trapped: ${String(e?.message ?? e).slice(0, 120)}\n`);
                 out = new Uint8Array(0);
             }
             const n = Math.min(out.length, outCap >>> 0);
@@ -305,15 +269,11 @@ export async function runContractTesting(
                         }),
                     );
             } catch (e: any) {
-                (globalThis as any).process?.stderr?.write?.(
-                    `[gtest] sysproc[${idx >>> 0}:${sp >>> 0}] trapped: ${String(e?.message ?? e).slice(0, 120)}\n`,
-                );
+                (globalThis as any).process?.stderr?.write?.(`[gtest] sysproc[${idx >>> 0}:${sp >>> 0}] trapped: ${String(e?.message ?? e).slice(0, 120)}\n`);
             }
             markEngineMoved();
             if (env_.QINIT_GTEST_DUMP_ASSETS) {
-                (globalThis as any).process.stderr.write(
-                    `[assets after sysproc ${sp >>> 0}] ${JSON.stringify(sim.assetUniverse())}\n`,
-                );
+                (globalThis as any).process.stderr.write(`[assets after sysproc ${sp >>> 0}] ${JSON.stringify(sim.assetUniverse())}\n`);
             }
         },
 
@@ -329,14 +289,7 @@ export async function runContractTesting(
             sim.notifyIncomingTransfer(id32(srcPtr), id32(dstPtr), BigInt(amount), type >>> 0);
         },
         // issueAsset(issuer, name, decimals, unit, shares, mgmt): mint an asset (issuer == invocator path). Returns shares.
-        q_issue_asset: (
-            issuerPtr: number,
-            name: bigint,
-            decimals: number,
-            shares: bigint,
-            unit: bigint,
-            slot: number,
-        ): bigint => {
+        q_issue_asset: (issuerPtr: number, name: bigint, decimals: number, shares: bigint, unit: bigint, slot: number): bigint => {
             const issuer = id32(issuerPtr);
             return (sim as any).assets.issueAsset(
                 slot >>> 0,
@@ -350,19 +303,9 @@ export async function runContractTesting(
         },
         // Mint NULL_ID-issued contract shares, then transfer each owner's slice from NULL_ID.
         q_mint_contract_shares: (name: bigint, shares: bigint, qxSlot: number): void => {
-            (sim as any).assets.mintContractShares(
-                qxSlot >>> 0,
-                BigInt.asUintN(64, name),
-                BigInt.asUintN(64, shares),
-            );
+            (sim as any).assets.mintContractShares(qxSlot >>> 0, BigInt.asUintN(64, name), BigInt.asUintN(64, shares));
         },
-        q_transfer_shares: (
-            name: bigint,
-            srcPtr: number,
-            dstPtr: number,
-            shares: bigint,
-            qxSlot: number,
-        ): bigint => {
+        q_transfer_shares: (name: bigint, srcPtr: number, dstPtr: number, shares: bigint, qxSlot: number): bigint => {
             const src = id32(srcPtr);
             const zero = new Uint8Array(32);
             return (sim as any).assets.transferShareOwnershipAndPossession(
@@ -377,14 +320,7 @@ export async function runContractTesting(
         },
         // transferShareOwnershipAndPossession free helper (index-based): move `shares` of asset (issuer, name) from the
         // owner/possessor holding to newOwner, managed by mgmt. Returns the source's remaining shares (<0 on failure).
-        q_transfer_holding: (
-            name: bigint,
-            issuerPtr: number,
-            ownerPtr: number,
-            newOwnerPtr: number,
-            shares: bigint,
-            mgmt: number,
-        ): bigint => {
+        q_transfer_holding: (name: bigint, issuerPtr: number, ownerPtr: number, newOwnerPtr: number, shares: bigint, mgmt: number): bigint => {
             const issuer = id32(issuerPtr);
             const owner = id32(ownerPtr);
             return (sim as any).assets.transferShareOwnershipAndPossession(
@@ -437,14 +373,7 @@ export async function runContractTesting(
             return sum;
         },
 
-        q_possessed: (
-            name: bigint,
-            issuerPtr: number,
-            ownerPtr: number,
-            possessorPtr: number,
-            om: number,
-            pm: number,
-        ): bigint => {
+        q_possessed: (name: bigint, issuerPtr: number, ownerPtr: number, possessorPtr: number, om: number, pm: number): bigint => {
             const r = (sim as any).assets.numberOfPossessedShares(
                 BigInt(name),
                 id32(issuerPtr),
@@ -458,12 +387,7 @@ export async function runContractTesting(
                     .assetUniverse()
                     .filter((a: any) => a.name === "QUSD")
                     .map((a: any) =>
-                        a.holdings
-                            .map(
-                                (h: any) =>
-                                    `${h.owner.slice(0, 8)}/${h.possessor.slice(0, 8)}:${h.shares}@${h.ownMgmt}/${h.posMgmt}`,
-                            )
-                            .join(" "),
+                        a.holdings.map((h: any) => `${h.owner.slice(0, 8)}/${h.possessor.slice(0, 8)}:${h.shares}@${h.ownMgmt}/${h.posMgmt}`).join(" "),
                     );
                 (globalThis as any).process.stderr.write(
                     `[q_possessed] owner=${hex(id32(ownerPtr)).slice(0, 8)} om=${om >>> 0} pm=${pm >>> 0} -> ${r} | uni: ${uni.join(" | ")}\n`,
@@ -541,13 +465,7 @@ export async function runContractTesting(
             sim.setComputorKey(i >>> 0, id32(idPtr));
         },
 
-        t_report: (
-            namePtr: number,
-            nameLen: number,
-            passed: number,
-            msgPtr: number,
-            msgLen: number,
-        ) => {
+        t_report: (namePtr: number, nameLen: number, passed: number, msgPtr: number, msgLen: number) => {
             results.push({
                 name: dec.decode(read(namePtr, nameLen)),
                 passed: passed >>> 0 !== 0,
@@ -579,8 +497,7 @@ export async function runContractTesting(
         const m = runnerMemory()!;
         if (!scratchBase) scratchBase = scratchBump = m.buffer.byteLength;
         const n = Number((BigInt(size) + 7n) & ~7n);
-        if (scratchBump + n > m.buffer.byteLength)
-            m.grow(Math.ceil((scratchBump + n - m.buffer.byteLength) / 65536));
+        if (scratchBump + n > m.buffer.byteLength) m.grow(Math.ceil((scratchBump + n - m.buffer.byteLength) / 65536));
         const off = scratchBump;
         scratchBump += n;
         if (initZero) mem().fill(0, off, off + n);
@@ -589,8 +506,7 @@ export async function runContractTesting(
 
     // Read-only host surface for in-runner QPI contexts.
     const lhost: Record<string, Function> = {
-        k12: (inOff: number, len: number, outOff: number) =>
-            mem().set(k12Bytes(read(inOff, len)), outOff >>> 0),
+        k12: (inOff: number, len: number, outOff: number) => mem().set(k12Bytes(read(inOff, len)), outOff >>> 0),
         epoch: () => sim.currentEpoch & 0xffff,
         tick: () => sim.currentTick >>> 0,
         day: () => dateFields(sim.nowMs()).day,
@@ -600,13 +516,8 @@ export async function runContractTesting(
         month: () => dateFields(sim.nowMs()).month,
         second: () => dateFields(sim.nowMs()).second,
         millisecond: () => dateFields(sim.nowMs()).milli,
-        now: (out: number) =>
-            new DataView(mem().buffer).setBigUint64(out >>> 0, packDateAndTime(sim.nowMs()), true),
-        prevSpectrumDigest: (out: number) =>
-            mem().set(
-                (sim.prevSpectrumDigestOverride ?? new Uint8Array(32)).subarray(0, 32),
-                out >>> 0,
-            ),
+        now: (out: number) => new DataView(mem().buffer).setBigUint64(out >>> 0, packDateAndTime(sim.nowMs()), true),
+        prevSpectrumDigest: (out: number) => mem().set((sim.prevSpectrumDigestOverride ?? new Uint8Array(32)).subarray(0, 32), out >>> 0),
         // Live spectrum entity record (a corpus runs contract functions in-runner: QTF's CheckContractBalance
         // reads qpi.getEntity(SELF).incoming - outgoing; a noop stub made every such balance check fail).
         transfer: (destOff: number, amount: bigint): bigint => {
@@ -627,27 +538,12 @@ export async function runContractTesting(
         },
         // In-runner inter-contract calls (QTF's ProcessTierPayout invokes QRP's top-up procedure through the
         // corpus qpi context). Caller is the contract under test; reward moves caller -> callee like runtime.ts.
-        liteCallFunction: (
-            calleeIdx: number,
-            inputType: number,
-            inOff: number,
-            inSize: number,
-            outOff: number,
-            outSize: number,
-        ): number => {
+        liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number): number => {
             const out = sim.query(calleeIdx >>> 0, inputType & 0xffff, read(inOff, inSize));
             if (out.length) write(outOff, out.subarray(0, Math.min(outSize >>> 0, out.length)));
             return 0;
         },
-        liteInvokeProcedure: (
-            calleeIdx: number,
-            inputType: number,
-            inOff: number,
-            inSize: number,
-            outOff: number,
-            outSize: number,
-            reward: bigint,
-        ): number => {
+        liteInvokeProcedure: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number, reward: bigint): number => {
             const self = sim.contractId(mainSlot);
             if (reward > 0n) {
                 if (sim.balance(self) < reward) return 4; // InsufficientFunds
@@ -700,11 +596,7 @@ export async function runContractTesting(
         // Real wall-clock: the native harness seeds etalonTick from std::chrono::system_clock::now() (QTRY's
         // updateEtalonTime); a zero stub would put the corpus clock at 1970 while the oracle runs at today.
         clock_time_get: (_id: number, _precision: bigint, timePtr: number): number => {
-            new DataView(mem().buffer).setBigUint64(
-                timePtr >>> 0,
-                BigInt(Date.now()) * 1_000_000n,
-                true,
-            );
+            new DataView(mem().buffer).setBigUint64(timePtr >>> 0, BigInt(Date.now()) * 1_000_000n, true);
             return 0;
         },
     };
@@ -712,14 +604,7 @@ export async function runContractTesting(
     // Fill in explicit safeNoop stubs for every import the module declares that we haven't wired yet, so no
     // Proxy is needed in the import object that Bun sees.
     for (const imp of WebAssembly.Module.imports(mod)) {
-        const entry =
-            imp.module === "lhost"
-                ? lhost
-                : imp.module === "env"
-                  ? envObj
-                  : imp.module === "wasi_snapshot_preview1"
-                    ? wasiObj
-                    : null;
+        const entry = imp.module === "lhost" ? lhost : imp.module === "env" ? envObj : imp.module === "wasi_snapshot_preview1" ? wasiObj : null;
         if (entry && !(imp.name in entry)) {
             const results: string[] = ((imp as any).type?.results ?? []) as string[];
             (entry as any)[imp.name] = results.includes("i64") ? noopBig : noopVal;
@@ -750,10 +635,7 @@ export async function runContractTesting(
     const excludedTests = opts.excludeTests ?? [];
     // Name lookups write into the runner's io scratch; resolve a real io_base whenever we'll print names
     // (trace or prof) or match the filter. Writing to a bogus base (0) would corrupt the runner's memory.
-    const ioBase =
-        trace || prof || filters.length || excludedTests.length
-            ? ((runner.exports.io_base as Function)?.() ?? 0) >>> 0
-            : 0;
+    const ioBase = trace || prof || filters.length || excludedTests.length ? ((runner.exports.io_base as Function)?.() ?? 0) >>> 0 : 0;
     const traceName = (i: number): string => {
         if (!ioBase) return `#${i}`;
         const cap = 256;
@@ -765,10 +647,7 @@ export async function runContractTesting(
     for (let i = 0; i < count; i++) {
         if (filters.length || excludedTests.length) {
             const nm = traceName(i);
-            if (
-                excludedTests.includes(nm) ||
-                (filters.length && !filters.some((f) => nm.includes(f)))
-            ) {
+            if (excludedTests.includes(nm) || (filters.length && !filters.some((f) => nm.includes(f)))) {
                 continue;
             }
         }
@@ -776,10 +655,7 @@ export async function runContractTesting(
         const before = results.length;
         const tt = prof ? now() : 0;
         (runner.exports.run_test as Function)(i);
-        if (prof)
-            (globalThis as any).process.stderr.write(
-                `[gtest] #${i} ${traceName(i)} wall=${Math.round(now() - tt)}ms\n`,
-            );
+        if (prof) (globalThis as any).process.stderr.write(`[gtest] #${i} ${traceName(i)} wall=${Math.round(now() - tt)}ms\n`);
         if (opts.onResult) {
             for (let k = before; k < results.length; k++) {
                 await opts.onResult(results[k]);

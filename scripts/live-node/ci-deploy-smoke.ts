@@ -33,16 +33,11 @@ const readUint64Value = async (slot: number): Promise<bigint> => {
 };
 
 console.log("deploy Counter…");
-const counterDeployment = await deployContract(
-    { contractPath: resolve("fixtures/Counter.h"), name: "Counter", core, rpcBaseUrl },
-    (event: any) => {
-        if (!("note" in event)) {
-            console.log(
-                `  ${event.step}: ${event.state}${event.detail ? " — " + event.detail : ""}`,
-            );
-        }
-    },
-);
+const counterDeployment = await deployContract({ contractPath: resolve("fixtures/Counter.h"), name: "Counter", core, rpcBaseUrl }, (event: any) => {
+    if (!("note" in event)) {
+        console.log(`  ${event.step}: ${event.state}${event.detail ? " — " + event.detail : ""}`);
+    }
+});
 if (!counterDeployment.ok || counterDeployment.slot == null) {
     fail("deploy: " + JSON.stringify(counterDeployment));
 }
@@ -108,9 +103,7 @@ const proxyDeployment = await deployContract(
     },
     (event: any) => {
         if (!("note" in event)) {
-            console.log(
-                `  ${event.step}: ${event.state}${event.detail ? " — " + event.detail : ""}`,
-            );
+            console.log(`  ${event.step}: ${event.state}${event.detail ? " — " + event.detail : ""}`);
         }
     },
 );
@@ -121,10 +114,7 @@ const proxySlot = proxyDeployment.slot!;
 console.log("deployed Proxy slot", proxySlot);
 
 const traceBeforeProxyCalls = await rpc.debugTrace(0, 256);
-const proxyTraceStart = traceBeforeProxyCalls.entries.reduce(
-    (latest, entry) => Math.max(latest, entry.seq),
-    0,
-);
+const proxyTraceStart = traceBeforeProxyCalls.entries.reduce((latest, entry) => Math.max(latest, entry.seq), 0);
 for (let expected = 1; expected <= 2; expected++) {
     await invokeEmptyProcedure(proxySlot, `BumpCounter #${expected}`);
 
@@ -136,20 +126,10 @@ for (let expected = 1; expected <= 2; expected++) {
 }
 
 const proxyTrace = await rpc.debugTrace(proxyTraceStart, 64);
-const outerProxyCalls = proxyTrace.entries.filter(
-    (entry) => entry.index === proxySlot && entry.entry === 1 && entry.kind === 1 && entry.ok,
-);
-const nestedCounterCalls = proxyTrace.entries.filter(
-    (entry) => entry.index === counterSlot && entry.entry === 1 && entry.kind === 1 && entry.ok,
-);
-const outerProxyReads = proxyTrace.entries.filter(
-    (entry) => entry.index === proxySlot && entry.entry === 1 && entry.kind === 0 && entry.ok,
-);
-if (
-    outerProxyCalls.length !== 2 ||
-    nestedCounterCalls.length !== 2 ||
-    outerProxyReads.length !== 2
-) {
+const outerProxyCalls = proxyTrace.entries.filter((entry) => entry.index === proxySlot && entry.entry === 1 && entry.kind === 1 && entry.ok);
+const nestedCounterCalls = proxyTrace.entries.filter((entry) => entry.index === counterSlot && entry.entry === 1 && entry.kind === 1 && entry.ok);
+const outerProxyReads = proxyTrace.entries.filter((entry) => entry.index === proxySlot && entry.entry === 1 && entry.kind === 0 && entry.ok);
+if (outerProxyCalls.length !== 2 || nestedCounterCalls.length !== 2 || outerProxyReads.length !== 2) {
     fail(
         "nested trace records: expected 2 Proxy procedures, 2 Counter procedures, and 2 Proxy reads, " +
             `got ${outerProxyCalls.length}, ${nestedCounterCalls.length}, and ${outerProxyReads.length}`,
@@ -162,35 +142,23 @@ const counterTransitions = [
 ] as const;
 for (const [index, entry] of nestedCounterCalls.entries()) {
     const [before, after] = counterTransitions[index];
-    const hasExpectedDiff = entry.stateDiff.some(
-        (diff) => diff.off === 0 && diff.before.startsWith(before) && diff.after.startsWith(after),
-    );
+    const hasExpectedDiff = entry.stateDiff.some((diff) => diff.off === 0 && diff.before.startsWith(before) && diff.after.startsWith(after));
     if (!hasExpectedDiff || entry.stateTruncated) {
-        fail(
-            `nested Counter #${index + 1} missing ${before}->${after} state diff: ` +
-                JSON.stringify(entry),
-        );
+        fail(`nested Counter #${index + 1} missing ${before}->${after} state diff: ` + JSON.stringify(entry));
     }
 }
 
 const expectedCallee = `-> ${counterSlot}/1`;
 for (const [index, entry] of outerProxyCalls.entries()) {
-    const invokesCounter = entry.hostCalls.some(
-        (call) => call.name === "invokeProcedure" && call.detail.includes(expectedCallee),
-    );
+    const invokesCounter = entry.hostCalls.some((call) => call.name === "invokeProcedure" && call.detail.includes(expectedCallee));
     if (entry.stateDiff.length || entry.stateTruncated || !invokesCounter) {
         fail(`Proxy BumpCounter #${index + 1} trace ownership is wrong: ` + JSON.stringify(entry));
     }
 }
 for (const [index, entry] of outerProxyReads.entries()) {
-    const callsCounter = entry.hostCalls.some(
-        (call) => call.name === "callFunction" && call.detail.includes(expectedCallee),
-    );
+    const callsCounter = entry.hostCalls.some((call) => call.name === "callFunction" && call.detail.includes(expectedCallee));
     if (!callsCounter) {
-        fail(
-            `Proxy ReadCounter #${index + 1} host-call attribution is wrong: ` +
-                JSON.stringify(entry),
-        );
+        fail(`Proxy ReadCounter #${index + 1} host-call attribution is wrong: ` + JSON.stringify(entry));
     }
 }
 
@@ -213,21 +181,12 @@ if (updatedValue !== 3n) {
 let debugOk = false;
 for (let i = 0; i < 8; i++) {
     const trace = await rpc.debugTrace(0, 50);
-    const inc = (trace.entries ?? [])
-        .filter(
-            (entry) => entry.index === counterSlot && entry.kind === 1 && entry.stateDiff.length,
-        )
-        .pop();
+    const inc = (trace.entries ?? []).filter((entry) => entry.index === counterSlot && entry.kind === 1 && entry.stateDiff.length).pop();
     if (inc) {
         console.log("debug: Inc stateDiff " + JSON.stringify(inc.stateDiff));
         // The node reports changed bytes as a window rather than the minimal run, so the counter is the
         // leading little-endian uint64 of the region that starts at the state's offset 0.
-        debugOk = inc.stateDiff.some(
-            (diff) =>
-                diff.off === 0 &&
-                diff.before.startsWith("0200000000000000") &&
-                diff.after.startsWith("0300000000000000"),
-        );
+        debugOk = inc.stateDiff.some((diff) => diff.off === 0 && diff.before.startsWith("0200000000000000") && diff.after.startsWith("0300000000000000"));
         break;
     }
     await sleep(1500);
@@ -286,24 +245,16 @@ if (migratedCounter !== 3n || migratedAtTick === 0n) {
 await invokeEmptyProcedure(counterSlot, "CounterV2 Inc");
 const [counterV2Value, migrationTickAfterCall] = await readCounterV2();
 if (counterV2Value !== 4n || migrationTickAfterCall !== migratedAtTick) {
-    fail(
-        `CounterV2 post-migration call failed: counter=${counterV2Value}, ` +
-            `tick=${migrationTickAfterCall}`,
-    );
+    fail(`CounterV2 post-migration call failed: counter=${counterV2Value}, ` + `tick=${migrationTickAfterCall}`);
 }
 
 // Deploy Logger and verify that Emit(2) produces a decoded INFO log.
 console.log("deploy Logger…");
-const loggerDeployment = await deployContract(
-    { contractPath: resolve("fixtures/Logger.h"), name: "Logger", core, rpcBaseUrl },
-    (event: any) => {
-        if (!("note" in event)) {
-            console.log(
-                `  ${event.step}: ${event.state}${event.detail ? " — " + event.detail : ""}`,
-            );
-        }
-    },
-);
+const loggerDeployment = await deployContract({ contractPath: resolve("fixtures/Logger.h"), name: "Logger", core, rpcBaseUrl }, (event: any) => {
+    if (!("note" in event)) {
+        console.log(`  ${event.step}: ${event.state}${event.detail ? " — " + event.detail : ""}`);
+    }
+});
 if (!loggerDeployment.ok || loggerDeployment.slot == null) {
     fail("deploy Logger: " + JSON.stringify(loggerDeployment));
 }
@@ -337,23 +288,12 @@ if (!loggerInvocation.ok || !loggerInvocation.confirmed) {
 let decodedLogOk = false;
 for (let i = 0; i < 10; i++) {
     const trace = await rpc.debugTrace(0, 200);
-    const emit = (trace.entries ?? []).find(
-        (entry) => entry.index === loggerSlot && entry.kind === 1 && (entry.logs?.length ?? 0) > 0,
-    );
+    const emit = (trace.entries ?? []).find((entry) => entry.index === loggerSlot && entry.kind === 1 && (entry.logs?.length ?? 0) > 0);
     if (emit) {
         const log = emit.logs[0];
         const decoded = await decodeLog(log.type, log.size, log.hex, loggerIdl.logs, enumNames);
-        console.log(
-            "log decode: " +
-                JSON.stringify(decoded, (_key, value) =>
-                    typeof value === "bigint" ? value.toString() : value,
-                ),
-        );
-        decodedLogOk =
-            decoded.severity === "INFO" &&
-            decoded.name === "LogMsg" &&
-            decoded.fields?.value !== undefined &&
-            decoded.typeName === "LogValue";
+        console.log("log decode: " + JSON.stringify(decoded, (_key, value) => (typeof value === "bigint" ? value.toString() : value)));
+        decodedLogOk = decoded.severity === "INFO" && decoded.name === "LogMsg" && decoded.fields?.value !== undefined && decoded.typeName === "LogValue";
         break;
     }
     await sleep(1500);
@@ -368,7 +308,4 @@ if (!(await rpc.tickInfo())) {
     fail("node unresponsive after debug");
 }
 
-console.log(
-    "SMOKE OK — deploy + read + write + nested debug-trace + log-decode " +
-        `verified on-chain (slots ${counterSlot},${proxySlot},${loggerSlot})`,
-);
+console.log("SMOKE OK — deploy + read + write + nested debug-trace + log-decode " + `verified on-chain (slots ${counterSlot},${proxySlot},${loggerSlot})`);

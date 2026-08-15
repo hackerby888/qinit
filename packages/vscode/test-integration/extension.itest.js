@@ -24,18 +24,8 @@ async function hoverText(doc, marker) {
     const offset = doc.getText().indexOf(marker);
     assert.ok(offset >= 0, `missing hover marker ${marker}`);
     const pos = doc.positionAt(offset);
-    const hovers = await vscode.commands.executeCommand(
-        "vscode.executeHoverProvider",
-        doc.uri,
-        pos,
-    );
-    return (hovers || [])
-        .flatMap((hover) =>
-            hover.contents.map((content) =>
-                typeof content === "string" ? content : content.value,
-            ),
-        )
-        .join("\n");
+    const hovers = await vscode.commands.executeCommand("vscode.executeHoverProvider", doc.uri, pos);
+    return (hovers || []).flatMap((hover) => hover.contents.map((content) => (typeof content === "string" ? content : content.value))).join("\n");
 }
 // The member fallback shells out to clang++ (WASM_CLANG or PATH); without one it stays disabled.
 function fallbackClangAvailable() {
@@ -52,11 +42,7 @@ async function completionItems(doc, marker, dot) {
     const offset = doc.getText().indexOf(marker);
     assert.ok(offset >= 0, `missing completion marker ${marker}`);
     const pos = doc.positionAt(offset + dot.length);
-    const list = await vscode.commands.executeCommand(
-        "vscode.executeCompletionItemProvider",
-        doc.uri,
-        pos,
-    );
+    const list = await vscode.commands.executeCommand("vscode.executeCompletionItemProvider", doc.uri, pos);
     return list?.items ?? [];
 }
 
@@ -74,15 +60,9 @@ suite("Qubic QPI extension", function () {
         assert.ok(ext, "extension is present");
         await ext.activate();
         const cmds = await vscode.commands.getCommands(true);
-        assert.ok(
-            cmds.includes("qpi.regenerateConfig"),
-            "qpi.regenerateConfig should be registered",
-        );
+        assert.ok(cmds.includes("qpi.regenerateConfig"), "qpi.regenerateConfig should be registered");
         for (const c of ["qpi.build", "qpi.deploy", "qpi.call", "qpi.gen", "qpi.test", "qpi.up"]) {
-            assert.ok(
-                !cmds.includes(c),
-                `command ${c} should NOT be registered (removed for simplicity)`,
-            );
+            assert.ok(!cmds.includes(c), `command ${c} should NOT be registered (removed for simplicity)`);
         }
     });
 
@@ -91,19 +71,10 @@ suite("Qubic QPI extension", function () {
         await sleep(2500); // let onDidOpen -> refresh publish
         const diagnostics = vscode.languages.getDiagnostics(doc.uri);
         const codes = diagnostics.map((d) => String(d.code));
+        assert.ok(codes.includes("qpi/no-division"), `expected qpi/no-division; got [${codes.join(", ")}]`);
+        assert.ok(codes.includes("qpi/no-brackets"), `expected qpi/no-brackets; got [${codes.join(", ")}]`);
         assert.ok(
-            codes.includes("qpi/no-division"),
-            `expected qpi/no-division; got [${codes.join(", ")}]`,
-        );
-        assert.ok(
-            codes.includes("qpi/no-brackets"),
-            `expected qpi/no-brackets; got [${codes.join(", ")}]`,
-        );
-        assert.ok(
-            diagnostics.some(
-                (d) =>
-                    String(d.source) === "qinit-compiler" && String(d.code) === "compiler/semantic",
-            ),
+            diagnostics.some((d) => String(d.source) === "qinit-compiler" && String(d.code) === "compiler/semantic"),
             `expected a compiler semantic diagnostic; got [${codes.join(", ")}]`,
         );
     });
@@ -112,20 +83,10 @@ suite("Qubic QPI extension", function () {
         const doc = await open("Counter.h");
         await sleep(2500);
         const diagnostics = vscode.languages.getDiagnostics(doc.uri);
-        const extension = diagnostics.filter(
-            (d) => String(d.source) === "qpi" || String(d.source) === "qinit-compiler",
-        );
+        const extension = diagnostics.filter((d) => String(d.source) === "qpi" || String(d.source) === "qinit-compiler");
         const clang = diagnostics.filter((d) => String(d.source) === "clang");
-        assert.strictEqual(
-            extension.length,
-            0,
-            `clean contract should have no extension diagnostics; got ${extension.map((d) => d.code).join(", ")}`,
-        );
-        assert.strictEqual(
-            clang.length,
-            0,
-            `clean contract should have no clang diagnostics; got ${clang.map((d) => d.code).join(", ")}`,
-        );
+        assert.strictEqual(extension.length, 0, `clean contract should have no extension diagnostics; got ${extension.map((d) => d.code).join(", ")}`);
+        assert.strictEqual(clang.length, 0, `clean contract should have no clang diagnostics; got ${clang.map((d) => d.code).join(", ")}`);
     });
 
     test("configured Proxy resolves Counter without a node", async () => {
@@ -140,20 +101,14 @@ suite("Qubic QPI extension", function () {
                 .filter(
                     (diagnostic) =>
                         diagnostic.severity === vscode.DiagnosticSeverity.Error &&
-                        ["qpi", "qinit-compiler", "qinit-project", "clang"].includes(
-                            String(diagnostic.source),
-                        ),
+                        ["qpi", "qinit-compiler", "qinit-project", "clang"].includes(String(diagnostic.source)),
                 );
         let errors = contractErrors();
         for (let attempt = 0; attempt < 20 && errors.length > 0; attempt++) {
             await sleep(1500);
             errors = contractErrors();
         }
-        assert.strictEqual(
-            errors.length,
-            0,
-            `Proxy should resolve Counter; got ${errors.map((d) => `${d.source}:${d.message}`).join(" | ")}`,
-        );
+        assert.strictEqual(errors.length, 0, `Proxy should resolve Counter; got ${errors.map((d) => `${d.source}:${d.message}`).join(" | ")}`);
 
         const clangdConfig = fs.readFileSync(wsUri(".clangd").fsPath, "utf8");
         const databaseMatch = /CompilationDatabase:\s*("[^"]+")/.exec(clangdConfig);
@@ -163,9 +118,7 @@ suite("Qubic QPI extension", function () {
         assert.match(prefix, /#define CONTRACT_STATE_TYPE Counter/);
         assert.match(prefix, /#define CONTRACT_STATE_TYPE Proxy/);
         const counterSlot = Number(/#define Counter_CONTRACT_INDEX (\d+)/.exec(prefix)?.[1]);
-        const proxySlots = [...prefix.matchAll(/#define CONTRACT_INDEX (\d+)/g)].map((match) =>
-            Number(match[1]),
-        );
+        const proxySlots = [...prefix.matchAll(/#define CONTRACT_INDEX (\d+)/g)].map((match) => Number(match[1]));
         const proxySlot = proxySlots.at(-1);
         assert.ok(Number.isInteger(counterSlot), "Counter slot should be generated");
         assert.ok(Number.isInteger(proxySlot), "Proxy slot should be generated");
@@ -191,21 +144,14 @@ suite("Qubic QPI extension", function () {
             `fallback should complete Get_input members; got [${labels.slice(0, 12).join(", ")}]`,
         );
 
-        const arrayItems = await completionItems(
-            doc,
-            "locals.input.history.setAll",
-            "locals.input.history.",
-        );
+        const arrayItems = await completionItems(doc, "locals.input.history.setAll", "locals.input.history.");
         const arrayLabels = arrayItems.map(labelOf);
         assert.ok(
-            arrayLabels.some((l) => l.startsWith("setAll")) &&
-                arrayLabels.some((l) => l.startsWith("get")),
+            arrayLabels.some((l) => l.startsWith("setAll")) && arrayLabels.some((l) => l.startsWith("get")),
             `fallback should complete Array members; got [${arrayLabels.slice(0, 12).join(", ")}]`,
         );
         assert.ok(
-            !arrayLabels.some(
-                (l) => l.startsWith("operator") || l.startsWith("~") || l.startsWith("_"),
-            ),
+            !arrayLabels.some((l) => l.startsWith("operator") || l.startsWith("~") || l.startsWith("_")),
             `member lists carry no generated noise; got [${arrayLabels.slice(0, 12).join(", ")}]`,
         );
 
@@ -244,19 +190,11 @@ suite("Qubic QPI extension", function () {
         for (let attempt = 0; attempt < 20; attempt++) {
             errors = vscode.languages
                 .getDiagnostics(doc.uri)
-                .filter(
-                    (diagnostic) =>
-                        diagnostic.severity === vscode.DiagnosticSeverity.Error &&
-                        String(diagnostic.source) === "clang",
-                );
+                .filter((diagnostic) => diagnostic.severity === vscode.DiagnosticSeverity.Error && String(diagnostic.source) === "clang");
             if (errors.length === 0) break;
             await sleep(1500);
         }
-        assert.strictEqual(
-            errors.length,
-            0,
-            `gtest should compile against its prefix; got ${errors.map((d) => d.message).join(" | ")}`,
-        );
+        assert.strictEqual(errors.length, 0, `gtest should compile against its prefix; got ${errors.map((d) => d.message).join(" | ")}`);
 
         const clangdConfig = fs.readFileSync(wsUri(".clangd").fsPath, "utf8");
         const databaseDir = JSON.parse(/CompilationDatabase:\s*("[^"]+")/.exec(clangdConfig)[1]);
@@ -268,14 +206,9 @@ suite("Qubic QPI extension", function () {
 
         // A gtest is not narrowed to the QPI surface, but its member lists lose the same noise.
         const members = await completionLabels(doc, "input.history.setAll", "input.history.");
+        assert.ok(members.includes("setAll"), `a gtest should complete Array members; got [${members.slice(0, 12).join(", ")}]`);
         assert.ok(
-            members.includes("setAll"),
-            `a gtest should complete Array members; got [${members.slice(0, 12).join(", ")}]`,
-        );
-        assert.ok(
-            !members.some(
-                (l) => l.startsWith("operator") || l.startsWith("~") || l.startsWith("_"),
-            ),
+            !members.some((l) => l.startsWith("operator") || l.startsWith("~") || l.startsWith("_")),
             `a gtest member list carries no generated noise; got [${members.slice(0, 12).join(", ")}]`,
         );
     });
@@ -290,9 +223,7 @@ suite("Qubic QPI extension", function () {
             const doc = await open("project/contracts/Proxy.h");
             await vscode.commands.executeCommand("qpi.regenerateConfig");
             await sleep(500);
-            const diagnostic = vscode.languages
-                .getDiagnostics(doc.uri)
-                .find((item) => String(item.code) === "qinit/project-dependencies");
+            const diagnostic = vscode.languages.getDiagnostics(doc.uri).find((item) => String(item.code) === "qinit/project-dependencies");
             assert.ok(diagnostic, "ambiguous Counter should produce a project diagnostic");
             assert.match(diagnostic.message, /Counter.*ambiguous/);
         } finally {
@@ -319,10 +250,7 @@ suite("Qubic QPI extension", function () {
     test("IDL hover invalidates cached analysis after an edit", async () => {
         const doc = await open("Counter.h");
         const original = doc.getText();
-        const changed = original.replace(
-            "REGISTER_USER_FUNCTION(get, 1)",
-            "REGISTER_USER_FUNCTION(get, 7)",
-        );
+        const changed = original.replace("REGISTER_USER_FUNCTION(get, 1)", "REGISTER_USER_FUNCTION(get, 7)");
 
         try {
             assert.notStrictEqual(changed, original, "registration marker should exist");
@@ -344,9 +272,7 @@ suite("Qubic QPI extension", function () {
         try {
             await sleep(500);
             assert.ok(
-                vscode.languages
-                    .getDiagnostics(doc.uri)
-                    .some((diagnostic) => String(diagnostic.code) === "qpi/no-division"),
+                vscode.languages.getDiagnostics(doc.uri).some((diagnostic) => String(diagnostic.code) === "qpi/no-division"),
                 "contract should start with QPI diagnostics",
             );
 
@@ -355,15 +281,8 @@ suite("Qubic QPI extension", function () {
 
             const stale = vscode.languages
                 .getDiagnostics(doc.uri)
-                .filter(
-                    (diagnostic) =>
-                        diagnostic.source === "qpi" || diagnostic.source === "qinit-compiler",
-                );
-            assert.strictEqual(
-                stale.length,
-                0,
-                `plain header kept stale diagnostics: ${stale.map((d) => d.code).join(", ")}`,
-            );
+                .filter((diagnostic) => diagnostic.source === "qpi" || diagnostic.source === "qinit-compiler");
+            assert.strictEqual(stale.length, 0, `plain header kept stale diagnostics: ${stale.map((d) => d.code).join(", ")}`);
         } finally {
             await replaceDocument(doc, original);
         }
@@ -371,15 +290,9 @@ suite("Qubic QPI extension", function () {
 
     test("no QPI CodeLens buttons (removed for simplicity)", async () => {
         const doc = await open("Counter.h");
-        const lenses = await vscode.commands.executeCommand(
-            "vscode.executeCodeLensProvider",
-            doc.uri,
-        );
+        const lenses = await vscode.commands.executeCommand("vscode.executeCodeLensProvider", doc.uri);
         const titles = (lenses || []).map((l) => (l.command && l.command.title) || "").join(" | ");
-        assert.ok(
-            !/build|deploy|call|gen client/i.test(titles),
-            `expected no QPI action lenses; got: ${titles}`,
-        );
+        assert.ok(!/build|deploy|call|gen client/i.test(titles), `expected no QPI action lenses; got: ${titles}`);
     });
 
     test("standalone contract and test files receive a clangd database", async () => {
@@ -396,15 +309,9 @@ suite("Qubic QPI extension", function () {
     test("quick-fix offers Array<T, N> for a bracket violation", async () => {
         const doc = await open("Bad.h");
         await sleep(1500);
-        const brackets = vscode.languages
-            .getDiagnostics(doc.uri)
-            .filter((d) => String(d.code) === "qpi/no-brackets");
+        const brackets = vscode.languages.getDiagnostics(doc.uri).filter((d) => String(d.code) === "qpi/no-brackets");
         assert.ok(brackets.length, "should have a bracket diagnostic");
-        const actions = await vscode.commands.executeCommand(
-            "vscode.executeCodeActionProvider",
-            doc.uri,
-            brackets[0].range,
-        );
+        const actions = await vscode.commands.executeCommand("vscode.executeCodeActionProvider", doc.uri, brackets[0].range);
         const titles = (actions || []).map((a) => a.title);
         assert.ok(
             titles.some((t) => /Array<T, N>/.test(t)),
@@ -417,21 +324,9 @@ suite("Qubic QPI extension", function () {
         await sleep(2500);
         const diags = vscode.languages.getDiagnostics(doc.uri);
         const qpiCodes = diags.filter((d) => String(d.source) === "qpi").map((d) => String(d.code));
-        assert.ok(
-            qpiCodes.includes("qpi/stack-local"),
-            `expected qpi/stack-local; got [${qpiCodes.join(", ")}]`,
-        );
-        assert.ok(
-            qpiCodes.includes("qpi/needs-with-locals"),
-            `expected qpi/needs-with-locals; got [${qpiCodes.join(", ")}]`,
-        );
-        const onInclude = diags.filter(
-            (d) => String(d.source) === "qpi" && d.range.start.line === 2,
-        );
-        assert.strictEqual(
-            onInclude.length,
-            0,
-            `qpi.h include should be exempt; got [${onInclude.map((d) => d.code).join(", ")}]`,
-        );
+        assert.ok(qpiCodes.includes("qpi/stack-local"), `expected qpi/stack-local; got [${qpiCodes.join(", ")}]`);
+        assert.ok(qpiCodes.includes("qpi/needs-with-locals"), `expected qpi/needs-with-locals; got [${qpiCodes.join(", ")}]`);
+        const onInclude = diags.filter((d) => String(d.source) === "qpi" && d.range.start.line === 2);
+        assert.strictEqual(onInclude.length, 0, `qpi.h include should be exempt; got [${onInclude.map((d) => d.code).join(", ")}]`);
     });
 });

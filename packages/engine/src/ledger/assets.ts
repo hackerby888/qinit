@@ -178,8 +178,7 @@ export class AssetLedger {
     }
 
     private startOf(publicKey: Uint8Array): number {
-        const firstWord =
-            publicKey[0] | (publicKey[1] << 8) | (publicKey[2] << 16) | (publicKey[3] << 24);
+        const firstWord = publicKey[0] | (publicKey[1] << 8) | (publicKey[2] << 16) | (publicKey[3] << 24);
 
         return (firstWord >>> 0) & ASSET_INDEX_MASK;
     }
@@ -203,18 +202,12 @@ export class AssetLedger {
     }
 
     private addOwnership(issuanceIndex: number, ownershipIndex: number): void {
-        this.nextIndex.set(
-            ownershipIndex,
-            this.firstChildIndex.get(issuanceIndex) ?? NO_ASSET_INDEX,
-        );
+        this.nextIndex.set(ownershipIndex, this.firstChildIndex.get(issuanceIndex) ?? NO_ASSET_INDEX);
         this.firstChildIndex.set(issuanceIndex, ownershipIndex);
     }
 
     private addPossession(ownershipIndex: number, possessionIndex: number): void {
-        this.nextIndex.set(
-            possessionIndex,
-            this.firstChildIndex.get(ownershipIndex) ?? NO_ASSET_INDEX,
-        );
+        this.nextIndex.set(possessionIndex, this.firstChildIndex.get(ownershipIndex) ?? NO_ASSET_INDEX);
         this.firstChildIndex.set(ownershipIndex, possessionIndex);
     }
 
@@ -227,11 +220,7 @@ export class AssetLedger {
                 return NO_ASSET_INDEX;
             }
 
-            if (
-                record.type === ISSUANCE &&
-                record.name === name &&
-                first32BytesEqual(record.publicKey, issuer)
-            ) {
+            if (record.type === ISSUANCE && record.name === name && first32BytesEqual(record.publicKey, issuer)) {
                 return index;
             }
 
@@ -325,14 +314,7 @@ export class AssetLedger {
         return indexes;
     }
 
-    issueAssetRaw(
-        issuer: Uint8Array,
-        name: bigint,
-        decimals: number,
-        unit: bigint,
-        shares: bigint,
-        managingContractIndex: number,
-    ): bigint {
+    issueAssetRaw(issuer: Uint8Array, name: bigint, decimals: number, unit: bigint, shares: bigint, managingContractIndex: number): bigint {
         let issuanceIndex = this.startOf(issuer);
 
         for (;;) {
@@ -341,11 +323,7 @@ export class AssetLedger {
                 break;
             }
 
-            if (
-                record.type === ISSUANCE &&
-                record.name === name &&
-                first32BytesEqual(record.publicKey, issuer)
-            ) {
+            if (record.type === ISSUANCE && record.name === name && first32BytesEqual(record.publicKey, issuer)) {
                 return 0n;
             }
 
@@ -399,23 +377,12 @@ export class AssetLedger {
         this.addOwnership(issuanceIndex, ownershipIndex);
         this.addPossession(ownershipIndex, possessionIndex);
 
-        this.host.logAssetMutation?.(
-            QUBIC_LOG_TYPE.ASSET_ISSUANCE,
-            encodeAssetIssuanceLog(issuer, shares, managingContractIndex, name, decimals, unit),
-        );
+        this.host.logAssetMutation?.(QUBIC_LOG_TYPE.ASSET_ISSUANCE, encodeAssetIssuanceLog(issuer, shares, managingContractIndex, name, decimals, unit));
 
         return shares;
     }
 
-    issueAsset(
-        slot: number,
-        name: bigint,
-        issuer: Uint8Array,
-        decimals: number,
-        shares: bigint,
-        unit: bigint,
-        invocator: Uint8Array,
-    ): bigint {
+    issueAsset(slot: number, name: bigint, issuer: Uint8Array, decimals: number, shares: bigint, unit: bigint, invocator: Uint8Array): bigint {
         const firstCharacter = Number(name & 0xffn);
         if (firstCharacter < 0x41 || firstCharacter > 0x5a || name > 0xffffffffffffffn) {
             return 0n;
@@ -451,9 +418,7 @@ export class AssetLedger {
             return 0n;
         }
 
-        const isAuthorizedIssuer =
-            first32BytesEqual(issuer, this.host.contractId(slot)) ||
-            first32BytesEqual(issuer, invocator);
+        const isAuthorizedIssuer = first32BytesEqual(issuer, this.host.contractId(slot)) || first32BytesEqual(issuer, invocator);
         if (!isAuthorizedIssuer) {
             return 0n;
         }
@@ -471,29 +436,15 @@ export class AssetLedger {
         this.issueAssetRaw(new Uint8Array(32), name & 0xffffffffffffffn, 0, 0n, shares, qxSlot);
     }
 
-    numberOfShares(
-        assetBytes: Uint8Array,
-        ownershipSelectionBytes: Uint8Array,
-        possessionSelectionBytes: Uint8Array,
-    ): bigint {
+    numberOfShares(assetBytes: Uint8Array, ownershipSelectionBytes: Uint8Array, possessionSelectionBytes: Uint8Array): bigint {
         const asset = Asset.wrap(assetBytes);
         const ownership = parseSelect(ownershipSelectionBytes);
         const possession = parseSelect(possessionSelectionBytes);
 
-        return this.numberOfSharesSel(
-            asset.issuer,
-            asset.assetName & 0xffffffffffffffn,
-            ownership,
-            possession,
-        );
+        return this.numberOfSharesSel(asset.issuer, asset.assetName & 0xffffffffffffffn, ownership, possession);
     }
 
-    private numberOfSharesSel(
-        issuer: Uint8Array,
-        name: bigint,
-        ownership: AssetSelection,
-        possession: AssetSelection,
-    ): bigint {
+    private numberOfSharesSel(issuer: Uint8Array, name: bigint, ownership: AssetSelection, possession: AssetSelection): bigint {
         const issuanceIndex = this.issuanceIndex(issuer, name);
         if (issuanceIndex === NO_ASSET_INDEX) {
             return 0n;
@@ -516,12 +467,7 @@ export class AssetLedger {
         return total;
     }
 
-    enumerate(
-        assetBytes: Uint8Array,
-        ownershipSelectionBytes: Uint8Array,
-        possessionSelectionBytes: Uint8Array,
-        kind: number,
-    ): AssetEntry[] {
+    enumerate(assetBytes: Uint8Array, ownershipSelectionBytes: Uint8Array, possessionSelectionBytes: Uint8Array, kind: number): AssetEntry[] {
         const asset = Asset.wrap(assetBytes);
         const ownership = parseSelect(ownershipSelectionBytes);
         const possession = parseSelect(possessionSelectionBytes);
@@ -677,12 +623,7 @@ export class AssetLedger {
         );
     }
 
-    private transferOwnershipAndPossessionIdx(
-        sourceOwnershipIndex: number,
-        sourcePossessionIndex: number,
-        destination: Uint8Array,
-        shares: bigint,
-    ): boolean {
+    private transferOwnershipAndPossessionIdx(sourceOwnershipIndex: number, sourcePossessionIndex: number, destination: Uint8Array, shares: bigint): boolean {
         if (shares <= 0n) {
             return false;
         }
@@ -712,13 +653,7 @@ export class AssetLedger {
             this.markDirty(sourceOwnershipIndex);
             this.markDirty(sourcePossessionIndex);
 
-            this.logOwnershipAndPossessionChange(
-                sourceOwnership,
-                sourcePossession,
-                destination,
-                issuance,
-                shares,
-            );
+            this.logOwnershipAndPossessionChange(sourceOwnership, sourcePossession, destination, issuance, shares);
 
             return true;
         }
@@ -798,13 +733,7 @@ export class AssetLedger {
         this.markDirty(destinationOwnershipIndex);
         this.markDirty(destinationPossessionIndex);
 
-        this.logOwnershipAndPossessionChange(
-            sourceOwnership,
-            sourcePossession,
-            destination,
-            this.record(sourceOwnership.crossRef)!,
-            shares,
-        );
+        this.logOwnershipAndPossessionChange(sourceOwnership, sourcePossession, destination, this.record(sourceOwnership.crossRef)!, shares);
 
         return true;
     }
@@ -835,12 +764,7 @@ export class AssetLedger {
                 return -shares;
             }
 
-            if (
-                record.type === OWNERSHIP &&
-                record.crossRef === issuanceIndex &&
-                first32BytesEqual(record.publicKey, owner) &&
-                record.mgmt === slot
-            ) {
+            if (record.type === OWNERSHIP && record.crossRef === issuanceIndex && first32BytesEqual(record.publicKey, owner) && record.mgmt === slot) {
                 break;
             }
 
@@ -855,23 +779,14 @@ export class AssetLedger {
                 return -shares;
             }
 
-            if (
-                possession.type === POSSESSION &&
-                possession.crossRef === ownershipIndex &&
-                first32BytesEqual(possession.publicKey, possessor)
-            ) {
+            if (possession.type === POSSESSION && possession.crossRef === ownershipIndex && first32BytesEqual(possession.publicKey, possessor)) {
                 if (possession.mgmt !== slot) {
                     return -shares;
                 }
                 if (possession.shares < shares) {
                     return possession.shares - shares;
                 }
-                const transferred = this.transferOwnershipAndPossessionIdx(
-                    ownershipIndex,
-                    possessionIndex,
-                    newOwner,
-                    shares,
-                );
+                const transferred = this.transferOwnershipAndPossessionIdx(ownershipIndex, possessionIndex, newOwner, shares);
                 if (!transferred) {
                     return INVALID_AMOUNT;
                 }
@@ -1038,17 +953,8 @@ export class AssetLedger {
                 anyMgmt: false,
             };
 
-            for (const possessionIndex of this.possessionIndices(
-                ownershipIndex,
-                possessionSelection,
-            )) {
-                return this.transferManagementRightsIdx(
-                    ownershipIndex,
-                    possessionIndex,
-                    destinationManager,
-                    destinationManager,
-                    shares,
-                );
+            for (const possessionIndex of this.possessionIndices(ownershipIndex, possessionSelection)) {
+                return this.transferManagementRightsIdx(ownershipIndex, possessionIndex, destinationManager, destinationManager, shares);
             }
         }
 
@@ -1171,8 +1077,7 @@ export class AssetLedger {
     universeProofIssuances(filter: AssetIssuanceFilter = {}): IssuedProof[] {
         this.getUniverseDigest();
         const proofs: IssuedProof[] = [];
-        const requestedName =
-            filter.name === undefined ? undefined : filter.name & 0xffffffffffffffn;
+        const requestedName = filter.name === undefined ? undefined : filter.name & 0xffffffffffffffn;
 
         for (
             let issuanceIndex = this.firstIssuanceIndex;
@@ -1216,9 +1121,7 @@ export class AssetLedger {
             anyMgmt: filter.ownershipManagingContractIndex === undefined,
         };
 
-        return this.ownershipIndices(issuanceIndex, selection).map((index) =>
-            this.universeProof(index),
-        );
+        return this.ownershipIndices(issuanceIndex, selection).map((index) => this.universeProof(index));
     }
 
     universeProofPossessions(filter: AssetPossessionFilter): AssetRecordProof[] {
@@ -1243,10 +1146,7 @@ export class AssetLedger {
         const proofs: AssetRecordProof[] = [];
 
         for (const ownershipIndex of this.ownershipIndices(issuanceIndex, ownershipSelection)) {
-            for (const possessionIndex of this.possessionIndices(
-                ownershipIndex,
-                possessionSelection,
-            )) {
+            for (const possessionIndex of this.possessionIndices(ownershipIndex, possessionSelection)) {
                 proofs.push(this.universeProof(possessionIndex));
             }
         }

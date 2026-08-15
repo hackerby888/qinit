@@ -3,13 +3,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEFAULT_RPC_BASE, initK12, k12Hex, LiteRpc } from "@qinit/core";
-import {
-    compileContract,
-    DEFAULT_COMPILE_ARENA_SIZE_BYTES,
-    DiagnosticSeverity,
-    inspectWasmModule,
-    loadQpiHeader,
-} from "@qinit/compiler";
+import { compileContract, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, inspectWasmModule, loadQpiHeader } from "@qinit/compiler";
 import { QubicSimulator } from "@qinit/engine";
 import { deployContract } from "@qinit/cli/ops/deploy";
 import { invokeProcedure, resolveDeploymentSlot } from "@qinit/proto";
@@ -20,11 +14,7 @@ const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const rpc = new LiteRpc(rpcBaseUrl);
 const contractPath = resolve("fixtures/Logger.h");
 const source = readFileSync(contractPath, "utf8");
-const expectSameLogs = (
-    left: Array<{ type: number; size: number; hex: string }>,
-    right: Array<{ type: number; size: number; hex: string }>,
-    label: string,
-) => {
+const expectSameLogs = (left: Array<{ type: number; size: number; hex: string }>, right: Array<{ type: number; size: number; hex: string }>, label: string) => {
     const shape = (logs: typeof left) => logs.map((log) => [log.type, log.size, log.hex]);
     if (JSON.stringify(shape(left)) !== JSON.stringify(shape(right))) {
         throw new Error(`${label} differs: ${JSON.stringify(left)} != ${JSON.stringify(right)}`);
@@ -40,9 +30,7 @@ const compiled = await compileContract({
     qpiHeader: loadQpiHeader(core),
     arenaSizeBytes: DEFAULT_COMPILE_ARENA_SIZE_BYTES,
 });
-const errors = compiled.diagnostics.filter(
-    (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-);
+const errors = compiled.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
 if (errors.length) {
     throw new Error(errors.map((diagnostic) => diagnostic.message).join("; "));
 }
@@ -115,15 +103,10 @@ if (!invoked.ok || !invoked.confirmed || !invoked.included) {
 let nodeLogs: typeof simLogs = [];
 for (let i = 0; i < 10 && !nodeLogs.length; i++) {
     const trace = await rpc.debugTrace(0, 200);
-    nodeLogs =
-        trace.entries
-            .filter((entry) => entry.index === slot && entry.kind === 1 && entry.logs.length)
-            .at(-1)?.logs ?? [];
+    nodeLogs = trace.entries.filter((entry) => entry.index === slot && entry.kind === 1 && entry.logs.length).at(-1)?.logs ?? [];
     if (!nodeLogs.length) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 }
 expectSameLogs(nodeLogs, simLogs, "LOG_* trace bytes");
-console.log(
-    `LOGGING DUAL OK — exact ${compiled.wasm.length}B artifact emitted ${nodeLogs.length} identical logs in QubicSimulator and WAMR at slot ${slot}`,
-);
+console.log(`LOGGING DUAL OK — exact ${compiled.wasm.length}B artifact emitted ${nodeLogs.length} identical logs in QubicSimulator and WAMR at slot ${slot}`);

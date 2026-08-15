@@ -1,11 +1,5 @@
 import { AstKind, TokenKind } from "../../../shared/enums";
-import type {
-    ClassTemplateDecl,
-    Declaration,
-    NamespaceDecl,
-    StructDecl,
-    TypeSpec,
-} from "../../../ast";
+import type { ClassTemplateDecl, Declaration, NamespaceDecl, StructDecl, TypeSpec } from "../../../ast";
 import type { Parser } from "../parser";
 
 export class RecordParser {
@@ -64,13 +58,8 @@ export class RecordParser {
         // Declarators after a combined struct body use the new struct as their type.
         if (hadBody && this.parser.records.declaratorFollows()) {
             const declType: TypeSpec = { kind: AstKind.INLINE_STRUCT, struct, span: start };
-            while (
-                this.parser.state.peek().kind === TokenKind.STAR ||
-                this.parser.state.peek().kind === TokenKind.AMP
-            )
-                this.parser.state.next();
-            const first =
-                this.parser.state.expect(TokenKind.IDENTIFIER, "struct declarator")?.text ?? "";
+            while (this.parser.state.peek().kind === TokenKind.STAR || this.parser.state.peek().kind === TokenKind.AMP) this.parser.state.next();
+            const first = this.parser.state.expect(TokenKind.IDENTIFIER, "struct declarator")?.text ?? "";
             const vars = this.parser.functions.parseDeclaratorList(declType, first, false, false);
             for (const varValue of vars) this.parser.state.pendingDeclarations.push(varValue);
         } else {
@@ -81,12 +70,7 @@ export class RecordParser {
 
     declaratorFollows(): boolean {
         const kind = this.parser.state.peek().kind;
-        return (
-            kind === TokenKind.IDENTIFIER ||
-            kind === TokenKind.STAR ||
-            kind === TokenKind.AMP ||
-            kind === TokenKind.L_BRACKET
-        );
+        return kind === TokenKind.IDENTIFIER || kind === TokenKind.STAR || kind === TokenKind.AMP || kind === TokenKind.L_BRACKET;
     }
 
     parseSpecializationArgs(): TypeSpec[] {
@@ -144,13 +128,8 @@ export class RecordParser {
         // A declarator after a combined union body uses the new union as its type.
         if (hadBody && this.parser.records.declaratorFollows()) {
             const declType: TypeSpec = { kind: AstKind.INLINE_STRUCT, struct: union, span: start };
-            while (
-                this.parser.state.peek().kind === TokenKind.STAR ||
-                this.parser.state.peek().kind === TokenKind.AMP
-            )
-                this.parser.state.next();
-            const first =
-                this.parser.state.expect(TokenKind.IDENTIFIER, "union declarator")?.text ?? "";
+            while (this.parser.state.peek().kind === TokenKind.STAR || this.parser.state.peek().kind === TokenKind.AMP) this.parser.state.next();
+            const first = this.parser.state.expect(TokenKind.IDENTIFIER, "union declarator")?.text ?? "";
             const vars = this.parser.functions.parseDeclaratorList(declType, first, false, false);
             for (const varValue of vars) this.parser.state.pendingDeclarations.push(varValue);
         } else {

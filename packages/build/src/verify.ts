@@ -13,11 +13,7 @@ export interface VerifyResult {
 }
 
 export function resolveVerifyTool(): string | null {
-    const candidates = [
-        process.env.QINIT_VERIFY,
-        readCurrent()?.verify,
-        join(cacheRoot(), "tools", "contractverify"),
-    ].filter(Boolean) as string[];
+    const candidates = [process.env.QINIT_VERIFY, readCurrent()?.verify, join(cacheRoot(), "tools", "contractverify")].filter(Boolean) as string[];
 
     for (const candidate of candidates) {
         if (existsSync(candidate)) {
@@ -29,16 +25,10 @@ export function resolveVerifyTool(): string | null {
 }
 
 function concretize(source: string, name: string): string {
-    return source
-        .replaceAll("CONTRACT_STATE2_TYPE", `${name}2`)
-        .replaceAll("CONTRACT_STATE_TYPE", name);
+    return source.replaceAll("CONTRACT_STATE2_TYPE", `${name}2`).replaceAll("CONTRACT_STATE_TYPE", name);
 }
 
-export async function verifyContract(
-    file: string,
-    name: string,
-    options?: { oracle?: boolean; allowedPrefixes?: string[] },
-): Promise<VerifyResult> {
+export async function verifyContract(file: string, name: string, options?: { oracle?: boolean; allowedPrefixes?: string[] }): Promise<VerifyResult> {
     const tool = resolveVerifyTool();
     const oracle = !!options?.oracle || /oracle_interface/i.test(file);
 
@@ -58,10 +48,7 @@ export async function verifyContract(
         stdout: "pipe",
         stderr: "pipe",
     });
-    const [stdout, stderr] = await Promise.all([
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-    ]);
+    const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
     await child.exited;
 
     const raw = (stdout + stderr).trim();
@@ -70,12 +57,7 @@ export async function verifyContract(
         .filter((line) => line.includes("[ ERROR ]"))
         .map((line) => line.replace(/.*\[ ERROR \]\s*/, "").trim());
     const allowedPrefixes = options?.allowedPrefixes ?? [];
-    const errors = allErrors.filter(
-        (error) =>
-            !allowedPrefixes.some(
-                (prefix) => error === `Scope resolution with prefix ${prefix} is not allowed.`,
-            ),
-    );
+    const errors = allErrors.filter((error) => !allowedPrefixes.some((prefix) => error === `Scope resolution with prefix ${prefix} is not allowed.`));
     const dropped = allErrors.length - errors.length;
 
     if (child.exitCode !== 0 && allErrors.length === 0) {

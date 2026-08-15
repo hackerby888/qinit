@@ -3,13 +3,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEFAULT_RPC_BASE, hexToBytes, initK12, k12Hex, LiteRpc } from "@qinit/core";
-import {
-    compileContract,
-    DEFAULT_COMPILE_ARENA_SIZE_BYTES,
-    DiagnosticSeverity,
-    inspectWasmModule,
-    loadQpiHeader,
-} from "@qinit/compiler";
+import { compileContract, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, inspectWasmModule, loadQpiHeader } from "@qinit/compiler";
 import { QubicSimulator } from "@qinit/engine";
 import { deployContract } from "@qinit/cli/ops/deploy";
 import { invokeProcedure, resolveDeploymentSlot } from "@qinit/proto";
@@ -111,9 +105,7 @@ if (!invoked.ok || !invoked.confirmed || !invoked.included) {
     fail(`Run was not included: ${JSON.stringify(invoked)}`);
 }
 
-const trace = (await rpc.debugTrace(since, 64)).entries
-    .filter((entry) => entry.index === slot && entry.entry === 1 && entry.kind === 1 && entry.ok)
-    .at(-1);
+const trace = (await rpc.debugTrace(since, 64)).entries.filter((entry) => entry.index === slot && entry.entry === 1 && entry.kind === 1 && entry.ok).at(-1);
 if (!trace) throw new Error("RANDOM DUAL FAIL: node emitted no successful procedure trace");
 const postRead = await rpc.stateRead(slot, 0, idl.state.size);
 const nodeState = hexToBytes(postRead.hex);
@@ -140,28 +132,15 @@ same(replay(), simState, "identical replay");
 const first = simState.slice(32, 64);
 const second = simState.slice(64, 96);
 const third = simState.slice(96, 128);
-if (
-    first.every((value) => value === 0) ||
-    second.every((value) => value === 0) ||
-    third.every((value) => value === 0)
-) {
+if (first.every((value) => value === 0) || second.every((value) => value === 0) || third.every((value) => value === 0)) {
     fail("random id is zero");
 }
-if (
-    Buffer.from(first).equals(Buffer.from(second)) ||
-    Buffer.from(second).equals(Buffer.from(third))
-) {
+if (Buffer.from(first).equals(Buffer.from(second)) || Buffer.from(second).equals(Buffer.from(third))) {
     fail("random sequence did not advance");
 }
 const view = new DataView(simState.buffer, simState.byteOffset, simState.byteLength);
-if (
-    view.getUint32(160, true) !== 1 ||
-    view.getUint32(164, true) !== 1 ||
-    view.getUint32(168, true) !== 1
-) {
+if (view.getUint32(160, true) !== 1 || view.getUint32(164, true) !== 1 || view.getUint32(168, true) !== 1) {
     fail("rdrand success result differs");
 }
 await rpc.setDebug(false);
-console.log(
-    `RANDOM DUAL OK — exact ${compiled.wasm.length}B artifact, tick ${trace.tick}, ${nodeState.length} state bytes match in WAMR and QubicSimulator`,
-);
+console.log(`RANDOM DUAL OK — exact ${compiled.wasm.length}B artifact, tick ${trace.tick}, ${nodeState.length} state bytes match in WAMR and QubicSimulator`);

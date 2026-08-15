@@ -1,9 +1,4 @@
-import {
-    COMPILER_BACKENDS,
-    savedCompilerBackend,
-    setSavedCompilerBackend,
-    type CompilerBackend,
-} from "../../config";
+import { COMPILER_BACKENDS, savedCompilerBackend, setSavedCompilerBackend, type CompilerBackend } from "../../config";
 import type { CommandArguments } from "../../args";
 import { BackendPicker } from "./backend-picker";
 

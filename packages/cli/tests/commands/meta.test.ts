@@ -1,12 +1,5 @@
 import { test, expect } from "bun:test";
-import {
-    META,
-    COMMANDS,
-    GROUP_ORDER,
-    commandOptions,
-    optionSyntax,
-    type CommandName,
-} from "../../src/meta";
+import { META, COMMANDS, GROUP_ORDER, commandOptions, optionSyntax, type CommandName } from "../../src/meta";
 
 test("META: every command has a non-empty summary in a known group", () => {
     for (const m of Object.values(META)) {
@@ -46,10 +39,7 @@ test("command summaries describe outcomes without implementation details", () =>
 test("META: options are complete structured parser definitions", () => {
     for (const command of COMMANDS) {
         const meta = META[command];
-        const groups = [
-            meta.options ?? [],
-            ...Object.values(meta.subcommands ?? {}).map((subcommand) => subcommand.options),
-        ];
+        const groups = [meta.options ?? [], ...Object.values(meta.subcommands ?? {}).map((subcommand) => subcommand.options)];
         for (const options of groups) {
             expect(new Set(options.map((option) => option.name)).size).toBe(options.length);
             for (const option of options) {
@@ -121,18 +111,10 @@ test("node subcommands are declared for routing and option scoping", () => {
 });
 
 test("accepted develop and call options are documented", () => {
-    expect(commandOptions("build").map((option) => option.name)).toEqual(
-        expect.arrayContaining(["contract", "rpc", "callee"]),
-    );
-    expect(commandOptions("dev").map((option) => option.name)).toEqual(
-        expect.arrayContaining(["contract", "contract-name", "core-dir", "callee", "compiler"]),
-    );
-    expect(commandOptions("gen").map((option) => option.name)).toEqual(
-        expect.arrayContaining(["contract", "contract-name", "core-dir"]),
-    );
-    expect(commandOptions("call").map((option) => option.name)).toEqual(
-        expect.arrayContaining(["args", "amount", "all", "no-settle"]),
-    );
+    expect(commandOptions("build").map((option) => option.name)).toEqual(expect.arrayContaining(["contract", "rpc", "callee"]));
+    expect(commandOptions("dev").map((option) => option.name)).toEqual(expect.arrayContaining(["contract", "contract-name", "core-dir", "callee", "compiler"]));
+    expect(commandOptions("gen").map((option) => option.name)).toEqual(expect.arrayContaining(["contract", "contract-name", "core-dir"]));
+    expect(commandOptions("call").map((option) => option.name)).toEqual(expect.arrayContaining(["args", "amount", "all", "no-settle"]));
     expect(commandOptions("integrate").map((option) => option.name)).toEqual([
         "contract",
         "contract-name",
@@ -146,9 +128,7 @@ test("accepted develop and call options are documented", () => {
 test("legacy backend and path flags are not accepted", () => {
     const optionNames = Object.entries(META).flatMap(([command, meta]) => [
         ...(meta.options ?? []).map((option) => `${command}:${option.name}`),
-        ...Object.entries(meta.subcommands ?? {}).flatMap(([subcommand, sub]) =>
-            sub.options.map((option) => `${command} ${subcommand}:${option.name}`),
-        ),
+        ...Object.entries(meta.subcommands ?? {}).flatMap(([subcommand, sub]) => sub.options.map((option) => `${command} ${subcommand}:${option.name}`)),
     ]);
 
     for (const legacy of ["native", "local", "core", "bin", "dir", "mode"]) {

@@ -10,11 +10,7 @@ for (const kind of TEMPLATE_KINDS) {
         const name = kind[0].toUpperCase() + kind.slice(1);
         const f = join(tmpdir(), `tmpl-${kind}.h`);
         writeFileSync(f, templateSource(kind));
-        const r = await verifyContract(
-            f,
-            name,
-            kind === "intercontract" ? { allowedPrefixes: ["Counter"] } : undefined,
-        );
+        const r = await verifyContract(f, name, kind === "intercontract" ? { allowedPrefixes: ["Counter"] } : undefined);
         if (!r.ok) console.error(`\n[${kind}] errors:`, JSON.stringify(r.errors, null, 2));
         expect(r.ok).toBe(true);
     });

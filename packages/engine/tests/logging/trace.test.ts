@@ -3,12 +3,7 @@ import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { QubicSimulator } from "../../src/qubic-simulator";
 import { DIFF_WINDOW, diffRegions, TraceRecorder } from "../../src/logging/trace";
 
-function recordOne(
-    recorder: TraceRecorder,
-    stateBefore: Uint8Array,
-    stateAfter: Uint8Array,
-    stateSize = stateBefore.length,
-) {
+function recordOne(recorder: TraceRecorder, stateBefore: Uint8Array, stateAfter: Uint8Array, stateSize = stateBefore.length) {
     const entry = recorder.begin({
         tick: 0,
         index: 2,

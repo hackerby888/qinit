@@ -7,12 +7,7 @@ import { Preprocessor, type MacroDef } from "../../frontend/preprocessor";
 import { getQpiPrelude } from "../qpi-macros";
 import { embeddedWasmAbi, IMPL_BOUNDARY, WASM_ABI_MARKER } from "./snapshot-format";
 
-export {
-    embeddedWasmAbi,
-    GENERATOR_VERSION,
-    IMPL_BOUNDARY,
-    WASM_ABI_MARKER,
-} from "./snapshot-format";
+export { embeddedWasmAbi, GENERATOR_VERSION, IMPL_BOUNDARY, WASM_ABI_MARKER } from "./snapshot-format";
 
 // Core snapshot inputs are resolved relative to `<core>/src`.
 const HEADER_FILES = [
@@ -67,10 +62,7 @@ function requireCoreSourceDirectory(corePath: string, fileSystem: NodeFileSystem
 
 function readWasmAbi(fileSystem: NodeFileSystem, sourceDirectory: string): WasmAbi {
     return parseWasmAbiSource(
-        fileSystem.readFileSync(
-            `${sourceDirectory}/${CORE_WASM_HEADERS.shared.abiMetadata}`,
-            "utf8",
-        ),
+        fileSystem.readFileSync(`${sourceDirectory}/${CORE_WASM_HEADERS.shared.abiMetadata}`, "utf8"),
         fileSystem.readFileSync(`${sourceDirectory}/${CORE_WASM_HEADERS.shared.abiTypes}`, "utf8"),
     );
 }
@@ -79,10 +71,7 @@ function serializeWasmAbi(wasmAbi: WasmAbi): string {
     return `${WASM_ABI_MARKER}${JSON.stringify(wasmAbi)}\n`;
 }
 
-function assembleContractIndexDefinitions(
-    fileSystem: NodeFileSystem,
-    sourceDirectory: string,
-): string {
+function assembleContractIndexDefinitions(fileSystem: NodeFileSystem, sourceDirectory: string): string {
     const contractDefinitionsPath = `${sourceDirectory}/contract_core/contract_def.h`;
 
     if (!fileSystem.existsSync(contractDefinitionsPath)) {
@@ -108,40 +97,25 @@ function assembleHeaderDeclarations(fileSystem: NodeFileSystem, sourceDirectory:
         }
 
         const headerSource = fileSystem.readFileSync(headerPath, "utf8");
-        declarations +=
-            inlineInterfaceHeaders(fileSystem, sourceDirectory, headerFile, headerSource) + "\n";
+        declarations += inlineInterfaceHeaders(fileSystem, sourceDirectory, headerFile, headerSource) + "\n";
     }
 
     return declarations;
 }
 
-function inlineInterfaceHeaders(
-    fileSystem: NodeFileSystem,
-    sourceDirectory: string,
-    headerFile: string,
-    headerSource: string,
-): string {
+function inlineInterfaceHeaders(fileSystem: NodeFileSystem, sourceDirectory: string, headerFile: string, headerSource: string): string {
     if (!headerFile.endsWith("_interfaces_def.h")) {
         return headerSource;
     }
 
-    return headerSource.replace(
-        /^[ \t]*#include[ \t]+"((?:oracle|oc)_interfaces\/\w+\.h)"[ \t]*$/gm,
-        (includeLine: string, relativePath: string) => {
-            const includedHeaderPath = `${sourceDirectory}/${relativePath}`;
+    return headerSource.replace(/^[ \t]*#include[ \t]+"((?:oracle|oc)_interfaces\/\w+\.h)"[ \t]*$/gm, (includeLine: string, relativePath: string) => {
+        const includedHeaderPath = `${sourceDirectory}/${relativePath}`;
 
-            return fileSystem.existsSync(includedHeaderPath)
-                ? fileSystem.readFileSync(includedHeaderPath, "utf8")
-                : includeLine;
-        },
-    );
+        return fileSystem.existsSync(includedHeaderPath) ? fileSystem.readFileSync(includedHeaderPath, "utf8") : includeLine;
+    });
 }
 
-function readWasmSdkHeader(
-    fileSystem: NodeFileSystem,
-    sourceDirectory: string,
-    relativePath: string,
-): { path: string; source: string } {
+function readWasmSdkHeader(fileSystem: NodeFileSystem, sourceDirectory: string, relativePath: string): { path: string; source: string } {
     const path = `${sourceDirectory}/${relativePath}`;
     if (!fileSystem.existsSync(path)) {
         throw new Error(`${path} not found`);
@@ -170,9 +144,7 @@ function assembleImplementationChunks(fileSystem: NodeFileSystem, sourceDirector
             continue;
         }
 
-        const implementationSource = fileSystem
-            .readFileSync(implementationPath, "utf8")
-            .replace(/^[ \t]*#include[ \t].*$/gm, "");
+        const implementationSource = fileSystem.readFileSync(implementationPath, "utf8").replace(/^[ \t]*#include[ \t].*$/gm, "");
 
         implementationChunks += `\n${IMPL_BOUNDARY}\n${implementationSource}\n`;
     }
@@ -184,9 +156,7 @@ function parseHostImportDeclarations(importSource: string): HostImportDeclaratio
     const symbolsBySourceName = new Map<string, string>();
     const declarationsByHostName = new Map<string, string>();
 
-    for (const match of importSource.matchAll(
-        /LH_IMPORT\((\w+)\)\s+[^;\n]*?\b(\w+)\s*\([^;\n]*\)\s*;/g,
-    )) {
+    for (const match of importSource.matchAll(/LH_IMPORT\((\w+)\)\s+[^;\n]*?\b(\w+)\s*\([^;\n]*\)\s*;/g)) {
         const hostName = match[1];
         const sourceName = match[2];
 
@@ -197,21 +167,13 @@ function parseHostImportDeclarations(importSource: string): HostImportDeclaratio
     return { symbolsBySourceName, declarationsByHostName };
 }
 
-function validateHostImportDeclarations(
-    declarationsByHostName: Map<string, string>,
-    canonicalHostNames: string[],
-    wasmSourcePath: string,
-): void {
+function validateHostImportDeclarations(declarationsByHostName: Map<string, string>, canonicalHostNames: string[], wasmSourcePath: string): void {
     if (declarationsByHostName.size === 0) {
         throw new Error(`${wasmSourcePath} declares no LH_IMPORT functions`);
     }
 
-    const missingHostNames = canonicalHostNames.filter(
-        (hostName) => !declarationsByHostName.has(hostName),
-    );
-    const extraHostNames = [...declarationsByHostName.keys()].filter(
-        (hostName) => !canonicalHostNames.includes(hostName),
-    );
+    const missingHostNames = canonicalHostNames.filter((hostName) => !declarationsByHostName.has(hostName));
+    const extraHostNames = [...declarationsByHostName.keys()].filter((hostName) => !canonicalHostNames.includes(hostName));
 
     if (missingHostNames.length === 0 && extraHostNames.length === 0) {
         return;
@@ -224,17 +186,11 @@ function validateHostImportDeclarations(
     );
 }
 
-function normalizeImportedSymbolNames(
-    source: string,
-    symbolsBySourceName: Map<string, string>,
-): string {
+function normalizeImportedSymbolNames(source: string, symbolsBySourceName: Map<string, string>): string {
     let normalizedSource = source.replace(/LH_IMPORT\(\w+\)\s*/g, "");
 
     for (const [sourceName, hostName] of symbolsBySourceName) {
-        normalizedSource = normalizedSource.replace(
-            new RegExp(`\\b${sourceName}\\b`, "g"),
-            `__lhost_${hostName}`,
-        );
+        normalizedSource = normalizedSource.replace(new RegExp(`\\b${sourceName}\\b`, "g"), `__lhost_${hostName}`);
     }
 
     return normalizedSource;
@@ -249,32 +205,19 @@ function stripSdkHeaderScaffolding(source: string): string {
         .trim();
 }
 
-function assembleHostWrapperChunk(
-    importSource: string,
-    importSourcePath: string,
-    forwarderSource: string,
-    wasmAbi: WasmAbi,
-): string {
-    const { symbolsBySourceName, declarationsByHostName } =
-        parseHostImportDeclarations(importSource);
+function assembleHostWrapperChunk(importSource: string, importSourcePath: string, forwarderSource: string, wasmAbi: WasmAbi): string {
+    const { symbolsBySourceName, declarationsByHostName } = parseHostImportDeclarations(importSource);
     const canonicalHostNames = wasmAbi.lhost.map((row) => row.name);
 
     validateHostImportDeclarations(declarationsByHostName, canonicalHostNames, importSourcePath);
 
     const orderedImportDeclarations = canonicalHostNames
         .map((hostName) => {
-            return normalizeImportedSymbolNames(
-                declarationsByHostName.get(hostName)!,
-                symbolsBySourceName,
-            );
+            return normalizeImportedSymbolNames(declarationsByHostName.get(hostName)!, symbolsBySourceName);
         })
         .join("\n");
-    const normalizedContextWrappers = normalizeImportedSymbolNames(
-        stripSdkHeaderScaffolding(forwarderSource),
-        symbolsBySourceName,
-    );
-    const wrapperSource =
-        `extern "C" {\n${orderedImportDeclarations}\n} // extern "C"\n` + normalizedContextWrappers;
+    const normalizedContextWrappers = normalizeImportedSymbolNames(stripSdkHeaderScaffolding(forwarderSource), symbolsBySourceName);
+    const wrapperSource = `extern "C" {\n${orderedImportDeclarations}\n} // extern "C"\n` + normalizedContextWrappers;
 
     return `\n${IMPL_BOUNDARY}\n${wrapperSource}\n`;
 }
@@ -321,10 +264,7 @@ function qpiHeaderSignature(headers: string): string {
 export function qpiHeadersEquivalent(left: string, right: string): boolean {
     const normalizeEndlines = (source: string) => source.replace(/\r\n?/g, "\n");
 
-    return (
-        normalizeEndlines(left) === normalizeEndlines(right) ||
-        qpiHeaderSignature(left) === qpiHeaderSignature(right)
-    );
+    return normalizeEndlines(left) === normalizeEndlines(right) || qpiHeaderSignature(left) === qpiHeaderSignature(right);
 }
 
 // List every core file read during header assembly and cache hashing.
@@ -358,37 +298,15 @@ export function assembleQpiHeader(corePath: string): string {
     const fileSystem = loadNodeFileSystem();
     const sourceDirectory = requireCoreSourceDirectory(corePath, fileSystem);
     const wasmAbi = readWasmAbi(fileSystem, sourceDirectory);
-    const protocolPrelude = assembleQpiProtocolPrelude(
-        fileSystem.readFileSync(`${sourceDirectory}/network_messages/common_def.h`, "utf8"),
-    );
+    const protocolPrelude = assembleQpiProtocolPrelude(fileSystem.readFileSync(`${sourceDirectory}/network_messages/common_def.h`, "utf8"));
     const contractIndexDefinitions = assembleContractIndexDefinitions(fileSystem, sourceDirectory);
     const headerDeclarations = assembleHeaderDeclarations(fileSystem, sourceDirectory);
-    const lhostImports = readWasmSdkHeader(
-        fileSystem,
-        sourceDirectory,
-        CORE_WASM_HEADERS.sdk.lhostImports,
-    );
-    const qpiForwarders = readWasmSdkHeader(
-        fileSystem,
-        sourceDirectory,
-        CORE_WASM_HEADERS.sdk.qpiForwarders,
-    );
-    const moduleStorage = readWasmSdkHeader(
-        fileSystem,
-        sourceDirectory,
-        CORE_WASM_HEADERS.sdk.moduleStorage,
-    );
-    const contextBufferDeclaration = assembleContextBufferDeclaration(
-        moduleStorage.source,
-        moduleStorage.path,
-    );
+    const lhostImports = readWasmSdkHeader(fileSystem, sourceDirectory, CORE_WASM_HEADERS.sdk.lhostImports);
+    const qpiForwarders = readWasmSdkHeader(fileSystem, sourceDirectory, CORE_WASM_HEADERS.sdk.qpiForwarders);
+    const moduleStorage = readWasmSdkHeader(fileSystem, sourceDirectory, CORE_WASM_HEADERS.sdk.moduleStorage);
+    const contextBufferDeclaration = assembleContextBufferDeclaration(moduleStorage.source, moduleStorage.path);
     const implementationChunks = assembleImplementationChunks(fileSystem, sourceDirectory);
-    const hostWrapperChunk = assembleHostWrapperChunk(
-        lhostImports.source,
-        lhostImports.path,
-        qpiForwarders.source,
-        wasmAbi,
-    );
+    const hostWrapperChunk = assembleHostWrapperChunk(lhostImports.source, lhostImports.path, qpiForwarders.source, wasmAbi);
 
     return [
         `${QPI_LANGUAGE_PRELUDE}\n${protocolPrelude}\n`,

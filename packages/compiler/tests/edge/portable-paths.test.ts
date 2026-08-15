@@ -22,8 +22,7 @@ function sourceFiles(directory: string): string[] {
 }
 
 test("source and test paths are checkout-relative or environment-provided", () => {
-    const developerPath =
-        /(?:\/home\/[^/]+\/Projects\/|\/Users\/[^/]+\/Projects\/|[A-Za-z]:\\Users\\[^\\]+\\Projects\\)/;
+    const developerPath = /(?:\/home\/[^/]+\/Projects\/|\/Users\/[^/]+\/Projects\/|[A-Za-z]:\\Users\\[^\\]+\\Projects\\)/;
     const offenders = SEARCH_ROOTS.flatMap((directory) => sourceFiles(join(ROOT, directory)))
         .filter((path) => developerPath.test(readFileSync(path, "utf8")))
         .map((path) => path.slice(ROOT.length + 1));

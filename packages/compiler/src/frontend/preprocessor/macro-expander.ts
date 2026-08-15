@@ -67,11 +67,7 @@ export function tryExpandMacro(preprocessor: Preprocessor, name: string): string
     return preprocessor.expandBody(def, callArguments);
 }
 
-export function expandBody(
-    preprocessor: Preprocessor,
-    def: MacroDef,
-    callArguments: string[],
-): string {
+export function expandBody(preprocessor: Preprocessor, def: MacroDef, callArguments: string[]): string {
     const macroName = def.name;
     preprocessor.expanding.add(macroName);
     let result = def.body;
@@ -98,12 +94,7 @@ export function expandBody(
     return result;
 }
 
-export function replaceParamInBody(
-    preprocessor: Preprocessor,
-    body: string,
-    param: string,
-    value: string,
-): string {
+export function replaceParamInBody(preprocessor: Preprocessor, body: string, param: string, value: string): string {
     // Replace `param` with `value` when it's a standalone word or adjacent to ##
     const escaped = preprocessor.escapeRegex(param);
     // Allow param preceded/followed by ## or non-word chars
@@ -135,32 +126,19 @@ export function processTokenPaste(body: string): string {
     return result;
 }
 
-export function processStringify(
-    preprocessor: Preprocessor,
-    body: string,
-    callArguments: string[],
-    def: MacroDef,
-): string {
+export function processStringify(preprocessor: Preprocessor, body: string, callArguments: string[], def: MacroDef): string {
     let result = body;
     if (def.params) {
         for (let index = 0; index < def.params.length && index < callArguments.length; index++) {
             const param = def.params[index];
             // #param but not ##param
-            result = result.replace(
-                new RegExp(`(?<!#)#${preprocessor.escapeRegex(param)}\\b`, "g"),
-                `"${callArguments[index].replace(/"/g, '\\"')}"`,
-            );
+            result = result.replace(new RegExp(`(?<!#)#${preprocessor.escapeRegex(param)}\\b`, "g"), `"${callArguments[index].replace(/"/g, '\\"')}"`);
         }
     }
     return result;
 }
 
-export function replaceParam(
-    preprocessor: Preprocessor,
-    body: string,
-    param: string,
-    value: string,
-): string {
+export function replaceParam(preprocessor: Preprocessor, body: string, param: string, value: string): string {
     // Replace occurrences of param that are NOT part of a larger identifier or following #/##
     const escaped = preprocessor.escapeRegex(param);
     return body.replace(new RegExp(`(?<![#\\w])${escaped}(?!\\w)`, "g"), value);
@@ -222,17 +200,9 @@ export function expandRecursive(preprocessor: Preprocessor, text: string): strin
                 } else if (def && def.params !== null && !preprocessor.expanding.has(ident)) {
                     // Expand function-like macros only when an argument list follows.
                     let nestedIndex = resultItemIndex + ident.length;
-                    while (
-                        nestedIndex < result.length &&
-                        (result[nestedIndex] === " " ||
-                            result[nestedIndex] === "\t" ||
-                            result[nestedIndex] === "\n")
-                    )
+                    while (nestedIndex < result.length && (result[nestedIndex] === " " || result[nestedIndex] === "\t" || result[nestedIndex] === "\n"))
                         nestedIndex++;
-                    const parsed =
-                        result[nestedIndex] === "("
-                            ? preprocessor.readArgsFromString(result, nestedIndex)
-                            : null;
+                    const parsed = result[nestedIndex] === "(" ? preprocessor.readArgsFromString(result, nestedIndex) : null;
                     if (parsed) {
                         preprocessor.expanding.add(ident);
                         expanded += preprocessor.expandBody(def, parsed.callArguments);

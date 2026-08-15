@@ -13,9 +13,7 @@ export function emitIntrinsics(capacity: Layout, spec: ModuleSpecification): str
         );
     }
     if (spec.migrate) {
-        inputSizeCases.push(
-            `    (if (i32.eq (local.get $kind) (i32.const 3)) (then (return (i32.const ${spec.migrate.oldStateSize}))))`,
-        );
+        inputSizeCases.push(`    (if (i32.eq (local.get $kind) (i32.const 3)) (then (return (i32.const ${spec.migrate.oldStateSize}))))`);
     }
     // Provide compiler intrinsics used by source-backed container helpers.
     return `  ;; ---- intrinsics ----

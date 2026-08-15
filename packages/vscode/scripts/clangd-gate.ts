@@ -8,8 +8,7 @@ import { clangdErrorLines } from "../src/clangd-diag";
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const CLANGD = process.env.CLANGD ?? "clangd";
 const requested = process.argv.slice(2);
-const core =
-    process.env.QPI_VSCODE_HEADERS ?? resolve(import.meta.dir, "..", "resources", "core-headers");
+const core = process.env.QPI_VSCODE_HEADERS ?? resolve(import.meta.dir, "..", "resources", "core-headers");
 if (!existsSync(join(core, "src", "qpi", "qpi.h"))) {
     console.error("bundled QPI headers are missing — run `bun run prepare:headers`");
     process.exit(2);
@@ -37,12 +36,8 @@ function entryFor(name: string): { name: string; path: string } | null {
     return null;
 }
 
-const names = requested.length
-    ? requested
-    : ["Counter", "Token", "Bank", "Proxy", "Logger", ...Object.keys(REAL)];
-const entries = names
-    .map(entryFor)
-    .filter((entry): entry is { name: string; path: string } => entry !== null);
+const names = requested.length ? requested : ["Counter", "Token", "Bank", "Proxy", "Logger", ...Object.keys(REAL)];
+const entries = names.map(entryFor).filter((entry): entry is { name: string; path: string } => entry !== null);
 
 function siblingCallees(source: string): DynCallees {
     const callees: DynCallees = {};
@@ -72,15 +67,10 @@ for (const { name, path: contractPath } of entries) {
             name,
             dynCallees,
         });
-        const child = Bun.spawnSync(
-            [
-                CLANGD,
-                `--check=${config.contractFile}`,
-                `--compile-commands-dir=${config.dir}`,
-                "--log=error",
-            ],
-            { stdout: "pipe", stderr: "pipe" },
-        );
+        const child = Bun.spawnSync([CLANGD, `--check=${config.contractFile}`, `--compile-commands-dir=${config.dir}`, "--log=error"], {
+            stdout: "pipe",
+            stderr: "pipe",
+        });
         const log = (child.stdout?.toString() ?? "") + (child.stderr?.toString() ?? "");
         const errorLines = clangdErrorLines(log);
         const passed = errorLines.length === 0;
@@ -90,9 +80,7 @@ for (const { name, path: contractPath } of entries) {
         );
         if (!passed) {
             failures++;
-            const shown = [
-                ...new Set(errorLines.map((line) => line.replace(/^E\[[^\]]*\]\s*/, "").trim())),
-            ].slice(0, 30);
+            const shown = [...new Set(errorLines.map((line) => line.replace(/^E\[[^\]]*\]\s*/, "").trim()))].slice(0, 30);
             console.log(shown.map((line) => "      " + line).join("\n"));
         }
     } finally {
@@ -100,7 +88,5 @@ for (const { name, path: contractPath } of entries) {
     }
 }
 
-console.log(
-    `\n${failures === 0 ? `GATE: PASS — clangd resolves all ${entries.length} contracts` : `GATE: FAIL (${failures}/${entries.length})`}`,
-);
+console.log(`\n${failures === 0 ? `GATE: PASS — clangd resolves all ${entries.length} contracts` : `GATE: FAIL (${failures}/${entries.length})`}`);
 process.exit(failures === 0 ? 0 : 1);

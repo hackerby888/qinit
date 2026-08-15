@@ -1,11 +1,5 @@
 import { test, expect } from "bun:test";
-import {
-    k12Hex,
-    deriveIdentity,
-    bytesToIdentity,
-    identityToBytes,
-    contractIndexFromIdentity,
-} from "../../src/crypto/qubic";
+import { k12Hex, deriveIdentity, bytesToIdentity, identityToBytes, contractIndexFromIdentity } from "../../src/crypto/qubic";
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const hx = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -14,9 +8,7 @@ const PUB = "1f590d03e613bdded38b4c0820ac44615f91af12435980b3ede3c08c315a2544"; 
 
 test("k12Hex: KangarooTwelve KT128 known-answer for empty input", async () => {
     // published K12(M="", C="", 32) vector — a true correctness check, not just regression
-    expect(await k12Hex(new Uint8Array(0))).toBe(
-        "1ac2d450fc3b4205d19da7bfca1b37513c0803577ac7167f06fe2ce1f0ef39e5",
-    );
+    expect(await k12Hex(new Uint8Array(0))).toBe("1ac2d450fc3b4205d19da7bfca1b37513c0803577ac7167f06fe2ce1f0ef39e5");
 });
 
 test("k12Hex: golden for 'abc' + deterministic", async () => {

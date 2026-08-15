@@ -1,13 +1,6 @@
 import { AstKind, BinaryOp, UnaryOp } from "../../../shared/enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
-import {
-    StructLayout,
-    FieldLayout,
-    FunctionEmissionContext,
-    ResolvedAddress,
-    EMPTY_TEMPLATE_BINDINGS,
-    ResolvedLvalue,
-} from "../types";
+import { StructLayout, FieldLayout, FunctionEmissionContext, ResolvedAddress, EMPTY_TEMPLATE_BINDINGS, ResolvedLvalue } from "../types";
 import type { TypeSpec, Expression, StructDecl } from "../../../ast";
 import { addressAtOffset } from "./memory-operations";
 // ---- lvalue addressing ----
@@ -52,21 +45,15 @@ export function isIdLike(programAnalysis: ProgramAnalysis, type: TypeSpec | null
     const dereferencedType = programAnalysis.derefType(type);
     if (dereferencedType.kind !== AstKind.NAME) return false;
     const separator = dereferencedType.name.lastIndexOf("::");
-    const name =
-        separator >= 0 ? dereferencedType.name.slice(separator + 2) : dereferencedType.name;
+    const name = separator >= 0 ? dereferencedType.name.slice(separator + 2) : dereferencedType.name;
     return name === "id" || name === "m256i";
 }
 export function isUint128(programAnalysis: ProgramAnalysis, type: TypeSpec | null): boolean {
     if (!type) return false;
     const dereferencedType = programAnalysis.derefType(type);
-    if (
-        dereferencedType.kind !== AstKind.NAME &&
-        dereferencedType.kind !== AstKind.TEMPLATE_INSTANCE
-    )
-        return false;
+    if (dereferencedType.kind !== AstKind.NAME && dereferencedType.kind !== AstKind.TEMPLATE_INSTANCE) return false;
     const separator = dereferencedType.name.lastIndexOf("::");
-    const name =
-        separator >= 0 ? dereferencedType.name.slice(separator + 2) : dereferencedType.name;
+    const name = separator >= 0 ? dereferencedType.name.slice(separator + 2) : dereferencedType.name;
     return name === "uint128" || name === "uint128_t";
 }
 // Resolve the address of an lvalue expression (member-access chains rooted at input/output/locals/state).
@@ -74,11 +61,7 @@ export function castInfo(expression: Expression): {
     type: TypeSpec;
     operand: Expression;
 } | null {
-    if (
-        expression.kind === AstKind.STATIC_CAST ||
-        expression.kind === AstKind.C_CAST ||
-        expression.kind === AstKind.REINTERPRET_CAST
-    )
+    if (expression.kind === AstKind.STATIC_CAST || expression.kind === AstKind.C_CAST || expression.kind === AstKind.REINTERPRET_CAST)
         return { type: expression.type, operand: expression.expression };
     if (
         expression.kind === AstKind.TEMPLATE_CALL &&
@@ -92,23 +75,15 @@ export function castInfo(expression: Expression): {
     return null;
 }
 export function stripPtrRefConst(type: TypeSpec): TypeSpec {
-    while (
-        type.kind === AstKind.POINTER ||
-        type.kind === AstKind.REFERENCE ||
-        type.kind === AstKind.CONST
-    ) {
+    while (type.kind === AstKind.POINTER || type.kind === AstKind.REFERENCE || type.kind === AstKind.CONST) {
         if (type.kind === AstKind.POINTER) type = type.pointee;
         else if (type.kind === AstKind.REFERENCE) type = type.referentType;
         else type = type.valueType;
     }
     return type;
 }
-export function resolveExpressionAddress(
-    context: FunctionEmissionContext,
-    expression: Expression,
-): ResolvedAddress | null {
-    if (expression.kind === AstKind.PAREN)
-        return resolveExpressionAddress(context, expression.expression);
+export function resolveExpressionAddress(context: FunctionEmissionContext, expression: Expression): ResolvedAddress | null {
+    if (expression.kind === AstKind.PAREN) return resolveExpressionAddress(context, expression.expression);
     // __ScopedScratchpad.ptr → the held scratch buffer base (the local's value). `reinterpret_cast<T*>(sp.ptr)`
     if (
         expression.kind === AstKind.MEMBER_ACCESS &&
@@ -131,14 +106,8 @@ export function resolveExpressionAddress(
             return {
                 addr: `(local.get $${expression.name})`,
                 type: type,
-                size: context.programAnalysis.sizeOfType(
-                    type,
-                    context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                ),
-                layout: context.programAnalysis.layoutOfType(
-                    type,
-                    context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                ),
+                size: context.programAnalysis.sizeOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
+                layout: context.programAnalysis.layoutOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
             };
         }
         // an aggregate value-helper / container-method parameter holds the address of its argument; its type may reference template params
@@ -175,11 +144,7 @@ export function resolveExpressionAddress(
                 layout: context.locals,
             };
         // Resolve a static helper's bare `state` parameter to resident state.
-        if (
-            expression.name === "state" &&
-            context.hasStateParam &&
-            !context.localVars.has("state")
-        ) {
+        if (expression.name === "state" && context.hasStateParam && !context.localVars.has("state")) {
             return {
                 addr: "(local.get $__qinit_state)",
                 type: null,
@@ -203,10 +168,7 @@ export function resolveExpressionAddress(
                     addr: addressAtOffset(thisAddr, fieldLayout.offset),
                     type: fieldLayout.type,
                     size: fieldLayout.size,
-                    layout: context.programAnalysis.layoutOfType(
-                        fieldLayout.type,
-                        context.thisBind,
-                    ),
+                    layout: context.programAnalysis.layoutOfType(fieldLayout.type, context.thisBind),
                 };
         }
         return null;
@@ -234,10 +196,7 @@ export function resolveExpressionAddress(
         };
     }
     // Keep pointer arithmetic pointer-typed for subsequent dereference or indexing.
-    if (
-        expression.kind === AstKind.BINARY_OP &&
-        (expression.operator === BinaryOp.ADD || expression.operator === BinaryOp.SUBTRACT)
-    ) {
+    if (expression.kind === AstKind.BINARY_OP && (expression.operator === BinaryOp.ADD || expression.operator === BinaryOp.SUBTRACT)) {
         const base = resolveExpressionAddress(context, expression.left);
         const bt = base?.type;
         if (base && bt?.kind === AstKind.POINTER) {
@@ -261,10 +220,7 @@ export function resolveExpressionAddress(
         const ci = castInfo(expression);
         if (ci) {
             const inner = resolveExpressionAddress(context, ci.operand);
-            const materialized =
-                !inner && context.programAnalysis.gtestMode
-                    ? context.lowering.emitAddress(context, ci.operand)
-                    : null;
+            const materialized = !inner && context.programAnalysis.gtestMode ? context.lowering.emitAddress(context, ci.operand) : null;
             if (!inner && !materialized) return null;
             const address = inner?.addr ?? materialized!;
             const templateBindings = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
@@ -283,19 +239,14 @@ export function resolveExpressionAddress(
         }
     }
     // Address-of preserves an lvalue's existing address.
-    if (expression.kind === AstKind.UNARY_OP && expression.operator === UnaryOp.ADDRESS_OF)
-        return resolveExpressionAddress(context, expression.argument);
+    if (expression.kind === AstKind.UNARY_OP && expression.operator === UnaryOp.ADDRESS_OF) return resolveExpressionAddress(context, expression.argument);
     if (expression.kind === AstKind.UNARY_OP && expression.operator === UnaryOp.DEREFERENCE) {
-        if (expression.argument.kind === AstKind.THIS)
-            return resolveExpressionAddress(context, expression.argument);
+        if (expression.argument.kind === AstKind.THIS) return resolveExpressionAddress(context, expression.argument);
         // *cast<T*>(&X): the deref of a pointer cast is the cast operand's address, retyped to the pointee.
         const ci = castInfo(expression.argument);
         if (ci && ci.type.kind === AstKind.POINTER) {
             const inner = resolveExpressionAddress(context, ci.operand);
-            const materialized =
-                !inner && context.programAnalysis.gtestMode
-                    ? context.lowering.emitAddress(context, ci.operand)
-                    : null;
+            const materialized = !inner && context.programAnalysis.gtestMode ? context.lowering.emitAddress(context, ci.operand) : null;
             if (inner || materialized) {
                 const templateBindings = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
                 const type = stripPtrRefConst(ci.type);
@@ -312,31 +263,21 @@ export function resolveExpressionAddress(
         const pt = pn?.type ? context.programAnalysis.derefType(pn.type) : null;
         if (pn && pt?.kind === AstKind.POINTER) {
             const pointee = pt.pointee;
-            const byteSize =
-                context.programAnalysis.sizeOfType(
-                    pointee,
-                    context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                ) || 8;
+            const byteSize = context.programAnalysis.sizeOfType(pointee, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS) || 8;
             return {
                 addr: pn.addr,
                 type: pointee,
                 size: byteSize,
-                layout: context.programAnalysis.layoutOfType(
-                    pointee,
-                    context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                ),
+                layout: context.programAnalysis.layoutOfType(pointee, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
             };
         }
         return null;
     }
     if (isStateAccessor(expression)) {
         // Prefer a method's ContractState reference parameter over resident state.
-        const layout =
-            context.state.size > 0 ? context.state : context.programAnalysis.contractStateLayout;
+        const layout = context.state.size > 0 ? context.state : context.programAnalysis.contractStateLayout;
         const stateParam = context.params?.get("state");
-        const addr = stateParam?.isAddr
-            ? `(local.get $${stateParam.local ?? "state"})`
-            : "(local.get $__qinit_state)";
+        const addr = stateParam?.isAddr ? `(local.get $${stateParam.local ?? "state"})` : "(local.get $__qinit_state)";
         return { addr, type: null, size: layout.size, layout };
     }
     // Keep container element getters addressable for chained member access.
@@ -349,43 +290,21 @@ export function resolveExpressionAddress(
     // member access: resolve the object, then index its field
     if (expression.kind === AstKind.MEMBER_ACCESS) {
         let parent = resolveExpressionAddress(context, expression.object);
-        if (
-            !parent &&
-            expression.object.kind === AstKind.CALL &&
-            expression.object.callee.kind === AstKind.MEMBER_ACCESS
-        ) {
+        if (!parent && expression.object.kind === AstKind.CALL && expression.object.callee.kind === AstKind.MEMBER_ACCESS) {
             const method = context.lowering.inlineMethodInfo(context, expression.object);
-            if (
-                method &&
-                context.programAnalysis.isAggregateType(
-                    context.programAnalysis.derefType(method.fn.returnType),
-                )
-            ) {
+            if (method && context.programAnalysis.isAggregateType(context.programAnalysis.derefType(method.fn.returnType))) {
                 const type = context.programAnalysis.derefType(method.fn.returnType);
                 const addr = context.lowering.emitAddress(context, expression.object);
                 if (addr)
                     parent = {
                         addr,
                         type,
-                        size: Math.max(
-                            1,
-                            context.programAnalysis.sizeOfType(
-                                type,
-                                context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                            ),
-                        ),
-                        layout: context.programAnalysis.layoutOfType(
-                            type,
-                            context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                        ),
+                        size: Math.max(1, context.programAnalysis.sizeOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS)),
+                        layout: context.programAnalysis.layoutOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
                     };
             }
         }
-        if (
-            !parent &&
-            expression.object.kind === AstKind.CALL &&
-            expression.object.callee.kind === AstKind.IDENTIFIER
-        ) {
+        if (!parent && expression.object.kind === AstKind.CALL && expression.object.callee.kind === AstKind.IDENTIFIER) {
             const helper = context.lowering.lookupHelper(context, expression.object);
             if (helper?.retAgg && helper.retType) {
                 const addr = context.lowering.emitAggHelperCall(context, expression.object, helper);
@@ -393,10 +312,7 @@ export function resolveExpressionAddress(
                     addr,
                     type: helper.retType,
                     size: helper.retAgg,
-                    layout: context.programAnalysis.layoutOfType(
-                        helper.retType,
-                        context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                    ),
+                    layout: context.programAnalysis.layoutOfType(helper.retType, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
                 };
             }
         }
@@ -409,8 +325,7 @@ export function resolveExpressionAddress(
             expression.object.callee.object.name === "qpi"
         ) {
             const addr = context.lowering.emitAddress(context, expression.object);
-            if (addr)
-                parent = { addr, type: { kind: AstKind.NAME, name: "id" }, size: 32, layout: null };
+            if (addr) parent = { addr, type: { kind: AstKind.NAME, name: "id" }, size: 32, layout: null };
         }
         if (!parent) return null;
         if (expression.arrow && parent.type?.kind === AstKind.POINTER) {
@@ -418,14 +333,8 @@ export function resolveExpressionAddress(
             parent = {
                 addr: parent.addr,
                 type: pointee,
-                size: context.programAnalysis.sizeOfType(
-                    pointee,
-                    context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                ),
-                layout: context.programAnalysis.layoutOfType(
-                    pointee,
-                    context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                ),
+                size: context.programAnalysis.sizeOfType(pointee, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
+                layout: context.programAnalysis.layoutOfType(pointee, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
             };
         }
         // id/m256i limb views (`.u64`/`.u32`/`.u16`/`.u8`) → a fixed-width array at the value's base.
@@ -433,10 +342,7 @@ export function resolveExpressionAddress(
             return { addr: parent.addr, type: null, size: 32, layout: ID_VIEWS[expression.member] };
         }
         // uint128 `.low` / `.high` → the low / high 64-bit half (low at offset 0).
-        if (
-            isUint128(context.programAnalysis, parent.type) &&
-            (expression.member === "low" || expression.member === "high")
-        ) {
+        if (isUint128(context.programAnalysis, parent.type) && (expression.member === "low" || expression.member === "high")) {
             return {
                 addr: addressAtOffset(parent.addr, expression.member === "low" ? 0 : 8),
                 type: { kind: AstKind.NAME, name: "uint64" },
@@ -449,12 +355,8 @@ export function resolveExpressionAddress(
         if (!fieldLayout) return null;
         // Resolve member types through the parent instance's bindings and typedefs.
         let ptype: TypeSpec | null = parent.type;
-        for (let index = 0; index < 8 && ptype?.kind === AstKind.NAME; index++)
-            ptype = context.programAnalysis.typedefs.get(ptype.name) ?? null;
-        let ftype =
-            ptype?.kind === AstKind.TEMPLATE_INSTANCE
-                ? context.programAnalysis.concreteMemberType(fieldLayout.type, ptype)
-                : fieldLayout.type;
+        for (let index = 0; index < 8 && ptype?.kind === AstKind.NAME; index++) ptype = context.programAnalysis.typedefs.get(ptype.name) ?? null;
+        let ftype = ptype?.kind === AstKind.TEMPLATE_INSTANCE ? context.programAnalysis.concreteMemberType(fieldLayout.type, ptype) : fieldLayout.type;
         ftype = resolveInParentStruct(context, ftype, parent);
         return {
             addr: addressAtOffset(parent.addr, fieldLayout.offset),
@@ -466,28 +368,18 @@ export function resolveExpressionAddress(
     return null;
 }
 // Resolve field types against sibling declarations in their owning struct.
-export function resolveInParentStruct(
-    context: FunctionEmissionContext,
-    type: TypeSpec,
-    parent: ResolvedAddress,
-): TypeSpec {
+export function resolveInParentStruct(context: FunctionEmissionContext, type: TypeSpec, parent: ResolvedAddress): TypeSpec {
     const declaration =
         parent.type?.kind === AstKind.INLINE_STRUCT
             ? parent.type.struct
             : parent.type?.kind === AstKind.NAME
-              ? context.programAnalysis.structByName(
-                    parent.type.name,
-                    context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                )
+              ? context.programAnalysis.structByName(parent.type.name, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS)
               : undefined;
     if (!declaration) return type;
     const nestedOf = (typeName: string): TypeSpec | null => {
-        const structDeclaration = declaration.members.find(
-            (member) => member.kind === AstKind.STRUCT && (member as StructDecl).name === typeName,
-        ) as StructDecl | undefined;
-        return structDeclaration
-            ? { kind: AstKind.INLINE_STRUCT, struct: structDeclaration }
-            : null;
+        const structDeclaration = declaration.members.find((member) => member.kind === AstKind.STRUCT && (member as StructDecl).name === typeName) as
+            StructDecl | undefined;
+        return structDeclaration ? { kind: AstKind.INLINE_STRUCT, struct: structDeclaration } : null;
     };
     if (type.kind === AstKind.NAME) {
         return nestedOf(type.name) ?? type;
@@ -509,10 +401,7 @@ export function resolveInParentStruct(
     return type;
 }
 // Scalar lvalue (size <= 8) address+size, for load/store of a scalar field.
-export function resolveLvalue(
-    context: FunctionEmissionContext,
-    expression: Expression,
-): ResolvedLvalue | null {
+export function resolveLvalue(context: FunctionEmissionContext, expression: Expression): ResolvedLvalue | null {
     const resolvedAddress = resolveExpressionAddress(context, expression);
     if (!resolvedAddress) return null;
     return { addr: resolvedAddress.addr, size: resolvedAddress.size, type: resolvedAddress.type };

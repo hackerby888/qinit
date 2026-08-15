@@ -60,26 +60,14 @@ function isCallableCandidate(
         return false;
     }
 
-    if (
-        entryNames.has(declaration.name) ||
-        systemProcedureIds.has(declaration.name) ||
-        declaration.name === "__impl_migrate"
-    ) {
+    if (entryNames.has(declaration.name) || systemProcedureIds.has(declaration.name) || declaration.name === "__impl_migrate") {
         return false;
     }
 
-    return !(
-        declaration.name === "__registerUserFunctionsAndProcedures" ||
-        declaration.name.includes("operator") ||
-        declaration.name === contract.name
-    );
+    return !(declaration.name === "__registerUserFunctionsAndProcedures" || declaration.name.includes("operator") || declaration.name === contract.name);
 }
 
-function registerPrivateFunction(
-    programAnalysis: ProgramAnalysis,
-    declaration: FunctionDecl,
-    privateFunctions: FunctionDecl[],
-): void {
+function registerPrivateFunction(programAnalysis: ProgramAnalysis, declaration: FunctionDecl, privateFunctions: FunctionDecl[]): void {
     const localsDeclaration = programAnalysis["nested"].get(`${declaration.name}_locals`);
 
     programAnalysis.privates.set(declaration.name, {
@@ -90,23 +78,12 @@ function registerPrivateFunction(
     privateFunctions.push(declaration);
 }
 
-function registerHelperFunction(
-    programAnalysis: ProgramAnalysis,
-    declaration: FunctionDecl,
-): CompiledHelperMetadata {
+function registerHelperFunction(programAnalysis: ProgramAnalysis, declaration: FunctionDecl): CompiledHelperMetadata {
     const parameters = declaration.params.map((parameter) => {
-        const isConstReference =
-            parameter.type.kind === AstKind.REFERENCE &&
-            parameter.type.referentType?.kind === AstKind.CONST;
-        const isPointerOrMutableReference =
-            (parameter.type.kind === AstKind.REFERENCE && !isConstReference) ||
-            parameter.type.kind === AstKind.POINTER;
-        const isAddress =
-            isPointerOrMutableReference || programAnalysis.isAggregateType(parameter.type);
-        const isByValueAggregate =
-            isAddress &&
-            parameter.type.kind !== AstKind.REFERENCE &&
-            parameter.type.kind !== AstKind.POINTER;
+        const isConstReference = parameter.type.kind === AstKind.REFERENCE && parameter.type.referentType?.kind === AstKind.CONST;
+        const isPointerOrMutableReference = (parameter.type.kind === AstKind.REFERENCE && !isConstReference) || parameter.type.kind === AstKind.POINTER;
+        const isAddress = isPointerOrMutableReference || programAnalysis.isAggregateType(parameter.type);
+        const isByValueAggregate = isAddress && parameter.type.kind !== AstKind.REFERENCE && parameter.type.kind !== AstKind.POINTER;
         const wasmType: WatValueType = isAddress ? WatNodeType.I32 : WatNodeType.I64;
 
         return {
@@ -125,10 +102,7 @@ function registerHelperFunction(
             : undefined;
 
     const overloads = programAnalysis.helperOverloads.get(declaration.name) ?? [];
-    const label =
-        overloads.length === 0
-            ? `$h_${declaration.name}`
-            : `$h_${declaration.name}__ov${overloads.length}`;
+    const label = overloads.length === 0 ? `$h_${declaration.name}` : `$h_${declaration.name}__ov${overloads.length}`;
     const namespaceContext = programAnalysis.namespaceContextOf(declaration);
 
     const metadata: CompiledHelperMetadata = {

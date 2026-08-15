@@ -9,12 +9,7 @@ import toolchains from "../../../../config/toolchains.json";
 
 function wasiSdkAsset(): { url: string; base: string } {
     const arch = process.arch === "arm64" ? "arm64" : "x86_64";
-    const os =
-        process.platform === "darwin"
-            ? "macos"
-            : process.platform === "win32"
-              ? "windows"
-              : "linux";
+    const os = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux";
     const base = `wasi-sdk-${toolchains.wasiSdk.assetVersion}-${arch}-${os}`;
     return {
         url: `https://github.com/${toolchains.wasiSdk.repository}/releases/download/${toolchains.wasiSdk.releaseTag}/${base}.tar.gz`,
@@ -25,9 +20,7 @@ export function wasiSdkDir(): string {
     return join(cacheRoot(), "wasi-sdk");
 }
 // Resolve clang++ + wasi-sysroot inside the cached sdk (the tarball keeps a nested top dir, so scan one level).
-function wasiSdkCachePathsAt(
-    base: string,
-): { root: string; clang: string; sysroot: string } | null {
+function wasiSdkCachePathsAt(base: string): { root: string; clang: string; sysroot: string } | null {
     if (!existsSync(base)) return null;
     let roots: string[];
     try {
@@ -73,8 +66,7 @@ export function wasiSdkPaths(): { root: string; clang: string; sysroot: string }
     const clang = configuredClang || cached?.clang;
     const sysroot = configuredSysroot || cached?.sysroot;
     if (!clang || !sysroot || !existsSync(clang) || !existsSync(sysroot)) return null;
-    const root =
-        cached && (!configuredClang || !configuredSysroot) ? cached.root : dirname(dirname(clang));
+    const root = cached && (!configuredClang || !configuredSysroot) ? cached.root : dirname(dirname(clang));
     return { root, clang, sysroot };
 }
 export function haveWasiSdkCache(): boolean {
@@ -121,16 +113,10 @@ export async function fetchWasiSdk(
                 try {
                     renameSync(backup, dir);
                 } catch (rollbackError) {
-                    const detail =
-                        rollbackError instanceof Error
-                            ? rollbackError.message
-                            : String(rollbackError);
-                    throw new Error(
-                        `failed to activate wasi-sdk and restore the previous cache: ${detail}`,
-                        {
-                            cause: activationError,
-                        },
-                    );
+                    const detail = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+                    throw new Error(`failed to activate wasi-sdk and restore the previous cache: ${detail}`, {
+                        cause: activationError,
+                    });
                 }
             }
             throw activationError;

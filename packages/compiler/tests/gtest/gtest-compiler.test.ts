@@ -85,9 +85,7 @@ describe("core-lite-style gtest compiler", () => {
             slot: 28,
             qpiHeader: QPI,
         });
-        expect(
-            compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR),
-        ).toEqual([]);
+        expect(compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         expect(compiled.program?.tests.map((item) => item.name)).toEqual(["Counter.Increment"]);
 
         const contract = await compileContract({
@@ -97,9 +95,7 @@ describe("core-lite-style gtest compiler", () => {
             qpiHeader: QPI,
             arenaSizeBytes: 64 * 1024,
         });
-        expect(
-            contract.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR),
-        ).toEqual([]);
+        expect(contract.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         const results = await runCompiledGtest(compiled.program!, compiled.wasm!, {
             28: contract.wasm,
         });
@@ -121,27 +117,19 @@ describe("core-lite-style gtest compiler", () => {
     test("compiles loops through the normal frontend", async () => {
         const compiled = await compileGtest({
             source: CONTRACT,
-            testSource: STANDARD_GTEST.replace(
-                "Counter::Inc_output out = t.inc(user);",
-                "for (int i = 0; i < 3; ++i) { t.inc(user); }",
-            ),
+            testSource: STANDARD_GTEST.replace("Counter::Inc_output out = t.inc(user);", "for (int i = 0; i < 3; ++i) { t.inc(user); }"),
             contractName: "Counter",
             slot: 28,
             qpiHeader: QPI,
         });
-        expect(
-            compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR),
-        ).toEqual([]);
+        expect(compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         expect(compiled.program).toBeDefined();
     });
 
     test("reports a failed compiler-backed assertion", async () => {
         const compiled = await compileGtest({
             source: CONTRACT,
-            testSource: STANDARD_GTEST.replace(
-                "EXPECT_EQ(t.get().value, 7ull);",
-                "EXPECT_EQ(t.get().value, 8ull);",
-            ),
+            testSource: STANDARD_GTEST.replace("EXPECT_EQ(t.get().value, 7ull);", "EXPECT_EQ(t.get().value, 8ull);"),
             contractName: "Counter",
             slot: 28,
             qpiHeader: QPI,

@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-    formatTraceAge,
-    mergeTraceEntries,
-    traceSelectionIndex,
-} from "../../src/commands/deploy-interact/debug";
+import { formatTraceAge, mergeTraceEntries, traceSelectionIndex } from "../../src/commands/deploy-interact/debug";
 
 test("debug traces merge once in newest-first order and stay hidden", () => {
     const previous = [
@@ -24,11 +20,7 @@ test("debug traces merge once in newest-first order and stay hidden", () => {
     expect(previous.map((entry) => entry.seq)).toEqual([1, 2, 3]);
     expect(incoming.map((entry) => entry.seq)).toEqual([2, 5, 3]);
 
-    expect(
-        mergeTraceEntries(merged, [{ seq: 2, value: "late two" }], new Set([2])).map(
-            (entry) => entry.seq,
-        ),
-    ).toEqual([5, 3, 1]);
+    expect(mergeTraceEntries(merged, [{ seq: 2, value: "late two" }], new Set([2])).map((entry) => entry.seq)).toEqual([5, 3, 1]);
 });
 
 test("debug trace retention keeps the newest 500 entries", () => {

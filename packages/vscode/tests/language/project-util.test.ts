@@ -49,13 +49,9 @@ test("a repeated contract name is resolved against the test's own path", () => {
     // Without the test's path the pair stays ambiguous, which is what left gtests unconfigured.
     expect(selectTestContract(source, [beside, nested])).toBeUndefined();
     expect(selectTestContract(source, [beside, nested], "/work/Counter.test.cpp")).toEqual(beside);
-    expect(
-        selectTestContract(source, [beside, nested], "/work/project/tests/Counter.test.cpp"),
-    ).toEqual(nested);
+    expect(selectTestContract(source, [beside, nested], "/work/project/tests/Counter.test.cpp")).toEqual(nested);
     // The file name decides before proximity does: a nearer contract with another name loses.
-    expect(
-        selectTestContract(source, [renamed, nested], "/work/project/tests/Counter.test.cpp"),
-    ).toEqual(nested);
+    expect(selectTestContract(source, [renamed, nested], "/work/project/tests/Counter.test.cpp")).toEqual(nested);
 });
 
 test("project and contract discovery work without qinit.json", () => {
@@ -63,10 +59,7 @@ test("project and contract discovery work without qinit.json", () => {
     try {
         mkdirSync(join(root, "contracts"));
         mkdirSync(join(root, "tests"));
-        writeFileSync(
-            join(root, "contracts", "Counter.h"),
-            "struct Counter : public ContractBase {};",
-        );
+        writeFileSync(join(root, "contracts", "Counter.h"), "struct Counter : public ContractBase {};");
         writeFileSync(join(root, "contracts", "Plain.h"), "struct Plain {};");
 
         expect(findProjectRoot(join(root, "tests", "Counter.test.cpp"))).toBeUndefined();
@@ -109,10 +102,7 @@ test("config saves select only open contracts from that project", () => {
                 fileName,
                 getText: () => source,
             }) as any;
-        const contract = document(
-            join(root, "Counter.h"),
-            "struct Counter : public ContractBase {};",
-        );
+        const contract = document(join(root, "Counter.h"), "struct Counter : public ContractBase {};");
         const documents = [
             contract,
             document(join(root, "Plain.h"), "struct Plain {};"),

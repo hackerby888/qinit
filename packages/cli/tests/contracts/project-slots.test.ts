@@ -35,10 +35,7 @@ function registry(contracts: Array<{ index: number; name: string }>): DynamicCon
 }
 
 test("planProjectSlots assigns a dependency chain from low to high slots", () => {
-    const plan = planProjectSlots(
-        [custom("Leaf"), custom("Middle", ["Leaf"]), custom("Main", ["Middle"])],
-        layout,
-    );
+    const plan = planProjectSlots([custom("Leaf"), custom("Middle", ["Leaf"]), custom("Main", ["Middle"])], layout);
 
     expect(plan.map(({ stateType, index }) => [stateType, index])).toEqual([
         ["Leaf", 29],
@@ -62,35 +59,19 @@ test("planProjectSlots respects deployed and explicitly fixed slots", () => {
 });
 
 test("planProjectSlots leaves unrelated occupied slots unavailable", () => {
-    const plan = planProjectSlots(
-        [custom("Dependency"), custom("Main", ["Dependency"])],
-        layout,
-        registry([{ index: 29, name: "Other" }]),
-    );
+    const plan = planProjectSlots([custom("Dependency"), custom("Main", ["Dependency"])], layout, registry([{ index: 29, name: "Other" }]));
 
     expect(plan.map(({ index }) => index)).toEqual([30, 31]);
 });
 
 test("planProjectSlots rejects unsafe fixed slots and impossible ordering", () => {
-    expect(() => planProjectSlots([custom("Main", [], 1)], layout)).toThrow(
-        "outside the dynamic window",
-    );
+    expect(() => planProjectSlots([custom("Main", [], 1)], layout)).toThrow("outside the dynamic window");
 
-    expect(() =>
-        planProjectSlots(
-            [custom("Dependency"), custom("Main", ["Dependency"])],
-            layout,
-            registry([{ index: 29, name: "Main" }]),
-        ),
-    ).toThrow("cannot assign");
+    expect(() => planProjectSlots([custom("Dependency"), custom("Main", ["Dependency"])], layout, registry([{ index: 29, name: "Main" }]))).toThrow(
+        "cannot assign",
+    );
 });
 
 test("planProjectSlots rejects occupied explicit slots without mutation", () => {
-    expect(() =>
-        planProjectSlots(
-            [custom("Main", [], 29)],
-            layout,
-            registry([{ index: 29, name: "Other" }]),
-        ),
-    ).toThrow("occupied by 'Other'");
+    expect(() => planProjectSlots([custom("Main", [], 29)], layout, registry([{ index: 29, name: "Other" }]))).toThrow("occupied by 'Other'");
 });

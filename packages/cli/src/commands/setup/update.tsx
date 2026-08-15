@@ -51,30 +51,18 @@ export function Update({ commandArgs }: { commandArgs: CommandArguments }) {
                     <Spinner label="checking for updates" />
                 ))}
             {state.phase === "development" && (
-                <Text color={theme.warn}>
-                    self-update only updates the installed binary — in dev, rebuild or use the
-                    installer (install.sh / install.ps1)
-                </Text>
+                <Text color={theme.warn}>self-update only updates the installed binary — in dev, rebuild or use the installer (install.sh / install.ps1)</Text>
             )}
             {state.phase === "dry-run" && (
                 <Box flexDirection="column">
-                    <Status
-                        ok={null}
-                        label={`latest ${state.tag}`}
-                        detail={`current v${state.currentVersion}`}
-                    />
+                    <Status ok={null} label={`latest ${state.tag}`} detail={`current v${state.currentVersion}`} />
                     <Text dimColor> {state.asset}</Text>
                 </Box>
             )}
-            {state.phase === "up-to-date" && (
-                <Status ok={true} label={`already on the latest (v${state.version})`} />
-            )}
+            {state.phase === "up-to-date" && <Status ok={true} label={`already on the latest (v${state.version})`} />}
             {state.phase === "updated" && (
                 <Box flexDirection="column">
-                    <Status
-                        ok={true}
-                        label={`updated v${state.previousVersion} → v${state.version}`}
-                    />
+                    <Status ok={true} label={`updated v${state.previousVersion} → v${state.version}`} />
                     <Box marginTop={1}>
                         <Text dimColor>restart qinit to use the new version</Text>
                     </Box>

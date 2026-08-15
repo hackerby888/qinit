@@ -1,31 +1,15 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 // Dual-backend corpus verification: clang and TypeScript.
 import { describe, expect, beforeAll } from "bun:test";
-import {
-    readFileSync,
-    writeFileSync,
-    appendFileSync,
-    mkdtempSync,
-    rmSync,
-    existsSync,
-} from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initK12 } from "@qinit/core";
 import { runContractTesting } from "@qinit/engine";
 import { buildContractWithWasiClang, buildCorpusRunner } from "@qinit/build";
-import {
-    compileContract,
-    loadQpiHeader,
-    type CompileResult,
-    type ContractIdl,
-} from "../../src/index";
+import { compileContract, loadQpiHeader, type CompileResult, type ContractIdl } from "../../src/index";
 import { CORE } from "../support/qutil-bridge";
-import {
-    toolchainTest,
-    wasiToolchain,
-    type ToolchainStatus,
-} from "../support/container-toolchains";
+import { toolchainTest, wasiToolchain, type ToolchainStatus } from "../support/container-toolchains";
 
 // The parity and sweep cells need the wasi toolchain plus their env selector, so both gate the skip.
 function cellStatus(when: boolean, detail: string): ToolchainStatus {
@@ -36,14 +20,8 @@ function cellStatus(when: boolean, detail: string): ToolchainStatus {
 const singleCell: ToolchainStatus = process.env.SC_SINGLE
     ? { available: true, detail: "SC_SINGLE" }
     : { available: false, detail: "set SC_SINGLE=1 to run one cell" };
-const parity = cellStatus(
-    !process.env.SC_SINGLE && !process.env.SC_TYPESCRIPT_ONLY,
-    "SC_SINGLE / SC_TYPESCRIPT_ONLY selects a different cell",
-);
-const sweep = cellStatus(
-    Boolean(process.env.SC_SWEEP) && !process.env.SC_SINGLE,
-    "set SC_SWEEP=1 (without SC_SINGLE) to run the sweep",
-);
+const parity = cellStatus(!process.env.SC_SINGLE && !process.env.SC_TYPESCRIPT_ONLY, "SC_SINGLE / SC_TYPESCRIPT_ONLY selects a different cell");
+const sweep = cellStatus(Boolean(process.env.SC_SWEEP) && !process.env.SC_SINGLE, "set SC_SWEEP=1 (without SC_SINGLE) to run the sweep");
 
 interface CalleeSpec {
     name: string;
@@ -220,9 +198,7 @@ async function buildRunnerFor(spec: Spec, outDir: string): Promise<Uint8Array> {
     });
 
     if (!r.ok || !r.wasmPath) {
-        const lines = (r.stderr ?? "")
-            .split("\n")
-            .filter((l) => /error:|undefined|cannot|fatal/i.test(l));
+        const lines = (r.stderr ?? "").split("\n").filter((l) => /error:|undefined|cannot|fatal/i.test(l));
         throw new Error(`runner build failed: ${lines.slice(0, 6).join(" | ")}`);
     }
 
@@ -237,9 +213,7 @@ async function buildWithTypeScript(spec: Spec): Promise<Record<number, Uint8Arra
     for (const callee of spec.callees) {
         const src = readFileSync(`${CORE}/src/contracts/${callee.header}`, "utf8");
         const prior = spec.callees.slice(0, calleeResults.length);
-        const priorIdl = prior.map((item, index) =>
-            calleeIdlFrom(item.name, item.slot, calleeResults[index]),
-        );
+        const priorIdl = prior.map((item, index) => calleeIdlFrom(item.name, item.slot, calleeResults[index]));
         const priorSources = prior.map((item) => ({
             name: item.name,
             source: readFileSync(`${CORE}/src/contracts/${item.header}`, "utf8"),
@@ -255,9 +229,7 @@ async function buildWithTypeScript(spec: Spec): Promise<Record<number, Uint8Arra
         });
         const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
         if (errs.length) {
-            throw new Error(
-                `typescript ${callee.name}: ${errs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`,
-            );
+            throw new Error(`typescript ${callee.name}: ${errs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`);
         }
         calleeResults.push(r);
         out[callee.slot] = r.wasm;
@@ -281,9 +253,7 @@ async function buildWithTypeScript(spec: Spec): Promise<Record<number, Uint8Arra
     });
     const mainErrs = mainR.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
     if (mainErrs.length) {
-        throw new Error(
-            `typescript ${spec.name}: ${mainErrs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`,
-        );
+        throw new Error(`typescript ${spec.name}: ${mainErrs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`);
     }
     out[spec.slot] = mainR.wasm;
 
@@ -305,9 +275,7 @@ async function buildWithClang(spec: Spec, outDir: string): Promise<Record<number
             skipVerify: true,
         });
         if (!r.ok || !r.wasmPath) {
-            throw new Error(
-                `clang ${callee.name}: ${(r.stderr ?? "").split("\n").slice(-3).join(" | ")}`,
-            );
+            throw new Error(`clang ${callee.name}: ${(r.stderr ?? "").split("\n").slice(-3).join(" | ")}`);
         }
         out[callee.slot] = new Uint8Array(readFileSync(r.wasmPath));
     }
@@ -323,9 +291,7 @@ async function buildWithClang(spec: Spec, outDir: string): Promise<Record<number
         skipVerify: true,
     });
     if (!mainR.ok || !mainR.wasmPath) {
-        throw new Error(
-            `clang ${spec.name}: ${(mainR.stderr ?? "").split("\n").slice(-3).join(" | ")}`,
-        );
+        throw new Error(`clang ${spec.name}: ${(mainR.stderr ?? "").split("\n").slice(-3).join(" | ")}`);
     }
     out[spec.slot] = new Uint8Array(readFileSync(mainR.wasmPath));
 
@@ -355,18 +321,12 @@ async function runSingleCell(): Promise<void> {
         runnerOk = true;
         appendFileSync(outPath, "RUNNER ok\n");
 
-        const contracts =
-            compilerBackend === "typescript"
-                ? await buildWithTypeScript(spec)
-                : await buildWithClang(spec, dir);
+        const contracts = compilerBackend === "typescript" ? await buildWithTypeScript(spec) : await buildWithClang(spec, dir);
         const results = await runContractTesting(runner, contracts);
         const passed = results.filter((r) => r.passed).length;
         appendFileSync(outPath, `SCORE ${passed}/${results.length}\n`);
         for (const result of results.filter((item) => !item.passed)) {
-            appendFileSync(
-                outPath,
-                `FAIL ${result.name} — ${result.message.replace(/\s+/g, " ").slice(0, 300)}\n`,
-            );
+            appendFileSync(outPath, `FAIL ${result.name} — ${result.message.replace(/\s+/g, " ").slice(0, 300)}\n`);
         }
     } catch (e: any) {
         if (!runnerOk) {
@@ -387,15 +347,8 @@ interface Cell {
 }
 
 // Spawn this file under `bun test` with SC_SINGLE set, kill it at a deadline, and read its temp result.
-async function spawnCell(
-    name: string,
-    compilerBackend: CorpusCompilerBackend,
-    timeoutMs: number,
-): Promise<Cell> {
-    const outPath = join(
-        tmpdir(),
-        `qinit-cell-${name.toLowerCase()}-${compilerBackend}-${Date.now()}.txt`,
-    );
+async function spawnCell(name: string, compilerBackend: CorpusCompilerBackend, timeoutMs: number): Promise<Cell> {
+    const outPath = join(tmpdir(), `qinit-cell-${name.toLowerCase()}-${compilerBackend}-${Date.now()}.txt`);
     writeFileSync(outPath, "");
 
     const proc = Bun.spawn([process.execPath, "test", import.meta.path], {
@@ -505,18 +458,12 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
             const CELL_TIMEOUT = 120000;
             const rows: Row[] = [];
 
-            const selectedNames = new Set(
-                (process.env.SC_SWEEP_FILTER ?? "").split(",").filter(Boolean),
-            );
-            const selected = selectedNames.size
-                ? SPECS.filter((spec) => selectedNames.has(spec.name))
-                : SPECS;
+            const selectedNames = new Set((process.env.SC_SWEEP_FILTER ?? "").split(",").filter(Boolean));
+            const selected = selectedNames.size ? SPECS.filter((spec) => selectedNames.has(spec.name)) : SPECS;
             const typescriptOnly = !!process.env.SC_TYPESCRIPT_ONLY;
 
             for (const spec of selected) {
-                const clang = typescriptOnly
-                    ? { runner: "-", score: "skip" }
-                    : await spawnCell(spec.name, "clang", CELL_TIMEOUT);
+                const clang = typescriptOnly ? { runner: "-", score: "skip" } : await spawnCell(spec.name, "clang", CELL_TIMEOUT);
                 const typescript = await spawnCell(spec.name, "typescript", CELL_TIMEOUT);
 
                 const runner = clang.runner === "ok" || typescript.runner === "ok" ? "ok" : "err";
@@ -526,34 +473,23 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
                     clang: clang.score,
                     typescript: typescript.score,
                 });
-                console.log(
-                    `  [${spec.name}] runner:${runner}  clang:${clang.score}  typescript:${typescript.score}`,
-                );
+                console.log(`  [${spec.name}] runner:${runner}  clang:${clang.score}  typescript:${typescript.score}`);
             }
 
             const column = (s: string, w: number) => s.padEnd(w);
-            const header = [
-                column("CONTRACT", 16),
-                column("RUNNER", 8),
-                column("CLANG", 10),
-                column("TYPESCRIPT", 10),
-            ].join(" ");
+            const header = [column("CONTRACT", 16), column("RUNNER", 8), column("CLANG", 10), column("TYPESCRIPT", 10)].join(" ");
             const sep = "-".repeat(header.length);
 
             const tableLines = [sep, header, sep];
             for (const row of rows) {
-                tableLines.push(
-                    `${column(row.name, 16)} ${column(row.runner, 8)} ${column(row.clang, 10)} ${column(row.typescript, 10)}`,
-                );
+                tableLines.push(`${column(row.name, 16)} ${column(row.runner, 8)} ${column(row.clang, 10)} ${column(row.typescript, 10)}`);
             }
             tableLines.push(sep);
 
             const scored = (v: string) => /^\d+\/\d+$/.test(v);
             const clangScored = rows.filter((r) => scored(r.clang)).length;
             const typescriptScored = rows.filter((r) => scored(r.typescript)).length;
-            tableLines.push(
-                `  ${rows.length} specs · clang scored ${clangScored}/${rows.length} · typescript scored ${typescriptScored}/${rows.length}`,
-            );
+            tableLines.push(`  ${rows.length} specs · clang scored ${clangScored}/${rows.length} · typescript scored ${typescriptScored}/${rows.length}`);
 
             console.log("\n" + tableLines.join("\n"));
 

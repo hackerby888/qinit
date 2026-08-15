@@ -35,9 +35,7 @@ function headerPaths(directory: string): string[] {
     }
 
     const paths: string[] = [];
-    const entries = readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
-        left.name.localeCompare(right.name),
-    );
+    const entries = readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name));
 
     for (const entry of entries) {
         const entryPath = join(directory, entry.name);
@@ -92,9 +90,7 @@ function systemNode(corePath: string, contract: SystemContract): ProjectContract
     };
 }
 
-export function resolveProjectDependencies(
-    options: ResolveProjectDependenciesOptions,
-): ProjectContractNode[] {
+export function resolveProjectDependencies(options: ResolveProjectDependenciesOptions): ProjectContractNode[] {
     const projectRoot = resolve(options.projectRoot);
     const corePath = resolve(projectRoot, options.corePath);
     const contractPath = resolve(projectRoot, options.contractPath);
@@ -112,17 +108,13 @@ export function resolveProjectDependencies(
 
     const reservedRoot = reservedSystemNames.get(options.contractName.toLowerCase());
     if (reservedRoot) {
-        throw new Error(
-            `contract name '${options.contractName}' is reserved by system contract ${reservedRoot.name} at slot ${reservedRoot.index}`,
-        );
+        throw new Error(`contract name '${options.contractName}' is reserved by system contract ${reservedRoot.name} at slot ${reservedRoot.index}`);
     }
 
     for (const name of Object.keys(explicitCallees).sort()) {
         const reserved = reservedSystemNames.get(name.toLowerCase());
         if (reserved) {
-            throw new Error(
-                `--callee '${name}' cannot override system contract ${reserved.name} at slot ${reserved.index}`,
-            );
+            throw new Error(`--callee '${name}' cannot override system contract ${reserved.name} at slot ${reserved.index}`);
         }
         if (name === options.contractName) {
             throw new Error(`--callee '${name}' duplicates the main contract`);
@@ -131,11 +123,7 @@ export function resolveProjectDependencies(
 
     const qpiHeader = loadQpiHeader(corePath);
     const headers = workspaceHeaders(projectRoot);
-    const knownCallees = new Set([
-        ...systemByReference.keys(),
-        ...Object.keys(explicitCallees),
-        ...headers.keys(),
-    ]);
+    const knownCallees = new Set([...systemByReference.keys(), ...Object.keys(explicitCallees), ...headers.keys()]);
     const nodes = new Map<string, ProjectContractNode>();
     const visitState = new Map<string, "visiting" | "visited">();
     const stack: string[] = [];
@@ -151,11 +139,7 @@ export function resolveProjectDependencies(
 
         const explicit = explicitCallees[reference];
         if (explicit) {
-            const node = readCustomNode(
-                reference,
-                resolve(projectRoot, explicit.header),
-                explicit.index,
-            );
+            const node = readCustomNode(reference, resolve(projectRoot, explicit.header), explicit.index);
             nodes.set(node.stateType, node);
             return node;
         }
@@ -177,9 +161,7 @@ export function resolveProjectDependencies(
                 .map((candidate) => relative(projectRoot, candidate).replaceAll("\\", "/"))
                 .sort()
                 .join(", ");
-            throw new Error(
-                `callee '${reference}' referenced by ${caller.stateType} is ambiguous: ${listed}`,
-            );
+            throw new Error(`callee '${reference}' referenced by ${caller.stateType} is ambiguous: ${listed}`);
         }
         if (candidates.length === 1) {
             const node = readCustomNode(reference, candidates[0]);
@@ -206,10 +188,7 @@ export function resolveProjectDependencies(
         visitState.set(node.stateType, "visiting");
         stack.push(node.stateType);
 
-        const source =
-            node === root && options.additionalRootSource
-                ? `${node.source}\n${options.additionalRootSource}`
-                : node.source;
+        const source = node === root && options.additionalRootSource ? `${node.source}\n${options.additionalRootSource}` : node.source;
         const references = [
             ...scanCallees(
                 source,

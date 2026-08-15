@@ -1,13 +1,6 @@
 import { analyzeContract } from "@qinit/compiler/analyzer";
 
-export {
-    QINIT_IDL_VERSION,
-    AbiContainerKind,
-    AbiScalarKind,
-    AbiTypeKind,
-    formatAbiType,
-    parseContractIdl,
-} from "@qinit/proto/contract-idl";
+export { QINIT_IDL_VERSION, AbiContainerKind, AbiScalarKind, AbiTypeKind, formatAbiType, parseContractIdl } from "@qinit/proto/contract-idl";
 export type {
     AbiArray,
     AbiBitArray,
@@ -26,13 +19,7 @@ export type {
     ContractMigration,
 } from "@qinit/proto/contract-idl";
 
-import type {
-    AbiField,
-    ContractEntry,
-    ContractEnum,
-    ContractIdl,
-    ContractLog,
-} from "@qinit/proto/contract-idl";
+import type { AbiField, ContractEntry, ContractEnum, ContractIdl, ContractLog } from "@qinit/proto/contract-idl";
 
 export type Field = AbiField;
 export type IdlEntry = ContractEntry;
@@ -45,11 +32,7 @@ export interface ExtractIdlOptions {
     stateType?: string;
 }
 
-export function extractIdl(
-    source: string,
-    name: string,
-    options: ExtractIdlOptions = {},
-): ContractIdl {
+export function extractIdl(source: string, name: string, options: ExtractIdlOptions = {}): ContractIdl {
     const analysisName = options.stateType ?? name;
     const result = analyzeContract({
         source,
@@ -67,8 +50,6 @@ export function extractIdl(
               };
     }
 
-    const details = result.diagnostics
-        .map((diagnostic) => `line ${diagnostic.span.line}: ${diagnostic.message}`)
-        .join("\n");
+    const details = result.diagnostics.map((diagnostic) => `line ${diagnostic.span.line}: ${diagnostic.message}`).join("\n");
     throw new Error(details || `Cannot extract IDL for ${name}`);
 }

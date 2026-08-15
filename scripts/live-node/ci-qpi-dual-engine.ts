@@ -5,13 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildContractWithWasiClang } from "@qinit/build";
 import { deployContract } from "@qinit/cli/ops/deploy";
-import {
-    compileContract,
-    DEFAULT_COMPILE_ARENA_SIZE_BYTES,
-    DiagnosticSeverity,
-    inspectWasmModule,
-    loadQpiHeader,
-} from "@qinit/compiler";
+import { compileContract, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, inspectWasmModule, loadQpiHeader } from "@qinit/compiler";
 import { DEFAULT_RPC_BASE, hexToBytes, initK12, k12Hex, LiteRpc } from "@qinit/core";
 import { VirtualNode } from "@qinit/engine";
 import { EngineServer } from "@qinit/engine/server";
@@ -74,24 +68,13 @@ function same(left: Uint8Array, right: Uint8Array, label: string): void {
 }
 
 function uint64(bytes: Uint8Array, index: number): bigint {
-    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(
-        index * 8,
-        true,
-    );
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(index * 8, true);
 }
 
-async function artifact(
-    compiler: CompilerBackendLabel,
-    role: Role,
-    slot: number,
-    wasm: Uint8Array,
-    registration: Registration,
-): Promise<Artifact> {
+async function artifact(compiler: CompilerBackendLabel, role: Role, slot: number, wasm: Uint8Array, registration: Registration): Promise<Artifact> {
     const inspection = inspectWasmModule(wasm);
     if (!inspection.ok) {
-        fail(
-            `${compiler} ${role}: ${inspection.diagnostics.map((item) => item.message).join("; ")}`,
-        );
+        fail(`${compiler} ${role}: ${inspection.diagnostics.map((item) => item.message).join("; ")}`);
     }
     if (inspection.imports.some((item) => item.module !== "lhost")) {
         fail(`${compiler} ${role} has a non-lhost import`);
@@ -99,11 +82,7 @@ async function artifact(
     return { compiler, role, slot, wasm, registration, hash: await k12Hex(wasm) };
 }
 
-async function compileTsPair(
-    calleeSlot: number,
-    driverSlot: number,
-    qpiHeader: string,
-): Promise<Artifact[]> {
+async function compileTsPair(calleeSlot: number, driverSlot: number, qpiHeader: string): Promise<Artifact[]> {
     const callee = await compileContract({
         source: calleeSource,
         contractName: "QpiDualCallee",
@@ -111,13 +90,9 @@ async function compileTsPair(
         qpiHeader,
         arenaSizeBytes: ARENA_SIZE,
     });
-    const calleeErrors = callee.diagnostics.filter(
-        (item) => item.severity === DiagnosticSeverity.ERROR,
-    );
+    const calleeErrors = callee.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR);
     if (calleeErrors.length || !callee.wasm.length) {
-        fail(
-            `TS callee compile: ${calleeErrors.map((item) => item.message).join("; ") || "empty artifact"}`,
-        );
+        fail(`TS callee compile: ${calleeErrors.map((item) => item.message).join("; ") || "empty artifact"}`);
     }
     if (!callee.idl) {
         fail("successful TS callee compile returned no IDL");
@@ -131,13 +106,9 @@ async function compileTsPair(
         callees: [callee.idl],
         calleeSources: [{ name: "QpiDualCallee", source: calleeSource }],
     });
-    const driverErrors = driver.diagnostics.filter(
-        (item) => item.severity === DiagnosticSeverity.ERROR,
-    );
+    const driverErrors = driver.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR);
     if (driverErrors.length || !driver.wasm.length) {
-        fail(
-            `TS driver compile: ${driverErrors.map((item) => item.message).join("; ") || "empty artifact"}`,
-        );
+        fail(`TS driver compile: ${driverErrors.map((item) => item.message).join("; ") || "empty artifact"}`);
     }
     if (!driver.idl) {
         fail("successful TS driver compile returned no IDL");
@@ -179,39 +150,20 @@ async function compileClangPair(calleeSlot: number, driverSlot: number): Promise
         fail(`Clang driver compile: ${driver.stderr ?? "no artifact"}`);
     }
     return [
-        await artifact(
-            "Clang",
-            "callee",
-            calleeSlot,
-            new Uint8Array(readFileSync(callee.wasmPath)),
-            {
-                functions: callee.idl.functions.length,
-                procedures: callee.idl.procedures.length,
-            },
-        ),
-        await artifact(
-            "Clang",
-            "driver",
-            driverSlot,
-            new Uint8Array(readFileSync(driver.wasmPath)),
-            {
-                functions: driver.idl.functions.length,
-                procedures: driver.idl.procedures.length,
-            },
-        ),
+        await artifact("Clang", "callee", calleeSlot, new Uint8Array(readFileSync(callee.wasmPath)), {
+            functions: callee.idl.functions.length,
+            procedures: callee.idl.procedures.length,
+        }),
+        await artifact("Clang", "driver", driverSlot, new Uint8Array(readFileSync(driver.wasmPath)), {
+            functions: driver.idl.functions.length,
+            procedures: driver.idl.procedures.length,
+        }),
     ];
 }
 
-async function deployAll(
-    base: string,
-    rpc: LiteRpc,
-    artifacts: Artifact[],
-    seed: string,
-): Promise<void> {
+async function deployAll(base: string, rpc: LiteRpc, artifacts: Artifact[], seed: string): Promise<void> {
     for (const item of artifacts) {
-        const pairCallee = artifacts.find(
-            (candidate) => candidate.compiler === item.compiler && candidate.role === "callee",
-        )!;
+        const pairCallee = artifacts.find((candidate) => candidate.compiler === item.compiler && candidate.role === "callee")!;
         const deployed = await deployContract(
             {
                 contractPath: item.role === "driver" ? driverPath : calleePath,
@@ -221,10 +173,7 @@ async function deployAll(
                 rpc,
                 seed,
                 slotOverride: item.slot,
-                dynCallees:
-                    item.role === "driver"
-                        ? { QpiDualCallee: { header: calleePath, index: pairCallee.slot } }
-                        : undefined,
+                dynCallees: item.role === "driver" ? { QpiDualCallee: { header: calleePath, index: pairCallee.slot } } : undefined,
                 artifact: {
                     wasm: item.wasm,
                     hash: item.hash,
@@ -233,9 +182,7 @@ async function deployAll(
             },
             (event) => {
                 if ("step" in event && event.state === "fail") {
-                    console.error(
-                        `  ${item.compiler} ${item.role} ${event.step}: ${event.detail ?? "failed"}`,
-                    );
+                    console.error(`  ${item.compiler} ${item.role} ${event.step}: ${event.detail ?? "failed"}`);
                 }
             },
         );
@@ -256,13 +203,7 @@ async function deployAll(
     }
 }
 
-async function invoke(
-    base: string,
-    rpc: LiteRpc,
-    slot: number,
-    inputSeed: bigint,
-    seed: string,
-): Promise<void> {
+async function invoke(base: string, rpc: LiteRpc, slot: number, inputSeed: bigint, seed: string): Promise<void> {
     const tick = (await rpc.tickInfo()).tick + 6;
     const result = await invokeProcedure({
         seed,
@@ -300,13 +241,7 @@ async function recover(base: string, rpc: LiteRpc, slot: number, seed: string): 
     }
 }
 
-async function soakRecoveries(
-    base: string,
-    rpc: LiteRpc,
-    artifacts: Artifact[],
-    compiler: CompilerBackendLabel,
-    seed: string,
-): Promise<void> {
+async function soakRecoveries(base: string, rpc: LiteRpc, artifacts: Artifact[], compiler: CompilerBackendLabel, seed: string): Promise<void> {
     const driver = artifacts.find((item) => item.compiler === compiler && item.role === "driver")!;
     const callee = artifacts.find((item) => item.compiler === compiler && item.role === "callee")!;
     const tickBefore = (await rpc.tickInfo()).tick;
@@ -333,12 +268,7 @@ async function soakRecoveries(
     }
 }
 
-async function plainTransfer(
-    base: string,
-    rpc: LiteRpc,
-    slot: number,
-    seed: string,
-): Promise<void> {
+async function plainTransfer(base: string, rpc: LiteRpc, slot: number, seed: string): Promise<void> {
     const tick = (await rpc.tickInfo()).tick + 6;
     const result = await invokeProcedure({
         seed,
@@ -357,61 +287,31 @@ async function plainTransfer(
     }
 }
 
-async function execute(
-    base: string,
-    rpc: LiteRpc,
-    artifacts: Artifact[],
-    compiler: CompilerBackendLabel,
-    seed: string,
-): Promise<Result> {
+async function execute(base: string, rpc: LiteRpc, artifacts: Artifact[], compiler: CompilerBackendLabel, seed: string): Promise<Result> {
     const driver = artifacts.find((item) => item.compiler === compiler && item.role === "driver")!;
     const callee = artifacts.find((item) => item.compiler === compiler && item.role === "callee")!;
     await rpc.setDebug(true);
     const traceBefore = await rpc.debugTrace(0, 256);
-    const traceStart = traceBefore.entries.reduce(
-        (latest, entry) => Math.max(latest, entry.seq),
-        0,
-    );
+    const traceStart = traceBefore.entries.reduce((latest, entry) => Math.max(latest, entry.seq), 0);
     await invoke(base, rpc, driver.slot, 17n, seed);
     await invoke(base, rpc, driver.slot, 33n, seed);
 
     const trace = await rpc.debugTrace(traceStart, 64);
-    const driverCalls = trace.entries.filter(
-        (entry) => entry.index === driver.slot && entry.entry === 1 && entry.kind === 1 && entry.ok,
-    );
-    const calleeCalls = trace.entries.filter(
-        (entry) => entry.index === callee.slot && entry.entry === 1 && entry.kind === 1 && entry.ok,
-    );
+    const driverCalls = trace.entries.filter((entry) => entry.index === driver.slot && entry.entry === 1 && entry.kind === 1 && entry.ok);
+    const calleeCalls = trace.entries.filter((entry) => entry.index === callee.slot && entry.entry === 1 && entry.kind === 1 && entry.ok);
     if (driverCalls.length !== 2 || calleeCalls.length !== 2) {
-        fail(
-            `${base} ${compiler} nested traces: expected 2 driver and 2 callee procedures, ` +
-                `got ${driverCalls.length} and ${calleeCalls.length}`,
-        );
+        fail(`${base} ${compiler} nested traces: expected 2 driver and 2 callee procedures, ` + `got ${driverCalls.length} and ${calleeCalls.length}`);
     }
     for (const [index, entry] of driverCalls.entries()) {
         const nestedCalls = entry.hostCalls
-            .filter(
-                (call) =>
-                    (call.name === "callFunction" || call.name === "invokeProcedure") &&
-                    call.detail.includes(String(callee.slot)),
-            )
+            .filter((call) => (call.name === "callFunction" || call.name === "invokeProcedure") && call.detail.includes(String(callee.slot)))
             .map((call) => call.name);
-        if (
-            nestedCalls.join(",") !== "callFunction,invokeProcedure,callFunction" ||
-            entry.stateTruncated ||
-            entry.stateDiff.length === 0
-        ) {
-            fail(
-                `${base} ${compiler} driver trace #${index + 1} is incomplete: ` +
-                    JSON.stringify(entry),
-            );
+        if (nestedCalls.join(",") !== "callFunction,invokeProcedure,callFunction" || entry.stateTruncated || entry.stateDiff.length === 0) {
+            fail(`${base} ${compiler} driver trace #${index + 1} is incomplete: ` + JSON.stringify(entry));
         }
     }
 
-    const recoveryTraceStart = trace.entries.reduce(
-        (latest, entry) => Math.max(latest, entry.seq),
-        traceStart,
-    );
+    const recoveryTraceStart = trace.entries.reduce((latest, entry) => Math.max(latest, entry.seq), traceStart);
     await recover(base, rpc, driver.slot, seed);
     const recoveryQuery = await rpc.querySmartContract(callee.slot, 1, new Uint8Array(0));
     if (uint64(recoveryQuery, 0) !== 65n || uint64(recoveryQuery, 1) !== 4n) {
@@ -419,63 +319,40 @@ async function execute(
     }
 
     const recoveryTrace = await rpc.debugTrace(recoveryTraceStart, 32);
-    const trappedChild = recoveryTrace.entries.find(
-        (entry) =>
-            entry.index === callee.slot && entry.entry === 2 && entry.kind === 1 && !entry.ok,
-    );
+    const trappedChild = recoveryTrace.entries.find((entry) => entry.index === callee.slot && entry.entry === 2 && entry.kind === 1 && !entry.ok);
     if (!trappedChild?.trap || trappedChild.stateDiff.length !== 1) {
         fail(`${base} ${compiler} trapped child trace is missing: ${JSON.stringify(trappedChild)}`);
     }
     const trappedBefore = hexToBytes(trappedChild.stateDiff[0].before);
     const trappedAfter = hexToBytes(trappedChild.stateDiff[0].after);
-    if (
-        uint64(trappedBefore, 0) !== 57n ||
-        uint64(trappedBefore, 1) !== 2n ||
-        uint64(trappedAfter, 0) !== 62n ||
-        uint64(trappedAfter, 1) !== 3n
-    ) {
+    if (uint64(trappedBefore, 0) !== 57n || uint64(trappedBefore, 1) !== 2n || uint64(trappedAfter, 0) !== 62n || uint64(trappedAfter, 1) !== 3n) {
         fail(`${base} ${compiler} trapped child did not retain its partial write`);
     }
 
-    const healthyChild = recoveryTrace.entries.find(
-        (entry) => entry.index === callee.slot && entry.entry === 1 && entry.kind === 1 && entry.ok,
-    );
+    const healthyChild = recoveryTrace.entries.find((entry) => entry.index === callee.slot && entry.entry === 1 && entry.kind === 1 && entry.ok);
     if (!healthyChild || healthyChild.stateDiff.length !== 1) {
         fail(`${base} ${compiler} healthy child invoke is missing after the trap`);
     }
     const healthyBefore = hexToBytes(healthyChild.stateDiff[0].before);
     const healthyAfter = hexToBytes(healthyChild.stateDiff[0].after);
-    if (
-        uint64(healthyBefore, 0) !== 62n ||
-        uint64(healthyBefore, 1) !== 3n ||
-        uint64(healthyAfter, 0) !== 65n ||
-        uint64(healthyAfter, 1) !== 4n
-    ) {
+    if (uint64(healthyBefore, 0) !== 62n || uint64(healthyBefore, 1) !== 3n || uint64(healthyAfter, 0) !== 65n || uint64(healthyAfter, 1) !== 4n) {
         fail(`${base} ${compiler} healthy child invoke has the wrong state transition`);
     }
 
-    const recoveryDriver = recoveryTrace.entries.find(
-        (entry) => entry.index === driver.slot && entry.entry === 2 && entry.kind === 1 && entry.ok,
-    );
+    const recoveryDriver = recoveryTrace.entries.find((entry) => entry.index === driver.slot && entry.entry === 2 && entry.kind === 1 && entry.ok);
     const recoveryCalls = recoveryDriver?.hostCalls.map((call) => call.name);
     if (
-        recoveryCalls?.join(",") !==
-            "callFunction,invokeProcedure,callFunction,invokeProcedure,callFunction" ||
+        recoveryCalls?.join(",") !== "callFunction,invokeProcedure,callFunction,invokeProcedure,callFunction" ||
         recoveryDriver?.stateTruncated ||
         !recoveryDriver?.stateDiff.length
     ) {
-        fail(
-            `${base} ${compiler} recovery driver trace is incomplete: ${JSON.stringify(recoveryDriver)}`,
-        );
+        fail(`${base} ${compiler} recovery driver trace is incomplete: ${JSON.stringify(recoveryDriver)}`);
     }
     const recoveryOutput = hexToBytes(recoveryDriver.outHex);
     const recoveryExpected = [0n, 0n, 57n, 62n, 65n, 4n];
     for (const [index, expected] of recoveryExpected.entries()) {
         if (uint64(recoveryOutput, index) !== expected) {
-            fail(
-                `${base} ${compiler} recovery output word ${index}: ` +
-                    `${uint64(recoveryOutput, index)} != ${expected}`,
-            );
+            fail(`${base} ${compiler} recovery output word ${index}: ` + `${uint64(recoveryOutput, index)} != ${expected}`);
         }
     }
 
@@ -490,16 +367,10 @@ async function execute(
     const calleeRead = await rpc.stateRead(callee.slot, 0, calleeDigest.stateSize);
     const driverState = hexToBytes(driverRead.hex);
     const calleeState = hexToBytes(calleeRead.hex);
-    if (
-        driverRead.stateSize !== driverDigest.stateSize ||
-        driverState.byteLength !== driverDigest.stateSize
-    ) {
+    if (driverRead.stateSize !== driverDigest.stateSize || driverState.byteLength !== driverDigest.stateSize) {
         fail(`${base} ${compiler} driver state read is incomplete`);
     }
-    if (
-        calleeRead.stateSize !== calleeDigest.stateSize ||
-        calleeState.byteLength !== calleeDigest.stateSize
-    ) {
+    if (calleeRead.stateSize !== calleeDigest.stateSize || calleeState.byteLength !== calleeDigest.stateSize) {
         fail(`${base} ${compiler} callee state read is incomplete`);
     }
     return {
@@ -515,38 +386,15 @@ async function execute(
 }
 
 function assertExpected(result: Result, label: string): void {
-    const driver = new DataView(
-        result.driverOutput.buffer,
-        result.driverOutput.byteOffset,
-        result.driverOutput.byteLength,
-    );
-    const expected = [
-        63n,
-        4n,
-        16n,
-        16n,
-        16n,
-        11n,
-        57n,
-        2n,
-        0n,
-        65n,
-        4n,
-        1n,
-        2n,
-        0x51494e4954574153n,
-    ];
+    const driver = new DataView(result.driverOutput.buffer, result.driverOutput.byteOffset, result.driverOutput.byteLength);
+    const expected = [63n, 4n, 16n, 16n, 16n, 11n, 57n, 2n, 0n, 65n, 4n, 1n, 2n, 0x51494e4954574153n];
     expected.forEach((value, index) => {
         const actual = driver.getBigUint64((index + 1) * 8, true);
         if (actual !== value) {
             fail(`${label} driver output word ${index + 1}: ${actual} != ${value}`);
         }
     });
-    const callee = new DataView(
-        result.calleeOutput.buffer,
-        result.calleeOutput.byteOffset,
-        result.calleeOutput.byteLength,
-    );
+    const callee = new DataView(result.calleeOutput.buffer, result.calleeOutput.byteOffset, result.calleeOutput.byteLength);
     const calleeExpected = [65n, 4n, 0x43414c4c45455741n];
     calleeExpected.forEach((value, index) => {
         const actual = callee.getBigUint64(index * 8, true);
@@ -557,10 +405,7 @@ function assertExpected(result: Result, label: string): void {
 }
 
 await initK12();
-console.log(
-    "CMake proof",
-    JSON.stringify(assertCoreBuildProfile(core, ["build-node", "build-win-static", "build-win"])),
-);
+console.log("CMake proof", JSON.stringify(assertCoreBuildProfile(core, ["build-node", "build-win-static", "build-win"])));
 const coreRpc = new LiteRpc(rpcBaseUrl);
 const registry = await coreRpc.dynRegistry();
 if (registry.contracts.some((contract) => contract.armed)) {
@@ -573,19 +418,12 @@ const slots = [0, 1, 2, 3].map((offset) => registry.slotBase + offset);
 
 const qpiHeader = loadQpiHeader(core);
 assertPinnedQpiHeader(qpiHeader);
-const artifacts = [
-    ...(await compileTsPair(slots[0], slots[1], qpiHeader)),
-    ...(await compileClangPair(slots[2], slots[3])),
-];
+const artifacts = [...(await compileTsPair(slots[0], slots[1], qpiHeader)), ...(await compileClangPair(slots[2], slots[3]))];
 for (const item of artifacts) {
-    console.log(
-        `${item.compiler.padEnd(5)} ${item.role.padEnd(6)} slot ${item.slot}: ${item.wasm.length}B · ${item.hash}`,
-    );
+    console.log(`${item.compiler.padEnd(5)} ${item.role.padEnd(6)} slot ${item.slot}: ${item.wasm.length}B · ${item.hash}`);
 }
 
-const simulatorServer = new EngineServer(
-    new VirtualNode({ slotBase: registry.slotBase, slotCount: registry.slotCount }),
-);
+const simulatorServer = new EngineServer(new VirtualNode({ slotBase: registry.slotBase, slotCount: registry.slotCount }));
 const simulator = await simulatorServer.start(0, 25);
 try {
     const simulatorRpc = new LiteRpc(simulator.rpcBaseUrl);
@@ -610,14 +448,10 @@ try {
     const canonical = results.get("TS/simulator")!;
     for (const [name, result] of results) {
         if (result.driverStateSize !== canonical.driverStateSize) {
-            fail(
-                `${name} driver state size ${result.driverStateSize} != ${canonical.driverStateSize}`,
-            );
+            fail(`${name} driver state size ${result.driverStateSize} != ${canonical.driverStateSize}`);
         }
         if (result.calleeStateSize !== canonical.calleeStateSize) {
-            fail(
-                `${name} callee state size ${result.calleeStateSize} != ${canonical.calleeStateSize}`,
-            );
+            fail(`${name} callee state size ${result.calleeStateSize} != ${canonical.calleeStateSize}`);
         }
         same(result.driverState, canonical.driverState, `${name} driver state`);
         same(result.calleeState, canonical.calleeState, `${name} callee state`);
@@ -638,10 +472,7 @@ try {
         }
     }
     if (process.env.QINIT_QPI_DIGEST_FILE) {
-        writeFileSync(
-            process.env.QINIT_QPI_DIGEST_FILE,
-            `${canonical.driverDigest} ${canonical.calleeDigest}\n`,
-        );
+        writeFileSync(process.env.QINIT_QPI_DIGEST_FILE, `${canonical.driverDigest} ${canonical.calleeDigest}\n`);
     }
     console.log(
         `QPI MATRIX OK — TS/Clang × simulator/core: ${canonical.driverState.length}B driver ${canonical.driverDigest}, ${canonical.calleeState.length}B callee ${canonical.calleeDigest}`,

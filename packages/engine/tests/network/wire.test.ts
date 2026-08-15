@@ -225,9 +225,7 @@ test("Tick: date fields, the 4 testing-digests, the m256 digests, signature", ()
     t.day = 28;
     t.month = 12;
     t.year = 26;
-    expect([t.millisecond, t.second, t.minute, t.hour, t.day, t.month, t.year]).toEqual([
-        999, 58, 59, 23, 28, 12, 26,
-    ]);
+    expect([t.millisecond, t.second, t.minute, t.hour, t.day, t.month, t.year]).toEqual([999, 58, 59, 23, 28, 12, 26]);
 
     t.prevResourceTestingDigest = 0x11111111;
     t.saltedResourceTestingDigest = 0x22222222;

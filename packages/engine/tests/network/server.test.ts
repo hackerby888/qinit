@@ -12,9 +12,7 @@ beforeAll(async () => {
 });
 
 // Start an EngineServer on an ephemeral port over a freshly-configured engine; returns its base URL + a stop fn.
-async function serve(
-    setup?: (e: VirtualNode) => void | Promise<void>,
-): Promise<{ base: string; stop: () => void; engine: VirtualNode }> {
+async function serve(setup?: (e: VirtualNode) => void | Promise<void>): Promise<{ base: string; stop: () => void; engine: VirtualNode }> {
     const engine = new VirtualNode();
     if (setup) {
         await setup(engine);
@@ -171,9 +169,7 @@ test("querySmartContract runs a Counter function over HTTP", async () => {
         expect(r.status).toBe(200);
 
         const out = Uint8Array.from(Buffer.from((await r.json()).responseData, "base64"));
-        expect(new DataView(out.buffer, out.byteOffset, out.byteLength).getBigUint64(0, true)).toBe(
-            1n,
-        );
+        expect(new DataView(out.buffer, out.byteOffset, out.byteLength).getBigUint64(0, true)).toBe(1n);
     } finally {
         stop();
     }
@@ -232,24 +228,17 @@ test("a contract fault stops ticking but keeps postmortem routes available", asy
             },
         });
 
-        const stateResponse = await fetch(
-            `${handle.rpcBaseUrl}/live/v1/dev/state-read?slot=28&len=8`,
-        );
+        const stateResponse = await fetch(`${handle.rpcBaseUrl}/live/v1/dev/state-read?slot=28&len=8`);
         expect(stateResponse.status).toBe(200);
 
-        const historyResponse = await fetch(
-            `${handle.rpcBaseUrl}/query/v1/getTransactionsForTick`,
-            {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ tick: fault.lastFinalizedTick }),
-            },
-        );
+        const historyResponse = await fetch(`${handle.rpcBaseUrl}/query/v1/getTransactionsForTick`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ tick: fault.lastFinalizedTick }),
+        });
         expect(historyResponse.status).toBe(200);
 
-        const currentStateResponse = await fetch(
-            `${handle.rpcBaseUrl}/live/v1/balances/ignored-after-fault`,
-        );
+        const currentStateResponse = await fetch(`${handle.rpcBaseUrl}/live/v1/balances/ignored-after-fault`);
         expect(currentStateResponse.status).toBe(503);
 
         const queryResponse = await fetch(`${handle.rpcBaseUrl}/live/v1/querySmartContract`, {

@@ -17,11 +17,7 @@ export async function initK12(): Promise<void> {
     _schnorrq = (resolved as { schnorrq: SchnorrQ }).schnorrq;
 }
 
-export function signSync(
-    privateKey: Uint8Array,
-    publicKey: Uint8Array,
-    digest: Uint8Array,
-): Uint8Array {
+export function signSync(privateKey: Uint8Array, publicKey: Uint8Array, digest: Uint8Array): Uint8Array {
     if (!_schnorrq) {
         throw new Error("signer not initialized — await initK12() first");
     }

@@ -26,13 +26,7 @@ export {
 export { decodeLog, loggedSizeOf } from "./decode-log";
 export type { DecodedLog } from "./decode-log";
 export type { TypeNode } from "./abi-fmt";
-export {
-    callFunction,
-    invokeProcedure,
-    sendTransfer,
-    contractAddress,
-    resolveDeploymentSlot,
-} from "./call";
+export { callFunction, invokeProcedure, sendTransfer, contractAddress, resolveDeploymentSlot } from "./call";
 export type { TypedContractInput, SubmittedTx } from "./call";
 export * from "./qpi-layout"; // QPI container layout: single source of truth (idl.ts + decoders share it)
 export * from "./qpi-container-view";

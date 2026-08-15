@@ -74,9 +74,7 @@ describe("fuzz pinned seeds", () => {
                 qpiHeader: HEADERS,
                 arenaSizeBytes: 1 << 20,
             });
-            expect(
-                ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-            ).toHaveLength(0);
+            expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
             expect(runState(ours.wasm, c.inputs)).toBe(expected);
 
             if (wasiOk) {
@@ -92,9 +90,7 @@ describe("fuzz pinned seeds", () => {
                         skipVerify: true,
                     });
                     expect(built.ok).toBe(true);
-                    expect(runState(new Uint8Array(readFileSync(built.wasmPath!)), c.inputs)).toBe(
-                        expected,
-                    );
+                    expect(runState(new Uint8Array(readFileSync(built.wasmPath!)), c.inputs)).toBe(expected);
                 } finally {
                     rmSync(dir, { recursive: true, force: true });
                 }

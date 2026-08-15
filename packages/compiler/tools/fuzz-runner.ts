@@ -24,12 +24,7 @@ interface FuzzRunnerOptions {
 
 interface Finding {
     seed: number;
-    kind:
-        | "ours-compile-error"
-        | "ours-runtime-error"
-        | "native-build-fail"
-        | "native-runtime-error"
-        | "state-mismatch";
+    kind: "ours-compile-error" | "ours-runtime-error" | "native-build-fail" | "native-runtime-error" | "state-mismatch";
     detail: string;
     ours?: string;
     native?: string;
@@ -69,11 +64,7 @@ function isWasiAvailable(oursOnly: boolean): boolean {
     }
 }
 
-function runState(
-    wasm: Uint8Array,
-    contract: FuzzContract,
-    encodeInput: FuzzRunnerOptions["encodeInput"],
-): string {
+function runState(wasm: Uint8Array, contract: FuzzContract, encodeInput: FuzzRunnerOptions["encodeInput"]): string {
     const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     const user = new Uint8Array(32).fill(7);
     sim.fund(user, 1_000_000n);
@@ -87,12 +78,7 @@ function runState(
     return bytesToHex(state.slice(0, 64));
 }
 
-async function checkSeed(
-    contract: FuzzContract,
-    headers: string,
-    wasiAvailable: boolean,
-    options: FuzzRunnerOptions,
-): Promise<Finding | null> {
+async function checkSeed(contract: FuzzContract, headers: string, wasiAvailable: boolean, options: FuzzRunnerOptions): Promise<Finding | null> {
     const inputs = contract.inputs.map((row) => row.map((value) => `0x${value.toString(16)}`));
 
     let oursHex: string;
@@ -104,9 +90,7 @@ async function checkSeed(
             qpiHeader: headers,
             arenaSizeBytes: 1 << 20,
         });
-        const errors = ours.diagnostics.filter(
-            (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-        );
+        const errors = ours.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
         if (errors.length > 0) {
             return {
                 seed: contract.seed,
@@ -154,11 +138,7 @@ async function checkSeed(
 
         let nativeHex: string;
         try {
-            nativeHex = runState(
-                new Uint8Array(readFileSync(built.wasmPath!)),
-                contract,
-                options.encodeInput,
-            );
+            nativeHex = runState(new Uint8Array(readFileSync(built.wasmPath!)), contract, options.encodeInput);
         } catch (error) {
             return {
                 seed: contract.seed,
@@ -174,11 +154,7 @@ async function checkSeed(
         }
 
         let firstDiff = 0;
-        while (
-            firstDiff < 64 &&
-            oursHex.slice(firstDiff * 2, firstDiff * 2 + 2) ===
-                nativeHex.slice(firstDiff * 2, firstDiff * 2 + 2)
-        ) {
+        while (firstDiff < 64 && oursHex.slice(firstDiff * 2, firstDiff * 2 + 2) === nativeHex.slice(firstDiff * 2, firstDiff * 2 + 2)) {
             firstDiff++;
         }
         return {
@@ -218,10 +194,7 @@ export async function runFuzzer(options: FuzzRunnerOptions): Promise<void> {
 
             if (finding) {
                 findings.push(finding);
-                writeFileSync(
-                    join(findingsDirectory, `seed-${seed}.json`),
-                    JSON.stringify(finding, null, 2),
-                );
+                writeFileSync(join(findingsDirectory, `seed-${seed}.json`), JSON.stringify(finding, null, 2));
                 writeFileSync(join(findingsDirectory, `seed-${seed}.h`), contract.source);
                 console.log(`seed ${seed}: ${finding.kind} — ${finding.detail.slice(0, 120)}`);
             }
@@ -229,9 +202,7 @@ export async function runFuzzer(options: FuzzRunnerOptions): Promise<void> {
             completed++;
             if (completed % 25 === 0) {
                 const rate = completed / ((performance.now() - startedAt) / 1000);
-                console.log(
-                    `[${completed}/${count}] ${findings.length} findings, ${rate.toFixed(1)} seeds/s`,
-                );
+                console.log(`[${completed}/${count}] ${findings.length} findings, ${rate.toFixed(1)} seeds/s`);
             }
         }
     }

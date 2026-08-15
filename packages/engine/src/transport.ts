@@ -19,29 +19,9 @@ import type {
     ContractCallsPage,
     ContractListEntry,
 } from "@qinit/core";
-import {
-    bytesToIdentity,
-    identityToBytes,
-    DEFAULT_WASM_SLOT_LAYOUT,
-    LITE_DEPLOY_ADDRESS,
-    WASM_ABI_VERSION,
-    hexToBytes,
-} from "@qinit/core";
-import {
-    LITE_TX,
-    CHUNK_DATA_MAX,
-    MAX_INPUT_SIZE,
-    UploadBegin,
-    UploadChunkHeader,
-    DeployMessage,
-} from "@qinit/proto";
-import {
-    QubicSimulator,
-    EngineFaultedError,
-    type AssetSnapshot,
-    type FeeMode,
-    type ProcedureCallOptions,
-} from "./qubic-simulator";
+import { bytesToIdentity, identityToBytes, DEFAULT_WASM_SLOT_LAYOUT, LITE_DEPLOY_ADDRESS, WASM_ABI_VERSION, hexToBytes } from "@qinit/core";
+import { LITE_TX, CHUNK_DATA_MAX, MAX_INPUT_SIZE, UploadBegin, UploadChunkHeader, DeployMessage } from "@qinit/proto";
+import { QubicSimulator, EngineFaultedError, type AssetSnapshot, type FeeMode, type ProcedureCallOptions } from "./qubic-simulator";
 import type { LogSink } from "./logging/log";
 import type { TxRecord } from "./chain/txs";
 import type { CommitteeOpts } from "./chain/consensus";
@@ -147,10 +127,7 @@ export class VirtualNode implements NodeTransport {
         this.sim.ipo(slot, finalPrice);
     }
 
-    deploy(
-        wasm: Uint8Array,
-        options?: { name?: string; slot?: number; deployer?: Uint8Array },
-    ): Contract;
+    deploy(wasm: Uint8Array, options?: { name?: string; slot?: number; deployer?: Uint8Array }): Contract;
     deploy(slot: number, wasm: Uint8Array, name?: string, deployer?: Uint8Array): Contract;
     deploy(
         slotOrWasm: number | Uint8Array,
@@ -197,19 +174,12 @@ export class VirtualNode implements NodeTransport {
                 .toUpperCase()
                 .replace(/[^A-Z0-9]/g, "")
                 .slice(0, 7) || "C";
-        this.sim.mintDeployShares(
-            slot,
-            ticker,
-            deployer ?? this.sim.getCommittee().arbitrator.publicKey,
-        );
+        this.sim.mintDeployShares(slot, ticker, deployer ?? this.sim.getCommittee().arbitrator.publicKey);
 
         return contract;
     }
 
-    private resolveDeploymentSlot(
-        explicitSlot: number | undefined,
-        name: string | undefined,
-    ): number {
+    private resolveDeploymentSlot(explicitSlot: number | undefined, name: string | undefined): number {
         if (explicitSlot !== undefined) {
             return explicitSlot;
         }
@@ -362,11 +332,7 @@ export class VirtualNode implements NodeTransport {
     async dynRegistry(): Promise<DynamicContractRegistry> {
         const contracts: DynamicContractRegistryEntry[] = [];
 
-        const deployedContract = (
-            slot: number,
-            contract: Contract,
-            metadata: DeployedContractMetadata,
-        ): DynamicContractRegistryEntry => {
+        const deployedContract = (slot: number, contract: Contract, metadata: DeployedContractMetadata): DynamicContractRegistryEntry => {
             const entries = (kind: number): DynamicContractEntry[] =>
                 contract.entries
                     .filter((entry) => entry.kind === kind)
@@ -494,20 +460,11 @@ export class VirtualNode implements NodeTransport {
         };
     }
 
-    async querySmartContract(
-        contractIndex: number,
-        inputType: number,
-        input: Uint8Array,
-    ): Promise<Uint8Array> {
+    async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {
         return this.sim.query(contractIndex, inputType, input);
     }
 
-    procedure(
-        slot: number,
-        inputType: number,
-        input?: Uint8Array,
-        options?: ProcedureCallOptions,
-    ): Uint8Array {
+    procedure(slot: number, inputType: number, input?: Uint8Array, options?: ProcedureCallOptions): Uint8Array {
         return this.sim.procedure(slot, inputType, input, options);
     }
 
@@ -606,16 +563,7 @@ export class VirtualNode implements NodeTransport {
                 return { ok: true, transactionId: txId };
             }
 
-            const { moneyFlew, queued } = this.sim.enqueueTx(
-                scheduledTick,
-                source,
-                destination,
-                amount,
-                inputType,
-                payload,
-                txId,
-                fullDigest,
-            );
+            const { moneyFlew, queued } = this.sim.enqueueTx(scheduledTick, source, destination, amount, inputType, payload, txId, fullDigest);
             this.storeRawTransaction(txId, aliases, txBytes);
 
             return { ok: true, transactionId: txId, moneyFlew, queued };
@@ -664,9 +612,7 @@ export class VirtualNode implements NodeTransport {
                 throw new Error(`module size must be between 1 and ${MAX_WASM_MODULE_SIZE} bytes`);
             }
             if (message.chunkCount !== expectedChunkCount) {
-                throw new Error(
-                    `upload declares ${message.chunkCount} chunks; expected ${expectedChunkCount}`,
-                );
+                throw new Error(`upload declares ${message.chunkCount} chunks; expected ${expectedChunkCount}`);
             }
             this.upload = {
                 sessionId: message.sessionId,
@@ -694,25 +640,16 @@ export class VirtualNode implements NodeTransport {
                 throw new Error("upload chunk for a different session");
             }
             if (message.seq >= upload.chunkCount) {
-                throw new Error(
-                    `upload chunk ${message.seq} is outside 0..${upload.chunkCount - 1}`,
-                );
+                throw new Error(`upload chunk ${message.seq} is outside 0..${upload.chunkCount - 1}`);
             }
             if (message.seq !== upload.received.size) {
-                throw new Error(
-                    `upload chunk ${message.seq} is out of order; expected ${upload.received.size}`,
-                );
+                throw new Error(`upload chunk ${message.seq} is out of order; expected ${upload.received.size}`);
             }
 
             const offset = message.seq * CHUNK_DATA_MAX;
             const expectedLength = Math.min(CHUNK_DATA_MAX, upload.totalSize - offset);
-            if (
-                message.len !== expectedLength ||
-                payload.length !== UploadChunkHeader.SIZE + message.len
-            ) {
-                throw new Error(
-                    `upload chunk ${message.seq} has invalid length ${message.len}; expected ${expectedLength}`,
-                );
+            if (message.len !== expectedLength || payload.length !== UploadChunkHeader.SIZE + message.len) {
+                throw new Error(`upload chunk ${message.seq} has invalid length ${message.len}; expected ${expectedLength}`);
             }
 
             upload.buf.set(payload.subarray(UploadChunkHeader.SIZE), offset);
@@ -735,22 +672,13 @@ export class VirtualNode implements NodeTransport {
                 throw new Error("deploy references a different upload session");
             }
             if (message.abiVersion !== WASM_ABI_VERSION) {
-                throw new Error(
-                    `unsupported Wasm ABI version ${message.abiVersion}; expected ${WASM_ABI_VERSION}`,
-                );
+                throw new Error(`unsupported Wasm ABI version ${message.abiVersion}; expected ${WASM_ABI_VERSION}`);
             }
-            if (
-                message.targetSlot < this.slotBase ||
-                message.targetSlot >= this.slotBase + this.slotCount
-            ) {
-                throw new Error(
-                    `target slot ${message.targetSlot} is outside ${this.slotBase}..${this.slotBase + this.slotCount - 1}`,
-                );
+            if (message.targetSlot < this.slotBase || message.targetSlot >= this.slotBase + this.slotCount) {
+                throw new Error(`target slot ${message.targetSlot} is outside ${this.slotBase}..${this.slotBase + this.slotCount - 1}`);
             }
             if (upload.received.size !== upload.chunkCount) {
-                throw new Error(
-                    `upload is incomplete (${upload.received.size}/${upload.chunkCount} chunks)`,
-                );
+                throw new Error(`upload is incomplete (${upload.received.size}/${upload.chunkCount} chunks)`);
             }
             if (!bytesEqual(message.finalHash, hexToBytes(upload.finalHash))) {
                 throw new Error("deploy hash does not match the upload session");
@@ -758,18 +686,11 @@ export class VirtualNode implements NodeTransport {
             if (!bytesEqual(k12Bytes(upload.buf), message.finalHash)) {
                 throw new Error("uploaded module hash verification failed");
             }
-            if (
-                upload.buf.length < 4 ||
-                upload.buf[0] !== 0x00 ||
-                upload.buf[1] !== 0x61 ||
-                upload.buf[2] !== 0x73 ||
-                upload.buf[3] !== 0x6d
-            ) {
+            if (upload.buf.length < 4 || upload.buf[0] !== 0x00 || upload.buf[1] !== 0x61 || upload.buf[2] !== 0x73 || upload.buf[3] !== 0x6d) {
                 throw new Error("uploaded artifact is not a Wasm module");
             }
 
-            const rawName =
-                payload.length >= DeployMessage.SIZE ? new TextDecoder().decode(message.name) : "";
+            const rawName = payload.length >= DeployMessage.SIZE ? new TextDecoder().decode(message.name) : "";
             const name = rawName.replace(/[^\x20-\x7e].*$/, "") || "Contract";
 
             this.deploy(message.targetSlot, upload.buf, name, source);
@@ -805,11 +726,7 @@ export class VirtualNode implements NodeTransport {
         return this.sim.pendingOracleQueries();
     }
 
-    async oracleResolve(
-        queryId: bigint,
-        reply: Uint8Array,
-        status?: number,
-    ): Promise<{ ok: boolean }> {
+    async oracleResolve(queryId: bigint, reply: Uint8Array, status?: number): Promise<{ ok: boolean }> {
         return { ok: this.sim.resolveOracle(queryId, reply, status) };
     }
 
@@ -834,10 +751,7 @@ export class VirtualNode implements NodeTransport {
         const seeds = ["a".repeat(55)];
 
         for (let seedIndex = 1; seedIndex < VirtualNode.FUNDED_POOL_SIZE; seedIndex++) {
-            const bytes = [
-                ...k12Bytes(encoder.encode("qinit/funded-seed/" + seedIndex)),
-                ...k12Bytes(encoder.encode("qinit/funded-seed/" + seedIndex + "#")),
-            ];
+            const bytes = [...k12Bytes(encoder.encode("qinit/funded-seed/" + seedIndex)), ...k12Bytes(encoder.encode("qinit/funded-seed/" + seedIndex + "#"))];
 
             let seed = "";
             for (let byteIndex = 0; byteIndex < 55; byteIndex++) {
@@ -906,15 +820,7 @@ export class VirtualNode implements NodeTransport {
             return "";
         }
 
-        const ms = Date.UTC(
-            2000 + td.year,
-            td.month - 1,
-            td.day,
-            td.hour,
-            td.minute,
-            td.second,
-            td.millisecond,
-        );
+        const ms = Date.UTC(2000 + td.year, td.month - 1, td.day, td.hour, td.minute, td.second, td.millisecond);
         return String(Math.floor(ms / 1000));
     }
 

@@ -109,11 +109,7 @@ export class QubicLogStore {
         }
         const message = source.slice();
         if (contractIndex !== undefined && message.length >= 4) {
-            new DataView(message.buffer, message.byteOffset, message.byteLength).setUint32(
-                0,
-                contractIndex >>> 0,
-                true,
-            );
+            new DataView(message.buffer, message.byteOffset, message.byteLength).setUint32(0, contractIndex >>> 0, true);
         }
         const logId = BigInt(this.records.length);
         const record = new Uint8Array(LOG_HEADER_SIZE + message.length);
@@ -124,11 +120,7 @@ export class QubicLogStore {
         view.setUint32(6, (message.length & 0xffffff) | ((type & 0xff) << 24), true);
         view.setBigUint64(10, logId, true);
         const digest = k12Bytes(message);
-        view.setBigUint64(
-            18,
-            new DataView(digest.buffer, digest.byteOffset, digest.byteLength).getBigUint64(0, true),
-            true,
-        );
+        view.setBigUint64(18, new DataView(digest.buffer, digest.byteOffset, digest.byteLength).getBigUint64(0, true), true);
         record.set(message, LOG_HEADER_SIZE);
         this.records.push(record);
         this.retainedBytes += record.length;
@@ -261,10 +253,7 @@ export class QubicLogStore {
     }
 
     private reserve(bytes: number): boolean {
-        while (
-            this.retainedBytes + bytes > this.maxRetainedBytes &&
-            this.finalizedTicks.length > 0
-        ) {
+        while (this.retainedBytes + bytes > this.maxRetainedBytes && this.finalizedTicks.length > 0) {
             this.evictOldestTick();
         }
 

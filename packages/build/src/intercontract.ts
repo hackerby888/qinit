@@ -1,18 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
-import {
-    analyzeContract,
-    DiagnosticSeverity,
-    Lexer,
-    TokenKind,
-    type AnalyzeContractOptions,
-} from "@qinit/compiler/analyzer";
+import { analyzeContract, DiagnosticSeverity, Lexer, TokenKind, type AnalyzeContractOptions } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
-import {
-    parseContractDefinitionSource,
-    type ParsedContractDefinitionSource,
-} from "./contract-definitions";
+import { parseContractDefinitionSource, type ParsedContractDefinitionSource } from "./contract-definitions";
 
 export interface CalleeDef {
     type: string;
@@ -21,9 +12,7 @@ export interface CalleeDef {
 }
 
 function readContractDefinitions(corePath: string): ParsedContractDefinitionSource {
-    return parseContractDefinitionSource(
-        readFileSync(join(corePath, "src/contract_core/contract_def.h"), "utf8"),
-    );
+    return parseContractDefinitionSource(readFileSync(join(corePath, "src/contract_core/contract_def.h"), "utf8"));
 }
 
 function calleeDefinitions(parsed: ParsedContractDefinitionSource): Map<string, CalleeDef> {
@@ -54,11 +43,7 @@ export function parseContractDef(corePath: string): Map<string, CalleeDef> {
 
 type SourceOptions = Pick<AnalyzeContractOptions, "contractName" | "slot" | "qpiHeader">;
 
-export function scanCallees(
-    source: string,
-    options: SourceOptions = {},
-    knownCallees: Iterable<string> = [],
-): Set<string> {
+export function scanCallees(source: string, options: SourceOptions = {}, knownCallees: Iterable<string> = []): Set<string> {
     const analysis = analyzeContract({ source, ...options });
     const callees = new Set(analysis.calls.map((call) => call.callee));
     if (options.contractName) {
@@ -79,9 +64,7 @@ export function scanCallees(
         }
 
         const initializedContract =
-            token.text === "INIT_CONTRACT" &&
-            tokens[index + 1]?.kind === TokenKind.L_PAREN &&
-            tokens[index + 2]?.kind === TokenKind.IDENTIFIER
+            token.text === "INIT_CONTRACT" && tokens[index + 1]?.kind === TokenKind.L_PAREN && tokens[index + 2]?.kind === TokenKind.IDENTIFIER
                 ? tokens[index + 2].text
                 : undefined;
         if (initializedContract && candidateSet.has(initializedContract)) {
@@ -89,11 +72,8 @@ export function scanCallees(
         }
 
         for (const candidate of candidates) {
-            const qualifiedReference =
-                token.text === candidate && tokens[index + 1]?.kind === TokenKind.D_COLON;
-            const constantReference =
-                token.text.startsWith(`${candidate}_`) &&
-                /^[A-Z]/.test(token.text[candidate.length + 1] ?? "");
+            const qualifiedReference = token.text === candidate && tokens[index + 1]?.kind === TokenKind.D_COLON;
+            const constantReference = token.text.startsWith(`${candidate}_`) && /^[A-Z]/.test(token.text[candidate.length + 1] ?? "");
             if (qualifiedReference || constantReference) {
                 callees.add(candidate);
             }
@@ -103,10 +83,7 @@ export function scanCallees(
     return callees;
 }
 
-export function parseRegisters(
-    source: string,
-    options: SourceOptions = {},
-): { fn: string; n: number }[] {
+export function parseRegisters(source: string, options: SourceOptions = {}): { fn: string; n: number }[] {
     const analysis = analyzeContract({ source, ...options });
 
     if (!analysis.idl) {
@@ -125,8 +102,7 @@ export function parseRegisters(
 export type DynCallees = Record<string, { header: string; index: number }>;
 
 function indexDefines(parsed: ParsedContractDefinitionSource): string {
-    let output =
-        "// ---- all contract indices (contract_def.h) so a directly-#included sibling resolves ----\n";
+    let output = "// ---- all contract indices (contract_def.h) so a directly-#included sibling resolves ----\n";
     for (const constant of parsed.indexConstants) {
         output += `#ifndef ${constant.name}_CONTRACT_INDEX\n#define ${constant.name}_CONTRACT_INDEX ${constant.index}\n#endif\n`;
     }
@@ -142,12 +118,7 @@ export function contractIndexDefines(corePath: string): string {
     }
 }
 
-export function buildCalleePrelude(
-    corePath: string,
-    contractSource: string,
-    dynamicCallees: DynCallees = {},
-    selfType?: string,
-): string {
+export function buildCalleePrelude(corePath: string, contractSource: string, dynamicCallees: DynCallees = {}, selfType?: string): string {
     let indexBlock = "";
     let definitions = new Map<string, CalleeDef>();
 
@@ -216,9 +187,7 @@ export function buildCalleePrelude(
                 src: readFileSync(join(corePath, "src", definition.include), "utf8"),
             };
         } else {
-            throw new Error(
-                `inter-contract: unknown callee '${type}' (not in contract_def.h, not a declared dynamic callee)`,
-            );
+            throw new Error(`inter-contract: unknown callee '${type}' (not in contract_def.h, not a declared dynamic callee)`);
         }
 
         resolved.set(type, callee);

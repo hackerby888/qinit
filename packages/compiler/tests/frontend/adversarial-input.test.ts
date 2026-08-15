@@ -75,9 +75,7 @@ describe("adversarial compiler input", () => {
 
             expect(result.count).toBeGreaterThan(0);
             expect(result.count).toBeLessThanOrEqual(256);
-            expect(result.diagnostics.every((diagnostic) => diagnostic.message.length <= 200)).toBe(
-                true,
-            );
+            expect(result.diagnostics.every((diagnostic) => diagnostic.message.length <= 200)).toBe(true);
         }, 7_000);
     }
 

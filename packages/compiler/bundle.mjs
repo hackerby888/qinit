@@ -10,9 +10,7 @@ const signSyncStub = resolve(import.meta.dir, "../core/src/crypto/sign-sync-stub
 // than let the bundler fail on an unresolvable import.
 const snapshotModule = resolve(import.meta.dir, "src/generated/qpi-snapshot.ts");
 if (!existsSync(snapshotModule)) {
-    console.error(
-        "missing tracked browser snapshot — restore src/generated/qpi-snapshot.ts from the Qinit checkout",
-    );
+    console.error("missing tracked browser snapshot — restore src/generated/qpi-snapshot.ts from the Qinit checkout");
     process.exit(1);
 }
 

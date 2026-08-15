@@ -14,14 +14,8 @@ test.skipIf(!haveCore)(
         const contractsDir = join(projectRoot, "contracts");
         const outDir = join(projectRoot, "dist");
         mkdirSync(contractsDir);
-        copyFileSync(
-            resolve(import.meta.dir, "../../../../fixtures/Counter.h"),
-            join(contractsDir, "Counter.h"),
-        );
-        copyFileSync(
-            resolve(import.meta.dir, "../../../../fixtures/Proxy.h"),
-            join(contractsDir, "Proxy.h"),
-        );
+        copyFileSync(resolve(import.meta.dir, "../../../../fixtures/Counter.h"), join(contractsDir, "Counter.h"));
+        copyFileSync(resolve(import.meta.dir, "../../../../fixtures/Proxy.h"), join(contractsDir, "Proxy.h"));
 
         try {
             const child = Bun.spawn(
@@ -47,11 +41,7 @@ test.skipIf(!haveCore)(
                     stderr: "pipe",
                 },
             );
-            const [stdout, stderr, exitCode] = await Promise.all([
-                new Response(child.stdout).text(),
-                new Response(child.stderr).text(),
-                child.exited,
-            ]);
+            const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
 
             expect(exitCode, stderr).toBe(0);
             const result = JSON.parse(stdout) as {

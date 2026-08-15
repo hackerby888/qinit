@@ -38,9 +38,7 @@ describe("edge audit — compile result IDL fidelity", () => {
             qpiHeader: HEADERS,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-        ).toHaveLength(0);
+        expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
         expect(WebAssembly.validate(result.wasm)).toBe(true);
         if (!result.idl) {
             throw new Error("successful compile returned no IDL");

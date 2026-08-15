@@ -27,16 +27,9 @@ export function compoundToBinary(expression: AssignmentExpression): Expression {
     } as Expression;
 }
 
-export function narrowLocalValue(
-    context: FunctionEmissionContext,
-    localName: string,
-    value: watIr.WatNode,
-): watIr.WatNode {
-    const declaredType =
-        context.localVars.get(localName)?.type ?? context.params?.get(localName)?.type;
-    const storageType = declaredType
-        ? context.programAnalysis.scalarStorageType(declaredType)
-        : undefined;
+export function narrowLocalValue(context: FunctionEmissionContext, localName: string, value: watIr.WatNode): watIr.WatNode {
+    const declaredType = context.localVars.get(localName)?.type ?? context.params?.get(localName)?.type;
+    const storageType = declaredType ? context.programAnalysis.scalarStorageType(declaredType) : undefined;
 
     if (storageType?.kind === AstKind.NAME && (SCALAR_SIZE[storageType.name] ?? 8) < 8) {
         return narrowCastIr(value, storageType.name);

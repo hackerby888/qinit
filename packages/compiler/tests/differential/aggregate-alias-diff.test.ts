@@ -89,9 +89,7 @@ beforeAll(async () => {
         qpiHeader: loadQpiHeader(CORE),
         arenaSizeBytes: 1 << 20,
     });
-    const errors = ours.diagnostics.filter(
-        (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-    );
+    const errors = ours.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
     if (errors.length > 0) {
         throw new Error(errors.map((diagnostic) => diagnostic.message).join(" | "));
     }
@@ -134,17 +132,7 @@ describe("aggregate initialization and aliasing", () => {
             const [a, b, delta, tail] = input;
             const rightA = BigInt.asUintN(64, a + delta);
 
-            expect(words(state)).toEqual([
-                tail,
-                0n,
-                rightA,
-                b,
-                rightA,
-                b,
-                a,
-                b,
-                BigInt.asUintN(64, rightA + b + a + b + 4n),
-            ]);
+            expect(words(state)).toEqual([tail, 0n, rightA, b, rightA, b, a, b, BigInt.asUintN(64, rightA + b + a + b + 4n)]);
         });
 
         nativeTest(`matches native state bytes: ${input.join(",")}`, () => {

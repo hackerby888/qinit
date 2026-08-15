@@ -1,10 +1,4 @@
-import {
-    AstKind,
-    BinaryOp,
-    DiagnosticCategory,
-    DiagnosticSeverity,
-    UnaryOp,
-} from "../shared/enums";
+import { AstKind, BinaryOp, DiagnosticCategory, DiagnosticSeverity, UnaryOp } from "../shared/enums";
 // Owns diagnostics and constexpr-only arithmetic evaluation.
 import type { Span, Expression } from "../ast";
 
@@ -117,9 +111,7 @@ export class SemanticAnalyzer {
                 }
             }
             case AstKind.TERNARY:
-                return this.evalExpr(expression.condition) !== 0n
-                    ? this.evalExpr(expression.then)
-                    : this.evalExpr(expression.else_);
+                return this.evalExpr(expression.condition) !== 0n ? this.evalExpr(expression.then) : this.evalExpr(expression.else_);
             case AstKind.C_CAST:
             case AstKind.STATIC_CAST:
                 return this.evalExpr(expression.expression);
@@ -138,22 +130,16 @@ export class SemanticAnalyzer {
                             ).name
                           : null;
                 if (fn) {
-                    const numericValue = expression.callArguments.map((argument) =>
-                        this.evalExpr(argument),
-                    );
+                    const numericValue = expression.callArguments.map((argument) => this.evalExpr(argument));
                     switch (fn) {
                         case "div":
                             return numericValue[1] === 0n ? 0n : numericValue[0] / numericValue[1];
                         case "mod":
                             return numericValue[1] === 0n ? 0n : numericValue[0] % numericValue[1];
                         case "min":
-                            return numericValue[0] <= numericValue[1]
-                                ? numericValue[0]
-                                : numericValue[1];
+                            return numericValue[0] <= numericValue[1] ? numericValue[0] : numericValue[1];
                         case "max":
-                            return numericValue[0] >= numericValue[1]
-                                ? numericValue[0]
-                                : numericValue[1];
+                            return numericValue[0] >= numericValue[1] ? numericValue[0] : numericValue[1];
                         case "abs":
                             return numericValue[0] < 0n ? -numericValue[0] : numericValue[0];
                     }

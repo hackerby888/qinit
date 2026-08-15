@@ -8,14 +8,7 @@ import { loadConfig, savedTheme, setSavedTheme } from "../../../config";
 import { loadContractIdls, type ContractIdls } from "../../../contracts/idl-lookup";
 import { Header, THEME_NAMES, applyTheme, useTerminalSize } from "../../../ui";
 import { invalidArgs, output, type CommandArguments } from "../../../args";
-import {
-    Breadcrumb,
-    CHROME_ROWS,
-    ControlBar,
-    controlBarRows,
-    type Frame,
-    type View,
-} from "./chrome";
+import { Breadcrumb, CHROME_ROWS, ControlBar, controlBarRows, type Frame, type View } from "./chrome";
 import { FindView, parseFindQuery } from "./find";
 import { OverviewView } from "./overview";
 import { TickView, TxView } from "./tick";
@@ -46,9 +39,7 @@ export function initialView(commandArgs: CommandArguments): View {
 export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
     // The explorer is a live keyboard UI; there is no meaningful piped or structured form of it.
     if (output.json || !process.stdin.isTTY) {
-        throw new Error(
-            "explorer is interactive — run it in a terminal (it has no --json or piped output)",
-        );
+        throw new Error("explorer is interactive — run it in a terminal (it has no --json or piped output)");
     }
 
     // Before the first hook, so an unresolvable argument is refused rather than half-rendered.
@@ -76,10 +67,7 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
     useEffect(() => {
         let alive = true;
         void (async () => {
-            const [names, idls] = await Promise.allSettled([
-                rpc.getContracts(),
-                loadContractIdls(rpc),
-            ]);
+            const [names, idls] = await Promise.allSettled([rpc.getContracts(), loadContractIdls(rpc)]);
             if (!alive) return;
 
             if (names.status === "fulfilled") {
@@ -177,15 +165,9 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
             } else if (key.leftArrow || key.rightArrow) {
                 const step = key.rightArrow ? 1 : -1;
                 if (view.kind === "tick") {
-                    setStack((s) => [
-                        ...s.slice(0, -1),
-                        frameOf({ kind: "tick", tick: Math.max(0, view.tick + step) }),
-                    ]);
+                    setStack((s) => [...s.slice(0, -1), frameOf({ kind: "tick", tick: Math.max(0, view.tick + step) })]);
                 } else if (view.kind === "contracts") {
-                    setStack((s) => [
-                        ...s.slice(0, -1),
-                        frameOf({ kind: "contracts", page: Math.max(0, view.page + step) }),
-                    ]);
+                    setStack((s) => [...s.slice(0, -1), frameOf({ kind: "contracts", page: Math.max(0, view.page + step) })]);
                 }
             }
         },
@@ -201,10 +183,7 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
         push,
         rowCount,
         openRow,
-        bodyRows: Math.max(
-            4,
-            rows - 1 - CHROME_ROWS - controlBarRows(view, stack.length, columns, searching),
-        ),
+        bodyRows: Math.max(4, rows - 1 - CHROME_ROWS - controlBarRows(view, stack.length, columns, searching)),
         columns,
     };
 
@@ -218,22 +197,13 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
                 {view.kind === "overview" ? (
                     <OverviewView {...shared} />
                 ) : view.kind === "find" ? (
-                    <FindView
-                        {...shared}
-                        onSubmit={(target) => setStack((s) => [...s.slice(0, -1), frameOf(target)])}
-                    />
+                    <FindView {...shared} onSubmit={(target) => setStack((s) => [...s.slice(0, -1), frameOf(target)])} />
                 ) : view.kind === "tick" ? (
                     <TickView {...shared} tick={view.tick} />
                 ) : view.kind === "tx" ? (
                     <TxView {...shared} hash={view.hash} tick={view.tick} />
                 ) : view.kind === "identity" ? (
-                    <IdentityView
-                        {...shared}
-                        id={view.id}
-                        onSubmit={(id) =>
-                            setStack((s) => [...s.slice(0, -1), frameOf({ kind: "identity", id })])
-                        }
-                    />
+                    <IdentityView {...shared} id={view.id} onSubmit={(id) => setStack((s) => [...s.slice(0, -1), frameOf({ kind: "identity", id })])} />
                 ) : view.kind === "contracts" ? (
                     <ContractsView {...shared} page={view.page} />
                 ) : view.kind === "wallet" ? (

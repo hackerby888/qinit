@@ -5,22 +5,12 @@ import { DEFAULT_RPC_BASE, readCurrent, LiteRpc } from "@qinit/core";
 import { ensureNodeBinary, killNode, nodeAlive, nodeStatus } from "../../ops/node";
 import type { CommandArguments } from "../../args";
 const dlLabel = (recv: number, total: number) =>
-    total
-        ? `downloading node ${(recv / 1e6).toFixed(0)}/${(total / 1e6).toFixed(0)} MB`
-        : `downloading node ${(recv / 1e6).toFixed(0)} MB`;
+    total ? `downloading node ${(recv / 1e6).toFixed(0)}/${(total / 1e6).toFixed(0)} MB` : `downloading node ${(recv / 1e6).toFixed(0)} MB`;
 
 type Line = { t: string; ok?: boolean };
-type State =
-    | { phase: "run"; spin: string }
-    | { phase: "done"; title: string; color: string; lines: Line[]; rows?: [string, string][] };
+type State = { phase: "run"; spin: string } | { phase: "done"; title: string; color: string; lines: Line[]; rows?: [string, string][] };
 
-export function Node({
-    commandArgs,
-    subcommand,
-}: {
-    commandArgs: CommandArguments;
-    subcommand?: string;
-}) {
+export function Node({ commandArgs, subcommand }: { commandArgs: CommandArguments; subcommand?: string }) {
     const { exit } = useApp();
     const sub = subcommand ?? commandArgs.positionals[0] ?? "status";
     const rpcBaseUrl = commandArgs.get("rpc") || DEFAULT_RPC_BASE;
@@ -46,23 +36,13 @@ export function Node({
                     ];
                     try {
                         const ei = await new LiteRpc(rpcBaseUrl).epochInfo();
-                        rows.splice(2, 0, [
-                            "epoch last tick",
-                            `${ei.epochLastTick}  (${ei.ticksLeft} left)`,
-                        ]);
+                        rows.splice(2, 0, ["epoch last tick", `${ei.epochLastTick}  (${ei.ticksLeft} left)`]);
                     } catch {}
                     if (st.contracts.length) rows.push(["contracts", st.contracts.join(", ")]);
                     const cur = readCurrent();
                     if (cur?.headersVersion || cur?.nodeVersion)
-                        rows.push([
-                            "synced",
-                            `headers ${cur?.headersVersion ?? "—"} · node ${cur?.nodeVersion ?? "—"}`,
-                        ]);
-                    if (
-                        cur?.headersVersion &&
-                        cur?.nodeVersion &&
-                        cur.headersVersion !== cur.nodeVersion
-                    )
+                        rows.push(["synced", `headers ${cur?.headersVersion ?? "—"} · node ${cur?.nodeVersion ?? "—"}`]);
+                    if (cur?.headersVersion && cur?.nodeVersion && cur.headersVersion !== cur.nodeVersion)
                         add("⚠ headers/node version drift — run `qinit setup`", false);
                     setS({
                         phase: "done",
@@ -95,10 +75,7 @@ export function Node({
                 if (sub === "get") {
                     const ref = commandArgs.get("ref");
                     setS({ phase: "run", spin: ref ? `fetching node ${ref}` : "resolving node" });
-                    const { nodeBinaryPath, version, cached } = await ensureNodeBinary(
-                        ref,
-                        (rc, tt) => setS({ phase: "run", spin: dlLabel(rc, tt) }),
-                    );
+                    const { nodeBinaryPath, version, cached } = await ensureNodeBinary(ref, (rc, tt) => setS({ phase: "run", spin: dlLabel(rc, tt) }));
                     add(`node ${version} ${cached ? "reused" : "cached"}`, true);
                     setS({
                         phase: "done",

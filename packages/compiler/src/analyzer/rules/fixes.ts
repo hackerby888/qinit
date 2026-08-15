@@ -29,15 +29,9 @@ export function diagnostic(
     };
 }
 
-export function compareDiagnostics(
-    left: SourceAnalysisDiagnostic,
-    right: SourceAnalysisDiagnostic,
-): number {
+export function compareDiagnostics(left: SourceAnalysisDiagnostic, right: SourceAnalysisDiagnostic): number {
     return (
-        left.span.start - right.span.start ||
-        left.span.end - right.span.end ||
-        left.code.localeCompare(right.code) ||
-        left.message.localeCompare(right.message)
+        left.span.start - right.span.start || left.span.end - right.span.end || left.code.localeCompare(right.code) || left.message.localeCompare(right.message)
     );
 }
 
@@ -47,16 +41,10 @@ export function arrayFix(source: string, offset: number): SourceFix[] | undefine
     if (!replacement || replacement === text) {
         return undefined;
     }
-    return [
-        sourceFix("Convert to Array<T, N>", source, [{ start, end, newText: replacement }], true),
-    ];
+    return [sourceFix("Convert to Array<T, N>", source, [{ start, end, newText: replacement }], true)];
 }
 
-export function divModFix(
-    source: string,
-    token: Token,
-    operator: BinaryOp.DIVIDE | BinaryOp.MODULO,
-): SourceFix[] | undefined {
+export function divModFix(source: string, token: Token, operator: BinaryOp.DIVIDE | BinaryOp.MODULO): SourceFix[] | undefined {
     const line = sourceLine(source, token.span.start);
     const fix = divModFixForLine(line.text, token.span.start - line.start, operator);
     if (!fix) {
@@ -78,12 +66,7 @@ export function divModFix(
     ];
 }
 
-export function sourceFix(
-    title: string,
-    source: string,
-    edits: OffsetEdit[],
-    preferred = false,
-): SourceFix {
+export function sourceFix(title: string, source: string, edits: OffsetEdit[], preferred = false): SourceFix {
     return {
         title,
         preferred,
@@ -126,9 +109,7 @@ function spanFromOffsets(source: string, start: number, end: number): Span {
 }
 
 export function arrayFixForLine(line: string): string | null {
-    const match = line.match(
-        /^(\s*)([A-Za-z_][\w:<>,\s]*?)\s+([A-Za-z_]\w*)\s*\[\s*([^\]]+?)\s*\]\s*;(.*)$/,
-    );
+    const match = line.match(/^(\s*)([A-Za-z_][\w:<>,\s]*?)\s+([A-Za-z_]\w*)\s*\[\s*([^\]]+?)\s*\]\s*;(.*)$/);
     if (!match) {
         return null;
     }
@@ -146,12 +127,7 @@ export function divModFixForLine(
     column: number,
     operator: BinaryOp.DIVIDE | BinaryOp.MODULO,
 ): { start: number; end: number; text: string } | null {
-    if (
-        line[column] !== operator ||
-        line[column + 1] === "=" ||
-        line[column + 1] === operator ||
-        line[column - 1] === operator
-    ) {
+    if (line[column] !== operator || line[column + 1] === "=" || line[column + 1] === operator || line[column - 1] === operator) {
         return null;
     }
 
@@ -211,14 +187,7 @@ export function moveLocalToWithLocalsEdits(
         }
     }
 
-    const unsafe = new Set<TokenKind>([
-        TokenKind.COMMA,
-        TokenKind.L_BRACE,
-        TokenKind.R_BRACE,
-        TokenKind.L_BRACKET,
-        TokenKind.L_PAREN,
-        TokenKind.R_PAREN,
-    ]);
+    const unsafe = new Set<TokenKind>([TokenKind.COMMA, TokenKind.L_BRACE, TokenKind.R_BRACE, TokenKind.L_BRACKET, TokenKind.L_PAREN, TokenKind.R_PAREN]);
     let equals = -1;
     for (let index = nameIndex + 1; index < declaration.end; index++) {
         if (unsafe.has(tokens[index].kind)) {
@@ -235,8 +204,7 @@ export function moveLocalToWithLocalsEdits(
         return null;
     }
 
-    const initializer =
-        equals >= 0 ? source.slice(tokens[equals].span.end, semicolon.span.start).trim() : "";
+    const initializer = equals >= 0 ? source.slice(tokens[equals].span.end, semicolon.span.start).trim() : "";
     const edits: OffsetEdit[] = [];
 
     if (!entry.withLocals) {
@@ -254,10 +222,7 @@ export function moveLocalToWithLocalsEdits(
     const field = `${type} ${name.text};`;
     let localsBrace: Token | undefined;
     for (let index = 0; index + 1 < tokens.length; index++) {
-        if (
-            tokens[index].kind !== TokenKind.KW_STRUCT ||
-            tokens[index + 1].text !== `${entry.name}_locals`
-        ) {
+        if (tokens[index].kind !== TokenKind.KW_STRUCT || tokens[index + 1].text !== `${entry.name}_locals`) {
             continue;
         }
         const open = findNext(tokens, index + 2, TokenKind.L_BRACE, TokenKind.SEMICOLON);
@@ -274,13 +239,7 @@ export function moveLocalToWithLocalsEdits(
             newText: ` ${field}`,
         });
     } else {
-        const indent =
-            source
-                .slice(
-                    source.lastIndexOf("\n", entry.macroSpan.start - 1) + 1,
-                    entry.macroSpan.start,
-                )
-                .match(/^\s*/)?.[0] ?? "";
+        const indent = source.slice(source.lastIndexOf("\n", entry.macroSpan.start - 1) + 1, entry.macroSpan.start).match(/^\s*/)?.[0] ?? "";
         edits.push({
             start: entry.macroSpan.start,
             end: entry.macroSpan.start,
@@ -298,9 +257,7 @@ export function moveLocalToWithLocalsEdits(
         const lineStart = source.lastIndexOf("\n", typeStart - 1) + 1;
         const newline = source.indexOf("\n", semicolon.span.end);
         const lineEnd = newline < 0 ? source.length : newline + 1;
-        const isOnlyStatement =
-            source.slice(lineStart, typeStart).trim() === "" &&
-            source.slice(semicolon.span.end, lineEnd).trim() === "";
+        const isOnlyStatement = source.slice(lineStart, typeStart).trim() === "" && source.slice(semicolon.span.end, lineEnd).trim() === "";
         edits.push({
             start: isOnlyStatement ? lineStart : typeStart,
             end: isOnlyStatement ? lineEnd : semicolon.span.end,
@@ -310,19 +267,11 @@ export function moveLocalToWithLocalsEdits(
 
     for (let index = entry.bodyOpen + 1; index < entry.bodyClose; index++) {
         const token = tokens[index];
-        if (
-            token.kind !== TokenKind.IDENTIFIER ||
-            token.text !== name.text ||
-            (token.span.start >= typeStart && token.span.end <= semicolon.span.end)
-        ) {
+        if (token.kind !== TokenKind.IDENTIFIER || token.text !== name.text || (token.span.start >= typeStart && token.span.end <= semicolon.span.end)) {
             continue;
         }
         const previous = tokens[index - 1]?.kind;
-        if (
-            previous === TokenKind.DOT ||
-            previous === TokenKind.D_COLON ||
-            previous === TokenKind.ARROW
-        ) {
+        if (previous === TokenKind.DOT || previous === TokenKind.D_COLON || previous === TokenKind.ARROW) {
             continue;
         }
         edits.push({

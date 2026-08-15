@@ -19,9 +19,7 @@ const UNKNOWN_SOURCE = [
     `};`,
 ].join("\n");
 
-const ERROR_LINE = UNKNOWN_SOURCE.slice(0, UNKNOWN_SOURCE.indexOf("missingValue")).split(
-    "\n",
-).length;
+const ERROR_LINE = UNKNOWN_SOURCE.slice(0, UNKNOWN_SOURCE.indexOf("missingValue")).split("\n").length;
 const ERROR_COLUMN = UNKNOWN_SOURCE.split("\n")[ERROR_LINE - 1]!.indexOf("missingValue") + 1;
 
 describe("edge audit — user-facing diagnostic spans", () => {
@@ -33,9 +31,7 @@ describe("edge audit — user-facing diagnostic spans", () => {
             qpiHeader: HEADERS,
             arenaSizeBytes: 1 << 20,
         });
-        const diagnostic = result.diagnostics.find((d) =>
-            /missingValue|unknown.*identifier/i.test(d.message),
-        );
+        const diagnostic = result.diagnostics.find((d) => /missingValue|unknown.*identifier/i.test(d.message));
         expect(diagnostic).toBeDefined();
         expect(diagnostic!.span.line).toBe(ERROR_LINE);
     });
@@ -48,9 +44,7 @@ describe("edge audit — user-facing diagnostic spans", () => {
             qpiHeader: HEADERS,
             arenaSizeBytes: 1 << 20,
         });
-        const diagnostic = result.diagnostics.find((d) =>
-            /missingValue|unknown.*identifier/i.test(d.message),
-        );
+        const diagnostic = result.diagnostics.find((d) => /missingValue|unknown.*identifier/i.test(d.message));
         expect(diagnostic).toBeDefined();
         expect(diagnostic!.span.column).toBe(ERROR_COLUMN);
     });

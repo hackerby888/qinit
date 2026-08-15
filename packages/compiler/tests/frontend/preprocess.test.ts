@@ -79,9 +79,7 @@ describe("function-like macros", () => {
     });
 
     test("nested macro calls", () => {
-        const out = pp(
-            "#define DOUBLE(x) ((x)+(x))\n#define SQUARE(x) ((x)*(x))\nSQUARE(DOUBLE(3))",
-        );
+        const out = pp("#define DOUBLE(x) ((x)+(x))\n#define SQUARE(x) ((x)*(x))\nSQUARE(DOUBLE(3))");
         // SQUARE body: ((x)*(x)). x = DOUBLE(3) = ((3)+(3)).
         expect(out).toContain("((((3)+(3)))*(((3)+(3))))");
     });
@@ -218,9 +216,7 @@ describe("#ifdef / #ifndef / #else / #endif", () => {
     });
 
     test("nested conditionals with nested truth", () => {
-        const out = pp(
-            "#define A\n#ifdef A\n  #ifdef B\n  lone_b\n  #else\n  not_b\n  #endif\n#else\n  not_a\n#endif",
-        );
+        const out = pp("#define A\n#ifdef A\n  #ifdef B\n  lone_b\n  #else\n  not_b\n  #endif\n#else\n  not_a\n#endif");
         // A defined, B not → else branch: "not_b", not "lone_b"
         expect(out).toContain("not_b");
         expect(out).not.toContain("lone_b");
@@ -250,9 +246,7 @@ describe("#ifdef / #ifndef / #else / #endif", () => {
 
 describe("#elif", () => {
     test("#elif after untaken #if evaluates", () => {
-        const out = pp(
-            "#define VER 2\n#if VER == 1\none\n#elif VER == 2\ntwo\n#else\nother\n#endif",
-        );
+        const out = pp("#define VER 2\n#if VER == 1\none\n#elif VER == 2\ntwo\n#else\nother\n#endif");
         expect(out).toContain("two");
         expect(out).not.toContain("one");
         expect(out).not.toContain("other");
@@ -265,9 +259,7 @@ describe("#elif", () => {
     });
 
     test("multiple #elif chain picks first match", () => {
-        const out = pp(
-            "#define VER 3\n#if VER == 1\none\n#elif VER == 2\ntwo\n#elif VER == 3\nthree\n#else\nother\n#endif",
-        );
+        const out = pp("#define VER 3\n#if VER == 1\none\n#elif VER == 2\ntwo\n#elif VER == 3\nthree\n#else\nother\n#endif");
         expect(out).toContain("three");
         expect(out).not.toContain("one");
         expect(out).not.toContain("two");

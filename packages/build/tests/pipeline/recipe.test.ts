@@ -19,17 +19,7 @@ const opts = (over: Partial<Parameters<typeof generateWasmWrapperSource>[0]> = {
     ...over,
 });
 
-const STD_HEADERS = [
-    "cstdint",
-    "cstddef",
-    "cstring",
-    "cstdlib",
-    "string",
-    "type_traits",
-    "utility",
-    "array",
-    "limits",
-];
+const STD_HEADERS = ["cstdint", "cstddef", "cstring", "cstdlib", "string", "type_traits", "utility", "array", "limits"];
 const CORE_HEADERS = [
     "contract_core/pre_qpi_def.h",
     "qpi/qpi.h",
@@ -39,13 +29,7 @@ const CORE_HEADERS = [
 ];
 
 test("Wasm contract Clang flags define one shared compile profile", () => {
-    expect(WASM_CONTRACT_CLANG_FLAGS).toEqual([
-        "--target=wasm32-wasi",
-        "-std=c++20",
-        "-fno-rtti",
-        "-fno-exceptions",
-        "-DLITEDYN_CONTRACT_TU",
-    ]);
+    expect(WASM_CONTRACT_CLANG_FLAGS).toEqual(["--target=wasm32-wasi", "-std=c++20", "-fno-rtti", "-fno-exceptions", "-DLITEDYN_CONTRACT_TU"]);
 });
 
 test("buildPreamble: NO_UEFI, std headers, then build define, then core headers — in that order", () => {
@@ -152,12 +136,8 @@ test("generateWasmWrapperSource: includes only the Wasm support and runtime head
 
     // Core's target support precedes the contract so its template bodies precede instantiation.
     expect(wasm).not.toContain("qinit wasm QPI shim");
-    expect(wasm.indexOf(`#include "${CORE_WASM_HEADERS.sdk.qpiSupport}"`)).toBeLessThan(
-        wasm.indexOf(`#include "${o.contractPath}"`),
-    );
-    expect(wasm.indexOf(`#include "${CORE_WASM_HEADERS.sdk.moduleRuntime}"`)).toBeGreaterThan(
-        wasm.indexOf("qpi/impl/qpi_hash_map_impl.h"),
-    );
+    expect(wasm.indexOf(`#include "${CORE_WASM_HEADERS.sdk.qpiSupport}"`)).toBeLessThan(wasm.indexOf(`#include "${o.contractPath}"`));
+    expect(wasm.indexOf(`#include "${CORE_WASM_HEADERS.sdk.moduleRuntime}"`)).toBeGreaterThan(wasm.indexOf("qpi/impl/qpi_hash_map_impl.h"));
 });
 
 test("generateWasmWrapperSource: slot/name interpolation for a system contract", () => {
@@ -176,19 +156,11 @@ test("generateWasmWrapperSource: slot/name interpolation for a system contract",
 });
 
 test("Wasm test support resolves its core include through the canonical layout", () => {
-    expect(WASM_CONTRACT_TESTING_HEADER).toContain(
-        `#include "${CORE_WASM_HEADERS.shared.abiMetadata}"`,
-    );
+    expect(WASM_CONTRACT_TESTING_HEADER).toContain(`#include "${CORE_WASM_HEADERS.shared.abiMetadata}"`);
     expect(WASM_CONTRACT_TESTING_HEADER).not.toContain("__QINIT_CORE_WASM_ABI_METADATA__");
-    expect(WASM_CONTRACT_TESTING_HEADER).toContain(
-        "USER_PROCEDURE_CALL = contractSystemProcedureCount + 1",
-    );
-    expect(WASM_CONTRACT_TESTING_HEADER).toContain(
-        "USER_FUNCTION_CALL = contractSystemProcedureCount + 2",
-    );
-    expect(WASM_CONTRACT_TESTING_HEADER).not.toMatch(
-        /USER_(?:PROCEDURE|FUNCTION)_CALL\s*=\s*1[34]\b/,
-    );
+    expect(WASM_CONTRACT_TESTING_HEADER).toContain("USER_PROCEDURE_CALL = contractSystemProcedureCount + 1");
+    expect(WASM_CONTRACT_TESTING_HEADER).toContain("USER_FUNCTION_CALL = contractSystemProcedureCount + 2");
+    expect(WASM_CONTRACT_TESTING_HEADER).not.toMatch(/USER_(?:PROCEDURE|FUNCTION)_CALL\s*=\s*1[34]\b/);
     expect(WASM_CONTRACT_TESTING_HEADER).toContain("contractError[MAX_NUMBER_OF_CONTRACTS]");
     expect(WASM_CONTRACT_TESTING_HEADER).toContain("qb_state_bufs[MAX_NUMBER_OF_CONTRACTS]");
 });

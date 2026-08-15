@@ -1,12 +1,5 @@
 import { test, expect } from "bun:test";
-import {
-    encodeInput,
-    decodeOutput,
-    structFieldOffsets,
-    layoutOf,
-    parseLayout,
-    zeroInputFormat,
-} from "../../src/abi-fmt";
+import { encodeInput, decodeOutput, structFieldOffsets, layoutOf, parseLayout, zeroInputFormat } from "../../src/abi-fmt";
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 const bytes = (h: string) => new Uint8Array((h.match(/../g) ?? []).map((x) => parseInt(x, 16)));
@@ -120,9 +113,7 @@ test("id and m256i accept compact zero values", async () => {
 });
 
 test("deep nested: array of structs with an inner array", async () => {
-    const b = await encodeInput(
-        "[2; { 1uint32, [2; 2uint16, 3uint16] }, { 4uint32, [2; 5uint16, 6uint16] }]",
-    );
+    const b = await encodeInput("[2; { 1uint32, [2; 2uint16, 3uint16] }, { 4uint32, [2; 5uint16, 6uint16] }]");
     expect(await decodeOutput(b, "[2; { uint32, [2; uint16] }]")).toEqual([
         [1, [2, 3]],
         [4, [5, 6]],
@@ -132,9 +123,7 @@ test("deep nested: array of structs with an inner array", async () => {
 test("rejects a malformed id (not 60-char identity nor 64-hex)", async () => {
     await expect(encodeInput("abcid")).rejects.toThrow(/id must be/);
     await expect(encodeInput("1id")).rejects.toThrow(/id must be/);
-    await expect(
-        encodeInput("notavalidlowercaseidentitynotavalidlowercaseidentitynotavaid"),
-    ).rejects.toThrow(/id must be/);
+    await expect(encodeInput("notavalidlowercaseidentitynotavalidlowercaseidentitynotavaid")).rejects.toThrow(/id must be/);
 });
 
 test("rejects a malformed m256i (not 64 hex)", async () => {
@@ -216,9 +205,7 @@ test("repeat shorthand: x and * variants, spaces optional (9uint32x32 valid)", a
 test("repeat shorthand: struct + top-level reps; non-repeat tokens untouched", async () => {
     const ref = await encodeInput("{1uint32, 2uint32}, {1uint32, 2uint32}, 5uint64");
     expect(hex(await encodeInput("{1uint32, 2uint32} ×2, 5uint64"))).toBe(hex(ref)); // struct repeat
-    expect(hex(await encodeInput("5uint64 ×3"))).toBe(
-        hex(await encodeInput("5uint64, 5uint64, 5uint64")),
-    );
+    expect(hex(await encodeInput("5uint64 ×3"))).toBe(hex(await encodeInput("5uint64, 5uint64, 5uint64")));
     expect((await encodeInput("ee".repeat(32) + "id")).length).toBe(32); // 64-hex id (no x): unaffected
 });
 
@@ -232,15 +219,7 @@ test("zeroInputFormat: builds a schema-matched all-zero sample (scalar/id/array/
 });
 
 test("zeroInputFormat: the sample is valid input — encodes to exactly the layout size", async () => {
-    for (const fmt of [
-        "uint64",
-        "uint128",
-        "[64; uint64], id",
-        "{ uint32, id }",
-        "uint16, uint32",
-        "m256i",
-        "[3; { uint8, uint64 }]",
-    ]) {
+    for (const fmt of ["uint64", "uint128", "[64; uint64], id", "{ uint32, id }", "uint16, uint32", "m256i", "[3; { uint8, uint64 }]"]) {
         const sample = zeroInputFormat(fmt);
         const b = await encodeInput(sample);
         expect(hex(b)).toBe("00".repeat(b.length)); // all zero

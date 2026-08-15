@@ -1,12 +1,5 @@
 import { test, expect, afterEach } from "bun:test";
-import {
-    DEFAULT_PEER_PORT,
-    DEFAULT_RPC_BASE,
-    DEFAULT_RPC_PORT,
-    LOOPBACK_HOST,
-    fetchWithTimeout,
-    LiteRpc,
-} from "../../src/index";
+import { DEFAULT_PEER_PORT, DEFAULT_RPC_BASE, DEFAULT_RPC_PORT, LOOPBACK_HOST, fetchWithTimeout, LiteRpc } from "../../src/index";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -48,9 +41,7 @@ test("LiteRpc.whoami reads the backend identity endpoint", async () => {
 test("LiteRpc.whoami reports an actionable old-node error", async () => {
     globalThis.fetch = (async () => json({}, 404)) as unknown as typeof fetch;
 
-    await expect(new LiteRpc("http://node").whoami()).rejects.toThrow(
-        "upgrade core-lite or the Qinit simulator",
-    );
+    await expect(new LiteRpc("http://node").whoami()).rejects.toThrow("upgrade core-lite or the Qinit simulator");
 });
 
 test("LiteRpc.directDeploy marks dynamic and system deployments", async () => {
@@ -84,13 +75,9 @@ test("fetchWithTimeout: aborts a hung connection after the timeout", async () =>
     // a fetch that never resolves on its own but honors the abort signal (the real hang scenario)
     globalThis.fetch = ((_url: string, init?: RequestInit) =>
         new Promise((_res, rej) => {
-            init?.signal?.addEventListener("abort", () =>
-                rej(new DOMException("aborted", "AbortError")),
-            );
+            init?.signal?.addEventListener("abort", () => rej(new DOMException("aborted", "AbortError")));
         })) as any;
-    await expect(fetchWithTimeout("http://node", undefined, 50)).rejects.toThrow(
-        /timed out after 50ms/,
-    );
+    await expect(fetchWithTimeout("http://node", undefined, 50)).rejects.toThrow(/timed out after 50ms/);
 });
 
 test("LiteRpc.get: retries a transient connect failure, then succeeds", async () => {

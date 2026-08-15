@@ -30,10 +30,7 @@ const TRAP_CAUSES: [RegExp, string][] = [
     [/unreachable/i, "reached an abort / failed assert (unreachable)"],
     [/call stack exhausted|stack overflow/i, "stack overflow — unbounded recursion"],
     [/invalid exec env|exec_env/i, "engine error (not the contract) — please report"],
-    [
-        /indirect call|undefined element|uninitialized element/i,
-        "bad indirect call (function table)",
-    ],
+    [/indirect call|undefined element|uninitialized element/i, "bad indirect call (function table)"],
 ];
 export function decodeTrapCause(exception: string): string {
     for (const [pattern, message] of TRAP_CAUSES) {
@@ -67,10 +64,7 @@ export interface ResolveOpts {
 
 // Parse node.log: pull each WAMR auto-dump block (the `#NN: 0xOFF - name` frames + the nearest `Exception:`
 // line), map offsets via the line map when given. Returns the LAST (most recent) trap in the log, or null.
-export function resolveTrapBacktrace(
-    logText: string,
-    opts: ResolveOpts = {},
-): TrapBacktrace | null {
+export function resolveTrapBacktrace(logText: string, opts: ResolveOpts = {}): TrapBacktrace | null {
     const blocks: { frames: TrapFrame[]; exception: string }[] = [];
     let currentFrames: TrapFrame[] = [];
     const flush = (exception: string) => {
@@ -85,8 +79,7 @@ export function resolveTrapBacktrace(
             currentFrames.push({ off: parseInt(frameMatch[2], 16), func: frameMatch[3] });
             continue;
         }
-        const exceptionMatch =
-            line.match(/Exception:\s+(.+?)\s*$/) || line.match(/dispatch trap .*?—\s*(.+?)\s*$/);
+        const exceptionMatch = line.match(/Exception:\s+(.+?)\s*$/) || line.match(/dispatch trap .*?—\s*(.+?)\s*$/);
         if (exceptionMatch && currentFrames.length) flush(exceptionMatch[1]);
     }
     flush("");
@@ -121,10 +114,7 @@ export function resolveTrapBacktrace(
 
 // One-line-per-frame render for `debug` / `call` / `test` failure output.
 export function formatTrapBacktrace(bt: TrapBacktrace): string {
-    const out = [
-        `✗ trap: ${bt.cause}` +
-            (bt.exception && bt.cause !== bt.exception ? `  (${bt.exception})` : ""),
-    ];
+    const out = [`✗ trap: ${bt.cause}` + (bt.exception && bt.cause !== bt.exception ? `  (${bt.exception})` : "")];
     bt.frames.forEach((f, i) => {
         const base = f.file ? f.file.replace(/^.*\//, "") : "";
         const where = base && f.line ? `  ${base}:${f.line}${f.col ? ":" + f.col : ""}` : "";

@@ -269,18 +269,14 @@ class Gen {
         }
 
         const t = this.pick(TYPES);
-        const initializer = this.chance(0.5)
-            ? `(${t.name})(${this.expression(3)})`
-            : this.expression(3);
+        const initializer = this.chance(0.5) ? `(${t.name})(${this.expression(3)})` : this.expression(3);
         this.scopes[this.scopes.length - 1].push({ name, type: t, mutable: true });
         return `${indent}${t.name} ${name} = ${initializer};`;
     }
 
     private assignStmt(indent: string): string {
         const v = this.pick(this.mutableVars());
-        const rhs = this.chance(0.4)
-            ? `(${v.type.name})(${this.expression(3)})`
-            : this.expression(3);
+        const rhs = this.chance(0.4) ? `(${v.type.name})(${this.expression(3)})` : this.expression(3);
         return `${indent}${v.name} = ${rhs};`;
     }
 
@@ -299,9 +295,7 @@ class Gen {
         const operator = this.pick(["++", "--"]);
         const r = this.next();
         if (r < 0.5) {
-            return this.chance(0.5)
-                ? `${indent}${v.name}${operator};`
-                : `${indent}${operator}${v.name};`;
+            return this.chance(0.5) ? `${indent}${v.name}${operator};` : `${indent}${operator}${v.name};`;
         }
 
         const targets = this.mutableVars().filter((t) => t.name !== v.name);
@@ -310,9 +304,7 @@ class Gen {
         }
         const dst = this.pick(targets);
         const form = this.chance(0.5) ? `${v.name}${operator}` : `${operator}${v.name}`;
-        return this.chance(0.5)
-            ? `${indent}${dst.name} = ${form};`
-            : `${indent}${dst.name} = (${form}) + ${this.literal()};`;
+        return this.chance(0.5) ? `${indent}${dst.name} = ${form};` : `${indent}${dst.name} = (${form}) + ${this.literal()};`;
     }
 
     private ifStmt(indent: string, depth: number): string {
@@ -421,9 +413,7 @@ class Gen {
         for (let k = 0; k < count && this.stmtBudget > 0; k++) {
             lines.push(this.statement("    ", 1));
         }
-        const ret = this.chance(0.5)
-            ? `(${sig.ret.name})(${this.expression(3)})`
-            : this.expression(3);
+        const ret = this.chance(0.5) ? `(${sig.ret.name})(${this.expression(3)})` : this.expression(3);
         lines.push(`    return ${ret};`);
         this.inHelper = false;
 

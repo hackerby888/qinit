@@ -25,11 +25,7 @@ export interface SnapshotOptions {
     includeSdkHeaders?: boolean;
 }
 
-export async function buildSnapshot(
-    corePath: string,
-    outRoot: string,
-    options: SnapshotOptions = {},
-): Promise<SnapshotResult> {
+export async function buildSnapshot(corePath: string, outRoot: string, options: SnapshotOptions = {}): Promise<SnapshotResult> {
     corePath = resolve(corePath);
 
     if (!existsSync(join(corePath, "src", "qpi", "qpi.h"))) {
@@ -67,9 +63,7 @@ export async function buildSnapshot(
     const wasmClang = process.env.WASM_CLANG ?? sdk?.clang;
     const sysroot = process.env.WASI_SYSROOT ?? sdk?.sysroot;
     if (!wasmClang || !sysroot) {
-        throw new Error(
-            "no complete wasi-sdk (WASM_CLANG + WASI_SYSROOT or a fetched SDK) — needed to snapshot the Wasm header closure",
-        );
+        throw new Error("no complete wasi-sdk (WASM_CLANG + WASI_SYSROOT or a fetched SDK) — needed to snapshot the Wasm header closure");
     }
 
     const clang = Bun.spawnSync([

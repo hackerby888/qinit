@@ -8,19 +8,10 @@ import type { ContractIdl } from "@qinit/proto/contract-idl";
 import type { ResolvedCalleeIdl } from "../../../analysis/types";
 import { registerContractCallables, type ContractCallableCatalog } from "./contract-callables";
 import { findContractStruct } from "./contract-discovery";
-import {
-    contextLayoutFromCodegen,
-    type LibrarySymbolIndex,
-    registerLibraryMetadata,
-} from "./library-index";
+import { contextLayoutFromCodegen, type LibrarySymbolIndex, registerLibraryMetadata } from "./library-index";
 import { validateLogCalls } from "./log-call-validation";
 import { ContractLayoutResolver } from "./named-layouts";
-import {
-    type ContractRegistration,
-    registerEntryDispatchTargets,
-    validateContractRegistrations,
-    validateRegistrationInterfaces,
-} from "./registrations";
+import { type ContractRegistration, registerEntryDispatchTargets, validateContractRegistrations, validateRegistrationInterfaces } from "./registrations";
 import { indexSystemProcedures, type SystemProcedureIndex } from "./system-procedures";
 
 export interface CalleeTranslationUnit {
@@ -55,28 +46,13 @@ export interface PrepareContractModuleRequest {
     procedureDeclLines?: Map<string, number>;
 }
 
-export function prepareContractModule(
-    request: PrepareContractModuleRequest,
-): PreparedContractModule {
-    const programAnalysis = createModuleProgramAnalysis(
-        request.semanticAnalysis,
-        request.gtestMode,
-        request.callees,
-        request.calleeStructs,
-    );
-    const lhostAbi = request.libraryIndex
-        ? registerLibraryMetadata(programAnalysis, request.libraryIndex)
-        : undefined;
+export function prepareContractModule(request: PrepareContractModuleRequest): PreparedContractModule {
+    const programAnalysis = createModuleProgramAnalysis(request.semanticAnalysis, request.gtestMode, request.callees, request.calleeStructs);
+    const lhostAbi = request.libraryIndex ? registerLibraryMetadata(programAnalysis, request.libraryIndex) : undefined;
     const contextLayout = contextLayoutFromCodegen(programAnalysis);
-    const systemProcedureIndex = indexSystemProcedures(
-        request.libraryIndex?.wasmAbi?.systemProcedures ?? [],
-    );
+    const systemProcedureIndex = indexSystemProcedures(request.libraryIndex?.wasmAbi?.systemProcedures ?? []);
 
-    registerModuleDeclarations(
-        programAnalysis,
-        request.translationUnit.declarations,
-        request.calleeTranslationUnits,
-    );
+    registerModuleDeclarations(programAnalysis, request.translationUnit.declarations, request.calleeTranslationUnits);
 
     const contract = findContractStruct(request.translationUnit);
     const layouts = new ContractLayoutResolver(programAnalysis);
@@ -98,12 +74,7 @@ export function prepareContractModule(
         };
     }
 
-    const stateLayout = prepareContractState(
-        programAnalysis,
-        contract,
-        request.contractSlot,
-        request.procedureDeclLines,
-    );
+    const stateLayout = prepareContractState(programAnalysis, contract, request.contractSlot, request.procedureDeclLines);
     const registrations = validateContractRegistrations(contract, programAnalysis);
     const callables = registerContractCallables(
         programAnalysis,
@@ -187,10 +158,7 @@ export function registerModuleDeclarations(
     programAnalysis.registerTopLevelDeclarations(declarations);
 
     for (const callee of calleeTranslationUnits ?? []) {
-        programAnalysis.registerCalleeContractDeclarations(
-            callee.contractName,
-            callee.declarations,
-        );
+        programAnalysis.registerCalleeContractDeclarations(callee.contractName, callee.declarations);
     }
 }
 
@@ -207,9 +175,7 @@ export function prepareContractState(
     recordMemberFunctionLines(programAnalysis, contract);
 
     const stateDeclaration = programAnalysis["nested"].get("StateData");
-    const stateLayout = stateDeclaration
-        ? programAnalysis.layoutOf(stateDeclaration)
-        : createEmptyLayout();
+    const stateLayout = stateDeclaration ? programAnalysis.layoutOf(stateDeclaration) : createEmptyLayout();
 
     programAnalysis.contractStateLayout = stateLayout;
     return stateLayout;
@@ -225,9 +191,7 @@ function recordMemberFunctionLines(programAnalysis: ProgramAnalysis, contract: S
         const functionDeclaration = member as FunctionDecl;
         programAnalysis.memberFnLine.set(
             functionDeclaration.name,
-            programAnalysis.procedureDeclLines.get(functionDeclaration.name) ??
-                functionDeclaration.span?.line ??
-                0,
+            programAnalysis.procedureDeclLines.get(functionDeclaration.name) ?? functionDeclaration.span?.line ?? 0,
         );
     }
 }

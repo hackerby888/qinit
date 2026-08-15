@@ -82,9 +82,7 @@ describe("differential — Collection BST rebuild state parity", () => {
                 qpiHeader: HEADERS,
                 arenaSizeBytes: 4 * 1024 * 1024,
             });
-            expect(
-                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-            ).toHaveLength(0);
+            expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
             const run = (wasm: Uint8Array) => {
                 const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
@@ -104,16 +102,12 @@ describe("differential — Collection BST rebuild state parity", () => {
             const ours = run(mine.wasm);
 
             // Behavioral parity: identical in-order traversal.
-            expect(Buffer.from(ours.walk).toString("hex")).toBe(
-                Buffer.from(nat.walk).toString("hex"),
-            );
+            expect(Buffer.from(ours.walk).toString("hex")).toBe(Buffer.from(nat.walk).toString("hex"));
 
             // State-byte parity: the BST index fields must match, or the on-chain state digest diverges.
             const firstDiff = nat.state.findIndex((b, i) => ours.state[i] !== b);
             if (firstDiff >= 0) {
-                console.log(
-                    `  STATE DIVERGENCE at byte ${firstDiff}: native=${nat.state[firstDiff]} ours=${ours.state[firstDiff]}`,
-                );
+                console.log(`  STATE DIVERGENCE at byte ${firstDiff}: native=${nat.state[firstDiff]} ours=${ours.state[firstDiff]}`);
                 let diffs = 0;
                 for (let i = 0; i < nat.state.length; i++) {
                     if (nat.state[i] !== ours.state[i]) diffs++;

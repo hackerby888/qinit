@@ -75,9 +75,7 @@ test("decodeAssetsRequest reads modern filters and the short index request", () 
     filteredData.setUint16(0, 2, true);
     filteredData.setUint16(
         2,
-        codec.ASSET_REQUEST_FLAG.GET_SIBLINGS |
-            codec.ASSET_REQUEST_FLAG.ANY_OWNER |
-            codec.ASSET_REQUEST_FLAG.ANY_OWNERSHIP_MANAGING_CONTRACT,
+        codec.ASSET_REQUEST_FLAG.GET_SIBLINGS | codec.ASSET_REQUEST_FLAG.ANY_OWNER | codec.ASSET_REQUEST_FLAG.ANY_OWNERSHIP_MANAGING_CONTRACT,
         true,
     );
     filteredData.setUint16(6, 29, true);

@@ -17,10 +17,7 @@ export function unwrapType(type: TypeSpec): TypeSpec {
 
 export function isVoidType(type: TypeSpec): boolean {
     const unwrappedType = unwrapType(type);
-    return (
-        unwrappedType.kind === AstKind.VOID ||
-        (unwrappedType.kind === AstKind.NAME && unwrappedType.name === "void")
-    );
+    return unwrappedType.kind === AstKind.VOID || (unwrappedType.kind === AstKind.NAME && unwrappedType.name === "void");
 }
 
 export function isConstType(type: TypeSpec): boolean {
@@ -77,10 +74,7 @@ export function isLiteral(expression: Expression): boolean {
 }
 
 // Evaluate integral constants; unresolved identifiers return null.
-export function evalIntegralConst(
-    expression: Expression,
-    resolve?: (name: string) => bigint | null,
-): bigint | null {
+export function evalIntegralConst(expression: Expression, resolve?: (name: string) => bigint | null): bigint | null {
     try {
         switch (expression.kind) {
             case AstKind.INT_LITERAL:
@@ -101,8 +95,7 @@ export function evalIntegralConst(
                 if (expression.operator === UnaryOp.MINUS) return -numericValue;
                 if (expression.operator === UnaryOp.PLUS) return numericValue;
                 if (expression.operator === UnaryOp.BITWISE_NOT) return ~numericValue;
-                if (expression.operator === UnaryOp.LOGICAL_NOT)
-                    return numericValue === 0n ? 1n : 0n;
+                if (expression.operator === UnaryOp.LOGICAL_NOT) return numericValue === 0n ? 1n : 0n;
                 return null;
             }
             case AstKind.BINARY_OP: {
@@ -159,10 +152,7 @@ export function evalIntegralConst(
             case AstKind.CALL:
             case AstKind.TEMPLATE_CALL: {
                 const callee = expression.callee;
-                const name =
-                    callee.kind === AstKind.IDENTIFIER || callee.kind === AstKind.QUALIFIED_NAME
-                        ? callee.name
-                        : null;
+                const name = callee.kind === AstKind.IDENTIFIER || callee.kind === AstKind.QUALIFIED_NAME ? callee.name : null;
                 if (!name) return null;
                 const values: bigint[] = [];
                 for (const argument of expression.callArguments) {

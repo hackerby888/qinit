@@ -41,17 +41,7 @@ export function generateWasmModule(request: ModuleGenerationRequest): string {
         gtestMode: request.gtestMode,
         procedureDeclLines: request.procedureDeclLines,
     });
-    const {
-        programAnalysis,
-        contract,
-        stateLayout,
-        layouts,
-        registrations,
-        callables,
-        systemProcedureIndex,
-        contextLayout,
-        lhostAbi,
-    } = prepared;
+    const { programAnalysis, contract, stateLayout, layouts, registrations, callables, systemProcedureIndex, contextLayout, lhostAbi } = prepared;
     if (request.metadataOutput) {
         request.metadataOutput.idl = buildContractIdl(prepared, {
             contractName: request.contractName,
@@ -75,30 +65,13 @@ export function generateWasmModule(request: ModuleGenerationRequest): string {
         });
     }
 
-    const entryEmission = emitRegisteredEntries(
-        contract,
-        registrations,
-        programAnalysis,
-        stateLayout,
-        layouts,
-    );
+    const entryEmission = emitRegisteredEntries(contract, registrations, programAnalysis, stateLayout, layouts);
     const userFunctions = [...entryEmission.functionWat];
 
-    const systemProcedureEmission = emitSystemProcedures(
-        programAnalysis,
-        contract,
-        stateLayout,
-        layouts,
-        systemProcedureIndex,
-    );
+    const systemProcedureEmission = emitSystemProcedures(programAnalysis, contract, stateLayout, layouts, systemProcedureIndex);
     userFunctions.push(...systemProcedureEmission.functionWat);
 
-    const migrationEmission = emitMigrationFunction(
-        programAnalysis,
-        contract,
-        stateLayout,
-        layouts,
-    );
+    const migrationEmission = emitMigrationFunction(programAnalysis, contract, stateLayout, layouts);
 
     if (migrationEmission.functionWat) {
         userFunctions.push(migrationEmission.functionWat);
@@ -120,9 +93,7 @@ export function generateWasmModule(request: ModuleGenerationRequest): string {
     }
 
     for (const helper of callables.helperFunctions) {
-        userFunctions.push(
-            emitHelperFunction(programAnalysis, helper.metadata, helper.declaration, stateLayout),
-        );
+        userFunctions.push(emitHelperFunction(programAnalysis, helper.metadata, helper.declaration, stateLayout));
     }
 
     userFunctions.push(...programAnalysis.emittedMethodOrder);

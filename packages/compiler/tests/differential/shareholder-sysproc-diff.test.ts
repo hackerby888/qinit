@@ -113,9 +113,7 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
                     qpiHeader: HEADERS,
                     arenaSizeBytes: 4 * 1024 * 1024,
                 });
-                expect(
-                    mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-                ).toHaveLength(0);
+                expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
                 return mine.wasm;
             };
 
@@ -145,9 +143,7 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
                 const b = ours[side];
                 const firstDiff = a.findIndex((v, i) => b[i] !== v);
                 if (firstDiff >= 0) {
-                    console.log(
-                        `  ${side} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`,
-                    );
+                    console.log(`  ${side} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`);
                 }
                 expect(firstDiff).toBe(-1);
             }

@@ -29,41 +29,21 @@ export function Badge({ text, color = theme.brand }: { text: string; color?: str
     );
 }
 
-export function Status({
-    ok,
-    label,
-    detail,
-    pad = 22,
-}: {
-    ok?: boolean | null;
-    label: string;
-    detail?: string;
-    pad?: number;
-}) {
+export function Status({ ok, label, detail, pad = 22 }: { ok?: boolean | null; label: string; detail?: string; pad?: number }) {
     const glyph = ok === true ? "✓" : ok === false ? "✗" : "•";
     const color = ok === true ? theme.ok : ok === false ? theme.err : theme.info;
 
     return (
         <Text>
             <Text color={color}>{glyph}</Text> <Text bold>{label.padEnd(pad)}</Text>
-            {detail ? (
-                <Text dimColor>{truncMid(detail, Math.max(12, termCols() - pad - 8))}</Text>
-            ) : null}
+            {detail ? <Text dimColor>{truncMid(detail, Math.max(12, termCols() - pad - 8))}</Text> : null}
         </Text>
     );
 }
 
 export type StepState = "pending" | "active" | "ok" | "fail";
 
-export function Step({
-    state,
-    label,
-    detail,
-}: {
-    state: StepState;
-    label: string;
-    detail?: string;
-}) {
+export function Step({ state, label, detail }: { state: StepState; label: string; detail?: string }) {
     const frame = useFrame();
     const glyph =
         state === "ok" ? (
@@ -103,10 +83,7 @@ export function Bar({ pct, width = 22 }: { pct: number; width?: number }) {
 
     const cells = Array.from({ length: width }, (_, index) =>
         index < fill ? (
-            <Text
-                key={index}
-                color={lerp(theme.gradFrom, theme.gradTo, width < 2 ? 0 : index / (width - 1))}
-            >
+            <Text key={index} color={lerp(theme.gradFrom, theme.gradTo, width < 2 ? 0 : index / (width - 1))}>
                 █
             </Text>
         ) : (
@@ -125,19 +102,7 @@ export function Bar({ pct, width = 22 }: { pct: number; width?: number }) {
     );
 }
 
-export function StepRow({
-    state,
-    label,
-    detail,
-    pct,
-    elapsedMs,
-}: {
-    state: StepState;
-    label: string;
-    detail?: string;
-    pct?: number;
-    elapsedMs?: number;
-}) {
+export function StepRow({ state, label, detail, pct, elapsedMs }: { state: StepState; label: string; detail?: string; pct?: number; elapsedMs?: number }) {
     const frame = useFrame();
     const glyph =
         state === "ok" ? (
@@ -156,11 +121,7 @@ export function StepRow({
             <Text bold={state !== "pending"} color={state === "pending" ? theme.mute : undefined}>
                 {label.padEnd(14)}
             </Text>
-            {pct != null && state === "active" ? (
-                <Bar pct={pct} />
-            ) : detail ? (
-                <Text dimColor>{truncEnd(detail, Math.max(12, termCols() - 24))}</Text>
-            ) : null}
+            {pct != null && state === "active" ? <Bar pct={pct} /> : detail ? <Text dimColor>{truncEnd(detail, Math.max(12, termCols() - 24))}</Text> : null}
             {state === "ok" && elapsedMs ? <Text dimColor>{`  ${fmtMs(elapsedMs)}`}</Text> : null}
         </Text>
     );

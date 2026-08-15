@@ -41,12 +41,7 @@ function lineText(source: string, starts: number[], index: number): string {
 function mapGeneratedColumn(original: string, generated: string, column: number): number {
     const generatedColumn = Math.max(0, Math.min(column, generated.length));
     let prefix = 0;
-    while (
-        prefix < original.length &&
-        prefix < generated.length &&
-        original[prefix] === generated[prefix]
-    )
-        prefix++;
+    while (prefix < original.length && prefix < generated.length && original[prefix] === generated[prefix]) prefix++;
 
     let suffix = 0;
     while (
@@ -62,10 +57,7 @@ function mapGeneratedColumn(original: string, generated: string, column: number)
     const generatedMiddleEnd = generated.length - suffix;
     const originalMiddleEnd = original.length - suffix;
     if (generatedColumn >= generatedMiddleEnd) {
-        return Math.max(
-            prefix,
-            Math.min(original.length, originalMiddleEnd + generatedColumn - generatedMiddleEnd),
-        );
+        return Math.max(prefix, Math.min(original.length, originalMiddleEnd + generatedColumn - generatedMiddleEnd));
     }
     return prefix;
 }
@@ -78,9 +70,7 @@ export function makeUserDiagnosticRemapper(
     const originalStarts = lineStarts(originalSource);
     const generatedStarts = lineStarts(generatedSource);
 
-    const mapOffset = (
-        generatedOffset: number,
-    ): { offset: number; line: number; column: number } => {
+    const mapOffset = (generatedOffset: number): { offset: number; line: number; column: number } => {
         const safeGeneratedOffset = Math.max(0, Math.min(generatedOffset, generatedSource.length));
         const generatedLineIndex = lineIndexAt(generatedStarts, safeGeneratedOffset);
         const userLineIndex = generatedLineIndex - boundaryLine;
@@ -112,12 +102,8 @@ export function makeUserDiagnosticRemapper(
             return diagnostic;
         }
         const hasOffsets = diagnostic.span.start !== 0 || diagnostic.span.end !== 0;
-        const generatedLineIndex = Math.max(
-            0,
-            Math.min(diagnostic.span.line - 1, generatedStarts.length - 1),
-        );
-        const lineOnlyOffset =
-            generatedStarts[generatedLineIndex] + Math.max(0, diagnostic.span.column - 1);
+        const generatedLineIndex = Math.max(0, Math.min(diagnostic.span.line - 1, generatedStarts.length - 1));
+        const lineOnlyOffset = generatedStarts[generatedLineIndex] + Math.max(0, diagnostic.span.column - 1);
         const start = mapOffset(hasOffsets ? diagnostic.span.start : lineOnlyOffset);
         const end = mapOffset(hasOffsets ? diagnostic.span.end : lineOnlyOffset);
         return {
@@ -185,10 +171,7 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
                 escaped = false;
             } else if (ch === "\\") {
                 escaped = true;
-            } else if (
-                (state === SourceScannerState.STRING && ch === '"') ||
-                (state === SourceScannerState.CHAR && ch === "'")
-            ) {
+            } else if ((state === SourceScannerState.STRING && ch === '"') || (state === SourceScannerState.CHAR && ch === "'")) {
                 state = SourceScannerState.NORMAL;
             } else if (ch === "\n") {
                 state = SourceScannerState.NORMAL;
@@ -228,9 +211,7 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
         }
         if (ch === "#" && lineHasOnlyWhitespace) {
             const lineEnd = source.indexOf("\n", sourceItemIndex);
-            const match = /^#[ \t]*([A-Za-z_][A-Za-z0-9_]*)/.exec(
-                source.slice(sourceItemIndex, lineEnd < 0 ? source.length : lineEnd),
-            );
+            const match = /^#[ \t]*([A-Za-z_][A-Za-z0-9_]*)/.exec(source.slice(sourceItemIndex, lineEnd < 0 ? source.length : lineEnd));
             if (match) {
                 directives.push({
                     name: match[1],
@@ -243,11 +224,7 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
     }
 
     if (state === SourceScannerState.BLOCK_COMMENT)
-        addDiagnostic(
-            "unterminated block comment",
-            blockCommentStart,
-            Math.min(source.length, blockCommentStart + 2),
-        );
+        addDiagnostic("unterminated block comment", blockCommentStart, Math.min(source.length, blockCommentStart + 2));
     for (const directive of directives) {
         if (directive.name === "if" || directive.name === "ifdef" || directive.name === "ifndef") {
             conditionalStack.push(directive);
@@ -257,10 +234,7 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
             } else {
                 conditionalStack.pop();
             }
-        } else if (
-            (directive.name === "else" || directive.name === "elif") &&
-            conditionalStack.length === 0
-        ) {
+        } else if ((directive.name === "else" || directive.name === "elif") && conditionalStack.length === 0) {
             addDiagnostic(`unmatched #${directive.name}`, directive.start, directive.end);
         }
     }
@@ -268,8 +242,6 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
         addDiagnostic(`unterminated #${directive.name} directive`, directive.start, directive.end);
     }
     return diagnostics.sort(
-        (diagnostic, otherDiagnostic) =>
-            diagnostic.span.start - otherDiagnostic.span.start ||
-            diagnostic.span.end - otherDiagnostic.span.end,
+        (diagnostic, otherDiagnostic) => diagnostic.span.start - otherDiagnostic.span.start || diagnostic.span.end - otherDiagnostic.span.end,
     );
 }

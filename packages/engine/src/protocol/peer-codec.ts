@@ -124,10 +124,7 @@ export interface ContractFunctionRequest {
 // RequestContractFunction (contract.h): the 8-byte header then input[inputSize].
 export function decodeContractFunction(p: Uint8Array): ContractFunctionRequest {
     const r = RequestContractFunction.wrap(p);
-    const input = p.subarray(
-        RequestContractFunction.SIZE,
-        RequestContractFunction.SIZE + r.inputSize,
-    );
+    const input = p.subarray(RequestContractFunction.SIZE, RequestContractFunction.SIZE + r.inputSize);
     return {
         contractIndex: r.contractIndex,
         inputType: r.inputType,
@@ -218,10 +215,7 @@ export function decodeAssetsRequest(p: Uint8Array): AssetsRequest | null {
         issuer,
         name,
         owner: (flags & ASSET_REQUEST_FLAG.ANY_OWNER) !== 0 ? undefined : owner,
-        ownershipManagingContractIndex:
-            (flags & ASSET_REQUEST_FLAG.ANY_OWNERSHIP_MANAGING_CONTRACT) !== 0
-                ? undefined
-                : ownershipManagingContractIndex,
+        ownershipManagingContractIndex: (flags & ASSET_REQUEST_FLAG.ANY_OWNERSHIP_MANAGING_CONTRACT) !== 0 ? undefined : ownershipManagingContractIndex,
     };
 
     if (requestType === 1) {
@@ -236,10 +230,7 @@ export function decodeAssetsRequest(p: Uint8Array): AssetsRequest | null {
         owner: ownershipRequest.owner,
         possessor: (flags & ASSET_REQUEST_FLAG.ANY_POSSESSOR) !== 0 ? undefined : possessor,
         ownershipManagingContractIndex: ownershipRequest.ownershipManagingContractIndex,
-        possessionManagingContractIndex:
-            (flags & ASSET_REQUEST_FLAG.ANY_POSSESSION_MANAGING_CONTRACT) !== 0
-                ? undefined
-                : data.getUint16(6, true),
+        possessionManagingContractIndex: (flags & ASSET_REQUEST_FLAG.ANY_POSSESSION_MANAGING_CONTRACT) !== 0 ? undefined : data.getUint16(6, true),
     };
 }
 
@@ -322,9 +313,7 @@ export function encodeLogRange(fromLogId: bigint, length: bigint): Uint8Array {
     return out;
 }
 
-export function encodeAllLogRanges(
-    ranges: ReadonlyArray<{ fromLogId: bigint; length: bigint }>,
-): Uint8Array {
+export function encodeAllLogRanges(ranges: ReadonlyArray<{ fromLogId: bigint; length: bigint }>): Uint8Array {
     const out = new Uint8Array(ranges.length * 16);
     const d = new DataView(out.buffer);
     for (let i = 0; i < ranges.length; i++) {
@@ -352,13 +341,7 @@ export interface EntityFields {
 
 // RespondEntity (entity.h): EntityRecord(64) + tick(4) + spectrumIndex(4) + siblings[SPECTRUM_DEPTH*32]. The
 // siblings are the merkle proof; a client recomputes the spectrum root from EntityRecord and spectrumIndex.
-export function encodeRespondEntity(
-    id: Uint8Array,
-    e: EntityFields,
-    tick: number,
-    spectrumIndex: number,
-    siblings: Uint8Array[] = [],
-): Uint8Array {
+export function encodeRespondEntity(id: Uint8Array, e: EntityFields, tick: number, spectrumIndex: number, siblings: Uint8Array[] = []): Uint8Array {
     const r = RespondEntity.alloc();
 
     const rec = r.entity;
@@ -424,12 +407,7 @@ export function encodeSystemInfo(s: SystemInfoFields): Uint8Array {
 
 // RespondTxStatus (the addon): currentTick(4) tick(4) txCount(4) moneyFlew[(TXS_PER_TICK+7)/8] +
 // txDigests[txCount*32]. moneyFlew is a per-index bitmask of which txs moved money.
-export function encodeTxStatus(
-    currentTick: number,
-    tick: number,
-    txDigests: Uint8Array[],
-    moneyFlew: boolean[],
-): Uint8Array {
+export function encodeTxStatus(currentTick: number, tick: number, txDigests: Uint8Array[], moneyFlew: boolean[]): Uint8Array {
     const flagBytes = (TXS_PER_TICK + 7) >> 3;
     const buf = new Uint8Array(RespondTxStatusHeader.SIZE + flagBytes + txDigests.length * 32);
     const h = RespondTxStatusHeader.wrap(buf);
@@ -464,12 +442,7 @@ export interface OwnedAssetView {
 }
 
 // Encode ownership and issuance records with their universe Merkle proof.
-export function encodeRespondOwnedAssets(
-    v: OwnedAssetView,
-    universeIndex = 0,
-    siblings: Uint8Array[] = [],
-    record?: Uint8Array,
-): Uint8Array {
+export function encodeRespondOwnedAssets(v: OwnedAssetView, universeIndex = 0, siblings: Uint8Array[] = [], record?: Uint8Array): Uint8Array {
     const r = RespondOwnedAssets.alloc();
 
     const own = r.asset;
@@ -516,12 +489,7 @@ export interface PossessedAssetView {
 }
 
 // Encode possession, ownership, and issuance records with their universe Merkle proof.
-export function encodeRespondPossessedAssets(
-    v: PossessedAssetView,
-    universeIndex = 0,
-    siblings: Uint8Array[] = [],
-    record?: Uint8Array,
-): Uint8Array {
+export function encodeRespondPossessedAssets(v: PossessedAssetView, universeIndex = 0, siblings: Uint8Array[] = [], record?: Uint8Array): Uint8Array {
     const r = RespondPossessedAssets.alloc();
 
     const pos = r.asset;

@@ -2,12 +2,7 @@ import { TokenKind } from "../../shared/enums";
 import type { Lexer } from "./lexer";
 import type { Token } from "./tokens";
 
-export function lexCharLiteral(
-    lexer: Lexer,
-    start: number,
-    startLine: number,
-    startCol: number,
-): Token {
+export function lexCharLiteral(lexer: Lexer, start: number, startLine: number, startCol: number): Token {
     let text = "";
     text += lexer.advance(); // opening '
     while (!lexer.eof()) {
@@ -33,12 +28,7 @@ export function lexCharLiteral(
     };
 }
 
-export function lexStringLiteral(
-    lexer: Lexer,
-    start: number,
-    startLine: number,
-    startCol: number,
-): Token {
+export function lexStringLiteral(lexer: Lexer, start: number, startLine: number, startCol: number): Token {
     let text = "";
     text += lexer.advance(); // opening "
     while (!lexer.eof()) {

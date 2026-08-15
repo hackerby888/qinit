@@ -51,14 +51,13 @@ for (const contract of corpus) {
     } else {
         failed++;
         console.log(`FAIL ${contract.name}`);
-        console.log(
-            (result.stderr ?? "")
-                .split("\n")
-                .filter((line) => /error:|protocol|fatal/.test(line))
-                .slice(0, 8)
-                .map((line) => "     " + line)
-                .join("\n"),
-        );
+        const reasons = (result.stderr ?? "")
+            .split("\n")
+            .filter((line) => /error:|protocol|fatal/.test(line))
+            .slice(0, 8)
+            .map((line) => "     " + line)
+            .join("\n");
+        console.log(reasons);
     }
 }
 if (failed) {

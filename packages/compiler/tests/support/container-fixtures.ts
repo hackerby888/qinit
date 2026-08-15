@@ -2,14 +2,7 @@ import type { ContainerFixture, ContainerOperation } from "./container-harness";
 
 const boundary = (...operations: ContainerOperation[]): ContainerOperation[] => operations;
 
-function contract(
-    name: string,
-    family: string,
-    stateFields: string,
-    localsFields: string,
-    body: string,
-    operations: ContainerOperation[],
-): ContainerFixture {
+function contract(name: string, family: string, stateFields: string, localsFields: string, body: string, operations: ContainerOperation[]): ContainerFixture {
     return {
         name,
         family,
@@ -446,6 +439,4 @@ export const CONTAINER_FIXTURES: readonly ContainerFixture[] = [
     linkedListFixture,
 ];
 
-export const CONTAINER_FIXTURE_BY_FAMILY = new Map(
-    CONTAINER_FIXTURES.map((fixture) => [fixture.family, fixture]),
-);
+export const CONTAINER_FIXTURE_BY_FAMILY = new Map(CONTAINER_FIXTURES.map((fixture) => [fixture.family, fixture]));

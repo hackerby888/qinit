@@ -1,18 +1,10 @@
-import {
-    DiagnosticSeverity,
-    PlatformCapability,
-    PlatformPrimitiveKind,
-    PlatformWasmOp,
-} from "../../src/shared/enums";
+import { DiagnosticSeverity, PlatformCapability, PlatformPrimitiveKind, PlatformWasmOp } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
-import {
-    PLATFORM_PRIMITIVES,
-    platformPrimitive,
-} from "../../src/backend/wasm/calls/platform-primitives";
+import { PLATFORM_PRIMITIVES, platformPrimitive } from "../../src/backend/wasm/calls/platform-primitives";
 import { readSourceTree } from "../support/source-tree";
 
 const CORE = CORE_PATH;
@@ -55,18 +47,11 @@ describe("typed platform primitive registry", () => {
     beforeAll(initK12);
 
     test("aliases are unique and resolve to typed descriptors", () => {
-        const spellings = PLATFORM_PRIMITIVES.flatMap((descriptor) => [
-            descriptor.name,
-            ...descriptor.aliases,
-        ]);
+        const spellings = PLATFORM_PRIMITIVES.flatMap((descriptor) => [descriptor.name, ...descriptor.aliases]);
         expect(new Set(spellings).size).toBe(spellings.length);
-        expect(platformPrimitive("_mm256_lddqu_si256")?.kind).toBe(
-            PlatformPrimitiveKind.MEMORY_LOAD,
-        );
+        expect(platformPrimitive("_mm256_lddqu_si256")?.kind).toBe(PlatformPrimitiveKind.MEMORY_LOAD);
         expect(platformPrimitive("math_lib::__lzcnt64")?.wasmOp).toBe(PlatformWasmOp.I64_CLZ);
-        expect(platformPrimitive("_rdrand64_step")?.capabilities).toEqual([
-            PlatformCapability.CHAIN_PRNG,
-        ]);
+        expect(platformPrimitive("_rdrand64_step")?.capabilities).toEqual([PlatformCapability.CHAIN_PRNG]);
     });
 
     test("zero, overloaded constructors, conversion helpers, and isZero compile from core source", async () => {
@@ -77,30 +62,16 @@ describe("typed platform primitive registry", () => {
             qpiHeader: HEADER,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            result.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
         const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         sim.deploy(27, result.wasm);
         const output = sim.query(27, 1);
         const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
         expect(output.slice(0, 32)).toEqual(new Uint8Array(32));
-        expect([0, 1, 2, 3].map((lane) => view.getBigUint64(32 + lane * 8, true))).toEqual([
-            1n,
-            2n,
-            3n,
-            4n,
-        ]);
+        expect([0, 1, 2, 3].map((lane) => view.getBigUint64(32 + lane * 8, true))).toEqual([1n, 2n, 3n, 4n]);
         expect([...output.slice(64, 69)]).toEqual([1, 2, 3, 4, 5]);
-        expect([0, 1, 2, 3].map((lane) => view.getBigUint64(96 + lane * 8, true))).toEqual([
-            1n,
-            2n,
-            3n,
-            4n,
-        ]);
+        expect([0, 1, 2, 3].map((lane) => view.getBigUint64(96 + lane * 8, true))).toEqual([1n, 2n, 3n, 4n]);
         expect(view.getBigUint64(128, true)).toBe(1n);
         expect(view.getBigUint64(136, true)).toBe(0n);
         expect(view.getBigUint64(144, true)).toBe(1n);

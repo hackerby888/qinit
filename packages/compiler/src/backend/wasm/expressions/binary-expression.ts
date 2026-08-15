@@ -17,29 +17,14 @@ export function lowerBinaryExpression(
             expression.operator === BinaryOp.GREATER_THAN ||
             expression.operator === BinaryOp.LESS_THAN_OR_EQUAL ||
             expression.operator === BinaryOp.GREATER_THAN_OR_EQUAL) &&
-        (context.lowering.isU128Expr(context, expression.left) ||
-            context.lowering.isU128Expr(context, expression.right))
+        (context.lowering.isU128Expr(context, expression.left) || context.lowering.isU128Expr(context, expression.right))
     ) {
         const left = context.lowering.lowerUint128Expression(context, expression.left);
-        const method =
-            expression.operator === BinaryOp.NOT_EQUAL
-                ? "operator=="
-                : `operator${expression.operator}`;
-        const right = context.lowering.isU128Expr(context, expression.right)
-            ? expression.right
-            : u128ConstructorExpr(expression.right);
-        const result = context.lowering.sourceU128Result(
-            context,
-            method,
-            left,
-            [right],
-            "uint128_t",
-        );
-        if (result.ty !== WatNodeType.I64)
-            throw new Error(`uint128_t::${method} did not return a scalar`);
-        return expression.operator === BinaryOp.NOT_EQUAL
-            ? watIr.operation("i64.extend_i32_u", watIr.operation("i64.eqz", result))
-            : result;
+        const method = expression.operator === BinaryOp.NOT_EQUAL ? "operator==" : `operator${expression.operator}`;
+        const right = context.lowering.isU128Expr(context, expression.right) ? expression.right : u128ConstructorExpr(expression.right);
+        const result = context.lowering.sourceU128Result(context, method, left, [right], "uint128_t");
+        if (result.ty !== WatNodeType.I64) throw new Error(`uint128_t::${method} did not return a scalar`);
+        return expression.operator === BinaryOp.NOT_EQUAL ? watIr.operation("i64.extend_i32_u", watIr.operation("i64.eqz", result)) : result;
     }
     // id/struct equality compares bytes, not an i64 value.
     if (expression.operator === BinaryOp.EQUAL || expression.operator === BinaryOp.NOT_EQUAL) {
@@ -80,32 +65,17 @@ export function lowerBinaryExpression(
                     watIr.rawWatNode(left.addr, WatNodeType.I32, "lvalue address channel"),
                     watIr.rawWatNode(right.addr, WatNodeType.I32, "lvalue address channel"),
                 );
-            if (expression.operator === BinaryOp.LESS_THAN)
-                return watIr.operation("i64.extend_i32_u", leftAddressAndSize(la, ra));
-            if (expression.operator === BinaryOp.GREATER_THAN)
-                return watIr.operation("i64.extend_i32_u", leftAddressAndSize(ra, la));
+            if (expression.operator === BinaryOp.LESS_THAN) return watIr.operation("i64.extend_i32_u", leftAddressAndSize(la, ra));
+            if (expression.operator === BinaryOp.GREATER_THAN) return watIr.operation("i64.extend_i32_u", leftAddressAndSize(ra, la));
             if (expression.operator === BinaryOp.LESS_THAN_OR_EQUAL) {
-                return watIr.operation(
-                    "i64.extend_i32_u",
-                    watIr.operation("i32.eqz", leftAddressAndSize(ra, la)),
-                );
+                return watIr.operation("i64.extend_i32_u", watIr.operation("i32.eqz", leftAddressAndSize(ra, la)));
             }
-            return watIr.operation(
-                "i64.extend_i32_u",
-                watIr.operation("i32.eqz", leftAddressAndSize(la, ra)),
-            );
+            return watIr.operation("i64.extend_i32_u", watIr.operation("i32.eqz", leftAddressAndSize(la, ra)));
         }
     }
     // Preserve C++ short-circuit evaluation for logical operators.
-    if (
-        expression.operator === BinaryOp.LOGICAL_AND ||
-        expression.operator === BinaryOp.LOGICAL_OR
-    ) {
-        const lb = watIr.operation(
-            "i64.ne",
-            watIr.i64Constant(0),
-            context.lowering.lowerValueExpression(context, expression.left),
-        );
+    if (expression.operator === BinaryOp.LOGICAL_AND || expression.operator === BinaryOp.LOGICAL_OR) {
+        const lb = watIr.operation("i64.ne", watIr.i64Constant(0), context.lowering.lowerValueExpression(context, expression.left));
         const saved = context.lines;
         context.lines = [];
         const rExpr = context.lowering.lowerValueExpression(context, expression.right);
@@ -126,23 +96,13 @@ export function lowerBinaryExpression(
                   );
         }
         const temporaryLocalName = context.lowering.allocateTemporaryLocalName(context);
-        const rBranch = [
-            ...rLines,
-            `      (local.set $${temporaryLocalName} ${watIr.serializeWatNode(rb)})`,
-        ].join("\n");
+        const rBranch = [...rLines, `      (local.set $${temporaryLocalName} ${watIr.serializeWatNode(rb)})`].join("\n");
         if (expression.operator === BinaryOp.LOGICAL_OR) {
-            context.lines.push(
-                `    (if ${watIr.serializeWatNode(lb)} (then (local.set $${temporaryLocalName} (i32.const 1))) (else\n${rBranch}\n    ))`,
-            );
+            context.lines.push(`    (if ${watIr.serializeWatNode(lb)} (then (local.set $${temporaryLocalName} (i32.const 1))) (else\n${rBranch}\n    ))`);
         } else {
-            context.lines.push(
-                `    (if ${watIr.serializeWatNode(lb)} (then\n${rBranch}\n    ) (else (local.set $${temporaryLocalName} (i32.const 0))))`,
-            );
+            context.lines.push(`    (if ${watIr.serializeWatNode(lb)} (then\n${rBranch}\n    ) (else (local.set $${temporaryLocalName} (i32.const 0))))`);
         }
-        return watIr.operation(
-            "i64.extend_i32_u",
-            watIr.localGet(temporaryLocalName, WatNodeType.I32),
-        );
+        return watIr.operation("i64.extend_i32_u", watIr.localGet(temporaryLocalName, WatNodeType.I32));
     }
     const valueNode = context.lowering.lowerValueExpression(context, expression.left);
     const valueNodeCandidate = context.lowering.lowerValueExpression(context, expression.right);
@@ -150,44 +110,29 @@ export function lowerBinaryExpression(
     const cv = context.lowering.usualConversion(context, expression.left, expression.right);
     const unsigned = cv.unsigned;
     const li = context.lowering.promoteInfo(context, expression.left);
-    const wrapL = (count: watIr.WatNode, active: boolean) =>
-        active ? watIr.operation("i64.and", count, watIr.i64Constant("0xffffffff")) : count;
-    const wrapS = (count: watIr.WatNode, active: boolean) =>
-        active ? watIr.operation("i64.extend32_s", count) : count;
+    const wrapL = (count: watIr.WatNode, active: boolean) => (active ? watIr.operation("i64.and", count, watIr.i64Constant("0xffffffff")) : count);
+    const wrapS = (count: watIr.WatNode, active: boolean) => (active ? watIr.operation("i64.extend32_s", count) : count);
     const wrap32 = unsigned && cv.width === 4;
     const swrap32 = !unsigned && cv.width === 4;
-    const shiftCount = (count: watIr.WatNode) =>
-        li.width === 4 ? watIr.operation("i64.and", count, watIr.i64Constant(31)) : count;
+    const shiftCount = (count: watIr.WatNode) => (li.width === 4 ? watIr.operation("i64.and", count, watIr.i64Constant(31)) : count);
     // Signed-to-unsigned 32-bit converts by sign extension rules, so / and % follow unsigned arithmetic semantics.
     const toU32 = (count: watIr.WatNode, expression: Expression) => {
         if (!wrap32) {
             return count;
         }
         const pi = context.lowering.promoteInfo(context, expression);
-        return pi.width === 4 && !pi.unsigned
-            ? watIr.operation("i64.and", count, watIr.i64Constant("0xffffffff"))
-            : count;
+        return pi.width === 4 && !pi.unsigned ? watIr.operation("i64.and", count, watIr.i64Constant("0xffffffff")) : count;
     };
     const lc = toU32(valueNode, expression.left);
     const rc = toU32(valueNodeCandidate, expression.right);
-    const cmp = (operator: string) =>
-        watIr.operation("i64.extend_i32_u", watIr.operation(operator, lc, rc));
+    const cmp = (operator: string) => watIr.operation("i64.extend_i32_u", watIr.operation(operator, lc, rc));
     switch (expression.operator) {
         case BinaryOp.ADD:
-            return wrapS(
-                wrapL(watIr.operation("i64.add", valueNode, valueNodeCandidate), wrap32),
-                swrap32,
-            );
+            return wrapS(wrapL(watIr.operation("i64.add", valueNode, valueNodeCandidate), wrap32), swrap32);
         case BinaryOp.SUBTRACT:
-            return wrapS(
-                wrapL(watIr.operation("i64.sub", valueNode, valueNodeCandidate), wrap32),
-                swrap32,
-            );
+            return wrapS(wrapL(watIr.operation("i64.sub", valueNode, valueNodeCandidate), wrap32), swrap32);
         case BinaryOp.MULTIPLY:
-            return wrapS(
-                wrapL(watIr.operation("i64.mul", valueNode, valueNodeCandidate), wrap32),
-                swrap32,
-            );
+            return wrapS(wrapL(watIr.operation("i64.mul", valueNode, valueNodeCandidate), wrap32), swrap32);
         case BinaryOp.DIVIDE:
             return watIr.operation(unsigned ? "i64.div_u" : "i64.div_s", lc, rc);
         case BinaryOp.MODULO:
@@ -198,11 +143,7 @@ export function lowerBinaryExpression(
         }
         // Signed right-shift is arithmetic in C++ — zero-filling a negative sint64 silently corrupts it.
         case BinaryOp.SHIFT_RIGHT:
-            return watIr.operation(
-                li.unsigned ? "i64.shr_u" : "i64.shr_s",
-                valueNode,
-                shiftCount(valueNodeCandidate),
-            );
+            return watIr.operation(li.unsigned ? "i64.shr_u" : "i64.shr_s", valueNode, shiftCount(valueNodeCandidate));
         case BinaryOp.BITWISE_AND:
             return watIr.operation("i64.and", valueNode, valueNodeCandidate);
         case BinaryOp.BITWISE_OR:

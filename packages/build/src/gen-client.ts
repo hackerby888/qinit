@@ -1,11 +1,4 @@
-import {
-    AbiScalarKind,
-    AbiTypeKind,
-    abiTypeContainsKind,
-    type AbiStruct,
-    type AbiType,
-    type ContractIdl,
-} from "@qinit/proto/contract-idl";
+import { AbiScalarKind, AbiTypeKind, abiTypeContainsKind, type AbiStruct, type AbiType, type ContractIdl } from "@qinit/proto/contract-idl";
 
 const TYPESCRIPT_SCALARS: Record<AbiScalarKind, string> = {
     [AbiScalarKind.BIT]: "number",
@@ -32,9 +25,7 @@ function typescriptType(type: AbiType, input = false): string {
         case AbiTypeKind.SCALAR:
             return TYPESCRIPT_SCALARS[type.scalar];
         case AbiTypeKind.STRUCT:
-            return `{ ${type.fields
-                .map((field) => `${field.name}: ${typescriptType(field.type, input)}`)
-                .join("; ")} }`;
+            return `{ ${type.fields.map((field) => `${field.name}: ${typescriptType(field.type, input)}`).join("; ")} }`;
         case AbiTypeKind.ARRAY:
             return `${typescriptType(type.element, input)}[]`;
         case AbiTypeKind.BIT_ARRAY:
@@ -49,12 +40,7 @@ function hasOverlappingFields(type: AbiStruct): boolean {
         const field = type.fields[index];
         for (let previousIndex = 0; previousIndex < index; previousIndex++) {
             const previous = type.fields[previousIndex];
-            if (
-                field.size > 0 &&
-                previous.size > 0 &&
-                field.offset < previous.offset + previous.size &&
-                previous.offset < field.offset + field.size
-            ) {
+            if (field.size > 0 && previous.size > 0 && field.offset < previous.offset + previous.size && previous.offset < field.offset + field.size) {
                 return true;
             }
         }
@@ -72,19 +58,12 @@ function interfaceSource(name: string, type: AbiType, input = false): string {
     if (!type.fields.length) {
         return `export interface ${name} {}`;
     }
-    const fields = type.fields
-        .map((field) => `  ${field.name}: ${typescriptType(field.type, input)};`)
-        .join("\n");
+    const fields = type.fields.map((field) => `  ${field.name}: ${typescriptType(field.type, input)};`).join("\n");
     return `export interface ${name} {\n${fields}\n}`;
 }
 
 function mappedStruct(type: AbiStruct, expression: string): string {
-    return `{ ${type.fields
-        .map(
-            (field, index) =>
-                `${field.name}: ${mapDecodedValue(field.type, `${expression}[${index}]`)}`,
-        )
-        .join(", ")} }`;
+    return `{ ${type.fields.map((field, index) => `${field.name}: ${mapDecodedValue(field.type, `${expression}[${index}]`)}`).join(", ")} }`;
 }
 
 function mapDecodedValue(type: AbiType, expression: string): string {
@@ -99,10 +78,7 @@ function mapDecodedValue(type: AbiType, expression: string): string {
 }
 
 function needsDecodedMapping(type: AbiType): boolean {
-    return (
-        type.kind === AbiTypeKind.STRUCT ||
-        (type.kind === AbiTypeKind.ARRAY && needsDecodedMapping(type.element))
-    );
+    return type.kind === AbiTypeKind.STRUCT || (type.kind === AbiTypeKind.ARRAY && needsDecodedMapping(type.element));
 }
 
 function outputMap(type: AbiType): string {
@@ -118,16 +94,10 @@ function outputMap(type: AbiType): string {
         return `return { ${field.name}: ${mapDecodedValue(field.type, "r")} };`;
     }
 
-    return `const a = r as unknown[]; return { ${fields
-        .map((field, index) => `${field.name}: ${mapDecodedValue(field.type, `a[${index}]`)}`)
-        .join(", ")} };`;
+    return `const a = r as unknown[]; return { ${fields.map((field, index) => `${field.name}: ${mapDecodedValue(field.type, `a[${index}]`)}`).join(", ")} };`;
 }
 
-function schemaName(
-    entryName: string,
-    entryKind: "function" | "procedure",
-    direction: "input" | "output",
-): string {
+function schemaName(entryName: string, entryKind: "function" | "procedure", direction: "input" | "output"): string {
     return `${entryName}_${entryKind}_${direction}_schema`;
 }
 
@@ -135,25 +105,16 @@ function hasInput(type: AbiType): boolean {
     return type.kind !== AbiTypeKind.STRUCT || type.fields.length > 0;
 }
 
-export function generateClient(
-    idl: ContractIdl,
-    index: number,
-    options?: { runtimeImport?: string },
-): string {
+export function generateClient(idl: ContractIdl, index: number, options?: { runtimeImport?: string }): string {
     for (const entry of [...idl.functions, ...idl.procedures]) {
-        if (
-            abiTypeContainsKind(entry.input, AbiTypeKind.LINKED_LIST) ||
-            abiTypeContainsKind(entry.output, AbiTypeKind.LINKED_LIST)
-        ) {
+        if (abiTypeContainsKind(entry.input, AbiTypeKind.LINKED_LIST) || abiTypeContainsKind(entry.output, AbiTypeKind.LINKED_LIST)) {
             throw new Error(`LinkedList cannot be used in public contract entry '${entry.name}'`);
         }
     }
 
     const lines: string[] = [];
 
-    lines.push(
-        `// AUTO-GENERATED by \`qinit gen\` — typed client for ${idl.name} (slot ${index}). Do not edit.`,
-    );
+    lines.push(`// AUTO-GENERATED by \`qinit gen\` — typed client for ${idl.name} (slot ${index}). Do not edit.`);
     const runtimeSymbols = ["DEFAULT_RPC_BASE", "LiteRpc"];
     if (idl.functions.length) runtimeSymbols.push("callFunction");
     if (idl.procedures.length) runtimeSymbols.push("invokeProcedure");
@@ -171,17 +132,11 @@ export function generateClient(
     lines.push("");
 
     for (const entry of idl.functions) {
-        lines.push(
-            `const ${schemaName(entry.name, "function", "input")} = ${JSON.stringify(entry.input)} as any;`,
-        );
-        lines.push(
-            `const ${schemaName(entry.name, "function", "output")} = ${JSON.stringify(entry.output)} as any;`,
-        );
+        lines.push(`const ${schemaName(entry.name, "function", "input")} = ${JSON.stringify(entry.input)} as any;`);
+        lines.push(`const ${schemaName(entry.name, "function", "output")} = ${JSON.stringify(entry.output)} as any;`);
     }
     for (const entry of idl.procedures) {
-        lines.push(
-            `const ${schemaName(entry.name, "procedure", "input")} = ${JSON.stringify(entry.input)} as any;`,
-        );
+        lines.push(`const ${schemaName(entry.name, "procedure", "input")} = ${JSON.stringify(entry.input)} as any;`);
     }
 
     if (idl.procedures.length) {
@@ -207,9 +162,7 @@ export function generateClient(
     }
 
     lines.push("");
-    lines.push(
-        `export interface ${idl.name}Opts { rpc?: LiteRpc; rpcBaseUrl?: string; index?: number; seed?: string }`,
-    );
+    lines.push(`export interface ${idl.name}Opts { rpc?: LiteRpc; rpcBaseUrl?: string; index?: number; seed?: string }`);
     lines.push("");
     lines.push(`export class ${idl.name} {`);
     lines.push(`  rpc: LiteRpc; rpcBaseUrl: string; index: number; seed?: string;`);
@@ -229,9 +182,7 @@ export function generateClient(
         lines.push("");
         lines.push(`  /** read-only */`);
         lines.push(`  async ${entry.name}(${parameter}): Promise<${entry.name}_output> {`);
-        lines.push(
-            `    const r = await callFunction(this.rpc, this.index, ${entry.inputType}, { type: ${inputSchema}, value: ${value} }, ${outputSchema});`,
-        );
+        lines.push(`    const r = await callFunction(this.rpc, this.index, ${entry.inputType}, { type: ${inputSchema}, value: ${value} }, ${outputSchema});`);
         lines.push(`    ${outputMap(entry.output)}`);
         lines.push(`  }`);
     }
@@ -242,22 +193,16 @@ export function generateClient(
         const value = inputRequired ? "args" : "{}";
         const inputSchema = schemaName(entry.name, "procedure", "input");
         lines.push("");
-        lines.push(
-            `  /** transaction — auto-confirms (resolves once processed) unless { confirm: false } */`,
-        );
+        lines.push(`  /** transaction — auto-confirms (resolves once processed) unless { confirm: false } */`);
         lines.push(
             `  async ${entry.name}(${parameter}opts: { seed?: string; amount?: number; confirm?: boolean } = {}): Promise<{ ok: boolean; txId?: string; tick?: number; confirmed?: boolean; included?: boolean; moneyFlew?: boolean }> {`,
         );
         lines.push(`    const ti = (await this.rpc.tickInfo()) as { tick?: number };`);
-        lines.push(
-            `    const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed()) ?? "a".repeat(55);`,
-        );
+        lines.push(`    const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed()) ?? "a".repeat(55);`);
         lines.push(
             `    const r = await invokeProcedure({ seed, rpcBaseUrl: this.rpcBaseUrl, contractIndex: this.index, procedureId: ${entry.inputType}, amount: opts.amount ?? 0, input: { type: ${inputSchema}, value: ${value} }, tick: (ti.tick ?? 0) + 8, confirm: opts.confirm !== false, rpc: this.rpc }) as QinitProcedureResult;`,
         );
-        lines.push(
-            `    return { ok: r.ok, txId: r.txId, tick: r.tick, confirmed: r.confirmed, included: r.included, moneyFlew: r.moneyFlew };`,
-        );
+        lines.push(`    return { ok: r.ok, txId: r.txId, tick: r.tick, confirmed: r.confirmed, included: r.included, moneyFlew: r.moneyFlew };`);
         lines.push(`  }`);
     }
 

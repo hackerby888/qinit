@@ -1,15 +1,9 @@
 import { test, expect } from "bun:test";
-import {
-    analyzeContract,
-    SourceAnalysisOrigin,
-    type SourceEdit,
-    type SourceFix,
-} from "@qinit/compiler/analyzer";
+import { analyzeContract, SourceAnalysisOrigin, type SourceEdit, type SourceFix } from "@qinit/compiler/analyzer";
 
 function fixFor(source: string, code: string): SourceFix | null {
     const diagnostic = analyzeContract({ source }).diagnostics.find(
-        (item) =>
-            item.origin === SourceAnalysisOrigin.QPI && item.code === code && item.fixes?.length,
+        (item) => item.origin === SourceAnalysisOrigin.QPI && item.code === code && item.fixes?.length,
     );
     return diagnostic?.fixes?.[0] ?? null;
 }
@@ -48,9 +42,7 @@ test("rewrites a member array declaration to Array<T, N>", () => {
 });
 
 test("preserves a trailing comment", () => {
-    expect(applyFix("uint64 a[4]; // count", "qpi/no-brackets")).toBe(
-        "Array<uint64, 4> a; // count",
-    );
+    expect(applyFix("uint64 a[4]; // count", "qpi/no-brackets")).toBe("Array<uint64, 4> a; // count");
 });
 
 test("declines unsafe array shapes", () => {
@@ -62,12 +54,8 @@ test("declines unsafe array shapes", () => {
 test("rewrites simple division and modulo", () => {
     expect(applyFix("locals.r = a / b;", "qpi/no-division")).toBe("locals.r = div(a, b);");
     expect(applyFix("output.x = total % 10;", "qpi/no-modulo")).toBe("output.x = mod(total, 10);");
-    expect(applyFix("locals.v = input.amt / 100;", "qpi/no-division")).toBe(
-        "locals.v = div(input.amt, 100);",
-    );
-    expect(applyFix("locals.v = locals.x / locals.y;", "qpi/no-division")).toBe(
-        "locals.v = div(locals.x, locals.y);",
-    );
+    expect(applyFix("locals.v = input.amt / 100;", "qpi/no-division")).toBe("locals.v = div(input.amt, 100);");
+    expect(applyFix("locals.v = locals.x / locals.y;", "qpi/no-division")).toBe("locals.v = div(locals.x, locals.y);");
 });
 
 test("division fix rewrites only the immediate operands", () => {
@@ -83,9 +71,7 @@ test("division fix declines unsafe shapes", () => {
 });
 
 test("moves a local into a new _WITH_LOCALS struct", () => {
-    const source = wrap(
-        "        uint64 x;\n        x = input.amount;\n        state.mut().total += x;",
-    );
+    const source = wrap("        uint64 x;\n        x = input.amount;\n        state.mut().total += x;");
     const output = applyFix(source, "qpi/stack-local")!;
 
     expect(output).toContain("PUBLIC_PROCEDURE_WITH_LOCALS(Inc)");

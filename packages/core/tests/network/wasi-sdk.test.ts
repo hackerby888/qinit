@@ -1,22 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import {
-    existsSync,
-    mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    readdirSync,
-    rmSync,
-    writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import toolchains from "../../../../config/toolchains.json";
-import {
-    fetchWasiSdk,
-    managedWasiSdkStatus,
-    wasiSdkDir,
-    wasiSdkPaths,
-} from "../../src/cache/wasi-sdk";
+import { fetchWasiSdk, managedWasiSdkStatus, wasiSdkDir, wasiSdkPaths } from "../../src/cache/wasi-sdk";
 
 const originalEnv = {
     QINIT_CACHE: process.env.QINIT_CACHE,
@@ -149,9 +136,7 @@ test("fetchWasiSdk uses the configured release asset", async () => {
     await fetchWasiSdk();
 
     const asset = `${basename(expectedRoot)}.tar.gz`;
-    const expectedUrl =
-        `https://github.com/${toolchains.wasiSdk.repository}/releases/download/` +
-        `${toolchains.wasiSdk.releaseTag}/${asset}`;
+    const expectedUrl = `https://github.com/${toolchains.wasiSdk.repository}/releases/download/` + `${toolchains.wasiSdk.releaseTag}/${asset}`;
     expect(requests).toEqual([`${expectedUrl}.sha256`, expectedUrl]);
 });
 
@@ -162,9 +147,7 @@ test("fetchWasiSdk preserves the old SDK when replacement validation fails", asy
     const expectedRoot = managedWasiSdkStatus().expectedRoot;
     serveArchive(makeArchive(expectedRoot, false));
 
-    await expect(fetchWasiSdk(undefined, { upgrade: true })).rejects.toThrow(
-        "downloaded wasi-sdk is missing clang++ or wasi-sysroot",
-    );
+    await expect(fetchWasiSdk(undefined, { upgrade: true })).rejects.toThrow("downloaded wasi-sdk is missing clang++ or wasi-sysroot");
     expect(wasiSdkPaths()?.root).toBe(oldRoot);
     expect(readFileSync(join(oldRoot, "VERSION"), "utf8")).toBe("old");
     expect(readdirSync(cache).filter((name) => name.includes("wasi-sdk.tmp"))).toEqual([]);

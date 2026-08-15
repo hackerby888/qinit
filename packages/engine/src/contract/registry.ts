@@ -44,13 +44,7 @@ export class ContractRegistry {
 
     // Load or redeploy Wasm, then initialize or migrate state.
     // Metered deployments are pre-funded; INITIALIZE is exempt.
-    deploy(
-        slot: number,
-        wasm: Uint8Array,
-        host: HostServices,
-        extMem?: WebAssembly.Memory,
-        extraImports?: WebAssembly.Imports,
-    ): Contract {
+    deploy(slot: number, wasm: Uint8Array, host: HostServices, extMem?: WebAssembly.Memory, extraImports?: WebAssembly.Imports): Contract {
         const prev = this.contracts.get(slot); // existing instance => this is a redeploy
         const prevState = prev ? prev.state() : null; // snapshot old state before the new instance replaces it
         const c = Contract.load(wasm, slot, host, extMem, extraImports);
@@ -63,15 +57,9 @@ export class ContractRegistry {
             // first deploy: zero state + run INITIALIZE
             c.zeroState();
             if (c.hasSysproc(SYSTEM_PROCEDURES.INITIALIZE)) {
-                this.fire(
-                    c,
-                    CONTRACT_ENTRY_KIND.SYSPROC,
-                    SYSTEM_PROCEDURES.INITIALIZE,
-                    new Uint8Array(0),
-                    {
-                        entryPoint: SYSTEM_PROCEDURES.INITIALIZE,
-                    },
-                );
+                this.fire(c, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.INITIALIZE, new Uint8Array(0), {
+                    entryPoint: SYSTEM_PROCEDURES.INITIALIZE,
+                });
             }
             c.everInitialized = true;
         } else if (c.hasMigrate && c.migrateOldStateSize === prevState.length) {
@@ -113,10 +101,7 @@ export class ContractRegistry {
         const leaves = new Map<number, Uint8Array>();
         for (const [slot, c] of this.contracts) {
             // States above the one-shot Wasm K12 limit use a zero digest leaf.
-            leaves.set(
-                slot,
-                c.stateSize > K12_MAX_LEAF_BYTES ? new Uint8Array(32) : k12Bytes(c.state()),
-            );
+            leaves.set(slot, c.stateSize > K12_MAX_LEAF_BYTES ? new Uint8Array(32) : k12Bytes(c.state()));
         }
 
         return merkleRoot(leaves, MAX_NUMBER_OF_CONTRACTS);

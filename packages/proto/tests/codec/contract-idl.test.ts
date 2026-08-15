@@ -1,13 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-    AbiScalarKind,
-    AbiTypeKind,
-    QINIT_IDL_VERSION,
-    formatAbiType,
-    parseContractIdl,
-    parseContractIdlFile,
-    type ContractIdl,
-} from "../../src/contract-idl";
+import { AbiScalarKind, AbiTypeKind, QINIT_IDL_VERSION, formatAbiType, parseContractIdl, parseContractIdlFile, type ContractIdl } from "../../src/contract-idl";
 
 const emptyStruct: ContractIdl["state"] = {
     kind: AbiTypeKind.STRUCT,
@@ -213,9 +205,7 @@ test("parses first-class BitArray and LinkedList physical layouts", () => {
         size: 240,
         align: 8,
     });
-    expect(items.format).toBe(
-        "{ [8;{ uint16, sint64, sint64 }], [1;uint64], sint64, sint64, sint64, uint64, uint64 }",
-    );
+    expect(items.format).toBe("{ [8;{ uint16, sint64, sint64 }], [1;uint64], sint64, sint64, sint64, uint64, uint64 }");
 });
 
 test("rejects invalid BitArray and LinkedList dimensions and layouts", () => {

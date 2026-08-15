@@ -70,9 +70,7 @@ async function compile(source = SOURCE) {
         qpiHeader: HEADERS,
         arenaSizeBytes: 1 << 20,
     });
-    expect(result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual(
-        [],
-    );
+    expect(result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     expect(result.wasm.byteLength).toBeGreaterThan(0);
     if (!result.idl) {
         throw new Error("successful RandomProbe compile returned no IDL");
@@ -87,8 +85,7 @@ function run(wasm: Uint8Array, tick: number, nonce: bigint, initialSeed?: bigint
     const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     sim.currentTick = tick;
     sim.deploy(SLOT, wasm);
-    if (initialSeed !== undefined)
-        sim.procedure(SLOT, 1, u64(initialSeed), { invocator: USER, originator: USER });
+    if (initialSeed !== undefined) sim.procedure(SLOT, 1, u64(initialSeed), { invocator: USER, originator: USER });
     sim.procedure(SLOT, 2, u64(nonce), { invocator: USER, originator: USER, reward: 17n });
     return sim.contracts.get(SLOT)!.state();
 }
@@ -118,13 +115,9 @@ describe("chain-seeded source-compiled random values", () => {
         expect(view.getUint16(0, true)).not.toBe(0);
         expect(view.getUint32(4, true)).not.toBe(0);
         expect(view.getBigUint64(16, true)).not.toBe(0n);
-        expect(
-            new Set([
-                view.getUint16(0, true).toString(),
-                view.getUint32(4, true).toString(),
-                view.getBigUint64(16, true).toString(),
-            ]).size,
-        ).toBeGreaterThan(1);
+        expect(new Set([view.getUint16(0, true).toString(), view.getUint32(4, true).toString(), view.getBigUint64(16, true).toString()]).size).toBeGreaterThan(
+            1,
+        );
     });
 
     test("authoritative static and instance methods fill distinct 256-bit values", async () => {
@@ -136,12 +129,7 @@ describe("chain-seeded source-compiled random values", () => {
         for (const value of [first, second, third]) {
             expect(value.some((byte) => byte !== 0)).toBe(true);
             for (let limb = 0; limb < 4; limb++) {
-                expect(
-                    new DataView(value.buffer, value.byteOffset, value.byteLength).getBigUint64(
-                        limb * 8,
-                        true,
-                    ),
-                ).not.toBe(0n);
+                expect(new DataView(value.buffer, value.byteOffset, value.byteLength).getBigUint64(limb * 8, true)).not.toBe(0n);
             }
         }
         expect(same(first, second)).toBe(false);
@@ -185,12 +173,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             qpiHeader: HEADERS,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            plain.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR),
-        ).toEqual([]);
-        expect(
-            reentrant.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR),
-        ).toEqual([]);
+        expect(plain.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+        expect(reentrant.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         expect(plain.wasm.byteLength, JSON.stringify(plain.diagnostics)).toBeGreaterThan(0);
         expect(reentrant.wasm.byteLength, JSON.stringify(reentrant.diagnostics)).toBeGreaterThan(0);
         const plainWasm = Uint8Array.from(plain.wasm);
@@ -209,9 +193,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     test("keeps the production import surface and has no random-method fallback", async () => {
         const { wasm } = await compile();
         const inspection = inspectWasmModule(wasm);
-        expect(inspection.ok, inspection.diagnostics.map((item) => item.message).join("; ")).toBe(
-            true,
-        );
+        expect(inspection.ok, inspection.diagnostics.map((item) => item.message).join("; ")).toBe(true);
         expect(inspection.imports.every((item) => item.module === "lhost")).toBe(true);
         expect(inspection.features).toEqual([]);
 

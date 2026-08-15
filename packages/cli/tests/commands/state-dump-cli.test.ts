@@ -27,11 +27,7 @@ async function runState(args: string[]) {
         stdout: "pipe",
         stderr: "pipe",
     });
-    const [stdout, stderr] = await Promise.all([
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-        child.exited,
-    ]);
+    const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { code: child.exitCode, stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
@@ -66,13 +62,7 @@ test.skipIf(!canListen)("state --dump --json writes the state and reports the fi
     const server = stateServer(state);
 
     try {
-        const result = await runState([
-            "DumpProbe",
-            "--dump",
-            "--json",
-            "--rpc",
-            `http://127.0.0.1:${server.port}`,
-        ]);
+        const result = await runState(["DumpProbe", "--dump", "--json", "--rpc", `http://127.0.0.1:${server.port}`]);
         expect(result.code).toBe(0);
         expect(JSON.parse(result.stdout)).toEqual({
             ok: true,
@@ -81,9 +71,7 @@ test.skipIf(!canListen)("state --dump --json writes the state and reports the fi
             path: join(workDir, "state", "DumpProbe_dump.bin"),
             size: 1024,
         });
-        expect(new Uint8Array(readFileSync(join(workDir, "state", "DumpProbe_dump.bin")))).toEqual(
-            state,
-        );
+        expect(new Uint8Array(readFileSync(join(workDir, "state", "DumpProbe_dump.bin")))).toEqual(state);
     } finally {
         server.stop(true);
     }
@@ -94,15 +82,7 @@ test.skipIf(!canListen)("state --dump takes a numeric slot and an --out path", a
     const server = stateServer(new Uint8Array(64).fill(3));
 
     try {
-        const result = await runState([
-            "31",
-            "--dump",
-            "--out",
-            "before.bin",
-            "--json",
-            "--rpc",
-            `http://127.0.0.1:${server.port}`,
-        ]);
+        const result = await runState(["31", "--dump", "--out", "before.bin", "--json", "--rpc", `http://127.0.0.1:${server.port}`]);
         expect(result.code).toBe(0);
         expect(JSON.parse(result.stdout)).toMatchObject({
             ok: true,
@@ -124,13 +104,7 @@ test.skipIf(!canListen)("state --dump --json reports a failure and exits nonzero
     });
 
     try {
-        const result = await runState([
-            "29",
-            "--dump",
-            "--json",
-            "--rpc",
-            `http://127.0.0.1:${server.port}`,
-        ]);
+        const result = await runState(["29", "--dump", "--json", "--rpc", `http://127.0.0.1:${server.port}`]);
         expect(result.code).toBe(1);
         expect(JSON.parse(result.stdout).ok).toBe(false);
     } finally {

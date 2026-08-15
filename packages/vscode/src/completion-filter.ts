@@ -24,15 +24,8 @@ function identifiersIn(source: string): string[] {
 
 // Quoted includes resolve against the including file first, then the core include root. Angle includes are
 // never followed: that is what keeps <cstdint>, <string> and the rest of the sysroot out of the set.
-function resolveInclude(
-    includingFile: string,
-    spec: string,
-    coreSourceRoot: string,
-): string | undefined {
-    for (const candidate of [
-        resolve(dirname(includingFile), spec),
-        resolve(coreSourceRoot, spec),
-    ]) {
+function resolveInclude(includingFile: string, spec: string, coreSourceRoot: string): string | undefined {
+    for (const candidate of [resolve(dirname(includingFile), spec), resolve(coreSourceRoot, spec)]) {
         if (!candidate.startsWith(coreSourceRoot + sep)) {
             continue;
         }
@@ -79,10 +72,7 @@ function includeClosure(prefixHeaderPath: string, coreSourceRoot: string): strin
 }
 
 /** Identifiers a QPI contract may write, read off the headers its own compile includes. */
-export function qpiAllowedIdentifiers(
-    prefixHeaderPath: string,
-    corePath: string,
-): ReadonlySet<string> {
+export function qpiAllowedIdentifiers(prefixHeaderPath: string, corePath: string): ReadonlySet<string> {
     const coreSourceRoot = resolve(corePath, "src");
     const cached = allowedByCoreSource.get(coreSourceRoot);
     if (cached) {
@@ -93,9 +83,7 @@ export function qpiAllowedIdentifiers(
     for (const file of includeClosure(prefixHeaderPath, coreSourceRoot)) {
         // Neither comments nor include directives declare anything, and scraping them would allow the
         // names they merely mention — `vector` and `string` from the includes, `printf` and `abs` from prose.
-        const source = readFileSync(file, "utf8")
-            .replace(COMMENT_PATTERN, " ")
-            .replace(ANY_INCLUDE_PATTERN, "");
+        const source = readFileSync(file, "utf8").replace(COMMENT_PATTERN, " ").replace(ANY_INCLUDE_PATTERN, "");
         for (const identifier of identifiersIn(source)) {
             // Leading underscores mark QPI's own macro machinery, which a contract may not spell.
             if (!identifier.startsWith("_")) {
@@ -158,22 +146,14 @@ export function keepMemberLabel(label: string): boolean {
 
 // Whether a `<qualifier>::` list is worth showing at all. The author's own types qualify through the
 // document, but a blocked namespace stays blocked even when the file mentions it.
-export function keepQualifiedScope(
-    qualifier: string,
-    allowed: ReadonlySet<string>,
-    documentNames: ReadonlySet<string>,
-): boolean {
+export function keepQualifiedScope(qualifier: string, allowed: ReadonlySet<string>, documentNames: ReadonlySet<string>): boolean {
     if (NON_QPI_NAMESPACES.has(qualifier)) {
         return false;
     }
     return allowed.has(qualifier) || documentNames.has(qualifier);
 }
 
-export function keepCompletionLabel(
-    label: string,
-    allowed: ReadonlySet<string>,
-    documentNames: ReadonlySet<string>,
-): boolean {
+export function keepCompletionLabel(label: string, allowed: ReadonlySet<string>, documentNames: ReadonlySet<string>): boolean {
     const name = completionName(label);
     if (!name) {
         return true;

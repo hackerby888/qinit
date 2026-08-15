@@ -32,10 +32,7 @@ export class QpiArrayView {
 
     async get(index: number): Promise<unknown> {
         this.assertIndex(index);
-        return await decodeAbiValue(
-            await readQpiBytes(this.source, index * this.stride, this.type.element.size),
-            this.type.element,
-        );
+        return await decodeAbiValue(await readQpiBytes(this.source, index * this.stride, this.type.element.size), this.type.element);
     }
 
     async entries(): Promise<QpiArrayEntry[]> {
@@ -72,10 +69,7 @@ export class QpiArrayView {
                 }
                 yield {
                     index,
-                    value: await decodeAbiValue(
-                        encoded.slice(0, this.type.element.size),
-                        this.type.element,
-                    ),
+                    value: await decodeAbiValue(encoded.slice(0, this.type.element.size), this.type.element),
                     isZeroBytes,
                 };
             }
@@ -100,9 +94,7 @@ function assertSource(source: QpiByteSource, size: number): void {
         throw new Error("Array ABI has an invalid size");
     }
     if (!Number.isSafeInteger(source.byteLength) || source.byteLength < size) {
-        throw new QpiIncompleteReadError(
-            `Array needs ${size} bytes, source has ${source.byteLength}`,
-        );
+        throw new QpiIncompleteReadError(`Array needs ${size} bytes, source has ${source.byteLength}`);
     }
     if (!Number.isSafeInteger(source.maxReadLength) || source.maxReadLength <= 0) {
         throw new Error("QPI byte source has an invalid maxReadLength");

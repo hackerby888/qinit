@@ -11,21 +11,13 @@ export function emitThisCall(
     },
     valueWanted: boolean,
 ): string | null {
-    if (
-        !context.thisType ||
-        context.thisType.kind !== AstKind.TEMPLATE_INSTANCE ||
-        expression.callee.kind !== AstKind.IDENTIFIER
-    )
-        return null;
+    if (!context.thisType || context.thisType.kind !== AstKind.TEMPLATE_INSTANCE || expression.callee.kind !== AstKind.IDENTIFIER) return null;
     const methodName = expression.callee.name;
     // memory builtins used by container bodies: reset → setMem(this, ...); removeByIndex → setMem(&elem, ...).
     if ((methodName === "setMem" || methodName === "copyMem") && !valueWanted) {
-        const destination =
-            context.lowering.emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)";
+        const destination = context.lowering.emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)";
         if (methodName === "copyMem") {
-            const src =
-                context.lowering.emitAddress(context, expression.callArguments[1]) ??
-                "(i32.const 0)";
+            const src = context.lowering.emitAddress(context, expression.callArguments[1]) ?? "(i32.const 0)";
             context.lines.push(
                 `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(destination), addrIr(src), watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[2]))))}`,
             );
@@ -52,12 +44,7 @@ export function emitThisCall(
                   ? { kind: AstKind.TEMPLATE_INSTANCE, name: bound.name, callArguments: [] }
                   : null;
         if (!target) throw new Error(`dependent hash target '${methodName}' is not bound`);
-        const cm = compileContainerMethod(
-            context.programAnalysis,
-            target,
-            "hash",
-            expression.callArguments.length,
-        );
+        const cm = compileContainerMethod(context.programAnalysis, target, "hash", expression.callArguments.length);
         if (!cm || cm.retKind !== WatNodeType.I64) {
             throw new Error(`authoritative QPI method ${target.name}::hash could not be lowered`);
         }
@@ -69,13 +56,7 @@ export function emitThisCall(
             if (direct) return direct;
             const spill = context.lowering.allocateScratchSlotNode(
                 context,
-                Math.max(
-                    8,
-                    context.programAnalysis.sizeOfType(
-                        context.programAnalysis.derefType(fp.type),
-                        context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                    ),
-                ),
+                Math.max(8, context.programAnalysis.sizeOfType(context.programAnalysis.derefType(fp.type), context.thisBind ?? EMPTY_TEMPLATE_BINDINGS)),
             );
             context.lines.push(
                 `    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, spill, context.lowering.lowerValueExpression(context, methodArgument)))}`,
@@ -85,46 +66,27 @@ export function emitThisCall(
         return `(call ${cm.label} (local.get $this)${methodArgumentOperands.length ? " " + methodArgumentOperands.join(" ") : ""})`;
     }
     // Compile sibling calls against this container instance.
-    const methodNameOnly = methodName.startsWith(`${context.thisType.name}::`)
-        ? methodName.slice(context.thisType.name.length + 2)
-        : methodName;
-    const cm = compileContainerMethod(
-        context.programAnalysis,
-        context.thisType,
-        methodNameOnly,
-        expression.callArguments.length,
-    );
+    const methodNameOnly = methodName.startsWith(`${context.thisType.name}::`) ? methodName.slice(context.thisType.name.length + 2) : methodName;
+    const cm = compileContainerMethod(context.programAnalysis, context.thisType, methodNameOnly, expression.callArguments.length);
     if (!cm) return null;
     // Spill scalar locals passed by mutable reference, then write them back.
     const writeBacks: string[] = [];
     const methodArgumentOperands = cm.functionParameters.map((fp, fnParamIndex) => {
         const methodArgument = expression.callArguments[fnParamIndex] ?? fp.defaultValue;
         if (!methodArgument) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-        if (methodArgument.kind === AstKind.NULLPTR_LITERAL)
-            return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+        if (methodArgument.kind === AstKind.NULLPTR_LITERAL) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
         if (!fp.isAddr) return context.lowering.emitValue(context, methodArgument);
         const emittedAddress = context.lowering.emitAddress(context, methodArgument);
         if (emittedAddress) return emittedAddress;
         // `&x` (pointer out-param) and parens unwrap to the same scalar-local spill as a bare `x`.
         let argSource: Expression = methodArgument;
-        while (
-            argSource.kind === AstKind.PAREN ||
-            (argSource.kind === AstKind.UNARY_OP && argSource.operator === UnaryOp.ADDRESS_OF)
-        ) {
-            argSource =
-                argSource.kind === AstKind.PAREN ? argSource.expression : argSource.argument;
+        while (argSource.kind === AstKind.PAREN || (argSource.kind === AstKind.UNARY_OP && argSource.operator === UnaryOp.ADDRESS_OF)) {
+            argSource = argSource.kind === AstKind.PAREN ? argSource.expression : argSource.argument;
         }
         const size = context.lowering.allocateScratchSlotNode(context, 8);
-        context.lines.push(
-            `    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, size, context.lowering.lowerValueExpression(context, argSource)))}`,
-        );
-        if (
-            argSource.kind === AstKind.IDENTIFIER &&
-            context.localVars.get(argSource.name)?.wasmType === WatNodeType.I64
-        ) {
-            writeBacks.push(
-                `    ${context.lowering.setLocal(context, argSource.name, watIr.rawLoad("i64.load", null, size))}`,
-            );
+        context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, size, context.lowering.lowerValueExpression(context, argSource)))}`);
+        if (argSource.kind === AstKind.IDENTIFIER && context.localVars.get(argSource.name)?.wasmType === WatNodeType.I64) {
+            writeBacks.push(`    ${context.lowering.setLocal(context, argSource.name, watIr.rawLoad("i64.load", null, size))}`);
         }
         return watIr.serializeWatNode(size);
     });

@@ -27,9 +27,7 @@ async function compileAndRun(source: string): Promise<bigint> {
         qpiHeader: HEADERS,
         arenaSizeBytes: 1 << 20,
     });
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
-        0,
-    );
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(WebAssembly.validate(result.wasm)).toBe(true);
 
     const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });

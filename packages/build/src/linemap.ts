@@ -23,10 +23,7 @@ function runTool(binary: string, args: string[]): string | null {
     return result.status === 0 ? result.stdout : null;
 }
 
-export function buildLineMap(
-    wasm: string,
-    tools: { objdump: string; dwarfdump: string },
-): LineMap | null {
+export function buildLineMap(wasm: string, tools: { objdump: string; dwarfdump: string }): LineMap | null {
     const disassembly = runTool(tools.objdump, ["-d", wasm]);
     const debugInfo = runTool(tools.dwarfdump, ["--debug-info", wasm]);
     const debugLines = runTool(tools.dwarfdump, ["--debug-line", wasm]);
@@ -75,11 +72,7 @@ export function buildLineMap(
 
     // Use the dominant offset to ignore duplicate-name DWARF outliers.
     for (const subprogram of subprograms) {
-        if (
-            subprogram.low === undefined ||
-            !subprogram.name ||
-            !offsetsByName.has(subprogram.name)
-        ) {
+        if (subprogram.low === undefined || !subprogram.name || !offsetsByName.has(subprogram.name)) {
             continue;
         }
 
@@ -172,11 +165,7 @@ export function buildLineMap(
     return { base, entries };
 }
 
-export function writeLineMap(
-    wasm: string,
-    outJson: string,
-    tools: { objdump: string; dwarfdump: string },
-): boolean {
+export function writeLineMap(wasm: string, outJson: string, tools: { objdump: string; dwarfdump: string }): boolean {
     const lineMap = buildLineMap(wasm, tools);
     if (!lineMap) {
         return false;

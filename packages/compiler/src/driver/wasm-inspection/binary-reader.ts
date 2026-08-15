@@ -18,8 +18,7 @@ export class Reader {
         readonly end = bytes.byteLength,
     ) {
         this.pos = start;
-        if (start < 0 || end < start || end > bytes.byteLength)
-            throw new WasmParseError("invalid reader bounds", start);
+        if (start < 0 || end < start || end > bytes.byteLength) throw new WasmParseError("invalid reader bounds", start);
     }
     get done(): boolean {
         return this.pos === this.end;
@@ -28,8 +27,7 @@ export class Reader {
         return this.end - this.pos;
     }
     byte(label = "byte"): number {
-        if (this.pos >= this.end)
-            throw new WasmParseError(`unexpected end while reading ${label}`, this.pos);
+        if (this.pos >= this.end) throw new WasmParseError(`unexpected end while reading ${label}`, this.pos);
         return this.bytes[this.pos++];
     }
     skip(length: number, label = "bytes"): void {
@@ -43,8 +41,7 @@ export class Reader {
         for (let index = 0; index < 5; index++) {
             const at = this.pos;
             const templateBindings = this.byte(label);
-            if (index === 4 && (templateBindings & 0xf0) !== 0)
-                throw new WasmParseError(`${label} exceeds uint32`, at);
+            if (index === 4 && (templateBindings & 0xf0) !== 0) throw new WasmParseError(`${label} exceeds uint32`, at);
             value += (templateBindings & 0x7f) * 2 ** (index * 7);
             if ((templateBindings & 0x80) === 0) return value >>> 0;
         }
@@ -55,8 +52,7 @@ export class Reader {
         for (let index = 0; index < 10; index++) {
             const at = this.pos;
             const templateBindings = this.byte(label);
-            if (index === 9 && (templateBindings & 0xfe) !== 0)
-                throw new WasmParseError(`${label} exceeds uint64`, at);
+            if (index === 9 && (templateBindings & 0xfe) !== 0) throw new WasmParseError(`${label} exceeds uint64`, at);
             value |= BigInt(templateBindings & 0x7f) << BigInt(index * 7);
             if ((templateBindings & 0x80) === 0) return value;
         }
@@ -73,9 +69,7 @@ export class Reader {
         const start = this.pos;
         this.skip(length, label);
         try {
-            return new TextDecoder("utf-8", { fatal: true }).decode(
-                this.bytes.subarray(start, start + length),
-            );
+            return new TextDecoder("utf-8", { fatal: true }).decode(this.bytes.subarray(start, start + length));
         } catch {
             throw new WasmParseError(`${label} is not valid UTF-8`, start);
         }
@@ -87,15 +81,8 @@ export class Reader {
     }
 }
 
-export function error(
-    diagnostics: WasmInspectionDiagnostic[],
-    code: string,
-    message: string,
-    offset?: number,
-): void {
+export function error(diagnostics: WasmInspectionDiagnostic[], code: string, message: string, offset?: number): void {
     diagnostics.push(
-        offset === undefined
-            ? { severity: DiagnosticSeverity.ERROR, code, message }
-            : { severity: DiagnosticSeverity.ERROR, code, message, offset },
+        offset === undefined ? { severity: DiagnosticSeverity.ERROR, code, message } : { severity: DiagnosticSeverity.ERROR, code, message, offset },
     );
 }

@@ -139,10 +139,7 @@ export function resolveCompilerBackend(requested?: string): CompilerBackend {
     return invalidArgs("--compiler must be clang or typescript");
 }
 
-export async function resolveSeed(
-    rpc: { fundedSeed(): Promise<string | undefined> },
-    explicit?: string,
-): Promise<string> {
+export async function resolveSeed(rpc: { fundedSeed(): Promise<string | undefined> }, explicit?: string): Promise<string> {
     if (explicit) {
         assertSeed(explicit);
         return explicit;

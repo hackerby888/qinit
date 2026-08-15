@@ -109,14 +109,7 @@ function sharesByMgmt(sim: QubicSimulator, mgmt: number): bigint {
 }
 
 // ShareManager Acquire/Release input: { uint64 name; id issuer; id holder; sint64 shares; uint16 mgmt; sint64 fee }
-function mgmtIn(
-    name: bigint,
-    issuer: Uint8Array,
-    holder: Uint8Array,
-    shares: bigint,
-    mgmt: number,
-    fee: bigint,
-): Uint8Array {
+function mgmtIn(name: bigint, issuer: Uint8Array, holder: Uint8Array, shares: bigint, mgmt: number, fee: bigint): Uint8Array {
     const b = new Uint8Array(96);
     const d = new DataView(b.buffer);
     d.setBigUint64(0, name, true);

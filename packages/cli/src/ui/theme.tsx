@@ -96,11 +96,7 @@ export function applyTheme(name?: string): string {
 
 function hexChannels(color: string): [number, number, number] {
     const hex = color.replace("#", "");
-    return [
-        parseInt(hex.slice(0, 2), 16),
-        parseInt(hex.slice(2, 4), 16),
-        parseInt(hex.slice(4, 6), 16),
-    ];
+    return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
 }
 
 export function lerp(from: string, to: string, position: number): string {
@@ -145,14 +141,7 @@ export function Grad({
             {[...text].map((character, index) => {
                 const base = length < 2 ? 0 : index / (length - 1);
                 return (
-                    <Text
-                        key={index}
-                        color={lerp(
-                            from,
-                            to,
-                            phase === undefined ? base : gradPosition(base, phase),
-                        )}
-                    >
+                    <Text key={index} color={lerp(from, to, phase === undefined ? base : gradPosition(base, phase))}>
                         {character}
                     </Text>
                 );
@@ -193,11 +182,7 @@ export function GradLine({
     return (
         <Text bold={bold}>
             {[...text].map((character, index) => (
-                <Text
-                    key={index}
-                    backgroundColor={lerp(from, to, length < 2 ? 0 : index / (length - 1))}
-                    color={color}
-                >
+                <Text key={index} backgroundColor={lerp(from, to, length < 2 ? 0 : index / (length - 1))} color={color}>
                     {character}
                 </Text>
             ))}

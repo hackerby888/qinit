@@ -47,7 +47,5 @@ test("readResponseBodyWithTimeout: a stalled body stream aborts via the inactivi
 });
 
 test("readResponseBodyWithTimeout: reads a normal body in full", async () => {
-    expect([
-        ...(await readResponseBodyWithTimeout(new Response(new Uint8Array([5, 6, 7])), 1000)),
-    ]).toEqual([5, 6, 7]);
+    expect([...(await readResponseBodyWithTimeout(new Response(new Uint8Array([5, 6, 7])), 1000))]).toEqual([5, 6, 7]);
 });

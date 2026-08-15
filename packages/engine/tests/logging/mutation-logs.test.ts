@@ -21,11 +21,7 @@ function parseLogs(logger: QubicLogStore, count: number): ParsedLog[] {
     let offset = 0;
 
     while (offset < bytes.length) {
-        const view = new DataView(
-            bytes.buffer,
-            bytes.byteOffset + offset,
-            bytes.byteLength - offset,
-        );
+        const view = new DataView(bytes.buffer, bytes.byteOffset + offset, bytes.byteLength - offset);
         const sizeAndType = view.getUint32(6, true);
         const messageSize = sizeAndType & 0xffffff;
         logs.push({
@@ -45,11 +41,7 @@ function writePacked7(message: Uint8Array, offset: number, value: bigint): void 
     }
 }
 
-function quTransferMessage(
-    source: Uint8Array,
-    destination: Uint8Array,
-    amount: bigint,
-): Uint8Array {
+function quTransferMessage(source: Uint8Array, destination: Uint8Array, amount: bigint): Uint8Array {
     const message = new Uint8Array(72);
     message.set(source, 0);
     message.set(destination, 32);
@@ -66,14 +58,7 @@ function burningMessage(source: Uint8Array, amount: bigint, burnedFor: number): 
     return message;
 }
 
-function assetIssuanceMessage(
-    issuer: Uint8Array,
-    shares: bigint,
-    manager: number,
-    name: bigint,
-    decimals: number,
-    unit: bigint,
-): Uint8Array {
+function assetIssuanceMessage(issuer: Uint8Array, shares: bigint, manager: number, name: bigint, decimals: number, unit: bigint): Uint8Array {
     const message = new Uint8Array(63);
     const view = new DataView(message.buffer);
     message.set(issuer);
@@ -166,14 +151,10 @@ test("transactions log refunds and successful zero transfers", async () => {
     expect(sim.applyTx(source, destination, amount, 1, new Uint8Array(0), "refund")).toEqual({
         moneyFlew: false,
     });
-    expect(sim.applyTx(source, zeroDestination, 0n, 0, new Uint8Array(0), "zero-existing")).toEqual(
-        {
-            moneyFlew: false,
-        },
-    );
-    expect(
-        sim.applyTx(missingSource, zeroDestination, 0n, 0, new Uint8Array(0), "zero-missing"),
-    ).toEqual({ moneyFlew: false });
+    expect(sim.applyTx(source, zeroDestination, 0n, 0, new Uint8Array(0), "zero-existing")).toEqual({
+        moneyFlew: false,
+    });
+    expect(sim.applyTx(missingSource, zeroDestination, 0n, 0, new Uint8Array(0), "zero-missing")).toEqual({ moneyFlew: false });
     sim.advance();
 
     const expectedMessages = [
@@ -182,11 +163,7 @@ test("transactions log refunds and successful zero transfers", async () => {
         quTransferMessage(source, zeroDestination, 0n),
     ];
     const logs = parseLogs(logger, 3);
-    expect(logs.map((log) => log.type)).toEqual([
-        QUBIC_LOG_TYPE.QU_TRANSFER,
-        QUBIC_LOG_TYPE.QU_TRANSFER,
-        QUBIC_LOG_TYPE.QU_TRANSFER,
-    ]);
+    expect(logs.map((log) => log.type)).toEqual([QUBIC_LOG_TYPE.QU_TRANSFER, QUBIC_LOG_TYPE.QU_TRANSFER, QUBIC_LOG_TYPE.QU_TRANSFER]);
     expect(logger.range(1, 2)).toEqual({ fromLogId: -1n, length: -1n });
     expect(logs.map((log) => log.message)).toEqual(expectedMessages);
     expect(logger.digest(1)).toEqual(k12Bytes(concatBytes([ZERO32, ...expectedMessages])));
@@ -254,10 +231,7 @@ test("QPI transfer logs follow the destination callback logs", async () => {
     logger.finalizeTick(1);
 
     const logs = parseLogs(logger, 2);
-    expect(logs.map((log) => log.type)).toEqual([
-        QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE,
-        QUBIC_LOG_TYPE.QU_TRANSFER,
-    ]);
+    expect(logs.map((log) => log.type)).toEqual([QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE, QUBIC_LOG_TYPE.QU_TRANSFER]);
     expect(logs[1].message).toEqual(quTransferMessage(source, destination, 5n));
 });
 
@@ -272,19 +246,13 @@ test("asset mutations emit exact native records only after success", () => {
     logger.begin(1, 0);
     expect(sim.host.issueAsset(28, name, issuer, 2, 1000n, unit, issuer)).toBe(1000n);
     expect(sim.host.transferShares(28, name, issuer, issuer, issuer, 300n, holder)).toBe(700n);
-    expect(sim.transferShareManagementRights(name, issuer, holder, holder, 28, 29, 100n)).toBe(
-        true,
-    );
+    expect(sim.transferShareManagementRights(name, issuer, holder, holder, 28, 29, 100n)).toBe(true);
 
     expect(sim.host.issueAsset(28, name, issuer, 2, 1000n, unit, issuer)).toBe(0n);
     expect(sim.host.transferShares(28, name, issuer, issuer, issuer, 0n, holder)).toBeLessThan(0n);
     expect(sim.host.transferShares(28, name, issuer, holder, holder, 10n, holder)).toBe(200n);
-    expect(sim.transferShareManagementRights(name, issuer, holder, holder, 28, 29, 9999n)).toBe(
-        false,
-    );
-    expect(sim.transferShareManagementRights(name, issuer, holder, holder, 29, 29, 100n)).toBe(
-        true,
-    );
+    expect(sim.transferShareManagementRights(name, issuer, holder, holder, 28, 29, 9999n)).toBe(false);
+    expect(sim.transferShareManagementRights(name, issuer, holder, holder, 29, 29, 100n)).toBe(true);
     logger.end();
     logger.finalizeTick(1);
 

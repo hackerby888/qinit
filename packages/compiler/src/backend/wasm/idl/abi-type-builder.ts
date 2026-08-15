@@ -14,20 +14,10 @@ import {
     type AbiStruct,
     type AbiType,
 } from "@qinit/proto/contract-idl";
-import {
-    bitWordCount,
-    collectionFmt,
-    hashMapFmt,
-    hashSetFmt,
-    linkedListFmt,
-} from "@qinit/proto/qpi-layout";
+import { bitWordCount, collectionFmt, hashMapFmt, hashSetFmt, linkedListFmt } from "@qinit/proto/qpi-layout";
 import { AstKind } from "../../../shared/enums";
 import type { StructDecl, TypeSpec } from "../../../ast";
-import {
-    EMPTY_TEMPLATE_BINDINGS,
-    type StructLayout,
-    type TemplateBindings,
-} from "../../../analysis/types";
+import { EMPTY_TEMPLATE_BINDINGS, type StructLayout, type TemplateBindings } from "../../../analysis/types";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { evalIntegralConst } from "../../../frontend/validation/validation-helpers";
 import { scalarKindForName, scalarKindForSize } from "./scalars";
@@ -53,12 +43,7 @@ export class AbiTypeBuilder {
         };
     }
 
-    namedStruct(
-        name: string,
-        layout: StructLayout,
-        root: boolean,
-        declaration?: StructDecl,
-    ): AbiStruct {
+    namedStruct(name: string, layout: StructLayout, root: boolean, declaration?: StructDecl): AbiStruct {
         return this.struct(name, layout, root, EMPTY_TEMPLATE_BINDINGS, declaration);
     }
 
@@ -101,49 +86,27 @@ export class AbiTypeBuilder {
             return this.namedType(type, bindings);
         }
 
-        return this.scalar(
-            AbiScalarKind.UINT32,
-            this.programAnalysis.sizeOfType(type, bindings),
-            this.programAnalysis.alignOfType(type, bindings),
-        );
+        return this.scalar(AbiScalarKind.UINT32, this.programAnalysis.sizeOfType(type, bindings), this.programAnalysis.alignOfType(type, bindings));
     }
 
-    private namedType(
-        type: Extract<TypeSpec, { kind: AstKind.NAME }>,
-        bindings: TemplateBindings,
-    ): AbiType {
+    private namedType(type: Extract<TypeSpec, { kind: AstKind.NAME }>, bindings: TemplateBindings): AbiType {
         const unqualifiedName = type.name.split("::").pop()!;
         const scalarKind = scalarKindForName(unqualifiedName);
 
         if (scalarKind) {
-            return this.scalar(
-                scalarKind,
-                this.programAnalysis.sizeOfType(type, bindings),
-                this.programAnalysis.alignOfType(type, bindings),
-            );
+            return this.scalar(scalarKind, this.programAnalysis.sizeOfType(type, bindings), this.programAnalysis.alignOfType(type, bindings));
         }
 
         if (unqualifiedName === "DateAndTime") {
             return this.scalar(AbiScalarKind.UINT64, 8, 8);
         }
 
-        const enumUnderlying =
-            this.programAnalysis.enumUnderlying.get(type.name) ??
-            this.programAnalysis.enumUnderlying.get(unqualifiedName);
+        const enumUnderlying = this.programAnalysis.enumUnderlying.get(type.name) ?? this.programAnalysis.enumUnderlying.get(unqualifiedName);
 
-        if (
-            enumUnderlying ||
-            this.programAnalysis.enumNames.has(type.name) ||
-            this.programAnalysis.enumNames.has(unqualifiedName)
-        ) {
-            const underlyingName =
-                enumUnderlying?.kind === AstKind.NAME ? enumUnderlying.name : "sint32";
+        if (enumUnderlying || this.programAnalysis.enumNames.has(type.name) || this.programAnalysis.enumNames.has(unqualifiedName)) {
+            const underlyingName = enumUnderlying?.kind === AstKind.NAME ? enumUnderlying.name : "sint32";
             const underlying = scalarKindForName(underlyingName) ?? AbiScalarKind.SINT32;
-            return this.scalar(
-                underlying,
-                this.programAnalysis.sizeOfType(type, bindings),
-                this.programAnalysis.alignOfType(type, bindings),
-            );
+            return this.scalar(underlying, this.programAnalysis.sizeOfType(type, bindings), this.programAnalysis.alignOfType(type, bindings));
         }
 
         const resolved = this.programAnalysis.resolveType(type, bindings);
@@ -155,13 +118,7 @@ export class AbiTypeBuilder {
         const layout = this.programAnalysis.layoutOfType(type, bindings);
 
         if (layout) {
-            return this.struct(
-                unqualifiedName,
-                layout,
-                false,
-                bindings,
-                this.programAnalysis.structOf(type, bindings) ?? undefined,
-            );
+            return this.struct(unqualifiedName, layout, false, bindings, this.programAnalysis.structOf(type, bindings) ?? undefined);
         }
 
         return this.scalar(
@@ -171,30 +128,15 @@ export class AbiTypeBuilder {
         );
     }
 
-    private template(
-        type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>,
-        bindings: TemplateBindings,
-    ): AbiType {
+    private template(type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>, bindings: TemplateBindings): AbiType {
         const name = type.name.split("::").pop()!;
 
         if (name === "Array" || name === "SlowAnySizeArray") {
-            const count = Number(
-                this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings),
-            );
+            const count = Number(this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings));
             if (name === "Array") {
-                this.validatePowerOfTwoDimension(
-                    "Array length",
-                    count,
-                    type.callArguments[1],
-                    bindings,
-                );
+                this.validatePowerOfTwoDimension("Array length", count, type.callArguments[1], bindings);
             } else {
-                this.validatePositiveDimension(
-                    "SlowAnySizeArray length",
-                    count,
-                    type.callArguments[1],
-                    bindings,
-                );
+                this.validatePositiveDimension("SlowAnySizeArray length", count, type.callArguments[1], bindings);
             }
             return this.array(type.callArguments[0], count, type, bindings);
         }
@@ -219,23 +161,12 @@ export class AbiTypeBuilder {
             return this.linkedList(type, bindings);
         }
 
-        const layout =
-            this.programAnalysis.layoutOfType(type, bindings) ??
-            this.programAnalysis.containerLayout(type.name, type.callArguments, bindings);
-        const templateBindings = this.programAnalysis.bindContainer(
-            type.name,
-            type.callArguments,
-            bindings,
-        );
+        const layout = this.programAnalysis.layoutOfType(type, bindings) ?? this.programAnalysis.containerLayout(type.name, type.callArguments, bindings);
+        const templateBindings = this.programAnalysis.bindContainer(type.name, type.callArguments, bindings);
         return this.struct(name, layout, false, templateBindings);
     }
 
-    private array(
-        elementType: TypeSpec,
-        count: number,
-        sourceType: TypeSpec,
-        bindings: TemplateBindings,
-    ): AbiArray {
+    private array(elementType: TypeSpec, count: number, sourceType: TypeSpec, bindings: TemplateBindings): AbiArray {
         const element = this.type(elementType, bindings);
         return {
             kind: AbiTypeKind.ARRAY,
@@ -247,19 +178,9 @@ export class AbiTypeBuilder {
         };
     }
 
-    private bitArray(
-        type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>,
-        bindings: TemplateBindings,
-    ): AbiBitArray {
-        const bitCount = Number(
-            this.programAnalysis.valueOfTypeArg(type.callArguments[0], bindings),
-        );
-        this.validatePowerOfTwoDimension(
-            "BitArray bit count",
-            bitCount,
-            type.callArguments[0],
-            bindings,
-        );
+    private bitArray(type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>, bindings: TemplateBindings): AbiBitArray {
+        const bitCount = Number(this.programAnalysis.valueOfTypeArg(type.callArguments[0], bindings));
+        this.validatePowerOfTwoDimension("BitArray bit count", bitCount, type.callArguments[0], bindings);
         return {
             kind: AbiTypeKind.BIT_ARRAY,
             bitCount,
@@ -269,19 +190,9 @@ export class AbiTypeBuilder {
         };
     }
 
-    private hashMap(
-        type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>,
-        bindings: TemplateBindings,
-    ): AbiHashMap {
-        const capacity = Number(
-            this.programAnalysis.valueOfTypeArg(type.callArguments[2], bindings),
-        );
-        this.validatePowerOfTwoDimension(
-            "HashMap capacity",
-            capacity,
-            type.callArguments[2],
-            bindings,
-        );
+    private hashMap(type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>, bindings: TemplateBindings): AbiHashMap {
+        const capacity = Number(this.programAnalysis.valueOfTypeArg(type.callArguments[2], bindings));
+        this.validatePowerOfTwoDimension("HashMap capacity", capacity, type.callArguments[2], bindings);
         const key = this.type(type.callArguments[0], bindings);
         const value = this.type(type.callArguments[1], bindings);
         return {
@@ -295,19 +206,9 @@ export class AbiTypeBuilder {
         };
     }
 
-    private hashSet(
-        type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>,
-        bindings: TemplateBindings,
-    ): AbiHashSet {
-        const capacity = Number(
-            this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings),
-        );
-        this.validatePowerOfTwoDimension(
-            "HashSet capacity",
-            capacity,
-            type.callArguments[1],
-            bindings,
-        );
+    private hashSet(type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>, bindings: TemplateBindings): AbiHashSet {
+        const capacity = Number(this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings));
+        this.validatePowerOfTwoDimension("HashSet capacity", capacity, type.callArguments[1], bindings);
         const key = this.type(type.callArguments[0], bindings);
         return {
             kind: AbiTypeKind.HASH_SET,
@@ -319,19 +220,9 @@ export class AbiTypeBuilder {
         };
     }
 
-    private collection(
-        type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>,
-        bindings: TemplateBindings,
-    ): AbiCollection {
-        const capacity = Number(
-            this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings),
-        );
-        this.validatePowerOfTwoDimension(
-            "Collection capacity",
-            capacity,
-            type.callArguments[1],
-            bindings,
-        );
+    private collection(type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>, bindings: TemplateBindings): AbiCollection {
+        const capacity = Number(this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings));
+        this.validatePowerOfTwoDimension("Collection capacity", capacity, type.callArguments[1], bindings);
         const value = this.type(type.callArguments[0], bindings);
         return {
             kind: AbiTypeKind.COLLECTION,
@@ -343,19 +234,9 @@ export class AbiTypeBuilder {
         };
     }
 
-    private linkedList(
-        type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>,
-        bindings: TemplateBindings,
-    ): AbiLinkedList {
-        const capacity = Number(
-            this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings),
-        );
-        this.validatePowerOfTwoDimension(
-            "LinkedList capacity",
-            capacity,
-            type.callArguments[1],
-            bindings,
-        );
+    private linkedList(type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>, bindings: TemplateBindings): AbiLinkedList {
+        const capacity = Number(this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings));
+        this.validatePowerOfTwoDimension("LinkedList capacity", capacity, type.callArguments[1], bindings);
         const value = this.type(type.callArguments[0], bindings);
         return {
             kind: AbiTypeKind.LINKED_LIST,
@@ -367,13 +248,7 @@ export class AbiTypeBuilder {
         };
     }
 
-    private struct(
-        name: string | undefined,
-        layout: StructLayout,
-        root: boolean,
-        bindings: TemplateBindings,
-        declaration?: StructDecl,
-    ): AbiStruct {
+    private struct(name: string | undefined, layout: StructLayout, root: boolean, bindings: TemplateBindings, declaration?: StructDecl): AbiStruct {
         const localBindings = declaration ? withLocalStructs(declaration, bindings) : bindings;
         const fields: AbiField[] = [...layout.fields.values()].map((field) => {
             const type = this.type(field.type, localBindings);
@@ -406,60 +281,28 @@ export class AbiTypeBuilder {
         };
     }
 
-    private validateDimension(
-        label: string,
-        value: number,
-        sourceType: TypeSpec,
-        bindings: TemplateBindings,
-    ): void {
-        if (
-            Number.isSafeInteger(value) &&
-            value >= 0 &&
-            this.dimensionResolves(sourceType, bindings)
-        ) {
+    private validateDimension(label: string, value: number, sourceType: TypeSpec, bindings: TemplateBindings): void {
+        if (Number.isSafeInteger(value) && value >= 0 && this.dimensionResolves(sourceType, bindings)) {
             return;
         }
 
-        this.programAnalysis.error(
-            `${label} '${typeLabel(sourceType)}' must resolve to a non-negative integer`,
-            sourceType.span ?? 0,
-        );
+        this.programAnalysis.error(`${label} '${typeLabel(sourceType)}' must resolve to a non-negative integer`, sourceType.span ?? 0);
     }
 
-    private validatePowerOfTwoDimension(
-        label: string,
-        value: number,
-        sourceType: TypeSpec,
-        bindings: TemplateBindings,
-    ): void {
+    private validatePowerOfTwoDimension(label: string, value: number, sourceType: TypeSpec, bindings: TemplateBindings): void {
         if (isPowerOfTwo(value) && this.dimensionResolves(sourceType, bindings)) {
             return;
         }
 
-        this.programAnalysis.error(
-            `${label} '${typeLabel(sourceType)}' must resolve to a positive power-of-two integer`,
-            sourceType.span ?? 0,
-        );
+        this.programAnalysis.error(`${label} '${typeLabel(sourceType)}' must resolve to a positive power-of-two integer`, sourceType.span ?? 0);
     }
 
-    private validatePositiveDimension(
-        label: string,
-        value: number,
-        sourceType: TypeSpec,
-        bindings: TemplateBindings,
-    ): void {
-        if (
-            Number.isSafeInteger(value) &&
-            value > 0 &&
-            this.dimensionResolves(sourceType, bindings)
-        ) {
+    private validatePositiveDimension(label: string, value: number, sourceType: TypeSpec, bindings: TemplateBindings): void {
+        if (Number.isSafeInteger(value) && value > 0 && this.dimensionResolves(sourceType, bindings)) {
             return;
         }
 
-        this.programAnalysis.error(
-            `${label} '${typeLabel(sourceType)}' must resolve to a positive integer`,
-            sourceType.span ?? 0,
-        );
+        this.programAnalysis.error(`${label} '${typeLabel(sourceType)}' must resolve to a positive integer`, sourceType.span ?? 0);
     }
 
     private dimensionResolves(sourceType: TypeSpec, bindings: TemplateBindings): boolean {
@@ -471,18 +314,10 @@ export class AbiTypeBuilder {
             return false;
         }
 
-        return (
-            evalIntegralConst(sourceType.expression, (name) =>
-                this.resolvedConstant(name, bindings, new Set()),
-            ) !== null
-        );
+        return evalIntegralConst(sourceType.expression, (name) => this.resolvedConstant(name, bindings, new Set())) !== null;
     }
 
-    private resolvedConstant(
-        name: string,
-        bindings: TemplateBindings,
-        resolving: Set<string>,
-    ): bigint | null {
+    private resolvedConstant(name: string, bindings: TemplateBindings, resolving: Set<string>): bigint | null {
         const bound = bindings.values.get(name);
         if (bound !== undefined) {
             return bound;
@@ -493,17 +328,13 @@ export class AbiTypeBuilder {
         }
 
         const tail = name.split("::").pop()!;
-        const initializer =
-            this.programAnalysis.constexprInit.get(name) ??
-            this.programAnalysis.constexprInit.get(tail);
+        const initializer = this.programAnalysis.constexprInit.get(name) ?? this.programAnalysis.constexprInit.get(tail);
         if (!initializer) {
             return this.programAnalysis.resolveConst(name, bindings);
         }
 
         resolving.add(name);
-        const value = evalIntegralConst(initializer, (dependency) =>
-            this.resolvedConstant(dependency, bindings, resolving),
-        );
+        const value = evalIntegralConst(initializer, (dependency) => this.resolvedConstant(dependency, bindings, resolving));
         resolving.delete(name);
         return value === null ? null : this.programAnalysis.resolveConst(name, bindings);
     }

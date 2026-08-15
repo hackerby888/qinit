@@ -1,35 +1,24 @@
 import { AstKind } from "../../../shared/enums";
 import type { Declaration, StructDecl, FunctionDecl } from "../../../ast";
-export function findContractStruct(translationUnit: {
-    declarations: Declaration[];
-}): StructDecl | null {
+export function findContractStruct(translationUnit: { declarations: Declaration[] }): StructDecl | null {
     // Search nested namespaces when recovery leaves the user contract wrapped.
     const structs: StructDecl[] = [];
     const walk = (declarations: Declaration[]) => {
         for (const declaration of declarations) {
-            if (declaration.kind === AstKind.STRUCT && declaration.hasBody !== false)
-                structs.push(declaration as StructDecl);
+            if (declaration.kind === AstKind.STRUCT && declaration.hasBody !== false) structs.push(declaration as StructDecl);
             else if (declaration.kind === AstKind.NAMESPACE) walk((declaration as any).body);
         }
     };
     walk(translationUnit.declarations);
     for (const struct of structs) {
-        if (
-            struct.bases.some(
-                (baseType) => baseType.kind === AstKind.NAME && baseType.name === "ContractBase",
-            )
-        )
-            return struct;
+        if (struct.bases.some((baseType) => baseType.kind === AstKind.NAME && baseType.name === "ContractBase")) return struct;
         if (struct.name === "CONTRACT_STATE_TYPE") return struct;
     }
     // fallback: a struct with a nested StateData that isn't one of the qpi.h library types
     for (const candidate of structs) {
         if (
             candidate.members.some(
-                (member) =>
-                    member.kind === AstKind.STRUCT &&
-                    (member as StructDecl).name === "StateData" &&
-                    (member as StructDecl).hasBody !== false,
+                (member) => member.kind === AstKind.STRUCT && (member as StructDecl).name === "StateData" && (member as StructDecl).hasBody !== false,
             )
         )
             return candidate;
@@ -39,8 +28,7 @@ export function findContractStruct(translationUnit: {
 
 export function findMemberFn(contract: StructDecl, name: string): FunctionDecl | null {
     for (const member of contract.members) {
-        if (member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === name)
-            return member as FunctionDecl;
+        if (member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === name) return member as FunctionDecl;
     }
     return null;
 }

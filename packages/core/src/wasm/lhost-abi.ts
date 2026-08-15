@@ -8,10 +8,7 @@ export interface LhostFunctionSignature {
     readonly results: readonly LhostValueType[];
 }
 
-const signature = (
-    params: readonly LhostValueType[],
-    results: readonly LhostValueType[],
-): LhostFunctionSignature =>
+const signature = (params: readonly LhostValueType[], results: readonly LhostValueType[]): LhostFunctionSignature =>
     Object.freeze({
         params: Object.freeze([...params]),
         results: Object.freeze([...results]),
@@ -20,20 +17,16 @@ const signature = (
 type GeneratedImportName = (typeof WASM_ABI_METADATA.lhost)[number]["name"];
 
 /** Exact names, order, and signatures generated from core-lite's canonical ABI rows. */
-export const LHOST_ABI = Object.freeze(
-    Object.fromEntries(
-        WASM_ABI_METADATA.lhost.map((row) => [row.name, signature(row.params, row.results)]),
-    ),
-) as Readonly<Record<GeneratedImportName, LhostFunctionSignature>>;
+export const LHOST_ABI = Object.freeze(Object.fromEntries(WASM_ABI_METADATA.lhost.map((row) => [row.name, signature(row.params, row.results)]))) as Readonly<
+    Record<GeneratedImportName, LhostFunctionSignature>
+>;
 
 export type LhostImportName = keyof typeof LHOST_ABI;
 
 export const WASM_ABI_VERSION = WASM_ABI_METADATA.abiVersion;
 
 export const SYSTEM_PROCEDURES = Object.freeze(
-    Object.fromEntries(
-        WASM_ABI_METADATA.systemProcedures.map((procedure) => [procedure.name, procedure.id]),
-    ),
+    Object.fromEntries(WASM_ABI_METADATA.systemProcedures.map((procedure) => [procedure.name, procedure.id])),
 ) as Readonly<Record<(typeof WASM_ABI_METADATA.systemProcedures)[number]["name"], number>>;
 
 export const SYSTEM_PROCEDURE_COUNT = WASM_ABI_METADATA.systemProcedures.length;
@@ -58,10 +51,5 @@ export const ASSET_ENUMERATION_RECORD = Object.freeze({
                 .filter(([name]) => name !== "padding")
                 .map(([name, field]) => [name, Object.freeze({ ...field })]),
         ),
-    ) as Readonly<
-        Record<
-            Exclude<keyof typeof assetEntry.fields, "padding">,
-            { readonly offset: number; readonly size: number }
-        >
-    >,
+    ) as Readonly<Record<Exclude<keyof typeof assetEntry.fields, "padding">, { readonly offset: number; readonly size: number }>>,
 });

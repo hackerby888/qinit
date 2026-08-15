@@ -81,10 +81,7 @@ describe("core-lite system gtest corpus", () => {
             const contract = systemContracts(CORE).find((item) => item.name === entry.contract);
             expect(contract).toBeDefined();
             expect(contract!.constructionEpoch).toBe(entry.constructionEpoch);
-            const testSource = isolatedTestSource(
-                readFileSync(join(CORE, "test", entry.file), "utf8"),
-                entry.test,
-            );
+            const testSource = isolatedTestSource(readFileSync(join(CORE, "test", entry.file), "utf8"), entry.test);
 
             const runner = await compileGtest({
                 source: contract!.source,
@@ -94,9 +91,7 @@ describe("core-lite system gtest corpus", () => {
                 constructionEpoch: contract!.constructionEpoch,
                 qpiHeader: QPI,
             });
-            expect(
-                runner.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR),
-            ).toEqual([]);
+            expect(runner.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
             expect(runner.program?.tests.map((item) => item.name)).toEqual([entry.test]);
 
             const compiledContract = await compileContract({
@@ -106,11 +101,7 @@ describe("core-lite system gtest corpus", () => {
                 qpiHeader: QPI,
                 arenaSizeBytes: 16 * 1024 * 1024,
             });
-            expect(
-                compiledContract.diagnostics.filter(
-                    (item) => item.severity === DiagnosticSeverity.ERROR,
-                ),
-            ).toEqual([]);
+            expect(compiledContract.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
             expect(
                 await runCompiledGtest(runner.program!, runner.wasm!, {
                     [contract!.index]: compiledContract.wasm,

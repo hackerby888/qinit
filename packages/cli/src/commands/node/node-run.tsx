@@ -42,9 +42,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
     const offline = commandArgs.has("offline");
     const projectConfig = loadConfig();
     const useSimulator = resolveRuntime(commandArgs.get("runtime")) === "simulator";
-    const coreDirectory =
-        commandArgs.get("core-dir") ??
-        (useSimulator && !requestedRef ? projectConfig.coreDir : undefined);
+    const coreDirectory = commandArgs.get("core-dir") ?? (useSimulator && !requestedRef ? projectConfig.coreDir : undefined);
     const compiler = resolveCompilerBackend(commandArgs.get("compiler"));
     const [steps, setSteps] = useState<Phase[]>([
         { key: "headers", label: "core headers", state: "pending" },
@@ -59,19 +57,14 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
         rows: [string, string][];
     } | null>(null);
     const set = (key: string, state: StepState, detail?: string) =>
-        setSteps((ps) =>
-            ps.map((p) => (p.key === key ? { ...p, state, detail: detail ?? p.detail } : p)),
-        );
+        setSteps((ps) => ps.map((p) => (p.key === key ? { ...p, state, detail: detail ?? p.detail } : p)));
 
     useEffect(() => {
         (async () => {
             try {
                 // An explicit core checkout bypasses the release manifest.
                 set("headers", "active");
-                const manifest =
-                    requestedRef && !offline && coreDirectory === undefined
-                        ? await loadManifest(requestedRef)
-                        : undefined;
+                const manifest = requestedRef && !offline && coreDirectory === undefined ? await loadManifest(requestedRef) : undefined;
                 const preparedCore = await prepareNodeRunCore(
                     {
                         coreDir: coreDirectory,
@@ -85,13 +78,9 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                 );
                 const { version, coreHeaders: currentHeaders } = preparedCore;
                 set("headers", "ok", preparedCore.detail);
-                const slotLayout = useSimulator
-                    ? loadCoreWasmSlotLayout(currentHeaders)
-                    : undefined;
+                const slotLayout = useSimulator ? loadCoreWasmSlotLayout(currentHeaders) : undefined;
                 if (useSimulator && !slotLayout) {
-                    throw new Error(
-                        "simulator requires synced core headers for its Wasm slot layout",
-                    );
+                    throw new Error("simulator requires synced core headers for its Wasm slot layout");
                 }
 
                 // The simulator needs no node binary. An explicit ref selects the same manifest as headers.
@@ -108,10 +97,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                     set("node", "ok", `local ${nodeBinary}`);
                 } else if (offline) {
                     const c = cachedNode();
-                    if (!c)
-                        throw new Error(
-                            "offline: no cached node — run `qinit node run` online first",
-                        );
+                    if (!c) throw new Error("offline: no cached node — run `qinit node run` online first");
                     nodeBinary = c;
                     nodeVersion = readCurrent()?.nodeVersion ?? "cached";
                     set("node", "ok", "reuse cached");
@@ -123,23 +109,13 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                               })),
                               cached: false,
                           }
-                        : await ensureNodeBinary(
-                              cachedNode() ? undefined : cachedReleaseRef(version),
-                              undefined,
-                              { updateCurrent: false },
-                          );
+                        : await ensureNodeBinary(cachedNode() ? undefined : cachedReleaseRef(version), undefined, { updateCurrent: false });
                     nodeBinary = node.nodeBinaryPath;
                     nodeVersion = node.version;
-                    set(
-                        "node",
-                        "ok",
-                        node.cached ? `cached ${node.version}` : `ready ${node.version}`,
-                    );
+                    set("node", "ok", node.cached ? `cached ${node.version}` : `ready ${node.version}`);
                 }
                 if (!useSimulator && !nodeBinaryOverride && nodeVersion !== version) {
-                    throw new Error(
-                        `headers/node version drift (${version} != ${nodeVersion}) — run \`qinit setup\``,
-                    );
+                    throw new Error(`headers/node version drift (${version} != ${nodeVersion}) — run \`qinit setup\``);
                 }
                 if (!useSimulator) {
                     updateCurrent(
@@ -158,17 +134,10 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                 // native deps. Best-effort — WASM_CLANG/WASI_SYSROOT or a clang on PATH still work.
                 set("wasi-sdk", "active");
                 try {
-                    if (offline)
-                        set("wasi-sdk", "ok", haveWasiSdkCache() ? "cached" : "offline — skipped");
+                    if (offline) set("wasi-sdk", "ok", haveWasiSdkCache() ? "cached" : "offline — skipped");
                     else {
                         const s = await fetchWasiSdk((rc, tt) =>
-                            set(
-                                "wasi-sdk",
-                                "active",
-                                tt
-                                    ? `${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB`
-                                    : `${(rc / 1e6) | 0} MB`,
-                            ),
+                            set("wasi-sdk", "active", tt ? `${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `${(rc / 1e6) | 0} MB`),
                         );
                         set("wasi-sdk", "ok", s.cached ? "cached" : "fetched");
                     }
@@ -180,19 +149,11 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                 set("run", "active", "checking");
                 const st = await nodeStatus(rpcBaseUrl);
                 const requestedBackend = useSimulator ? "simulator" : "core";
-                const runningBackend =
-                    st.up && st.ticking
-                        ? (await new LiteRpc(rpcBaseUrl).whoami()).backend
-                        : undefined;
+                const runningBackend = st.up && st.ticking ? (await new LiteRpc(rpcBaseUrl).whoami()).backend : undefined;
                 let scratch = "",
                     ok: boolean,
                     tick: number;
-                if (
-                    st.up &&
-                    st.ticking &&
-                    runningBackend === requestedBackend &&
-                    !commandArgs.has("restart")
-                ) {
+                if (st.up && st.ticking && runningBackend === requestedBackend && !commandArgs.has("restart")) {
                     ok = true;
                     tick = st.tick;
                     set("run", "ok", `reused, ticking at ${tick}`);
@@ -206,14 +167,8 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                             : "node idle";
                     set("run", "active", `${why} → launching${useSimulator ? " simulator" : ""}`);
                     await killNode();
-                    if (
-                        runningBackend &&
-                        runningBackend !== requestedBackend &&
-                        (await nodeStatus(rpcBaseUrl)).up
-                    ) {
-                        throw new Error(
-                            `${rpcBaseUrl} is served by an untracked ${runningBackend} node; stop it or choose another --rpc`,
-                        );
+                    if (runningBackend && runningBackend !== requestedBackend && (await nodeStatus(rpcBaseUrl)).up) {
+                        throw new Error(`${rpcBaseUrl} is served by an untracked ${runningBackend} node; stop it or choose another --rpc`);
                     }
                     const launched = useSimulator
                         ? launchSimulatorNode({
@@ -221,9 +176,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                               rpcBaseUrl: rpcBaseUrl,
                               peerPort,
                               preserveScratchContents: commandArgs.has("keep"),
-                              tickMs: commandArgs.has("tick-ms")
-                                  ? Number(commandArgs.get("tick-ms"))
-                                  : undefined,
+                              tickMs: commandArgs.has("tick-ms") ? Number(commandArgs.get("tick-ms")) : undefined,
                               system: projectConfig.system,
                               compiler,
                               coreDirectory: currentHeaders,
@@ -243,12 +196,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                     tick = w.tick;
                     if (w.ticking) {
                         set("run", "ok", `launched pid ${launched.pid}, ticking at ${tick}`);
-                    } else
-                        set(
-                            "run",
-                            "fail",
-                            w.exited ? "exited early — see node.log" : "not ticking — see node.log",
-                        );
+                    } else set("run", "fail", w.exited ? "exited early — see node.log" : "not ticking — see node.log");
                 }
 
                 // Arm trace capture: a node released before it recorded by default still fills its ring, so a
@@ -257,9 +205,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                     const rpc = new LiteRpc(rpcBaseUrl);
                     const identity = await rpc.whoami();
                     if (identity.backend !== requestedBackend) {
-                        throw new Error(
-                            `expected ${requestedBackend} at ${rpcBaseUrl}, got ${identity.backend}`,
-                        );
+                        throw new Error(`expected ${requestedBackend} at ${rpcBaseUrl}, got ${identity.backend}`);
                     }
                     await rpc.setDebug(true).catch(() => {});
                 }
@@ -282,9 +228,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                     rows,
                 });
             } catch (e: any) {
-                setSteps((ps) =>
-                    ps.map((p) => (p.state === "active" ? { ...p, state: "fail" } : p)),
-                );
+                setSteps((ps) => ps.map((p) => (p.state === "active" ? { ...p, state: "fail" } : p)));
                 setDone({
                     ok: false,
                     title: "node run failed",
@@ -296,10 +240,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
     }, []);
     useEffect(() => {
         if (done) {
-            if (output.json)
-                process.stdout.write(
-                    JSON.stringify({ ok: done.ok, ...Object.fromEntries(done.rows) }) + "\n",
-                );
+            if (output.json) process.stdout.write(JSON.stringify({ ok: done.ok, ...Object.fromEntries(done.rows) }) + "\n");
             process.exitCode = done.ok ? 0 : 1;
             const t = setTimeout(() => exit(), 50);
             return () => clearTimeout(t);

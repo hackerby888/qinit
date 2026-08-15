@@ -1,12 +1,6 @@
 // Contract call/invoke, qubic-cli style, over the built-in RPC.
 //   function (read)  -> POST /live/v1/querySmartContract
-import {
-    LiteRpc,
-    buildSignedTx,
-    broadcastTx,
-    type BroadcastResult,
-    type SignedTx,
-} from "@qinit/core";
+import { LiteRpc, buildSignedTx, broadcastTx, type BroadcastResult, type SignedTx } from "@qinit/core";
 import { decodeOutput, encodeInput, encodeInputJson } from "./abi-fmt";
 import type { AbiType } from "./contract-idl";
 
@@ -17,45 +11,29 @@ export interface TypedContractInput {
 
 // Resolve a deployment inside the node's advertised dynamic window.
 // Reuse a same-named contract's slot (upgrade); otherwise use the first free slot.
-export async function resolveDeploymentSlot(
-    rpc: LiteRpc,
-    name: string,
-    override?: number,
-): Promise<{ slot: number; reused: boolean }> {
+export async function resolveDeploymentSlot(rpc: LiteRpc, name: string, override?: number): Promise<{ slot: number; reused: boolean }> {
     const reg = await rpc.dynRegistry();
     const contracts = reg.contracts ?? [];
-    const inDynamicRange = (slot: number): boolean =>
-        Number.isInteger(slot) && slot >= reg.slotBase && slot < reg.slotBase + reg.slotCount;
+    const inDynamicRange = (slot: number): boolean => Number.isInteger(slot) && slot >= reg.slotBase && slot < reg.slotBase + reg.slotCount;
 
     if (override !== undefined && !Number.isNaN(override)) {
         if (!inDynamicRange(override)) {
-            throw new Error(
-                `slot ${override} is outside dynamic range ${reg.slotBase}..${reg.slotBase + reg.slotCount - 1}`,
-            );
+            throw new Error(`slot ${override} is outside dynamic range ${reg.slotBase}..${reg.slotBase + reg.slotCount - 1}`);
         }
 
-        const occupant = contracts.find(
-            (contract) => contract.index === override && contract.armed,
-        );
+        const occupant = contracts.find((contract) => contract.index === override && contract.armed);
         if (occupant && occupant.name !== name) {
             throw new Error(`slot ${override} is occupied by '${occupant.name}', not '${name}'`);
         }
 
-        const matching = contracts.find(
-            (contract) =>
-                inDynamicRange(contract.index) && contract.armed && contract.name === name,
-        );
+        const matching = contracts.find((contract) => inDynamicRange(contract.index) && contract.armed && contract.name === name);
         if (matching && matching.index !== override) {
-            throw new Error(
-                `'${name}' is already deployed at slot ${matching.index}, not requested slot ${override}`,
-            );
+            throw new Error(`'${name}' is already deployed at slot ${matching.index}, not requested slot ${override}`);
         }
 
         return { slot: override, reused: occupant?.name === name };
     }
-    const mine = contracts.find(
-        (contract) => inDynamicRange(contract.index) && contract.armed && contract.name === name,
-    );
+    const mine = contracts.find((contract) => inDynamicRange(contract.index) && contract.armed && contract.name === name);
     if (mine) {
         return { slot: mine.index, reused: true };
     }
@@ -82,11 +60,7 @@ export async function callFunction(
     outputFormat: string | AbiType,
 ): Promise<any> {
     const encodedInput =
-        typeof input === "string"
-            ? await encodeInput(input)
-            : input instanceof Uint8Array
-              ? input
-              : await encodeInputJson(input.type, input.value);
+        typeof input === "string" ? await encodeInput(input) : input instanceof Uint8Array ? input : await encodeInputJson(input.type, input.value);
     const output = await rpc.querySmartContract(contractIndex, functionId, encodedInput);
     return await decodeOutput(output, outputFormat);
 }

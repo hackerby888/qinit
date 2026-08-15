@@ -1,26 +1,10 @@
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import {
-    buildContractWithWasiClang,
-    systemNames,
-    type ContractBuildResult,
-    type ContractIdl,
-} from "@qinit/build";
+import { buildContractWithWasiClang, systemNames, type ContractBuildResult, type ContractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
-import {
-    LiteRpc,
-    k12Hex,
-    readCurrent,
-    autoUpdateVerifyTool,
-    type NodeBackendIdentity,
-} from "@qinit/core";
+import { LiteRpc, k12Hex, readCurrent, autoUpdateVerifyTool, type NodeBackendIdentity } from "@qinit/core";
 import { encodeDeploy, LITE_TX, resolveDeploymentSlot, TX_TICK_OFFSET } from "@qinit/proto";
-import {
-    savedSeed,
-    savedCompilerBackend,
-    resolveCoreDir,
-    type CompilerBackend,
-} from "../../config";
+import { savedSeed, savedCompilerBackend, resolveCoreDir, type CompilerBackend } from "../../config";
 import { buildContractWithTypeScript } from "../typescript-build";
 import { saveContractIdl } from "../../contracts/idl-file";
 import { resolveNodeCallees } from "../../contracts/callees";
@@ -68,12 +52,8 @@ export interface DeployResult {
     error?: string;
 }
 
-export async function deployContract(
-    options: DeployOpts,
-    emit: (event: DeploymentEvent) => void,
-): Promise<DeployResult> {
-    const slotOverride =
-        options.slotOverride === undefined ? undefined : parseContractSlot(options.slotOverride);
+export async function deployContract(options: DeployOpts, emit: (event: DeploymentEvent) => void): Promise<DeployResult> {
+    const slotOverride = options.slotOverride === undefined ? undefined : parseContractSlot(options.slotOverride);
     const rpc = options.rpc ?? new LiteRpc(options.rpcBaseUrl);
 
     // Reject a competing upload before doing build or network work.
@@ -184,23 +164,15 @@ export async function deployContract(
 
     const discoveredCallees = options.artifact
         ? (options.dynCallees ?? {})
-        : await resolveNodeCallees(
-              rpc,
-              readFileSync(options.contractPath, "utf8"),
-              options.dynCallees ?? {},
-              (note) => emit({ note }),
-              {
-                  name: options.name,
-                  slot,
-                  qpiHeader: loadQpiHeader(options.core),
-              },
-          );
+        : await resolveNodeCallees(rpc, readFileSync(options.contractPath, "utf8"), options.dynCallees ?? {}, (note) => emit({ note }), {
+              name: options.name,
+              slot,
+              qpiHeader: loadQpiHeader(options.core),
+          });
     const dynCallees = Object.fromEntries(
         Object.entries(discoveredCallees).map(([name, callee]) => {
             if (callee.index === undefined) {
-                throw new Error(
-                    `callee '${name}' has no slot; use the project deployment planner or pass --callee ${name}=path@index`,
-                );
+                throw new Error(`callee '${name}' has no slot; use the project deployment planner or pass --callee ${name}=path@index`);
             }
             return [name, { header: callee.header, index: callee.index }];
         }),
@@ -217,11 +189,7 @@ export async function deployContract(
     emit({
         step: "build",
         state: "active",
-        detail: options.artifact
-            ? "validating prebuilt bytes…"
-            : compiler === "typescript"
-              ? "compiling (TypeScript)…"
-              : "compiling…",
+        detail: options.artifact ? "validating prebuilt bytes…" : compiler === "typescript" ? "compiling (TypeScript)…" : "compiling…",
     });
     const build: ContractBuildResult = options.artifact
         ? { ok: options.artifact.wasm.byteLength > 0, idl: options.artifact.idl }
@@ -246,20 +214,14 @@ export async function deployContract(
 
     if (!build.ok) {
         const verification = build.verify;
-        const error =
-            verification && !verification.ok && verification.errors.length
-                ? `protocol: ${verification.errors[0]}`
-                : "compile failed";
+        const error = verification && !verification.ok && verification.errors.length ? `protocol: ${verification.errors[0]}` : "compile failed";
         emit({ step: "build", state: "fail", detail: error });
         emit({ note: (build.stderr ?? "").split("\n").slice(0, 14).join("\n") });
         return { ok: false, slot, error };
     }
 
-    const wasm = options.artifact
-        ? Buffer.from(options.artifact.wasm)
-        : readFileSync(build.wasmPath!);
-    const hash =
-        options.artifact?.hash ?? build.wasmK12DigestHex ?? (await k12Hex(new Uint8Array(wasm)));
+    const wasm = options.artifact ? Buffer.from(options.artifact.wasm) : readFileSync(build.wasmPath!);
+    const hash = options.artifact?.hash ?? build.wasmK12DigestHex ?? (await k12Hex(new Uint8Array(wasm)));
     emit({
         step: "build",
         state: "ok",
@@ -304,12 +266,7 @@ export async function deployContract(
     }
 
     if (backend === "simulator") {
-        const directDeployment = await rpc.directDeploy(
-            slot,
-            new Uint8Array(wasm),
-            options.name,
-            "dynamic",
-        );
+        const directDeployment = await rpc.directDeploy(slot, new Uint8Array(wasm), options.name, "dynamic");
         if (!directDeployment) {
             return {
                 ok: false,
@@ -401,10 +358,7 @@ export async function deployContract(
         }
 
         if (ticksAdvanced < 2) {
-            const secondsPerTick =
-                ticksAdvanced > 0
-                    ? Math.round((Date.now() - startedAt) / 1000 / ticksAdvanced)
-                    : Infinity;
+            const secondsPerTick = ticksAdvanced > 0 ? Math.round((Date.now() - startedAt) / 1000 / ticksAdvanced) : Infinity;
             const speed = secondsPerTick === Infinity ? ">30" : String(secondsPerTick);
             emit({
                 step: "upload",
@@ -492,9 +446,7 @@ export async function deployContract(
             lastTick = tickInfo.tick;
             const registry = await rpc.dynRegistry();
             registryRead = true;
-            const contract = (registry.contracts ?? []).find(
-                (candidate) => candidate.index === slot,
-            );
+            const contract = (registry.contracts ?? []).find((candidate) => candidate.index === slot);
 
             if (contract) {
                 present = !!contract.armed;
@@ -504,9 +456,7 @@ export async function deployContract(
                     armed = true;
                     const expected = options.artifact?.registration;
                     const registrationReady =
-                        !expected ||
-                        ((contract.functions?.length ?? 0) === expected.functions &&
-                            (contract.procedures?.length ?? 0) === expected.procedures);
+                        !expected || ((contract.functions?.length ?? 0) === expected.functions && (contract.procedures?.length ?? 0) === expected.procedures);
 
                     if (contract.constructed && registrationReady) {
                         constructed = true;

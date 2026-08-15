@@ -53,42 +53,29 @@ test("node run --core-dir accepts the simulator without --node-bin", async () =>
 });
 
 test("node run rejects --core-dir with --ref", async () => {
-    await expect(
-        prepareNodeRunCore(
-            { coreDir: coreCheckout(), ref: "qinit-v1", nodeBinary: "/tmp/Qubic" },
-            false,
-        ),
-    ).rejects.toThrow("--core-dir cannot be combined with --ref");
+    await expect(prepareNodeRunCore({ coreDir: coreCheckout(), ref: "qinit-v1", nodeBinary: "/tmp/Qubic" }, false)).rejects.toThrow(
+        "--core-dir cannot be combined with --ref",
+    );
 });
 
 test("node run rejects --offline with --ref", async () => {
-    await expect(prepareNodeRunCore({ offline: true, ref: "qinit-v1" }, false)).rejects.toThrow(
-        "--offline cannot be combined with --ref",
-    );
+    await expect(prepareNodeRunCore({ offline: true, ref: "qinit-v1" }, false)).rejects.toThrow("--offline cannot be combined with --ref");
 });
 
 test("node run rejects --core-dir without a path", async () => {
-    await expect(
-        prepareNodeRunCore({ coreDir: "", nodeBinary: "/tmp/Qubic" }, false),
-    ).rejects.toThrow("--core-dir requires a path");
+    await expect(prepareNodeRunCore({ coreDir: "", nodeBinary: "/tmp/Qubic" }, false)).rejects.toThrow("--core-dir requires a path");
 });
 
 test("the core runtime with --core-dir requires --node-bin", async () => {
-    await expect(prepareNodeRunCore({ coreDir: coreCheckout() }, false)).rejects.toThrow(
-        "requires --node-bin <path>",
-    );
+    await expect(prepareNodeRunCore({ coreDir: coreCheckout() }, false)).rejects.toThrow("requires --node-bin <path>");
 });
 
 test("node run reports missing and malformed --core-dir paths", async () => {
     const malformed = mkdtempSync(join(tmpdir(), "qinit-node-run-bad-core-"));
     temporary.push(malformed);
 
-    await expect(prepareNodeRunCore({ coreDir: join(malformed, "missing") }, true)).rejects.toThrow(
-        "--core-dir not found",
-    );
-    await expect(prepareNodeRunCore({ coreDir: malformed }, true)).rejects.toThrow(
-        "missing src/qpi/qpi.h",
-    );
+    await expect(prepareNodeRunCore({ coreDir: join(malformed, "missing") }, true)).rejects.toThrow("--core-dir not found");
+    await expect(prepareNodeRunCore({ coreDir: malformed }, true)).rejects.toThrow("missing src/qpi/qpi.h");
 });
 
 test("node run reuses valid headers without loading a manifest", async () => {
@@ -142,12 +129,7 @@ test("manifest-backed node run still fetches uncached headers", async () => {
     );
 
     expect(result.detail).toBe("fetched qinit-v8");
-    expect(calls).toEqual([
-        "manifest:latest",
-        "fetch",
-        "extract:/cache/qinit-v8",
-        "current:qinit-v8",
-    ]);
+    expect(calls).toEqual(["manifest:latest", "fetch", "extract:/cache/qinit-v8", "current:qinit-v8"]);
     expect(progress).toEqual([[1, 3]]);
 });
 

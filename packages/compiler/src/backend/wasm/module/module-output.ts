@@ -31,10 +31,7 @@ export function writeGeneratedContractMetadata(
     output.lhostAbi = lhostAbi;
 }
 
-export function publishProgramDiagnostics(
-    programAnalysis: ProgramAnalysis,
-    semanticAnalysis: SemanticAnalyzer,
-): void {
+export function publishProgramDiagnostics(programAnalysis: ProgramAnalysis, semanticAnalysis: SemanticAnalyzer): void {
     for (const warning of programAnalysis.warnings) {
         semanticAnalysis.warn(
             warning.message,

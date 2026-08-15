@@ -62,12 +62,8 @@ describe("compiler diagnostics - source locations", () => {
         const diagnostics = errorsFor(source);
 
         expect(diagnostics.length).toBeGreaterThan(0);
-        expect(diagnostics.some((diagnostic) => diagnostic.span.start === source.length)).toBe(
-            true,
-        );
-        expect(diagnostics.every((diagnostic) => diagnostic.span.start <= source.length)).toBe(
-            true,
-        );
+        expect(diagnostics.some((diagnostic) => diagnostic.span.start === source.length)).toBe(true);
+        expect(diagnostics.every((diagnostic) => diagnostic.span.start <= source.length)).toBe(true);
     });
 
     test("does not leak diagnostics from the supplied QPI header", () => {
@@ -77,9 +73,7 @@ describe("compiler diagnostics - source locations", () => {
 
         expect(diagnostics.length).toBeGreaterThan(0);
         expect(diagnostics.every((diagnostic) => diagnostic.span.line === 1)).toBe(true);
-        expect(diagnostics.every((diagnostic) => diagnostic.span.start <= source.length)).toBe(
-            true,
-        );
+        expect(diagnostics.every((diagnostic) => diagnostic.span.start <= source.length)).toBe(true);
     });
 
     test("still requires embedded ABI metadata for full compilation", async () => {
@@ -94,14 +88,8 @@ describe("compiler diagnostics - source locations", () => {
     });
 
     test("orders and deduplicates recovered diagnostics deterministically", () => {
-        const source = ["struct Broken {", "  uint64 first = ;", "  uint64 second = ;", "};"].join(
-            "\n",
-        );
-        const signature = () =>
-            errorsFor(source).map(
-                (diagnostic) =>
-                    `${diagnostic.span.start}:${diagnostic.span.end}:${diagnostic.message}`,
-            );
+        const source = ["struct Broken {", "  uint64 first = ;", "  uint64 second = ;", "};"].join("\n");
+        const signature = () => errorsFor(source).map((diagnostic) => `${diagnostic.span.start}:${diagnostic.span.end}:${diagnostic.message}`);
         const first = signature();
         const second = signature();
 
@@ -137,12 +125,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             slot: 27,
             strict: true,
         });
-        const laxFidelity = lax.diagnostics.find(
-            (diagnostic) => diagnostic.category === DiagnosticCategory.FIDELITY,
-        );
-        const strictFidelity = strict.diagnostics.find(
-            (diagnostic) => diagnostic.category === DiagnosticCategory.FIDELITY,
-        );
+        const laxFidelity = lax.diagnostics.find((diagnostic) => diagnostic.category === DiagnosticCategory.FIDELITY);
+        const strictFidelity = strict.diagnostics.find((diagnostic) => diagnostic.category === DiagnosticCategory.FIDELITY);
 
         expect(laxFidelity?.severity).toBe(DiagnosticSeverity.WARNING);
         expect(lax.wasm.byteLength).toBeGreaterThan(0);

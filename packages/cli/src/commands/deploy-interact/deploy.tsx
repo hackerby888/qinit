@@ -4,12 +4,7 @@ import { Box, Text, useApp } from "ink";
 import { contractAddress } from "@qinit/proto";
 import { DEFAULT_RPC_BASE, bytesToIdentity } from "@qinit/core";
 import { loadConfig, resolveCoreDir, resolveCompilerBackend } from "../../config";
-import {
-    STEPS,
-    updateDeploymentSteps,
-    type DeploymentEvent,
-    type DeploymentStepState,
-} from "../../ops/deploy";
+import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentStepState } from "../../ops/deploy";
 import { deployProjectContracts, type ProjectDeployResult } from "../../ops/project-deploy";
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
@@ -29,21 +24,13 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
         (async () => {
             try {
                 const cfg = loadConfig();
-                const cpath =
-                    commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract;
-                if (!cpath)
-                    throw new Error(
-                        "no contract: pass `qinit deploy <file.h>` (or --contract <file.h>, or set contract in qinit.json)",
-                    );
+                const cpath = commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract;
+                if (!cpath) throw new Error("no contract: pass `qinit deploy <file.h>` (or --contract <file.h>, or set contract in qinit.json)");
                 const contractPath = resolve(cpath);
-                const nm =
-                    commandArgs.get("contract-name") ??
-                    cfg.contractName ??
-                    basename(contractPath).replace(/\.[^.]+$/, "");
+                const nm = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
                 setName(nm);
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
-                const slotOverride =
-                    requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot);
+                const slotOverride = requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot);
                 const emit = (e: DeploymentEvent) => {
                     if ("note" in e) {
                         setNotes((n) => [...n, e.note]);
@@ -93,9 +80,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                         address: addr || null,
                         tx: result.txId ?? null,
                         codeHash: result.hash ?? null,
-                        dependencies: result.deployments.filter(
-                            (deployment) => deployment.kind !== "main",
-                        ),
+                        dependencies: result.deployments.filter((deployment) => deployment.kind !== "main"),
                         remaining: result.remainingContracts ?? [],
                         error: result.ok ? null : (result.reason ?? result.error ?? null),
                     }) + "\n",
@@ -113,16 +98,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
             <Box flexDirection="column">
                 {STEPS.map(({ key, label }) => {
                     const s = steps[key] ?? { state: "pending" as StepState };
-                    return (
-                        <StepRow
-                            key={key}
-                            state={s.state}
-                            label={label}
-                            detail={s.detail}
-                            pct={s.pct}
-                            elapsedMs={s.elapsedMs}
-                        />
-                    );
+                    return <StepRow key={key} state={s.state} label={label} detail={s.detail} pct={s.pct} elapsedMs={s.elapsedMs} />;
                 })}
             </Box>
             {notes.length > 0 && (
@@ -130,13 +106,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                     {notes.map((n, i) => (
                         <Text
                             key={i}
-                            color={
-                                n.startsWith("✗") || n.startsWith("ERROR")
-                                    ? theme.err
-                                    : n.startsWith("⚠")
-                                      ? theme.warn
-                                      : undefined
-                            }
+                            color={n.startsWith("✗") || n.startsWith("ERROR") ? theme.err : n.startsWith("⚠") ? theme.warn : undefined}
                             dimColor={!/^[✗⚠E]/.test(n)}
                         >
                             {n}
@@ -155,12 +125,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                                 ["address", addr || `id(${result.slot},0,0,0)`],
                                 ["tx", result.txId ?? "—"],
                                 ["codeHash", result.hash ?? "—"],
-                                [
-                                    "fns/procs",
-                                    result.idl
-                                        ? `${result.idl.functions.length} / ${result.idl.procedures.length}`
-                                        : "—",
-                                ],
+                                ["fns/procs", result.idl ? `${result.idl.functions.length} / ${result.idl.procedures.length}` : "—"],
                             ]}
                         />
                         <Box marginTop={1}>
@@ -176,14 +141,8 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                 <Box marginTop={1}>
                     <Panel title="deploy failed" color={theme.err}>
                         <Text>{result.reason ?? result.error ?? "see steps above"}</Text>
-                        {result.deployments.length > 0 && (
-                            <Text dimColor>
-                                completed: {result.deployments.map((item) => item.name).join(", ")}
-                            </Text>
-                        )}
-                        {(result.remainingContracts?.length ?? 0) > 0 && (
-                            <Text dimColor>not run: {result.remainingContracts!.join(", ")}</Text>
-                        )}
+                        {result.deployments.length > 0 && <Text dimColor>completed: {result.deployments.map((item) => item.name).join(", ")}</Text>}
+                        {(result.remainingContracts?.length ?? 0) > 0 && <Text dimColor>not run: {result.remainingContracts!.join(", ")}</Text>}
                     </Panel>
                 </Box>
             )}

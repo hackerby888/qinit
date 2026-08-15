@@ -197,24 +197,17 @@ export type ContainerRegion =
 // without that dot. Only the record arrays are shown under a different name and pass their own.
 const sourceOf = (path: string) => path.replace(/^\./, "");
 
-const member = (
-    off: number,
-    size: number,
-    path: string,
-    type: MemberType,
-    role: MemberRole,
-    short = path,
-): ContainerMember => ({ off, size, path, short, source: sourceOf(path), type, role });
+const member = (off: number, size: number, path: string, type: MemberType, role: MemberRole, short = path): ContainerMember => ({
+    off,
+    size,
+    path,
+    short,
+    source: sourceOf(path),
+    type,
+    role,
+});
 
-const records = (
-    off: number,
-    stride: number,
-    count: number,
-    path: string,
-    short: string,
-    source: string,
-    members: ContainerMember[],
-): ContainerRegion => ({
+const records = (off: number, stride: number, count: number, path: string, short: string, source: string, members: ContainerMember[]): ContainerRegion => ({
     kind: "records",
     off,
     end: off + stride * count,
@@ -225,13 +218,7 @@ const records = (
     members,
 });
 
-const flags = (
-    off: number,
-    size: number,
-    bitsPer: number,
-    count: number,
-    path: string,
-): ContainerRegion => ({
+const flags = (off: number, size: number, bitsPer: number, count: number, path: string): ContainerRegion => ({
     kind: "flags",
     off,
     end: off + size,
@@ -241,13 +228,7 @@ const flags = (
     count,
 });
 
-const word = (
-    off: number,
-    path: string,
-    type: WordType,
-    role: MemberRole,
-    short = path,
-): ContainerRegion => ({
+const word = (off: number, path: string, type: WordType, role: MemberRole, short = path): ContainerRegion => ({
     kind: "word",
     off,
     end: off + 8,
@@ -275,9 +256,7 @@ export function hashSetMembers(key: Layout, capacity: number): ContainerRegion[]
     const geometry = hashSetGeometry(key, capacity);
     return [
         // A slot is the key, with no member below it to name.
-        records(0, geometry.recordStride, capacity, ".slot", ".slot", "_keys", [
-            member(0, key.size, "", "key", "payload"),
-        ]),
+        records(0, geometry.recordStride, capacity, ".slot", ".slot", "_keys", [member(0, key.size, "", "key", "payload")]),
         flags(geometry.flagsOffset, geometry.flagsBytes, 2, capacity, "._occupationFlags"),
         word(geometry.populationOffset, "._population", "uint64", "count", ""),
         word(geometry.populationOffset + 8, "._markRemovalCounter", "uint64", "internal"),
@@ -297,22 +276,14 @@ export function collectionMembers(value: Layout, capacity: number): ContainerReg
         ]),
         flags(geometry.flagsOffset, geometry.flagsBytes, 2, capacity, "._povOccupationFlags"),
         // Priority is passed in by the contract; the BST links and the PoV index are not.
-        records(
-            geometry.elementsOffset,
-            geometry.elementStride,
-            capacity,
-            "._elements",
-            "",
-            "_elements",
-            [
-                member(geometry.elementValueOffset, value.size, ".value", "value", "payload", ""),
-                member(geometry.elementPriorityOffset, 8, ".priority", "sint64", "payload"),
-                member(geometry.elementPovIndexOffset, 8, ".povIndex", "sint64", "internal"),
-                member(geometry.elementBstParentOffset, 8, ".bstParentIndex", "sint64", "internal"),
-                member(geometry.elementBstLeftOffset, 8, ".bstLeftIndex", "sint64", "internal"),
-                member(geometry.elementBstRightOffset, 8, ".bstRightIndex", "sint64", "internal"),
-            ],
-        ),
+        records(geometry.elementsOffset, geometry.elementStride, capacity, "._elements", "", "_elements", [
+            member(geometry.elementValueOffset, value.size, ".value", "value", "payload", ""),
+            member(geometry.elementPriorityOffset, 8, ".priority", "sint64", "payload"),
+            member(geometry.elementPovIndexOffset, 8, ".povIndex", "sint64", "internal"),
+            member(geometry.elementBstParentOffset, 8, ".bstParentIndex", "sint64", "internal"),
+            member(geometry.elementBstLeftOffset, 8, ".bstLeftIndex", "sint64", "internal"),
+            member(geometry.elementBstRightOffset, 8, ".bstRightIndex", "sint64", "internal"),
+        ]),
         word(geometry.populationOffset, "._population", "uint64", "count", ""),
         word(geometry.populationOffset + 8, "._markRemovalCounter", "uint64", "internal"),
     ];
@@ -349,8 +320,7 @@ export const linkedListElemFmt = (valFmt: string) => `${valFmt}, sint64, sint64`
 // Full struct formats consumed by IDL formatting and ABI layout parsing.
 export const hashMapFmt = (keyFmt: string, valFmt: string, capacity: number) =>
     `{ [${capacity};{ ${hashMapElemFmt(keyFmt, valFmt)} }], [${hashMapFlagWordCount(capacity)};uint64], uint64, uint64 }`;
-export const hashSetFmt = (keyFmt: string, capacity: number) =>
-    `{ [${capacity};${keyFmt}], [${hashSetFlagWordCount(capacity)};uint64], uint64, uint64 }`;
+export const hashSetFmt = (keyFmt: string, capacity: number) => `{ [${capacity};${keyFmt}], [${hashSetFlagWordCount(capacity)};uint64], uint64, uint64 }`;
 export const collectionFmt = (valFmt: string, capacity: number) =>
     `{ [${capacity};{ ${COLLECTION_POV_FMT} }], [${collectionFlagWordCount(capacity)};uint64], [${capacity};{ ${collectionElemFmt(valFmt)} }], uint64, uint64 }`;
 export const linkedListFmt = (valFmt: string, capacity: number) =>

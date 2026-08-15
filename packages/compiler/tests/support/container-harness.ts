@@ -38,14 +38,7 @@ export interface OperationResult {
 }
 
 export function encodeContainerOperation(operation: ContainerOperation): Uint8Array {
-    const values = [
-        operation.operator,
-        operation.a ?? 0n,
-        operation.b ?? 0n,
-        operation.c ?? 0n,
-        operation.d ?? 0n,
-        operation.e ?? 0n,
-    ];
+    const values = [operation.operator, operation.a ?? 0n, operation.b ?? 0n, operation.c ?? 0n, operation.d ?? 0n, operation.e ?? 0n];
     const bytes = new Uint8Array(values.length * 8);
     const view = new DataView(bytes.buffer);
     values.forEach((value, index) => {
@@ -56,16 +49,10 @@ export function encodeContainerOperation(operation: ContainerOperation): Uint8Ar
 
 export function decodeWords(bytes: Uint8Array): bigint[] {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    return Array.from({ length: Math.floor(bytes.byteLength / 8) }, (_, index) =>
-        view.getBigUint64(index * 8, true),
-    );
+    return Array.from({ length: Math.floor(bytes.byteLength / 8) }, (_, index) => view.getBigUint64(index * 8, true));
 }
 
-export function executeContainerScript(
-    wasm: Uint8Array,
-    operations: readonly ContainerOperation[],
-    captureCheckpoints = false,
-): ExecutionResult {
+export function executeContainerScript(wasm: Uint8Array, operations: readonly ContainerOperation[], captureCheckpoints = false): ExecutionResult {
     const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     const user = new Uint8Array(32).fill(7);
     sim.fund(user, 1_000_000n);
@@ -104,10 +91,7 @@ export function executeContainerScript(
     };
 }
 
-export async function compileTsFixture(
-    fixture: ContainerFixture,
-    qpiHeader: string,
-): Promise<Uint8Array> {
+export async function compileTsFixture(fixture: ContainerFixture, qpiHeader: string): Promise<Uint8Array> {
     const result = await compileContract({
         source: fixture.source,
         contractName: fixture.name,
@@ -115,21 +99,14 @@ export async function compileTsFixture(
         qpiHeader,
         arenaSizeBytes: CONTAINER_ARENA_SIZE,
     });
-    const errors = result.diagnostics.filter(
-        (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-    );
+    const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
     if (errors.length || !result.wasm.byteLength) {
-        throw new Error(
-            `${fixture.family} TS compile failed: ${errors.map((error) => error.message).join(" | ") || "empty artifact"}`,
-        );
+        throw new Error(`${fixture.family} TS compile failed: ${errors.map((error) => error.message).join(" | ") || "empty artifact"}`);
     }
     return result.wasm;
 }
 
-export async function compileClangFixture(
-    fixture: ContainerFixture,
-    corePath: string,
-): Promise<{ wasm: Uint8Array; dispose: () => void }> {
+export async function compileClangFixture(fixture: ContainerFixture, corePath: string): Promise<{ wasm: Uint8Array; dispose: () => void }> {
     const dir = mkdtempSync(join(tmpdir(), `qinit-container-${fixture.family.toLowerCase()}-`));
     const contractPath = join(dir, `${fixture.name}.h`);
     writeFileSync(contractPath, fixture.source);
@@ -144,9 +121,7 @@ export async function compileClangFixture(
     });
     if (!result.ok || !result.wasmPath) {
         rmSync(dir, { recursive: true, force: true });
-        throw new Error(
-            `${fixture.family} Clang/WASI compile failed: ${result.stderr ?? "no artifact"}`,
-        );
+        throw new Error(`${fixture.family} Clang/WASI compile failed: ${result.stderr ?? "no artifact"}`);
     }
     return {
         wasm: new Uint8Array(readFileSync(result.wasmPath)),
@@ -164,10 +139,7 @@ export function compareExecutions(left: ExecutionResult, right: ExecutionResult)
         if (leftOperation.status !== rightOperation.status) {
             return `operation ${index} status differs: ${leftOperation.status} != ${rightOperation.status}`;
         }
-        if (
-            leftOperation.status === "ok" &&
-            !Buffer.from(leftOperation.output!).equals(Buffer.from(rightOperation.output!))
-        ) {
+        if (leftOperation.status === "ok" && !Buffer.from(leftOperation.output!).equals(Buffer.from(rightOperation.output!))) {
             const leftHex = Buffer.from(leftOperation.output!).toString("hex");
             const rightHex = Buffer.from(rightOperation.output!).toString("hex");
             return `operation ${index} output differs: ${leftHex} != ${rightHex}`;
@@ -184,26 +156,20 @@ export function compareExecutions(left: ExecutionResult, right: ExecutionResult)
             const leftState = left.checkpoints[index];
             const rightState = right.checkpoints[index];
             if (!Buffer.from(leftState).equals(Buffer.from(rightState))) {
-                const firstDifference = leftState.findIndex(
-                    (value, byteIndex) => value !== rightState[byteIndex],
-                );
+                const firstDifference = leftState.findIndex((value, byteIndex) => value !== rightState[byteIndex]);
                 return `operation ${index} state differs at byte ${firstDifference}: ${leftState[firstDifference]} != ${rightState[firstDifference]}`;
             }
         }
     }
     if (!Buffer.from(left.state).equals(Buffer.from(right.state))) {
-        const firstDifference = left.state.findIndex(
-            (value, index) => value !== right.state[index],
-        );
+        const firstDifference = left.state.findIndex((value, index) => value !== right.state[index]);
         return `final state differs at byte ${firstDifference}: ${left.state[firstDifference]} != ${right.state[firstDifference]}`;
     }
     return null;
 }
 
 export function wamrScript(operations: readonly ContainerOperation[]): string {
-    return operations
-        .map((operation) => `1:${Buffer.from(encodeContainerOperation(operation)).toString("hex")}`)
-        .join(";");
+    return operations.map((operation) => `1:${Buffer.from(encodeContainerOperation(operation)).toString("hex")}`).join(";");
 }
 
 export function executeWamr(
@@ -217,21 +183,18 @@ export function executeWamr(
     const artifact = join(dir, "fixture.wasm");
     try {
         writeFileSync(artifact, wasm);
-        const child = Bun.spawnSync(
-            [gtestPath, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"],
-            {
-                cwd: dir,
-                env: {
-                    ...globalThis.process.env,
-                    QINIT_WASM: artifact,
-                    QINIT_SCRIPT: wamrScript(operations),
-                    QINIT_EXPECTED_SLOT: String(expectedSlot),
-                    ...(captureCheckpoints ? { QINIT_CAPTURE_CHECKPOINTS: "1" } : {}),
-                },
-                stdout: "pipe",
-                stderr: "pipe",
+        const child = Bun.spawnSync([gtestPath, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"], {
+            cwd: dir,
+            env: {
+                ...globalThis.process.env,
+                QINIT_WASM: artifact,
+                QINIT_SCRIPT: wamrScript(operations),
+                QINIT_EXPECTED_SLOT: String(expectedSlot),
+                ...(captureCheckpoints ? { QINIT_CAPTURE_CHECKPOINTS: "1" } : {}),
             },
-        );
+            stdout: "pipe",
+            stderr: "pipe",
+        });
         const stdout = child.stdout.toString();
         const stderr = child.stderr.toString();
         if (child.exitCode !== 0) {
@@ -242,41 +205,28 @@ export function executeWamr(
             throw new Error(`WAMR gtest emitted no state:\n${stdout}\n${stderr}`);
         }
         const operationResults: OperationResult[] = [];
-        for (const match of stdout.matchAll(
-            /CROSSHOST_OP=(\d+):(ok|trap|rejected)(?::([0-9a-f]*))?/g,
-        )) {
+        for (const match of stdout.matchAll(/CROSSHOST_OP=(\d+):(ok|trap|rejected)(?::([0-9a-f]*))?/g)) {
             const index = Number(match[1]);
             if (index !== operationResults.length) {
                 throw new Error(`WAMR gtest emitted out-of-order operation ${index}`);
             }
             operationResults.push({
                 status: match[2] as OperationResult["status"],
-                ...(match[2] === "ok"
-                    ? { output: new Uint8Array(Buffer.from(match[3] ?? "", "hex")) }
-                    : {}),
+                ...(match[2] === "ok" ? { output: new Uint8Array(Buffer.from(match[3] ?? "", "hex")) } : {}),
             });
         }
-        if (
-            operationResults.length !== operations.length &&
-            operationResults.at(-1)?.status === "ok"
-        ) {
-            throw new Error(
-                `WAMR gtest emitted ${operationResults.length}/${operations.length} operation results:\n${stdout}`,
-            );
+        if (operationResults.length !== operations.length && operationResults.at(-1)?.status === "ok") {
+            throw new Error(`WAMR gtest emitted ${operationResults.length}/${operations.length} operation results:\n${stdout}`);
         }
-        const checkpoints = [...stdout.matchAll(/CROSSHOST_CHECKPOINT=(\d+):([0-9a-f]+)/g)].map(
-            (match, checkpointIndex) => {
-                const index = Number(match[1]);
-                if (index !== checkpointIndex) {
-                    throw new Error(`WAMR gtest emitted out-of-order checkpoint ${index}`);
-                }
-                return new Uint8Array(Buffer.from(match[2], "hex"));
-            },
-        );
+        const checkpoints = [...stdout.matchAll(/CROSSHOST_CHECKPOINT=(\d+):([0-9a-f]+)/g)].map((match, checkpointIndex) => {
+            const index = Number(match[1]);
+            if (index !== checkpointIndex) {
+                throw new Error(`WAMR gtest emitted out-of-order checkpoint ${index}`);
+            }
+            return new Uint8Array(Buffer.from(match[2], "hex"));
+        });
         if (captureCheckpoints && checkpoints.length !== operationResults.length) {
-            throw new Error(
-                `WAMR gtest emitted ${checkpoints.length}/${operationResults.length} checkpoints:\n${stdout}`,
-            );
+            throw new Error(`WAMR gtest emitted ${checkpoints.length}/${operationResults.length} checkpoints:\n${stdout}`);
         }
         return {
             operations: operationResults,
@@ -289,11 +239,7 @@ export function executeWamr(
     }
 }
 
-export function seededOperations(
-    family: string,
-    seed: number,
-    count: number,
-): ContainerOperation[] {
+export function seededOperations(family: string, seed: number, count: number): ContainerOperation[] {
     let state = (seed ^ 0x9e3779b9) >>> 0;
     const next = () => {
         state ^= state << 13;

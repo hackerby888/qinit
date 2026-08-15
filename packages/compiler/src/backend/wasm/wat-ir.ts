@@ -1,10 +1,4 @@
-import {
-    WatExpectedType,
-    WatNodeKind,
-    WatNodeType,
-    type ExpectedWatType,
-    type WatValueType,
-} from "../../shared/enums";
+import { WatExpectedType, WatNodeKind, WatNodeType, type ExpectedWatType, type WatValueType } from "../../shared/enums";
 import { LHOST_CALL_SIG } from "./lhost";
 
 export { WatExpectedType, WatNodeKind, WatNodeType };
@@ -52,13 +46,9 @@ export function serializeWatNode(node: WatNode): string {
                 ? `(${node.operator} ${serializeWatNode(node.addr)} ${serializeWatNode(node.v)})`
                 : `(${node.operator} offset=${node.offset} ${serializeWatNode(node.addr)} ${serializeWatNode(node.v)})`;
         case WatNodeKind.OP:
-            return node.callArguments.length === 0
-                ? `(${node.operator})`
-                : `(${node.operator} ${node.callArguments.map(serializeWatNode).join(" ")})`;
+            return node.callArguments.length === 0 ? `(${node.operator})` : `(${node.operator} ${node.callArguments.map(serializeWatNode).join(" ")})`;
         case WatNodeKind.CALL:
-            return node.callArguments.length === 0
-                ? `(call ${node.target})`
-                : `(call ${node.target} ${node.callArguments.map(serializeWatNode).join(" ")})`;
+            return node.callArguments.length === 0 ? `(call ${node.target})` : `(call ${node.target} ${node.callArguments.map(serializeWatNode).join(" ")})`;
         case WatNodeKind.RAW:
             return node.text;
     }
@@ -70,9 +60,7 @@ export function assertWatType(node: WatNode, want: ExpectedWatType, context?: st
     const ok = want === WatExpectedType.VALUE ? node.ty !== WatNodeType.VOID : node.ty === want;
     if (!ok) {
         const where = context ? ` in ${context}` : "";
-        throw new Error(
-            `IR type error${where}: expected ${want}, got ${node.ty}: ${serializeWatNode(node)}`,
-        );
+        throw new Error(`IR type error${where}: expected ${want}, got ${node.ty}: ${serializeWatNode(node)}`);
     }
     return node;
 }
@@ -84,37 +72,10 @@ interface WatOperationSignature {
 
 function binops(prefix: WatValueType): Record<string, WatOperationSignature> {
     const signatures: Record<string, WatOperationSignature> = {};
-    for (const operator of [
-        "add",
-        "sub",
-        "mul",
-        "div_s",
-        "div_u",
-        "rem_s",
-        "rem_u",
-        "and",
-        "or",
-        "xor",
-        "shl",
-        "shr_s",
-        "shr_u",
-        "rotl",
-        "rotr",
-    ]) {
+    for (const operator of ["add", "sub", "mul", "div_s", "div_u", "rem_s", "rem_u", "and", "or", "xor", "shl", "shr_s", "shr_u", "rotl", "rotr"]) {
         signatures[`${prefix}.${operator}`] = { res: prefix, ops: [prefix, prefix] };
     }
-    for (const operator of [
-        "eq",
-        "ne",
-        "lt_s",
-        "lt_u",
-        "gt_s",
-        "gt_u",
-        "le_s",
-        "le_u",
-        "ge_s",
-        "ge_u",
-    ]) {
+    for (const operator of ["eq", "ne", "lt_s", "lt_u", "gt_s", "gt_u", "le_s", "le_u", "ge_s", "ge_u"]) {
         signatures[`${prefix}.${operator}`] = { res: WatNodeType.I32, ops: [prefix, prefix] };
     }
     for (const operator of ["clz", "ctz", "popcnt"]) {
@@ -204,8 +165,7 @@ export function registerCallSig(target: string, signature: WatCallSignature): vo
 }
 
 export function resetLhostCallSigs(): void {
-    for (const target of Object.keys(CALL_SIG))
-        if (target.startsWith("$lh_")) delete CALL_SIG[target];
+    for (const target of Object.keys(CALL_SIG)) if (target.startsWith("$lh_")) delete CALL_SIG[target];
     Object.assign(CALL_SIG, LHOST_CALL_SIG);
 }
 
@@ -233,17 +193,9 @@ export function operation(mnemonic: string, ...callArguments: WatNode[]): WatNod
         throw new Error(`IR: unknown opcode ${mnemonic}`);
     }
     if (callArguments.length !== signature.ops.length) {
-        throw new Error(
-            `IR: ${mnemonic} expects ${signature.ops.length} operand(s), got ${callArguments.length}`,
-        );
+        throw new Error(`IR: ${mnemonic} expects ${signature.ops.length} operand(s), got ${callArguments.length}`);
     }
-    callArguments.forEach((argument, argumentIndex) =>
-        assertWatType(
-            argument,
-            signature.ops[argumentIndex],
-            `${mnemonic} operand ${argumentIndex}`,
-        ),
-    );
+    callArguments.forEach((argument, argumentIndex) => assertWatType(argument, signature.ops[argumentIndex], `${mnemonic} operand ${argumentIndex}`));
     return { k: WatNodeKind.OP, ty: signature.res, operator: mnemonic, callArguments };
 }
 
@@ -257,30 +209,16 @@ export function functionCall(target: string, ...callArguments: WatNode[]): WatNo
 }
 
 // Call generated targets through an explicit signature.
-export function functionCallWithSignature(
-    signature: WatCallSignature,
-    target: string,
-    ...callArguments: WatNode[]
-): WatNode {
+export function functionCallWithSignature(signature: WatCallSignature, target: string, ...callArguments: WatNode[]): WatNode {
     if (callArguments.length !== signature.params.length) {
-        throw new Error(
-            `IR: call ${target} expects ${signature.params.length} arg(s), got ${callArguments.length}`,
-        );
+        throw new Error(`IR: call ${target} expects ${signature.params.length} arg(s), got ${callArguments.length}`);
     }
-    callArguments.forEach((argument, argumentIndex) =>
-        assertWatType(
-            argument,
-            signature.params[argumentIndex],
-            `call ${target} arg ${argumentIndex}`,
-        ),
-    );
+    callArguments.forEach((argument, argumentIndex) => assertWatType(argument, signature.params[argumentIndex], `call ${target} arg ${argumentIndex}`));
     return { k: WatNodeKind.CALL, ty: signature.res, target, callArguments };
 }
 
 export function rawWatNode(text: string, ty: WatNodeType, why?: string): WatNode {
-    return why === undefined
-        ? { k: WatNodeKind.RAW, ty, text }
-        : { k: WatNodeKind.RAW, ty, text, why };
+    return why === undefined ? { k: WatNodeKind.RAW, ty, text } : { k: WatNodeKind.RAW, ty, text, why };
 }
 
 // Identify nodes safe for eager Wasm select evaluation.
@@ -311,11 +249,7 @@ export function isPureWatNode(node: WatNode): boolean {
 }
 
 // (select a b cond): polymorphic in wasm — both arms must agree, cond is i32, result is the arm type.
-export function selectValue(
-    firstValue: WatNode,
-    secondValue: WatNode,
-    condition: WatNode,
-): WatNode {
+export function selectValue(firstValue: WatNode, secondValue: WatNode, condition: WatNode): WatNode {
     assertWatType(firstValue, WatExpectedType.VALUE, "select arm 0");
     assertWatType(secondValue, firstValue.ty, "select arm 1");
     assertWatType(condition, WatNodeType.I32, "select condition");
@@ -343,18 +277,9 @@ export function rawLoad(mnemonic: string, offset: number | null, addr: WatNode):
     return { k: WatNodeKind.LOAD, ty, operator: mnemonic, offset, addr };
 }
 
-export function rawStore(
-    mnemonic: string,
-    offset: number | null,
-    addr: WatNode,
-    value: WatNode,
-): WatNode {
+export function rawStore(mnemonic: string, offset: number | null, addr: WatNode, value: WatNode): WatNode {
     assertWatType(addr, WatNodeType.I32, `${mnemonic} address`);
-    assertWatType(
-        value,
-        mnemonic.startsWith("i64.") ? WatNodeType.I64 : WatNodeType.I32,
-        `${mnemonic} value`,
-    );
+    assertWatType(value, mnemonic.startsWith("i64.") ? WatNodeType.I64 : WatNodeType.I32, `${mnemonic} value`);
     return {
         k: WatNodeKind.STORE,
         ty: WatNodeType.VOID,
@@ -372,20 +297,11 @@ export function loadScalar(addr: WatNode, size: number, signed = false): WatNode
         case 8:
             return rawLoad("i64.load", null, addr);
         case 4:
-            return operation(
-                signed ? "i64.extend_i32_s" : "i64.extend_i32_u",
-                rawLoad("i32.load", null, addr),
-            );
+            return operation(signed ? "i64.extend_i32_s" : "i64.extend_i32_u", rawLoad("i32.load", null, addr));
         case 2:
-            return operation(
-                signed ? "i64.extend_i32_s" : "i64.extend_i32_u",
-                rawLoad(signed ? "i32.load16_s" : "i32.load16_u", null, addr),
-            );
+            return operation(signed ? "i64.extend_i32_s" : "i64.extend_i32_u", rawLoad(signed ? "i32.load16_s" : "i32.load16_u", null, addr));
         case 1:
-            return operation(
-                signed ? "i64.extend_i32_s" : "i64.extend_i32_u",
-                rawLoad(signed ? "i32.load8_s" : "i32.load8_u", null, addr),
-            );
+            return operation(signed ? "i64.extend_i32_s" : "i64.extend_i32_u", rawLoad(signed ? "i32.load8_s" : "i32.load8_u", null, addr));
         default:
             return rawLoad("i64.load", null, addr);
     }

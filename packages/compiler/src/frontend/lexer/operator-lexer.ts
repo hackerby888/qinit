@@ -2,12 +2,7 @@ import { TokenKind } from "../../shared/enums";
 import type { Lexer } from "./lexer";
 import type { Token } from "./tokens";
 
-export function lexOperator(
-    lexer: Lexer,
-    start: number,
-    startLine: number,
-    startCol: number,
-): Token {
+export function lexOperator(lexer: Lexer, start: number, startLine: number, startCol: number): Token {
     const ch = lexer.advance();
     const next = lexer.peekChar();
     const mk = (kind: TokenKind): Token => ({

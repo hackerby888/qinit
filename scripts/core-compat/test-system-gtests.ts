@@ -17,9 +17,7 @@ function option(name: string): string | undefined {
 }
 
 function selection(): Selection {
-    const selected = (["light", "heavy", "all"] as const).filter((name) =>
-        process.argv.includes(`--${name}`),
-    );
+    const selected = (["light", "heavy", "all"] as const).filter((name) => process.argv.includes(`--${name}`));
     if (selected.length > 1) {
         throw new Error("choose only one of --light, --heavy, or --all");
     }
@@ -43,11 +41,7 @@ const filter = new Set(
         .filter(Boolean),
 );
 const discovered = systemGtestCorpora(core);
-const selected = discovered.filter(
-    (entry) =>
-        (tier === "all" || entry.tier === tier) &&
-        (!filter.size || filter.has(entry.name.toUpperCase())),
-);
+const selected = discovered.filter((entry) => (tier === "all" || entry.tier === tier) && (!filter.size || filter.has(entry.name.toUpperCase())));
 
 if (process.argv.includes("--list")) {
     for (const entry of discovered) {
@@ -56,9 +50,7 @@ if (process.argv.includes("--list")) {
     process.exit(0);
 }
 if (!selected.length) {
-    throw new Error(
-        `no ${tier} system gtest corpora matched${filter.size ? `: ${[...filter].join(", ")}` : ""}`,
-    );
+    throw new Error(`no ${tier} system gtest corpora matched${filter.size ? `: ${[...filter].join(", ")}` : ""}`);
 }
 
 const sdk = wasiSdkPaths();
@@ -103,12 +95,7 @@ for (const [index, entry] of selected.entries()) {
         } else if (run.results.length === 0) {
             error = "gtest corpus produced no results";
         } else if (failed.length) {
-            error = failed
-                .map(
-                    (result) =>
-                        `${result.name}: ${result.message.replace(/\s+/g, " ").slice(0, 180)}`,
-                )
-                .join(" | ");
+            error = failed.map((result) => `${result.name}: ${result.message.replace(/\s+/g, " ").slice(0, 180)}`).join(" | ");
         }
         rows.push({
             name: entry.name,
@@ -118,9 +105,7 @@ for (const [index, entry] of selected.entries()) {
             seconds: (performance.now() - started) / 1000,
             error,
         });
-        console.log(
-            `  ${error ? "FAIL" : "PASS"} ${passed}/${run.results.length}${error ? ` · ${error}` : ""}\n`,
-        );
+        console.log(`  ${error ? "FAIL" : "PASS"} ${passed}/${run.results.length}${error ? ` · ${error}` : ""}\n`);
     } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause);
         rows.push({
@@ -143,16 +128,12 @@ console.log("-".repeat(width + 34));
 for (const row of rows) {
     const tests = `${row.passed}/${row.total}`.padEnd(7);
     const elapsed = `${row.seconds.toFixed(1)}s`.padEnd(7);
-    console.log(
-        `${row.name.padEnd(width)}  ${row.tier.padEnd(5)}  ${tests}  ${elapsed} ${row.error ? "FAIL" : "PASS"}`,
-    );
+    console.log(`${row.name.padEnd(width)}  ${row.tier.padEnd(5)}  ${tests}  ${elapsed} ${row.error ? "FAIL" : "PASS"}`);
 }
 const passedSuites = rows.filter((row) => !row.error).length;
 const passedTests = rows.reduce((sum, row) => sum + row.passed, 0);
 const totalTests = rows.reduce((sum, row) => sum + row.total, 0);
-console.log(
-    `\n${passedSuites}/${rows.length} contracts passed · ${passedTests}/${totalTests} tests passed`,
-);
+console.log(`\n${passedSuites}/${rows.length} contracts passed · ${passedTests}/${totalTests} tests passed`);
 if (passedSuites !== rows.length) {
     process.exitCode = 1;
 }

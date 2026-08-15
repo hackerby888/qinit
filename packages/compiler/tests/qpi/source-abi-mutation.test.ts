@@ -14,15 +14,11 @@ const shared = readFileSync(`${CORE_PATH}/src/${CORE_WASM_HEADERS.shared.abiType
 
 function addFunctionContextDeclaration(header: string, declaration: string): string {
     const marker = /struct QpiContextFunctionCall : public QpiContext\r?\n\s*\{/;
-    if (!marker.test(header))
-        throw new Error("QpiContextFunctionCall declaration marker not found");
+    if (!marker.test(header)) throw new Error("QpiContextFunctionCall declaration marker not found");
     return header.replace(marker, (match) => `${match}\n\t\t${declaration}`);
 }
 
-function mutateEmbeddedAbi(
-    header: string,
-    mutate: (abi: ReturnType<typeof parseWasmAbiSource>) => void,
-): string {
+function mutateEmbeddedAbi(header: string, mutate: (abi: ReturnType<typeof parseWasmAbiSource>) => void): string {
     const pattern = new RegExp(`^${WASM_ABI_MARKER}(.+)$`, "m");
     const match = pattern.exec(header);
     if (!match) throw new Error("embedded ABI marker not found");
@@ -62,11 +58,7 @@ describe("source-backed ABI mutations", () => {
             qpiHeader: header,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            result.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         const moduleBytes = new Uint8Array(result.wasm).buffer as ArrayBuffer;
         expect(WebAssembly.Module.imports(new WebAssembly.Module(moduleBytes))[0]).toMatchObject({
             module: "lhost",
@@ -85,11 +77,7 @@ describe("source-backed ABI mutations", () => {
             qpiHeader: header,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            result.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     });
 
     test("LHOST row order and additions are read from the canonical table", () => {
@@ -105,14 +93,8 @@ describe("source-backed ABI mutations", () => {
 
     test("record field reorder changes generated offsets and capacity comes from core", async () => {
         const reordered = shared
-            .replace(
-                "unsigned char owner[32];\n    unsigned char possessor[32];",
-                "unsigned char possessor[32];\n    unsigned char owner[32];",
-            )
-            .replace(
-                "#define WASM_ASSET_ENTRY_CAPACITY 1024u",
-                "#define WASM_ASSET_ENTRY_CAPACITY 2048u",
-            );
+            .replace("unsigned char owner[32];\n    unsigned char possessor[32];", "unsigned char possessor[32];\n    unsigned char owner[32];")
+            .replace("#define WASM_ASSET_ENTRY_CAPACITY 1024u", "#define WASM_ASSET_ENTRY_CAPACITY 2048u");
         const record = parseWasmAbiSource(metadata, reordered).records.AssetEntry;
         expect(record.fields.possessor.offset).toBe(0);
         expect(record.fields.owner.offset).toBe(32);
@@ -141,14 +123,8 @@ describe("source-backed ABI mutations", () => {
             qpiHeader: changedHeader,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            changed.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
-        expect(inspectWasmModule(changed.wasm).memories[0].minimumPages).toBeGreaterThan(
-            inspectWasmModule(baseline.wasm).memories[0].minimumPages,
-        );
+        expect(changed.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+        expect(inspectWasmModule(changed.wasm).memories[0].minimumPages).toBeGreaterThan(inspectWasmModule(baseline.wasm).memories[0].minimumPages);
     });
 
     test("system-procedure IDs and method names follow the canonical table", async () => {
@@ -186,36 +162,19 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             qpiHeader: header,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            result.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         expect(sim.deploy(27, result.wasm).ex.reg_sysproc_mask()).toBe(1 << 1);
     });
 
     test("unsupported or ambiguous core metadata fails generation", () => {
-        expect(() =>
-            parseWasmAbiSource(metadata.replace('GI("endFn"', 'GI("beginFn"'), shared),
-        ).toThrow(/duplicate LHOST import/);
-        expect(() =>
-            parseWasmAbiSource(
-                metadata,
-                replaceRequired(
-                    shared,
-                    /struct AssetEntry\s*\{/,
-                    "struct AssetEntry {\n    float unsupported;",
-                ),
-            ),
-        ).toThrow(/unsupported AssetEntry field/);
+        expect(() => parseWasmAbiSource(metadata.replace('GI("endFn"', 'GI("beginFn"'), shared)).toThrow(/duplicate LHOST import/);
+        expect(() => parseWasmAbiSource(metadata, replaceRequired(shared, /struct AssetEntry\s*\{/, "struct AssetEntry {\n    float unsupported;"))).toThrow(
+            /unsupported AssetEntry field/,
+        );
         expect(() =>
             parseWasmAbiSource(
-                replaceRequired(
-                    metadata,
-                    /X\(BEGIN_EPOCH,\s*1,\s*beginEpoch,\s*__beginEpochEmpty\)/,
-                    "X(BEGIN_EPOCH, 7, beginEpoch, __beginEpochEmpty)",
-                ),
+                replaceRequired(metadata, /X\(BEGIN_EPOCH,\s*1,\s*beginEpoch,\s*__beginEpochEmpty\)/, "X(BEGIN_EPOCH, 7, beginEpoch, __beginEpochEmpty)"),
                 shared,
             ),
         ).toThrow(/ambiguous system-procedure order/);

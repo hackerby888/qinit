@@ -32,27 +32,17 @@ export interface Cancellable {
     onCancellationRequested(listener: () => void): { dispose(): void };
 }
 
-function run(
-    command: string,
-    args: string[],
-    timeoutMs: number,
-    cancel?: Cancellable,
-): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+function run(command: string, args: string[], timeoutMs: number, cancel?: Cancellable): Promise<{ ok: boolean; stdout: string; stderr: string }> {
     return new Promise((resolvePromise) => {
-        const child = execFile(
-            command,
-            args,
-            { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 },
-            (error, stdout, stderr) => {
-                subscription?.dispose();
-                // clang exits non-zero when the buffer has parse errors, but completions still stream out.
-                resolvePromise({
-                    ok: !error || stdout.length > 0,
-                    stdout: stdout ?? "",
-                    stderr: stderr ?? "",
-                });
-            },
-        );
+        const child = execFile(command, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+            subscription?.dispose();
+            // clang exits non-zero when the buffer has parse errors, but completions still stream out.
+            resolvePromise({
+                ok: !error || stdout.length > 0,
+                stdout: stdout ?? "",
+                stderr: stderr ?? "",
+            });
+        });
         // Typing outruns the process: an abandoned request must not keep a clang alive.
         const subscription = cancel?.onCancellationRequested(() => child.kill());
         if (cancel?.isCancellationRequested) child.kill();
@@ -94,10 +84,7 @@ export function resetClangCacheForTests(): void {
 }
 
 /** The compile-DB entry for this contract, read from the DB next to the generated prefix. */
-export function compileEntryFor(
-    prefixPath: string,
-    contractPath: string,
-): { directory: string; args: string[] } | undefined {
+export function compileEntryFor(prefixPath: string, contractPath: string): { directory: string; args: string[] } | undefined {
     const dbPath = join(dirname(prefixPath), "compile_commands.json");
     let entries: Array<{ directory?: string; file?: string; arguments?: string[] }>;
     try {
@@ -114,10 +101,7 @@ export function compileEntryFor(
 }
 
 /** DB args split around the trailing `-include <prefix> -x c++ <contract>` tail. */
-export function splitCompileArgs(
-    args: string[],
-    prefixPath: string,
-): { shared: string[] } | undefined {
+export function splitCompileArgs(args: string[], prefixPath: string): { shared: string[] } | undefined {
     const prefix = prefixPath.replace(/\\/g, "/");
     const shared: string[] = [];
     let sawPrefix = false;
@@ -156,10 +140,7 @@ export function cxxIncludeArgs(shared: string[]): string[] {
     if (!sysroot) return [];
 
     const args: string[] = [];
-    for (const dir of [
-        join(sysroot, "include", "wasm32-wasi", "c++", "v1"),
-        join(sysroot, "include", "c++", "v1"),
-    ]) {
+    for (const dir of [join(sysroot, "include", "wasm32-wasi", "c++", "v1"), join(sysroot, "include", "c++", "v1")]) {
         if (existsSync(dir)) args.push("-isystem", dir);
     }
     return args;
@@ -229,11 +210,7 @@ function invalidatePch(prefixPath: string): boolean {
 }
 
 /** Build (or reuse) the prefix PCH; keyed on clang binary + args + prefix content. */
-export async function ensurePrefixPch(
-    clang: string,
-    prefixPath: string,
-    shared: string[],
-): Promise<string | undefined> {
+export async function ensurePrefixPch(clang: string, prefixPath: string, shared: string[]): Promise<string | undefined> {
     const pchPath = pchPathFor(prefixPath);
     const pchSourcePath = pchSourcePathFor(prefixPath);
     const keyPath = `${pchPath}.key`;
@@ -359,19 +336,11 @@ function completionKey(request: FallbackRequest, pch: string): string {
         .digest("hex");
 }
 
-async function completeOnce(
-    clang: string,
-    request: FallbackRequest,
-    shared: string[],
-    pch: string,
-): Promise<{ items: FallbackItem[]; stalePch: boolean }> {
+async function completeOnce(clang: string, request: FallbackRequest, shared: string[], pch: string): Promise<{ items: FallbackItem[]; stalePch: boolean }> {
     completionRuns++;
     // The live buffer is unsaved, so completion runs on a copy beside the DB, not the file on disk.
     // Typing outruns the subprocess, so each request gets its own copy rather than sharing one path.
-    const bufferCopy = join(
-        dirname(request.prefixPath),
-        `.complete-buffer.${process.pid}.${++bufferSequence}.h`,
-    );
+    const bufferCopy = join(dirname(request.prefixPath), `.complete-buffer.${process.pid}.${++bufferSequence}.h`);
     try {
         writeFileSync(bufferCopy, request.bufferText);
     } catch {
@@ -409,10 +378,7 @@ async function completeOnce(
     return { items: parseCompletions(result.stdout), stalePch: STALE_PCH.test(result.stderr) };
 }
 
-async function resolveRun(
-    prefixPath: string,
-    contractPath: string,
-): Promise<{ clang: string; shared: string[] } | undefined> {
+async function resolveRun(prefixPath: string, contractPath: string): Promise<{ clang: string; shared: string[] } | undefined> {
     const clang = await findClang();
     if (!clang) return undefined;
 
@@ -432,9 +398,7 @@ export async function prewarmPch(prefixPath: string, contractPath: string): Prom
 }
 
 /** Completion at the cursor via a clang subprocess; undefined when unavailable or empty. */
-export async function memberFallbackCompletions(
-    request: FallbackRequest,
-): Promise<FallbackItem[] | undefined> {
+export async function memberFallbackCompletions(request: FallbackRequest): Promise<FallbackItem[] | undefined> {
     const resolved = await resolveRun(request.prefixPath, request.contractPath);
     if (!resolved) return undefined;
     const { clang, shared } = resolved;

@@ -1,12 +1,5 @@
 import { AstKind, TokenKind } from "../../../shared/enums";
-import type {
-    ClassTemplateDecl,
-    Declaration,
-    FunctionTemplateDecl,
-    Statement,
-    TemplateParam,
-    TypeSpec,
-} from "../../../ast";
+import type { ClassTemplateDecl, Declaration, FunctionTemplateDecl, Statement, TemplateParam, TypeSpec } from "../../../ast";
 import { isTypeKeyword } from "../../lexer";
 import type { Parser } from "../parser";
 
@@ -42,10 +35,7 @@ export class TemplateParser {
             const tok = this.parser.state.peek();
             if (tok.kind === TokenKind.KW_TYPENAME || tok.kind === TokenKind.KW_CLASS) {
                 this.parser.state.next();
-                const nameTok = this.parser.state.expect(
-                    TokenKind.IDENTIFIER,
-                    "template param name",
-                );
+                const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "template param name");
                 if (!nameTok) break;
                 const name = nameTok.text;
                 // Default: typename T = DefaultType
@@ -57,10 +47,7 @@ export class TemplateParser {
             } else if (isTypeKeyword(tok.kind) || tok.kind === TokenKind.IDENTIFIER) {
                 // Non-type parameter: uint64 L
                 const type = this.parser.types.parseTypeSpec();
-                const nameTok = this.parser.state.expect(
-                    TokenKind.IDENTIFIER,
-                    "non-type param name",
-                );
+                const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "non-type param name");
                 if (!nameTok) break;
                 const name = nameTok.text;
                 if (this.parser.state.tryConsume(TokenKind.EQ)) {

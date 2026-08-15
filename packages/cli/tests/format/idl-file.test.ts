@@ -2,19 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-    AbiTypeKind,
-    QINIT_IDL_VERSION,
-    type AbiStruct,
-    type ContractIdlArtifact,
-    type ContractIdlFile,
-} from "@qinit/proto/contract-idl";
-import {
-    contractIdlForSlot,
-    emptyContractIdlFile,
-    loadContractIdlFile,
-    saveContractIdl,
-} from "../../src/contracts/idl-file";
+import { AbiTypeKind, QINIT_IDL_VERSION, type AbiStruct, type ContractIdlArtifact, type ContractIdlFile } from "@qinit/proto/contract-idl";
+import { contractIdlForSlot, emptyContractIdlFile, loadContractIdlFile, saveContractIdl } from "../../src/contracts/idl-file";
 
 const emptyStruct: AbiStruct = {
     kind: AbiTypeKind.STRUCT,
@@ -76,9 +65,7 @@ test("saving validates the new contract", () => {
     const root = mkdtempSync(join(tmpdir(), "qinit-idl-invalid-"));
     const path = join(root, "qinit.idl.json");
 
-    expect(() => saveContractIdl(28, { ...contract, slot: 29 }, path)).toThrow(
-        "IDL contract 28 stores slot 29",
-    );
+    expect(() => saveContractIdl(28, { ...contract, slot: 29 }, path)).toThrow("IDL contract 28 stores slot 29");
 });
 
 test("deployed metadata must match the live code hash", () => {

@@ -10,11 +10,7 @@ export class QpiCodeActions implements vscode.CodeActionProvider {
 
     constructor(private readonly diagnostics: QpiDiagnostics) {}
 
-    provideCodeActions(
-        doc: vscode.TextDocument,
-        _range: vscode.Range,
-        ctx: vscode.CodeActionContext,
-    ): vscode.CodeAction[] {
+    provideCodeActions(doc: vscode.TextDocument, _range: vscode.Range, ctx: vscode.CodeActionContext): vscode.CodeAction[] {
         if (!isContractDoc(doc)) return [];
         const actions: vscode.CodeAction[] = [];
         for (const diagnostic of ctx.diagnostics) {
@@ -26,19 +22,11 @@ export class QpiCodeActions implements vscode.CodeActionProvider {
     }
 }
 
-function codeAction(
-    doc: vscode.TextDocument,
-    diagnostic: vscode.Diagnostic,
-    fix: SourceFix,
-): vscode.CodeAction {
+function codeAction(doc: vscode.TextDocument, diagnostic: vscode.Diagnostic, fix: SourceFix): vscode.CodeAction {
     const action = new vscode.CodeAction(fix.title, vscode.CodeActionKind.QuickFix);
     action.edit = new vscode.WorkspaceEdit();
     for (const edit of fix.edits) {
-        action.edit.replace(
-            doc.uri,
-            new vscode.Range(doc.positionAt(edit.span.start), doc.positionAt(edit.span.end)),
-            edit.newText,
-        );
+        action.edit.replace(doc.uri, new vscode.Range(doc.positionAt(edit.span.start), doc.positionAt(edit.span.end)), edit.newText);
     }
     action.diagnostics = [diagnostic];
     action.isPreferred = fix.preferred;

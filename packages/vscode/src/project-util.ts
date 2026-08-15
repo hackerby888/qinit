@@ -49,28 +49,17 @@ export function isQpiContractSource(source: string): boolean {
 }
 
 export function isContractDoc(doc: vscode.TextDocument): boolean {
-    return (
-        doc.uri.scheme === "file" &&
-        /\.(h|hpp|hxx)$/i.test(doc.fileName) &&
-        isQpiContractSource(doc.getText())
-    );
+    return doc.uri.scheme === "file" && /\.(h|hpp|hxx)$/i.test(doc.fileName) && isQpiContractSource(doc.getText());
 }
 
-export function projectContractDocuments(
-    configFile: string,
-    documents: readonly vscode.TextDocument[],
-): vscode.TextDocument[] {
+export function projectContractDocuments(configFile: string, documents: readonly vscode.TextDocument[]): vscode.TextDocument[] {
     const project = dirname(configFile);
-    return documents.filter(
-        (document) => findProjectRoot(document.fileName) === project && isContractDoc(document),
-    );
+    return documents.filter((document) => findProjectRoot(document.fileName) === project && isContractDoc(document));
 }
 
 export function isTestDoc(doc: vscode.TextDocument): boolean {
     return (
-        doc.uri.scheme === "file" &&
-        /\.(cpp|cc|cxx)$/i.test(doc.fileName) &&
-        /#include\s+["<][^">]*contract_testing\.h|(^|\n)\s*TEST\s*\(/.test(doc.getText())
+        doc.uri.scheme === "file" && /\.(cpp|cc|cxx)$/i.test(doc.fileName) && /#include\s+["<][^">]*contract_testing\.h|(^|\n)\s*TEST\s*\(/.test(doc.getText())
     );
 }
 
@@ -84,11 +73,7 @@ export function testContractType(source: string): string | undefined {
     let fallback: string | undefined;
 
     for (let index = 0; index < tokens.length; index++) {
-        if (
-            tokens[index].text === "INIT_CONTRACT" &&
-            tokens[index + 1]?.kind === TokenKind.L_PAREN &&
-            tokens[index + 2]?.kind === TokenKind.IDENTIFIER
-        ) {
+        if (tokens[index].text === "INIT_CONTRACT" && tokens[index + 1]?.kind === TokenKind.L_PAREN && tokens[index + 2]?.kind === TokenKind.IDENTIFIER) {
             return tokens[index + 2].text;
         }
         if (
@@ -106,18 +91,11 @@ export function testContractType(source: string): string | undefined {
 
 // How closely a contract sits to the test: how much of the path they share, then how far apart they
 // are. Sharing `<project>/` beats sharing only the workspace root, even at equal step counts.
-function pathProximity(
-    candidatePath: string,
-    testPath: string,
-): { shared: number; distance: number } {
+function pathProximity(candidatePath: string, testPath: string): { shared: number; distance: number } {
     const candidateParts = resolve(candidatePath).split(sep);
     const testParts = resolve(testPath).split(sep);
     let shared = 0;
-    while (
-        shared < candidateParts.length &&
-        shared < testParts.length &&
-        candidateParts[shared] === testParts[shared]
-    ) {
+    while (shared < candidateParts.length && shared < testParts.length && candidateParts[shared] === testParts[shared]) {
         shared++;
     }
     return {
@@ -128,10 +106,7 @@ function pathProximity(
 
 // One contract name can exist in several directories, so a tie is broken by the file name the test
 // carries (`Counter.test.cpp` → `Counter.h`) and then by proximity. Still tied stays ambiguous.
-function closestCandidate(
-    matches: ContractCandidate[],
-    testPath?: string,
-): ContractCandidate | undefined {
+function closestCandidate(matches: ContractCandidate[], testPath?: string): ContractCandidate | undefined {
     if (!testPath) return undefined;
 
     const testName = basename(testPath).replace(/\.test\.(cpp|cc|cxx)$/i, "");
@@ -144,22 +119,13 @@ function closestCandidate(
         ...pathProximity(candidate.path, testPath),
     }));
     const best = scored.reduce((winner, entry) =>
-        entry.shared > winner.shared ||
-        (entry.shared === winner.shared && entry.distance < winner.distance)
-            ? entry
-            : winner,
+        entry.shared > winner.shared || (entry.shared === winner.shared && entry.distance < winner.distance) ? entry : winner,
     );
-    const tied = scored.filter(
-        (entry) => entry.shared === best.shared && entry.distance === best.distance,
-    );
+    const tied = scored.filter((entry) => entry.shared === best.shared && entry.distance === best.distance);
     return tied.length === 1 ? best.candidate : undefined;
 }
 
-export function selectTestContract(
-    testSource: string,
-    candidates: ContractCandidate[],
-    testPath?: string,
-): ContractCandidate | undefined {
+export function selectTestContract(testSource: string, candidates: ContractCandidate[], testPath?: string): ContractCandidate | undefined {
     const stateType = testContractType(testSource);
     if (stateType) {
         const matches = candidates.filter((candidate) => candidate.stateType === stateType);

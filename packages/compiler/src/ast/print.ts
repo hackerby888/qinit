@@ -14,13 +14,7 @@ export function formatAst(translationUnit: TranslationUnit): string {
     return lines.join("\n");
 }
 
-function renderNode(
-    label: string,
-    value: unknown,
-    prefix: string,
-    isLast: boolean,
-    lines: string[],
-): void {
+function renderNode(label: string, value: unknown, prefix: string, isLast: boolean, lines: string[]): void {
     const branch = isLast ? "└─ " : "├─ ";
     const childPrefix = prefix + (isLast ? "   " : "│  ");
 
@@ -39,13 +33,7 @@ function renderNode(
 
         const children = childrenOf(node);
         children.forEach((child, childIndex) => {
-            renderNode(
-                child.label,
-                child.value,
-                childPrefix,
-                childIndex === children.length - 1,
-                lines,
-            );
+            renderNode(child.label, child.value, childPrefix, childIndex === children.length - 1, lines);
         });
         return;
     }
@@ -63,9 +51,7 @@ function headText(node: Record<string, unknown>): string {
         if (nodeItem === undefined || nodeItem === null || typeof nodeItem === "object") {
             continue;
         }
-        parts.push(
-            typeof nodeItem === "string" ? `${headKey}="${nodeItem}"` : `${headKey}=${nodeItem}`,
-        );
+        parts.push(typeof nodeItem === "string" ? `${headKey}="${nodeItem}"` : `${headKey}=${nodeItem}`);
     }
 
     return parts.length ? `${kind}  ${parts.join(" ")}` : kind;

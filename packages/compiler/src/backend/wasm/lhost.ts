@@ -1,9 +1,4 @@
-import {
-    LHOST_ABI,
-    type LhostFunctionSignature,
-    type LhostImportName,
-    type LhostValueType,
-} from "@qinit/core";
+import { LHOST_ABI, type LhostFunctionSignature, type LhostImportName, type LhostValueType } from "@qinit/core";
 import { WatNodeType, type WatValueType } from "../../shared/enums";
 
 export type LhostAbiSpec = Readonly<Record<string, LhostFunctionSignature>>;
@@ -18,22 +13,16 @@ function watValueType(value: LhostValueType): WatValueType {
 
 export const LHOST_CALL_SIG = Object.freeze(
     Object.fromEntries(
-        (Object.entries(LHOST_ABI) as [LhostImportName, (typeof LHOST_ABI)[LhostImportName]][]).map(
-            ([name, abi]) => {
-                if (abi.results.length > 1)
-                    throw new Error(`lhost.${name} has an unsupported multi-value result`);
-                return [
-                    lhostSymbol(name),
-                    {
-                        params: Object.freeze(abi.params.map(watValueType)),
-                        res:
-                            abi.results[0] === undefined
-                                ? WatNodeType.VOID
-                                : watValueType(abi.results[0]),
-                    },
-                ];
-            },
-        ),
+        (Object.entries(LHOST_ABI) as [LhostImportName, (typeof LHOST_ABI)[LhostImportName]][]).map(([name, abi]) => {
+            if (abi.results.length > 1) throw new Error(`lhost.${name} has an unsupported multi-value result`);
+            return [
+                lhostSymbol(name),
+                {
+                    params: Object.freeze(abi.params.map(watValueType)),
+                    res: abi.results[0] === undefined ? WatNodeType.VOID : watValueType(abi.results[0]),
+                },
+            ];
+        }),
     ),
 );
 

@@ -1,12 +1,7 @@
 import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { emitHelperFunction } from "../functions/function-emitter";
-import {
-    FunctionEmissionContext,
-    CompiledHelperMetadata,
-    TemplateBindings,
-    EMPTY_TEMPLATE_BINDINGS,
-} from "../types";
+import { FunctionEmissionContext, CompiledHelperMetadata, TemplateBindings, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import { isAuthoritativeSymbol } from "../abi/tables";
 import type { TypeSpec, Expression, FunctionDecl, FunctionTemplateDecl } from "../../../ast";
 // Compile helpers with scalar-by-value and aggregate-by-address parameters.
@@ -34,17 +29,10 @@ export function compileLibraryFunction(
     if (!fn || !fn.body) return null;
     const params = fn.params.map((parameter) => {
         // Pass mutable scalar references by address for write-back.
-        const isConstRef =
-            parameter.type.kind === AstKind.REFERENCE &&
-            parameter.type.referentType?.kind === AstKind.CONST;
-        const isPtrRef =
-            (parameter.type.kind === AstKind.REFERENCE && !isConstRef) ||
-            parameter.type.kind === AstKind.POINTER;
+        const isConstRef = parameter.type.kind === AstKind.REFERENCE && parameter.type.referentType?.kind === AstKind.CONST;
+        const isPtrRef = (parameter.type.kind === AstKind.REFERENCE && !isConstRef) || parameter.type.kind === AstKind.POINTER;
         const isAddr = isPtrRef || programAnalysis.isAggregateType(parameter.type);
-        const byValAgg =
-            isAddr &&
-            parameter.type.kind !== AstKind.REFERENCE &&
-            parameter.type.kind !== AstKind.POINTER;
+        const byValAgg = isAddr && parameter.type.kind !== AstKind.REFERENCE && parameter.type.kind !== AstKind.POINTER;
         const wasmType: WatValueType = isAddr ? WatNodeType.I32 : WatNodeType.I64;
         return {
             name: parameter.name,
@@ -55,9 +43,7 @@ export function compileLibraryFunction(
         };
     });
     const retAgg =
-        !programAnalysis.isVoidType(fn.returnType) && programAnalysis.isAggregateType(fn.returnType)
-            ? programAnalysis.sizeOfType(fn.returnType)
-            : undefined;
+        !programAnalysis.isVoidType(fn.returnType) && programAnalysis.isAggregateType(fn.returnType) ? programAnalysis.sizeOfType(fn.returnType) : undefined;
     const retIsValue = !programAnalysis.isVoidType(fn.returnType) && !retAgg;
     const nameSep = resolvedKey.lastIndexOf("::");
     const authoritative = isAuthoritativeSymbol(resolvedKey);
@@ -80,23 +66,13 @@ export function compileLibraryFunction(
             align: 1,
             fields: new Map(),
         });
-        if (
-            authoritative &&
-            (programAnalysis.warnings.length !== warningBase ||
-                programAnalysis.errors.length !== errorBase)
-        ) {
-            const diagnostic =
-                programAnalysis.errors[errorBase]?.message ??
-                programAnalysis.warnings[warningBase]?.message ??
-                "unknown lowering diagnostic";
+        if (authoritative && (programAnalysis.warnings.length !== warningBase || programAnalysis.errors.length !== errorBase)) {
+            const diagnostic = programAnalysis.errors[errorBase]?.message ?? programAnalysis.warnings[warningBase]?.message ?? "unknown lowering diagnostic";
             throw new Error(`authoritative body emitted a diagnostic: ${diagnostic}`);
         }
         programAnalysis.emittedMethodOrder.push(wat);
     } catch (entry: any) {
-        programAnalysis.warn(
-            `failed to compile lib fn ${resolvedKey}: ${entry.message}`,
-            fn.span?.line ?? 0,
-        );
+        programAnalysis.warn(`failed to compile lib fn ${resolvedKey}: ${entry.message}`, fn.span?.line ?? 0);
         programAnalysis.helpers.delete(cacheKey);
         if (authoritative) throw entry;
         return null;
@@ -112,31 +88,16 @@ export function deduceLibraryFunctionBindings(
 ): TemplateBindings {
     const types = new Map<string, TypeSpec>();
     const values = new Map<string, bigint>();
-    const typeParams = new Set(
-        def.params.filter((parameter) => parameter.kind === AstKind.TYPE).map((type) => type.name),
-    );
-    const valueParams = new Set(
-        def.params.filter((parameter) => parameter.kind !== AstKind.TYPE).map((type) => type.name),
-    );
+    const typeParams = new Set(def.params.filter((parameter) => parameter.kind === AstKind.TYPE).map((type) => type.name));
+    const valueParams = new Set(def.params.filter((parameter) => parameter.kind !== AstKind.TYPE).map((type) => type.name));
     const fps = def.functionParameters ?? [];
     def.params.forEach((param, index) => {
         const argument = explicit[index];
         if (!argument) return;
         if (param.kind === AstKind.TYPE) {
-            types.set(
-                param.name,
-                context.thisBind
-                    ? context.programAnalysis.substInBindings(argument, context.thisBind)
-                    : argument,
-            );
+            types.set(param.name, context.thisBind ? context.programAnalysis.substInBindings(argument, context.thisBind) : argument);
         } else {
-            values.set(
-                param.name,
-                context.programAnalysis.valueOfTypeArg(
-                    argument,
-                    context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                ),
-            );
+            values.set(param.name, context.programAnalysis.valueOfTypeArg(argument, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS));
         }
     });
     const argType = (expression: Expression): TypeSpec | null => {
@@ -144,26 +105,15 @@ export function deduceLibraryFunctionBindings(
         if (!type) {
             // A computed uint128 rvalue has no lvalue address until call lowering materializes it,
             // but template deduction still sees its class type (`div(a * b, c)` in GGWP/Qswap).
-            if (context.lowering.isU128Expr(context, expression))
-                return { kind: AstKind.NAME, name: "uint128_t" };
+            if (context.lowering.isU128Expr(context, expression)) return { kind: AstKind.NAME, name: "uint128_t" };
             const scalar = context.lowering.scalarTypeInfo(context, expression);
             if (!scalar) return null;
-            const name =
-                scalar.width <= 4
-                    ? scalar.unsigned
-                        ? "uint32"
-                        : "sint32"
-                    : scalar.unsigned
-                      ? "uint64"
-                      : "sint64";
+            const name = scalar.width <= 4 ? (scalar.unsigned ? "uint32" : "sint32") : scalar.unsigned ? "uint64" : "sint64";
             return { kind: AstKind.NAME, name };
         }
         type = context.programAnalysis.derefType(type);
         // Resolve through the caller's template bindings so the deduced type is concrete (ProposalDataType → ProposalDataV1<false>), not a symbolic
-        if (context.thisBind)
-            type = context.programAnalysis.derefType(
-                context.programAnalysis.substInBindings(type, context.thisBind),
-            );
+        if (context.thisBind) type = context.programAnalysis.derefType(context.programAnalysis.substInBindings(type, context.thisBind));
         for (let index = 0; index < 8 && type.kind === AstKind.NAME; index++) {
             const td = context.programAnalysis.typedefs.get(type.name);
             if (!td) break;
@@ -178,20 +128,12 @@ export function deduceLibraryFunctionBindings(
         if (pt.kind === AstKind.TEMPLATE_INSTANCE) {
             const at = argType(argument);
             if (at?.kind !== AstKind.TEMPLATE_INSTANCE || at.name !== pt.name) continue;
-            for (
-                let nestedIndex = 0;
-                nestedIndex < pt.callArguments.length && nestedIndex < at.callArguments.length;
-                nestedIndex++
-            ) {
+            for (let nestedIndex = 0; nestedIndex < pt.callArguments.length && nestedIndex < at.callArguments.length; nestedIndex++) {
                 const pa = pt.callArguments[nestedIndex];
                 if (pa.kind !== AstKind.NAME) continue;
-                if (typeParams.has(pa.name) && !types.has(pa.name))
-                    types.set(pa.name, at.callArguments[nestedIndex]);
+                if (typeParams.has(pa.name) && !types.has(pa.name)) types.set(pa.name, at.callArguments[nestedIndex]);
                 else if (valueParams.has(pa.name) && !values.has(pa.name))
-                    values.set(
-                        pa.name,
-                        context.programAnalysis.valueOfTypeArg(at.callArguments[nestedIndex]),
-                    );
+                    values.set(pa.name, context.programAnalysis.valueOfTypeArg(at.callArguments[nestedIndex]));
             }
         } else if (pt.kind === AstKind.NAME && typeParams.has(pt.name) && !types.has(pt.name)) {
             const at = argType(argument);
@@ -211,10 +153,7 @@ export function selectLibraryFunctionOverload(
         let type = context.lowering.resolveExpressionAddress(context, expression)?.type ?? null;
         if (!type) return null;
         type = context.programAnalysis.derefType(type);
-        if (context.thisBind)
-            type = context.programAnalysis.derefType(
-                context.programAnalysis.substInBindings(type, context.thisBind),
-            );
+        if (context.thisBind) type = context.programAnalysis.derefType(context.programAnalysis.substInBindings(type, context.thisBind));
         return type;
     };
     const argTypes = callArguments.map(argTypeOf);
@@ -234,11 +173,7 @@ export function selectLibraryFunctionOverload(
             }
             if (pat.kind === AstKind.TEMPLATE_INSTANCE && at.kind === AstKind.TEMPLATE_INSTANCE) {
                 if (pat.name !== at.name) return -1;
-                for (
-                    let nestedIndex = 0;
-                    nestedIndex < pat.callArguments.length && nestedIndex < at.callArguments.length;
-                    nestedIndex++
-                ) {
+                for (let nestedIndex = 0; nestedIndex < pat.callArguments.length && nestedIndex < at.callArguments.length; nestedIndex++) {
                     const pa = pat.callArguments[nestedIndex];
                     if (pa.kind !== AstKind.NAME) continue;
                     if (tparams.has(pa.name)) {
@@ -246,8 +181,7 @@ export function selectLibraryFunctionOverload(
                     } else {
                         const aa = at.callArguments[nestedIndex];
                         if (aa.kind === AstKind.NAME && aa.name === pa.name) size += 2;
-                        else if (aa.kind === AstKind.TEMPLATE_INSTANCE && aa.name === pa.name)
-                            size += 2;
+                        else if (aa.kind === AstKind.TEMPLATE_INSTANCE && aa.name === pa.name) size += 2;
                         else return -1;
                     }
                 }
@@ -294,18 +228,10 @@ export function compileLibraryFunctionInstance(
     const cached = programAnalysis.helpers.get(key);
     if (cached) return cached;
     const params = (def.functionParameters ?? []).map((parameter) => {
-        const concrete = programAnalysis.substInBindings(
-            programAnalysis.derefType(parameter.type),
-            bind,
-        );
+        const concrete = programAnalysis.substInBindings(programAnalysis.derefType(parameter.type), bind);
         const aggregate = programAnalysis.isAggregateType(concrete);
-        const constScalarRef =
-            parameter.type.kind === AstKind.REFERENCE &&
-            parameter.type.referentType.kind === AstKind.CONST &&
-            !aggregate;
-        const isPtrRef =
-            parameter.type.kind === AstKind.POINTER ||
-            (parameter.type.kind === AstKind.REFERENCE && !constScalarRef);
+        const constScalarRef = parameter.type.kind === AstKind.REFERENCE && parameter.type.referentType.kind === AstKind.CONST && !aggregate;
+        const isPtrRef = parameter.type.kind === AstKind.POINTER || (parameter.type.kind === AstKind.REFERENCE && !constScalarRef);
         const isAddr = isPtrRef || aggregate;
         const byValAgg = isAddr && !isPtrRef && aggregate;
         const wasmType: WatValueType = isAddr ? WatNodeType.I32 : WatNodeType.I64;
@@ -318,10 +244,7 @@ export function compileLibraryFunctionInstance(
         };
     });
     const retT = programAnalysis.substInBindings(programAnalysis.derefType(def.returnType), bind);
-    const retAgg =
-        !programAnalysis.isVoidType(def.returnType) && programAnalysis.isAggregateType(retT)
-            ? programAnalysis.sizeOfType(retT, bind)
-            : undefined;
+    const retAgg = !programAnalysis.isVoidType(def.returnType) && programAnalysis.isAggregateType(retT) ? programAnalysis.sizeOfType(retT, bind) : undefined;
     const retIsValue = !programAnalysis.isVoidType(def.returnType) && !retAgg;
     const sourceSep = sourceKey.lastIndexOf("::");
     const lookup = programAnalysis.namespaceContextOf(def);
@@ -338,30 +261,14 @@ export function compileLibraryFunctionInstance(
     try {
         const warningBase = programAnalysis.warnings.length;
         const errorBase = programAnalysis.errors.length;
-        const wat = context.lowering.emitHelperFunction(
-            programAnalysis,
-            info,
-            def,
-            { size: 0, align: 1, fields: new Map() },
-            bind,
-        );
-        if (
-            authoritative &&
-            (programAnalysis.warnings.length !== warningBase ||
-                programAnalysis.errors.length !== errorBase)
-        ) {
-            const diagnostic =
-                programAnalysis.errors[errorBase]?.message ??
-                programAnalysis.warnings[warningBase]?.message ??
-                "unknown lowering diagnostic";
+        const wat = context.lowering.emitHelperFunction(programAnalysis, info, def, { size: 0, align: 1, fields: new Map() }, bind);
+        if (authoritative && (programAnalysis.warnings.length !== warningBase || programAnalysis.errors.length !== errorBase)) {
+            const diagnostic = programAnalysis.errors[errorBase]?.message ?? programAnalysis.warnings[warningBase]?.message ?? "unknown lowering diagnostic";
             throw new Error(`authoritative body emitted a diagnostic: ${diagnostic}`);
         }
         programAnalysis.emittedMethodOrder.push(wat);
     } catch (entry: any) {
-        programAnalysis.warn(
-            `failed to instantiate lib fn ${key}: ${entry.message}`,
-            def.span?.line ?? 0,
-        );
+        programAnalysis.warn(`failed to instantiate lib fn ${key}: ${entry.message}`, def.span?.line ?? 0);
         programAnalysis.helpers.delete(key);
         if (authoritative) throw entry;
         return null;

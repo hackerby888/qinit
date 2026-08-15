@@ -5,8 +5,7 @@ export const output = { json: false, plain: false };
 
 export function initOutput(args: string[]): void {
     output.json = args.includes("--json");
-    output.plain =
-        output.json || args.includes("--plain") || !process.stdout.isTTY || !!process.env.NO_COLOR;
+    output.plain = output.json || args.includes("--plain") || !process.stdout.isTTY || !!process.env.NO_COLOR;
 }
 
 export interface CommandArguments {
@@ -30,23 +29,14 @@ interface ParseOptions {
 
 function parseOptionsFromMetadata(options: readonly OptionMeta[]): ParseOptions {
     return {
-        strings: options
-            .filter((option) => option.type === "string" && !option.multiple)
-            .map((option) => option.name),
-        booleans: options
-            .filter((option) => option.type === "boolean")
-            .map((option) => option.name),
-        multi: options
-            .filter((option) => option.type === "string" && option.multiple)
-            .map((option) => option.name),
+        strings: options.filter((option) => option.type === "string" && !option.multiple).map((option) => option.name),
+        booleans: options.filter((option) => option.type === "boolean").map((option) => option.name),
+        multi: options.filter((option) => option.type === "string" && option.multiple).map((option) => option.name),
     };
 }
 
 function optionDefinitions(options: ParseOptions) {
-    const definitions: Record<
-        string,
-        { type: "string" | "boolean"; multiple?: boolean; short?: string }
-    > = {
+    const definitions: Record<string, { type: "string" | "boolean"; multiple?: boolean; short?: string }> = {
         help: { type: "boolean", short: "h" },
         json: { type: "boolean" },
         plain: { type: "boolean" },
@@ -65,18 +55,12 @@ function optionDefinitions(options: ParseOptions) {
     return definitions;
 }
 
-function findSubcommandCandidate(
-    args: readonly string[],
-    meta: CommandMeta,
-): { name: string; index: number } | undefined {
+function findSubcommandCandidate(args: readonly string[], meta: CommandMeta): { name: string; index: number } | undefined {
     if (!meta.subcommands) {
         return undefined;
     }
 
-    const options = [
-        ...(meta.options ?? []),
-        ...Object.values(meta.subcommands).flatMap((subcommand) => subcommand.options),
-    ];
+    const options = [...(meta.options ?? []), ...Object.values(meta.subcommands).flatMap((subcommand) => subcommand.options)];
     const { tokens } = parseNodeArgs({
         args: [...args],
         options: optionDefinitions(parseOptionsFromMetadata(options)),
@@ -98,23 +82,12 @@ function findSubcommandCandidate(
     return undefined;
 }
 
-export function parseCommandInvocation(
-    command: CommandName,
-    args: readonly string[],
-): CommandInvocation {
+export function parseCommandInvocation(command: CommandName, args: readonly string[]): CommandInvocation {
     const meta: CommandMeta = META[command];
     const candidate = findSubcommandCandidate(args, meta);
-    const subcommand =
-        candidate &&
-        meta.subcommands &&
-        Object.prototype.hasOwnProperty.call(meta.subcommands, candidate.name)
-            ? candidate.name
-            : undefined;
+    const subcommand = candidate && meta.subcommands && Object.prototype.hasOwnProperty.call(meta.subcommands, candidate.name) ? candidate.name : undefined;
     const options = commandOptions(command, subcommand);
-    const scopedArgs =
-        subcommand && candidate
-            ? [...args.slice(0, candidate.index), ...args.slice(candidate.index + 1)]
-            : args;
+    const scopedArgs = subcommand && candidate ? [...args.slice(0, candidate.index), ...args.slice(candidate.index + 1)] : args;
     const commandArgs = parseArgs(scopedArgs, parseOptionsFromMetadata(options));
     if (candidate && !subcommand && commandArgs.has("help")) {
         invalidArgs(`unknown subcommand '${candidate.name}' for '${command}'`);
@@ -166,9 +139,7 @@ export function invalidArgs(message: string): never {
 function editDistance(left: string, right: string): number {
     const leftLength = left.length;
     const rightLength = right.length;
-    const distances: number[][] = Array.from({ length: leftLength + 1 }, () =>
-        new Array(rightLength + 1).fill(0),
-    );
+    const distances: number[][] = Array.from({ length: leftLength + 1 }, () => new Array(rightLength + 1).fill(0));
 
     for (let i = 0; i <= leftLength; i++) {
         distances[i][0] = i;
@@ -179,11 +150,7 @@ function editDistance(left: string, right: string): number {
 
     for (let i = 1; i <= leftLength; i++) {
         for (let j = 1; j <= rightLength; j++) {
-            distances[i][j] = Math.min(
-                distances[i - 1][j] + 1,
-                distances[i][j - 1] + 1,
-                distances[i - 1][j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1),
-            );
+            distances[i][j] = Math.min(distances[i - 1][j] + 1, distances[i][j - 1] + 1, distances[i - 1][j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1));
         }
     }
 

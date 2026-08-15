@@ -16,9 +16,7 @@ export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): 
     const contractStructs = new Map<string, StructDecl>();
     const calleeTranslationUnits: Array<{ contractName: string; declarations: Declaration[] }> = [];
     const diagnostics: ParserDiagnostic[] = [];
-    const calleeSlots = new Map(
-        (options.callees ?? []).map((callee) => [callee.name, callee.slot]),
-    );
+    const calleeSlots = new Map((options.callees ?? []).map((callee) => [callee.name, callee.slot]));
 
     for (const callee of options.calleeSources ?? []) {
         const early = scanUnterminatedSource(callee.source).map((diagnostic) => ({
@@ -57,15 +55,12 @@ export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): 
             }
             const struct = declaration;
             const isContract =
-                struct.bases?.some(
-                    (base) => base.kind === AstKind.NAME && base.name === "ContractBase",
-                ) || struct.name === "CONTRACT_STATE_TYPE";
+                struct.bases?.some((base) => base.kind === AstKind.NAME && base.name === "ContractBase") || struct.name === "CONTRACT_STATE_TYPE";
             if (!isContract) {
                 continue;
             }
             for (const member of struct.members ?? []) {
-                if (member.kind === AstKind.STRUCT && member.name)
-                    contractStructs.set(`${callee.name}::${member.name}`, member);
+                if (member.kind === AstKind.STRUCT && member.name) contractStructs.set(`${callee.name}::${member.name}`, member);
             }
         }
     }

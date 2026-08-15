@@ -25,9 +25,7 @@ test("Proxy calls Counter: CALL function + INVOKE procedure cross the contract b
     sim.procedure(29, 1);
     expect(readUint64LE(sim.query(28, 1))).toBe(2n);
 
-    const procedures = sim
-        .getTrace()
-        .entries.filter((entry) => entry.kind === 1 && entry.entry === 1);
+    const procedures = sim.getTrace().entries.filter((entry) => entry.kind === 1 && entry.entry === 1);
     expect(procedures.map((entry) => entry.index)).toEqual([28, 29, 28, 29]);
 
     const counterCalls = procedures.filter((entry) => entry.index === 28);

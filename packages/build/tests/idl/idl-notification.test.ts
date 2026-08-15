@@ -37,9 +37,7 @@ const TAIL = `
 // preprocessed one — without padding the two can coincide and the regression hides.
 const source = (padLines: number) => HEAD + "\n".repeat(padLines) + TAIL;
 
-const notifyLine = (text: string) =>
-    text.split("\n").findIndex((line) => line.includes("PRIVATE_PROCEDURE_WITH_LOCALS(Notify)")) +
-    1;
+const notifyLine = (text: string) => text.split("\n").findIndex((line) => line.includes("PRIVATE_PROCEDURE_WITH_LOCALS(Notify)")) + 1;
 
 test("a notification procedure's inputType is its raw-source line", () => {
     for (const padLines of [0, 40, 137]) {

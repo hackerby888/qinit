@@ -10,11 +10,7 @@ export function parseIntLiteral(literalText: string): bigint {
     } else if (normalizedText.startsWith("0b")) {
         base = 2;
         normalizedText = normalizedText.slice(2);
-    } else if (
-        normalizedText.startsWith("0") &&
-        normalizedText.length > 1 &&
-        !normalizedText.includes(".")
-    ) {
+    } else if (normalizedText.startsWith("0") && normalizedText.length > 1 && !normalizedText.includes(".")) {
         base = 8;
         normalizedText = normalizedText.slice(1);
     } else {

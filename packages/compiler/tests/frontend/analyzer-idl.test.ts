@@ -76,12 +76,7 @@ test("analyzer and compiler publish the same authoritative v4 IDL", async () => 
     }
     expect(entry.input.fields[0].type.kind).toBe(AbiTypeKind.STRUCT);
     expect(idl.state.size).toBe(512);
-    expect(idl.state.fields.map((field) => field.type.kind)).toEqual([
-        AbiTypeKind.HASH_MAP,
-        AbiTypeKind.HASH_SET,
-        AbiTypeKind.COLLECTION,
-        AbiTypeKind.ARRAY,
-    ]);
+    expect(idl.state.fields.map((field) => field.type.kind)).toEqual([AbiTypeKind.HASH_MAP, AbiTypeKind.HASH_SET, AbiTypeKind.COLLECTION, AbiTypeKind.ARRAY]);
     for (const field of idl.state.fields) {
         expect(layoutOf(field.type.format)).toEqual({
             size: field.type.size,
@@ -482,9 +477,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     });
 
     expect(result.idl?.functions[0]?.inputType).toBe(7);
-    expect(result.diagnostics.some((diagnostic) => diagnostic.code === "qpi/unregistered")).toBe(
-        false,
-    );
+    expect(result.diagnostics.some((diagnostic) => diagnostic.code === "qpi/unregistered")).toBe(false);
 });
 
 test("keeps hexadecimal registration indices distinct", () => {
@@ -509,9 +502,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     });
 
     expect(result.idl?.functions.map((entry) => entry.inputType)).toEqual([0x10, 0x20]);
-    expect(result.diagnostics.some((diagnostic) => diagnostic.code === "qpi/dup-fn-index")).toBe(
-        false,
-    );
+    expect(result.diagnostics.some((diagnostic) => diagnostic.code === "qpi/dup-fn-index")).toBe(false);
 });
 
 test("rejects registration constants with unresolved dependencies", () => {
@@ -532,11 +523,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         contractName: "InvalidRegistration",
     });
 
-    expect(
-        result.diagnostics.some((diagnostic) =>
-            diagnostic.message.includes("integral constant expression"),
-        ),
-    ).toBe(true);
+    expect(result.diagnostics.some((diagnostic) => diagnostic.message.includes("integral constant expression"))).toBe(true);
     expect(result.idl).toBeUndefined();
 });
 
@@ -696,9 +683,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         contractName: "InvalidLayout",
     });
 
-    expect(
-        result.diagnostics.some((diagnostic) => diagnostic.message.includes("UNKNOWN_CAPACITY")),
-    ).toBe(true);
+    expect(result.diagnostics.some((diagnostic) => diagnostic.message.includes("UNKNOWN_CAPACITY"))).toBe(true);
     expect(result.idl).toBeUndefined();
 });
 
@@ -716,9 +701,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         contractName: "InvalidExpressionLayout",
     });
 
-    expect(
-        result.diagnostics.some((diagnostic) => diagnostic.message.includes("Array length")),
-    ).toBe(true);
+    expect(result.diagnostics.some((diagnostic) => diagnostic.message.includes("Array length"))).toBe(true);
     expect(result.idl).toBeUndefined();
 });
 
@@ -742,12 +725,7 @@ struct Contract : public ContractBase {
         });
 
         expect(result.idl).toBeUndefined();
-        expect(
-            result.diagnostics.some(
-                (diagnostic) =>
-                    diagnostic.message.includes(label) && diagnostic.message.includes(requirement),
-            ),
-        ).toBe(true);
+        expect(result.diagnostics.some((diagnostic) => diagnostic.message.includes(label) && diagnostic.message.includes(requirement))).toBe(true);
     }
 });
 
@@ -803,20 +781,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
     expect(result.wasm).toHaveLength(0);
     expect(result.idl).toBeUndefined();
-    for (const interfaceName of [
-        "Direct_input",
-        "Direct_output",
-        "Alias_input",
-        "Alias_output",
-        "Nested_input",
-        "Nested_output",
-    ]) {
+    for (const interfaceName of ["Direct_input", "Direct_output", "Alias_input", "Alias_output", "Nested_input", "Nested_output"]) {
         expect(
-            result.diagnostics.some(
-                (diagnostic) =>
-                    diagnostic.message.includes("LinkedList is forbidden") &&
-                    diagnostic.message.includes(interfaceName),
-            ),
+            result.diagnostics.some((diagnostic) => diagnostic.message.includes("LinkedList is forbidden") && diagnostic.message.includes(interfaceName)),
         ).toBe(true);
     }
 });

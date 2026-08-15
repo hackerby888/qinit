@@ -2,20 +2,9 @@
 // buildCorpusRunner replaces contract_testing.h with the engine-backed test harness.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-    buildContractWithWasiClang,
-    buildCorpusRunner,
-    systemContracts,
-    type DynCallees,
-} from "@qinit/build";
+import { buildContractWithWasiClang, buildCorpusRunner, systemContracts, type DynCallees } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
-import {
-    compileContract,
-    DEFAULT_COMPILE_ARENA_SIZE_BYTES,
-    DiagnosticSeverity,
-    loadQpiHeader,
-    type ContractIdl,
-} from "@qinit/compiler";
+import { compileContract, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { initK12 } from "@qinit/core";
 import type { CompilerBackend } from "../config";
 
@@ -73,10 +62,9 @@ export function systemGtestTier(name: string): SystemGtestTier {
 }
 
 function corpusPathFor(core: string, name: string, file: string): string | undefined {
-    return [
-        join(core, "test", `contract_${name.toLowerCase()}.cpp`),
-        join(core, "test", `contract_${file.replace(/\.h$/, "").toLowerCase()}.cpp`),
-    ].find(existsSync);
+    return [join(core, "test", `contract_${name.toLowerCase()}.cpp`), join(core, "test", `contract_${file.replace(/\.h$/, "").toLowerCase()}.cpp`)].find(
+        existsSync,
+    );
 }
 
 // Discover from the live core checkout so a newly added or renamed system-contract corpus is picked up
@@ -118,13 +106,7 @@ function stateSizeOf(wasm: Uint8Array): number {
 }
 
 // Sibling SYSTEM contracts referenced by the test or the contract source — built + deployed alongside the main.
-function depSpecs(
-    catalog: any[],
-    mainName: string,
-    testSrc: string,
-    contractSrc: string,
-    core: string,
-): StdGtestContractSpec[] {
+function depSpecs(catalog: any[], mainName: string, testSrc: string, contractSrc: string, core: string): StdGtestContractSpec[] {
     const deps: StdGtestContractSpec[] = [];
     const seen = new Set<string>([mainName]);
     const visit = (source: string) => {
@@ -161,12 +143,7 @@ async function clangWasms(
 ): Promise<Record<number, Uint8Array>> {
     const out: Record<number, Uint8Array> = {};
     let nextBase = SHARED_START;
-    const build = async (
-        s: StdGtestContractSpec,
-        arenaSizeBytes: number,
-        isMain: boolean,
-        useShared: boolean,
-    ): Promise<Uint8Array | null> => {
+    const build = async (s: StdGtestContractSpec, arenaSizeBytes: number, isMain: boolean, useShared: boolean): Promise<Uint8Array | null> => {
         const common = {
             contractPath: s.contractPath,
             name: s.name,
@@ -182,18 +159,12 @@ async function clangWasms(
             ...(useShared ? { arenaSizeBytes } : {}),
         });
         if (!p1.wasmPath) {
-            if (isMain)
-                throw new Error(
-                    "clang build: " +
-                        (p1.stderr ?? "").split("\n").filter((l: string) => /error:/.test(l))[0],
-                );
+            if (isMain) throw new Error("clang build: " + (p1.stderr ?? "").split("\n").filter((l: string) => /error:/.test(l))[0]);
             return null;
         }
         if (!useShared) return new Uint8Array(readFileSync(p1.wasmPath));
         const base = nextBase;
-        nextBase = align64k(
-            base + stateSizeOf(new Uint8Array(readFileSync(p1.wasmPath))) + arenaSizeBytes + SLACK,
-        );
+        nextBase = align64k(base + stateSizeOf(new Uint8Array(readFileSync(p1.wasmPath))) + arenaSizeBytes + SLACK);
         const p2 = await buildContractWithWasiClang({
             ...common,
             outDir: join(scratch, "ns_" + s.name),
@@ -225,21 +196,12 @@ async function typescriptWasms(
     const callees: ContractIdl[] = [];
     const calleeSources: any[] = [];
     let nextBase = SHARED_START;
-    const emitAt = async (
-        o: any,
-        arenaSizeBytes: number,
-    ): Promise<{ wasm: Uint8Array; timings?: Record<string, number> }> => {
-        const oph = onPhase
-            ? (p: string) => onPhase(`compiling ${o.contractName} (TypeScript) — ${p}`)
-            : undefined;
+    const emitAt = async (o: any, arenaSizeBytes: number): Promise<{ wasm: Uint8Array; timings?: Record<string, number> }> => {
+        const oph = onPhase ? (p: string) => onPhase(`compiling ${o.contractName} (TypeScript) — ${p}`) : undefined;
         const requireWasm = (r: Awaited<ReturnType<typeof compileContract>>, stage: string) => {
             if (r.wasm.byteLength) return r;
-            const errors = r.diagnostics
-                .filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)
-                .map((diagnostic) => diagnostic.message);
-            throw new Error(
-                `${o.contractName} ${stage}: ${errors.join("; ") || "compiler returned empty wasm"}`,
-            );
+            const errors = r.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR).map((diagnostic) => diagnostic.message);
+            throw new Error(`${o.contractName} ${stage}: ${errors.join("; ") || "compiler returned empty wasm"}`);
         };
         if (!shared) {
             const r = requireWasm(
@@ -252,10 +214,7 @@ async function typescriptWasms(
             );
             return { wasm: r.wasm, timings: r.timings };
         }
-        const p1 = requireWasm(
-            await compileContract({ ...o, arenaSizeBytes: ARENA }),
-            "state-size probe",
-        ).wasm; // silent — arena-independent
+        const p1 = requireWasm(await compileContract({ ...o, arenaSizeBytes: ARENA }), "state-size probe").wasm; // silent — arena-independent
         const base = nextBase;
         nextBase = align64k(base + stateSizeOf(p1) + arenaSizeBytes + SLACK);
         const r = requireWasm(
@@ -285,18 +244,13 @@ async function typescriptWasms(
             arenaSizeBytes: ARENA,
         });
         if (!dr.wasm.byteLength) {
-            const errors = dr.diagnostics
-                .filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)
-                .map((diagnostic) => diagnostic.message);
-            throw new Error(
-                `TypeScript dependency ${d.name}: ${errors.join("; ") || "compiler returned empty wasm"}`,
-            );
+            const errors = dr.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR).map((diagnostic) => diagnostic.message);
+            throw new Error(`TypeScript dependency ${d.name}: ${errors.join("; ") || "compiler returned empty wasm"}`);
         }
         if (!dr.idl) {
             throw new Error(`TypeScript dependency ${d.name}: compiler did not produce IDL`);
         }
-        out[d.slot] =
-            shared && main.name !== "NOST" ? (await emitAt(depOpts, DEP_ARENA)).wasm : dr.wasm;
+        out[d.slot] = shared && main.name !== "NOST" ? (await emitAt(depOpts, DEP_ARENA)).wasm : dr.wasm;
         callees.push({
             ...dr.idl,
             name: d.stateType,
@@ -344,32 +298,20 @@ export async function runStdGtest(opts: {
     await initK12();
     const testSrc = readFileSync(opts.testPath, "utf8");
     const contractSrc = readFileSync(opts.contractPath, "utf8");
-    const detectedSystemDependencies = depSpecs(
-        systemContracts(opts.core),
-        opts.name,
-        testSrc,
-        contractSrc,
-        opts.core,
-    );
+    const detectedSystemDependencies = depSpecs(systemContracts(opts.core), opts.name, testSrc, contractSrc, opts.core);
     const deps = [...(opts.projectDependencies ?? [])];
     for (const dependency of detectedSystemDependencies) {
         const matchingType = deps.find((candidate) => candidate.stateType === dependency.stateType);
         if (matchingType) {
             if (matchingType.slot !== dependency.slot) {
-                throw new Error(
-                    `${dependency.stateType} has conflicting GTest slots ` +
-                        `${matchingType.slot} and ${dependency.slot}`,
-                );
+                throw new Error(`${dependency.stateType} has conflicting GTest slots ` + `${matchingType.slot} and ${dependency.slot}`);
             }
             continue;
         }
 
         const slotConflict = deps.find((candidate) => candidate.slot === dependency.slot);
         if (slotConflict) {
-            throw new Error(
-                `GTest slot ${dependency.slot} is shared by ` +
-                    `${slotConflict.stateType} and ${dependency.stateType}`,
-            );
+            throw new Error(`GTest slot ${dependency.slot} is shared by ` + `${slotConflict.stateType} and ${dependency.stateType}`);
         }
         deps.push(dependency);
     }
@@ -403,10 +345,7 @@ export async function runStdGtest(opts: {
             })),
     });
     if (!runner.ok || !runner.wasmPath) {
-        const err =
-            (runner.stderr ?? "").split("\n").filter((l) => /error:/.test(l))[0] ??
-            runner.stderr ??
-            "test-wasm build failed";
+        const err = (runner.stderr ?? "").split("\n").filter((l) => /error:/.test(l))[0] ?? runner.stderr ?? "test-wasm build failed";
         return { ...ret, runnerOk: false, buildError: err, results: [] };
     }
     const runnerBytes = new Uint8Array(readFileSync(runner.wasmPath));
@@ -421,9 +360,7 @@ export async function runStdGtest(opts: {
         contracts = await clangWasms(opts.core, opts.scratch, main, deps, dynCallees, shared);
     }
 
-    const assetNames = Object.fromEntries(
-        [main, ...deps].map((contract) => [contract.slot, contract.name]),
-    );
+    const assetNames = Object.fromEntries([main, ...deps].map((contract) => [contract.slot, contract.name]));
     const results = await runContractTesting(runnerBytes, contracts, {
         mainSlot: main.slot,
         assetNames,

@@ -2,12 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-    CoreIntegrationMetadataRequiredError,
-    inspectCoreIntegration,
-    runCoreIntegration,
-    type CoreIntegrationProgress,
-} from "../../src/ops/core-integration";
+import { CoreIntegrationMetadataRequiredError, inspectCoreIntegration, runCoreIntegration, type CoreIntegrationProgress } from "../../src/ops/core-integration";
 
 const temporaryDirectories: string[] = [];
 const CRLF = "\r\n";
@@ -73,9 +68,7 @@ function createCoreRepository(root: string, baseAssetName = "BASE"): string {
         "    // new contracts should be added above this line",
         "}",
     ]);
-    writeCoreText(join(corePath, "src", "contracts", "Base.h"), [
-        "struct Base { struct StateData {}; };",
-    ]);
+    writeCoreText(join(corePath, "src", "contracts", "Base.h"), ["struct Base { struct StateData {}; };"]);
     writeCoreText(
         join(corePath, "src", "Qubic.vcxproj"),
         [
@@ -138,14 +131,8 @@ function createProject(root: string): string {
     const projectRoot = join(root, "project");
     mkdirSync(join(projectRoot, "contracts"), { recursive: true });
     mkdirSync(join(projectRoot, "tests"), { recursive: true });
-    writeFileSync(
-        join(projectRoot, "contracts", "Main.h"),
-        "struct Main { struct StateData { Base::StateData* base; }; };\n",
-    );
-    writeFileSync(
-        join(projectRoot, "tests", "Main.test.cpp"),
-        '#include "contract_testing.h"\nTEST_CONTRACT(Main);\n',
-    );
+    writeFileSync(join(projectRoot, "contracts", "Main.h"), "struct Main { struct StateData { Base::StateData* base; }; };\n");
+    writeFileSync(join(projectRoot, "tests", "Main.test.cpp"), '#include "contract_testing.h"\nTEST_CONTRACT(Main);\n');
     return projectRoot;
 }
 
@@ -220,9 +207,7 @@ describe("runCoreIntegration", () => {
         expect(created.mode).toBe("created");
         expect(created.contractIndex).toBe(2);
         expect(created.branch).toBe("qinit/main");
-        expect(created.warnings).toEqual([
-            "contract_main.cpp references Base without INIT_CONTRACT(Base)",
-        ]);
+        expect(created.warnings).toEqual(["contract_main.cpp references Base without INIT_CONTRACT(Base)"]);
         expect(inspectCoreIntegration(outputPath, "Main")).toEqual({
             index: 2,
             assetName: "MAIN",
@@ -244,9 +229,7 @@ describe("runCoreIntegration", () => {
         const definitionPath = join(outputPath, "src", "contract_core", "contract_def.h");
         const definition = readFileSync(definitionPath, "utf8");
         expect(definition).toContain("#define Main_CONTRACT_INDEX 2");
-        expect(definition).toContain(
-            "sizeof(Main::StateData) < sizeof(IPO) ? sizeof(IPO) : sizeof(Main::StateData)",
-        );
+        expect(definition).toContain("sizeof(Main::StateData) < sizeof(IPO) ? sizeof(IPO) : sizeof(Main::StateData)");
         expect(definition.match(/new contracts should be added above this line/g)).toHaveLength(3);
         expect(readFileSync(definitionPath, "utf8").replaceAll(CRLF, "")).not.toContain("\n");
 
@@ -259,12 +242,8 @@ describe("runCoreIntegration", () => {
         for (const projectFile of projectFiles) {
             expectBomAndCrlf(projectFile);
         }
-        expect(readFileSync(join(outputPath, "src", "Qubic.vcxproj"), "utf8")).toContain(
-            "contracts\\Main.h",
-        );
-        expect(readFileSync(join(outputPath, "test", "test.vcxproj"), "utf8")).toContain(
-            "contract_main.cpp",
-        );
+        expect(readFileSync(join(outputPath, "src", "Qubic.vcxproj"), "utf8")).toContain("contracts\\Main.h");
+        expect(readFileSync(join(outputPath, "test", "test.vcxproj"), "utf8")).toContain("contract_main.cpp");
 
         const dirtyProgress: CoreIntegrationProgress[] = [];
         await expect(
@@ -280,8 +259,7 @@ describe("runCoreIntegration", () => {
         runGit(outputPath, "commit", "-m", "Wire Main");
         writeFileSync(
             join(projectRoot, "contracts", "Main.h"),
-            "struct Main { static constexpr unsigned long long MAIN_FEE = 1; " +
-                "struct StateData { Base::StateData* base; unsigned long long value; }; };\n",
+            "struct Main { static constexpr unsigned long long MAIN_FEE = 1; " + "struct StateData { Base::StateData* base; unsigned long long value; }; };\n",
         );
         const updateProgress: CoreIntegrationProgress[] = [];
         const updated = await runCoreIntegration({
@@ -299,17 +277,12 @@ describe("runCoreIntegration", () => {
         expect(progressRows(updateProgress)).toContain("checkout:ok:using qinit/main");
         expect(progressRows(updateProgress).at(-1)).toBe("wire:ok:updated index 2");
         expectTerminalElapsed(updateProgress);
-        expect(readFileSync(join(outputPath, "src", "contracts", "Main.h"), "utf8")).toContain(
-            "unsigned long long value",
-        );
+        expect(readFileSync(join(outputPath, "src", "contracts", "Main.h"), "utf8")).toContain("unsigned long long value");
 
         runGit(outputPath, "add", ".");
         runGit(outputPath, "commit", "-m", "Update Main");
         rmSync(join(projectRoot, "tests", "Main.test.cpp"));
-        writeFileSync(
-            join(projectRoot, "contracts", "Main.h"),
-            "struct Main { struct StateData { Base::StateData* base; unsigned long long next; }; };\n",
-        );
+        writeFileSync(join(projectRoot, "contracts", "Main.h"), "struct Main { struct StateData { Base::StateData* base; unsigned long long next; }; };\n");
         await runCoreIntegration({
             projectRoot,
             contractPath: "contracts/Main.h",
@@ -325,14 +298,8 @@ describe("runCoreIntegration", () => {
         const repositoryUrl = createCoreRepository(root);
         const projectRoot = createProject(root);
         const outputPath = join(root, "Main-core");
-        writeFileSync(
-            join(projectRoot, "contracts", "Missing.h"),
-            "struct Missing { struct StateData {}; };\n",
-        );
-        writeFileSync(
-            join(projectRoot, "contracts", "Main.h"),
-            "struct Main { struct StateData { Missing::StateData* missing; }; };\n",
-        );
+        writeFileSync(join(projectRoot, "contracts", "Missing.h"), "struct Missing { struct StateData {}; };\n");
+        writeFileSync(join(projectRoot, "contracts", "Main.h"), "struct Main { struct StateData { Missing::StateData* missing; }; };\n");
 
         const failureProgress: CoreIntegrationProgress[] = [];
         await expect(
@@ -355,10 +322,7 @@ describe("runCoreIntegration", () => {
         expect(runGit(outputPath, "status", "--porcelain")).toBe("");
         expect(runGit(outputPath, "branch", "--show-current")).toBe("main");
 
-        writeFileSync(
-            join(projectRoot, "contracts", "Main.h"),
-            "struct Main { struct StateData {}; };\n",
-        );
+        writeFileSync(join(projectRoot, "contracts", "Main.h"), "struct Main { struct StateData {}; };\n");
         await expect(
             runCoreIntegration({
                 projectRoot,
@@ -437,14 +401,10 @@ describe("runCoreIntegration", () => {
         const partialRepository = createCoreRepository(partialRoot);
         const definitionPath = join(partialRepository, "src", "contract_core", "contract_def.h");
         const definition = readFileSync(definitionPath, "utf8");
-        const lastMarker = definition.lastIndexOf(
-            "// new contracts should be added above this line",
-        );
+        const lastMarker = definition.lastIndexOf("// new contracts should be added above this line");
         writeFileSync(
             definitionPath,
-            definition.slice(0, lastMarker) +
-                "    REGISTER_CONTRACT_FUNCTIONS_AND_PROCEDURES(Main);\r\n" +
-                definition.slice(lastMarker),
+            definition.slice(0, lastMarker) + "    REGISTER_CONTRACT_FUNCTIONS_AND_PROCEDURES(Main);\r\n" + definition.slice(lastMarker),
         );
         runGit(partialRepository, "add", ".");
         runGit(partialRepository, "commit", "-m", "Add partial Main registration");

@@ -58,11 +58,7 @@ export const contractLabel = (identity: string, names: Map<number, string>): str
 
 // A call's inputType, named when the slot's IDL is known. A plain transfer misses the lookup and keeps
 // its bare number, which is also what an unparsed contract falls back to.
-export const entryLabel = (
-    slot: number | null | undefined,
-    inputType: number,
-    idls: ContractIdls,
-): string => {
+export const entryLabel = (slot: number | null | undefined, inputType: number, idls: ContractIdls): string => {
     const entry = entryFor(slot, inputType, idls);
     return entry ? `${inputType} ${entry.name}` : String(inputType);
 };
@@ -206,8 +202,7 @@ export function hintLines(keys: KeyHint[], columns: number): KeyHint[][] {
 
     for (const hint of keys) {
         const size = hint[0].length + 1 + hint[1].length;
-        const withSeparator =
-            lines[lines.length - 1].length > 0 ? size + HINT_SEPARATOR.length : size;
+        const withSeparator = lines[lines.length - 1].length > 0 ? size + HINT_SEPARATOR.length : size;
         if (used + withSeparator > columns - 1 && lines[lines.length - 1].length > 0) {
             lines.push([hint]);
             used = size;
@@ -221,12 +216,8 @@ export function hintLines(keys: KeyHint[], columns: number): KeyHint[][] {
 }
 
 // Rule + wrapped hint lines + the status line.
-export const controlBarRows = (
-    view: View,
-    depth: number,
-    columns: number,
-    searching: boolean,
-): number => 2 + hintLines(keysFor(view, depth, searching), columns).length;
+export const controlBarRows = (view: View, depth: number, columns: number, searching: boolean): number =>
+    2 + hintLines(keysFor(view, depth, searching), columns).length;
 
 export function ControlBar({
     view,
@@ -262,11 +253,7 @@ export function ControlBar({
                                 {key}
                             </Text>
                             <Text> </Text>
-                            {key === activeKey ? (
-                                <Grad text={label} phase={(frame % SWEEP_FRAMES) / SWEEP_FRAMES} />
-                            ) : (
-                                <Text>{label}</Text>
-                            )}
+                            {key === activeKey ? <Grad text={label} phase={(frame % SWEEP_FRAMES) / SWEEP_FRAMES} /> : <Text>{label}</Text>}
                         </Text>
                     ))}
                 </Text>
@@ -294,11 +281,7 @@ export interface ViewProps {
 
 // Slice a list around the selected row. `budget` is the rows left after the view's own fixed block, so a
 // long list can never grow past the shell and push the control bar off-screen.
-export function windowOf<T>(
-    rows: T[],
-    selected: number,
-    budget: number,
-): { win: T[]; offset: number } {
+export function windowOf<T>(rows: T[], selected: number, budget: number): { win: T[]; offset: number } {
     const size = Math.max(1, budget);
     const offset = Math.max(0, Math.min(selected - Math.floor(size / 2), rows.length - size));
     return { win: rows.slice(offset, offset + size), offset: Math.max(0, offset) };

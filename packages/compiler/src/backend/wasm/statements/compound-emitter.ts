@@ -3,11 +3,7 @@ import { FunctionEmissionContext } from "../types";
 import type { Statement, VariableDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { collectGotosIn, collectLabelsIn } from "./jump-analysis";
-export function emitScratchpadReleases(
-    context: FunctionEmissionContext,
-    from: number,
-    consume: boolean,
-): void {
+export function emitScratchpadReleases(context: FunctionEmissionContext, from: number, consume: boolean): void {
     if (!context.scratchpadScope || context.scratchpadScope.length <= from) return;
     for (let index = context.scratchpadScope.length - 1; index >= from; index--) {
         context.lines.push(
@@ -23,11 +19,7 @@ export function emitCompound(context: FunctionEmissionContext, body: Statement[]
         let depth = spBase;
         for (let index = 0; index < child; index++) {
             const statement = body[index];
-            if (
-                statement.kind !== AstKind.DECLARATION ||
-                statement.declaration.kind !== AstKind.VARIABLE
-            )
-                continue;
+            if (statement.kind !== AstKind.DECLARATION || statement.declaration.kind !== AstKind.VARIABLE) continue;
             const type = (statement.declaration as VariableDecl).type;
             if (type.kind === AstKind.NAME && /ScopedScratchpad$/.test(type.name)) depth++;
         }
@@ -38,8 +30,7 @@ export function emitCompound(context: FunctionEmissionContext, body: Statement[]
     for (let bodyItemIndex = 0; bodyItemIndex < body.length; bodyItemIndex++) {
         const labels = new Set<string>();
         collectLabelsIn(body[bodyItemIndex], labels);
-        for (const label of labels)
-            if (!labelChild.has(label)) labelChild.set(label, bodyItemIndex);
+        for (const label of labels) if (!labelChild.has(label)) labelChild.set(label, bodyItemIndex);
     }
     // Wrap each forward target in a block spanning its incoming gotos.
     const wasmLabel = new Map<string, string>();

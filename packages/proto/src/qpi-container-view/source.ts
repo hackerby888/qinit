@@ -6,11 +6,7 @@ export interface QpiByteSource {
     read(offset: number, length: number): Promise<Uint8Array>;
 }
 
-function assertSourceRange(
-    source: Pick<QpiByteSource, "byteLength">,
-    offset: number,
-    length: number,
-): void {
+function assertSourceRange(source: Pick<QpiByteSource, "byteLength">, offset: number, length: number): void {
     const end = offset + length;
     if (
         !Number.isSafeInteger(source.byteLength) ||
@@ -22,17 +18,11 @@ function assertSourceRange(
         length < 0 ||
         end > source.byteLength
     ) {
-        throw new QpiIncompleteReadError(
-            `QPI byte range ${offset}..${end} exceeds ${source.byteLength} bytes`,
-        );
+        throw new QpiIncompleteReadError(`QPI byte range ${offset}..${end} exceeds ${source.byteLength} bytes`);
     }
 }
 
-export async function readQpiBytes(
-    source: QpiByteSource,
-    offset: number,
-    length: number,
-): Promise<Uint8Array> {
+export async function readQpiBytes(source: QpiByteSource, offset: number, length: number): Promise<Uint8Array> {
     assertSourceRange(source, offset, length);
     if (!Number.isSafeInteger(source.maxReadLength) || source.maxReadLength <= 0) {
         throw new Error("QPI byte source has an invalid maxReadLength");
@@ -47,9 +37,7 @@ export async function readQpiBytes(
         const chunkLength = Math.min(source.maxReadLength, length - completed);
         const chunk = await source.read(offset + completed, chunkLength);
         if (chunk.length !== chunkLength) {
-            throw new QpiIncompleteReadError(
-                `QPI byte source returned ${chunk.length} of ${chunkLength} bytes at ${offset + completed}`,
-            );
+            throw new QpiIncompleteReadError(`QPI byte source returned ${chunk.length} of ${chunkLength} bytes at ${offset + completed}`);
         }
         bytes.set(chunk, completed);
         completed += chunkLength;

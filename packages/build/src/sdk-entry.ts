@@ -1,22 +1,6 @@
 // Test SDK assembled from canonical Qinit codec, transaction, and RPC sources.
-export {
-    DEFAULT_RPC_BASE,
-    deriveIdentity,
-    bytesToIdentity,
-    identityToBytes,
-    buildSignedTx,
-    broadcastTx,
-    initK12,
-    LiteRpc,
-} from "@qinit/core/browser";
-export {
-    encodeInput,
-    encodeInputJson,
-    decodeOutput,
-    callFunction,
-    invokeProcedure,
-    contractAddress,
-} from "@qinit/proto";
+export { DEFAULT_RPC_BASE, deriveIdentity, bytesToIdentity, identityToBytes, buildSignedTx, broadcastTx, initK12, LiteRpc } from "@qinit/core/browser";
+export { encodeInput, encodeInputJson, decodeOutput, callFunction, invokeProcedure, contractAddress } from "@qinit/proto";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core/browser";
 
 const ORACLE_STATUS_SUCCESS = 3;
@@ -61,9 +45,7 @@ export async function settle(ticks = 12, timeoutMs = 30000): Promise<number> {
 }
 
 // ---------------- oracle dev/test seam (simulator only) ----------------
-export async function oraclePending(
-    rpcBaseUrl = defaultRpcBaseUrl(),
-): Promise<{ queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[]> {
+export async function oraclePending(rpcBaseUrl = defaultRpcBaseUrl()): Promise<{ queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[]> {
     const response = await fetch(rpcBaseUrl + "/live/v1/dev/oracle-pending");
     if (!response.ok) throw new Error("oracle-pending -> " + response.status);
     const payload: any = await response.json();
@@ -75,23 +57,16 @@ export async function oraclePending(
     }));
 }
 
-export async function resolveOracle(
-    queryId: bigint,
-    reply: Uint8Array,
-    opts: { status?: number; rpcBaseUrl?: string } = {},
-): Promise<boolean> {
-    const response = await fetch(
-        (opts.rpcBaseUrl ?? defaultRpcBaseUrl()) + "/live/v1/dev/oracle-resolve",
-        {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-                queryId: queryId.toString(),
-                reply: Buffer.from(reply).toString("base64"),
-                status: opts.status ?? ORACLE_STATUS_SUCCESS,
-            }),
-        },
-    );
+export async function resolveOracle(queryId: bigint, reply: Uint8Array, opts: { status?: number; rpcBaseUrl?: string } = {}): Promise<boolean> {
+    const response = await fetch((opts.rpcBaseUrl ?? defaultRpcBaseUrl()) + "/live/v1/dev/oracle-resolve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+            queryId: queryId.toString(),
+            reply: Buffer.from(reply).toString("base64"),
+            status: opts.status ?? ORACLE_STATUS_SUCCESS,
+        }),
+    });
     if (!response.ok) throw new Error("oracle-resolve -> " + response.status);
     return (await response.json()).ok === true;
 }

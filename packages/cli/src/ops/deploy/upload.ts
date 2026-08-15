@@ -3,33 +3,17 @@
 // the same as it landing in a tick, so every phase re-reads the node's upload status and resends what is
 // still missing rather than trusting the broadcast result.
 import { LiteRpc, buildSignedTx } from "@qinit/core";
-import {
-    LITE_TX,
-    TX_TICK_OFFSET,
-    createUploadSessionId,
-    encodeUploadBegin,
-    encodeUploadChunk,
-    splitUploadChunks,
-} from "@qinit/proto";
+import { LITE_TX, TX_TICK_OFFSET, createUploadSessionId, encodeUploadBegin, encodeUploadChunk, splitUploadChunks } from "@qinit/proto";
 import type { DeploymentEvent } from "./steps";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // A signed transaction for one lite-protocol input type, ready to broadcast.
-export async function buildUploadTx(
-    seed: string,
-    inputType: number,
-    payload: Uint8Array,
-    tick: number,
-): Promise<Uint8Array> {
+export async function buildUploadTx(seed: string, inputType: number, payload: Uint8Array, tick: number): Promise<Uint8Array> {
     return (await buildSignedTx(seed, { tick, inputType, payload })).bytes;
 }
 
-export function activeUploadError(upload: {
-    sessionId: string;
-    receivedCount: number;
-    chunkCount: number;
-}): string {
+export function activeUploadError(upload: { sessionId: string; receivedCount: number; chunkCount: number }): string {
     return `another contract upload is active (session ${upload.sessionId}, ${upload.receivedCount}/${upload.chunkCount} chunks); wait for it to complete`;
 }
 
@@ -45,24 +29,14 @@ export interface UploadOpts {
 
 // On success the caller gets the session id it must name in its DEPLOY transaction. On failure the upload
 // step has already been marked failed via `emit`, so the caller only has to surface the message.
-export type UploadResult =
-    { ok: true; session: bigint; assembled: boolean } | { ok: false; error: string };
+export type UploadResult = { ok: true; session: bigint; assembled: boolean } | { ok: false; error: string };
 
-export async function uploadContract({
-    rpc,
-    seed,
-    wasm,
-    hash,
-    emit,
-    readTick,
-    waitForTick,
-}: UploadOpts): Promise<UploadResult> {
+export async function uploadContract({ rpc, seed, wasm, hash, emit, readTick, waitForTick }: UploadOpts): Promise<UploadResult> {
     const session = createUploadSessionId();
     const chunks = splitUploadChunks(wasm);
     const total = chunks.length + 1;
     const sentIndexes = new Set<number>();
-    const buildTransaction = (inputType: number, payload: Uint8Array, tick: number) =>
-        buildUploadTx(seed, inputType, payload, tick);
+    const buildTransaction = (inputType: number, payload: Uint8Array, tick: number) => buildUploadTx(seed, inputType, payload, tick);
 
     emit({ step: "upload", state: "active", detail: `0/${total}`, pct: 0 });
 
@@ -132,11 +106,7 @@ export async function uploadContract({
     const chunkTick = (await readTick()) + TX_TICK_OFFSET;
     let pendingChunks = await Promise.all(
         chunks.map(async (bytes, seq) => ({
-            bytes: await buildTransaction(
-                LITE_TX.UPLOAD_CHUNK,
-                encodeUploadChunk({ sessionId: session, seq, bytes }),
-                chunkTick,
-            ),
+            bytes: await buildTransaction(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: session, seq, bytes }), chunkTick),
             index: seq + 1,
         })),
     );
@@ -223,11 +193,7 @@ export async function uploadContract({
             const resendTick = (await readTick()) + TX_TICK_OFFSET;
             for (const seq of missing) {
                 await rpc.broadcastTx(
-                    await buildTransaction(
-                        LITE_TX.UPLOAD_CHUNK,
-                        encodeUploadChunk({ sessionId: session, seq, bytes: chunks[seq] }),
-                        resendTick,
-                    ),
+                    await buildTransaction(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: session, seq, bytes: chunks[seq] }), resendTick),
                 );
             }
 

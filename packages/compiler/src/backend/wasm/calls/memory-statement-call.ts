@@ -7,10 +7,7 @@ import type { CallExpression } from "./call-expression";
 
 const QPI_MEMORY_WRAPPERS = new Set(["setMemory", "copyMemory", "copyFromBuffer", "copyToBuffer"]);
 
-export function tryEmitMemoryStatementCall(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-): boolean {
+export function tryEmitMemoryStatementCall(context: FunctionEmissionContext, expression: CallExpression): boolean {
     if (expression.callee.kind !== AstKind.IDENTIFIER) {
         return false;
     }
@@ -28,25 +25,15 @@ export function tryEmitMemoryStatementCall(
     return false;
 }
 
-function emitQpiMemoryWrapper(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-    callName: string,
-): void {
+function emitQpiMemoryWrapper(context: FunctionEmissionContext, expression: CallExpression, callName: string): void {
     const destinationExpression = expression.callArguments[0];
-    const destinationResolution = destinationExpression
-        ? context.lowering.resolveExpressionAddress(context, destinationExpression)
-        : null;
+    const destinationResolution = destinationExpression ? context.lowering.resolveExpressionAddress(context, destinationExpression) : null;
     const destinationAddress =
         destinationResolution?.addr ??
-        (destinationExpression
-            ? (context.lowering.emitAddress(context, destinationExpression) ?? "(i32.const 0)")
-            : "(i32.const 0)");
+        (destinationExpression ? (context.lowering.emitAddress(context, destinationExpression) ?? "(i32.const 0)") : "(i32.const 0)");
 
     if (callName === "setMemory") {
-        const value = expression.callArguments[1]
-            ? context.lowering.lowerValueExpression(context, expression.callArguments[1])
-            : watIr.i64Constant(0);
+        const value = expression.callArguments[1] ? context.lowering.lowerValueExpression(context, expression.callArguments[1]) : watIr.i64Constant(0);
         const setCall = watIr.functionCall(
             "$setMem",
             addrIr(destinationAddress),
@@ -58,41 +45,23 @@ function emitQpiMemoryWrapper(
     }
 
     const sourceExpression = expression.callArguments[1];
-    const sourceResolution = sourceExpression
-        ? context.lowering.resolveExpressionAddress(context, sourceExpression)
-        : null;
+    const sourceResolution = sourceExpression ? context.lowering.resolveExpressionAddress(context, sourceExpression) : null;
     const sourceAddress =
-        sourceResolution?.addr ??
-        (sourceExpression
-            ? (context.lowering.emitAddress(context, sourceExpression) ?? "(i32.const 0)")
-            : "(i32.const 0)");
-    const copySize =
-        callName === "copyToBuffer"
-            ? (sourceResolution?.size ?? 0)
-            : (destinationResolution?.size ?? 0);
-    const copyCall = watIr.functionCall(
-        "$copyMem",
-        addrIr(destinationAddress),
-        addrIr(sourceAddress),
-        watIr.i32Constant(copySize),
-    );
+        sourceResolution?.addr ?? (sourceExpression ? (context.lowering.emitAddress(context, sourceExpression) ?? "(i32.const 0)") : "(i32.const 0)");
+    const copySize = callName === "copyToBuffer" ? (sourceResolution?.size ?? 0) : (destinationResolution?.size ?? 0);
+    const copyCall = watIr.functionCall("$copyMem", addrIr(destinationAddress), addrIr(sourceAddress), watIr.i32Constant(copySize));
 
     context.lines.push(`    ${watIr.serializeWatNode(copyCall)}`);
 }
 
-function emitRawMemoryIntrinsic(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-    callName: string,
-): void {
+function emitRawMemoryIntrinsic(context: FunctionEmissionContext, expression: CallExpression, callName: string): void {
     const destinationAddress = expression.callArguments[0]
         ? (context.lowering.emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)")
         : "(i32.const 0)";
 
     if (callName === "copyMem") {
         const sourceAddress = expression.callArguments[1]
-            ? (context.lowering.emitAddress(context, expression.callArguments[1]) ??
-              "(i32.const 0)")
+            ? (context.lowering.emitAddress(context, expression.callArguments[1]) ?? "(i32.const 0)")
             : "(i32.const 0)";
         const copyCall = watIr.functionCall(
             "$copyMem",
@@ -113,12 +82,7 @@ function emitRawMemoryIntrinsic(
     context.lines.push(`    ${watIr.serializeWatNode(setCall)}`);
 }
 
-function wrapCallArgument(
-    context: FunctionEmissionContext,
-    expression: Expression | undefined,
-): watIr.WatNode {
-    const value = expression
-        ? context.lowering.lowerValueExpression(context, expression)
-        : watIr.i64Constant(0);
+function wrapCallArgument(context: FunctionEmissionContext, expression: Expression | undefined): watIr.WatNode {
+    const value = expression ? context.lowering.lowerValueExpression(context, expression) : watIr.i64Constant(0);
     return watIr.operation("i32.wrap_i64", value);
 }

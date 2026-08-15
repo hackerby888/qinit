@@ -48,9 +48,7 @@ test("transferShareOwnershipAndPossession: moves shares to a new owner managed b
     expect(a.numberOfPossessedShares(NAME, iss, iss, iss, 1, 1)).toBe(600n);
     expect(a.numberOfPossessedShares(NAME, iss, bob, bob, 1, 1)).toBe(400n);
 
-    expect(a.transferShareOwnershipAndPossession(1, NAME, iss, iss, iss, 9999n, bob)).toBe(
-        600n - 9999n,
-    ); // insufficient -> no move
+    expect(a.transferShareOwnershipAndPossession(1, NAME, iss, iss, iss, 9999n, bob)).toBe(600n - 9999n); // insufficient -> no move
     expect(a.numberOfPossessedShares(NAME, iss, iss, iss, 1, 1)).toBe(600n);
 });
 
@@ -98,15 +96,7 @@ test("getUniverseDigest is deterministic and changes with a holding; proofs carr
     expect(toHex(x.getUniverseDigest())).toBe(toHex(y.getUniverseDigest())); // same ops -> same root
 
     const before = toHex(x.getUniverseDigest());
-    x.transferShareOwnershipAndPossession(
-        1,
-        NAME,
-        contractId(1),
-        contractId(1),
-        contractId(1),
-        100n,
-        userId(0xdd),
-    );
+    x.transferShareOwnershipAndPossession(1, NAME, contractId(1), contractId(1), contractId(1), 100n, userId(0xdd));
     expect(toHex(x.getUniverseDigest())).not.toBe(before);
 
     const proofs = x.universeProofOwned(contractId(1));
@@ -152,9 +142,7 @@ test("universe proof helpers retain records, links, and managing contracts", () 
     expect(possession.type).toBe(ASSET_TYPE.POSSESSION);
     expect(possession.ownershipIndex).toBe(ownerships[0].index);
 
-    const legacyProof = assets
-        .universeProofPossessed(bob)
-        .find((proof) => proof.possessionManagingContractIndex === 7)!;
+    const legacyProof = assets.universeProofPossessed(bob).find((proof) => proof.possessionManagingContractIndex === 7)!;
     expect(legacyProof.ownershipManagingContractIndex).toBe(7);
     expect(legacyProof.ownershipIndex).toBe(ownerships[0].index);
     expect(legacyProof.ownershipRecord).toEqual(ownerships[0].record);
@@ -192,21 +180,13 @@ test("enumerate: possession (kind 1) + ownership (kind 0) records, with a posses
     }; // anyId + anyMgmt
 
     // possession: every matching holding, keyed by possessor
-    const poss = new Map(
-        a
-            .enumerate(assetSel, any(), any(), 1)
-            .map((e) => [toHex(e.possessor.subarray(0, 32)), e.shares]),
-    );
+    const poss = new Map(a.enumerate(assetSel, any(), any(), 1).map((e) => [toHex(e.possessor.subarray(0, 32)), e.shares]));
     expect(poss.size).toBe(2);
     expect(poss.get(toHex(iss.subarray(0, 32)))).toBe(700n);
     expect(poss.get(toHex(userId(0xcc).subarray(0, 32)))).toBe(300n);
 
     // ownership: distinct owner + total owned shares
-    const own = new Map(
-        a
-            .enumerate(assetSel, any(), any(), 0)
-            .map((e) => [toHex(e.owner.subarray(0, 32)), e.shares]),
-    );
+    const own = new Map(a.enumerate(assetSel, any(), any(), 0).map((e) => [toHex(e.owner.subarray(0, 32)), e.shares]));
     expect(own.size).toBe(2);
     expect(own.get(toHex(iss.subarray(0, 32)))).toBe(700n);
 

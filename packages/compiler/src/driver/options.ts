@@ -24,18 +24,13 @@ function validCompilerName(name: string): boolean {
 export function validateCompileOptions(options: CompileOptions): ParserDiagnostic[] {
     const diagnostics: ParserDiagnostic[] = [];
     const reject = (message: string) => diagnostics.push(optionDiagnostic(message));
-    const validUint32 = (value: number) =>
-        Number.isSafeInteger(value) && value >= 0 && value <= UINT32_MAX;
-    const validSize = (value: number) =>
-        Number.isSafeInteger(value) && value >= 0 && value <= UINT32_MAX;
-    const validInputType = (value: number) =>
-        Number.isSafeInteger(value) && value >= MIN_USER_INPUT_TYPE && value <= MAX_USER_INPUT_TYPE;
+    const validUint32 = (value: number) => Number.isSafeInteger(value) && value >= 0 && value <= UINT32_MAX;
+    const validSize = (value: number) => Number.isSafeInteger(value) && value >= 0 && value <= UINT32_MAX;
+    const validInputType = (value: number) => Number.isSafeInteger(value) && value >= MIN_USER_INPUT_TYPE && value <= MAX_USER_INPUT_TYPE;
 
     if (typeof options.source !== "string") reject("source must be a string");
     if (!validCompilerName(options.contractName)) {
-        reject(
-            `contractName must be a C++ identifier of at most ${MAX_COMPILER_NAME_LENGTH} characters`,
-        );
+        reject(`contractName must be a C++ identifier of at most ${MAX_COMPILER_NAME_LENGTH} characters`);
     }
     if (!validUint32(options.slot)) reject("slot must be a uint32 integer");
 
@@ -51,13 +46,8 @@ export function validateCompileOptions(options: CompileOptions): ParserDiagnosti
             if ((options.sharedMemoryBaseOffsetBytes & 7) !== 0) {
                 reject("sharedMemoryBaseOffsetBytes must be 8-byte aligned");
             }
-            if (
-                validSize(arenaSizeBytes) &&
-                options.sharedMemoryBaseOffsetBytes + arenaSizeBytes > WASM32_SIZE
-            ) {
-                reject(
-                    "sharedMemoryBaseOffsetBytes plus arenaSizeBytes exceeds wasm32 address space",
-                );
+            if (validSize(arenaSizeBytes) && options.sharedMemoryBaseOffsetBytes + arenaSizeBytes > WASM32_SIZE) {
+                reject("sharedMemoryBaseOffsetBytes plus arenaSizeBytes exceeds wasm32 address space");
             }
         }
     }
@@ -66,8 +56,7 @@ export function validateCompileOptions(options: CompileOptions): ParserDiagnosti
     const calleeIndices = new Set<number>();
     for (const callee of options.callees ?? []) {
         if (!validCompilerName(callee.name)) reject(`callee name '${callee.name}' is invalid`);
-        if (!validUint32(callee.slot))
-            reject(`callee '${callee.name}' slot must be a uint32 integer`);
+        if (!validUint32(callee.slot)) reject(`callee '${callee.name}' slot must be a uint32 integer`);
         if (calleeNames.has(callee.name)) reject(`duplicate callee name '${callee.name}'`);
         if (calleeIndices.has(callee.slot)) reject(`duplicate callee slot ${callee.slot}`);
         calleeNames.add(callee.name);
@@ -79,58 +68,32 @@ export function validateCompileOptions(options: CompileOptions): ParserDiagnosti
             ["procedure", callee.procedures],
         ] as const) {
             for (const entry of entries) {
-                if (!validCompilerName(entry.name))
-                    reject(`${kind} name '${callee.name}::${entry.name}' is invalid`);
-                if (entryNames.has(entry.name))
-                    reject(`duplicate callee entry '${callee.name}::${entry.name}'`);
+                if (!validCompilerName(entry.name)) reject(`${kind} name '${callee.name}::${entry.name}' is invalid`);
+                if (entryNames.has(entry.name)) reject(`duplicate callee entry '${callee.name}::${entry.name}'`);
                 entryNames.add(entry.name);
                 if (!validInputType(entry.inputType))
-                    reject(
-                        `${kind} '${callee.name}::${entry.name}' inputType must be in the range ${MIN_USER_INPUT_TYPE}..${MAX_USER_INPUT_TYPE}`,
-                    );
-                if (!validSize(entry.inSize))
-                    reject(
-                        `${kind} '${callee.name}::${entry.name}' inSize must be a uint32 integer`,
-                    );
-                if (!validSize(entry.outSize))
-                    reject(
-                        `${kind} '${callee.name}::${entry.name}' outSize must be a uint32 integer`,
-                    );
-                if (entry.input?.size !== entry.inSize)
-                    reject(
-                        `${kind} '${callee.name}::${entry.name}' inSize does not match input layout`,
-                    );
-                if (entry.output?.size !== entry.outSize)
-                    reject(
-                        `${kind} '${callee.name}::${entry.name}' outSize does not match output layout`,
-                    );
+                    reject(`${kind} '${callee.name}::${entry.name}' inputType must be in the range ${MIN_USER_INPUT_TYPE}..${MAX_USER_INPUT_TYPE}`);
+                if (!validSize(entry.inSize)) reject(`${kind} '${callee.name}::${entry.name}' inSize must be a uint32 integer`);
+                if (!validSize(entry.outSize)) reject(`${kind} '${callee.name}::${entry.name}' outSize must be a uint32 integer`);
+                if (entry.input?.size !== entry.inSize) reject(`${kind} '${callee.name}::${entry.name}' inSize does not match input layout`);
+                if (entry.output?.size !== entry.outSize) reject(`${kind} '${callee.name}::${entry.name}' outSize does not match output layout`);
             }
         }
     }
 
     const sourceNames = new Set<string>();
     for (const calleeSource of options.calleeSources ?? []) {
-        if (!validCompilerName(calleeSource.name))
-            reject(`callee source name '${calleeSource.name}' is invalid`);
-        if (sourceNames.has(calleeSource.name))
-            reject(`duplicate callee source '${calleeSource.name}'`);
+        if (!validCompilerName(calleeSource.name)) reject(`callee source name '${calleeSource.name}' is invalid`);
+        if (sourceNames.has(calleeSource.name)) reject(`duplicate callee source '${calleeSource.name}'`);
         sourceNames.add(calleeSource.name);
-        if (!calleeNames.has(calleeSource.name))
-            reject(`callee source '${calleeSource.name}' has no matching callee IDL`);
-        if (typeof calleeSource.source !== "string")
-            reject(`callee source '${calleeSource.name}' must be a string`);
+        if (!calleeNames.has(calleeSource.name)) reject(`callee source '${calleeSource.name}' has no matching callee IDL`);
+        if (typeof calleeSource.source !== "string") reject(`callee source '${calleeSource.name}' must be a string`);
         if (calleeSource.slot !== undefined && !validUint32(calleeSource.slot)) {
             reject(`callee source '${calleeSource.name}' slot must be a uint32 integer`);
         }
 
-        const matchingCallee = (options.callees ?? []).find(
-            (callee) => callee.name === calleeSource.name,
-        );
-        if (
-            calleeSource.slot !== undefined &&
-            matchingCallee &&
-            calleeSource.slot !== matchingCallee.slot
-        ) {
+        const matchingCallee = (options.callees ?? []).find((callee) => callee.name === calleeSource.name);
+        if (calleeSource.slot !== undefined && matchingCallee && calleeSource.slot !== matchingCallee.slot) {
             reject(`callee source '${calleeSource.name}' slot does not match its callee IDL`);
         }
     }

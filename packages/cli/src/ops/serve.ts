@@ -1,12 +1,7 @@
 // Run the persistent in-process engine behind the hidden `__serve` command.
 import { EngineServer } from "@qinit/engine/server";
 import { VirtualNode } from "@qinit/engine";
-import {
-    DEFAULT_PEER_PORT,
-    DEFAULT_RPC_PORT,
-    LOOPBACK_HOST,
-    type WasmSlotLayout,
-} from "@qinit/core";
+import { DEFAULT_PEER_PORT, DEFAULT_RPC_PORT, LOOPBACK_HOST, type WasmSlotLayout } from "@qinit/core";
 import { systemContractClosure } from "@qinit/build";
 import type { SystemContract, SystemContractCompiler } from "@qinit/build";
 import { resolveCoreDir } from "../config";
@@ -18,11 +13,7 @@ export function portFromRpc(rpcBaseUrl: string): number {
 }
 
 // Seed configured system contracts after startup without blocking RPC or ticking.
-async function seedSystemContracts(
-    srv: EngineServer,
-    names: string[],
-    compiler: SystemContractCompiler,
-): Promise<void> {
+async function seedSystemContracts(srv: EngineServer, names: string[], compiler: SystemContractCompiler): Promise<void> {
     const core = resolveCoreDir();
     const contracts = new Map<number, SystemContract>();
     for (const name of names) {
@@ -32,9 +23,7 @@ async function seedSystemContracts(
     }
 
     const built = [];
-    for (const contract of [...contracts.values()].sort(
-        (left, right) => left.index - right.index,
-    )) {
+    for (const contract of [...contracts.values()].sort((left, right) => left.index - right.index)) {
         built.push(await systemWasm(contract.name, undefined, compiler));
     }
     for (const contract of built) {
@@ -56,9 +45,7 @@ export async function serveEngine(
     const ms = Number.isFinite(tickMs) ? Math.max(0, tickMs as number) : DEFAULT_TICK_MS;
     const srv = new EngineServer(new VirtualNode(slotLayout));
     await srv.start(portFromRpc(rpcBaseUrl), ms, peerPort);
-    process.stdout.write(
-        `qinit simulator: rpc ${rpcBaseUrl} · peer ${LOOPBACK_HOST}:${peerPort}\n`,
-    );
+    process.stdout.write(`qinit simulator: rpc ${rpcBaseUrl} · peer ${LOOPBACK_HOST}:${peerPort}\n`);
     await seedSystemContracts(srv, system, compiler);
 
     // Keep the process alive indefinitely — EngineServer auto-advances ticks on its own interval, and the

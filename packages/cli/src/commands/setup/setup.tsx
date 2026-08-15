@@ -72,9 +72,7 @@ function configuredWasiSdk(): string | null {
         return null;
     }
     const pathFromManagedRoot = relative(resolve(managedRoot), resolve(configuredPath));
-    const usesManagedCache =
-        pathFromManagedRoot === "" ||
-        (!pathFromManagedRoot.startsWith("..") && !isAbsolute(pathFromManagedRoot));
+    const usesManagedCache = pathFromManagedRoot === "" || (!pathFromManagedRoot.startsWith("..") && !isAbsolute(pathFromManagedRoot));
     return usesManagedCache ? sdk.root : null;
 }
 
@@ -100,27 +98,16 @@ export type SetupDeps = typeof defaultDeps;
 
 type Progress = (received: number, total: number) => void;
 
-function coreCurrentLabel(
-    current: CurrentPointer | null,
-    headersReady: boolean,
-    nodeReady: boolean,
-): string {
+function coreCurrentLabel(current: CurrentPointer | null, headersReady: boolean, nodeReady: boolean): string {
     const headersVersion = current?.headersVersion ?? "unknown";
     const nodeVersion = current?.nodeVersion ?? "unknown";
     if (headersReady && nodeReady && headersVersion === nodeVersion) {
         return headersVersion;
     }
-    return [
-        `headers ${headersReady ? headersVersion : "missing"}`,
-        `node ${nodeReady ? nodeVersion : "missing"}`,
-    ].join(" · ");
+    return [`headers ${headersReady ? headersVersion : "missing"}`, `node ${nodeReady ? nodeVersion : "missing"}`].join(" · ");
 }
 
-async function runStep(
-    step: SetupStepKey,
-    operation: (onProgress: Progress) => Promise<string>,
-    emit: (event: SetupEvent) => void,
-): Promise<void> {
+async function runStep(step: SetupStepKey, operation: (onProgress: Progress) => Promise<string>, emit: (event: SetupEvent) => void): Promise<void> {
     const startedAt = Date.now();
     emit({ step, state: "active", pct: 0 });
 
@@ -152,11 +139,7 @@ async function runStep(
     }
 }
 
-export async function runSetup(
-    emit: (event: SetupEvent) => void = () => {},
-    injected: Partial<SetupDeps> = {},
-    options: SetupRunOptions = {},
-): Promise<void> {
+export async function runSetup(emit: (event: SetupEvent) => void = () => {}, injected: Partial<SetupDeps> = {}, options: SetupRunOptions = {}): Promise<void> {
     const deps = { ...defaultDeps, ...injected };
     const manifestStartedAt = Date.now();
     emit({ step: "headers", state: "active", detail: "checking", pct: 0 });
@@ -179,8 +162,7 @@ export async function runSetup(
     const nodePublished = Boolean(deps.nodeAssetForPlatform(manifest));
     const coreUpdateAvailable = Boolean(
         nodePublished
-            ? (headersReady && current?.headersVersion !== manifest.version) ||
-                  (nodeReady && current?.nodeVersion !== manifest.version)
+            ? (headersReady && current?.headersVersion !== manifest.version) || (nodeReady && current?.nodeVersion !== manifest.version)
             : !nodeReady && headersReady && current?.headersVersion !== manifest.version,
     );
     const configuredSdk = deps.configuredWasiSdk();
@@ -205,8 +187,7 @@ export async function runSetup(
     }
 
     options.onUpdates?.(updates);
-    const installUpdates =
-        updates.length > 0 && (options.force || (await options.confirmUpdates?.(updates)) === true);
+    const installUpdates = updates.length > 0 && (options.force || (await options.confirmUpdates?.(updates)) === true);
     const updateCore = coreUpdateAvailable && installUpdates;
     const updateWasi = Boolean(managedSdk?.updateAvailable && installUpdates);
     const installLatestCore = updateCore || (!headersReady && !nodeReady);
@@ -273,9 +254,7 @@ export async function runSetup(
                 if (headersReady && nodeReady) {
                     return `cached ${node.version} · version drift`;
                 }
-                throw new Error(
-                    `headers/node version drift (${preparedCore.version} != ${node.version})`,
-                );
+                throw new Error(`headers/node version drift (${preparedCore.version} != ${node.version})`);
             }
             deps.updateCurrent({
                 headersVersion: preparedCore.version,
@@ -294,15 +273,10 @@ export async function runSetup(
             if (configuredSdk) {
                 return `ready ${configuredSdk}`;
             }
-            const sdk = await deps.fetchWasiSdk(
-                onProgress,
-                updateWasi ? { upgrade: true } : undefined,
-            );
+            const sdk = await deps.fetchWasiSdk(onProgress, updateWasi ? { upgrade: true } : undefined);
             const ready = deps.wasiSdkPaths();
             if (!ready) {
-                throw new Error(
-                    "WASI SDK unavailable after setup — check WASM_CLANG and WASI_SYSROOT",
-                );
+                throw new Error("WASI SDK unavailable after setup — check WASM_CLANG and WASI_SYSROOT");
             }
             return sdk.cached ? `cached ${ready.root}` : `fetched ${ready.root}`;
         },
@@ -461,20 +435,11 @@ export function Setup({ commandArgs }: { commandArgs: CommandArguments }) {
                 </Box>
             )}
             {SETUP_STEPS.map(({ key, label }) => (
-                <StepRow
-                    key={key}
-                    state={steps[key].state}
-                    label={label}
-                    detail={steps[key].detail}
-                    pct={steps[key].pct}
-                    elapsedMs={steps[key].elapsedMs}
-                />
+                <StepRow key={key} state={steps[key].state} label={label} detail={steps[key].detail} pct={steps[key].pct} elapsedMs={steps[key].elapsedMs} />
             ))}
             {result && (
                 <Box marginTop={1}>
-                    <Text color={result.ok ? theme.ok : theme.err}>
-                        {result.ok ? "✓ setup complete" : `✗ setup failed: ${result.error}`}
-                    </Text>
+                    <Text color={result.ok ? theme.ok : theme.err}>{result.ok ? "✓ setup complete" : `✗ setup failed: ${result.error}`}</Text>
                 </Box>
             )}
         </Box>

@@ -15,11 +15,7 @@ interface ConditionalFrame {
     active: boolean;
 }
 
-function evaluateIntegerExpression(
-    expression: string,
-    values: ReadonlyMap<string, string>,
-    resolving: Set<string> = new Set(),
-): number {
+function evaluateIntegerExpression(expression: string, values: ReadonlyMap<string, string>, resolving: Set<string> = new Set()): number {
     const source = expression
         .replace(/\/\*[\s\S]*?\*\//g, " ")
         .replace(/\/\/.*$/, "")
@@ -103,9 +99,7 @@ function evaluateIntegerExpression(
 
 function evaluateCondition(expression: string, macros: ReadonlyMap<string, string>): boolean {
     const substituted = expression
-        .replace(/defined\s*\(\s*([A-Za-z_]\w*)\s*\)/g, (_, name: string) =>
-            macros.has(name) ? "1" : "0",
-        )
+        .replace(/defined\s*\(\s*([A-Za-z_]\w*)\s*\)/g, (_, name: string) => (macros.has(name) ? "1" : "0"))
         .replace(/defined\s+([A-Za-z_]\w*)/g, (_, name: string) => (macros.has(name) ? "1" : "0"))
         .replace(/\b([A-Za-z_]\w*)\b/g, (name) => {
             const value = macros.get(name);
@@ -230,8 +224,7 @@ export function parseWasmSlotLayoutSource(source: string): WasmSlotLayout {
             continue;
         }
         if (/^#\s*endif\b/.test(line)) {
-            if (!conditionals.pop())
-                throw new Error("unexpected #endif in core contract definition");
+            if (!conditionals.pop()) throw new Error("unexpected #endif in core contract definition");
             continue;
         }
         if (!currentActive()) continue;
@@ -253,11 +246,7 @@ export function parseWasmSlotLayoutSource(source: string): WasmSlotLayout {
 
         match = /^constexpr\s+[\w\s]+?\s+([A-Za-z_]\w*)\s*=\s*(.+?)\s*;/.exec(line);
         if (!match) continue;
-        if (
-            !match[1].endsWith("_CONTRACT_INDEX") &&
-            match[1] !== "WASM_RESERVED_SLOT_BASE" &&
-            match[1] !== "WASM_RESERVED_SLOT_COUNT"
-        ) {
+        if (!match[1].endsWith("_CONTRACT_INDEX") && match[1] !== "WASM_RESERVED_SLOT_BASE" && match[1] !== "WASM_RESERVED_SLOT_COUNT") {
             continue;
         }
         if (values.has(match[1])) {
@@ -298,9 +287,7 @@ export function parseWasmSlotLayoutSource(source: string): WasmSlotLayout {
         throw new Error(`invalid WASM_RESERVED_SLOT_COUNT ${slotCount}`);
     }
     if (dynamicSlots.size !== slotCount) {
-        throw new Error(
-            `dynamic Wasm slot count mismatch: declared ${slotCount}, found ${dynamicSlots.size}`,
-        );
+        throw new Error(`dynamic Wasm slot count mismatch: declared ${slotCount}, found ${dynamicSlots.size}`);
     }
     for (let index = 0; index < slotCount; index++) {
         const actual = dynamicSlots.get(index);
@@ -309,9 +296,7 @@ export function parseWasmSlotLayoutSource(source: string): WasmSlotLayout {
         }
         const expected = slotBase + index;
         if (actual !== expected) {
-            throw new Error(
-                `dynamic Wasm slot LITEDYN${index} has index ${actual}, expected ${expected}`,
-            );
+            throw new Error(`dynamic Wasm slot LITEDYN${index} has index ${actual}, expected ${expected}`);
         }
     }
 

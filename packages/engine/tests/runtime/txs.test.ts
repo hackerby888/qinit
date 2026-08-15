@@ -70,16 +70,9 @@ test("contract addresses cannot be transaction signers", async () => {
     const source = contractAddress(28);
     sim.fund(source, 100n);
 
-    expect(() =>
-        sim.applyTx(
-            source,
-            new Uint8Array(32).fill(0x22),
-            1n,
-            0,
-            new Uint8Array(0),
-            "contract-source",
-        ),
-    ).toThrow("contract addresses cannot sign transactions");
+    expect(() => sim.applyTx(source, new Uint8Array(32).fill(0x22), 1n, 0, new Uint8Array(0), "contract-source")).toThrow(
+        "contract addresses cannot sign transactions",
+    );
     expect(sim.txByHash("contract-source")).toBeUndefined();
 });
 
@@ -88,14 +81,7 @@ test("a zero-amount transaction from a missing entity does not invoke a contract
     const sim = new QubicSimulator();
     sim.deploy(28, await wasm("Counter"));
 
-    const result = sim.applyTx(
-        new Uint8Array(32).fill(0x11),
-        contractAddress(28),
-        0n,
-        1,
-        new Uint8Array(0),
-        "missing-source",
-    );
+    const result = sim.applyTx(new Uint8Array(32).fill(0x11), contractAddress(28), 0n, 1, new Uint8Array(0), "missing-source");
 
     expect(result.moneyFlew).toBe(false);
     expect(new DataView(sim.query(28, 1).buffer).getBigUint64(0, true)).toBe(0n);
@@ -158,14 +144,7 @@ test("plain contract transfers report moneyFlew even when PIT returns the amount
     const source = new Uint8Array(32).fill(0x11);
     sim.fund(source, 100n);
 
-    const result = sim.applyTx(
-        source,
-        contractAddress(28),
-        25n,
-        0,
-        new Uint8Array(0),
-        "returned-transfer",
-    );
+    const result = sim.applyTx(source, contractAddress(28), 25n, 0, new Uint8Array(0), "returned-transfer");
 
     expect(result.moneyFlew).toBe(true);
     expect(sim.balance(source)).toBe(100n);
@@ -181,7 +160,5 @@ test("getEntity: a contract reads an account's balance from the spectrum", async
     eng.fund(X, 777n);
 
     const out = await eng.querySmartContract(28, 1, X); // Balance(who=X)
-    expect(new DataView(out.buffer, out.byteOffset, out.byteLength).getBigInt64(0, true)).toBe(
-        777n,
-    );
+    expect(new DataView(out.buffer, out.byteOffset, out.byteLength).getBigInt64(0, true)).toBe(777n);
 });

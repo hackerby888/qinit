@@ -3,12 +3,7 @@
 import { test, expect } from "bun:test";
 import { initK12, k12Bytes, toHex, verifySync } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import {
-    TICKDATA_SIZE,
-    TXS_PER_TICK,
-    tickDataMessage,
-    tickDataSignature,
-} from "../../src/chain/consensus";
+import { TICKDATA_SIZE, TXS_PER_TICK, tickDataMessage, tickDataSignature } from "../../src/chain/consensus";
 
 const SEEDS4 = ["b".repeat(55), "c".repeat(55), "d".repeat(55), "e".repeat(55)];
 const DIGESTS_OFFSET = 48; // first transactionDigests slot in the TickData
@@ -104,16 +99,7 @@ test("tampering a transaction digest or the signature breaks leader verification
     });
     sim.fund(new Uint8Array(32).fill(0x11), 1000n);
     const target = sim.currentTick + 1;
-    sim.enqueueTx(
-        target,
-        new Uint8Array(32).fill(0x11),
-        new Uint8Array(32).fill(0x22),
-        1n,
-        0,
-        new Uint8Array(0),
-        "tx-1",
-        k12Bytes(new Uint8Array([9])),
-    );
+    sim.enqueueTx(target, new Uint8Array(32).fill(0x11), new Uint8Array(32).fill(0x22), 1n, 0, new Uint8Array(0), "tx-1", k12Bytes(new Uint8Array([9])));
     sim.advance();
 
     const leader = sim.getCommittee().computors[target % 4];
@@ -123,16 +109,12 @@ test("tampering a transaction digest or the signature breaks leader verification
     // flip a byte inside the committed transactionDigests -> the signed message no longer matches
     const tdDigest = good.slice();
     tdDigest[DIGESTS_OFFSET] ^= 0xff;
-    expect(
-        verifySync(leader.publicKey, tickDataMessage(tdDigest), tickDataSignature(tdDigest)),
-    ).toBe(false);
+    expect(verifySync(leader.publicKey, tickDataMessage(tdDigest), tickDataSignature(tdDigest))).toBe(false);
 
     // flip a byte of the signature itself
     const tdSig = good.slice();
     tdSig[TICKDATA_SIZE - 1] ^= 0xff;
-    expect(verifySync(leader.publicKey, tickDataMessage(tdSig), tickDataSignature(tdSig))).toBe(
-        false,
-    );
+    expect(verifySync(leader.publicKey, tickDataMessage(tdSig), tickDataSignature(tdSig))).toBe(false);
 });
 
 test("TickData layout: timelock = K12(state roots), contractFees + padding digests are zero", async () => {
@@ -144,16 +126,7 @@ test("TickData layout: timelock = K12(state roots), contractFees + padding diges
     sim.fund(new Uint8Array(32).fill(0x11), 1000n);
     const target = sim.currentTick + 1;
     const digest = k12Bytes(new Uint8Array([1, 2, 3, 4]));
-    sim.enqueueTx(
-        target,
-        new Uint8Array(32).fill(0x11),
-        new Uint8Array(32).fill(0x22),
-        1n,
-        0,
-        new Uint8Array(0),
-        "tx-1",
-        digest,
-    );
+    sim.enqueueTx(target, new Uint8Array(32).fill(0x11), new Uint8Array(32).fill(0x22), 1n, 0, new Uint8Array(0), "tx-1", digest);
     sim.advance();
 
     const td = sim.tickData(target)!.bytes;

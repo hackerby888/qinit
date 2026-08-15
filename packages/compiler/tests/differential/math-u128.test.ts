@@ -87,12 +87,7 @@ function refMath(sa: bigint, sb: bigint, ua: bigint, ub: bigint) {
     // Mirror the pinned math_lib.h implementation byte-for-byte. Its signed sadd performs the
     // overflow checks after the native-width addition (so MIN+MIN wraps to zero and is not clamped).
     const wrappedSum = S(sa + sb);
-    const sourceSadd =
-        sa < 0n && sb < 0n && wrappedSum > 0n
-            ? I64_MIN
-            : sa > 0n && sb > 0n && wrappedSum < 0n
-              ? I64_MAX
-              : wrappedSum;
+    const sourceSadd = sa < 0n && sb < 0n && wrappedSum > 0n ? I64_MIN : sa > 0n && sb > 0n && wrappedSum < 0n ? I64_MAX : wrappedSum;
     return {
         divS: sb === 0n ? 0n : sa / sb,
         modS: sb === 0n ? 0n : sa % sb,
@@ -158,17 +153,7 @@ const S_EDGES = [
     3037000500n,
     -3037000500n,
 ];
-const U128_EDGES = [
-    0n,
-    1n,
-    U64_MAX,
-    2n ** 64n,
-    2n ** 64n + 1n,
-    2n ** 127n,
-    U128_MASK,
-    U128_MASK - 1n,
-    (0xdead0000_0000beefn << 64n) | 0x11112222_33334444n,
-];
+const U128_EDGES = [0n, 1n, U64_MAX, 2n ** 64n, 2n ** 64n + 1n, 2n ** 127n, U128_MASK, U128_MASK - 1n, (0xdead0000_0000beefn << 64n) | 0x11112222_33334444n];
 const SHIFTS = [0n, 1n, 31n, 63n, 64n, 65n, 100n, 127n];
 
 // Deterministic xorshift so failures reproduce.
@@ -182,21 +167,7 @@ function* rng(seed: bigint): Generator<bigint> {
     }
 }
 
-const MATH_FIELDS = [
-    "divS",
-    "modS",
-    "divU",
-    "modU",
-    "minS",
-    "maxS",
-    "minU",
-    "maxU",
-    "absS",
-    "saddS",
-    "saddU",
-    "smulS",
-    "smulU",
-] as const;
+const MATH_FIELDS = ["divS", "modS", "divU", "modU", "minS", "maxS", "minU", "maxU", "absS", "saddS", "saddU", "smulS", "smulU"] as const;
 const SIGNED_FIELDS = new Set(["divS", "modS", "minS", "maxS", "absS", "saddS", "smulS"]);
 const U128_FIELDS = [
     "addLo",
@@ -229,9 +200,7 @@ describe("safe-math + uint128 semantics vs BigInt reference", () => {
             qpiHeader: HEADERS,
             arenaSizeBytes: 1024 * 1024,
         });
-        expect(
-            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-        ).toHaveLength(0);
+        expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
         sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         sim.deploy(6, mine.wasm);
     });
@@ -246,12 +215,7 @@ describe("safe-math + uint128 semantics vs BigInt reference", () => {
         const out = sim.query(6, 1, inp);
         const odv = new DataView(out.buffer, out.byteOffset, out.byteLength);
         const got: Record<string, bigint> = {};
-        MATH_FIELDS.forEach(
-            (f, i) =>
-                (got[f] = SIGNED_FIELDS.has(f)
-                    ? odv.getBigInt64(i * 8, true)
-                    : odv.getBigUint64(i * 8, true)),
-        );
+        MATH_FIELDS.forEach((f, i) => (got[f] = SIGNED_FIELDS.has(f) ? odv.getBigInt64(i * 8, true) : odv.getBigUint64(i * 8, true)));
         return got;
     };
 
@@ -292,9 +256,7 @@ describe("safe-math + uint128 semantics vs BigInt reference", () => {
             for (const f of MATH_FIELDS) {
                 const want = SIGNED_FIELDS.has(f) ? S(exp[f]) : U(exp[f]);
                 if (got[f] !== want) {
-                    expect(`${f}(sa=${sa} sb=${sb} ua=${ua} ub=${ub}) = ${got[f]}`).toBe(
-                        `${f}(...) = ${want}`,
-                    );
+                    expect(`${f}(sa=${sa} sb=${sb} ua=${ua} ub=${ub}) = ${got[f]}`).toBe(`${f}(...) = ${want}`);
                 }
                 checked++;
             }
@@ -327,9 +289,7 @@ describe("safe-math + uint128 semantics vs BigInt reference", () => {
             const exp = refU128(a, b, sh) as Record<string, bigint>;
             for (const f of U128_FIELDS) {
                 if (got[f] !== exp[f]) {
-                    expect(
-                        `${f}(a=${a.toString(16)} b=${b.toString(16)} sh=${sh}) = ${got[f].toString(16)}`,
-                    ).toBe(`${f}(...) = ${exp[f].toString(16)}`);
+                    expect(`${f}(a=${a.toString(16)} b=${b.toString(16)} sh=${sh}) = ${got[f].toString(16)}`).toBe(`${f}(...) = ${exp[f].toString(16)}`);
                 }
                 checked++;
             }
@@ -440,15 +400,11 @@ describe("differential gtest — safe-math saturation + uint128 boundaries", () 
                 qpiHeader: HEADERS,
                 arenaSizeBytes: 1024 * 1024,
             });
-            expect(
-                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-            ).toHaveLength(0);
+            expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
             const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
             for (const r of results) {
-                console.log(
-                    `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
-                );
+                console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
             }
             expect(results.length).toBeGreaterThan(0);
             expect(results.every((r) => r.passed)).toBe(true);

@@ -6,14 +6,7 @@ import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { releasePlatformKey } from "@qinit/core";
-import {
-    activeNodeScratchDir,
-    ensureNodeBinary,
-    fetchNodeBinary,
-    killNode,
-    nodeAlive,
-    nodeAssetForPlatform,
-} from "../../src/ops/node";
+import { activeNodeScratchDir, ensureNodeBinary, fetchNodeBinary, killNode, nodeAlive, nodeAssetForPlatform } from "../../src/ops/node";
 
 const scratch = () => mkdtempSync(join(tmpdir(), "qinit-nodeops-"));
 const pidFile = (s: string) => join(s, "node.pid");
@@ -168,16 +161,9 @@ test("fetchNodeBinary downloads a verified raw platform executable and updates c
         expect(current.nodeVersion).toBe(manifest.version);
         expect(current.node).toBe(downloaded.nodeBinaryPath);
 
-        const staged = await fetchNodeBinary(
-            "unused",
-            undefined,
-            { ...manifest, version: "qinit-v-staged-node" },
-            { updateCurrent: false },
-        );
+        const staged = await fetchNodeBinary("unused", undefined, { ...manifest, version: "qinit-v-staged-node" }, { updateCurrent: false });
         expect(existsSync(staged.nodeBinaryPath)).toBe(true);
-        expect(JSON.parse(readFileSync(join(cache, "current.json"), "utf8")).nodeVersion).toBe(
-            manifest.version,
-        );
+        expect(JSON.parse(readFileSync(join(cache, "current.json"), "utf8")).nodeVersion).toBe(manifest.version);
 
         const badManifest = {
             ...manifest,
@@ -189,9 +175,7 @@ test("fetchNodeBinary downloads a verified raw platform executable and updates c
                 },
             },
         };
-        await expect(fetchNodeBinary("unused", undefined, badManifest)).rejects.toThrow(
-            "sha256 mismatch",
-        );
+        await expect(fetchNodeBinary("unused", undefined, badManifest)).rejects.toThrow("sha256 mismatch");
         expect(existsSync(join(cache, badManifest.version, "node", filename))).toBe(false);
     } finally {
         globalThis.fetch = originalFetch;
@@ -216,10 +200,7 @@ test("ensureNodeBinary reuses a valid selected node without a network lookup", a
         process.env.QINIT_CACHE = cache;
         mkdirSync(join(cache, "qinit-v-cached", "node"), { recursive: true });
         writeFileSync(nodeBinaryPath, "node");
-        writeFileSync(
-            join(cache, "current.json"),
-            JSON.stringify({ nodeVersion: "qinit-v-cached", node: nodeBinaryPath }),
-        );
+        writeFileSync(join(cache, "current.json"), JSON.stringify({ nodeVersion: "qinit-v-cached", node: nodeBinaryPath }));
         globalThis.fetch = (async () => {
             requests++;
             throw new Error("network must not run");
@@ -252,10 +233,7 @@ test("ensureNodeBinary restores a missing node from the installed headers releas
     try {
         process.env.QINIT_CACHE = cache;
         mkdirSync(coreHeaders, { recursive: true });
-        writeFileSync(
-            join(cache, "current.json"),
-            JSON.stringify({ headersVersion: "qinit-v-headers", coreHeaders }),
-        );
+        writeFileSync(join(cache, "current.json"), JSON.stringify({ headersVersion: "qinit-v-headers", coreHeaders }));
         globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
             const url = String(input);
             requests.push(url);
@@ -292,26 +270,16 @@ test("ensureNodeBinary does not pair a downloaded node with local headers", asyn
     try {
         process.env.QINIT_CACHE = cache;
         mkdirSync(coreHeaders, { recursive: true });
-        writeFileSync(
-            join(cache, "current.json"),
-            JSON.stringify({ headersVersion: "local", coreHeaders }),
-        );
+        writeFileSync(join(cache, "current.json"), JSON.stringify({ headersVersion: "local", coreHeaders }));
         globalThis.fetch = (async () => {
             requests++;
             throw new Error("network must not run");
         }) as unknown as typeof fetch;
 
-        await expect(ensureNodeBinary()).rejects.toThrow(
-            "local headers have no matching managed node",
-        );
+        await expect(ensureNodeBinary()).rejects.toThrow("local headers have no matching managed node");
 
-        writeFileSync(
-            join(cache, "current.json"),
-            JSON.stringify({ headersVersion: "cached", coreHeaders }),
-        );
-        await expect(ensureNodeBinary()).rejects.toThrow(
-            "installed headers do not identify a release",
-        );
+        writeFileSync(join(cache, "current.json"), JSON.stringify({ headersVersion: "cached", coreHeaders }));
+        await expect(ensureNodeBinary()).rejects.toThrow("installed headers do not identify a release");
         expect(requests).toBe(0);
     } finally {
         globalThis.fetch = originalFetch;
@@ -332,10 +300,7 @@ test("an explicit latest node request never falls back to the selected cache", a
         process.env.QINIT_CACHE = cache;
         mkdirSync(join(cache, "old", "node"), { recursive: true });
         writeFileSync(nodeBinaryPath, "old");
-        writeFileSync(
-            join(cache, "current.json"),
-            JSON.stringify({ nodeVersion: "old", node: nodeBinaryPath }),
-        );
+        writeFileSync(join(cache, "current.json"), JSON.stringify({ nodeVersion: "old", node: nodeBinaryPath }));
         globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
             requests.push(String(input));
             return new Response("unavailable", { status: 503 });

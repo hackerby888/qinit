@@ -107,33 +107,24 @@ for (const c of CASES) {
 
             // qinit side: deploy (runs INITIALIZE) then the op script, read the raw StateData
             const sim = new QubicSimulator();
-            const ct = sim.deploy(
-                c.slot,
-                new Uint8Array(await Bun.file(r.wasmPath!).arrayBuffer()),
-            );
+            const ct = sim.deploy(c.slot, new Uint8Array(await Bun.file(r.wasmPath!).arrayBuffer()));
             for (const o of c.ops) sim.procedure(c.slot, o.it, o.in);
             const qinitHex = toHex(ct.state());
             expect(ct.state().length).toBe(c.bytes);
 
             // node side: same wasm under WAMR, same INITIALIZE + script, via the gtest that prints CROSSHOST_STATE=<hex>
             const script = c.ops.map((o) => `${o.it}:${toHex(o.in)}`).join(";");
-            const proc = Bun.spawnSync(
-                [GTEST, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"],
-                {
-                    cwd: tmpdir(),
-                    env: {
-                        ...process.env,
-                        QINIT_WASM: r.wasmPath!,
-                        QINIT_SCRIPT: script,
-                        QINIT_EXPECTED_SLOT: String(c.slot),
-                    },
+            const proc = Bun.spawnSync([GTEST, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"], {
+                cwd: tmpdir(),
+                env: {
+                    ...process.env,
+                    QINIT_WASM: r.wasmPath!,
+                    QINIT_SCRIPT: script,
+                    QINIT_EXPECTED_SLOT: String(c.slot),
                 },
-            );
+            });
             const m = proc.stdout.toString().match(/CROSSHOST_STATE=([0-9a-f]+)/);
-            expect(
-                m,
-                `gtest emitted no CROSSHOST_STATE:\n${proc.stdout.toString()}\n${proc.stderr.toString()}`,
-            ).not.toBeNull();
+            expect(m, `gtest emitted no CROSSHOST_STATE:\n${proc.stdout.toString()}\n${proc.stderr.toString()}`).not.toBeNull();
 
             // the proof: byte-identical contract state across the two independent host implementations
             expect(m![1]).toBe(qinitHex);

@@ -3,30 +3,16 @@ import type { Statement, Expression } from "../../ast";
 import { evalIntegralConst } from "./validation-helpers";
 import type { Validator } from "./validator";
 
-export function checkSwitchCases(
-    validator: Validator,
-    body: Statement,
-    allLocals: Set<string>,
-): void {
+export function checkSwitchCases(validator: Validator, body: Statement, allLocals: Set<string>): void {
     const keys = new Set<string>();
     let defaults = 0;
     const scan = (statement: Statement): void => {
         switch (statement.kind) {
             case AstKind.CASE: {
-                const value = evalIntegralConst(
-                    statement.value,
-                    (name) => validator.constants.get(name) ?? null,
-                );
+                const value = evalIntegralConst(statement.value, (name) => validator.constants.get(name) ?? null);
                 const key = value === null ? null : `#${value}`;
-                if (
-                    value === null &&
-                    statement.value.kind === AstKind.IDENTIFIER &&
-                    allLocals.has(statement.value.name)
-                ) {
-                    validator.error(
-                        `case label must be an integral constant expression`,
-                        statement.span,
-                    );
+                if (value === null && statement.value.kind === AstKind.IDENTIFIER && allLocals.has(statement.value.name)) {
+                    validator.error(`case label must be an integral constant expression`, statement.span);
                 }
                 if (key !== null) {
                     if (keys.has(key)) {
@@ -61,11 +47,7 @@ export function checkSwitchCases(
     scan(body);
 }
 
-export function walkStatements(
-    validator: Validator,
-    statement: Statement,
-    visit: (statement: Statement) => void,
-): void {
+export function walkStatements(validator: Validator, statement: Statement, visit: (statement: Statement) => void): void {
     visit(statement);
     switch (statement.kind) {
         case AstKind.COMPOUND:
@@ -93,10 +75,7 @@ export function walkStatements(
     }
 }
 
-export function walkExpressions(
-    statement: Statement,
-    visit: (expression: Expression) => void,
-): void {
+export function walkExpressions(statement: Statement, visit: (expression: Expression) => void): void {
     const walkE = (expression: Expression): void => {
         visit(expression);
         switch (expression.kind) {
@@ -147,9 +126,7 @@ export function walkExpressions(
                 break;
             case AstKind.CONSTRUCT:
             case AstKind.INITIALIZER_LIST:
-                for (const item of (expression as any).callArguments ??
-                    (expression as any).expressions ??
-                    []) {
+                for (const item of (expression as any).callArguments ?? (expression as any).expressions ?? []) {
                     walkE(item);
                 }
                 break;
@@ -163,10 +140,7 @@ export function walkExpressions(
             walkE(statement.expression);
             break;
         case AstKind.DECLARATION:
-            if (
-                statement.declaration.kind === AstKind.VARIABLE &&
-                statement.declaration.initializer
-            ) {
+            if (statement.declaration.kind === AstKind.VARIABLE && statement.declaration.initializer) {
                 walkE(statement.declaration.initializer);
             }
             break;

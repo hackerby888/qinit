@@ -64,11 +64,7 @@ function hashPair(left: Uint8Array, right: Uint8Array): Uint8Array {
 
 // Recompute the root from a leaf record + its index + siblings — mirrors getDigestFromSiblings. For verifying
 // that a proof reproduces the tree's root (the check an external client performs).
-export function rootFromSiblings(
-    record: Uint8Array,
-    index: number,
-    siblings: Uint8Array[],
-): Uint8Array {
+export function rootFromSiblings(record: Uint8Array, index: number, siblings: Uint8Array[]): Uint8Array {
     let digest = k12Bytes(record);
     let idx = index;
     for (const sib of siblings) {

@@ -16,15 +16,8 @@ export interface PreprocessedContractSource {
     remapDiagnostic: DiagnosticRemapper;
 }
 
-export function preprocessContractSource(
-    options: CompileOptions,
-    seedMacros: PreprocessorInput["seedMacros"],
-): PreprocessedContractSource {
-    const source = [
-        SCAFFOLD_MACROS,
-        `struct ${USER_BOUNDARY} {};`,
-        sourceWithoutLeadingBom(options.source),
-    ].join("\n");
+export function preprocessContractSource(options: CompileOptions, seedMacros: PreprocessorInput["seedMacros"]): PreprocessedContractSource {
+    const source = [SCAFFOLD_MACROS, `struct ${USER_BOUNDARY} {};`, sourceWithoutLeadingBom(options.source)].join("\n");
 
     const preprocessedSource = new Preprocessor().preprocess({
         source,
@@ -39,18 +32,11 @@ export function preprocessContractSource(
     return {
         source: preprocessedSource,
         userBoundaryLine,
-        remapDiagnostic: makeUserDiagnosticRemapper(
-            options.source,
-            preprocessedSource,
-            userBoundaryLine,
-        ),
+        remapDiagnostic: makeUserDiagnosticRemapper(options.source, preprocessedSource, userBoundaryLine),
     };
 }
 
-export function parseContractSource(
-    preprocessed: PreprocessedContractSource,
-    diagnostics: ParserDiagnostic[],
-): TranslationUnit {
+export function parseContractSource(preprocessed: PreprocessedContractSource, diagnostics: ParserDiagnostic[]): TranslationUnit {
     const parser = new Parser(new Lexer(preprocessed.source).tokenize());
     const translationUnit = parser.parseTranslationUnit();
 
@@ -59,18 +45,11 @@ export function parseContractSource(
     return translationUnit;
 }
 
-export function validateContractSource(
-    translationUnit: TranslationUnit,
-    preprocessed: PreprocessedContractSource,
-    diagnostics: ParserDiagnostic[],
-): void {
+export function validateContractSource(translationUnit: TranslationUnit, preprocessed: PreprocessedContractSource, diagnostics: ParserDiagnostic[]): void {
     diagnostics.push(...userSourceDiagnostics(validateAndDesugar(translationUnit), preprocessed));
 }
 
-export function remapAnalysisDiagnostics(
-    diagnostics: ParserDiagnostic[],
-    preprocessed: PreprocessedContractSource,
-): ParserDiagnostic[] {
+export function remapAnalysisDiagnostics(diagnostics: ParserDiagnostic[], preprocessed: PreprocessedContractSource): ParserDiagnostic[] {
     return diagnostics.map((diagnostic) => {
         if (diagnostic.span.line <= preprocessed.userBoundaryLine) {
             return diagnostic;
@@ -80,10 +59,7 @@ export function remapAnalysisDiagnostics(
     });
 }
 
-function userSourceDiagnostics(
-    diagnostics: ParserDiagnostic[],
-    preprocessed: PreprocessedContractSource,
-): ParserDiagnostic[] {
+function userSourceDiagnostics(diagnostics: ParserDiagnostic[], preprocessed: PreprocessedContractSource): ParserDiagnostic[] {
     return diagnostics
         .filter((diagnostic) => {
             return diagnostic.span.line > preprocessed.userBoundaryLine;

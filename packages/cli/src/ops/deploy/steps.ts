@@ -26,10 +26,7 @@ export function updateDeploymentSteps(
 ): Record<string, DeploymentStepState> {
     const previous = steps[event.step];
     const startedAt = event.state === "active" && !previous?.startedAt ? now : previous?.startedAt;
-    const elapsedMs =
-        (event.state === "ok" || event.state === "fail") && startedAt
-            ? now - startedAt
-            : previous?.elapsedMs;
+    const elapsedMs = (event.state === "ok" || event.state === "fail") && startedAt ? now - startedAt : previous?.elapsedMs;
     return {
         ...steps,
         [event.step]: {
@@ -52,17 +49,10 @@ export const STEPS: { key: StepKey; label: string }[] = [
 ];
 
 export function tickFailureMessage(reached: boolean, rpcBaseUrl: string): string {
-    return reached
-        ? "node not ticking"
-        : `node unreachable at ${rpcBaseUrl} — is it running? (qinit node run)`;
+    return reached ? "node not ticking" : `node unreachable at ${rpcBaseUrl} — is it running? (qinit node run)`;
 }
 
-export function classifyConfirm(state: {
-    present: boolean;
-    regOk: boolean;
-    onNode: string;
-    want: string;
-}): { reason: string; detail: string; note: string } {
+export function classifyConfirm(state: { present: boolean; regOk: boolean; onNode: string; want: string }): { reason: string; detail: string; note: string } {
     if (!state.regOk) {
         return {
             reason: "registry-unreadable",

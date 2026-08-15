@@ -8,21 +8,14 @@ import { describeShape } from "../calls/call-shape";
 
 const ASSERTION_OPERATIONS = ["eq", "ne", "lt", "le", "gt", "ge", "true", "false"];
 
-export function tryEmitTestHarnessCall(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-): boolean {
+export function tryEmitTestHarnessCall(context: FunctionEmissionContext, expression: CallExpression): boolean {
     if (!context.programAnalysis.gtestMode || expression.callee.kind !== AstKind.IDENTIFIER) {
         return false;
     }
 
     const callName = expression.callee.name;
 
-    if (
-        callName === "__qtest_noop" ||
-        callName === "initEmptySpectrum" ||
-        callName === "initEmptyUniverse"
-    ) {
+    if (callName === "__qtest_noop" || callName === "initEmptySpectrum" || callName === "initEmptyUniverse") {
         return true;
     }
 
@@ -49,35 +42,18 @@ export function tryEmitTestHarnessCall(
     return tryEmitTestAssertion(context, expression, callName);
 }
 
-function emitTestProcedureInvocation(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-): void {
-    const input = expression.callArguments[2]
-        ? context.lowering.resolveExpressionAddress(context, expression.callArguments[2])
-        : null;
-    const output = expression.callArguments[3]
-        ? context.lowering.resolveExpressionAddress(context, expression.callArguments[3])
-        : null;
-    const origin = expression.callArguments[4]
-        ? context.lowering.emitAddress(context, expression.callArguments[4])
-        : null;
+function emitTestProcedureInvocation(context: FunctionEmissionContext, expression: CallExpression): void {
+    const input = expression.callArguments[2] ? context.lowering.resolveExpressionAddress(context, expression.callArguments[2]) : null;
+    const output = expression.callArguments[3] ? context.lowering.resolveExpressionAddress(context, expression.callArguments[3]) : null;
+    const origin = expression.callArguments[4] ? context.lowering.emitAddress(context, expression.callArguments[4]) : null;
 
     if (!input || !output || !origin) {
         throw new Error("gtest invokeUserProcedure requires addressable input, output, and origin");
     }
 
-    const contractSlot = watIr.operation(
-        "i32.wrap_i64",
-        context.lowering.lowerValueExpression(context, expression.callArguments[0]),
-    );
-    const inputType = watIr.operation(
-        "i32.wrap_i64",
-        context.lowering.lowerValueExpression(context, expression.callArguments[1]),
-    );
-    const reward = expression.callArguments[5]
-        ? context.lowering.lowerValueExpression(context, expression.callArguments[5])
-        : watIr.i64Constant(0);
+    const contractSlot = watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[0]));
+    const inputType = watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[1]));
+    const reward = expression.callArguments[5] ? context.lowering.lowerValueExpression(context, expression.callArguments[5]) : watIr.i64Constant(0);
     const invocation = watIr.functionCall(
         "$qt_invoke",
         contractSlot,
@@ -93,29 +69,20 @@ function emitTestProcedureInvocation(
 }
 
 function emitTestFunctionQuery(context: FunctionEmissionContext, expression: CallExpression): void {
-    let input = expression.callArguments[2]
-        ? context.lowering.resolveExpressionAddress(context, expression.callArguments[2])
-        : null;
-    const output = expression.callArguments[3]
-        ? context.lowering.resolveExpressionAddress(context, expression.callArguments[3])
-        : null;
+    let input = expression.callArguments[2] ? context.lowering.resolveExpressionAddress(context, expression.callArguments[2]) : null;
+    const output = expression.callArguments[3] ? context.lowering.resolveExpressionAddress(context, expression.callArguments[3]) : null;
 
     if (!input && expression.callArguments[2]) {
         const inputExpression = expression.callArguments[2];
         const inputAddress = context.lowering.emitAddress(context, inputExpression);
         const constructorName =
             inputExpression.kind === AstKind.CALL &&
-            (inputExpression.callee.kind === AstKind.IDENTIFIER ||
-                inputExpression.callee.kind === AstKind.QUALIFIED_NAME)
+            (inputExpression.callee.kind === AstKind.IDENTIFIER || inputExpression.callee.kind === AstKind.QUALIFIED_NAME)
                 ? inputExpression.callee.name
                 : null;
-        const inputType: TypeSpec | null = constructorName
-            ? { kind: AstKind.NAME, name: constructorName }
-            : null;
+        const inputType: TypeSpec | null = constructorName ? { kind: AstKind.NAME, name: constructorName } : null;
         const templateBindings = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
-        const inputSize = inputType
-            ? context.programAnalysis.sizeOfType(inputType, templateBindings)
-            : 0;
+        const inputSize = inputType ? context.programAnalysis.sizeOfType(inputType, templateBindings) : 0;
 
         if (inputAddress && inputType) {
             input = {
@@ -133,14 +100,8 @@ function emitTestFunctionQuery(context: FunctionEmissionContext, expression: Cal
         );
     }
 
-    const contractSlot = watIr.operation(
-        "i32.wrap_i64",
-        context.lowering.lowerValueExpression(context, expression.callArguments[0]),
-    );
-    const inputType = watIr.operation(
-        "i32.wrap_i64",
-        context.lowering.lowerValueExpression(context, expression.callArguments[1]),
-    );
+    const contractSlot = watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[0]));
+    const inputType = watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[1]));
     const query = watIr.functionCall(
         "$qt_query",
         contractSlot,
@@ -154,52 +115,34 @@ function emitTestFunctionQuery(context: FunctionEmissionContext, expression: Cal
     context.lines.push(`    ${watIr.serializeWatNode(watIr.operation("drop", query))}`);
 }
 
-function emitTestEnergyIncrease(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-): void {
-    const accountAddress = expression.callArguments[0]
-        ? context.lowering.emitAddress(context, expression.callArguments[0])
-        : null;
+function emitTestEnergyIncrease(context: FunctionEmissionContext, expression: CallExpression): void {
+    const accountAddress = expression.callArguments[0] ? context.lowering.emitAddress(context, expression.callArguments[0]) : null;
 
     if (!accountAddress) {
         throw new Error("gtest increaseEnergy account must be addressable");
     }
 
-    const amount = expression.callArguments[1]
-        ? context.lowering.lowerValueExpression(context, expression.callArguments[1])
-        : watIr.i64Constant(0);
+    const amount = expression.callArguments[1] ? context.lowering.lowerValueExpression(context, expression.callArguments[1]) : watIr.i64Constant(0);
     const fundingCall = watIr.functionCall("$qt_fund", addrIr(accountAddress), amount);
 
     context.lines.push(`    ${watIr.serializeWatNode(fundingCall)}`);
 }
 
-function emitTestSystemProcedureCall(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-): void {
+function emitTestSystemProcedureCall(context: FunctionEmissionContext, expression: CallExpression): void {
     const contractSlot = watIr.operation(
         "i32.wrap_i64",
-        expression.callArguments[0]
-            ? context.lowering.lowerValueExpression(context, expression.callArguments[0])
-            : watIr.i64Constant(0),
+        expression.callArguments[0] ? context.lowering.lowerValueExpression(context, expression.callArguments[0]) : watIr.i64Constant(0),
     );
     const procedureId = watIr.operation(
         "i32.wrap_i64",
-        expression.callArguments[1]
-            ? context.lowering.lowerValueExpression(context, expression.callArguments[1])
-            : watIr.i64Constant(0),
+        expression.callArguments[1] ? context.lowering.lowerValueExpression(context, expression.callArguments[1]) : watIr.i64Constant(0),
     );
     const procedureCall = watIr.functionCall("$qt_system", contractSlot, procedureId);
 
     context.lines.push(`    ${watIr.serializeWatNode(watIr.operation("drop", procedureCall))}`);
 }
 
-function tryEmitTestAssertion(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-    callName: string,
-): boolean {
+function tryEmitTestAssertion(context: FunctionEmissionContext, expression: CallExpression, callName: string): boolean {
     const assertion = callName.match(/^__qtest_(expect|assert)_(eq|ne|lt|le|gt|ge|true|false)$/);
 
     if (!assertion) {
@@ -214,10 +157,7 @@ function tryEmitTestAssertion(
         span: expression.span,
     });
     const left = expression.callArguments[0] ?? zero();
-    const right =
-        operation === "true" || operation === "false"
-            ? zero()
-            : (expression.callArguments[1] ?? zero());
+    const right = operation === "true" || operation === "false" ? zero() : (expression.callArguments[1] ?? zero());
     const comparisonOperators = {
         eq: BinaryOp.EQUAL,
         ne: BinaryOp.NOT_EQUAL,
@@ -227,11 +167,7 @@ function tryEmitTestAssertion(
         ge: BinaryOp.GREATER_THAN_OR_EQUAL,
     } as const;
     const operator =
-        operation === "true"
-            ? BinaryOp.NOT_EQUAL
-            : operation === "false"
-              ? BinaryOp.EQUAL
-              : comparisonOperators[operation as keyof typeof comparisonOperators];
+        operation === "true" ? BinaryOp.NOT_EQUAL : operation === "false" ? BinaryOp.EQUAL : comparisonOperators[operation as keyof typeof comparisonOperators];
     const comparison = context.lowering.lowerValueExpression(context, {
         kind: AstKind.BINARY_OP,
         operator,
@@ -242,15 +178,7 @@ function tryEmitTestAssertion(
     const assertionCode = ASSERTION_OPERATIONS.indexOf(operation);
 
     context.lines.push(`    (if (i64.eqz ${watIr.serializeWatNode(comparison)}) (then`);
-    context.lines.push(
-        `      ${watIr.serializeWatNode(
-            watIr.functionCall(
-                "$qt_fail",
-                watIr.i32Constant(assertionCode),
-                watIr.i32Constant(fatal ? 1 : 0),
-            ),
-        )}`,
-    );
+    context.lines.push(`      ${watIr.serializeWatNode(watIr.functionCall("$qt_fail", watIr.i32Constant(assertionCode), watIr.i32Constant(fatal ? 1 : 0)))}`);
 
     if (fatal) {
         context.lines.push("      (return)");

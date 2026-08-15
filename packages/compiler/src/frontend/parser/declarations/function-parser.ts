@@ -1,13 +1,5 @@
 import { AccessSpec, AstKind, TokenKind } from "../../../shared/enums";
-import type {
-    Declaration,
-    Expression,
-    FunctionDecl,
-    ParamDecl,
-    Statement,
-    TypeSpec,
-    VariableDecl,
-} from "../../../ast";
+import type { Declaration, Expression, FunctionDecl, ParamDecl, Statement, TypeSpec, VariableDecl } from "../../../ast";
 import type { Parser } from "../parser";
 
 export class FunctionParser {
@@ -35,13 +27,7 @@ export class FunctionParser {
                 break;
             }
         }
-        return this.parser.functions.parseAfterModifiers(
-            isConstexpr,
-            isStatic,
-            isInline,
-            isVirtual,
-            isExtern,
-        );
+        return this.parser.functions.parseAfterModifiers(isConstexpr, isStatic, isInline, isVirtual, isExtern);
     }
 
     parseFunctionOrVariablePeekType(): Declaration {
@@ -67,13 +53,7 @@ export class FunctionParser {
         return this.parser.functions.parseAfterModifiers(false, false, false, false, false);
     }
 
-    parseAfterModifiers(
-        isConstexpr: boolean,
-        isStatic: boolean,
-        isInline: boolean,
-        isVirtual: boolean,
-        isExtern: boolean,
-    ): Declaration {
+    parseAfterModifiers(isConstexpr: boolean, isStatic: boolean, isInline: boolean, isVirtual: boolean, isExtern: boolean): Declaration {
         // Parse return type (or variable type)
         const type = this.parser.types.parseTypeSpec();
         // Check for function call syntax: Type(...) or Type::name(
@@ -81,15 +61,7 @@ export class FunctionParser {
         if (!name) {
             // Constructors and destructors have no return type.
             if (this.parser.state.peek().kind === TokenKind.L_PAREN && type.kind === AstKind.NAME) {
-                return this.parser.functions.parseFunctionRest(
-                    type.name,
-                    { kind: AstKind.VOID },
-                    isConstexpr,
-                    isStatic,
-                    isInline,
-                    isVirtual,
-                    isExtern,
-                );
+                return this.parser.functions.parseFunctionRest(type.name, { kind: AstKind.VOID }, isConstexpr, isStatic, isInline, isVirtual, isExtern);
             }
             // Just a type with no name — semicolon
             this.parser.state.expect(TokenKind.SEMICOLON, "declaration");
@@ -100,15 +72,7 @@ export class FunctionParser {
             if (this.parser.functions.looksLikeDirectInit()) {
                 return this.parser.functions.parseDirectInitVar(name, type, isConstexpr, isStatic);
             }
-            return this.parser.functions.parseFunctionRest(
-                name,
-                type,
-                isConstexpr,
-                isStatic,
-                isInline,
-                isVirtual,
-                isExtern,
-            );
+            return this.parser.functions.parseFunctionRest(name, type, isConstexpr, isStatic, isInline, isVirtual, isExtern);
         }
         // Variable: name; or name = init;
         return this.parser.functions.parseVariableRest(name, type, isConstexpr, isStatic);
@@ -133,12 +97,7 @@ export class FunctionParser {
         );
     }
 
-    parseDirectInitVar(
-        name: string,
-        type: TypeSpec,
-        isConstexpr: boolean,
-        isStatic: boolean,
-    ): VariableDecl {
+    parseDirectInitVar(name: string, type: TypeSpec, isConstexpr: boolean, isStatic: boolean): VariableDecl {
         const start = this.parser.state.peek().span;
         this.parser.state.expect(TokenKind.L_PAREN, "ctor args");
         const callArguments: Expression[] = [];
@@ -167,15 +126,7 @@ export class FunctionParser {
     parseFunctionAfterReturnType(retType: TypeSpec, isExternC: boolean): FunctionDecl {
         const name = this.parser.types.parseMaybeQualifiedName() ?? "";
         const isConstexpr = false;
-        return this.parser.functions.parseFunctionRest(
-            name,
-            retType,
-            isConstexpr,
-            false,
-            false,
-            false,
-            isExternC,
-        );
+        return this.parser.functions.parseFunctionRest(name, retType, isConstexpr, false, false, false, isExternC);
     }
 
     parseFunctionRest(
@@ -231,25 +182,14 @@ export class FunctionParser {
         };
     }
 
-    parseVariableRest(
-        name: string,
-        type: TypeSpec,
-        isConstexpr: boolean,
-        isStatic: boolean,
-    ): Declaration {
+    parseVariableRest(name: string, type: TypeSpec, isConstexpr: boolean, isStatic: boolean): Declaration {
         const vars = this.parser.functions.parseDeclaratorList(type, name, isConstexpr, isStatic);
         // First declarator is returned; the rest are queued for the enclosing member/decl loop.
-        for (let varIndex = 1; varIndex < vars.length; varIndex++)
-            this.parser.state.pendingDeclarations.push(vars[varIndex]);
+        for (let varIndex = 1; varIndex < vars.length; varIndex++) this.parser.state.pendingDeclarations.push(vars[varIndex]);
         return vars[0] ?? { kind: AstKind.EMPTY };
     }
 
-    parseDeclaratorList(
-        baseType: TypeSpec,
-        firstName: string,
-        isConstexpr: boolean,
-        isStatic: boolean,
-    ): VariableDecl[] {
+    parseDeclaratorList(baseType: TypeSpec, firstName: string, isConstexpr: boolean, isStatic: boolean): VariableDecl[] {
         const out: VariableDecl[] = [];
         let name = firstName;
         while (true) {
@@ -303,11 +243,7 @@ export class FunctionParser {
             });
             if (this.parser.state.tryConsume(TokenKind.COMMA)) {
                 // next declarator: optional * / & then a name
-                while (
-                    this.parser.state.peek().kind === TokenKind.STAR ||
-                    this.parser.state.peek().kind === TokenKind.AMP
-                )
-                    this.parser.state.next();
+                while (this.parser.state.peek().kind === TokenKind.STAR || this.parser.state.peek().kind === TokenKind.AMP) this.parser.state.next();
                 const token = this.parser.state.peek();
                 if (token.kind === TokenKind.IDENTIFIER) {
                     name = this.parser.state.next().text;
@@ -325,10 +261,7 @@ export class FunctionParser {
         if (this.parser.state.peek().kind === TokenKind.R_PAREN) {
             return params;
         }
-        if (
-            this.parser.state.peek().kind === TokenKind.KW_VOID &&
-            this.parser.state.peek(1).kind === TokenKind.R_PAREN
-        ) {
+        if (this.parser.state.peek().kind === TokenKind.KW_VOID && this.parser.state.peek(1).kind === TokenKind.R_PAREN) {
             this.parser.state.next(); // void
             return params;
         }
@@ -337,14 +270,10 @@ export class FunctionParser {
             let name = "";
             // Function pointers remain addresses in the parsed ABI and still participate in overload
             // resolution; generated Wasm does not call their pointee signatures.
-            if (
-                this.parser.state.peek().kind === TokenKind.L_PAREN &&
-                this.parser.state.peek(1).kind === TokenKind.STAR
-            ) {
+            if (this.parser.state.peek().kind === TokenKind.L_PAREN && this.parser.state.peek(1).kind === TokenKind.STAR) {
                 this.parser.state.next();
                 this.parser.state.next();
-                if (this.parser.state.peek().kind === TokenKind.IDENTIFIER)
-                    name = this.parser.state.next().text;
+                if (this.parser.state.peek().kind === TokenKind.IDENTIFIER) name = this.parser.state.next().text;
                 this.parser.state.expect(TokenKind.R_PAREN, "function-pointer declarator");
                 this.parser.state.expect(TokenKind.L_PAREN, "function-pointer parameters");
                 let depth = 1;

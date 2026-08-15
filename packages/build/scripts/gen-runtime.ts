@@ -44,9 +44,7 @@ export async function generateRuntime(): Promise<string> {
         ),
     ];
     if (externals.length || /\bnode:|child_process|require\("fs"\)/.test(code)) {
-        throw new Error(
-            "gen-runtime: NON-PORTABLE bundle — unexpected externals: " + externals.join(", "),
-        );
+        throw new Error("gen-runtime: NON-PORTABLE bundle — unexpected externals: " + externals.join(", "));
     }
     return HEADER + code;
 }

@@ -20,23 +20,14 @@ template <typename T> struct TemplateForward {};
 `;
         const parser = new Parser(new Lexer(source).tokenize());
         const unit = parser.parseTranslationUnit();
-        const parseErrors = parser
-            .getDiagnostics()
-            .filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
+        const parseErrors = parser.getDiagnostics().filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
 
         expect(parseErrors).toEqual([]);
 
-        const records = unit.declarations.filter(
-            (declaration): declaration is StructDecl => declaration.kind === AstKind.STRUCT,
-        );
-        const templates = unit.declarations.filter(
-            (declaration): declaration is ClassTemplateDecl =>
-                declaration.kind === AstKind.CLASS_TEMPLATE,
-        );
+        const records = unit.declarations.filter((declaration): declaration is StructDecl => declaration.kind === AstKind.STRUCT);
+        const templates = unit.declarations.filter((declaration): declaration is ClassTemplateDecl => declaration.kind === AstKind.CLASS_TEMPLATE);
 
-        expect(
-            records.map((record) => [record.name, record.hasBody, record.isUnion ?? false]),
-        ).toEqual([
+        expect(records.map((record) => [record.name, record.hasBody, record.isUnion ?? false])).toEqual([
             ["Forward", false, false],
             ["Forward", true, false],
             ["Empty", true, false],
@@ -49,12 +40,8 @@ template <typename T> struct TemplateForward {};
             ["TemplateForward", true],
         ]);
 
-        const validationErrors = validateAndDesugar(unit).filter(
-            (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-        );
-        expect(validationErrors.map((diagnostic) => diagnostic.message)).toEqual([
-            "duplicate type definition 'Empty'",
-        ]);
+        const validationErrors = validateAndDesugar(unit).filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
+        expect(validationErrors.map((diagnostic) => diagnostic.message)).toEqual(["duplicate type definition 'Empty'"]);
     });
 
     test("uses a nested template definition after its forward declaration", () => {

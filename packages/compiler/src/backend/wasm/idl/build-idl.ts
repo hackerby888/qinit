@@ -1,11 +1,5 @@
 // Assembles the ContractIdl a compiled module publishes: entries, state, enums, logs, migration.
-import {
-    AbiTypeKind,
-    QINIT_IDL_VERSION,
-    abiTypeContainsKind,
-    type ContractEntry,
-    type ContractIdl,
-} from "@qinit/proto/contract-idl";
+import { AbiTypeKind, QINIT_IDL_VERSION, abiTypeContainsKind, type ContractEntry, type ContractIdl } from "@qinit/proto/contract-idl";
 import { AstKind } from "../../../shared/enums";
 import type { StructDecl } from "../../../ast";
 import type { PreparedContractModule } from "../module/module-analysis";
@@ -20,10 +14,7 @@ export interface BuildContractIdlOptions {
     dependencies?: readonly string[];
 }
 
-export function buildContractIdl(
-    prepared: PreparedContractModule,
-    options: BuildContractIdlOptions,
-): ContractIdl {
+export function buildContractIdl(prepared: PreparedContractModule, options: BuildContractIdlOptions): ContractIdl {
     const builder = new AbiTypeBuilder(prepared.programAnalysis);
     const functions: ContractEntry[] = [];
     const procedures: ContractEntry[] = [];
@@ -44,10 +35,7 @@ export function buildContractIdl(
             ["output", output],
         ] as const) {
             if (abiTypeContainsKind(type, AbiTypeKind.LINKED_LIST)) {
-                prepared.programAnalysis.error(
-                    `LinkedList is forbidden in registered entry '${registration.fnName}_${direction}'`,
-                    registration.line,
-                );
+                prepared.programAnalysis.error(`LinkedList is forbidden in registered entry '${registration.fnName}_${direction}'`, registration.line);
             }
         }
         const entry: ContractEntry = {
@@ -85,12 +73,7 @@ export function buildContractIdl(
         slot: options.slot,
         functions,
         procedures,
-        state: builder.namedStruct(
-            "StateData",
-            prepared.stateLayout,
-            true,
-            nestedStruct(prepared.contract, "StateData"),
-        ),
+        state: builder.namedStruct("StateData", prepared.stateLayout, true, nestedStruct(prepared.contract, "StateData")),
         sysprocMask: systemProcedureMask(prepared),
         enums: contractEnums(prepared),
         logs: contractLogs(prepared, builder),
@@ -122,10 +105,7 @@ function systemProcedureMask(prepared: PreparedContractModule): number {
 }
 
 function nestedStruct(contract: StructDecl | undefined, name: string): StructDecl | undefined {
-    return contract?.members.find(
-        (member) =>
-            member.kind === AstKind.STRUCT && member.name === name && member.hasBody !== false,
-    ) as StructDecl | undefined;
+    return contract?.members.find((member) => member.kind === AstKind.STRUCT && member.name === name && member.hasBody !== false) as StructDecl | undefined;
 }
 
 function uniqueNames(names: readonly string[]): string[] {

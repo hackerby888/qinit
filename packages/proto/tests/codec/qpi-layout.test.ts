@@ -110,9 +110,7 @@ test("LinkedList geometry matches QPI node and header layout", () => {
 });
 
 test("hashMapFmt: matches the C++ StateData layout + sizeof pin (41232)", () => {
-    expect(hashMapFmt("id", "uint64", 1024)).toBe(
-        "{ [1024;{ id, uint64 }], [32;uint64], uint64, uint64 }",
-    );
+    expect(hashMapFmt("id", "uint64", 1024)).toBe("{ [1024;{ id, uint64 }], [32;uint64], uint64, uint64 }");
     expect(layoutOf(hashMapFmt("id", "uint64", 1024)).size).toBe(41232); // DbgMap marker offset
 });
 
@@ -121,9 +119,7 @@ test("hashSetFmt / collectionFmt shapes", () => {
     expect(collectionFmt("uint64", 4)).toBe(
         "{ [4;{ id, uint64, sint64, sint64, sint64 }], [1;uint64], [4;{ uint64, sint64, sint64, sint64, sint64, sint64 }], uint64, uint64 }",
     );
-    expect(linkedListFmt("uint64", 8)).toBe(
-        "{ [8;{ uint64, sint64, sint64 }], [1;uint64], sint64, sint64, sint64, uint64, uint64 }",
-    );
+    expect(linkedListFmt("uint64", 8)).toBe("{ [8;{ uint64, sint64, sint64 }], [1;uint64], sint64, sint64, sint64, uint64, uint64 }");
     expect(layoutOf(linkedListFmt("uint64", 8))).toEqual({
         size: 240,
         align: 8,
@@ -139,10 +135,7 @@ test("element fmts (consumed by the decoders) are the single source", () => {
 // Nothing in the ABI carries the names of a container's internals, so the member tables spell them out.
 // The qpi.h snapshot embeds the header verbatim and is regenerated whenever the core-lite pin moves, which
 // makes it the one place a rename upstream can be caught.
-const SNAPSHOT = readFileSync(
-    new URL("../../../compiler/src/generated/qpi-snapshot.ts", import.meta.url),
-    "utf8",
-);
+const SNAPSHOT = readFileSync(new URL("../../../compiler/src/generated/qpi-snapshot.ts", import.meta.url), "utf8");
 
 // Only the private block declares members; the public methods below it repeat the same words.
 function privateBlock(declaration: string): string {
@@ -157,11 +150,7 @@ function privateBlock(declaration: string): string {
 const sourcesOf = (regions: ContainerRegion[]) =>
     [
         ...new Set(
-            regions.flatMap((region) =>
-                region.kind === "records"
-                    ? [region.source, ...region.members.map((member) => member.source)]
-                    : [region.source],
-            ),
+            regions.flatMap((region) => (region.kind === "records" ? [region.source, ...region.members.map((member) => member.source)] : [region.source])),
         ),
     ].filter((source) => source.length > 0);
 

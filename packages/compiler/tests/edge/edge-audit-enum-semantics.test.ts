@@ -26,9 +26,7 @@ async function run(source: string): Promise<{ value: bigint; stateSize: number }
         qpiHeader: HEADERS,
         arenaSizeBytes: 1 << 20,
     });
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
-        0,
-    );
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     const user = new Uint8Array(32).fill(7);
     sim.fund(user, 1_000_000n);
@@ -76,11 +74,7 @@ describe("edge audit — enum underlying types", () => {
     });
 
     test("implicit enumerator values advance after explicit values", async () => {
-        const source = wrap(
-            `enum E { A = 4, B, C = 9, D };`,
-            "",
-            `state.mut().result = B * 100 + D;`,
-        );
+        const source = wrap(`enum E { A = 4, B, C = 9, D };`, "", `state.mut().result = B * 100 + D;`);
         expect((await run(source)).value).toBe(510n);
     });
 });

@@ -3,15 +3,7 @@
 import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "../support/k12";
 import { dateFields } from "../contract/runtime";
 import { rootFromSiblings } from "../ledger/merkle";
-import {
-    M256i,
-    Tick,
-    TickData,
-    DIGEST_SIZE,
-    SIG_SIZE,
-    TXS_PER_TICK,
-    TICKDATA_SIZE,
-} from "../protocol/wire";
+import { M256i, Tick, TickData, DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, TICKDATA_SIZE } from "../protocol/wire";
 import { MAX_NUMBER_OF_CONTRACTS } from "@qinit/proto";
 
 export { MAX_NUMBER_OF_CONTRACTS, TXS_PER_TICK, TICKDATA_SIZE };
@@ -82,10 +74,7 @@ export class Committee {
         }
 
         const digest = k12Bytes(buf.subarray(0, size - SIG_SIZE));
-        buf.set(
-            signSync(this.arbitrator.privateKey, this.arbitrator.publicKey, digest),
-            size - SIG_SIZE,
-        );
+        buf.set(signSync(this.arbitrator.privateKey, this.arbitrator.publicKey, digest), size - SIG_SIZE);
         return buf;
     }
 }
@@ -132,13 +121,7 @@ function saltedDigest(publicKey: Uint8Array, prev: Uint8Array): Uint8Array {
 
 // Build and sign one 352-byte Tick vote.
 // State roots use prev*Digest and K12(publicKey ‖ digest) salted fields.
-export function buildTickVote(
-    c: Computor,
-    epoch: number,
-    tick: number,
-    d: TickStateDigests,
-    timeMs: number,
-): Tick {
+export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickStateDigests, timeMs: number): Tick {
     const v = Tick.alloc();
     v.computorIndex = c.index;
     v.epoch = epoch;
@@ -189,11 +172,7 @@ export function tickVoteSignature(vote: Uint8Array): Uint8Array {
 const TICKDATA_TYPE = 8; // BROADCAST_FUTURE_TICK_DATA — XORed into computorIndex for the signature domain
 
 // timelock = K12(spectrumDigest ‖ universeDigest ‖ computerDigest) — the tick's committed state roots.
-function tickDataTimelock(
-    spectrum: Uint8Array,
-    universe: Uint8Array,
-    computer: Uint8Array,
-): Uint8Array {
+function tickDataTimelock(spectrum: Uint8Array, universe: Uint8Array, computer: Uint8Array): Uint8Array {
     const buf = new Uint8Array(3 * DIGEST_SIZE);
     buf.set(spectrum.subarray(0, DIGEST_SIZE), 0);
     buf.set(universe.subarray(0, DIGEST_SIZE), DIGEST_SIZE);
@@ -269,13 +248,7 @@ export function voteIsAligned(vote: Tick, d: TickStateDigests): boolean {
 }
 
 // Verify an entity Merkle proof against a quorum of valid computor votes.
-export function verifyEntityProof(
-    record: Uint8Array,
-    index: number,
-    siblings: Uint8Array[],
-    votes: Tick[],
-    committee: Committee,
-): boolean {
+export function verifyEntityProof(record: Uint8Array, index: number, siblings: Uint8Array[], votes: Tick[], committee: Committee): boolean {
     if (index < 0) {
         return false;
     }

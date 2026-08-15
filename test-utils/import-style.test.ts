@@ -12,8 +12,7 @@ const root = resolve(import.meta.dir, "..");
 // Both drifted shapes: `../../packages/core/src/x` (scripts, test-utils) and `../../../proto/src/x`
 // (package-internal tests). Requiring a package name followed by `/src/` keeps within-package imports
 // (`../../src/x`) and non-package targets (`../../../../test-utils/paths`) from matching.
-const RELATIVE_PACKAGE_IMPORT =
-    /from\s+"(?:\.\.\/)+(?:packages\/)?(?:build|cli|compiler|core|engine|proto)\/src\/[^"]*"/;
+const RELATIVE_PACKAGE_IMPORT = /from\s+"(?:\.\.\/)+(?:packages\/)?(?:build|cli|compiler|core|engine|proto)\/src\/[^"]*"/;
 
 test("workspace packages are imported by @qinit alias, not relative path", () => {
     const offenders: string[] = [];

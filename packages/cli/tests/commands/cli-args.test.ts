@@ -8,11 +8,7 @@ async function run(...args: string[]) {
         stdout: "pipe",
         stderr: "pipe",
     });
-    const [stdout, stderr] = await Promise.all([
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-        child.exited,
-    ]);
+    const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return {
         code: child.exitCode,
         stdout,
@@ -51,9 +47,7 @@ test("CLI reports malformed callee declarations as argument errors", async () =>
     const result = await run("build", "Counter.h", "--callee", "broken");
 
     expect(result.code).toBe(1);
-    expect(result.stdout).toContain(
-        "invalid arguments: invalid --callee 'broken': expected Name=header[@index]",
-    );
+    expect(result.stdout).toContain("invalid arguments: invalid --callee 'broken': expected Name=header[@index]");
     expect(result.stdout).toContain("qinit build --help");
     expect(result.stderr).toBe("");
 });
@@ -95,10 +89,7 @@ test("command help is parsed strictly before it is shown", async () => {
 });
 
 test("help command and help flag share command usage", async () => {
-    const [commandHelp, flagHelp] = await Promise.all([
-        run("help", "build"),
-        run("build", "--help"),
-    ]);
+    const [commandHelp, flagHelp] = await Promise.all([run("help", "build"), run("build", "--help")]);
 
     for (const result of [commandHelp, flagHelp]) {
         expect(result.code).toBe(0);
@@ -109,10 +100,7 @@ test("help command and help flag share command usage", async () => {
 });
 
 test("integrate help is canonical and upstream is unknown", async () => {
-    const [integrateHelp, legacyCommand] = await Promise.all([
-        run("integrate", "--help"),
-        run("upstream"),
-    ]);
+    const [integrateHelp, legacyCommand] = await Promise.all([run("integrate", "--help"), run("upstream")]);
 
     expect(integrateHelp.code).toBe(0);
     expect(integrateHelp.stdout).toContain("usage: qinit integrate");
@@ -125,11 +113,7 @@ test("integrate help is canonical and upstream is unknown", async () => {
 });
 
 test("an unresolved invocation fails even when it renders help", async () => {
-    const [unknownName, unknownFlag, helpForUnknown] = await Promise.all([
-        run("buidl"),
-        run("--bogus"),
-        run("help", "buidl"),
-    ]);
+    const [unknownName, unknownFlag, helpForUnknown] = await Promise.all([run("buidl"), run("--bogus"), run("help", "buidl")]);
 
     for (const result of [unknownName, helpForUnknown]) {
         expect(result.code).toBe(1);
@@ -144,15 +128,14 @@ test("an unresolved invocation fails even when it renders help", async () => {
 });
 
 test("node subcommand help shows only the resolved option scope", async () => {
-    const [commandHelp, flagHelp, reorderedHelp, statusHelp, nodeHelp, terminatedHelp] =
-        await Promise.all([
-            run("help", "node", "run"),
-            run("node", "run", "-h"),
-            run("node", "--restart", "--rpc", "http://x", "run", "-h"),
-            run("help", "node", "status"),
-            run("node", "--help"),
-            run("node", "--help", "--", "run"),
-        ]);
+    const [commandHelp, flagHelp, reorderedHelp, statusHelp, nodeHelp, terminatedHelp] = await Promise.all([
+        run("help", "node", "run"),
+        run("node", "run", "-h"),
+        run("node", "--restart", "--rpc", "http://x", "run", "-h"),
+        run("help", "node", "status"),
+        run("node", "--help"),
+        run("node", "--help", "--", "run"),
+    ]);
 
     for (const result of [commandHelp, flagHelp, reorderedHelp]) {
         expect(result.code).toBe(0);
@@ -174,17 +157,11 @@ test("node subcommand help shows only the resolved option scope", async () => {
 });
 
 test("help rejects an unknown subcommand for a known command", async () => {
-    const results = await Promise.all([
-        run("help", "node", "launch"),
-        run("node", "launch", "--help"),
-        run("node", "--rpc", "http://x", "launch", "--help"),
-    ]);
+    const results = await Promise.all([run("help", "node", "launch"), run("node", "launch", "--help"), run("node", "--rpc", "http://x", "launch", "--help")]);
 
     for (const result of results) {
         expect(result.code).toBe(1);
-        expect(result.stdout).toContain(
-            "invalid arguments: unknown subcommand 'launch' for 'node'",
-        );
+        expect(result.stdout).toContain("invalid arguments: unknown subcommand 'launch' for 'node'");
         expect(result.stderr).toBe("");
     }
 });

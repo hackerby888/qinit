@@ -1,9 +1,4 @@
-import {
-    QINIT_IDL_VERSION,
-    parseContractIdlFile,
-    type ContractIdlArtifact,
-    type ContractIdlFile,
-} from "@qinit/proto/contract-idl";
+import { QINIT_IDL_VERSION, parseContractIdlFile, type ContractIdlArtifact, type ContractIdlFile } from "@qinit/proto/contract-idl";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 export const DEFAULT_IDL_PATH = "qinit.idl.json";
@@ -34,27 +29,15 @@ export function loadContractIdlFile(path = DEFAULT_IDL_PATH): ContractIdlFile {
     }
 }
 
-export function contractIdlForSlot(
-    file: ContractIdlFile,
-    slot: number,
-    codeHash?: string,
-): ContractIdlArtifact | undefined {
+export function contractIdlForSlot(file: ContractIdlFile, slot: number, codeHash?: string): ContractIdlArtifact | undefined {
     const contract = file.contracts[String(slot)];
-    if (
-        contract?.codeHash &&
-        codeHash &&
-        contract.codeHash.toLowerCase() !== codeHash.toLowerCase()
-    ) {
+    if (contract?.codeHash && codeHash && contract.codeHash.toLowerCase() !== codeHash.toLowerCase()) {
         return undefined;
     }
     return contract;
 }
 
-export function saveContractIdl(
-    slot: number,
-    contract: ContractIdlArtifact,
-    path = DEFAULT_IDL_PATH,
-): ContractIdlFile {
+export function saveContractIdl(slot: number, contract: ContractIdlArtifact, path = DEFAULT_IDL_PATH): ContractIdlFile {
     const file = loadContractIdlFile(path);
     file.contracts[String(slot)] = contract;
     const parsed = parseContractIdlFile(file);

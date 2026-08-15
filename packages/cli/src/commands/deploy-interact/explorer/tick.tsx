@@ -1,34 +1,9 @@
 import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { contractIndexFromIdentity, type ExplorerTickData, type ExplorerTx } from "@qinit/core";
-import {
-    Badge,
-    Grad,
-    KV,
-    SectionHeader,
-    Spinner,
-    Table,
-    theme,
-    truncMid,
-    type Column,
-} from "../../../ui";
-import {
-    decodeTxInput,
-    entryFor,
-    type ContractIdls,
-    type DecodedInput,
-} from "../../../contracts/idl-lookup";
-import {
-    SectionBody,
-    contractLabel,
-    entryLabel,
-    errText,
-    fmtAmount,
-    fmtTime,
-    sectionTableWidth,
-    windowOf,
-    type ViewProps,
-} from "./chrome";
+import { Badge, Grad, KV, SectionHeader, Spinner, Table, theme, truncMid, type Column } from "../../../ui";
+import { decodeTxInput, entryFor, type ContractIdls, type DecodedInput } from "../../../contracts/idl-lookup";
+import { SectionBody, contractLabel, entryLabel, errText, fmtAmount, fmtTime, sectionTableWidth, windowOf, type ViewProps } from "./chrome";
 
 // ---- tick ---------------------------------------------------------------------------------------
 
@@ -78,21 +53,12 @@ export function TickView({
         // The header and the transaction list are fetched independently — an empty tick has no header but can
         // still be rendered, and a node missing one route must not blank out the other.
         void (async () => {
-            const [header, list] = await Promise.allSettled([
-                rpc.getTickData(tick),
-                rpc.explorerTickTransactions(tick),
-            ]);
+            const [header, list] = await Promise.allSettled([rpc.getTickData(tick), rpc.explorerTickTransactions(tick)]);
             if (!alive) return;
 
             setTickData(header.status === "fulfilled" ? header.value : null);
             setTxs(list.status === "fulfilled" ? list.value : []);
-            setErr(
-                header.status === "rejected"
-                    ? errText(header.reason)
-                    : list.status === "rejected"
-                      ? errText(list.reason)
-                      : "",
-            );
+            setErr(header.status === "rejected" ? errText(header.reason) : list.status === "rejected" ? errText(list.reason) : "");
             setLoading(false);
         })();
         return () => {
@@ -140,12 +106,7 @@ export function TickView({
                     <Text color={theme.warn}>this tick is empty or outside the node's history</Text>
                 </Box>
             )}
-            <SectionHeader
-                title="transactions"
-                detail={String(txs.length)}
-                error={err}
-                width={columns}
-            />
+            <SectionHeader title="transactions" detail={String(txs.length)} error={err} width={columns} />
             <SectionBody>
                 {txs.length === 0 ? (
                     <Text dimColor>no transactions in this tick</Text>
@@ -208,9 +169,7 @@ export function TxView({
 
     // The payload is decoded off the render path: the IDL map arrives after the transaction does, and
     // container fields make the decode async. Until it lands the view shows what it shows today.
-    const entry = tx
-        ? entryFor(contractIndexFromIdentity(tx.destination), tx.inputType, contractIdls)
-        : undefined;
+    const entry = tx ? entryFor(contractIndexFromIdentity(tx.destination), tx.inputType, contractIdls) : undefined;
     useEffect(() => {
         if (!tx || !entry) {
             setDecoded(null);
@@ -264,33 +223,22 @@ export function TxView({
     const width = sectionTableWidth(columns);
     const shownFields = decoded ? decoded.fields.slice(0, FIELD_ROWS) : [];
     const hiddenFields = (decoded?.fields.length ?? 0) - shownFields.length;
-    const nameWidth = Math.min(
-        NAME_WIDTH,
-        Math.max(0, ...shownFields.map(([name]) => name.length)),
-    );
+    const nameWidth = Math.min(NAME_WIDTH, Math.max(0, ...shownFields.map(([name]) => name.length)));
     const valueWidth = Math.max(8, width - nameWidth - 2);
-    const fieldRows = shownFields.map(([name, value]): [string, string] => [
-        truncMid(name, nameWidth).padEnd(nameWidth),
-        truncMid(value, valueWidth),
-    ]);
+    const fieldRows = shownFields.map(([name, value]): [string, string] => [truncMid(name, nameWidth).padEnd(nameWidth), truncMid(value, valueWidth)]);
     const formatRow = decoded?.format ? truncMid(`--in "${decoded.format}"`, width) : "";
     const decodedRows = fieldRows.length + (hiddenFields > 0 ? 1 : 0) + (formatRow ? 2 : 0);
 
     // 15 rows are fixed here: the title block with its from/to band (5), the 7-row KV with its margin (8),
     // and the trailing hint (2). The dump then costs its own margin + section header + an overflow line, so
     // it only appears once everything else fits — a short terminal drops dump rows, never the control bar.
-    const hexBudget = Math.max(
-        0,
-        Math.min(8, bodyRows - 19 - decodedRows - (decodedRows > 0 ? 1 : 0)),
-    );
+    const hexBudget = Math.max(0, Math.min(8, bodyRows - 19 - decodedRows - (decodedRows > 0 ? 1 : 0)));
     const hexRows: string[] = [];
     for (let offset = 0; offset < inputBytes.length && hexRows.length < hexBudget; offset += 32) {
         hexRows.push(inputBytes.subarray(offset, offset + 32).toString("hex"));
     }
     const shownBytes = hexRows.length * 32;
-    const entryName = entry
-        ? `${tx.inputType} · ${entry.name}${entry.notification ? " (notification)" : ""}`
-        : String(tx.inputType);
+    const entryName = entry ? `${tx.inputType} · ${entry.name}${entry.notification ? " (notification)" : ""}` : String(tx.inputType);
 
     return (
         <Box flexDirection="column">
@@ -331,11 +279,7 @@ export function TxView({
             </Box>
             {hexRows.length > 0 || decodedRows > 0 ? (
                 <Box marginTop={1} flexDirection="column">
-                    <SectionHeader
-                        title="input data"
-                        detail={`${inputBytes.length} bytes`}
-                        width={columns}
-                    />
+                    <SectionHeader title="input data" detail={`${inputBytes.length} bytes`} width={columns} />
                     <SectionBody>
                         {fieldRows.map(([name, value], index) => (
                             <Text key={`field-${index}`}>
@@ -343,9 +287,7 @@ export function TxView({
                                 <Text>{`  ${value}`}</Text>
                             </Text>
                         ))}
-                        {hiddenFields > 0 ? (
-                            <Text dimColor>{`… ${hiddenFields} more fields`}</Text>
-                        ) : null}
+                        {hiddenFields > 0 ? <Text dimColor>{`… ${hiddenFields} more fields`}</Text> : null}
                         {formatRow ? (
                             <Box marginTop={1}>
                                 <Text dimColor>{formatRow}</Text>
@@ -358,11 +300,7 @@ export function TxView({
                                         {row}
                                     </Text>
                                 ))}
-                                {inputBytes.length > shownBytes ? (
-                                    <Text
-                                        dimColor
-                                    >{`… ${inputBytes.length - shownBytes} more bytes`}</Text>
-                                ) : null}
+                                {inputBytes.length > shownBytes ? <Text dimColor>{`… ${inputBytes.length - shownBytes} more bytes`}</Text> : null}
                             </Box>
                         ) : null}
                     </SectionBody>

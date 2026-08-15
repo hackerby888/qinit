@@ -20,11 +20,7 @@ export async function initK12(): Promise<void> {
 }
 
 // `privateKey` is the FourQ subseed from deriveKeysSync — what SchnorrQ actually signs with.
-export function signSync(
-    privateKey: KeyPair["privateKey"],
-    publicKey: Uint8Array,
-    digest: Uint8Array,
-): Uint8Array {
+export function signSync(privateKey: KeyPair["privateKey"], publicKey: Uint8Array, digest: Uint8Array): Uint8Array {
     if (!_schnorrq) {
         throw new Error("signer not initialized — await initK12() first");
     }

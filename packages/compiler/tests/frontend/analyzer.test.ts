@@ -4,9 +4,7 @@ import { analyzeContract, detectContractName, type SourceEdit } from "../../src/
 import { analyzeQpiPolicy } from "../../src/analyzer/source-policy";
 
 function qpiDiagnostics(source: string) {
-    return analyzeContract({ source }).diagnostics.filter(
-        (item) => item.origin === SourceAnalysisOrigin.QPI,
-    );
+    return analyzeContract({ source }).diagnostics.filter((item) => item.origin === SourceAnalysisOrigin.QPI);
 }
 
 function rules(source: string): Set<string> {
@@ -80,12 +78,7 @@ for (uint64 index = 0; index < 4; index = index + 1) {}
 `);
     const locals = qpiDiagnostics(source).filter((item) => item.code === "qpi/stack-local");
 
-    expect(locals.map((item) => item.message.match(/`(\w+)`/)?.[1])).toEqual([
-        "values",
-        "first",
-        "second",
-        "index",
-    ]);
+    expect(locals.map((item) => item.message.match(/`(\w+)`/)?.[1])).toEqual(["values", "first", "second", "index"]);
     expect(locals.find((item) => item.message.includes("values"))?.fixes).toHaveLength(1);
     expect(locals.find((item) => item.message.includes("first"))?.fixes).toBeUndefined();
     expect(locals.find((item) => item.message.includes("index"))?.fixes).toBeUndefined();
@@ -104,11 +97,7 @@ state.mut().total = amount;
     expect(output).toContain("PUBLIC_PROCEDURE_WITH_LOCALS(Do)");
     expect(output).toContain("locals.amount = input.amount;");
     expect(output).toContain("state.mut().total = locals.amount;");
-    expect(
-        qpiDiagnostics(output).filter(
-            (item) => item.code === "qpi/stack-local" || item.code === "qpi/needs-with-locals",
-        ),
-    ).toEqual([]);
+    expect(qpiDiagnostics(output).filter((item) => item.code === "qpi/stack-local" || item.code === "qpi/needs-with-locals")).toEqual([]);
 });
 
 test("recognizes shareholder system procedures when checking locals forms", () => {
@@ -174,11 +163,7 @@ struct Contract : public ContractBase {
 };`;
 
     const diagnostics = analyzeContract({ source }).diagnostics;
-    expect(
-        diagnostics.some(
-            (item) => item.code === "qpi/public-complex-type" && item.message.includes("HashMap"),
-        ),
-    ).toBe(true);
+    expect(diagnostics.some((item) => item.code === "qpi/public-complex-type" && item.message.includes("HashMap"))).toBe(true);
 });
 
 test("rejects direct and nested LinkedList inputs and outputs", () => {
@@ -203,11 +188,7 @@ struct Contract : public ContractBase {
         .filter((message) => message.includes("LinkedList"));
 
     for (const interfaceName of ["Read_input", "Read_output", "Write_input", "Write_output"]) {
-        expect(
-            messages.some(
-                (message) => message.includes("LinkedList") && message.includes(interfaceName),
-            ),
-        ).toBe(true);
+        expect(messages.some((message) => message.includes("LinkedList") && message.includes(interfaceName))).toBe(true);
     }
 });
 
@@ -223,11 +204,7 @@ struct Contract : public ContractBase {
   }
 };`;
 
-    expect(
-        analyzeContract({ source }).diagnostics.some(
-            (item) => item.code === "qpi/public-complex-type",
-        ),
-    ).toBe(false);
+    expect(analyzeContract({ source }).diagnostics.some((item) => item.code === "qpi/public-complex-type")).toBe(false);
 });
 
 test("includes compiler semantic diagnostics without changing the QPI policy", () => {
@@ -236,10 +213,7 @@ test("includes compiler semantic diagnostics without changing the QPI policy", (
 
     expect(
         diagnostics.some(
-            (item) =>
-                item.origin === SourceAnalysisOrigin.COMPILER &&
-                item.code === "compiler/semantic" &&
-                item.message.includes("cannot assign to const"),
+            (item) => item.origin === SourceAnalysisOrigin.COMPILER && item.code === "compiler/semantic" && item.message.includes("cannot assign to const"),
         ),
     ).toBe(true);
     expect(diagnostics.some((item) => item.code === "qpi/stack-local")).toBe(true);
@@ -258,9 +232,7 @@ test("keeps diagnostics in bounds for incomplete source", () => {
 
 test("detects standalone contract names without comments or strings", () => {
     expect(detectContractName("struct Counter : public ContractBase {}")).toBe("Counter");
-    expect(
-        detectContractName("// struct Fake : ContractBase {}\nstruct Plain {};"),
-    ).toBeUndefined();
+    expect(detectContractName("// struct Fake : ContractBase {}\nstruct Plain {};")).toBeUndefined();
     expect(detectContractName('const char* text = "struct Fake : ContractBase";')).toBeUndefined();
 });
 
@@ -326,9 +298,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     const LOG_CALL_LINE = 9;
 
     function compilerDiagnostics(source: string) {
-        return analyzeContract({ source }).diagnostics.filter(
-            (item) => item.origin === SourceAnalysisOrigin.COMPILER,
-        );
+        return analyzeContract({ source }).diagnostics.filter((item) => item.origin === SourceAnalysisOrigin.COMPILER);
     }
 
     test("a well-formed payload produces no compiler diagnostics", () => {
@@ -339,48 +309,34 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         const source = LOGGING_SOURCE.replace("sint8 _terminator;", "sint8 end;");
         const findings = compilerDiagnostics(source);
 
-        expect(findings.map((item) => item.message)).toEqual([
-            "__qinit_log_info payload struct must contain _terminator",
-        ]);
+        expect(findings.map((item) => item.message)).toEqual(["__qinit_log_info payload struct must contain _terminator"]);
         expect(findings[0].severity).toBe(DiagnosticSeverity.ERROR);
         expect(findings[0].span.line).toBe(LOG_CALL_LINE);
     });
 
     test("a _terminator below the minimum offset is reported", () => {
-        const source = LOGGING_SOURCE.replace(
-            "uint32 _contractIndex; uint32 _type; uint64 value; sint8 _terminator;",
-            "uint32 value; sint8 _terminator;",
-        );
+        const source = LOGGING_SOURCE.replace("uint32 _contractIndex; uint32 _type; uint64 value; sint8 _terminator;", "uint32 value; sint8 _terminator;");
         const findings = compilerDiagnostics(source);
 
-        expect(findings.map((item) => item.message)).toEqual([
-            "__qinit_log_info payload _terminator offset must be at least 8 bytes",
-        ]);
+        expect(findings.map((item) => item.message)).toEqual(["__qinit_log_info payload _terminator offset must be at least 8 bytes"]);
         expect(findings[0].span.line).toBe(LOG_CALL_LINE);
     });
 
     test("a scalar payload is reported as a non-struct", () => {
-        const source = LOGGING_SOURCE.replace(
-            "LOG_INFO(locals.message);",
-            "LOG_INFO(input.value);",
-        );
+        const source = LOGGING_SOURCE.replace("LOG_INFO(locals.message);", "LOG_INFO(input.value);");
 
-        expect(compilerDiagnostics(source).map((item) => item.message)).toEqual([
-            "__qinit_log_info payload must be a struct",
-        ]);
+        expect(compilerDiagnostics(source).map((item) => item.message)).toEqual(["__qinit_log_info payload must be a struct"]);
     });
 
     test("an unresolvable payload stays silent rather than guessing", () => {
-        const source =
-            "struct X : public ContractBase { PUBLIC_PROCEDURE(Do) { LOG_INFO(locals.msg); } };";
+        const source = "struct X : public ContractBase { PUBLIC_PROCEDURE(Do) { LOG_INFO(locals.msg); } };";
 
         expect(compilerDiagnostics(source)).toEqual([]);
     });
 });
 
 describe("LOG_* call context", () => {
-    const UNREACHABLE =
-        "__qinit_log_info is not available in a function; " + "logs are paired with a transaction";
+    const UNREACHABLE = "__qinit_log_info is not available in a function; " + "logs are paired with a transaction";
 
     // Each case swaps one entry body into the same contract so only the log's context differs.
     function contractLogging(entries: string): string {

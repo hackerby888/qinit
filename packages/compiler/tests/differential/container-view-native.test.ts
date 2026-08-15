@@ -1,22 +1,11 @@
 import { describe, expect } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import { bytesToIdentity, initK12 } from "@qinit/core";
-import {
-    AbiTypeKind,
-    createQpiContainerView,
-    qpiSnapshotSource,
-    type ContractIdl,
-    type QpiContainerView,
-} from "@qinit/proto";
+import { AbiTypeKind, createQpiContainerView, qpiSnapshotSource, type ContractIdl, type QpiContainerView } from "@qinit/proto";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { loadQpiHeader } from "../../src/index";
 import { CONTAINER_FIXTURES } from "../support/container-fixtures";
-import {
-    CONTAINER_SLOT,
-    compileClangFixture,
-    decodeWords,
-    executeWamr,
-} from "../support/container-harness";
+import { CONTAINER_SLOT, compileClangFixture, decodeWords, executeWamr } from "../support/container-harness";
 import { toolchainTest, wamrToolchain, wasiToolchain } from "../support/container-toolchains";
 
 const ENABLED = process.env.QINIT_CONTAINER_PARITY === "1";
@@ -55,11 +44,7 @@ describe.skipIf(!ENABLED)("native QPI container view oracle", () => {
 
                 const clangBuild = await compileClangFixture(fixture, CORE_PATH);
                 try {
-                    const execution = executeWamr(
-                        matrix.path!,
-                        clangBuild.wasm,
-                        fixture.boundary.slice(0, operationCount),
-                    );
+                    const execution = executeWamr(matrix.path!, clangBuild.wasm, fixture.boundary.slice(0, operationCount));
                     expect(
                         execution.operations.every((operation) => operation.status === "ok"),
                         `${fixture.family} native checkpoint must complete`,
@@ -231,11 +216,7 @@ describe.skipIf(!ENABLED)("native QPI container view oracle", () => {
     );
 });
 
-function stateContainerView(
-    idl: ContractIdl,
-    state: Uint8Array,
-    fieldName: string,
-): QpiContainerView {
+function stateContainerView(idl: ContractIdl, state: Uint8Array, fieldName: string): QpiContainerView {
     const field = idl.state.fields.find((candidate) => candidate.name === fieldName);
     if (!field) {
         throw new Error(`State field '${fieldName}' is missing from the IDL`);

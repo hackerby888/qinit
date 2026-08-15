@@ -52,9 +52,7 @@ function Crash({ err, command }: { err: Error; command: string }) {
 
     return (
         <Box flexDirection="column">
-            <Text color="red">
-                ✗ {invalidArgs ? `invalid arguments: ${message}` : `qinit crashed: ${message}`}
-            </Text>
+            <Text color="red">✗ {invalidArgs ? `invalid arguments: ${message}` : `qinit crashed: ${message}`}</Text>
             {invalidArgs ? <Text dimColor>run `qinit {command} --help`</Text> : null}
         </Box>
     );
@@ -65,11 +63,7 @@ class ErrorBoundary extends Component<{ children: ReactNode; command: string }, 
         return { err };
     }
     render() {
-        return this.state.err ? (
-            <Crash err={this.state.err} command={this.props.command} />
-        ) : (
-            this.props.children
-        );
+        return this.state.err ? <Crash err={this.state.err} command={this.props.command} /> : this.props.children;
     }
 }
 
@@ -102,13 +96,7 @@ function canonicalCommand(command: string): CommandName | undefined {
 function unknownCommand(command: string): ReactNode {
     // A near-miss must not advertise a hidden command the help listing does not show.
     const suggestable = COMMANDS.filter((name) => !META[name].hidden);
-    return (
-        <Help
-            unknown
-            command={command}
-            suggestion={REMOVED.get(command) ?? nearest(command, suggestable)}
-        />
-    );
+    return <Help unknown command={command} suggestion={REMOVED.get(command) ?? nearest(command, suggestable)} />;
 }
 
 function validateHelpSubcommand(command: CommandName, subcommand?: string): void {
@@ -146,11 +134,7 @@ const HANDLERS = {
     doctor: () => <Doctor />,
     ext: ({ commandArgs }) => <Ext commandArgs={commandArgs} />,
     node: ({ commandArgs, subcommand }) =>
-        subcommand === "run" ? (
-            <NodeRun commandArgs={commandArgs} />
-        ) : (
-            <Node commandArgs={commandArgs} subcommand={subcommand} />
-        ),
+        subcommand === "run" ? <NodeRun commandArgs={commandArgs} /> : <Node commandArgs={commandArgs} subcommand={subcommand} />,
     tick: ({ commandArgs }) => <Tick commandArgs={commandArgs} />,
     epoch: ({ commandArgs }) => <Epoch commandArgs={commandArgs} />,
     clean: ({ commandArgs }) => <Clean commandArgs={commandArgs} />,

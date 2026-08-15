@@ -52,9 +52,7 @@ describe("source-method lowering ratchet", () => {
             qpiHeader: HEADER,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
         const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         const who = new Uint8Array(32).fill(0x5a);
@@ -82,12 +80,8 @@ describe("source-method lowering ratchet", () => {
         const pipeline = readSourceTree("../../src/driver", import.meta.url);
         expect(calls).not.toContain('node.type.name === "Array"');
         expect(memory).not.toMatch(/\^\(AssetOwnershipSelect\|AssetPossessionSelect\)::/);
-        expect(calls).not.toContain(
-            'if (m === "nextProposalIndex" || m === "nextFinishedProposalIndex")',
-        );
-        expect(calls).not.toContain(
-            'invocationReward: Object.freeze({ fwd: "$qpi_invocationReward"',
-        );
+        expect(calls).not.toContain('if (m === "nextProposalIndex" || m === "nextFinishedProposalIndex")');
+        expect(calls).not.toContain('invocationReward: Object.freeze({ fwd: "$qpi_invocationReward"');
         expect(calls).not.toContain('"invocator", "originator"');
         expect(memory).not.toContain('invocator: "$qpi_invocator"');
         expect(memory).not.toContain('originator: "$qpi_originator"');

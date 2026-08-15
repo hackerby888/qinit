@@ -20,14 +20,8 @@ export const WASM_NODE_CMAKE_PROFILE = Object.freeze({
 
 type CmakeExpectation = string | RegExp;
 
-export function assertCoreBuildProfile(
-    core: string,
-    buildDirectories: string[],
-    extraExpected: Record<string, CmakeExpectation> = {},
-): Record<string, string> {
-    const cachePath = buildDirectories
-        .map((directory) => resolve(core, directory, "CMakeCache.txt"))
-        .find(existsSync);
+export function assertCoreBuildProfile(core: string, buildDirectories: string[], extraExpected: Record<string, CmakeExpectation> = {}): Record<string, string> {
+    const cachePath = buildDirectories.map((directory) => resolve(core, directory, "CMakeCache.txt")).find(existsSync);
     if (!cachePath) {
         throw new Error(`core build is missing CMakeCache.txt in ${buildDirectories.join(", ")}`);
     }
@@ -46,8 +40,7 @@ export function assertCoreBuildProfile(
 
     for (const [key, wanted] of Object.entries(expected)) {
         proof[key] = value(key);
-        const matches =
-            typeof wanted === "string" ? proof[key] === wanted : wanted.test(proof[key]);
+        const matches = typeof wanted === "string" ? proof[key] === wanted : wanted.test(proof[key]);
         if (!matches) {
             throw new Error(`CMake ${key}=${proof[key]}, expected ${String(wanted)}`);
         }
@@ -61,9 +54,7 @@ export function assertPinnedQpiHeader(header: string): void {
     const hash = (source: string) => `sha256:${createHash("sha256").update(source).digest("hex")}`;
 
     if (!qpiHeadersEquivalent(header, QPI_SNAPSHOT)) {
-        throw new Error(
-            `core header hash ${hash(header)} does not match pinned ${QPI_SNAPSHOT_META.snapshotHash}`,
-        );
+        throw new Error(`core header hash ${hash(header)} does not match pinned ${QPI_SNAPSHOT_META.snapshotHash}`);
     }
     if (hash(QPI_SNAPSHOT) !== QPI_SNAPSHOT_META.snapshotHash) {
         throw new Error("generated QPI snapshot does not match its metadata");

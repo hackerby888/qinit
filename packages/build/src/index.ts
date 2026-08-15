@@ -11,11 +11,7 @@ import { extractIdl, type ContractIdl } from "./idl";
 import { buildCalleePrelude } from "./intercontract";
 import type { DynCallees } from "./intercontract";
 import { verifyContract, type VerifyResult } from "./verify";
-import {
-    generateWasmContractTestingHeaderForCore,
-    systemContractClosure,
-    systemContracts,
-} from "./system-contracts";
+import { generateWasmContractTestingHeaderForCore, systemContractClosure, systemContracts } from "./system-contracts";
 import { buildContractWithTypeScript } from "./typescript";
 import { k12Hex } from "@qinit/core";
 import { analyzeContract } from "@qinit/compiler/analyzer";
@@ -23,19 +19,11 @@ import { loadQpiHeader } from "@qinit/compiler";
 
 export type { ContractBuildOptions } from "./recipe";
 export { generateWasmWrapperSource } from "./recipe";
-export {
-    buildContractWithTypeScript,
-    type TypeScriptCalleeBuildOptions,
-    type TypeScriptContractBuildResult,
-} from "./typescript";
+export { buildContractWithTypeScript, type TypeScriptCalleeBuildOptions, type TypeScriptContractBuildResult } from "./typescript";
 export { buildCalleePrelude, parseRegisters, scanCallees, parseContractDef } from "./intercontract";
 export type { DynCallees, CalleeDef } from "./intercontract";
 export { resolveProjectDependencies } from "./project-dependencies";
-export type {
-    ProjectCalleeInput,
-    ProjectContractNode,
-    ResolveProjectDependenciesOptions,
-} from "./project-dependencies";
+export type { ProjectCalleeInput, ProjectContractNode, ResolveProjectDependenciesOptions } from "./project-dependencies";
 export { planProjectSlots } from "./project-slots";
 export type { PlannedProjectSlotNode, ProjectSlotLayout, ProjectSlotNode } from "./project-slots";
 export { extractIdl } from "./idl";
@@ -72,9 +60,7 @@ export interface ContractBuildResult {
 
 export type SystemContractCompiler = "clang" | "typescript";
 
-export async function buildContractWithWasiClang(
-    o: ContractBuildOptions,
-): Promise<ContractBuildResult> {
+export async function buildContractWithWasiClang(o: ContractBuildOptions): Promise<ContractBuildResult> {
     const source = readFileSync(o.contractPath, "utf8");
     let qpiHeader: string | undefined;
     let qpiHeaderError: string | undefined;
@@ -95,22 +81,16 @@ export async function buildContractWithWasiClang(
     const linkedListDiagnostics = analysis.diagnostics.filter(
         (diagnostic) =>
             diagnostic.message.startsWith("LinkedList is forbidden in registered entry") ||
-            (diagnostic.code === "qpi/public-complex-type" &&
-                diagnostic.message.includes("`LinkedList` is forbidden in the public interface")),
+            (diagnostic.code === "qpi/public-complex-type" && diagnostic.message.includes("`LinkedList` is forbidden in the public interface")),
     );
     if (linkedListDiagnostics.length) {
         return {
             ok: false,
-            stderr: [
-                "Qubic protocol violations:",
-                ...linkedListDiagnostics.map((diagnostic) => `  • ${diagnostic.message}`),
-            ].join("\n"),
+            stderr: ["Qubic protocol violations:", ...linkedListDiagnostics.map((diagnostic) => `  • ${diagnostic.message}`)].join("\n"),
         };
     }
     const calls = analysis.calls;
-    const calleeNames = [
-        ...new Set([...Object.keys(o.dynCallees ?? {}), ...calls.map((call) => call.callee)]),
-    ];
+    const calleeNames = [...new Set([...Object.keys(o.dynCallees ?? {}), ...calls.map((call) => call.callee)])];
     const verify = o.skipVerify
         ? { available: false, ok: true, oracle: false, errors: [] as string[] }
         : await verifyContract(o.contractPath, o.name, { allowedPrefixes: calleeNames });
@@ -118,9 +98,7 @@ export async function buildContractWithWasiClang(
         return {
             ok: false,
             verify,
-            stderr: ["Qubic protocol violations:", ...verify.errors.map((e) => "  • " + e)].join(
-                "\n",
-            ),
+            stderr: ["Qubic protocol violations:", ...verify.errors.map((e) => "  • " + e)].join("\n"),
         };
     }
 
@@ -129,12 +107,7 @@ export async function buildContractWithWasiClang(
     let calleePrelude = o.calleePrelude;
     if (calleePrelude === undefined) {
         try {
-            calleePrelude = buildCalleePrelude(
-                o.corePath,
-                source,
-                o.dynCallees ?? {},
-                o.stateType ?? o.name,
-            );
+            calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, o.stateType ?? o.name);
         } catch (e: any) {
             return {
                 ok: false,
@@ -231,12 +204,7 @@ export async function buildCorpusRunner(o: {
     let calleePrelude: string | undefined;
     try {
         const contractSrc = readFileSync(o.contractPath, "utf8");
-        calleePrelude = buildCalleePrelude(
-            o.corePath,
-            `${contractSrc}\n${testSource}`,
-            o.dynCallees ?? {},
-            o.stateType,
-        );
+        calleePrelude = buildCalleePrelude(o.corePath, `${contractSrc}\n${testSource}`, o.dynCallees ?? {}, o.stateType);
     } catch {
         // Fall back to buildContractWithWasiClang's contract-only derivation.
     }

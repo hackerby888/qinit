@@ -4,6 +4,4 @@ import { loadQpiHeader } from "../../src/driver/header";
 import { getQpiContext } from "../../src/driver/qpi-context";
 
 // Low-level framework tests use the same parsed core header and layout engine as contract codegen.
-export const QPI_CONTEXT_LAYOUT = deriveQpiContextLayout(
-    getQpiContext(loadQpiHeader(CORE_PATH)).lib,
-);
+export const QPI_CONTEXT_LAYOUT = deriveQpiContextLayout(getQpiContext(loadQpiHeader(CORE_PATH)).lib);

@@ -24,8 +24,7 @@ const FIELDS = stateFieldsOf(extractIdl(SRC, "Layout", { slot: 7 }));
 const STATE_SIZE = 512;
 const offsetOf = (name: string) => FIELDS.find((field) => field.name === name)!.off;
 
-const hex = (bytes: Uint8Array) =>
-    [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const hex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 function writeLe(bytes: Uint8Array, offset: number, value: number, width: number) {
     let rest = BigInt(value);
@@ -42,10 +41,7 @@ const region = (before: Uint8Array, after: Uint8Array, off: number, length: numb
     after: hex(after.slice(off, off + length)),
 });
 
-const linesFor = async (
-    write: (after: Uint8Array) => void,
-    span: { off: number; length: number },
-) => {
+const linesFor = async (write: (after: Uint8Array) => void, span: { off: number; length: number }) => {
     const before = new Uint8Array(STATE_SIZE);
     const after = before.slice();
     write(after);
@@ -58,16 +54,12 @@ const rowsFor = async (write: (after: Uint8Array) => void, span: { off: number; 
     (await linesFor(write, span)).map((line) => `${line.label} ${line.text}`);
 
 test("a scalar field decodes to its value", async () => {
-    expect(await rowsFor((after) => writeLe(after, 0, 92, 8), { off: 0, length: 8 })).toEqual([
-        "counter 0 → 92",
-    ]);
+    expect(await rowsFor((after) => writeLe(after, 0, 92, 8), { off: 0, length: 8 })).toEqual(["counter 0 → 92"]);
 });
 
 test("an array element is named by index, not by byte offset", async () => {
     const nums = offsetOf("nums");
-    expect(
-        await rowsFor((after) => writeLe(after, nums + 3 * 8, 3195, 8), { off: nums, length: 64 }),
-    ).toEqual(["nums[3] 0 → 3195"]);
+    expect(await rowsFor((after) => writeLe(after, nums + 3 * 8, 3195, 8), { off: nums, length: 64 })).toEqual(["nums[3] 0 → 3195"]);
 });
 
 test("a struct element decodes whole, with its member names", async () => {
@@ -191,17 +183,13 @@ test("contiguous regions are joined before resolving", async () => {
     const split = [region(before, after, points + 8, 4), region(before, after, points + 12, 4)];
     const lines = await stateDiffLines(FIELDS, split);
 
-    expect(lines.map((line) => `${line.label} ${line.text}`)).toEqual([
-        "points[1] 0 → {x: 508, y: 842}",
-    ]);
+    expect(lines.map((line) => `${line.label} ${line.text}`)).toEqual(["points[1] 0 → {x: 508, y: 842}"]);
 });
 
 // A core node reports minimal runs, so a value can arrive without the bytes that did not change.
 test("a run that does not cover a whole value keeps its bytes", async () => {
     const nums = offsetOf("nums");
-    expect(
-        await rowsFor((after) => writeLe(after, nums + 8, 3195, 8), { off: nums + 8, length: 2 }),
-    ).toEqual(["nums[1]+0 0x0000 → 0x7b0c"]);
+    expect(await rowsFor((after) => writeLe(after, nums + 8, 3195, 8), { off: nums + 8, length: 2 })).toEqual(["nums[1]+0 0x0000 → 0x7b0c"]);
 });
 
 // A value under 8 bytes leaves padding before the next member. That pad has to resolve forward, to the
@@ -227,9 +215,7 @@ test("a node value smaller than its slot is reported once", async () => {
 
     const lines = await stateDiffLines(PADDED_FIELDS, [region(before, after, list, 48)]);
 
-    expect(lines.map((line) => [line.label, line.detail, line.text])).toEqual([
-        ["list[1]", "list._nodes[1].value", "0 → 7"],
-    ]);
+    expect(lines.map((line) => [line.label, line.detail, line.text])).toEqual([["list[1]", "list._nodes[1].value", "0 → 7"]]);
 });
 
 // The padding after a Collection element's value used to fall back to the whole element, so a value write
@@ -243,7 +229,5 @@ test("a Collection element value smaller than its slot is reported once", async 
 
     const lines = await stateDiffLines(PADDED_FIELDS, [region(before, after, elements, 96)]);
 
-    expect(lines.map((line) => [line.label, line.detail, line.text])).toEqual([
-        ["queue[1]", "queue._elements[1].value", "0 → 9"],
-    ]);
+    expect(lines.map((line) => [line.label, line.detail, line.text])).toEqual([["queue[1]", "queue._elements[1].value", "0 → 9"]]);
 });

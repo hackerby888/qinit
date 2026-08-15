@@ -132,9 +132,7 @@ function argumentCount(source: string): number {
 }
 
 export function publicMethodSurface(header: string, family: string): string[] {
-    const declaration = new RegExp(`\\b(?:struct|class)\\s+${family}\\b[^;{]*\\{`, "m").exec(
-        header,
-    );
+    const declaration = new RegExp(`\\b(?:struct|class)\\s+${family}\\b[^;{]*\\{`, "m").exec(header);
     if (!declaration) throw new Error(`${family} declaration not found`);
     const open = declaration.index + declaration[0].lastIndexOf("{");
     const isStruct = /\bstruct\s/.test(declaration[0]);
@@ -165,16 +163,11 @@ export function publicMethodSurface(header: string, family: string): string[] {
 
         const before = header.slice(Math.max(open + 1, index - 120), index);
         const nameMatch = /(operator\s*(?:==|!=|=)|~?[A-Za-z_]\w*)\s*$/.exec(before);
-        if (
-            !nameMatch ||
-            ["if", "for", "while", "switch", "sizeof", "static_assert"].includes(nameMatch[1])
-        )
-            continue;
+        if (!nameMatch || ["if", "for", "while", "switch", "sizeof", "static_assert"].includes(nameMatch[1])) continue;
         const close = matchingParen(header, index);
         if (close < 0) break;
         const after = header.slice(close + 1, close + 100);
-        if (!/^\s*(?:const\s*)?(?:noexcept\s*)?(?:=\s*(?:default|delete)\s*)?[{;]/.test(after))
-            continue;
+        if (!/^\s*(?:const\s*)?(?:noexcept\s*)?(?:=\s*(?:default|delete)\s*)?[{;]/.test(after)) continue;
         const name = nameMatch[1].replace(/\s+/g, "");
         methods.add(`${name}/${argumentCount(header.slice(index + 1, close))}`);
         index = close;
@@ -186,14 +179,8 @@ describe("QPI container public API coverage manifest", () => {
     const liveHeader = readFileSync(join(CORE_PATH, "src", "qpi", "qpi_containers.h"), "utf8");
     for (const family of Object.keys(CONTAINER_COVERAGE)) {
         test(`${family} manifest exactly matches live qpi.h`, () => {
-            expect(Object.keys(CONTAINER_COVERAGE[family]).sort()).toEqual(
-                publicMethodSurface(liveHeader, family),
-            );
-            expect(
-                Object.values(CONTAINER_COVERAGE[family]).every(
-                    (description) => description.length > 0,
-                ),
-            ).toBe(true);
+            expect(Object.keys(CONTAINER_COVERAGE[family]).sort()).toEqual(publicMethodSurface(liveHeader, family));
+            expect(Object.values(CONTAINER_COVERAGE[family]).every((description) => description.length > 0)).toBe(true);
         });
     }
 });

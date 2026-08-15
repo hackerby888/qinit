@@ -86,20 +86,14 @@ describe("scratchpad RAII and pointer lowering", () => {
             arenaSizeBytes: 1 << 20,
             qpiHeader: loadQpiHeader(CORE),
         });
-        expect(
-            result.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         const user = new Uint8Array(32).fill(9);
         sim.fund(user, 1_000_000n);
         sim.deploy(27, result.wasm);
         sim.procedure(27, 1, new Uint8Array(0), { invocator: user });
         const bytes = sim.contracts.get(27)!.state();
-        state = new BigUint64Array(
-            bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
-        );
+        state = new BigUint64Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
     });
 
     test("normal scope, continue, break, goto, and return restore the same bump mark", () => {

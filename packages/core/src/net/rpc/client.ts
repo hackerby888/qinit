@@ -54,9 +54,7 @@ export class LiteRpc implements NodeTransport {
                     await sleep(200 * (a + 1));
                     continue;
                 }
-                throw new Error(
-                    `node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`,
-                );
+                throw new Error(`node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`);
             }
             if (!r.ok) {
                 const body = (await r.json().catch(() => null)) as { message?: unknown } | null;
@@ -74,11 +72,7 @@ export class LiteRpc implements NodeTransport {
 
     // Explorer queries are POSTs with a JSON body. The status is returned alongside the parsed body so
     // callers can treat 404 as a real answer ("no such tick/tx") instead of a failure.
-    private async post<T = unknown>(
-        path: string,
-        body: unknown,
-        timeoutMs = 10000,
-    ): Promise<{ status: number; json: T }> {
+    private async post<T = unknown>(path: string, body: unknown, timeoutMs = 10000): Promise<{ status: number; json: T }> {
         let r: Response;
         try {
             r = await fetchWithTimeout(
@@ -91,16 +85,12 @@ export class LiteRpc implements NodeTransport {
                 timeoutMs,
             );
         } catch (e: any) {
-            throw new Error(
-                `node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`,
-            );
+            throw new Error(`node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`);
         }
         const json = (await r.json().catch(() => ({}))) as T;
         if (!r.ok && r.status !== 404) {
             const detail = (json as { message?: unknown })?.message;
-            throw new Error(
-                `RPC POST ${path} → HTTP ${r.status}${typeof detail === "string" ? `: ${detail}` : ""}`,
-            );
+            throw new Error(`RPC POST ${path} → HTTP ${r.status}${typeof detail === "string" ? `: ${detail}` : ""}`);
         }
         return { status: r.status, json };
     }
@@ -121,9 +111,7 @@ export class LiteRpc implements NodeTransport {
         } catch (error: any) {
             const message = String(error?.message ?? error);
             if (message.includes("/live/v1/whoami") && message.includes("HTTP 404")) {
-                throw new Error(
-                    "node does not expose /live/v1/whoami; upgrade core-lite or the Qinit simulator",
-                );
+                throw new Error("node does not expose /live/v1/whoami; upgrade core-lite or the Qinit simulator");
             }
             throw error;
         }
@@ -167,15 +155,11 @@ export class LiteRpc implements NodeTransport {
     }
     /** Read current contract state bytes (GET /live/v1/dev/state-read) — for current-state inspection. */
     stateRead(slot: number, off: number, len: number) {
-        return this.get<{ off: number; len: number; stateSize: number; hex: string }>(
-            `/live/v1/dev/state-read?slot=${slot}&off=${off}&len=${len}`,
-        );
+        return this.get<{ off: number; len: number; stateSize: number; hex: string }>(`/live/v1/dev/state-read?slot=${slot}&off=${off}&len=${len}`);
     }
     /** K12 digest of the full effective resident state, as computed by the node. */
     contractDigest(slot: number) {
-        return this.get<{ slot: number; stateSize: number; digest: string }>(
-            `/live/v1/dev/contract-digest?slot=${slot}`,
-        );
+        return this.get<{ slot: number; stateSize: number; digest: string }>(`/live/v1/dev/contract-digest?slot=${slot}`);
     }
 
     /** Testnet-only funded seed for signing txs when none is given (GET /live/v1/dev/funded-seed). */
@@ -188,9 +172,7 @@ export class LiteRpc implements NodeTransport {
     }
     /** Testnet-only funded-seed list (GET /live/v1/dev/funded-seeds?limit) — for `qinit seed` to pick from. */
     fundedSeeds(limit = 32) {
-        return this.get<{ seeds: string[]; count: number }>(
-            `/live/v1/dev/funded-seeds?limit=${limit}`,
-        );
+        return this.get<{ seeds: string[]; count: number }>(`/live/v1/dev/funded-seeds?limit=${limit}`);
     }
 
     /** Testnet-only current-epoch tick window (GET /live/v1/dev/epoch-info). */
@@ -284,11 +266,7 @@ export class LiteRpc implements NodeTransport {
     }
 
     /** Call a contract function (read-only) via POST /live/v1/querySmartContract. */
-    async querySmartContract(
-        contractIndex: number,
-        inputType: number,
-        input: Uint8Array,
-    ): Promise<Uint8Array> {
+    async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {
         let r: Response;
         try {
             r = await fetchWithTimeout(
@@ -306,13 +284,10 @@ export class LiteRpc implements NodeTransport {
                 15000,
             );
         } catch (e: any) {
-            throw new Error(
-                `node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`,
-            );
+            throw new Error(`node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`);
         }
         const j: any = await r.json().catch(() => ({}));
-        if (typeof j.responseData !== "string")
-            throw new Error(`querySmartContract: code=${j.code} ${j.message ?? r.status}`);
+        if (typeof j.responseData !== "string") throw new Error(`querySmartContract: code=${j.code} ${j.message ?? r.status}`);
         return new Uint8Array(Buffer.from(j.responseData, "base64"));
     }
 
@@ -360,9 +335,7 @@ export class LiteRpc implements NodeTransport {
                 30000,
             );
         } catch (e: any) {
-            throw new Error(
-                `node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`,
-            );
+            throw new Error(`node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`);
         }
         if (r.status === 404) return null;
         const j: any = await r.json().catch(() => ({}));
@@ -372,11 +345,7 @@ export class LiteRpc implements NodeTransport {
 
     /** Remove a deployed contract. This development endpoint is simulator-only. */
     async undeploy(slot: number): Promise<boolean> {
-        const r = await fetchWithTimeout(
-            this.base + `/live/v1/dev/undeploy?slot=${slot}`,
-            { method: "POST" },
-            15000,
-        );
+        const r = await fetchWithTimeout(this.base + `/live/v1/dev/undeploy?slot=${slot}`, { method: "POST" }, 15000);
         if (r.status === 404) throw new Error("undeploy is simulator-only");
         const j: any = await r.json().catch(() => ({}));
         return !!j.ok;
@@ -415,19 +384,14 @@ export class LiteRpc implements NodeTransport {
             computorIndex: Number(json.computorIndex ?? 0),
             timestamp: String(json.timestamp ?? ""),
             timelock: String(json.timelock ?? ""),
-            transactionDigests: Array.isArray(json.transactionDigests)
-                ? json.transactionDigests.map(String)
-                : [],
+            transactionDigests: Array.isArray(json.transactionDigests) ? json.transactionDigests.map(String) : [],
             signature: String(json.signature ?? ""),
         };
     }
 
     /** Every transaction in a tick, in the explorer's full shape (POST /query/v1/getTransactionsForTick). */
     async explorerTickTransactions(tick: number): Promise<ExplorerTx[]> {
-        const { json } = await this.post<{ transactions?: Record<string, unknown>[] }>(
-            "/query/v1/getTransactionsForTick",
-            { tickNumber: tick },
-        );
+        const { json } = await this.post<{ transactions?: Record<string, unknown>[] }>("/query/v1/getTransactionsForTick", { tickNumber: tick });
         const txs = Array.isArray(json.transactions) ? json.transactions : [];
         return txs.map((t) => explorerTx({ tickNumber: tick, ...t }));
     }
@@ -443,10 +407,7 @@ export class LiteRpc implements NodeTransport {
     }
 
     /** Recent transfers touching an identity (POST /query/v1/getTransfersForIdentity). */
-    async getTransfersForIdentity(
-        identity: string,
-        limit = 50,
-    ): Promise<{ count: number; transactions: IdentityTransfer[] }> {
+    async getTransfersForIdentity(identity: string, limit = 50): Promise<{ count: number; transactions: IdentityTransfer[] }> {
         const { json } = await this.post<{
             count?: unknown;
             transactions?: Record<string, unknown>[];
@@ -476,9 +437,7 @@ export class LiteRpc implements NodeTransport {
             page: options.page ?? 0,
             pageSize: options.pageSize ?? 50,
         });
-        const txs = Array.isArray(json.transactions)
-            ? (json.transactions as Record<string, unknown>[])
-            : [];
+        const txs = Array.isArray(json.transactions) ? (json.transactions as Record<string, unknown>[]) : [];
         return {
             fromTick: Number(json.fromTick ?? options.fromTick),
             toTick: Number(json.toTick ?? options.toTick),
@@ -494,9 +453,7 @@ export class LiteRpc implements NodeTransport {
 
     /** Contract catalog known to the node (GET /query/v1/getContracts). */
     async getContracts(): Promise<{ contracts: ContractListEntry[] }> {
-        const json = await this.get<{ contracts?: Record<string, unknown>[] }>(
-            "/query/v1/getContracts",
-        );
+        const json = await this.get<{ contracts?: Record<string, unknown>[] }>("/query/v1/getContracts");
         const list = Array.isArray(json.contracts) ? json.contracts : [];
         return {
             contracts: list.map((c) => ({

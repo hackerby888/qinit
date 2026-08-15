@@ -14,9 +14,7 @@ type Line = { t: string; ok?: boolean | null };
 // Persist the selection into qinit.json (kept minimal — preserves the rest of the config).
 function saveSelection(system: string[]): void {
     const path = "qinit.json";
-    const cfg: Record<string, unknown> = existsSync(path)
-        ? JSON.parse(readFileSync(path, "utf8"))
-        : {};
+    const cfg: Record<string, unknown> = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
     cfg.system = system;
     writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
 }
@@ -34,8 +32,7 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
     const [lines, setLines] = useState<Line[]>([]);
     const [busy, setBusy] = useState("starting");
     const [done, setDone] = useState(false);
-    const add = (text: string, ok?: boolean | null) =>
-        setLines((currentLines) => [...currentLines, { t: text, ok }]);
+    const add = (text: string, ok?: boolean | null) => setLines((currentLines) => [...currentLines, { t: text, ok }]);
 
     useEffect(() => {
         (async () => {
@@ -53,9 +50,7 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                     const identity = await rpc.whoami();
                     const selected = new Set(cfg.system ?? []);
                     const requested = o.names.flatMap((name) => {
-                        const contract = catalog.find(
-                            (candidate) => candidate.name.toLowerCase() === name.toLowerCase(),
-                        );
+                        const contract = catalog.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
                         if (!contract) {
                             add(`unknown system contract '${name}'`, false);
                             return [];
@@ -66,20 +61,14 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                     if (o.sub === "add" && identity.backend === "simulator") {
                         const dependencies = new Map(
                             requested.flatMap((contract) =>
-                                systemContractClosure(core, contract.name).map(
-                                    (dependency) => [dependency.index, dependency] as const,
-                                ),
+                                systemContractClosure(core, contract.name).map((dependency) => [dependency.index, dependency] as const),
                             ),
                         );
                         const live = new Map(
-                            (await rpc.dynRegistry()).contracts
-                                .filter((contract) => contract.armed)
-                                .map((contract) => [contract.index, contract]),
+                            (await rpc.dynRegistry()).contracts.filter((contract) => contract.armed).map((contract) => [contract.index, contract]),
                         );
                         const built = [];
-                        for (const dependency of [...dependencies.values()].sort(
-                            (left, right) => left.index - right.index,
-                        )) {
+                        for (const dependency of [...dependencies.values()].sort((left, right) => left.index - right.index)) {
                             setBusy(`compiling ${dependency.name}`);
                             const wasm = await systemWasm(dependency.name, core, o.compiler);
                             built.push({
@@ -92,36 +81,23 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                         for (const item of built) {
                             const occupant = live.get(item.dependency.index);
                             if (occupant && occupant.name !== item.dependency.name) {
-                                throw new Error(
-                                    `system slot ${item.dependency.index} is occupied by '${occupant.name}'`,
-                                );
+                                throw new Error(`system slot ${item.dependency.index} is occupied by '${occupant.name}'`);
                             }
                         }
 
                         for (const item of built) {
                             const occupant = live.get(item.dependency.index);
                             if (occupant?.codeHash.toLowerCase() === item.hash.toLowerCase()) {
-                                add(
-                                    `${item.dependency.name} @ ${item.dependency.index} unchanged`,
-                                    true,
-                                );
+                                add(`${item.dependency.name} @ ${item.dependency.index} unchanged`, true);
                                 continue;
                             }
                             setBusy(`deploying ${item.dependency.name}`);
-                            const deployed = await rpc.directDeploy(
-                                item.wasm.index,
-                                item.wasm.wasm,
-                                item.wasm.name,
-                                "system",
-                            );
+                            const deployed = await rpc.directDeploy(item.wasm.index, item.wasm.wasm, item.wasm.name, "system");
                             if (!deployed) {
                                 throw new Error("simulator does not expose system deployment");
                             }
                             await rpc.putContractSource(item.wasm.index, item.dependency.source);
-                            add(
-                                `${item.dependency.name} @ ${item.dependency.index} deployed`,
-                                true,
-                            );
+                            add(`${item.dependency.name} @ ${item.dependency.index} deployed`, true);
                         }
                     }
 
@@ -139,36 +115,22 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
 
                         if (identity.backend === "core") {
                             for (const contract of requested) {
-                                add(
-                                    `${contract.name}: removed from simulator startup; still embedded by core`,
-                                    true,
-                                );
+                                add(`${contract.name}: removed from simulator startup; still embedded by core`, true);
                             }
                         } else {
                             const requiredSlots = new Set(
-                                [...selected].flatMap((name) =>
-                                    systemContractClosure(core, name).map(
-                                        (dependency) => dependency.index,
-                                    ),
-                                ),
+                                [...selected].flatMap((name) => systemContractClosure(core, name).map((dependency) => dependency.index)),
                             );
                             const removedClosure = new Map(
                                 requested.flatMap((contract) =>
-                                    systemContractClosure(core, contract.name).map(
-                                        (dependency) => [dependency.index, dependency] as const,
-                                    ),
+                                    systemContractClosure(core, contract.name).map((dependency) => [dependency.index, dependency] as const),
                                 ),
                             );
 
-                            for (const contract of [...removedClosure.values()].sort(
-                                (left, right) => right.index - left.index,
-                            )) {
+                            for (const contract of [...removedClosure.values()].sort((left, right) => right.index - left.index)) {
                                 if (requiredSlots.has(contract.index)) {
                                     if (requested.some((item) => item.index === contract.index)) {
-                                        add(
-                                            `${contract.name}: still required by the simulator selection`,
-                                            true,
-                                        );
+                                        add(`${contract.name}: still required by the simulator selection`, true);
                                     }
                                     continue;
                                 }
@@ -177,10 +139,7 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                                     await rpc.undeploy(contract.index);
                                     add(`${contract.name} @ ${contract.index} removed`, true);
                                 } catch (error: any) {
-                                    add(
-                                        `${contract.name}: ${String(error?.message ?? error)}`,
-                                        false,
-                                    );
+                                    add(`${contract.name}: ${String(error?.message ?? error)}`, false);
                                 }
                             }
                         }
@@ -194,25 +153,14 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                 setBusy("reading node");
                 let live = new Set<number>();
                 try {
-                    live = new Set(
-                        ((await rpc.dynRegistry()).contracts ?? [])
-                            .filter((c) => c.armed)
-                            .map((c) => c.index),
-                    );
+                    live = new Set(((await rpc.dynRegistry()).contracts ?? []).filter((c) => c.armed).map((c) => c.index));
                 } catch {
                     /* node down -> show catalog + selection only */
                 }
                 const selected = new Set(cfg.system ?? []);
                 for (const c of catalog) {
-                    const state = live.has(c.index)
-                        ? "live"
-                        : selected.has(c.name)
-                          ? "selected"
-                          : "available";
-                    add(
-                        `${String(c.index).padStart(2)}  ${c.name.padEnd(12)} ${state}`,
-                        live.has(c.index) ? true : null,
-                    );
+                    const state = live.has(c.index) ? "live" : selected.has(c.name) ? "selected" : "available";
+                    add(`${String(c.index).padStart(2)}  ${c.name.padEnd(12)} ${state}`, live.has(c.index) ? true : null);
                 }
                 setDone(true);
             } catch (e: any) {

@@ -22,8 +22,7 @@ const SYS_COLS: Column[] = [
     { header: "fn·proc", align: "right" },
     { header: "source", dim: true, max: 24 },
 ];
-const stateOf = (contract: DynamicContractRegistryEntry) =>
-    !contract.armed ? "empty" : contract.constructed ? "ready" : "constructing";
+const stateOf = (contract: DynamicContractRegistryEntry) => (!contract.armed ? "empty" : contract.constructed ? "ready" : "constructing");
 
 export function Ls({ commandArgs }: { commandArgs: CommandArguments }) {
     const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
@@ -101,11 +100,7 @@ export function Ls({ commandArgs }: { commandArgs: CommandArguments }) {
                         ])}
                         rowColor={(i) => {
                             const st = stateOf(user[i]);
-                            return st === "constructing"
-                                ? theme.warn
-                                : st === "empty"
-                                  ? theme.mute
-                                  : undefined;
+                            return st === "constructing" ? theme.warn : st === "empty" ? theme.mute : undefined;
                         }}
                     />
                 </Panel>
@@ -114,12 +109,7 @@ export function Ls({ commandArgs }: { commandArgs: CommandArguments }) {
                 <Panel title={`system · ${system.length}`} color={theme.info}>
                     <Table
                         columns={SYS_COLS}
-                        rows={system.map((c) => [
-                            String(c.index),
-                            c.name,
-                            `${c.idl.functions.length}/${c.idl.procedures.length}`,
-                            c.file,
-                        ])}
+                        rows={system.map((c) => [String(c.index), c.name, `${c.idl.functions.length}/${c.idl.procedures.length}`, c.file])}
                     />
                 </Panel>
             )}

@@ -67,11 +67,7 @@ export class EngineServer {
             });
 
         await engine.seedFaucet();
-        if (
-            engine.sim.currentEpoch === 0 &&
-            engine.sim.currentTick === 0 &&
-            engine.sim.contracts.size === 0
-        ) {
+        if (engine.sim.currentEpoch === 0 && engine.sim.currentTick === 0 && engine.sim.contracts.size === 0) {
             engine.sim.bootstrapEpoch(1);
         }
 
@@ -169,23 +165,11 @@ export class EngineServer {
                             status?: number;
                         };
 
-                        return json(
-                            await engine.oracleResolve(
-                                BigInt(body.queryId),
-                                new Uint8Array(Buffer.from(body.reply ?? "", "base64")),
-                                body.status,
-                            ),
-                        );
+                        return json(await engine.oracleResolve(BigInt(body.queryId), new Uint8Array(Buffer.from(body.reply ?? "", "base64")), body.status));
                     }
 
                     if (path === "/live/v1/dev/state-read") {
-                        return json(
-                            await engine.stateRead(
-                                Number(query.get("slot")),
-                                Number(query.get("off") ?? 0),
-                                Number(query.get("len") ?? 0),
-                            ),
-                        );
+                        return json(await engine.stateRead(Number(query.get("slot")), Number(query.get("off") ?? 0), Number(query.get("len") ?? 0)));
                     }
 
                     if (path === "/live/v1/dev/contract-digest") {
@@ -206,9 +190,7 @@ export class EngineServer {
                     if (path.startsWith("/live/v1/balances/")) {
                         engine.sim.assertOperational();
                         return json({
-                            balance: await engine.balance(
-                                decodeURIComponent(path.slice("/live/v1/balances/".length)),
-                            ),
+                            balance: await engine.balance(decodeURIComponent(path.slice("/live/v1/balances/".length))),
                         });
                     }
 
@@ -219,9 +201,7 @@ export class EngineServer {
                         };
 
                         return json({
-                            transactions: await engine.explorerTickTransactions(
-                                Number(body.tickNumber ?? body.tick ?? 0),
-                            ),
+                            transactions: await engine.explorerTickTransactions(Number(body.tickNumber ?? body.tick ?? 0)),
                         });
                     }
 
@@ -234,22 +214,16 @@ export class EngineServer {
 
                     if (path === "/query/v1/getTickData" && request.method === "POST") {
                         const body = (await request.json()) as { tickNumber?: number };
-                        const tickData = await engine.explorerTickData(
-                            Number(body.tickNumber ?? 0),
-                        );
+                        const tickData = await engine.explorerTickData(Number(body.tickNumber ?? 0));
 
-                        return tickData
-                            ? json(tickData)
-                            : json({ code: 404, message: "Tick data not found" }, 404);
+                        return tickData ? json(tickData) : json({ code: 404, message: "Tick data not found" }, 404);
                     }
 
                     if (path === "/query/v1/getTransactionByHash" && request.method === "POST") {
                         const body = (await request.json()) as { hash?: string };
                         const transaction = await engine.explorerTxByHash(body.hash ?? "");
 
-                        return transaction
-                            ? json(transaction)
-                            : json({ code: 404, message: "Transaction not found" }, 404);
+                        return transaction ? json(transaction) : json({ code: 404, message: "Transaction not found" }, 404);
                     }
 
                     if (path === "/query/v1/getTransfersForIdentity" && request.method === "POST") {
@@ -259,13 +233,7 @@ export class EngineServer {
                             limit?: number;
                         };
 
-                        return json(
-                            await engine.explorerTransfersForIdentity(
-                                body.identity ?? "",
-                                body.direction ?? "both",
-                                Number(body.limit ?? 50),
-                            ),
-                        );
+                        return json(await engine.explorerTransfersForIdentity(body.identity ?? "", body.direction ?? "both", Number(body.limit ?? 50)));
                     }
 
                     if (path === "/query/v1/getContractCalls" && request.method === "POST") {
@@ -302,9 +270,7 @@ export class EngineServer {
                         const body = (await request.json()) as {
                             encodedTransaction?: string;
                         };
-                        const bytes = Uint8Array.from(
-                            Buffer.from(body.encodedTransaction ?? "", "base64"),
-                        );
+                        const bytes = Uint8Array.from(Buffer.from(body.encodedTransaction ?? "", "base64"));
                         const result = await engine.broadcastTx(bytes);
 
                         return json({
@@ -322,14 +288,8 @@ export class EngineServer {
                             inputType: number;
                             requestData?: string;
                         };
-                        const input = Uint8Array.from(
-                            Buffer.from(body.requestData ?? "", "base64"),
-                        );
-                        const output = await engine.querySmartContract(
-                            Number(body.contractIndex),
-                            Number(body.inputType),
-                            input,
-                        );
+                        const input = Uint8Array.from(Buffer.from(body.requestData ?? "", "base64"));
+                        const output = await engine.querySmartContract(Number(body.contractIndex), Number(body.inputType), input);
 
                         return json({
                             responseData: Buffer.from(output).toString("base64"),
@@ -337,10 +297,7 @@ export class EngineServer {
                     }
 
                     if (path === "/live/v1/dev/contract-source" && request.method === "POST") {
-                        await engine.putContractSource(
-                            Number(query.get("slot")),
-                            await request.text(),
-                        );
+                        await engine.putContractSource(Number(query.get("slot")), await request.text());
 
                         return json({ ok: true });
                     }
@@ -356,10 +313,8 @@ export class EngineServer {
                         const name = body.name || "Contract";
                         const kind = body.kind ?? "dynamic";
                         const dynamicEnd = engine.slotBase + engine.slotCount;
-                        const validDynamicSlot =
-                            Number.isInteger(slot) && slot >= engine.slotBase && slot < dynamicEnd;
-                        const validSystemSlot =
-                            Number.isInteger(slot) && slot >= 1 && slot < engine.slotBase;
+                        const validDynamicSlot = Number.isInteger(slot) && slot >= engine.slotBase && slot < dynamicEnd;
+                        const validSystemSlot = Number.isInteger(slot) && slot >= 1 && slot < engine.slotBase;
 
                         if (kind !== "dynamic" && kind !== "system") {
                             return json(
@@ -389,9 +344,7 @@ export class EngineServer {
                             );
                         }
 
-                        const deployed = (await engine.dynRegistry()).contracts.find(
-                            (contract) => contract.index === slot && contract.armed,
-                        );
+                        const deployed = (await engine.dynRegistry()).contracts.find((contract) => contract.index === slot && contract.armed);
                         if (engine.sim.contracts.has(slot) && deployed?.name !== name) {
                             return json(
                                 {

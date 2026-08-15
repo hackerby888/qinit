@@ -4,33 +4,17 @@ import type { ContractRegistration } from "../backend/wasm/module/registrations"
 import { Lexer, type Token } from "../frontend/lexer";
 import type { SourceAnalysisDiagnostic } from "./index";
 import { USER_FUNCTION_KIND } from "../shared/entry-abi";
-import {
-    findEntryFunctions,
-    findLocalDeclarations,
-    findNext,
-    isUsingNamespaceQpi,
-    matchingToken,
-    type EntryFunction,
-} from "./rules/tokens";
-import {
-    arrayFix,
-    compareDiagnostics,
-    diagnostic,
-    divModFix,
-    moveLocalToWithLocalsEdits,
-    sourceFix,
-} from "./rules/fixes";
+import { findEntryFunctions, findLocalDeclarations, findNext, isUsingNamespaceQpi, matchingToken, type EntryFunction } from "./rules/tokens";
+import { arrayFix, compareDiagnostics, diagnostic, divModFix, moveLocalToWithLocalsEdits, sourceFix } from "./rules/fixes";
 
 const KEYWORD_RULES: Record<string, { code: string; message: string }> = {
     float: {
         code: "qpi/no-float",
-        message:
-            "Floating-point types (`float`/`double`) are forbidden — their arithmetic isn't deterministic.",
+        message: "Floating-point types (`float`/`double`) are forbidden — their arithmetic isn't deterministic.",
     },
     double: {
         code: "qpi/no-float",
-        message:
-            "Floating-point types (`float`/`double`) are forbidden — their arithmetic isn't deterministic.",
+        message: "Floating-point types (`float`/`double`) are forbidden — their arithmetic isn't deterministic.",
     },
     union: {
         code: "qpi/no-union",
@@ -49,11 +33,7 @@ const KEYWORD_RULES: Record<string, { code: string; message: string }> = {
 // Names a contract may not write, for callers that suppress rather than diagnose them.
 export const QPI_BANNED_KEYWORDS: readonly string[] = Object.keys(KEYWORD_RULES);
 
-export function analyzeQpiPolicy(
-    source: string,
-    registrations?: readonly ContractRegistration[],
-    idl?: ContractIdl,
-): SourceAnalysisDiagnostic[] {
+export function analyzeQpiPolicy(source: string, registrations?: readonly ContractRegistration[], idl?: ContractIdl): SourceAnalysisDiagnostic[] {
     const tokens = new Lexer(source).tokenize();
     const entries = findEntryFunctions(tokens);
     const diagnostics = [
@@ -70,10 +50,7 @@ export function detectQpiContractName(source: string): string | undefined {
     const tokens = new Lexer(source).tokenize();
 
     for (let index = 0; index < tokens.length; index++) {
-        if (
-            tokens[index].kind !== TokenKind.KW_STRUCT &&
-            tokens[index].kind !== TokenKind.KW_CLASS
-        ) {
+        if (tokens[index].kind !== TokenKind.KW_STRUCT && tokens[index].kind !== TokenKind.KW_CLASS) {
             continue;
         }
 
@@ -110,10 +87,7 @@ function forbiddenConstructs(source: string, tokens: Token[]): SourceAnalysisDia
             continue;
         }
 
-        if (
-            (token.kind === TokenKind.KW_STATIC_ASSERT || token.text === "STATIC_ASSERT") &&
-            tokens[index + 1]?.kind === TokenKind.L_PAREN
-        ) {
+        if ((token.kind === TokenKind.KW_STATIC_ASSERT || token.text === "STATIC_ASSERT") && tokens[index + 1]?.kind === TokenKind.L_PAREN) {
             const close = matchingToken(tokens, index + 1, TokenKind.L_PAREN, TokenKind.R_PAREN);
             if (close >= 0) {
                 index = close;
@@ -148,29 +122,14 @@ function forbiddenConstructs(source: string, tokens: Token[]): SourceAnalysisDia
         }
 
         if (token.kind === TokenKind.STRING_LITERAL) {
-            diagnostics.push(
-                diagnostic(
-                    "qpi/no-string",
-                    'String literals (`"`) are forbidden in QPI — they can address arbitrary memory.',
-                    token.span,
-                ),
-            );
+            diagnostics.push(diagnostic("qpi/no-string", 'String literals (`"`) are forbidden in QPI — they can address arbitrary memory.', token.span));
             continue;
         }
         if (token.kind === TokenKind.CHAR_LITERAL) {
-            if (
-                /[0-9a-fA-F]/.test(source[token.span.start - 1] ?? "") &&
-                /[0-9a-fA-F]/.test(source[token.span.end] ?? "")
-            ) {
+            if (/[0-9a-fA-F]/.test(source[token.span.start - 1] ?? "") && /[0-9a-fA-F]/.test(source[token.span.end] ?? "")) {
                 continue;
             }
-            diagnostics.push(
-                diagnostic(
-                    "qpi/no-char",
-                    "Character literals (`'`) are forbidden in QPI.",
-                    token.span,
-                ),
-            );
+            diagnostics.push(diagnostic("qpi/no-char", "Character literals (`'`) are forbidden in QPI.", token.span));
             continue;
         }
         if (token.kind === TokenKind.SLASH || token.kind === TokenKind.SLASH_EQ) {
@@ -224,26 +183,14 @@ function forbiddenConstructs(source: string, tokens: Token[]): SourceAnalysisDia
                           ...token.span,
                           end: tokens[index + 2].span.end,
                       };
-            diagnostics.push(
-                diagnostic(
-                    "qpi/no-varargs",
-                    "Variadic arguments / parameter packs (`...`) are forbidden.",
-                    span,
-                ),
-            );
+            diagnostics.push(diagnostic("qpi/no-varargs", "Variadic arguments / parameter packs (`...`) are forbidden.", span));
             if (token.kind === TokenKind.DOT) {
                 index += 2;
             }
             continue;
         }
         if (token.text.includes("__")) {
-            diagnostics.push(
-                diagnostic(
-                    "qpi/no-dunder",
-                    "Double underscores (`__`) are reserved for internal use and forbidden in contracts.",
-                    token.span,
-                ),
-            );
+            diagnostics.push(diagnostic("qpi/no-dunder", "Double underscores (`__`) are reserved for internal use and forbidden in contracts.", token.span));
             continue;
         }
 
@@ -254,38 +201,18 @@ function forbiddenConstructs(source: string, tokens: Token[]): SourceAnalysisDia
         }
 
         if (braceDepth === 0 && token.kind === TokenKind.KW_TYPEDEF) {
-            diagnostics.push(
-                diagnostic(
-                    "qpi/no-global-typedef",
-                    "`typedef` is only allowed in local scope (inside a struct or function).",
-                    token.span,
-                ),
-            );
+            diagnostics.push(diagnostic("qpi/no-global-typedef", "`typedef` is only allowed in local scope (inside a struct or function).", token.span));
             continue;
         }
-        if (
-            braceDepth === 0 &&
-            token.kind === TokenKind.KW_USING &&
-            !isUsingNamespaceQpi(tokens, index)
-        ) {
-            diagnostics.push(
-                diagnostic(
-                    "qpi/no-global-using",
-                    "`using` at global scope is forbidden, except `using namespace QPI`.",
-                    token.span,
-                ),
-            );
+        if (braceDepth === 0 && token.kind === TokenKind.KW_USING && !isUsingNamespaceQpi(tokens, index)) {
+            diagnostics.push(diagnostic("qpi/no-global-using", "`using` at global scope is forbidden, except `using namespace QPI`.", token.span));
         }
     }
 
     return diagnostics;
 }
 
-function localDiagnostics(
-    source: string,
-    tokens: Token[],
-    entries: EntryFunction[],
-): SourceAnalysisDiagnostic[] {
+function localDiagnostics(source: string, tokens: Token[], entries: EntryFunction[]): SourceAnalysisDiagnostic[] {
     const diagnostics: SourceAnalysisDiagnostic[] = [];
 
     for (const entry of entries) {
@@ -294,19 +221,8 @@ function localDiagnostics(
         for (const declaration of declarations) {
             for (const name of declaration.names) {
                 const edits =
-                    declaration.names.length === 1 && !declaration.forInitializer
-                        ? moveLocalToWithLocalsEdits(source, tokens, entry, declaration, name)
-                        : null;
-                const fixes =
-                    edits && edits.length > 0
-                        ? [
-                              sourceFix(
-                                  "Move into <fn>_locals struct (use *_WITH_LOCALS)",
-                                  source,
-                                  edits,
-                              ),
-                          ]
-                        : undefined;
+                    declaration.names.length === 1 && !declaration.forInitializer ? moveLocalToWithLocalsEdits(source, tokens, entry, declaration, name) : null;
+                const fixes = edits && edits.length > 0 ? [sourceFix("Move into <fn>_locals struct (use *_WITH_LOCALS)", source, edits)] : undefined;
 
                 diagnostics.push(
                     diagnostic(
@@ -324,19 +240,12 @@ function localDiagnostics(
     return diagnostics;
 }
 
-function localsFormDiagnostics(
-    tokens: Token[],
-    entries: EntryFunction[],
-): SourceAnalysisDiagnostic[] {
+function localsFormDiagnostics(tokens: Token[], entries: EntryFunction[]): SourceAnalysisDiagnostic[] {
     const diagnostics: SourceAnalysisDiagnostic[] = [];
     const localsStructs = new Set<string>();
 
     for (let index = 0; index + 1 < tokens.length; index++) {
-        if (
-            tokens[index].kind === TokenKind.KW_STRUCT &&
-            tokens[index + 1].kind === TokenKind.IDENTIFIER &&
-            tokens[index + 1].text.endsWith("_locals")
-        ) {
+        if (tokens[index].kind === TokenKind.KW_STRUCT && tokens[index + 1].kind === TokenKind.IDENTIFIER && tokens[index + 1].text.endsWith("_locals")) {
             localsStructs.add(tokens[index + 1].text.slice(0, -"_locals".length));
         }
     }
@@ -348,11 +257,7 @@ function localsFormDiagnostics(
 
         let usesLocals = false;
         for (let index = entry.bodyOpen + 1; index < entry.bodyClose; index++) {
-            if (
-                tokens[index].kind === TokenKind.IDENTIFIER &&
-                tokens[index].text === "locals" &&
-                tokens[index + 1]?.kind === TokenKind.DOT
-            ) {
+            if (tokens[index].kind === TokenKind.IDENTIFIER && tokens[index].text === "locals" && tokens[index + 1]?.kind === TokenKind.DOT) {
                 usesLocals = true;
                 break;
             }
@@ -391,10 +296,7 @@ function idlDiagnostics(
 
     if (semanticRegistrations) {
         for (const registration of semanticRegistrations) {
-            const kind =
-                registration.kind === USER_FUNCTION_KIND
-                    ? QpiMacroKind.FUNCTION
-                    : QpiMacroKind.PROCEDURE;
+            const kind = registration.kind === USER_FUNCTION_KIND ? QpiMacroKind.FUNCTION : QpiMacroKind.PROCEDURE;
 
             registered.add(registration.fnName);
             const previous = registrations[kind].get(registration.inputType);
@@ -413,15 +315,11 @@ function idlDiagnostics(
         }
     }
 
-    const publicNames = new Set(
-        entries.filter((entry) => entry.publicEntry).map((entry) => entry.name),
-    );
+    const publicNames = new Set(entries.filter((entry) => entry.publicEntry).map((entry) => entry.name));
     if (semanticRegistrations) {
         for (const entry of entries) {
             if (entry.publicEntry && !registered.has(entry.name)) {
-                const kind = entry.macro.includes("FUNCTION")
-                    ? QpiMacroKind.FUNCTION
-                    : QpiMacroKind.PROCEDURE;
+                const kind = entry.macro.includes("FUNCTION") ? QpiMacroKind.FUNCTION : QpiMacroKind.PROCEDURE;
                 diagnostics.push(
                     diagnostic(
                         "qpi/unregistered",
@@ -436,10 +334,7 @@ function idlDiagnostics(
     const forbidden = new Set(["Collection", "LinkedList", "HashMap", "HashSet"]);
     const reportedTypes = new Set<string>();
     for (let index = 0; index + 2 < tokens.length; index++) {
-        if (
-            tokens[index].kind !== TokenKind.KW_STRUCT ||
-            tokens[index + 1].kind !== TokenKind.IDENTIFIER
-        ) {
+        if (tokens[index].kind !== TokenKind.KW_STRUCT || tokens[index + 1].kind !== TokenKind.IDENTIFIER) {
             continue;
         }
 
@@ -507,10 +402,7 @@ function forbiddenAbiTypes(type: AbiType): string[] {
         case AbiTypeKind.BIT_ARRAY:
             return [];
         case AbiTypeKind.STRUCT:
-            return [
-                ...(type.name === "LinkedList" ? ["LinkedList"] : []),
-                ...type.fields.flatMap((field) => forbiddenAbiTypes(field.type)),
-            ];
+            return [...(type.name === "LinkedList" ? ["LinkedList"] : []), ...type.fields.flatMap((field) => forbiddenAbiTypes(field.type))];
         case AbiTypeKind.COLLECTION:
             return ["Collection", ...forbiddenAbiTypes(type.value)];
         case AbiTypeKind.HASH_MAP:

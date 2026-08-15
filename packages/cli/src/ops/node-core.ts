@@ -1,13 +1,6 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import {
-    cacheHeaders,
-    extractTarGz,
-    downloadVerifiedAsset,
-    loadManifest,
-    readCurrent,
-    updateCurrent,
-} from "@qinit/core";
+import { cacheHeaders, extractTarGz, downloadVerifiedAsset, loadManifest, readCurrent, updateCurrent } from "@qinit/core";
 import { cachedReleaseRef } from "./node";
 
 const defaultDeps = {
@@ -52,9 +45,7 @@ export async function prepareNodeRunCore(
             throw new Error("--core-dir requires a path");
         }
         if (!useSimulator && !options.nodeBinary) {
-            throw new Error(
-                "core runtime with --core-dir requires --node-bin <path> to keep node and headers aligned",
-            );
+            throw new Error("core runtime with --core-dir requires --node-bin <path> to keep node and headers aligned");
         }
 
         const coreHeaders = resolve(options.coreDir);
@@ -76,10 +67,7 @@ export async function prepareNodeRunCore(
     }
 
     const current = deps.readCurrent();
-    const cachedHeaders =
-        current?.coreHeaders && deps.existsSync(current.coreHeaders)
-            ? current.coreHeaders
-            : undefined;
+    const cachedHeaders = current?.coreHeaders && deps.existsSync(current.coreHeaders) ? current.coreHeaders : undefined;
     if (options.offline) {
         if (!cachedHeaders) {
             throw new Error("offline: no synced headers — run `qinit node run` online first");
@@ -103,9 +91,7 @@ export async function prepareNodeRunCore(
     if (ref === undefined && current?.node && deps.existsSync(current.node)) {
         ref = cachedReleaseRef(current.nodeVersion);
         if (!ref) {
-            throw new Error(
-                "selected node does not identify a release — run `qinit setup --force` or pass --ref",
-            );
+            throw new Error("selected node does not identify a release — run `qinit setup --force` or pass --ref");
         }
     }
     ref ??= "latest";
@@ -120,10 +106,7 @@ export async function prepareNodeRunCore(
     }
 
     const coreHeaders = deps.cacheHeaders(version);
-    await deps.extractTarGz(
-        await deps.downloadVerifiedAsset(headersAsset, onProgress),
-        coreHeaders,
-    );
+    await deps.extractTarGz(await deps.downloadVerifiedAsset(headersAsset, onProgress), coreHeaders);
     if (options.updateCurrent !== false) {
         deps.updateCurrent({ headersVersion: version, coreHeaders });
     }

@@ -30,9 +30,7 @@ async function compile(source: string) {
 
 async function run(source: string): Promise<bigint> {
     const result = await compile(source);
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
-        0,
-    );
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     const user = new Uint8Array(32).fill(7);
     sim.fund(user, 1_000_000n);
@@ -56,26 +54,17 @@ describe("edge audit — direct and aggregate initialization", () => {
     });
 
     test("aggregate direct-list initialization stores every field", async () => {
-        const source = wrap(
-            `struct Pair { uint64 left; uint64 right; };`,
-            `Pair pair{7, 9}; state.mut().result = pair.left + pair.right;`,
-        );
+        const source = wrap(`struct Pair { uint64 left; uint64 right; };`, `Pair pair{7, 9}; state.mut().result = pair.left + pair.right;`);
         expect(await run(source)).toBe(16n);
     });
 
     test("aggregate copy-list initialization remains supported", async () => {
-        const source = wrap(
-            `struct Pair { uint64 left; uint64 right; };`,
-            `Pair pair = {7, 9}; state.mut().result = pair.left + pair.right;`,
-        );
+        const source = wrap(`struct Pair { uint64 left; uint64 right; };`, `Pair pair = {7, 9}; state.mut().result = pair.left + pair.right;`);
         expect(await run(source)).toBe(16n);
     });
 
     test("too many aggregate initializers are rejected", async () => {
-        const source = wrap(
-            `struct Pair { uint64 left; uint64 right; };`,
-            `Pair pair = {7, 9, 11}; state.mut().result = pair.left + pair.right;`,
-        );
+        const source = wrap(`struct Pair { uint64 left; uint64 right; };`, `Pair pair = {7, 9, 11}; state.mut().result = pair.left + pair.right;`);
         const result = await compile(source);
         const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
         expect(errors.some((d) => /initializer|too many|field/i.test(d.message))).toBe(true);

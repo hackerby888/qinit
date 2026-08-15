@@ -47,10 +47,7 @@ const CASES: Record<string, RejectCase> = {
         diagnostic: /reference.*(lvalue|literal)|cannot.*bind|argument.*reference/i,
     },
     "non-const reference binds to a const local": {
-        source: wrap(
-            `static void bump(uint64& value) { value += 1; }`,
-            `const uint64 value = 1; bump(value);`,
-        ),
+        source: wrap(`static void bump(uint64& value) { value += 1; }`, `const uint64 value = 1; bump(value);`),
         diagnostic: /reference.*const|cannot.*bind|const.*reference/i,
     },
 };
@@ -65,9 +62,7 @@ describe("edge audit — call validation", () => {
                 qpiHeader: HEADERS,
                 arenaSizeBytes: 1 << 20,
             });
-            const errors = result.diagnostics.filter(
-                (d) => d.severity === DiagnosticSeverity.ERROR,
-            );
+            const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
             expect(errors.some((d) => c.diagnostic.test(d.message))).toBe(true);
             expect(result.wasm).toHaveLength(0);
         });

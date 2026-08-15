@@ -18,16 +18,12 @@ export interface ParsedContractDefinitionSource {
     contractStateBlocks: ContractStateBlock[];
 }
 
-export function parseContractDefinitionSource(
-    definitionSource: string,
-): ParsedContractDefinitionSource {
+export function parseContractDefinitionSource(definitionSource: string): ParsedContractDefinitionSource {
     const files = new Map<number, string>();
     const names = new Map<number, string>();
     const epochs = new Map<number, number>();
     const stateTypes = new Map<number, string>();
-    const indexConstants = [
-        ...definitionSource.matchAll(/#define\s+(\w+)_CONTRACT_INDEX\s+(\d+)/g),
-    ].map((match) => ({
+    const indexConstants = [...definitionSource.matchAll(/#define\s+(\w+)_CONTRACT_INDEX\s+(\d+)/g)].map((match) => ({
         name: match[1],
         index: Number(match[2]),
     }));
@@ -42,9 +38,7 @@ export function parseContractDefinitionSource(
     }));
     let currentIndex = -1;
 
-    const descriptionBlock = definitionSource.match(
-        /contractDescriptions\s*\[\s*\]\s*=\s*\{([\s\S]*?)\r?\n\s*\};/,
-    )?.[1];
+    const descriptionBlock = definitionSource.match(/contractDescriptions\s*\[\s*\]\s*=\s*\{([\s\S]*?)\r?\n\s*\};/)?.[1];
     if (descriptionBlock) {
         let descriptionIndex = 0;
         for (const description of descriptionBlock.matchAll(/\{\s*"([^"]*)"([\s\S]*?)\}/g)) {
@@ -66,8 +60,7 @@ export function parseContractDefinitionSource(
             continue;
         }
 
-        const incrementsIndex =
-            /\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(line);
+        const incrementsIndex = /\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(line);
         if (incrementsIndex) {
             currentIndex += 1;
             continue;

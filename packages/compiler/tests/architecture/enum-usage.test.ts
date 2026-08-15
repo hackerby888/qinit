@@ -12,11 +12,7 @@ function createCompilerProgram(): ts.Program {
         throw new Error(ts.flattenDiagnosticMessageText(configFile.error.messageText, "\n"));
     }
 
-    const config = ts.parseJsonConfigFileContent(
-        configFile.config,
-        ts.sys,
-        resolve(CONFIG_PATH, ".."),
-    );
+    const config = ts.parseJsonConfigFileContent(configFile.config, ts.sys, resolve(CONFIG_PATH, ".."));
     return ts.createProgram(config.fileNames, config.options);
 }
 
@@ -45,10 +41,7 @@ function isPropertyKeyLiteral(node: ts.LiteralTypeNode): boolean {
             const argumentIndex = current.typeArguments?.findIndex((argument) => {
                 return containsNode(argument, node);
             });
-            return (
-                ((name === "Pick" || name === "Omit") && argumentIndex === 1) ||
-                (name === "Record" && argumentIndex === 0)
-            );
+            return ((name === "Pick" || name === "Omit") && argumentIndex === 1) || (name === "Record" && argumentIndex === 0);
         }
     }
 
@@ -87,39 +80,21 @@ describe("compiler enum usage", () => {
             };
 
             const visit = (node: ts.Node): void => {
-                if (
-                    ts.isLiteralTypeNode(node) &&
-                    ts.isStringLiteral(node.literal) &&
-                    !isPropertyKeyLiteral(node)
-                ) {
+                if (ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal) && !isPropertyKeyLiteral(node)) {
                     addViolation(node, `uses raw string type ${node.getText(source)}`);
                 }
 
                 if (ts.isBinaryExpression(node) && isEqualityOperator(node.operatorToken.kind)) {
-                    const stringOperand = ts.isStringLiteral(node.left)
-                        ? node.left
-                        : ts.isStringLiteral(node.right)
-                          ? node.right
-                          : undefined;
+                    const stringOperand = ts.isStringLiteral(node.left) ? node.left : ts.isStringLiteral(node.right) ? node.right : undefined;
                     const enumOperand = stringOperand === node.left ? node.right : node.left;
 
                     if (stringOperand && isEnumType(checker.getTypeAtLocation(enumOperand))) {
-                        addViolation(
-                            stringOperand,
-                            `compares enum to ${stringOperand.getText(source)}`,
-                        );
+                        addViolation(stringOperand, `compares enum to ${stringOperand.getText(source)}`);
                     }
                 }
 
-                if (
-                    ts.isCaseClause(node) &&
-                    ts.isStringLiteral(node.expression) &&
-                    isEnumType(checker.getTypeAtLocation(node.parent.parent.expression))
-                ) {
-                    addViolation(
-                        node.expression,
-                        `switches on raw enum value ${node.expression.getText(source)}`,
-                    );
+                if (ts.isCaseClause(node) && ts.isStringLiteral(node.expression) && isEnumType(checker.getTypeAtLocation(node.parent.parent.expression))) {
+                    addViolation(node.expression, `switches on raw enum value ${node.expression.getText(source)}`);
                 }
 
                 if (

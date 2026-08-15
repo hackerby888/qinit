@@ -3,11 +3,7 @@ import type { Preprocessor } from "./preprocessor";
 export function readIdentAt(preprocessor: Preprocessor, text: string, start: number): string {
     let ident = "";
     let cursor = start;
-    while (
-        cursor < text.length &&
-        (preprocessor.isIdStart(text[cursor]) ||
-            (cursor > start && text[cursor] >= "0" && text[cursor] <= "9"))
-    ) {
+    while (cursor < text.length && (preprocessor.isIdStart(text[cursor]) || (cursor > start && text[cursor] >= "0" && text[cursor] <= "9"))) {
         ident += text[cursor];
         cursor++;
     }
@@ -20,10 +16,7 @@ export function isIdStart(ch: string): boolean {
 
 export function readIdentifier(preprocessor: Preprocessor): string {
     let ident = "";
-    while (
-        preprocessor.pos < preprocessor.input.length &&
-        preprocessor.isIdContinue(preprocessor.input[preprocessor.pos])
-    ) {
+    while (preprocessor.pos < preprocessor.input.length && preprocessor.isIdContinue(preprocessor.input[preprocessor.pos])) {
         ident += preprocessor.input[preprocessor.pos];
         preprocessor.pos++;
     }
@@ -43,11 +36,7 @@ export function peek(preprocessor: Preprocessor, offset: number): string {
 }
 
 export function skipWhitespace(preprocessor: Preprocessor): void {
-    while (
-        preprocessor.pos < preprocessor.input.length &&
-        (preprocessor.input[preprocessor.pos] === " " ||
-            preprocessor.input[preprocessor.pos] === "\t")
-    ) {
+    while (preprocessor.pos < preprocessor.input.length && (preprocessor.input[preprocessor.pos] === " " || preprocessor.input[preprocessor.pos] === "\t")) {
         preprocessor.pos++;
     }
 }
@@ -70,10 +59,7 @@ export function skipWhitespaceAndNewlines(preprocessor: Preprocessor): void {
 
 export function readToNewline(preprocessor: Preprocessor): string {
     let text = "";
-    while (
-        preprocessor.pos < preprocessor.input.length &&
-        preprocessor.input[preprocessor.pos] !== "\n"
-    ) {
+    while (preprocessor.pos < preprocessor.input.length && preprocessor.input[preprocessor.pos] !== "\n") {
         // Handle backslash-newline continuation
         if (preprocessor.input[preprocessor.pos] === "\\" && preprocessor.peek(1) === "\n") {
             preprocessor.pos += 2;
@@ -91,10 +77,7 @@ export function readToNewline(preprocessor: Preprocessor): string {
 }
 
 export function skipToNewline(preprocessor: Preprocessor): void {
-    while (
-        preprocessor.pos < preprocessor.input.length &&
-        preprocessor.input[preprocessor.pos] !== "\n"
-    ) {
+    while (preprocessor.pos < preprocessor.input.length && preprocessor.input[preprocessor.pos] !== "\n") {
         preprocessor.pos++;
     }
     if (preprocessor.input[preprocessor.pos] === "\n") {
@@ -105,11 +88,7 @@ export function skipToNewline(preprocessor: Preprocessor): void {
 
 export function readUntil(preprocessor: Preprocessor, stop: string): string {
     let text = "";
-    while (
-        preprocessor.pos < preprocessor.input.length &&
-        preprocessor.input[preprocessor.pos] !== stop &&
-        preprocessor.input[preprocessor.pos] !== "\n"
-    ) {
+    while (preprocessor.pos < preprocessor.input.length && preprocessor.input[preprocessor.pos] !== stop && preprocessor.input[preprocessor.pos] !== "\n") {
         text += preprocessor.input[preprocessor.pos];
         preprocessor.pos++;
     }
@@ -117,10 +96,7 @@ export function readUntil(preprocessor: Preprocessor, stop: string): string {
 }
 
 export function skipLineComment(preprocessor: Preprocessor): void {
-    while (
-        preprocessor.pos < preprocessor.input.length &&
-        preprocessor.input[preprocessor.pos] !== "\n"
-    ) {
+    while (preprocessor.pos < preprocessor.input.length && preprocessor.input[preprocessor.pos] !== "\n") {
         preprocessor.pos++;
     }
 }

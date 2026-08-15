@@ -148,20 +148,14 @@ describe("authoritative QPI capability matrix", () => {
                 arenaSizeBytes: 1 << 20,
                 qpiHeader: await header(),
             });
-            expect(
-                result.diagnostics.filter(
-                    (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-                ),
-            ).toEqual([]);
+            expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
             expect(result.wasm.byteLength).toBeGreaterThan(0);
             expect(inspectWasmModule(result.wasm).ok).toBe(true);
         }, 60_000);
     }
 
     test.if(coreOk)("loadQpiHeader fails closed for a non-core path", () => {
-        expect(() => loadQpiHeader("/definitely/not/a/core/checkout")).toThrow(
-            /not a core checkout/,
-        );
+        expect(() => loadQpiHeader("/definitely/not/a/core/checkout")).toThrow(/not a core checkout/);
     });
 
     test.if(coreOk)("uses a dependent custom HashFunc body at runtime", async () => {
@@ -186,11 +180,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             arenaSizeBytes: 1 << 20,
             qpiHeader: loadQpiHeader(CORE),
         });
-        expect(
-            result.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
         const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         const user = new Uint8Array(32).fill(7);

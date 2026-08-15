@@ -9,22 +9,8 @@ export const CLI_REPO = process.env.QINIT_REPOSITORY ?? repositories.qinit.repos
 // runs that under emulation, so map win/arm64 -> x64.
 export function cliAssetName(): string {
     const platform = process.platform;
-    const os =
-        platform === "linux"
-            ? "linux"
-            : platform === "darwin"
-              ? "darwin"
-              : platform === "win32"
-                ? "windows"
-                : "";
-    const arch =
-        platform === "win32"
-            ? "x64"
-            : process.arch === "x64"
-              ? "x64"
-              : process.arch === "arm64"
-                ? "arm64"
-                : "";
+    const os = platform === "linux" ? "linux" : platform === "darwin" ? "darwin" : platform === "win32" ? "windows" : "";
+    const arch = platform === "win32" ? "x64" : process.arch === "x64" ? "x64" : process.arch === "arm64" ? "arm64" : "";
     if (!os || !arch) {
         throw new Error(`unsupported host for self-update: ${platform}/${process.arch}`);
     }
@@ -42,10 +28,7 @@ export async function resolveCliTag(repo = CLI_REPO): Promise<string | null> {
     return /^qinit-cli-[A-Za-z0-9._-]+$/.test(tag) ? tag : null;
 }
 
-export function cliReleaseUrls(
-    tag: string,
-    repo = CLI_REPO,
-): { asset: string; sums: string; name: string } {
+export function cliReleaseUrls(tag: string, repo = CLI_REPO): { asset: string; sums: string; name: string } {
     const name = cliAssetName();
     const base = `https://github.com/${repo}/releases/download/${tag}`;
     return { asset: `${base}/${name}`, sums: `${base}/SHA256SUMS`, name };

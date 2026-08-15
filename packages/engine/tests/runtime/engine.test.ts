@@ -63,9 +63,7 @@ test("a contract trap permanently faults the simulator without recording the tra
     expect(() => sim.query(28, GET)).toThrow(EngineFaultedError);
     expect(() => sim.query(999, GET)).toThrow(EngineFaultedError);
     expect(() => sim.procedure(999, BUMP)).toThrow(EngineFaultedError);
-    expect(() => sim.applyTx(src, dest, 0n, BUMP, new Uint8Array(0), "t3")).toThrow(
-        EngineFaultedError,
-    );
+    expect(() => sim.applyTx(src, dest, 0n, BUMP, new Uint8Array(0), "t3")).toThrow(EngineFaultedError);
 });
 
 test("a finalization fault does not expose its quorum record", async () => {

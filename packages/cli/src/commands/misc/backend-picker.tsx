@@ -94,12 +94,7 @@ export function BackendPicker<Backend extends string>({
             {phase === "pick" && (
                 <Box flexDirection="column">
                     <Text dimColor>↑/↓ select · ↵ save · q cancel</Text>
-                    <Box
-                        borderStyle="round"
-                        borderColor={theme.brand}
-                        paddingX={1}
-                        flexDirection="column"
-                    >
+                    <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
                         {backends.map((backend, index) => {
                             const selected = index === selection;
                             return (
@@ -113,9 +108,7 @@ export function BackendPicker<Backend extends string>({
                                         </Text>
                                     )}
                                     <Text dimColor> {descriptions[backend]}</Text>
-                                    {backend === current ? (
-                                        <Text color={theme.ok}> ✓ current</Text>
-                                    ) : null}
+                                    {backend === current ? <Text color={theme.ok}> ✓ current</Text> : null}
                                 </Text>
                             );
                         })}

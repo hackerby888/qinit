@@ -31,9 +31,7 @@ if (!CALLEE) {
 
 async function expectRejected(overrides: Partial<CompileOptions>): Promise<void> {
     const result = await compileContract({ ...BASE, ...overrides });
-    const errors = result.diagnostics.filter(
-        (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-    );
+    const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
 
     expect(errors.length).toBeGreaterThan(0);
     expect(result.wasm.byteLength).toBe(0);
@@ -44,11 +42,7 @@ describe("compiler option validation", () => {
     test("accepts a valid boundary-control request", async () => {
         const result = await compileContract(BASE);
 
-        expect(
-            result.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         expect(result.wasm.byteLength).toBeGreaterThan(0);
         expect(WebAssembly.validate(result.wasm)).toBe(true);
     });
@@ -93,8 +87,7 @@ describe("compiler option validation", () => {
         ["larger than wasm32", 0x1_0000_0000],
     ] as const;
     for (const [label, sharedMemoryBaseOffsetBytes] of invalidSharedBases) {
-        test(`rejects ${label} shared memory base`, () =>
-            expectRejected({ sharedMemoryBaseOffsetBytes }));
+        test(`rejects ${label} shared memory base`, () => expectRejected({ sharedMemoryBaseOffsetBytes }));
     }
 
     test("rejects duplicate callee names", () =>
@@ -169,11 +162,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             ],
         });
 
-        expect(
-            result.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         expect(result.wasm.byteLength).toBeGreaterThan(0);
     });
 

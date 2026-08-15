@@ -11,10 +11,7 @@ export function lexNumber(lexer: Lexer, start: number, startLine: number, startC
         const next = lexer.peekChar().toLowerCase();
         if (next === "x") {
             text += lexer.advance();
-            while (
-                !lexer.eof() &&
-                (lexer.isHexDigit(lexer.peekChar()) || lexer.peekChar() === "'")
-            ) {
+            while (!lexer.eof() && (lexer.isHexDigit(lexer.peekChar()) || lexer.peekChar() === "'")) {
                 text += lexer.advance();
             }
             text += lexer.peekSuffix();
@@ -26,10 +23,7 @@ export function lexNumber(lexer: Lexer, start: number, startLine: number, startC
         }
         if (next === "b") {
             text += lexer.advance();
-            while (
-                !lexer.eof() &&
-                (lexer.peekChar() === "0" || lexer.peekChar() === "1" || lexer.peekChar() === "'")
-            ) {
+            while (!lexer.eof() && (lexer.peekChar() === "0" || lexer.peekChar() === "1" || lexer.peekChar() === "'")) {
                 text += lexer.advance();
             }
             text += lexer.peekSuffix();

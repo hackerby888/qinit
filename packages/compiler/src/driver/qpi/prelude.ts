@@ -39,13 +39,7 @@ typedef signed char int8_t;
 #define UINT8_MAX 255
 `;
 
-const REQUIRED_DEFINES = [
-    "MAX_NUMBER_OF_CONTRACTS",
-    "MAX_INPUT_SIZE",
-    "ISSUANCE_RATE",
-    "MAX_AMOUNT",
-    "MAX_SUPPLY",
-] as const;
+const REQUIRED_DEFINES = ["MAX_NUMBER_OF_CONTRACTS", "MAX_INPUT_SIZE", "ISSUANCE_RATE", "MAX_AMOUNT", "MAX_SUPPLY"] as const;
 
 const REQUIRED_CONSTANTS = [
     "MAX_ORACLE_QUERY_SIZE",
@@ -84,13 +78,7 @@ export function assembleQpiProtocolPrelude(commonDefinitions: string): string {
     }
 
     for (const name of REQUIRED_CONSTANTS) {
-        lines.push(
-            requiredLine(
-                commonDefinitions,
-                new RegExp(`^\\s*constexpr\\s+[^;=]+\\s+${name}\\s*=`),
-                name,
-            ),
-        );
+        lines.push(requiredLine(commonDefinitions, new RegExp(`^\\s*constexpr\\s+[^;=]+\\s+${name}\\s*=`), name));
     }
 
     return `${lines.join("\n")}\n`;

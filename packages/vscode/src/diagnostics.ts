@@ -46,9 +46,7 @@ export class QpiDiagnostics implements vscode.Disposable {
         }
     >();
 
-    constructor(
-        private readonly resolveContext?: (doc: vscode.TextDocument) => ProjectAnalysisContext,
-    ) {}
+    constructor(private readonly resolveContext?: (doc: vscode.TextDocument) => ProjectAnalysisContext) {}
 
     private applies(doc: vscode.TextDocument): boolean {
         return isContractDoc(doc);

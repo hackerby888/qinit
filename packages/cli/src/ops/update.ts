@@ -87,10 +87,7 @@ function replaceExecutable(executablePath: string, binary: Uint8Array, deps: Sel
                 } catch {}
             }
             unlinkBestEffort(temporaryPath, deps);
-            throw new Error(
-                `could not replace ${executablePath} (${errorDetail(error)}) — ` +
-                    "close other qinit processes or re-run install.ps1",
-            );
+            throw new Error(`could not replace ${executablePath} (${errorDetail(error)}) — ` + "close other qinit processes or re-run install.ps1");
         }
         return;
     }
@@ -100,17 +97,11 @@ function replaceExecutable(executablePath: string, binary: Uint8Array, deps: Sel
         deps.renameSync(temporaryPath, executablePath);
     } catch (error) {
         unlinkBestEffort(temporaryPath, deps);
-        throw new Error(
-            `could not replace ${executablePath} (${errorDetail(error)}) — ` +
-                "bin dir not writable; re-run install.sh or use sudo",
-        );
+        throw new Error(`could not replace ${executablePath} (${errorDetail(error)}) — ` + "bin dir not writable; re-run install.sh or use sudo");
     }
 }
 
-export async function runSelfUpdate(
-    options: SelfUpdateOptions = {},
-    injected: Partial<SelfUpdateDeps> = {},
-): Promise<SelfUpdateResult> {
+export async function runSelfUpdate(options: SelfUpdateOptions = {}, injected: Partial<SelfUpdateDeps> = {}): Promise<SelfUpdateResult> {
     const deps = { ...defaultDeps, ...injected };
     const executableName = basename(deps.executablePath)
         .replace(/\.exe$/i, "")

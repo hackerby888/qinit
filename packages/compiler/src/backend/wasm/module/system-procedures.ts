@@ -39,9 +39,7 @@ export interface MigrationEmission {
     functionWat?: string;
 }
 
-export function indexSystemProcedures(
-    procedures: readonly LiteSystemProcedure[],
-): SystemProcedureIndex {
+export function indexSystemProcedures(procedures: readonly LiteSystemProcedure[]): SystemProcedureIndex {
     const idsByImplementation = new Map<string, number>();
     const prefixesByImplementation = new Map<string, string>();
 
@@ -80,28 +78,14 @@ export function emitSystemProcedures(
         }
 
         const label = `$sys_${procedures.length}`;
-        const localsPrefix =
-            index.prefixesByImplementation.get(declaration.name) ?? declaration.name;
+        const localsPrefix = index.prefixesByImplementation.get(declaration.name) ?? declaration.name;
         const localsLayout = layouts.resolve(`${localsPrefix}_locals`);
         const io = SYSPROC_IO[declaration.name];
         const inputLayout = layouts.resolveOptional(io?.in);
         const outputLayout = layouts.resolveOptional(io?.out);
-        const aliases = io?.typedIO
-            ? createTypedIoAliases(programAnalysis, io.in, io.out)
-            : undefined;
+        const aliases = io?.typedIO ? createTypedIoAliases(programAnalysis, io.in, io.out) : undefined;
 
-        functionWat.push(
-            emitFunction(
-                programAnalysis,
-                label,
-                declaration,
-                stateLayout,
-                inputLayout,
-                outputLayout,
-                localsLayout,
-                aliases,
-            ),
-        );
+        functionWat.push(emitFunction(programAnalysis, label, declaration, stateLayout, inputLayout, outputLayout, localsLayout, aliases));
 
         procedures.push({
             id: procedureId,
@@ -148,16 +132,7 @@ export function emitMigrationFunction(
     ]);
 
     return {
-        functionWat: emitFunction(
-            programAnalysis,
-            "$migrate",
-            declaration,
-            stateLayout,
-            oldStateLayout,
-            layouts.emptyLayout,
-            localsLayout,
-            aliases,
-        ),
+        functionWat: emitFunction(programAnalysis, "$migrate", declaration, stateLayout, oldStateLayout, layouts.emptyLayout, localsLayout, aliases),
         specification: {
             label: "$migrate",
             oldStateSize: oldStateLayout.size,
@@ -166,11 +141,7 @@ export function emitMigrationFunction(
     };
 }
 
-function createTypedIoAliases(
-    programAnalysis: ProgramAnalysis,
-    inputTypeName: string | undefined,
-    outputTypeName: string | undefined,
-): FunctionAliases {
+function createTypedIoAliases(programAnalysis: ProgramAnalysis, inputTypeName: string | undefined, outputTypeName: string | undefined): FunctionAliases {
     const aliases: FunctionAliases = new Map();
 
     bindIoAlias(aliases, programAnalysis, "input", inputTypeName, "__qinit_in");
@@ -179,20 +150,12 @@ function createTypedIoAliases(
     return aliases;
 }
 
-function bindIoAlias(
-    aliases: FunctionAliases,
-    programAnalysis: ProgramAnalysis,
-    parameterName: string,
-    typeName: string | undefined,
-    localName: string,
-): void {
+function bindIoAlias(aliases: FunctionAliases, programAnalysis: ProgramAnalysis, parameterName: string, typeName: string | undefined, localName: string): void {
     if (!typeName) {
         return;
     }
 
-    const type =
-        programAnalysis.typedefs.get(typeName) ??
-        ({ kind: AstKind.NAME, name: typeName } as TypeSpec);
+    const type = programAnalysis.typedefs.get(typeName) ?? ({ kind: AstKind.NAME, name: typeName } as TypeSpec);
 
     aliases.set(parameterName, {
         wasmType: WatNodeType.I32,

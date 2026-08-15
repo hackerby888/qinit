@@ -3,15 +3,7 @@ import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, k12Bytes, toHex, deriveKeysSync, verifySync } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import {
-    Committee,
-    merkleRoot,
-    quorumOf,
-    tickVoteMessage,
-    tickVoteSignature,
-    buildTickVote,
-    voteIsAligned,
-} from "../../src/chain/consensus";
+import { Committee, merkleRoot, quorumOf, tickVoteMessage, tickVoteSignature, buildTickVote, voteIsAligned } from "../../src/chain/consensus";
 import { readUint64LE } from "../support/helpers";
 
 const GET = 1; // Counter Get function
@@ -44,9 +36,7 @@ test("arbitrator defaults to the seed 'aaa…a' and signs a verifiable computor 
     const committee = sim.getCommittee();
 
     // default arbitrator identity = derive("a".repeat(55))
-    expect(toHex(committee.arbitrator.publicKey)).toBe(
-        toHex(deriveKeysSync("a".repeat(55)).publicKey),
-    );
+    expect(toHex(committee.arbitrator.publicKey)).toBe(toHex(deriveKeysSync("a".repeat(55)).publicKey));
 
     const list = sim.signedComputorList();
     const sig = list.subarray(list.length - 64);
@@ -78,9 +68,7 @@ test("every advanced tick reaches quorum with N FourQ-verifiable votes", async (
     // each vote's signature verifies against its computor's public key
     for (const c of committee.computors) {
         const vote = rec.votes[c.index];
-        expect(
-            verifySync(c.publicKey, tickVoteMessage(vote.bytes), tickVoteSignature(vote.bytes)),
-        ).toBe(true);
+        expect(verifySync(c.publicKey, tickVoteMessage(vote.bytes), tickVoteSignature(vote.bytes))).toBe(true);
     }
 });
 
@@ -179,20 +167,14 @@ test("a tampered Tick vote fails signature verification and misaligns", async ()
     };
 
     const vote = buildTickVote(c, 1, 7, digests, Date.UTC(2024, 0, 1));
-    expect(
-        verifySync(c.publicKey, tickVoteMessage(vote.bytes), tickVoteSignature(vote.bytes)),
-    ).toBe(true);
+    expect(verifySync(c.publicKey, tickVoteMessage(vote.bytes), tickVoteSignature(vote.bytes))).toBe(true);
     expect(voteIsAligned(vote, digests)).toBe(true);
 
     // the same vote must NOT align to a different transaction digest (the etalon moved)
-    expect(voteIsAligned(vote, { ...digests, transaction: k12Bytes(new Uint8Array([99])) })).toBe(
-        false,
-    );
+    expect(voteIsAligned(vote, { ...digests, transaction: k12Bytes(new Uint8Array([99])) })).toBe(false);
 
     // a detached clone we can tamper without touching the original; flipping a committed digest byte breaks the sig
     const bad = vote.clone();
     bad.bytes[32] ^= 0xff; // first byte of the spectrum-digest field
-    expect(verifySync(c.publicKey, tickVoteMessage(bad.bytes), tickVoteSignature(bad.bytes))).toBe(
-        false,
-    );
+    expect(verifySync(c.publicKey, tickVoteMessage(bad.bytes), tickVoteSignature(bad.bytes))).toBe(false);
 });

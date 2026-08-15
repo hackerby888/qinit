@@ -1,12 +1,7 @@
 import { test, expect } from "bun:test";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import {
-    analyzeContract,
-    DiagnosticSeverity,
-    SourceAnalysisOrigin,
-    type SourceAnalysisDiagnostic,
-} from "@qinit/compiler/analyzer";
+import { analyzeContract, DiagnosticSeverity, SourceAnalysisOrigin, type SourceAnalysisDiagnostic } from "@qinit/compiler/analyzer";
 
 const separateRules = new Set([
     "qpi/stack-local",
@@ -18,30 +13,19 @@ const separateRules = new Set([
 ]);
 
 function qpiDiagnostics(source: string): SourceAnalysisDiagnostic[] {
-    return analyzeContract({ source }).diagnostics.filter(
-        (item) => item.origin === SourceAnalysisOrigin.QPI,
-    );
+    return analyzeContract({ source }).diagnostics.filter((item) => item.origin === SourceAnalysisOrigin.QPI);
 }
 
-const scanQpi = (source: string) =>
-    qpiDiagnostics(source).filter((item) => !separateRules.has(item.code));
-const scanLocals = (source: string) =>
-    qpiDiagnostics(source).filter((item) => item.code === "qpi/stack-local");
-const scanLocalsForm = (source: string) =>
-    qpiDiagnostics(source).filter((item) => item.code === "qpi/needs-with-locals");
+const scanQpi = (source: string) => qpiDiagnostics(source).filter((item) => !separateRules.has(item.code));
+const scanLocals = (source: string) => qpiDiagnostics(source).filter((item) => item.code === "qpi/stack-local");
+const scanLocalsForm = (source: string) => qpiDiagnostics(source).filter((item) => item.code === "qpi/needs-with-locals");
 const rulesOf = (source: string) => new Set(scanQpi(source).map((item) => item.code));
 
 test("flags each forbidden construct (one crafted violation per rule)", () => {
     expect(rulesOf('auto s = "hi";')).toContain("qpi/no-string");
     expect(rulesOf("char c = 'a';")).toContain("qpi/no-char");
-    expect(
-        rulesOf(
-            "uint64 x = 1" + String.fromCharCode(39) + "000" + String.fromCharCode(39) + "000;",
-        ),
-    ).not.toContain("qpi/no-char");
-    expect(rulesOf("uint64 m = 0xFFFF" + String.fromCharCode(39) + "FFFF;")).not.toContain(
-        "qpi/no-char",
-    );
+    expect(rulesOf("uint64 x = 1" + String.fromCharCode(39) + "000" + String.fromCharCode(39) + "000;")).not.toContain("qpi/no-char");
+    expect(rulesOf("uint64 m = 0xFFFF" + String.fromCharCode(39) + "FFFF;")).not.toContain("qpi/no-char");
     expect(rulesOf("#define FOO 1")).toContain("qpi/no-preprocessor");
     expect(rulesOf("uint64 q = a / b;")).toContain("qpi/no-division");
     expect(rulesOf("uint64 r = a % b;")).toContain("qpi/no-modulo");
@@ -89,8 +73,7 @@ test("real fixtures stay clean — zero false positives", () => {
 });
 
 const localsOf = (s: string) => scanLocals(s).map((f) => f.message.match(/`(\w+)`/)![1]);
-const inProc = (body: string) =>
-    `struct X : public ContractBase { PUBLIC_PROCEDURE(Do) { ${body} } };`;
+const inProc = (body: string) => `struct X : public ContractBase { PUBLIC_PROCEDURE(Do) { ${body} } };`;
 
 test("scanLocals flags stack-local declarations (incl. consecutive) inside a function body", () => {
     expect(localsOf(inProc("uint64 x; uint64 y = 1;"))).toEqual(["x", "y"]);
@@ -102,16 +85,9 @@ test("scanLocals flags TEMPLATED-type stack locals (Array/HashMap/QPI::), not co
     expect(localsOf(inProc("Array<uint64, 4> arr;"))).toEqual(["arr"]);
     expect(localsOf(inProc("HashMap<id, uint64, 1024> m;"))).toEqual(["m"]);
     expect(localsOf(inProc("QPI::Array<uint64, 8> q;"))).toEqual(["q"]);
-    expect(localsOf(inProc("uint64 x = state.get().counter; Array<uint64, 4> arr;"))).toEqual([
-        "x",
-        "arr",
-    ]);
+    expect(localsOf(inProc("uint64 x = state.get().counter; Array<uint64, 4> arr;"))).toEqual(["x", "arr"]);
     expect(localsOf(inProc("uint64 y = a < b;"))).toEqual(["y"]);
-    expect(
-        scanLocals(
-            inProc("for (locals.i = 0; locals.i < N; ++locals.i) { state.mut().t += locals.i; }"),
-        ),
-    ).toEqual([]);
+    expect(scanLocals(inProc("for (locals.i = 0; locals.i < N; ++locals.i) { state.mut().t += locals.i; }"))).toEqual([]);
 });
 
 test("scanLocals covers EVERY QPI data structure + scalar declared on the stack", () => {
@@ -167,19 +143,11 @@ test("scanLocalsForm hints _WITH_LOCALS when a plain function defines or uses lo
     const withStruct = `struct X : public ContractBase { struct Do_locals { uint64 d; }; PUBLIC_PROCEDURE(Do) { locals.d = 1; } };`;
     expect(scanLocalsForm(withStruct).map((f) => f.code)).toEqual(["qpi/needs-with-locals"]);
     expect(scanLocalsForm(withStruct)[0].message).toContain("PUBLIC_PROCEDURE_WITH_LOCALS(Do)");
-    expect(
-        scanLocalsForm(
-            `struct X : public ContractBase { PUBLIC_FUNCTION(Q) { output.v = locals.tmp; } };`,
-        ).map((f) => f.code),
-    ).toEqual(["qpi/needs-with-locals"]);
-    expect(
-        scanLocalsForm(
-            `struct X : public ContractBase { struct Q_locals { uint64 t; }; PUBLIC_FUNCTION_WITH_LOCALS(Q) { locals.t = 1; } };`,
-        ),
-    ).toEqual([]);
-    expect(
-        scanLocalsForm(`struct X : public ContractBase { PUBLIC_FUNCTION(Q) { output.v = 1; } };`),
-    ).toEqual([]);
+    expect(scanLocalsForm(`struct X : public ContractBase { PUBLIC_FUNCTION(Q) { output.v = locals.tmp; } };`).map((f) => f.code)).toEqual([
+        "qpi/needs-with-locals",
+    ]);
+    expect(scanLocalsForm(`struct X : public ContractBase { struct Q_locals { uint64 t; }; PUBLIC_FUNCTION_WITH_LOCALS(Q) { locals.t = 1; } };`)).toEqual([]);
+    expect(scanLocalsForm(`struct X : public ContractBase { PUBLIC_FUNCTION(Q) { output.v = 1; } };`)).toEqual([]);
 });
 
 test("scanLocalsForm: real fixtures stay clean", () => {
@@ -197,18 +165,14 @@ const warnsOf = (s: string) =>
         .map((f) => f.code);
 
 test("valid QPI constructs never produce warn/error findings", () => {
-    expect(warnsOf("uint64 a = div(x, y); uint64 b = mod(x, y); uint64 c = smul(x, y);")).toEqual(
-        [],
-    );
+    expect(warnsOf("uint64 a = div(x, y); uint64 b = mod(x, y); uint64 c = smul(x, y);")).toEqual([]);
     expect(warnsOf("uint64 a = div<uint128>(x, y);")).toEqual([]);
     expect(warnsOf("v = arr.get(locals.i); arr.set(locals.i, v); m.contains(k);")).toEqual([]);
     expect(warnsOf("Status s = Status::Active; ProposalTypes::cls(x);")).toEqual([]);
     expect(warnsOf("using namespace QPI;")).toEqual([]);
     expect(warnsOf("uint64 p = a * b * c;")).toEqual([]);
     expect(warnsOf("CALL_OTHER_CONTRACT_FUNCTION(QX, Fees, locals.in, locals.out);")).toEqual([]);
-    expect(
-        warnsOf("INVOKE_OTHER_CONTRACT_PROCEDURE(QEARN, lock, locals.in, locals.out, locals.amt);"),
-    ).toEqual([]);
+    expect(warnsOf("INVOKE_OTHER_CONTRACT_PROCEDURE(QEARN, lock, locals.in, locals.out, locals.amt);")).toEqual([]);
     expect(warnsOf("LOG_INFO(locals.msg);")).toEqual([]);
     expect(warnsOf('STATIC_ASSERT(A == B, "A == B");')).toEqual([]);
     expect(warnsOf('static_assert(sizeof(X) <= 1024, "too big");')).toEqual([]);
@@ -216,14 +180,9 @@ test("valid QPI constructs never produce warn/error findings", () => {
 });
 
 test("for-loop over a locals member is fine; a raw for-init local is flagged", () => {
-    const proc = (b: string) =>
-        `struct X : public ContractBase { PUBLIC_PROCEDURE_WITH_LOCALS(Do) { ${b} } };`;
-    expect(
-        scanLocals(proc("for (locals.i = 0; locals.i < N; ++locals.i) { locals.s += locals.i; }")),
-    ).toEqual([]);
-    expect(scanLocals(proc("for (uint64 i = 0; i < N; ++i) { }")).map((f) => f.code)).toEqual([
-        "qpi/stack-local",
-    ]);
+    const proc = (b: string) => `struct X : public ContractBase { PUBLIC_PROCEDURE_WITH_LOCALS(Do) { ${b} } };`;
+    expect(scanLocals(proc("for (locals.i = 0; locals.i < N; ++locals.i) { locals.s += locals.i; }"))).toEqual([]);
+    expect(scanLocals(proc("for (uint64 i = 0; i < N; ++i) { }")).map((f) => f.code)).toEqual(["qpi/stack-local"]);
 });
 
 test("lifecycle hooks: stack-local detection + the _WITH_LOCALS hint both cover them", () => {
@@ -232,9 +191,7 @@ test("lifecycle hooks: stack-local detection + the _WITH_LOCALS hint both cover 
     const plain = `struct X : public ContractBase { struct INITIALIZE_locals { uint64 t; }; INITIALIZE() { locals.t = 0; } };`;
     expect(scanLocalsForm(plain).map((f) => f.code)).toEqual(["qpi/needs-with-locals"]);
     expect(scanLocalsForm(plain)[0].message).toContain("INITIALIZE_WITH_LOCALS()");
-    expect(
-        scanLocalsForm(
-            `struct X : public ContractBase { struct BEGIN_EPOCH_locals { uint64 t; }; BEGIN_EPOCH_WITH_LOCALS() { locals.t = 1; } };`,
-        ),
-    ).toEqual([]);
+    expect(scanLocalsForm(`struct X : public ContractBase { struct BEGIN_EPOCH_locals { uint64 t; }; BEGIN_EPOCH_WITH_LOCALS() { locals.t = 1; } };`)).toEqual(
+        [],
+    );
 });

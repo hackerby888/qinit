@@ -2,12 +2,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import {
-    ASSET_ENUMERATION_RECORD,
-    CORE_WASM_HEADERS,
-    LHOST_ABI,
-    loadWasmAbiSource,
-} from "@qinit/core";
+import { ASSET_ENUMERATION_RECORD, CORE_WASM_HEADERS, LHOST_ABI, loadWasmAbiSource } from "@qinit/core";
 import { emitModule } from "../../src/backend/wasm/framework";
 import { inspectWasmModule, toWasmFunctionSignatures } from "../../src/driver/wasm-inspect";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
@@ -28,11 +23,7 @@ describe("shared lhost ABI", () => {
                 },
             ]),
         );
-        expect(
-            Object.fromEntries(
-                rows.map(({ name, params, results }) => [name, { params, results }]),
-            ),
-        ).toEqual(manifest);
+        expect(Object.fromEntries(rows.map(({ name, params, results }) => [name, { params, results }]))).toEqual(manifest);
     });
 
     test("framework imports cover the manifest exactly", async () => {
@@ -50,34 +41,27 @@ describe("shared lhost ABI", () => {
         const parsed = api.parseWat("lhost-abi.test.wat", wat);
         try {
             const wasm = new Uint8Array(parsed.toBinary({}).buffer);
-            const imports = inspectWasmModule(wasm).imports.filter(
-                (entry) => entry.module === "lhost",
-            );
+            const imports = inspectWasmModule(wasm).imports.filter((entry) => entry.module === "lhost");
             expect(imports.map((entry) => entry.name)).toEqual(Object.keys(LHOST_ABI));
-            expect(
-                Object.fromEntries(imports.map((entry) => [entry.name, entry.signature])),
-            ).toEqual(toWasmFunctionSignatures(LHOST_ABI));
+            expect(Object.fromEntries(imports.map((entry) => [entry.name, entry.signature]))).toEqual(toWasmFunctionSignatures(LHOST_ABI));
         } finally {
             parsed.destroy();
         }
     });
 
-    test.if(existsSync(metadataHeader))(
-        "asset enumeration layout comes from core-lite's named exchange record",
-        () => {
-            const source = loadWasmAbiSource(CORE).records.AssetEntry;
-            expect(source.size).toBe(ASSET_ENUMERATION_RECORD.size);
-            expect(source.capacity).toBe(ASSET_ENUMERATION_RECORD.capacity);
-            expect(ASSET_ENUMERATION_RECORD).toMatchObject({
-                size: 80,
-                fields: {
-                    owner: { offset: 0, size: 32 },
-                    possessor: { offset: 32, size: 32 },
-                    shares: { offset: 64, size: 8 },
-                    ownershipManagingContract: { offset: 72, size: 2 },
-                    possessionManagingContract: { offset: 74, size: 2 },
-                },
-            });
-        },
-    );
+    test.if(existsSync(metadataHeader))("asset enumeration layout comes from core-lite's named exchange record", () => {
+        const source = loadWasmAbiSource(CORE).records.AssetEntry;
+        expect(source.size).toBe(ASSET_ENUMERATION_RECORD.size);
+        expect(source.capacity).toBe(ASSET_ENUMERATION_RECORD.capacity);
+        expect(ASSET_ENUMERATION_RECORD).toMatchObject({
+            size: 80,
+            fields: {
+                owner: { offset: 0, size: 32 },
+                possessor: { offset: 32, size: 32 },
+                shares: { offset: 64, size: 8 },
+                ownershipManagingContract: { offset: 72, size: 2 },
+                possessionManagingContract: { offset: 74, size: 2 },
+            },
+        });
+    });
 });

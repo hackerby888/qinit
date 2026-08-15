@@ -1,12 +1,4 @@
-import {
-    openSync,
-    closeSync,
-    mkdirSync,
-    rmSync,
-    existsSync,
-    writeFileSync,
-    readFileSync,
-} from "node:fs";
+import { openSync, closeSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import {
@@ -121,10 +113,7 @@ export function nodeAlive(scratch = activeNodeScratchDir()): boolean {
     return Bun.spawnSync(["pgrep", "-x", "Qubic"]).exitCode === 0;
 }
 
-export function nodeAssetForPlatform(
-    manifest: Manifest,
-    platform = releasePlatformKey(),
-): AssetRef | undefined {
+export function nodeAssetForPlatform(manifest: Manifest, platform = releasePlatformKey()): AssetRef | undefined {
     const platformAsset = manifest.nodes?.[platform];
     if (platformAsset) {
         return platformAsset;
@@ -142,9 +131,7 @@ export async function fetchNodeBinary(
     const platform = releasePlatformKey();
     const asset = nodeAssetForPlatform(manifest, platform);
     if (!asset) {
-        throw new Error(
-            `manifest ${manifest.version} has no node asset for ${platform} (publish via CI first)`,
-        );
+        throw new Error(`manifest ${manifest.version} has no node asset for ${platform} (publish via CI first)`);
     }
 
     const dir = join(cacheRoot(), manifest.version, "node");
@@ -191,15 +178,11 @@ export async function ensureNodeBinary(
 
         if (current?.coreHeaders && existsSync(current.coreHeaders)) {
             if (current.headersVersion === "local") {
-                throw new Error(
-                    "local headers have no matching managed node — pass --node-bin or select a release with --ref",
-                );
+                throw new Error("local headers have no matching managed node — pass --node-bin or select a release with --ref");
             }
             const headersRef = cachedReleaseRef(current.headersVersion);
             if (!headersRef) {
-                throw new Error(
-                    "installed headers do not identify a release — run `qinit setup --force` or pass --ref",
-                );
+                throw new Error("installed headers do not identify a release — run `qinit setup --force` or pass --ref");
             }
             ref = headersRef;
         }
@@ -228,14 +211,7 @@ export function launchNode(options: LaunchOptions): { pid: number; scratch: stri
 
     const log = join(scratch, "node.log");
     const logFd = openSync(log, "a");
-    const args = [
-        "--peers",
-        options.peers || LOOPBACK_HOST,
-        "--node-mode",
-        options.nodeMode || "3",
-        "--ticking-delay",
-        "1000",
-    ];
+    const args = ["--peers", options.peers || LOOPBACK_HOST, "--node-mode", options.nodeMode || "3", "--ticking-delay", "1000"];
     const child = spawn(options.nodeBinary, args, {
         cwd: scratch,
         stdio: ["ignore", logFd, logFd],
@@ -298,9 +274,7 @@ export function launchSimulatorNode(options: {
         stdio: ["ignore", logFd, logFd],
         detached: true,
         windowsHide: true,
-        env: options.coreDirectory
-            ? { ...process.env, QINIT_CORE: options.coreDirectory }
-            : process.env,
+        env: options.coreDirectory ? { ...process.env, QINIT_CORE: options.coreDirectory } : process.env,
     });
 
     child.unref();
@@ -352,9 +326,7 @@ export async function waitTicking(
 export async function nodeContracts(rpcBaseUrl: string): Promise<string[]> {
     try {
         const registry = await new LiteRpc(rpcBaseUrl).dynRegistry();
-        return (registry.contracts ?? [])
-            .filter((contract) => contract.armed)
-            .map((contract) => `${contract.name || contract.index}@${contract.index}`);
+        return (registry.contracts ?? []).filter((contract) => contract.armed).map((contract) => `${contract.name || contract.index}@${contract.index}`);
     } catch (error) {
         debug("nodeContracts: dyn-registry read failed", error);
         return [];
@@ -379,9 +351,7 @@ export async function nodeStatus(rpcBaseUrl: string): Promise<NodeStatus> {
         const secondTickInfo = await rpc.tickInfo();
         const firstTick = firstTickInfo.tick;
         const secondTick = secondTickInfo.tick;
-        const registry = await rpc
-            .dynRegistry()
-            .catch(() => ({ contracts: [], slotBase: 0, slotCount: 0 }));
+        const registry = await rpc.dynRegistry().catch(() => ({ contracts: [], slotBase: 0, slotCount: 0 }));
         const armedContracts = (registry.contracts ?? []).filter((contract) => contract.armed);
 
         return {
@@ -391,12 +361,7 @@ export async function nodeStatus(rpcBaseUrl: string): Promise<NodeStatus> {
             epoch: secondTickInfo.epoch ?? 0,
             armed: armedContracts.length,
             slotCount: registry.slotCount ?? 0,
-            contracts: armedContracts.map(
-                (contract: any) =>
-                    `${contract.name || contract.index}@${contract.index}${
-                        contract.constructed ? "" : " (armed)"
-                    }`,
-            ),
+            contracts: armedContracts.map((contract: any) => `${contract.name || contract.index}@${contract.index}${contract.constructed ? "" : " (armed)"}`),
         };
     } catch (error) {
         debug("nodeStatus: rpc read failed", error);

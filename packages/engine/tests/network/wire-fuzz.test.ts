@@ -68,19 +68,7 @@ interface SubClass {
     wrap(buf: Uint8Array, off?: number): { bytes: Uint8Array };
 }
 
-type Kind =
-    | "u8"
-    | "u16"
-    | "u24"
-    | "u32"
-    | "i16"
-    | "i32"
-    | "i64"
-    | "u64"
-    | "m256"
-    | { blob: number }
-    | { arr: "m256" | "i64"; n: number }
-    | { sub: SubClass };
+type Kind = "u8" | "u16" | "u24" | "u32" | "i16" | "i32" | "i64" | "u64" | "m256" | { blob: number } | { arr: "m256" | "i64"; n: number } | { sub: SubClass };
 
 function sizeOf(k: Kind): number {
     if (typeof k === "string") {
@@ -141,12 +129,7 @@ function sampleIndices(n: number, r: () => number): number[] {
 }
 
 // Write a random value into `view[name]` and return a checker that asserts a re-wrapped view reads it back.
-function fuzzField(
-    view: Record<string, unknown>,
-    name: string,
-    k: Kind,
-    r: () => number,
-): (v2: Record<string, unknown>) => void {
+function fuzzField(view: Record<string, unknown>, name: string, k: Kind, r: () => number): (v2: Record<string, unknown>) => void {
     if (k === "u8" || k === "u16" || k === "u24" || k === "u32") {
         const span = { u8: 0x100, u16: 0x10000, u24: 0x1000000, u32: 0x100000000 }[k];
         const x = Math.floor(r() * span);

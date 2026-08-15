@@ -1,12 +1,4 @@
-import {
-    copyFileSync,
-    existsSync,
-    mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -61,11 +53,7 @@ const parsed = values as Record<string, string | undefined>;
 const qinitRoot = resolve(import.meta.dir, "../..");
 const core = resolve(required(parsed, "core-dir"));
 const nodeBinaryPath = resolve(required(parsed, "node-bin"));
-const qinitBin = resolve(
-    parsed["qinit-bin"] ??
-        process.env.QINIT_BIN ??
-        join(qinitRoot, "dist", process.platform === "win32" ? "qinit.exe" : "qinit"),
-);
+const qinitBin = resolve(parsed["qinit-bin"] ?? process.env.QINIT_BIN ?? join(qinitRoot, "dist", process.platform === "win32" ? "qinit.exe" : "qinit"));
 const platform = required(parsed, "platform");
 const resultPath = resolve(required(parsed, "result"));
 const qinitRepository = parsed["qinit-repository"] ?? repositories.qinit.repository;
@@ -78,9 +66,7 @@ if (!existsSync(qinitBin)) {
     throw new Error(`qinit binary not found: ${qinitBin}`);
 }
 
-const qinitCommit = (
-    await run(["git", "-C", qinitRoot, "rev-parse", "HEAD"], { capture: true })
-).trim();
+const qinitCommit = (await run(["git", "-C", qinitRoot, "rev-parse", "HEAD"], { capture: true })).trim();
 const coreCommit = (await run(["git", "-C", core, "rev-parse", "HEAD"], { capture: true })).trim();
 const scratch = mkdtempSync(join(tmpdir(), "qinit-core-smoke-"));
 const qpiDigestPath = join(scratch, "qpi-digests.txt");
@@ -108,31 +94,14 @@ async function stopNode(): Promise<void> {
 try {
     await run([qinitBin, "smoke", "--plain"], { cwd: scratch });
     await run(
-        [
-            qinitBin,
-            "node",
-            "run",
-            "--runtime",
-            "core",
-            "--core-dir",
-            core,
-            "--node-bin",
-            nodeBinaryPath,
-            "--restart",
-            "--keep",
-            "--wait",
-            "150",
-            "--plain",
-        ],
+        [qinitBin, "node", "run", "--runtime", "core", "--core-dir", core, "--node-bin", nodeBinaryPath, "--restart", "--keep", "--wait", "150", "--plain"],
         { cwd: scratch },
     );
 
     const identityResponse = await fetch(`${DEFAULT_RPC_BASE}/live/v1/whoami`);
     const identity = (await identityResponse.json()) as { backend?: string };
     if (!identityResponse.ok || identity.backend !== "core") {
-        throw new Error(
-            `expected core backend identity, got ${identityResponse.status} ${JSON.stringify(identity)}`,
-        );
+        throw new Error(`expected core backend identity, got ${identityResponse.status} ${JSON.stringify(identity)}`);
     }
 
     await run([qinitBin, "doctor", "--plain"], { cwd: scratch });
@@ -144,30 +113,12 @@ try {
         },
     });
 
-    await run(
-        [
-            qinitBin,
-            "node",
-            "run",
-            "--runtime",
-            "core",
-            "--core-dir",
-            core,
-            "--node-bin",
-            nodeBinaryPath,
-            "--restart",
-            "--wait",
-            "150",
-            "--plain",
-        ],
-        { cwd: scratch },
-    );
+    await run([qinitBin, "node", "run", "--runtime", "core", "--core-dir", core, "--node-bin", nodeBinaryPath, "--restart", "--wait", "150", "--plain"], {
+        cwd: scratch,
+    });
 
     mkdirSync(join(project, "contracts"), { recursive: true });
-    copyFileSync(
-        join(qinitRoot, "fixtures", "DigestProbe.h"),
-        join(project, "contracts", "DigestProbe.h"),
-    );
+    copyFileSync(join(qinitRoot, "fixtures", "DigestProbe.h"), join(project, "contracts", "DigestProbe.h"));
     await run(
         [
             qinitBin,

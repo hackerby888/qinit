@@ -26,10 +26,7 @@ export interface ContractRegistration {
     line: number;
     notification: boolean; // oracle-reply callback: dispatched by the node, not invoked by users
 }
-export function evalRegistrationConstant(
-    expression: Expression | undefined,
-    programAnalysis: ProgramAnalysis,
-): bigint | null {
+export function evalRegistrationConstant(expression: Expression | undefined, programAnalysis: ProgramAnalysis): bigint | null {
     if (!expression) return null;
 
     const resolving = new Set<string>();
@@ -65,15 +62,10 @@ export function lexRegistrationLiteral(value: string): bigint {
     if (/^0[0-7]+$/.test(cleaned)) return BigInt(`0o${cleaned.slice(1)}`);
     return BigInt(cleaned);
 }
-export function extractRegistrations(
-    contract: StructDecl,
-    programAnalysis: ProgramAnalysis,
-): ContractRegistration[] {
+export function extractRegistrations(contract: StructDecl, programAnalysis: ProgramAnalysis): ContractRegistration[] {
     const regs: ContractRegistration[] = [];
     const regFn = contract.members.find(
-        (member) =>
-            member.kind === AstKind.FUNCTION &&
-            (member as FunctionDecl).name === "__registerUserFunctionsAndProcedures",
+        (member) => member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === "__registerUserFunctionsAndProcedures",
     ) as FunctionDecl | undefined;
     if (!regFn?.body || regFn.body.kind !== AstKind.COMPOUND) return regs;
     for (const statement of regFn.body.body) {
@@ -89,8 +81,7 @@ export function extractRegistrations(
         // args: (void*)fnName, inputType, sizeof(...), ...
         const fnArg = expression.callArguments[0];
         let fnName = "";
-        if (fnArg?.kind === AstKind.C_CAST && fnArg.expression.kind === AstKind.IDENTIFIER)
-            fnName = fnArg.expression.name;
+        if (fnArg?.kind === AstKind.C_CAST && fnArg.expression.kind === AstKind.IDENTIFIER) fnName = fnArg.expression.name;
         else if (fnArg?.kind === AstKind.IDENTIFIER) fnName = fnArg.name;
         const itArg = expression.callArguments[1];
         const evaluated = evalRegistrationConstant(itArg, programAnalysis);
@@ -114,25 +105,16 @@ export function extractRegistrations(
     return regs;
 }
 
-export function validateContractRegistrations(
-    contract: StructDecl,
-    programAnalysis: ProgramAnalysis,
-): ContractRegistration[] {
+export function validateContractRegistrations(contract: StructDecl, programAnalysis: ProgramAnalysis): ContractRegistration[] {
     const extracted = extractRegistrations(contract, programAnalysis);
 
     for (const registration of extracted) {
         if (!registration.constant) {
-            programAnalysis.error(
-                `registration input type for '${registration.fnName}' must be an integral constant expression`,
-                registration.line,
-            );
+            programAnalysis.error(`registration input type for '${registration.fnName}' must be an integral constant expression`, registration.line);
             continue;
         }
 
-        if (
-            registration.inputType < MIN_USER_INPUT_TYPE ||
-            registration.inputType > MAX_USER_INPUT_TYPE
-        ) {
+        if (registration.inputType < MIN_USER_INPUT_TYPE || registration.inputType > MAX_USER_INPUT_TYPE) {
             programAnalysis.error(
                 `registration input type for '${registration.fnName}' must be in the range ${MIN_USER_INPUT_TYPE}..${MAX_USER_INPUT_TYPE}`,
                 registration.line,
@@ -141,11 +123,7 @@ export function validateContractRegistrations(
     }
 
     const valid = extracted.filter((registration) => {
-        return (
-            registration.constant &&
-            registration.inputType >= MIN_USER_INPUT_TYPE &&
-            registration.inputType <= MAX_USER_INPUT_TYPE
-        );
+        return registration.constant && registration.inputType >= MIN_USER_INPUT_TYPE && registration.inputType <= MAX_USER_INPUT_TYPE;
     });
 
     validateUniqueRegistrationKeys(valid, programAnalysis);
@@ -174,11 +152,7 @@ export function validateRegistrationInterfaces(
     }
 }
 
-export function registerEntryDispatchTargets(
-    registrations: ContractRegistration[],
-    programAnalysis: ProgramAnalysis,
-    layouts: ContractLayoutResolver,
-): void {
+export function registerEntryDispatchTargets(registrations: ContractRegistration[], programAnalysis: ProgramAnalysis, layouts: ContractLayoutResolver): void {
     for (const [index, registration] of registrations.entries()) {
         programAnalysis.registered.set(registration.fnName, {
             label: `$user_${index}`,
@@ -209,17 +183,7 @@ export function emitRegisteredEntries(
         const localsLayout = layouts.resolve(`${registration.fnName}_locals`);
         const label = `$user_${index}`;
 
-        functionWat.push(
-            emitFunction(
-                programAnalysis,
-                label,
-                declaration,
-                stateLayout,
-                inputLayout,
-                outputLayout,
-                localsLayout,
-            ),
-        );
+        functionWat.push(emitFunction(programAnalysis, label, declaration, stateLayout, inputLayout, outputLayout, localsLayout));
 
         entries.push({
             inputType: registration.inputType,
@@ -237,10 +201,7 @@ export function emitRegisteredEntries(
     };
 }
 
-function validateUniqueRegistrationKeys(
-    registrations: ContractRegistration[],
-    programAnalysis: ProgramAnalysis,
-): void {
+function validateUniqueRegistrationKeys(registrations: ContractRegistration[], programAnalysis: ProgramAnalysis): void {
     const registeredNames = new Map<string, string>();
 
     for (const registration of registrations) {
@@ -258,14 +219,8 @@ function validateUniqueRegistrationKeys(
     }
 }
 
-function validateRegistrationKind(
-    registration: ContractRegistration,
-    declaration: FunctionDecl,
-    programAnalysis: ProgramAnalysis,
-): void {
-    const contextType = programAnalysis.derefType(
-        declaration.params[0]?.type ?? { kind: AstKind.VOID },
-    );
+function validateRegistrationKind(registration: ContractRegistration, declaration: FunctionDecl, programAnalysis: ProgramAnalysis): void {
+    const contextType = programAnalysis.derefType(declaration.params[0]?.type ?? { kind: AstKind.VOID });
     const actualKind: UserEntryKind | undefined =
         contextType.kind === AstKind.NAME && contextType.name === "QpiContextFunctionCall"
             ? USER_FUNCTION_KIND
@@ -281,27 +236,17 @@ function validateRegistrationKind(
     }
 }
 
-function validateRegistrationLayouts(
-    registration: ContractRegistration,
-    programAnalysis: ProgramAnalysis,
-    layouts: ContractLayoutResolver,
-): void {
+function validateRegistrationLayouts(registration: ContractRegistration, programAnalysis: ProgramAnalysis, layouts: ContractLayoutResolver): void {
     const inputName = `${registration.fnName}_input`;
     const outputName = `${registration.fnName}_output`;
     const localsName = `${registration.fnName}_locals`;
 
     if (!layouts.hasType(inputName)) {
-        programAnalysis.error(
-            `entry '${registration.fnName}' is missing required type '${inputName}'`,
-            registration.line,
-        );
+        programAnalysis.error(`entry '${registration.fnName}' is missing required type '${inputName}'`, registration.line);
     }
 
     if (!layouts.hasType(outputName)) {
-        programAnalysis.error(
-            `entry '${registration.fnName}' is missing required type '${outputName}'`,
-            registration.line,
-        );
+        programAnalysis.error(`entry '${registration.fnName}' is missing required type '${outputName}'`, registration.line);
     }
 
     const inputSize = layouts.resolve(inputName).size;
@@ -309,24 +254,15 @@ function validateRegistrationLayouts(
     const localsSize = layouts.resolve(localsName).size;
 
     if (registration.kind === USER_PROCEDURE_KIND && inputSize > MAX_PROCEDURE_INPUT_SIZE_BYTES) {
-        programAnalysis.error(
-            `${inputName} exceeds MAX_INPUT_SIZE (${MAX_PROCEDURE_INPUT_SIZE_BYTES} bytes)`,
-            registration.line,
-        );
+        programAnalysis.error(`${inputName} exceeds MAX_INPUT_SIZE (${MAX_PROCEDURE_INPUT_SIZE_BYTES} bytes)`, registration.line);
     }
 
     if (outputSize > MAX_ENTRY_OUTPUT_SIZE_BYTES) {
-        programAnalysis.error(
-            `${outputName} is too large; maximum output size is ${MAX_ENTRY_OUTPUT_SIZE_BYTES} bytes`,
-            registration.line,
-        );
+        programAnalysis.error(`${outputName} is too large; maximum output size is ${MAX_ENTRY_OUTPUT_SIZE_BYTES} bytes`, registration.line);
     }
 
     if (localsSize > MAX_ENTRY_LOCALS_SIZE_BYTES) {
-        programAnalysis.error(
-            `${localsName} exceeds MAX_SIZE_OF_CONTRACT_LOCALS (${MAX_ENTRY_LOCALS_SIZE_BYTES} bytes)`,
-            registration.line,
-        );
+        programAnalysis.error(`${localsName} exceeds MAX_SIZE_OF_CONTRACT_LOCALS (${MAX_ENTRY_LOCALS_SIZE_BYTES} bytes)`, registration.line);
     }
 }
 

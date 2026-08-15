@@ -58,52 +58,29 @@ export class QpiCollectionView {
     }
 
     async entries(): Promise<QpiCollectionEntry[]> {
-        const population = populationOf(
-            await readUint64(this.source, this.geometry.populationOffset),
-            this.capacity,
-        );
+        const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
         if (!population) {
             return [];
         }
 
-        const flags = await readQpiBytes(
-            this.source,
-            this.geometry.flagsOffset,
-            this.geometry.flagsBytes,
-        );
+        const flags = await readQpiBytes(this.source, this.geometry.flagsOffset, this.geometry.flagsBytes);
         const povSlots = occupiedSlots(flags, this.capacity);
         if (!povSlots.length || povSlots.length > population) {
-            throw new QpiContainerConsistencyError(
-                "Collection population does not match its active PoVs",
-            );
+            throw new QpiContainerConsistencyError("Collection population does not match its active PoVs");
         }
 
         const povs = await this.readPovs(povSlots, population);
         if (povs.reduce((sum, pov) => sum + pov.population, 0) !== population) {
-            throw new QpiContainerConsistencyError(
-                "Collection population does not match its PoV populations",
-            );
+            throw new QpiContainerConsistencyError("Collection population does not match its PoV populations");
         }
 
-        const elementBytes = await readQpiBytes(
-            this.source,
-            this.geometry.elementsOffset,
-            population * this.geometry.elementStride,
-        );
-        const elements = Array.from({ length: population }, (_, index) =>
-            this.elementAt(elementBytes, index),
-        );
+        const elementBytes = await readQpiBytes(this.source, this.geometry.elementsOffset, population * this.geometry.elementStride);
+        const elements = Array.from({ length: population }, (_, index) => this.elementAt(elementBytes, index));
         const activePovSlots = new Set(povSlots);
         for (let index = 0; index < elements.length; index++) {
             const povSlot = elements[index].povSlot;
-            if (
-                povSlot < 0n ||
-                povSlot >= BigInt(this.capacity) ||
-                !activePovSlots.has(Number(povSlot))
-            ) {
-                throw new QpiContainerConsistencyError(
-                    `Collection element ${index} has invalid PoV ${povSlot}`,
-                );
+            if (povSlot < 0n || povSlot >= BigInt(this.capacity) || !activePovSlots.has(Number(povSlot))) {
+                throw new QpiContainerConsistencyError(`Collection element ${index} has invalid PoV ${povSlot}`);
             }
         }
 
@@ -119,10 +96,7 @@ export class QpiCollectionView {
                     pov: pov.value,
                     priority: elements[elementIndex].priority,
                     value: await decodeAbiValue(
-                        elementBytes.slice(
-                            offset + this.geometry.elementValueOffset,
-                            offset + this.geometry.elementValueOffset + this.type.value.size,
-                        ),
+                        elementBytes.slice(offset + this.geometry.elementValueOffset, offset + this.geometry.elementValueOffset + this.type.value.size),
                         this.type.value,
                     ),
                 });
@@ -130,9 +104,7 @@ export class QpiCollectionView {
         }
 
         if (seen.size !== population) {
-            throw new QpiContainerConsistencyError(
-                `Collection has ${seen.size} reachable elements, expected ${population}`,
-            );
+            throw new QpiContainerConsistencyError(`Collection has ${seen.size} reachable elements, expected ${population}`);
         }
         return entries;
     }
@@ -141,29 +113,17 @@ export class QpiCollectionView {
         const povs: CollectionPov[] = [];
         for (const range of occupiedRanges(slots)) {
             const count = range.end - range.start + 1;
-            const bytes = await readQpiBytes(
-                this.source,
-                this.geometry.povsOffset + range.start * this.geometry.povStride,
-                count * this.geometry.povStride,
-            );
+            const bytes = await readQpiBytes(this.source, this.geometry.povsOffset + range.start * this.geometry.povStride, count * this.geometry.povStride);
             for (let index = 0; index < count; index++) {
                 const offset = index * this.geometry.povStride;
-                const population = populationOf(
-                    uint64At(bytes, offset + this.geometry.povPopulationOffset),
-                    totalPopulation,
-                );
+                const population = populationOf(uint64At(bytes, offset + this.geometry.povPopulationOffset), totalPopulation);
                 if (!population) {
-                    throw new QpiContainerConsistencyError(
-                        `Collection PoV ${range.start + index} is active but empty`,
-                    );
+                    throw new QpiContainerConsistencyError(`Collection PoV ${range.start + index} is active but empty`);
                 }
                 povs.push({
                     slot: range.start + index,
                     value: await decodeAbiValue(
-                        bytes.slice(
-                            offset + this.geometry.povValueOffset,
-                            offset + this.geometry.povValueOffset + POV_TYPE.size,
-                        ),
+                        bytes.slice(offset + this.geometry.povValueOffset, offset + this.geometry.povValueOffset + POV_TYPE.size),
                         POV_TYPE,
                     ),
                     population,
@@ -187,12 +147,7 @@ export class QpiCollectionView {
         };
     }
 
-    private walkPov(
-        pov: CollectionPov,
-        elements: CollectionElement[],
-        seen: Set<number>,
-        population: number,
-    ): number[] {
+    private walkPov(pov: CollectionPov, elements: CollectionElement[], seen: Set<number>, population: number): number[] {
         const root = elementIndex(pov.root, population, "root");
         const head = elementIndex(pov.head, population, "head");
         const tail = elementIndex(pov.tail, population, "tail");
@@ -210,20 +165,14 @@ export class QpiCollectionView {
                 continue;
             }
             if (seen.has(frame.index)) {
-                throw new QpiContainerConsistencyError(
-                    `Collection element ${frame.index} is repeated or cyclic`,
-                );
+                throw new QpiContainerConsistencyError(`Collection element ${frame.index} is repeated or cyclic`);
             }
             const element = elements[frame.index];
             if (element.povSlot !== BigInt(pov.slot)) {
-                throw new QpiContainerConsistencyError(
-                    `Collection element ${frame.index} belongs to PoV ${element.povSlot}, expected ${pov.slot}`,
-                );
+                throw new QpiContainerConsistencyError(`Collection element ${frame.index} belongs to PoV ${element.povSlot}, expected ${pov.slot}`);
             }
             if (element.parent !== frame.parent) {
-                throw new QpiContainerConsistencyError(
-                    `Collection element ${frame.index} has parent ${element.parent}, expected ${frame.parent}`,
-                );
+                throw new QpiContainerConsistencyError(`Collection element ${frame.index} has parent ${element.parent}, expected ${frame.parent}`);
             }
             seen.add(frame.index);
 
@@ -239,14 +188,10 @@ export class QpiCollectionView {
         }
 
         if (ordered.length !== pov.population) {
-            throw new QpiContainerConsistencyError(
-                `Collection PoV ${pov.slot} has ${ordered.length} elements, expected ${pov.population}`,
-            );
+            throw new QpiContainerConsistencyError(`Collection PoV ${pov.slot} has ${ordered.length} elements, expected ${pov.population}`);
         }
         if (ordered[0] !== head || ordered[ordered.length - 1] !== tail) {
-            throw new QpiContainerConsistencyError(
-                `Collection PoV ${pov.slot} has an invalid head or tail`,
-            );
+            throw new QpiContainerConsistencyError(`Collection PoV ${pov.slot} has an invalid head or tail`);
         }
         return ordered;
     }
@@ -267,9 +212,7 @@ function assertSource(source: QpiByteSource, size: number): void {
         throw new Error("Collection ABI has an invalid size");
     }
     if (!Number.isSafeInteger(source.byteLength) || source.byteLength < size) {
-        throw new QpiIncompleteReadError(
-            `Collection needs ${size} bytes, source has ${source.byteLength}`,
-        );
+        throw new QpiIncompleteReadError(`Collection needs ${size} bytes, source has ${source.byteLength}`);
     }
     if (!Number.isSafeInteger(source.maxReadLength) || source.maxReadLength <= 0) {
         throw new Error("QPI byte source has an invalid maxReadLength");
@@ -278,9 +221,7 @@ function assertSource(source: QpiByteSource, size: number): void {
 
 function populationOf(population: bigint, capacity: number): number {
     if (population > BigInt(capacity)) {
-        throw new QpiContainerConsistencyError(
-            `container population ${population} exceeds capacity ${capacity}`,
-        );
+        throw new QpiContainerConsistencyError(`container population ${population} exceeds capacity ${capacity}`);
     }
     return Number(population);
 }
@@ -314,9 +255,7 @@ function occupiedRanges(slots: number[]): Array<{ start: number; end: number }> 
 
 function elementIndex(value: bigint, population: number, label: string): number {
     if (value < 0n || value >= BigInt(population)) {
-        throw new QpiContainerConsistencyError(
-            `Collection has invalid ${label} element index ${value}`,
-        );
+        throw new QpiContainerConsistencyError(`Collection has invalid ${label} element index ${value}`);
     }
     return Number(value);
 }

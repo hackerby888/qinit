@@ -26,44 +26,33 @@ test("generateWasmWrapperSource defaults stateType to name (user contracts where
 });
 
 const CORE = CORE_PATH;
-test.skipIf(!existsSync(`${CORE}/src/contract_core/contract_def.h`))(
-    "system catalog records the struct type distinct from the ticker",
-    () => {
-        const cat = systemContracts(CORE);
-        const qtry = cat.find((c) => c.name === "QTRY");
-        expect(qtry).toBeTruthy();
-        expect(qtry!.stateType).toBe("QUOTTERY"); // ticker QTRY, struct QUOTTERY
-        expect(qtry!.idl.name).toBe("QTRY");
-        expect(qtry!.idl.slot).toBe(qtry!.index);
-        // contracts whose ticker == struct type still carry a matching stateType
-        const qx = cat.find((c) => c.name === "QX");
-        expect(qx?.stateType).toBe("QX");
-    },
-);
+test.skipIf(!existsSync(`${CORE}/src/contract_core/contract_def.h`))("system catalog records the struct type distinct from the ticker", () => {
+    const cat = systemContracts(CORE);
+    const qtry = cat.find((c) => c.name === "QTRY");
+    expect(qtry).toBeTruthy();
+    expect(qtry!.stateType).toBe("QUOTTERY"); // ticker QTRY, struct QUOTTERY
+    expect(qtry!.idl.name).toBe("QTRY");
+    expect(qtry!.idl.slot).toBe(qtry!.index);
+    // contracts whose ticker == struct type still carry a matching stateType
+    const qx = cat.find((c) => c.name === "QX");
+    expect(qx?.stateType).toBe("QX");
+});
 
-test.skipIf(!existsSync(`${CORE}/src/contracts/QUtil.h`))(
-    "system dependency closure follows canonical slot order",
-    () => {
-        expect(
-            systemContractClosure(CORE, "QUTIL").map((contract) => ({
-                name: contract.name,
-                index: contract.index,
-            })),
-        ).toEqual([
-            { name: "QX", index: 1 },
-            { name: "QUTIL", index: 4 },
-        ]);
-    },
-);
+test.skipIf(!existsSync(`${CORE}/src/contracts/QUtil.h`))("system dependency closure follows canonical slot order", () => {
+    expect(
+        systemContractClosure(CORE, "QUTIL").map((contract) => ({
+            name: contract.name,
+            index: contract.index,
+        })),
+    ).toEqual([
+        { name: "QX", index: 1 },
+        { name: "QUTIL", index: 4 },
+    ]);
+});
 
-test.skipIf(!existsSync(`${CORE}/src/contracts/MsVault.h`))(
-    "system dependency closure includes ABI-only references",
-    () => {
-        expect(systemContractClosure(CORE, "MSVAULT").map((contract) => contract.name)).toContain(
-            "QX",
-        );
-    },
-);
+test.skipIf(!existsSync(`${CORE}/src/contracts/MsVault.h`))("system dependency closure includes ABI-only references", () => {
+    expect(systemContractClosure(CORE, "MSVAULT").map((contract) => contract.name)).toContain("QX");
+});
 
 test.skipIf(!existsSync(`${CORE}/src/contracts/Quottery.h`))(
     "TypeScript system build uses the state type and keeps the ticker IDL",

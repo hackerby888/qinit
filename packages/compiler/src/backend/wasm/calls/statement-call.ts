@@ -7,10 +7,7 @@ import { tryEmitMemoryStatementCall } from "./memory-statement-call";
 import { tryEmitPlatformStatementCall } from "./platform-statement-call";
 import { tryEmitTestHarnessCall } from "../gtest/harness-call";
 
-export function emitCallStatement(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-): void {
+export function emitCallStatement(context: FunctionEmissionContext, expression: CallExpression): void {
     if (tryEmitTestHarnessCall(context, expression)) {
         return;
     }
@@ -36,16 +33,10 @@ export function emitCallStatement(
     }
 
     context.lowering.emitQpiCall(context, expression);
-    context.programAnalysis.warn(
-        `unsupported call statement [${describeShape(expression)}]`,
-        expression.span.line,
-    );
+    context.programAnalysis.warn(`unsupported call statement [${describeShape(expression)}]`, expression.span.line);
 }
 
-function tryEmitExistingSpecializedCall(
-    context: FunctionEmissionContext,
-    expression: CallExpression,
-): boolean {
+function tryEmitExistingSpecializedCall(context: FunctionEmissionContext, expression: CallExpression): boolean {
     const emittedThisCall = context.lowering.emitThisCall(context, expression, false);
     if (emittedThisCall !== null) {
         return true;

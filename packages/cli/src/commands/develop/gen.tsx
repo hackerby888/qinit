@@ -10,10 +10,7 @@ import { Header, Panel, KV, theme } from "../../ui";
 import type { CommandArguments } from "../../args";
 import { parseContractSlot } from "../../contracts/registry";
 
-type State =
-    | { ok: true; file: string; name: string; slot: number; fns: number; procs: number }
-    | { ok: false; err: string }
-    | null;
+type State = { ok: true; file: string; name: string; slot: number; fns: number; procs: number } | { ok: false; err: string } | null;
 
 export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
@@ -22,21 +19,11 @@ export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
     useEffect(() => {
         try {
             const cfg = loadConfig();
-            const contractPath = resolve(
-                commandArgs.get("contract") ??
-                    commandArgs.positionals[0] ??
-                    cfg.contract ??
-                    "fixtures/Counter.h",
-            );
-            const name =
-                commandArgs.get("contract-name") ??
-                cfg.contractName ??
-                basename(contractPath).replace(/\.[^.]+$/, "");
+            const contractPath = resolve(commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract ?? "fixtures/Counter.h");
+            const name = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
             const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
             const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
-            const slot = parseContractSlot(
-                requestedSlot === undefined ? loadCoreWasmSlotLayout(core).slotBase : requestedSlot,
-            );
+            const slot = parseContractSlot(requestedSlot === undefined ? loadCoreWasmSlotLayout(core).slotBase : requestedSlot);
             const idl = extractIdl(readFileSync(contractPath, "utf8"), name, {
                 slot,
                 qpiHeader: loadQpiHeader(core),

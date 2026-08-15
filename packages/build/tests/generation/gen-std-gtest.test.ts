@@ -21,9 +21,7 @@ const output = genStdGtest(extractIdl(source, "Counter"), "Counter");
 
 test("gtest generator reads v3 entry arrays and input types", () => {
     expect(output).toContain("callFunction(Counter_CONTRACT_INDEX, 9, in, out);");
-    expect(output).toContain(
-        "invokeUserProcedure(Counter_CONTRACT_INDEX, 7, in, out, user, amount);",
-    );
+    expect(output).toContain("invokeUserProcedure(Counter_CONTRACT_INDEX, 7, in, out, user, amount);");
     expect(output).toContain("TEST(Counter, Read)");
     expect(output).toContain("TEST(Counter, Write)");
 });

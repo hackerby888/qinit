@@ -112,9 +112,7 @@ describe("32-bit width fidelity vs native", () => {
                     qpiHeader: HEADERS,
                     arenaSizeBytes: 1 << 20,
                 });
-                expect(
-                    ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-                ).toHaveLength(0);
+                expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
                 expect(run(ours.wasm)).toBe(c.expect);
 
                 if (wasiOk) {

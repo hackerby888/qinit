@@ -13,24 +13,11 @@ const canListen = (() => {
 })();
 
 async function runState(port: number, target: string) {
-    const child = Bun.spawn(
-        [
-            process.execPath,
-            cli,
-            "state",
-            target,
-            "--digest",
-            "--json",
-            "--rpc",
-            `http://127.0.0.1:${port}`,
-        ],
-        { stdout: "pipe", stderr: "pipe" },
-    );
-    const [stdout, stderr] = await Promise.all([
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-        child.exited,
-    ]);
+    const child = Bun.spawn([process.execPath, cli, "state", target, "--digest", "--json", "--rpc", `http://127.0.0.1:${port}`], {
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { code: child.exitCode, stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
@@ -67,26 +54,23 @@ test.skipIf(!canListen)("state --digest --json emits the canonical success objec
     }
 });
 
-test.skipIf(!canListen)(
-    "state --digest --json emits an error object and exits nonzero on RPC failure",
-    async () => {
-        const server = Bun.serve({
-            port: 0,
-            fetch() {
-                return new Response("broken", { status: 503 });
-            },
-        });
+test.skipIf(!canListen)("state --digest --json emits an error object and exits nonzero on RPC failure", async () => {
+    const server = Bun.serve({
+        port: 0,
+        fetch() {
+            return new Response("broken", { status: 503 });
+        },
+    });
 
-        try {
-            const result = await runState(server.port!, "29");
-            expect(result.code).toBe(1);
-            expect(result.stderr).toBe("");
-            expect(JSON.parse(result.stdout)).toEqual({
-                ok: false,
-                error: "RPC GET /live/v1/dev/contract-digest?slot=29 → HTTP 503",
-            });
-        } finally {
-            server.stop(true);
-        }
-    },
-);
+    try {
+        const result = await runState(server.port!, "29");
+        expect(result.code).toBe(1);
+        expect(result.stderr).toBe("");
+        expect(JSON.parse(result.stdout)).toEqual({
+            ok: false,
+            error: "RPC GET /live/v1/dev/contract-digest?slot=29 → HTTP 503",
+        });
+    } finally {
+        server.stop(true);
+    }
+});

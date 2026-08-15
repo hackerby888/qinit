@@ -100,9 +100,7 @@ test("Price subscription uses whole-minute periods and charges once", async () =
     const sim = await deployProbe();
     const timestamps: bigint[] = [];
     sim.setOracleProvider((_interfaceIndex, query) => {
-        timestamps.push(
-            new DataView(query.buffer, query.byteOffset, query.byteLength).getBigUint64(32, true),
-        );
+        timestamps.push(new DataView(query.buffer, query.byteOffset, query.byteLength).getBigUint64(32, true));
         return priceReply(7n, 2n);
     });
 
@@ -137,9 +135,7 @@ test("unsubscribe stops future Price subscription queries", async () => {
     });
     const subscriptionId = readInt32LE(sim.procedure(SLOT, SUBSCRIBE, priceInput(60_000)));
 
-    expect(readInt32LE(sim.procedure(SLOT, UNSUBSCRIBE, subscriptionInput(subscriptionId)))).toBe(
-        1,
-    );
+    expect(readInt32LE(sim.procedure(SLOT, UNSUBSCRIBE, subscriptionInput(subscriptionId)))).toBe(1);
     sim.advance();
     sim.advance();
     sim.advance();

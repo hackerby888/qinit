@@ -1,13 +1,7 @@
 import { AstKind, QpiContextKind, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { getFunctionLoweringServices } from "./function-lowering-registry";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
-import {
-    FunctionEmissionContext,
-    StructLayout,
-    CompiledHelperMetadata,
-    TemplateBindings,
-    EMPTY_TEMPLATE_BINDINGS,
-} from "../types";
+import { FunctionEmissionContext, StructLayout, CompiledHelperMetadata, TemplateBindings, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, Statement, FunctionDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
 export function emitArrayInitializer(
@@ -30,20 +24,10 @@ export function emitArrayInitializer(
             context.programAnalysis.isAggregateType(type.element) &&
             (expression.kind === AstKind.INITIALIZER_LIST || expression.kind === AstKind.CONSTRUCT)
         ) {
-            const callArguments =
-                expression.kind === AstKind.INITIALIZER_LIST
-                    ? expression.expressions
-                    : expression.callArguments;
-            context.lowering.emitConstruct(
-                context,
-                watIr.serializeWatNode(dst),
-                type.element,
-                callArguments,
-            );
+            const callArguments = expression.kind === AstKind.INITIALIZER_LIST ? expression.expressions : expression.callArguments;
+            context.lowering.emitConstruct(context, watIr.serializeWatNode(dst), type.element, callArguments);
         } else {
-            context.lines.push(
-                `    ${watIr.serializeWatNode(watIr.storeScalar(dst, elemSize, context.lowering.lowerValueExpression(context, expression)))}`,
-            );
+            context.lines.push(`    ${watIr.serializeWatNode(watIr.storeScalar(dst, elemSize, context.lowering.lowerValueExpression(context, expression)))}`);
         }
     });
 }
@@ -116,9 +100,7 @@ export function emitFunction(
         context.lowering.emitStatement(context, fn.body);
     }
     // Build local decls AFTER emit so scratch temps created during lowering are included.
-    const localDecls = [...context.localVars.entries()].map(
-        ([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`,
-    );
+    const localDecls = [...context.localVars.entries()].map(([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`);
     return [header, ...localDecls, ...context.lines, "  )"].join("\n");
 }
 // Emit a helper with its own scalar and address parameters.
@@ -168,32 +150,23 @@ export function emitHelperFunction(
     // By-value aggregate params: bind the name to a private copy, so callee writes stay local (C++ value semantics).
     for (const parameterCandidate of info.params) {
         if (!parameterCandidate.byValAgg) continue;
-        const size = programAnalysis.sizeOfType(
-            parameterCandidate.type,
-            bind ?? EMPTY_TEMPLATE_BINDINGS,
-        );
+        const size = programAnalysis.sizeOfType(parameterCandidate.type, bind ?? EMPTY_TEMPLATE_BINDINGS);
         if (!(size > 0)) continue;
         let cp = `__qinit_bv_${parameterCandidate.name}`;
         while (context.localVars.has(cp) || context.params?.has(cp)) cp += "_";
         context.localVars.set(cp, { wasmType: WatNodeType.I32 });
-        context.lines.push(
-            `    ${context.lowering.setLocal(context, cp, watIr.functionCall("$qpiAllocLocals", watIr.i32Constant(size)))}`,
-        );
+        context.lines.push(`    ${context.lowering.setLocal(context, cp, watIr.functionCall("$qpiAllocLocals", watIr.i32Constant(size)))}`);
         context.lines.push(
             `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", watIr.localGet(cp, WatNodeType.I32), watIr.localGet(parameterCandidate.name, WatNodeType.I32), watIr.i32Constant(size)))}`,
         );
         context.params!.get(parameterCandidate.name)!.local = cp;
     }
     const retParam = info.retAgg ? "(param $__qinit_ret i32) " : "";
-    const paramDecls = info.params
-        .map((parameter) => `(param $${parameter.name} ${parameter.wasmType})`)
-        .join(" ");
+    const paramDecls = info.params.map((parameter) => `(param $${parameter.name} ${parameter.wasmType})`).join(" ");
     const result = info.retIsValue ? " (result i64)" : "";
     const header = `  (func ${info.label} ${retParam}${paramDecls}${result}`.replace(/\s+\)/, ")");
     if (fn.body) context.lowering.emitStatement(context, fn.body);
-    const localDecls = [...context.localVars.entries()].map(
-        ([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`,
-    );
+    const localDecls = [...context.localVars.entries()].map(([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`);
     // A value helper needs a fallthrough result for control paths that do not hit a return.
     const tail = info.retIsValue ? ["    (i64.const 0)"] : [];
     return [header, ...localDecls, ...context.lines, ...tail, "  )"].join("\n");

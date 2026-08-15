@@ -29,9 +29,7 @@ export class SpectrumLedger {
             return -1;
         }
 
-        let index =
-            ((id[0] ?? 0) | ((id[1] ?? 0) << 8) | ((id[2] ?? 0) << 16) | ((id[3] ?? 0) << 24)) &
-            SPECTRUM_INDEX_MASK;
+        let index = ((id[0] ?? 0) | ((id[1] ?? 0) << 8) | ((id[2] ?? 0) << 16) | ((id[3] ?? 0) << 24)) & SPECTRUM_INDEX_MASK;
         const initialIndex = index;
 
         do {

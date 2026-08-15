@@ -1,10 +1,4 @@
-import {
-    AstKind,
-    BinaryOp,
-    DiagnosticCategory,
-    DiagnosticSeverity,
-    UnaryOp,
-} from "../../src/shared/enums";
+import { AstKind, BinaryOp, DiagnosticCategory, DiagnosticSeverity, UnaryOp } from "../../src/shared/enums";
 // Tests the diagnostics channel's scope-free constexpr evaluator.
 import { describe, test, expect } from "bun:test";
 import { SemanticAnalyzer } from "../../src/analysis/semantic-analysis";
@@ -16,29 +10,20 @@ const NO_SPAN: Span = { start: 0, end: 0, line: 1, column: 1 };
 
 const n = (name: string): TypeSpec => ({ kind: AstKind.NAME, name, span: NO_SPAN }) as TypeSpec;
 
-const iLit = (value: string): Expression =>
-    ({ kind: AstKind.INT_LITERAL, value, span: NO_SPAN }) as Expression;
-const bLit = (value: boolean): Expression =>
-    ({ kind: AstKind.BOOL_LITERAL, value, span: NO_SPAN }) as Expression;
-const cLit = (value: number): Expression =>
-    ({ kind: AstKind.CHAR_LITERAL, value, span: NO_SPAN }) as Expression;
-const ident = (name: string): Expression =>
-    ({ kind: AstKind.IDENTIFIER, name, span: NO_SPAN }) as Expression;
-const par = (expression: Expression): Expression =>
-    ({ kind: AstKind.PAREN, expression, span: NO_SPAN }) as Expression;
-const un = (operator: UnaryOp, argument: Expression): Expression =>
-    ({ kind: AstKind.UNARY_OP, operator, argument, span: NO_SPAN }) as Expression;
+const iLit = (value: string): Expression => ({ kind: AstKind.INT_LITERAL, value, span: NO_SPAN }) as Expression;
+const bLit = (value: boolean): Expression => ({ kind: AstKind.BOOL_LITERAL, value, span: NO_SPAN }) as Expression;
+const cLit = (value: number): Expression => ({ kind: AstKind.CHAR_LITERAL, value, span: NO_SPAN }) as Expression;
+const ident = (name: string): Expression => ({ kind: AstKind.IDENTIFIER, name, span: NO_SPAN }) as Expression;
+const par = (expression: Expression): Expression => ({ kind: AstKind.PAREN, expression, span: NO_SPAN }) as Expression;
+const un = (operator: UnaryOp, argument: Expression): Expression => ({ kind: AstKind.UNARY_OP, operator, argument, span: NO_SPAN }) as Expression;
 const bin = (left: Expression, operator: BinaryOp, right: Expression): Expression =>
     ({ kind: AstKind.BINARY_OP, operator, left, right, span: NO_SPAN }) as Expression;
 const ter = (condition: Expression, then: Expression, else_: Expression): Expression =>
     ({ kind: AstKind.TERNARY, condition, then, else_, span: NO_SPAN }) as Expression;
-const cast = (type: TypeSpec, expression: Expression): Expression =>
-    ({ kind: AstKind.C_CAST, type, expression, span: NO_SPAN }) as Expression;
-const callx = (callee: Expression, callArguments: Expression[]): Expression =>
-    ({ kind: AstKind.CALL, callee, callArguments, span: NO_SPAN }) as Expression;
+const cast = (type: TypeSpec, expression: Expression): Expression => ({ kind: AstKind.C_CAST, type, expression, span: NO_SPAN }) as Expression;
+const callx = (callee: Expression, callArguments: Expression[]): Expression => ({ kind: AstKind.CALL, callee, callArguments, span: NO_SPAN }) as Expression;
 
-const ceval = (sema: SemanticAnalyzer, expression: Expression): bigint | null =>
-    sema.evaluateConstexpr(expression);
+const ceval = (sema: SemanticAnalyzer, expression: Expression): bigint | null => sema.evaluateConstexpr(expression);
 
 const makeSema = () => new SemanticAnalyzer();
 
@@ -166,11 +151,7 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
 
         test("precedence: 2 + 3 * 4 = 14 (not 20)", () => {
             const s = makeSema();
-            const expression = bin(
-                iLit("2"),
-                BinaryOp.ADD,
-                bin(iLit("3"), BinaryOp.MULTIPLY, iLit("4")),
-            );
+            const expression = bin(iLit("2"), BinaryOp.ADD, bin(iLit("3"), BinaryOp.MULTIPLY, iLit("4")));
             expect(ceval(s, expression)).toBe(14n);
         });
     });
@@ -274,11 +255,7 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
         test("chained operations: ((2+3)*4 - 5)/3 = 5", () => {
             const s = makeSema();
             const expression = bin(
-                bin(
-                    bin(bin(iLit("2"), BinaryOp.ADD, iLit("3")), BinaryOp.MULTIPLY, iLit("4")),
-                    BinaryOp.SUBTRACT,
-                    iLit("5"),
-                ),
+                bin(bin(bin(iLit("2"), BinaryOp.ADD, iLit("3")), BinaryOp.MULTIPLY, iLit("4")), BinaryOp.SUBTRACT, iLit("5")),
                 BinaryOp.DIVIDE,
                 iLit("3"),
             );
@@ -287,29 +264,19 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
 
         test("bitwise patterns", () => {
             const s = makeSema();
-            const expression = bin(
-                bin(iLit("0xFF"), BinaryOp.BITWISE_AND, iLit("0xF0")),
-                BinaryOp.SHIFT_RIGHT,
-                iLit("4"),
-            );
+            const expression = bin(bin(iLit("0xFF"), BinaryOp.BITWISE_AND, iLit("0xF0")), BinaryOp.SHIFT_RIGHT, iLit("4"));
             expect(ceval(s, expression)).toBe(15n);
         });
 
         test("ternary with logical condition", () => {
             const s = makeSema();
-            const condition = bin(
-                bin(iLit("5"), BinaryOp.GREATER_THAN, iLit("3")),
-                BinaryOp.LOGICAL_AND,
-                bin(iLit("2"), BinaryOp.LESS_THAN, iLit("4")),
-            );
+            const condition = bin(bin(iLit("5"), BinaryOp.GREATER_THAN, iLit("3")), BinaryOp.LOGICAL_AND, bin(iLit("2"), BinaryOp.LESS_THAN, iLit("4")));
             expect(ceval(s, ter(condition, iLit("100"), iLit("200")))).toBe(100n);
         });
 
         test("negated conditional", () => {
             const s = makeSema();
-            expect(
-                ceval(s, un(UnaryOp.LOGICAL_NOT, bin(iLit("5"), BinaryOp.LESS_THAN, iLit("3")))),
-            ).toBe(1n);
+            expect(ceval(s, un(UnaryOp.LOGICAL_NOT, bin(iLit("5"), BinaryOp.LESS_THAN, iLit("3"))))).toBe(1n);
         });
     });
 });

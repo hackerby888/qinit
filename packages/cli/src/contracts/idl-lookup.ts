@@ -65,11 +65,7 @@ export async function loadContractIdls(rpc: LiteRpc): Promise<ContractIdls> {
 }
 
 // The entry a transaction's inputType names. Procedures only — a transaction cannot invoke a function.
-export function entryFor(
-    slot: number | null | undefined,
-    inputType: number,
-    idls: ContractIdls,
-): ContractEntry | undefined {
+export function entryFor(slot: number | null | undefined, inputType: number, idls: ContractIdls): ContractEntry | undefined {
     if (slot == null) {
         return undefined;
     }
@@ -83,10 +79,7 @@ export interface DecodedInput {
 
 // Decode a call's input against its entry. The buffer is padded or truncated to the registered size the
 // way the engine's dispatch frame does it (contract/runtime.ts), so a short input decodes as it executed.
-export async function decodeTxInput(
-    entry: ContractEntry,
-    bytes: Uint8Array,
-): Promise<DecodedInput> {
+export async function decodeTxInput(entry: ContractEntry, bytes: Uint8Array): Promise<DecodedInput> {
     const type = entry.input;
     if (type.kind !== AbiTypeKind.STRUCT || type.fields.length === 0) {
         return { fields: [] };
@@ -97,10 +90,7 @@ export async function decodeTxInput(
 
     const decoded = await decodeOutput(padded, type);
     const values = type.fields.length === 1 ? [decoded] : decoded;
-    const fields = type.fields.map((field, index): [string, string] => [
-        field.name,
-        formatStateValue(values[index], field.type, false),
-    ]);
+    const fields = type.fields.map((field, index): [string, string] => [field.name, formatStateValue(values[index], field.type, false)]);
 
     // The value grammar is a bonus on top of the named fields — linked_list and overlapping inputs have no
     // representation in it, and that must not cost the caller the fields it could otherwise show.

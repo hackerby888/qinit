@@ -98,9 +98,7 @@ function assertSource(source: QpiByteSource, size: number): void {
         throw new Error("BitArray ABI has an invalid size");
     }
     if (!Number.isSafeInteger(source.byteLength) || source.byteLength < size) {
-        throw new QpiIncompleteReadError(
-            `BitArray needs ${size} bytes, source has ${source.byteLength}`,
-        );
+        throw new QpiIncompleteReadError(`BitArray needs ${size} bytes, source has ${source.byteLength}`);
     }
     if (!Number.isSafeInteger(source.maxReadLength) || source.maxReadLength <= 0) {
         throw new Error("QPI byte source has an invalid maxReadLength");

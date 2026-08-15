@@ -12,9 +12,7 @@ interface DifferentialRunnerOptions {
     slot?: number;
 }
 
-export async function buildDifferentialRunner(
-    options: DifferentialRunnerOptions,
-): Promise<Uint8Array> {
+export async function buildDifferentialRunner(options: DifferentialRunnerOptions): Promise<Uint8Array> {
     const dir = mkdtempSync(join(tmpdir(), options.tempPrefix));
     const contractPath = join(dir, `${options.name}.h`);
     const testPath = join(dir, `${options.name}.test.cpp`);

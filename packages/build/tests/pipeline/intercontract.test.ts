@@ -2,12 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-    buildCalleePrelude,
-    contractIndexDefines,
-    parseContractDef,
-    scanCallees,
-} from "../../src/intercontract";
+import { buildCalleePrelude, contractIndexDefines, parseContractDef, scanCallees } from "../../src/intercontract";
 
 test("contract_def wrappers keep the existing static contract rules", () => {
     const root = mkdtempSync(join(tmpdir(), "contract-def-"));
@@ -81,8 +76,7 @@ test("contract_def wrappers preserve missing-file behavior", () => {
 });
 
 test("scanCallees finds CALL_OTHER_CONTRACT_FUNCTION + INVOKE_OTHER_CONTRACT_PROCEDURE names", () => {
-    const s =
-        "CALL_OTHER_CONTRACT_FUNCTION(QX, a, b); INVOKE_OTHER_CONTRACT_PROCEDURE(Foo, c, d, 0);";
+    const s = "CALL_OTHER_CONTRACT_FUNCTION(QX, a, b); INVOKE_OTHER_CONTRACT_PROCEDURE(Foo, c, d, 0);";
     expect([...scanCallees(s)].sort()).toEqual(["Foo", "QX"]);
 });
 
@@ -94,10 +88,7 @@ test("scanCallees finds qualified types and constants but ignores comments", () 
     const char* text = "STRING_VALUE";
   `;
 
-    expect([...scanCallees(source, {}, ["QX", "RL", "COMMENTED", "STRING"])].sort()).toEqual([
-        "QX",
-        "RL",
-    ]);
+    expect([...scanCallees(source, {}, ["QX", "RL", "COMMENTED", "STRING"])].sort()).toEqual(["QX", "RL"]);
 });
 
 test("scanCallees finds contracts initialized by a gtest", () => {
@@ -106,9 +97,7 @@ test("scanCallees finds contracts initialized by a gtest", () => {
     INIT_CONTRACT(Main);
   `;
 
-    expect([...scanCallees(source, { contractName: "Main" }, ["Counter", "Main"])]).toEqual([
-        "Counter",
-    ]);
+    expect([...scanCallees(source, { contractName: "Main" }, ["Counter", "Main"])]).toEqual(["Counter"]);
 });
 
 test("scanCallees excludes analyzed calls to the current contract", () => {

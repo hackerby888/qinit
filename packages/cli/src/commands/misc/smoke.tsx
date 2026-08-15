@@ -3,8 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { cryptoSmoke, type CryptoSmokeResult } from "@qinit/core";
 import { Header, Spinner, Panel, Status, KV, theme } from "../../ui";
 
-type State =
-    { phase: "run" } | { phase: "ok"; r: CryptoSmokeResult } | { phase: "err"; msg: string };
+type State = { phase: "run" } | { phase: "ok"; r: CryptoSmokeResult } | { phase: "err"; msg: string };
 
 export function Smoke() {
     const { exit } = useApp();

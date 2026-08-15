@@ -12,10 +12,7 @@ import WASM_GTEST_H from "./assets/wasm_gtest.h" with { type: "text" };
 import WASM_CONTRACT_TESTING_H_TEMPLATE from "./assets/wasm_contract_testing.h" with { type: "text" };
 import TEST_UTIL_H from "./assets/test_util.h" with { type: "text" };
 
-const WASM_CONTRACT_TESTING_H = WASM_CONTRACT_TESTING_H_TEMPLATE.replace(
-    "__QINIT_CORE_WASM_ABI_METADATA__",
-    CORE_WASM_HEADERS.shared.abiMetadata,
-);
+const WASM_CONTRACT_TESTING_H = WASM_CONTRACT_TESTING_H_TEMPLATE.replace("__QINIT_CORE_WASM_ABI_METADATA__", CORE_WASM_HEADERS.shared.abiMetadata);
 
 export interface WasmContractDescription {
     index: number;
@@ -23,9 +20,7 @@ export interface WasmContractDescription {
     constructionEpoch: number;
 }
 
-export function generateWasmContractTestingHeader(
-    descriptions: readonly WasmContractDescription[] = [],
-): string {
+export function generateWasmContractTestingHeader(descriptions: readonly WasmContractDescription[] = []): string {
     const byIndex = new Map(descriptions.map((description) => [description.index, description]));
     const highestIndex = Math.max(0, ...byIndex.keys());
     const rows = Array.from({ length: highestIndex + 1 }, (_, index) => {
@@ -37,22 +32,13 @@ export function generateWasmContractTestingHeader(
         return `    {${assetName}, ${description.constructionEpoch}, 10000, 0},`;
     }).join("\n");
 
-    return WASM_CONTRACT_TESTING_H.replace("__QINIT_CONTRACT_DESCRIPTIONS__", rows).replace(
-        "__QINIT_CONTRACT_COUNT__",
-        String(highestIndex + 1),
-    );
+    return WASM_CONTRACT_TESTING_H.replace("__QINIT_CONTRACT_DESCRIPTIONS__", rows).replace("__QINIT_CONTRACT_COUNT__", String(highestIndex + 1));
 }
 
 export const WASM_CONTRACT_TESTING_HEADER = generateWasmContractTestingHeader();
 export const WASM_TEST_UTIL_HEADER = TEST_UTIL_H;
 
-export const WASM_CONTRACT_CLANG_FLAGS = [
-    "--target=wasm32-wasi",
-    "-std=c++20",
-    "-fno-rtti",
-    "-fno-exceptions",
-    "-DLITEDYN_CONTRACT_TU",
-] as const;
+export const WASM_CONTRACT_CLANG_FLAGS = ["--target=wasm32-wasi", "-std=c++20", "-fno-rtti", "-fno-exceptions", "-DLITEDYN_CONTRACT_TU"] as const;
 
 export interface ContractBuildOptions {
     contractPath: string; // absolute path to the contract .h
@@ -196,13 +182,10 @@ async function ensureWasmPch(clang: string, pchFlags: string[]): Promise<string 
 
             const hpp = join(dir, `wasm-${cacheKey}.hpp`);
             writeFileSync(hpp, preamble);
-            const buildProcess = Bun.spawn(
-                [clang, ...pchFlags, "-x", "c++-header", hpp, "-o", pch],
-                {
-                    stdout: "pipe",
-                    stderr: "pipe",
-                },
-            );
+            const buildProcess = Bun.spawn([clang, ...pchFlags, "-x", "c++-header", hpp, "-o", pch], {
+                stdout: "pipe",
+                stderr: "pipe",
+            });
             await new Response(buildProcess.stderr).text();
             await buildProcess.exited;
             pchState = buildProcess.exitCode === 0 && existsSync(pch) ? pch : null;
@@ -220,9 +203,7 @@ async function ensureWasmPch(clang: string, pchFlags: string[]): Promise<string 
 
 // clang must target wasm32-wasi (the bundled clang.wasm multitool has the WebAssembly backend; a native
 // wasi-sdk clang++ also works). wasmSysroot = the wasi-sysroot with libc++ headers.
-export async function compileWasmContract(
-    o: ContractBuildOptions & { wasmClang?: string; wasmSysroot?: string },
-): Promise<WasmCompileResult> {
+export async function compileWasmContract(o: ContractBuildOptions & { wasmClang?: string; wasmSysroot?: string }): Promise<WasmCompileResult> {
     const src = join(o.corePath, "src");
     await mkdir(o.outDir, { recursive: true });
     const wrapper = join(o.outDir, `${o.name}.wasm.wrapper.cpp`);
@@ -247,11 +228,7 @@ export async function compileWasmContract(
     const linkFlags = ["-Wl,--no-entry", "-Wl,--allow-undefined", "-mexec-model=reactor"];
     if (o.sharedMemoryBaseOffsetBytes !== undefined) {
         // Relocate the module above the shared-memory base and import memory from the runner.
-        linkFlags.push(
-            "-Wl,--import-memory",
-            `-Wl,--global-base=${o.sharedMemoryBaseOffsetBytes >>> 0}`,
-            "-Wl,-z,stack-size=8388608",
-        );
+        linkFlags.push("-Wl,--import-memory", `-Wl,--global-base=${o.sharedMemoryBaseOffsetBytes >>> 0}`, "-Wl,-z,stack-size=8388608");
     }
 
     // Reuse the precompiled preamble when available. The PCH already carries -include shim (whose static-inline
@@ -259,33 +236,18 @@ export async function compileWasmContract(
     const pch = await ensureWasmPch(clang, [...compileFlags, ...shimFlag]);
 
     const runClang = async (prefixArgs: string[], withShim: boolean) => {
-        const args = [
-            ...prefixArgs,
-            ...compileFlags,
-            ...(withShim ? shimFlag : []),
-            ...(o.extraCompileFlags ?? []),
-            ...linkFlags,
-            wrapper,
-            "-o",
-            wasm,
-        ];
+        const args = [...prefixArgs, ...compileFlags, ...(withShim ? shimFlag : []), ...(o.extraCompileFlags ?? []), ...linkFlags, wrapper, "-o", wasm];
         const clangProcess = Bun.spawn([clang, ...args], { stdout: "pipe", stderr: "pipe" });
         const stderr = await new Response(clangProcess.stderr).text();
         await clangProcess.exited;
         return { exitCode: clangProcess.exitCode, stderr };
     };
 
-    let { exitCode, stderr } = pch
-        ? await runClang(["-include-pch", pch], false)
-        : await runClang([], true);
+    let { exitCode, stderr } = pch ? await runClang(["-include-pch", pch], false) : await runClang([], true);
 
     // A stale/incompatible PCH surfaces as an AST/PCH error (not a contract error) — disable it and retry once
     // without, so a bad PCH never fails a valid contract.
-    if (
-        exitCode !== 0 &&
-        pch &&
-        /\b(PCH|AST file|precompiled header|module file)\b/i.test(stderr)
-    ) {
+    if (exitCode !== 0 && pch && /\b(PCH|AST file|precompiled header|module file)\b/i.test(stderr)) {
         disablePch();
         ({ exitCode, stderr } = await runClang([], true));
     }

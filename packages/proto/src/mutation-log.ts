@@ -38,32 +38,26 @@ export const AssetOwnershipChange = defineStruct("AssetOwnershipChange", ASSET_C
 
 export const AssetPossessionChange = defineStruct("AssetPossessionChange", ASSET_CHANGE_FIELDS);
 
-export const AssetOwnershipManagingContractChange = defineStruct(
-    "AssetOwnershipManagingContractChange",
-    {
-        ownershipPublicKey: M256I,
-        issuerPublicKey: M256I,
-        sourceContractIndex: u32,
-        destinationContractIndex: u32,
-        numberOfShares: i64,
-        assetName: u56,
-        _terminator: u8,
-    },
-);
+export const AssetOwnershipManagingContractChange = defineStruct("AssetOwnershipManagingContractChange", {
+    ownershipPublicKey: M256I,
+    issuerPublicKey: M256I,
+    sourceContractIndex: u32,
+    destinationContractIndex: u32,
+    numberOfShares: i64,
+    assetName: u56,
+    _terminator: u8,
+});
 
-export const AssetPossessionManagingContractChange = defineStruct(
-    "AssetPossessionManagingContractChange",
-    {
-        possessionPublicKey: M256I,
-        ownershipPublicKey: M256I,
-        issuerPublicKey: M256I,
-        sourceContractIndex: u32,
-        destinationContractIndex: u32,
-        numberOfShares: i64,
-        assetName: u56,
-        _terminator: u8,
-    },
-);
+export const AssetPossessionManagingContractChange = defineStruct("AssetPossessionManagingContractChange", {
+    possessionPublicKey: M256I,
+    ownershipPublicKey: M256I,
+    issuerPublicKey: M256I,
+    sourceContractIndex: u32,
+    destinationContractIndex: u32,
+    numberOfShares: i64,
+    assetName: u56,
+    _terminator: u8,
+});
 
 export const Burning = defineStruct("Burning", {
     sourcePublicKey: M256I,
@@ -72,11 +66,7 @@ export const Burning = defineStruct("Burning", {
     _terminator: u8,
 });
 
-export function encodeQuTransferLog(
-    sourcePublicKey: Uint8Array,
-    destinationPublicKey: Uint8Array,
-    amount: bigint,
-): Uint8Array {
+export function encodeQuTransferLog(sourcePublicKey: Uint8Array, destinationPublicKey: Uint8Array, amount: bigint): Uint8Array {
     const message = QuTransfer.alloc();
     message.sourcePublicKey = sourcePublicKey;
     message.destinationPublicKey = destinationPublicKey;
@@ -165,11 +155,7 @@ export function encodeAssetPossessionManagingContractChangeLog(
     return message.bytes.subarray(0, AssetPossessionManagingContractChange.OFFSETS._terminator);
 }
 
-export function encodeBurningLog(
-    sourcePublicKey: Uint8Array,
-    amount: bigint,
-    contractIndexBurnedFor: number,
-): Uint8Array {
+export function encodeBurningLog(sourcePublicKey: Uint8Array, amount: bigint, contractIndexBurnedFor: number): Uint8Array {
     const message = Burning.alloc();
     message.sourcePublicKey = sourcePublicKey;
     message.amount = amount;

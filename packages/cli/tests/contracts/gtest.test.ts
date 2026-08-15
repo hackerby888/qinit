@@ -13,10 +13,7 @@ const CORE = CORE_PATH;
 const CONTRACT = `${import.meta.dir}/../../../../fixtures/Counter.h`;
 const PROXY = `${import.meta.dir}/../../../../fixtures/Proxy.h`;
 const SLOT = 100;
-const have =
-    existsSync(`${CORE}/test/contract_testing.h`) &&
-    existsSync(CONTRACT) &&
-    wasiSdkPaths() !== null;
+const have = existsSync(`${CORE}/test/contract_testing.h`) && existsSync(CONTRACT) && wasiSdkPaths() !== null;
 
 const TEST_SOURCE = `#define NO_UEFI
 #include "contract_testing.h"
@@ -147,17 +144,13 @@ test.skipIf(!have)(
         });
         expect(contract.ok, contract.stderr).toBe(true);
 
-        const results = await runContractTesting(
-            new Uint8Array(await Bun.file(runner.wasmPath!).arrayBuffer()),
-            { [SLOT]: new Uint8Array(await Bun.file(contract.wasmPath!).arrayBuffer()) },
-        );
+        const results = await runContractTesting(new Uint8Array(await Bun.file(runner.wasmPath!).arrayBuffer()), {
+            [SLOT]: new Uint8Array(await Bun.file(contract.wasmPath!).arrayBuffer()),
+        });
         const by = Object.fromEntries(results.map((result) => [result.name, result]));
         expect(by["Counter.IncrementsTwice"]?.passed).toBe(true);
         expect(by["Counter.FreshStatePerTest"]?.passed).toBe(true);
-        expect(
-            by["Counter.StateAtSlot100RoundTrips"]?.passed,
-            by["Counter.StateAtSlot100RoundTrips"]?.message,
-        ).toBe(true);
+        expect(by["Counter.StateAtSlot100RoundTrips"]?.passed, by["Counter.StateAtSlot100RoundTrips"]?.message).toBe(true);
         expect(by["Counter.ReportsFailures"]?.passed).toBe(false);
         expect(by["Counter.ReportsFailures"]?.message).toContain("EXPECT_EQ");
     },

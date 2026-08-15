@@ -30,36 +30,16 @@ test("buildSignedTx: destination defaults to LITE_DEPLOY_ADDRESS (bytes[32:64])"
 
 test("assertSeed accepts 55 lowercase a-z, rejects everything else", () => {
     expect(() => assertSeed("a".repeat(55))).not.toThrow();
-    for (const bad of [
-        "",
-        "a".repeat(54),
-        "a".repeat(56),
-        "A".repeat(55),
-        "a".repeat(54) + "1",
-        "a".repeat(54) + " ",
-        "a".repeat(54) + "é",
-    ])
+    for (const bad of ["", "a".repeat(54), "a".repeat(56), "A".repeat(55), "a".repeat(54) + "1", "a".repeat(54) + " ", "a".repeat(54) + "é"])
         expect(() => assertSeed(bad)).toThrow(/invalid seed/);
 });
 
 test("buildSignedTx rejects bad seed / tick / amount before signing", async () => {
     const p = new Uint8Array();
-    await expect(buildSignedTx("nope", { tick: 1, inputType: 0, payload: p })).rejects.toThrow(
-        /invalid seed/,
-    );
-    await expect(
-        buildSignedTx("a".repeat(55), { tick: 0, inputType: 0, payload: p }),
-    ).rejects.toThrow(/invalid tick/);
-    await expect(
-        buildSignedTx("a".repeat(55), { tick: -1, inputType: 0, payload: p }),
-    ).rejects.toThrow(/invalid tick/);
-    await expect(
-        buildSignedTx("a".repeat(55), { tick: 1.5, inputType: 0, payload: p }),
-    ).rejects.toThrow(/invalid tick/);
-    await expect(
-        buildSignedTx("a".repeat(55), { tick: 1, inputType: 0, amount: -5, payload: p }),
-    ).rejects.toThrow(/invalid amount/);
-    await expect(
-        buildSignedTx("a".repeat(55), { tick: 1, inputType: 0, amount: Infinity, payload: p }),
-    ).rejects.toThrow(/invalid amount/);
+    await expect(buildSignedTx("nope", { tick: 1, inputType: 0, payload: p })).rejects.toThrow(/invalid seed/);
+    await expect(buildSignedTx("a".repeat(55), { tick: 0, inputType: 0, payload: p })).rejects.toThrow(/invalid tick/);
+    await expect(buildSignedTx("a".repeat(55), { tick: -1, inputType: 0, payload: p })).rejects.toThrow(/invalid tick/);
+    await expect(buildSignedTx("a".repeat(55), { tick: 1.5, inputType: 0, payload: p })).rejects.toThrow(/invalid tick/);
+    await expect(buildSignedTx("a".repeat(55), { tick: 1, inputType: 0, amount: -5, payload: p })).rejects.toThrow(/invalid amount/);
+    await expect(buildSignedTx("a".repeat(55), { tick: 1, inputType: 0, amount: Infinity, payload: p })).rejects.toThrow(/invalid amount/);
 });

@@ -52,14 +52,7 @@ function issueIn(name: bigint, shares: bigint): Uint8Array {
     return b;
 }
 // ShareManager Acquire input: { uint64 name; id issuer; id holder; sint64 shares; uint16 srcMgmt; sint64 fee }
-function acqIn(
-    name: bigint,
-    issuer: Uint8Array,
-    holder: Uint8Array,
-    shares: bigint,
-    srcMgmt: number,
-    fee: bigint,
-): Uint8Array {
+function acqIn(name: bigint, issuer: Uint8Array, holder: Uint8Array, shares: bigint, srcMgmt: number, fee: bigint): Uint8Array {
     const b = new Uint8Array(96);
     const d = new DataView(b.buffer);
     d.setBigUint64(0, name, true);
@@ -93,9 +86,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
             qpiHeader: HEADERS,
             arenaSizeBytes: 1024 * 1024,
         });
-        expect(
-            approver.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-        ).toHaveLength(0);
+        expect(approver.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
         const sim = new QubicSimulator();
         sim.deploy(28, approver.wasm); // MY compiled approver: issues + approves releases
@@ -173,9 +164,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
             qpiHeader: HEADERS,
             arenaSizeBytes: 1024 * 1024,
         });
-        expect(rec.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
-            0,
-        );
+        expect(rec.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
         const sim = new QubicSimulator();
         sim.deploy(28, rec.wasm);

@@ -2,14 +2,7 @@
 import { resolve } from "node:path";
 import { deployContract } from "@qinit/cli/ops/deploy";
 import { callFunction, invokeProcedure } from "@qinit/proto";
-import {
-    DEFAULT_RPC_BASE,
-    LiteRpc,
-    k12Hex,
-    deriveIdentity,
-    identityToBytes,
-    bytesToHex,
-} from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, k12Hex, deriveIdentity, identityToBytes, bytesToHex } from "@qinit/core";
 
 const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const core = process.env.QINIT_CORE;
@@ -48,13 +41,8 @@ const le8 = (value: bigint) => {
 };
 
 let contractSlot = 0;
-const call = (functionId: number, inputFormat: string, outputFormat: string) =>
-    callFunction(rpc, contractSlot, functionId, inputFormat, outputFormat);
-async function invoke(
-    procedureId: number,
-    inputFormat: string,
-    opts: { amount?: number; seed?: string } = {},
-) {
+const call = (functionId: number, inputFormat: string, outputFormat: string) => callFunction(rpc, contractSlot, functionId, inputFormat, outputFormat);
+async function invoke(procedureId: number, inputFormat: string, opts: { amount?: number; seed?: string } = {}) {
     const seed = opts.seed ?? (await rpc.fundedSeed()) ?? "a".repeat(55);
     const tickInfo = await rpc.tickInfo();
     const tick = tickInfo.tick + 6;
@@ -75,13 +63,7 @@ async function invoke(
 }
 
 // poll a single-field read until it equals want (procedures land a few ticks after confirm)
-async function pollUntilEqual(
-    functionId: number,
-    inputFormat: string,
-    outputFormat: string,
-    want: bigint,
-    label: string,
-) {
+async function pollUntilEqual(functionId: number, inputFormat: string, outputFormat: string, want: bigint, label: string) {
     for (let i = 0; i < 12; i++) {
         try {
             if (BigInt((await call(functionId, inputFormat, outputFormat)) as any) === want) {
@@ -113,9 +95,7 @@ const dep = await deployContract(
     },
     (event: any) => {
         if (!("note" in event)) {
-            console.log(
-                `  ${event.step}: ${event.state}${event.detail ? " — " + event.detail : ""}`,
-            );
+            console.log(`  ${event.step}: ${event.state}${event.detail ? " — " + event.detail : ""}`);
         }
     },
 );
@@ -139,21 +119,13 @@ console.log("arithmetic edge cases…");
     [q, r] = (await call(1, "7uint64, 0uint64", "uint64, uint64")) as bigint[];
     expectEqual(q, 0n, "div by zero -> 0");
     expectEqual(r, 0n, "mod by zero -> 0");
-    const [sum, prod, xorv, shl] = (await call(
-        2,
-        "2uint64, 3uint64",
-        "uint64, uint64, uint64, uint64",
-    )) as bigint[];
+    const [sum, prod, xorv, shl] = (await call(2, "2uint64, 3uint64", "uint64, uint64, uint64, uint64")) as bigint[];
     expectEqual(sum, 5n, "Arith sum 2+3");
     expectEqual(prod, 6n, "Arith prod 2*3");
     expectEqual(xorv, 1n, "Arith 2^3");
     expectEqual(shl, 16n, "Arith 2<<3");
     const maxUint64 = (1n << 64n) - 1n;
-    const [wrap] = (await call(
-        2,
-        `${maxUint64}uint64, 1uint64`,
-        "uint64, uint64, uint64, uint64",
-    )) as bigint[];
+    const [wrap] = (await call(2, `${maxUint64}uint64, 1uint64`, "uint64, uint64, uint64, uint64")) as bigint[];
     expectEqual(wrap, 0n, "uint64 add wraps (MAX+1=0)");
     let [sq, sr, ssum] = (await call(3, "-7sint64, 2sint64", "sint64, sint64, sint64")) as bigint[];
     expectEqual(sq, -3n, "signed -7 div 2 = -3");
@@ -171,11 +143,7 @@ console.log("qpi.K12 hashing…");
     const h2 = (await call(4, "2uint64", "id")) as string;
     expectTrue(h1 === h1b, "K12 deterministic");
     expectTrue(h1 !== h2, "K12 distinct for distinct inputs");
-    expectEqual(
-        bytesToHex(identityToBytes(h1)),
-        await k12Hex(le8(1n)),
-        "K12(x) == qinit k12Hex(le8(x))",
-    );
+    expectEqual(bytesToHex(identityToBytes(h1)), await k12Hex(le8(1n)), "K12(x) == qinit k12Hex(le8(x))");
 }
 
 console.log("native QX call…");
@@ -184,20 +152,11 @@ console.log("native QX call…");
     await rpc.setDebug(true);
     const traceBeforeCall = await rpc.debugTrace(0, 256);
     const traceStart = Math.max(0, ...traceBeforeCall.entries.map((entry) => entry.seq));
-    const [assetIssuanceFee, transferFee, tradeFee, callError] = (await call(
-        11,
-        "",
-        "uint32, uint32, uint32, uint8",
-    )) as number[];
+    const [assetIssuanceFee, transferFee, tradeFee, callError] = (await call(11, "", "uint32, uint32, uint32, uint8")) as number[];
     const trace = await rpc.debugTrace(traceStart, 16);
-    const qxCall = trace.entries.find(
-        (entry) =>
-            entry.index === contractSlot && entry.kind === 0 && entry.entry === 11 && entry.ok,
-    );
+    const qxCall = trace.entries.find((entry) => entry.index === contractSlot && entry.kind === 0 && entry.entry === 11 && entry.ok);
     expectTrue(
-        qxCall?.hostCalls.some(
-            (hostCall) => hostCall.name === "callFunction" && hostCall.detail.includes("-> 1/1"),
-        ) === true,
+        qxCall?.hostCalls.some((hostCall) => hostCall.name === "callFunction" && hostCall.detail.includes("-> 1/1")) === true,
         "Wasm call reaches native QX",
     );
     await rpc.setDebug(false);
@@ -245,14 +204,8 @@ console.log("state: Add / HashMap / Array masking / context…");
         }
         await sleep(1500);
     }
-    expectEqual(
-        who,
-        (await deriveIdentity(senderSeed)).identity,
-        "Remember -> LastCaller.who == sender (qpi.invocator)",
-    );
+    expectEqual(who, (await deriveIdentity(senderSeed)).identity, "Remember -> LastCaller.who == sender (qpi.invocator)");
     expectEqual(reward, 7n, "Remember -> LastCaller.reward == amount (qpi.invocationReward)");
 }
 
-console.log(
-    `\nGAUNTLET OK — ${passedAssertions} assertions passed on-chain (slot ${contractSlot})`,
-);
+console.log(`\nGAUNTLET OK — ${passedAssertions} assertions passed on-chain (slot ${contractSlot})`);

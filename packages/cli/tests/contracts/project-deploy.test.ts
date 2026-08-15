@@ -1,13 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-    copyFileSync,
-    existsSync,
-    mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { EngineServer } from "@qinit/engine/server";
@@ -59,16 +51,11 @@ test.skipIf(!haveCore || !canListen)(
 
         try {
             const validProxySource = readFileSync(proxyPath, "utf8");
-            writeFileSync(
-                proxyPath,
-                validProxySource.replace("output.value =", "output.missing ="),
-            );
+            writeFileSync(proxyPath, validProxySource.replace("output.value =", "output.missing ="));
             const failedBuild = await deploy();
             expect(failedBuild.ok).toBe(false);
             expect(failedBuild.deployments).toEqual([]);
-            expect((await rpc.dynRegistry()).contracts.some((contract) => contract.armed)).toBe(
-                false,
-            );
+            expect((await rpc.dynRegistry()).contracts.some((contract) => contract.armed)).toBe(false);
             writeFileSync(proxyPath, validProxySource);
 
             const first = await deploy();

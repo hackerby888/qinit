@@ -66,9 +66,7 @@ test("nested-with-id input uses typed metadata", () => {
 
 test("recursive output mapper turns the decoder's positional arrays into named objects", () => {
     incl("return { p: ((s) => ({ x: s[0] as bigint, y: s[1] as bigint }))(r as unknown[]) };");
-    incl(
-        "return { pts: (r as unknown[]).map((element) => ((s) => ({ x: s[0] as bigint, y: s[1] as bigint }))(element as unknown[])) };",
-    );
+    incl("return { pts: (r as unknown[]).map((element) => ((s) => ({ x: s[0] as bigint, y: s[1] as bigint }))(element as unknown[])) };");
 });
 
 test("array input remains typed", () => {
@@ -84,19 +82,14 @@ test.skipIf(!have("Qx"))("real QX/Quottery clients transpile cleanly (valid TS s
     }
 });
 
-test.skipIf(!have("Qx"))(
-    "real QX: nested order row + Asset input are fully typed (no `unknown`)",
-    () => {
-        const qx = generateClient(extractIdl(srcOf("Qx"), "Qx"), 1);
-        // entity order book row carries all four named fields (the scoped-resolution fix)
-        expect(qx).toContain(
-            "issuer: string; assetName: bigint; price: bigint; numberOfShares: bigint }[]",
-        );
-        // share-management procedure takes typed args, not a hand-written format string
-        expect(qx).toContain("asset: { issuer: string; assetName: bigint }");
-        expect(qx).not.toContain("async TransferShareManagementRights(inputFormat: string");
-    },
-);
+test.skipIf(!have("Qx"))("real QX: nested order row + Asset input are fully typed (no `unknown`)", () => {
+    const qx = generateClient(extractIdl(srcOf("Qx"), "Qx"), 1);
+    // entity order book row carries all four named fields (the scoped-resolution fix)
+    expect(qx).toContain("issuer: string; assetName: bigint; price: bigint; numberOfShares: bigint }[]");
+    // share-management procedure takes typed args, not a hand-written format string
+    expect(qx).toContain("asset: { issuer: string; assetName: bigint }");
+    expect(qx).not.toContain("async TransferShareManagementRights(inputFormat: string");
+});
 
 // ---- run the generated client against a fake RPC (byte-exact encode + typed decode) ----
 
@@ -156,11 +149,7 @@ test("RUN: nested struct input is byte-exact encoded (alignment incl. trailing p
     const mod = await loadGenerated(geoClient, "in");
     let captured: Uint8Array | null = null;
     const rpc = {
-        async querySmartContract(
-            _idx: number,
-            _fnId: number,
-            input: Uint8Array,
-        ): Promise<Uint8Array> {
+        async querySmartContract(_idx: number, _fnId: number, input: Uint8Array): Promise<Uint8Array> {
             captured = input;
             return sint64(99n);
         },

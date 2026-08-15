@@ -1,6 +1,5 @@
 // Value formatting and width arithmetic. Pure functions — the widths every component budgets against.
-export const fmtMs = (ms?: number) =>
-    ms == null ? "" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+export const fmtMs = (ms?: number) => (ms == null ? "" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 
 export const termCols = () => Math.max(40, process.stdout.columns || 80);
 export const termRows = () => Math.max(10, process.stdout.rows || 24);
@@ -27,8 +26,7 @@ export function fmtCompact(amount: string): string {
     return `${sign}${whole}.${fraction} ${COMPACT_UNITS[unit]}`;
 }
 
-export const truncEnd = (s: string, max: number) =>
-    s.length <= max ? s : s.slice(0, Math.max(1, max - 1)) + "…";
+export const truncEnd = (s: string, max: number) => (s.length <= max ? s : s.slice(0, Math.max(1, max - 1)) + "…");
 
 export const truncMid = (s: string, max: number) => {
     if (s.length <= max) {

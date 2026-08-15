@@ -23,13 +23,10 @@ test.skipIf(!QLOGGING || !existsSync(QLOGGING))(
             engine.logger.end();
             engine.advanceTick(1);
 
-            const proc = Bun.spawn(
-                [QLOGGING!, "127.0.0.1", String(port), "0", "0", "0", "0", String(tick), "-single"],
-                {
-                    stdout: "pipe",
-                    stderr: "pipe",
-                },
-            );
+            const proc = Bun.spawn([QLOGGING!, "127.0.0.1", String(port), "0", "0", "0", "0", String(tick), "-single"], {
+                stdout: "pipe",
+                stderr: "pipe",
+            });
             const killer = setTimeout(() => proc.kill(), 6000);
             const output = await new Response(proc.stdout).text();
             const error = await new Response(proc.stderr).text();

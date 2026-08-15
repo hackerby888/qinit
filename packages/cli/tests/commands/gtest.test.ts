@@ -35,9 +35,7 @@ test("gtest accepts only integer contract slots", () => {
     expect(resolveGtestSlot(core, "1023")).toBe(1023);
 
     for (const slot of ["", "0", "1.5", "1024", "NaN"]) {
-        expect(() => resolveGtestSlot(core, slot)).toThrow(
-            "contract slot must be an integer from 1 to 1023",
-        );
+        expect(() => resolveGtestSlot(core, slot)).toThrow("contract slot must be an integer from 1 to 1023");
     }
 });
 
@@ -50,8 +48,5 @@ test("gtest accepts repeated callee declarations", () => {
         "Oracle=contracts/Oracle.h@42",
     ]);
 
-    expect(invocation.commandArgs.getAll("callee")).toEqual([
-        "Counter=contracts/Counter.h",
-        "Oracle=contracts/Oracle.h@42",
-    ]);
+    expect(invocation.commandArgs.getAll("callee")).toEqual(["Counter=contracts/Counter.h", "Oracle=contracts/Oracle.h@42"]);
 });

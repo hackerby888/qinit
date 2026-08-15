@@ -79,9 +79,7 @@ export function process(preprocessor: Preprocessor, src: string): string {
             preprocessor.handleDirective();
             if (preprocessor.preserveSourceOffsets) {
                 preprocessor.result = preprocessor.result.slice(0, resultLength);
-                preprocessor.result += maskSource(
-                    preprocessor.input.slice(start, preprocessor.pos),
-                );
+                preprocessor.result += maskSource(preprocessor.input.slice(start, preprocessor.pos));
             }
             continue;
         }
@@ -102,9 +100,7 @@ export function process(preprocessor: Preprocessor, src: string): string {
             const start = preprocessor.pos;
             preprocessor.skipLineComment();
             if (preprocessor.preserveSourceOffsets) {
-                preprocessor.result += maskSource(
-                    preprocessor.input.slice(start, preprocessor.pos),
-                );
+                preprocessor.result += maskSource(preprocessor.input.slice(start, preprocessor.pos));
             }
             continue;
         }
@@ -114,9 +110,7 @@ export function process(preprocessor: Preprocessor, src: string): string {
             preprocessor.skipBlockComment();
             if (preprocessor.preserveSourceOffsets) {
                 preprocessor.result = preprocessor.result.slice(0, resultLength);
-                preprocessor.result += maskSource(
-                    preprocessor.input.slice(start, preprocessor.pos),
-                );
+                preprocessor.result += maskSource(preprocessor.input.slice(start, preprocessor.pos));
             }
             continue;
         }

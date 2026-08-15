@@ -1,18 +1,10 @@
 import { DiagnosticCategory, DiagnosticSeverity } from "../shared/enums";
 import { SemanticAnalyzer } from "../analysis/semantic-analysis";
-import {
-    generateWasmModule,
-    type ModuleGenerationRequest,
-} from "../backend/wasm/module/module-generator";
+import { generateWasmModule, type ModuleGenerationRequest } from "../backend/wasm/module/module-generator";
 import type { GeneratedContractMetadata } from "../backend/wasm/module/library-index";
 import { collectCalleeContext } from "./callees";
 import { CompilationPhaseTracker } from "./compilation-phase-tracker";
-import {
-    parseContractSource,
-    preprocessContractSource,
-    remapAnalysisDiagnostics,
-    validateContractSource,
-} from "./contract-frontend";
+import { parseContractSource, preprocessContractSource, remapAnalysisDiagnostics, validateContractSource } from "./contract-frontend";
 import { scanUnterminatedSource } from "./diagnostics";
 import { validateCompileOptions } from "./options";
 import { getQpiContext } from "./qpi-context";
@@ -63,24 +55,12 @@ export async function compileContract(options: CompileOptions): Promise<CompileR
     }
 
     await phases.enter("generating wasm");
-    const calls = collectSourceContractCalls(
-        options.source,
-        options.contractName,
-        options.slot,
-        qpiContext.macros,
-    );
+    const calls = collectSourceContractCalls(options.source, options.contractName, options.slot, qpiContext.macros);
     const metadata = createContractMetadata(calls.map((call) => call.callee));
     let wat: string;
 
     try {
-        wat = generateContractWat(
-            options,
-            translationUnit,
-            semanticAnalysis,
-            qpiContext,
-            calleeContext,
-            metadata,
-        );
+        wat = generateContractWat(options, translationUnit, semanticAnalysis, qpiContext, calleeContext, metadata);
     } catch (error: any) {
         appendCompilerError(diagnostics, "Codegen failed", error);
         return emptyResult(options, diagnostics);
@@ -117,10 +97,7 @@ export async function compileContract(options: CompileOptions): Promise<CompileR
 }
 
 function collectInitialDiagnostics(options: CompileOptions): ParserDiagnostic[] {
-    return [
-        ...validateCompileOptions(options),
-        ...(typeof options.source === "string" ? scanUnterminatedSource(options.source) : []),
-    ];
+    return [...validateCompileOptions(options), ...(typeof options.source === "string" ? scanUnterminatedSource(options.source) : [])];
 }
 
 function loadQpiContext(options: CompileOptions) {
@@ -165,10 +142,7 @@ function createContractMetadata(dependencies: string[]): GeneratedContractMetada
     };
 }
 
-function promoteFidelityDiagnostics(
-    options: CompileOptions,
-    diagnostics: ParserDiagnostic[],
-): void {
+function promoteFidelityDiagnostics(options: CompileOptions, diagnostics: ParserDiagnostic[]): void {
     if (options.strict === false) {
         return;
     }

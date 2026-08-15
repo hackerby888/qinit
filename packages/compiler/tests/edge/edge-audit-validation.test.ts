@@ -7,11 +7,7 @@ import { compileContract, loadQpiHeader } from "../../src/index";
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
-const wrap = (
-    members: string,
-    body: string,
-    registration = "REGISTER_USER_PROCEDURE(Go, 1);",
-) => `using namespace QPI;
+const wrap = (members: string, body: string, registration = "REGISTER_USER_PROCEDURE(Go, 1);") => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData { uint64 a; };
@@ -52,31 +48,19 @@ const CASES: Record<string, RejectCase> = {
         diagnostic: /duplicate.*struct|struct.*duplicate|redefinition|already.*defined/i,
     },
     "assignment between unrelated aggregate types": {
-        source: wrap(
-            `struct P { uint64 a; }; struct Q { uint64 b; };`,
-            `P p{}; Q q{}; q.b = 9; p = q; state.mut().a = p.a;`,
-        ),
+        source: wrap(`struct P { uint64 a; }; struct Q { uint64 b; };`, `P p{}; Q q{}; q.b = 9; p = q; state.mut().a = p.a;`),
         diagnostic: /incompatible|cannot.*assign|type.*mismatch|conversion/i,
     },
     "unrelated aggregate passed to a helper": {
-        source: wrap(
-            `struct P { uint64 a; }; struct Q { uint64 b; }; static uint64 read(P p) { return p.a; }`,
-            `Q q{}; q.b = 9; state.mut().a = read(q);`,
-        ),
+        source: wrap(`struct P { uint64 a; }; struct Q { uint64 b; }; static uint64 read(P p) { return p.a; }`, `Q q{}; q.b = 9; state.mut().a = read(q);`),
         diagnostic: /argument.*type|incompatible|no matching|conversion/i,
     },
     "scalar returned from an aggregate helper": {
-        source: wrap(
-            `struct P { uint64 a; }; static P make() { return 7; }`,
-            `P p = make(); state.mut().a = p.a;`,
-        ),
+        source: wrap(`struct P { uint64 a; }; static P make() { return 7; }`, `P p = make(); state.mut().a = p.a;`),
         diagnostic: /return.*type|incompatible|cannot.*convert|conversion/i,
     },
     "non-void helper has a reachable fallthrough path": {
-        source: wrap(
-            `static uint64 maybe(uint64 x) { if (x) return 7; }`,
-            `state.mut().a = maybe(0);`,
-        ),
+        source: wrap(`static uint64 maybe(uint64 x) { if (x) return 7; }`, `state.mut().a = maybe(0);`),
         diagnostic: /return|fall.*through/i,
     },
     "registered procedure has no implementation body": {
@@ -123,9 +107,7 @@ describe("edge audit — semantic rejection gaps", () => {
                 qpiHeader: HEADERS,
                 arenaSizeBytes: 1 << 20,
             });
-            const errors = result.diagnostics.filter(
-                (d) => d.severity === DiagnosticSeverity.ERROR,
-            );
+            const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
 
             expect(errors.some((d) => c.diagnostic.test(d.message))).toBe(true);
             expect(result.wasm).toHaveLength(0);

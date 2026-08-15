@@ -6,10 +6,7 @@ import { VirtualNode } from "../../src/transport";
 
 type ContractIndexBody = "missing" | "malformed" | "trapping" | number;
 
-async function artifact(
-    contractIndex: ContractIndexBody,
-    legacyArenaTop = false,
-): Promise<Uint8Array> {
+async function artifact(contractIndex: ContractIndexBody, legacyArenaTop = false): Promise<Uint8Array> {
     const contractIndexFunction =
         contractIndex === "missing"
             ? ""
@@ -58,9 +55,7 @@ describe("Wasm artifact slot identity", () => {
         const node = new VirtualNode({ slotBase: 29, slotCount: 4 });
         const wasm = await artifact(29, true);
 
-        expect(() => node.deploy(29, wasm, "Legacy")).toThrow(
-            "legacy arena_top export is not supported",
-        );
+        expect(() => node.deploy(29, wasm, "Legacy")).toThrow("legacy arena_top export is not supported");
     });
 
     test.each([
@@ -82,9 +77,7 @@ describe("Wasm artifact slot identity", () => {
         const before = await node.dynRegistry();
         const mismatch = await artifact(28);
 
-        expect(() => node.deploy(29, mismatch, "Replacement")).toThrow(
-            "artifact slot mismatch: compiled 28, target 29",
-        );
+        expect(() => node.deploy(29, mismatch, "Replacement")).toThrow("artifact slot mismatch: compiled 28, target 29");
 
         expect(node.sim.contracts.get(29)).toBe(resident);
         expect([...resident.state().subarray(0, 3)]).toEqual([7, 8, 9]);

@@ -55,10 +55,7 @@ export class StatementParser {
             return { kind: AstKind.GOTO, label: labelTok?.text ?? "", span: tok.span };
         }
         // Label: identifier :
-        if (
-            tok.kind === TokenKind.IDENTIFIER &&
-            this.parser.state.peek(1).kind === TokenKind.COLON
-        ) {
+        if (tok.kind === TokenKind.IDENTIFIER && this.parser.state.peek(1).kind === TokenKind.COLON) {
             this.parser.state.next();
             this.parser.state.next(); // :
             return { kind: AstKind.LABEL, name: tok.text, span: tok.span };
@@ -133,10 +130,7 @@ export class StatementParser {
         }
         const expression = this.parser.expressions.parseExpression();
         // Label after expression: expr : (unlikely but possible for case-like constructs)
-        if (
-            this.parser.state.peek().kind === TokenKind.COLON &&
-            expression.kind === AstKind.IDENTIFIER
-        ) {
+        if (this.parser.state.peek().kind === TokenKind.COLON && expression.kind === AstKind.IDENTIFIER) {
             this.parser.state.next(); // :
             return { kind: AstKind.LABEL, name: (expression as any).name, span: expression.span };
         }
@@ -185,10 +179,7 @@ export class StatementParser {
         // for (;;)
         if (this.parser.state.peek().kind !== TokenKind.SEMICOLON) {
             // Could be a declaration (`for (sint64 i = 0; ...)`) or an expression init.
-            if (
-                isTypeKeyword(this.parser.state.peek().kind) ||
-                this.parser.expressions.looksLikeLocalDecl()
-            ) {
+            if (isTypeKeyword(this.parser.state.peek().kind) || this.parser.expressions.looksLikeLocalDecl()) {
                 const declaration = this.parser.declarations.parseDeclaration();
                 if (declaration) {
                     initializer = {

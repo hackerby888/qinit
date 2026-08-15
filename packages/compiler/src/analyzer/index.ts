@@ -1,29 +1,14 @@
 import type { Span } from "../ast";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 import type { Diagnostic as CompilerDiagnostic } from "../frontend/parser";
-import {
-    AnalysisPhase,
-    DiagnosticCategory,
-    DiagnosticSeverity,
-    QpiContextKind,
-    SourceAnalysisOrigin,
-} from "../shared/enums";
+import { AnalysisPhase, DiagnosticCategory, DiagnosticSeverity, QpiContextKind, SourceAnalysisOrigin } from "../shared/enums";
 import { QPI_SNAPSHOT } from "../generated/qpi-snapshot";
-import {
-    parseContractSource,
-    preprocessContractSource,
-    remapAnalysisDiagnostics,
-    validateContractSource,
-} from "../driver/contract-frontend";
+import { parseContractSource, preprocessContractSource, remapAnalysisDiagnostics, validateContractSource } from "../driver/contract-frontend";
 import { scanUnterminatedSource } from "../driver/diagnostics";
 import { getQpiMacros } from "../driver/qpi-macros";
 import type { CompileOptions } from "../driver/types";
 import { collectCalleeContext } from "../driver/callees";
-import {
-    collectProcedureDeclLines,
-    collectSourceContractCalls,
-    type SourceContractCall,
-} from "../driver/semantic-calls";
+import { collectProcedureDeclLines, collectSourceContractCalls, type SourceContractCall } from "../driver/semantic-calls";
 import { getQpiContext } from "../driver/qpi-context";
 import { SemanticAnalyzer } from "../analysis/semantic-analysis";
 import { prepareContractModule } from "../backend/wasm/module/module-analysis";
@@ -35,13 +20,7 @@ import { analyzeQpiPolicy, detectQpiContractName } from "./source-policy";
 export { QPI_BANNED_KEYWORDS } from "./source-policy";
 export { Lexer, TokenKind } from "../frontend/lexer";
 export type { Token } from "../frontend/lexer";
-export {
-    AnalysisPhase,
-    DiagnosticCategory,
-    DiagnosticSeverity,
-    QpiContextKind,
-    SourceAnalysisOrigin,
-};
+export { AnalysisPhase, DiagnosticCategory, DiagnosticSeverity, QpiContextKind, SourceAnalysisOrigin };
 export type { SourceContractCall };
 
 export interface AnalyzeContractOptions {
@@ -71,8 +50,7 @@ export interface SourceFix {
 export interface SourceAnalysisDiagnostic {
     origin: SourceAnalysisOrigin;
     code: string;
-    severity:
-        DiagnosticSeverity.ERROR | DiagnosticSeverity.WARNING | DiagnosticSeverity.INFORMATION;
+    severity: DiagnosticSeverity.ERROR | DiagnosticSeverity.WARNING | DiagnosticSeverity.INFORMATION;
     message: string;
     span: Span;
     fixes?: SourceFix[];
@@ -101,9 +79,7 @@ export function analyzeContract(options: AnalyzeContractOptions): SourceAnalysis
     const diagnostics = compilerResult.diagnostics;
 
     try {
-        diagnostics.push(
-            ...analyzeQpiPolicy(options.source, compilerResult.registrations, compilerResult.idl),
-        );
+        diagnostics.push(...analyzeQpiPolicy(options.source, compilerResult.registrations, compilerResult.idl));
     } catch (error: any) {
         diagnostics.push(internalDiagnostic(error));
     }
@@ -114,13 +90,7 @@ export function analyzeContract(options: AnalyzeContractOptions): SourceAnalysis
         idl: compilerResult.idl,
         diagnostics: diagnostics
             .filter((item) => {
-                const key = [
-                    item.origin,
-                    item.code,
-                    item.span.start,
-                    item.span.end,
-                    item.message,
-                ].join(":");
+                const key = [item.origin, item.code, item.span.start, item.span.end, item.message].join(":");
                 if (seen.has(key)) {
                     return false;
                 }
@@ -150,9 +120,7 @@ function analyzeCompiler(
     const earlyDiagnostics = scanUnterminatedSource(options.source);
     if (hasErrors(earlyDiagnostics)) {
         return {
-            diagnostics: earlyDiagnostics.map((item) =>
-                compilerDiagnostic(item, AnalysisPhase.SYNTAX),
-            ),
+            diagnostics: earlyDiagnostics.map((item) => compilerDiagnostic(item, AnalysisPhase.SYNTAX)),
         };
     }
 
@@ -166,15 +134,10 @@ function analyzeCompiler(
             calleeSources: options.calleeSources,
         };
         const qpiContext = getQpiContext(options.qpiHeader);
-        const preprocessed = preprocessContractSource(
-            compileOptions,
-            getQpiMacros(options.qpiHeader),
-        );
+        const preprocessed = preprocessContractSource(compileOptions, getQpiMacros(options.qpiHeader));
         const parserDiagnostics: CompilerDiagnostic[] = [];
         const translationUnit = parseContractSource(preprocessed, parserDiagnostics);
-        const diagnostics = parserDiagnostics.map((item) =>
-            compilerDiagnostic(item, AnalysisPhase.SYNTAX),
-        );
+        const diagnostics = parserDiagnostics.map((item) => compilerDiagnostic(item, AnalysisPhase.SYNTAX));
 
         if (hasErrors(parserDiagnostics)) {
             return { diagnostics };
@@ -182,11 +145,7 @@ function analyzeCompiler(
 
         const validationDiagnostics: CompilerDiagnostic[] = [];
         validateContractSource(translationUnit, preprocessed, validationDiagnostics);
-        diagnostics.push(
-            ...validationDiagnostics.map((item) =>
-                compilerDiagnostic(item, AnalysisPhase.SEMANTIC),
-            ),
-        );
+        diagnostics.push(...validationDiagnostics.map((item) => compilerDiagnostic(item, AnalysisPhase.SEMANTIC)));
 
         if (hasErrors(validationDiagnostics)) {
             return { diagnostics };
@@ -194,11 +153,7 @@ function analyzeCompiler(
 
         const semanticAnalysis = new SemanticAnalyzer();
         const calleeContext = collectCalleeContext(compileOptions, qpiContext);
-        diagnostics.push(
-            ...calleeContext.diagnostics.map((item) =>
-                compilerDiagnostic(item, AnalysisPhase.SYNTAX),
-            ),
-        );
+        diagnostics.push(...calleeContext.diagnostics.map((item) => compilerDiagnostic(item, AnalysisPhase.SYNTAX)));
 
         if (hasErrors(calleeContext.diagnostics)) {
             return { diagnostics };
@@ -222,9 +177,7 @@ function analyzeCompiler(
         });
         publishProgramDiagnostics(prepared.programAnalysis, semanticAnalysis);
         diagnostics.push(
-            ...remapAnalysisDiagnostics(semanticAnalysis.getDiagnostics(), preprocessed).map(
-                (item) => compilerDiagnostic(item, AnalysisPhase.SEMANTIC),
-            ),
+            ...remapAnalysisDiagnostics(semanticAnalysis.getDiagnostics(), preprocessed).map((item) => compilerDiagnostic(item, AnalysisPhase.SEMANTIC)),
         );
 
         if (diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR)) {
@@ -246,16 +199,10 @@ function analyzeCompiler(
     }
 }
 
-function compilerDiagnostic(
-    item: CompilerDiagnostic,
-    phase: AnalysisPhase,
-): SourceAnalysisDiagnostic {
+function compilerDiagnostic(item: CompilerDiagnostic, phase: AnalysisPhase): SourceAnalysisDiagnostic {
     return {
         origin: SourceAnalysisOrigin.COMPILER,
-        code:
-            item.category === DiagnosticCategory.FIDELITY
-                ? "compiler/fidelity"
-                : `compiler/${phase}`,
+        code: item.category === DiagnosticCategory.FIDELITY ? "compiler/fidelity" : `compiler/${phase}`,
         severity: item.severity,
         message: item.message,
         span: item.span,
@@ -281,10 +228,7 @@ function hasErrors(diagnostics: CompilerDiagnostic[]): boolean {
     return diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR);
 }
 
-function compareDiagnostics(
-    left: SourceAnalysisDiagnostic,
-    right: SourceAnalysisDiagnostic,
-): number {
+function compareDiagnostics(left: SourceAnalysisDiagnostic, right: SourceAnalysisDiagnostic): number {
     return (
         left.span.start - right.span.start ||
         left.span.end - right.span.end ||

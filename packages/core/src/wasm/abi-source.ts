@@ -37,13 +37,9 @@ function parseAssetRecord(source: string): WasmAbiSource["records"]["AssetEntry"
     let offset = 0;
     let structAlignment = 1;
     for (const declaration of body.split(";")) {
-        const match =
-            /^\s*(unsigned\s+(?:char|short|int|long\s+long)|long\s+long)\s+(\w+)\s*(?:\[\s*(\d+)\s*\])?\s*$/.exec(
-                declaration,
-            );
+        const match = /^\s*(unsigned\s+(?:char|short|int|long\s+long)|long\s+long)\s+(\w+)\s*(?:\[\s*(\d+)\s*\])?\s*$/.exec(declaration);
         if (!match) {
-            if (declaration.trim())
-                throw new Error(`unsupported AssetEntry field '${declaration.trim()}'`);
+            if (declaration.trim()) throw new Error(`unsupported AssetEntry field '${declaration.trim()}'`);
             continue;
         }
         const elementSize = typeSize[match[1].replace(/\s+/g, " ")];
@@ -56,8 +52,7 @@ function parseAssetRecord(source: string): WasmAbiSource["records"]["AssetEntry"
         structAlignment = Math.max(structAlignment, alignment);
     }
     const capacityMatch = /#define\s+WASM_ASSET_ENTRY_CAPACITY\s+(\d+)u?\b/.exec(source);
-    if (!capacityMatch)
-        throw new Error("core ABI metadata does not declare WASM_ASSET_ENTRY_CAPACITY");
+    if (!capacityMatch) throw new Error("core ABI metadata does not declare WASM_ASSET_ENTRY_CAPACITY");
     return {
         size: Math.ceil(offset / structAlignment) * structAlignment,
         capacity: Number(capacityMatch[1]),
@@ -71,30 +66,23 @@ export function parseWasmAbiSource(metadataSource: string, sharedAbiSource: stri
 
     const lhost: WasmAbiSource["lhost"] = [];
     for (const line of metadataSource.split(/\r?\n/)) {
-        const match =
-            /^\s*(?:GQ|GI|HQ|HI)\(\s*"([^"]+)"[\s\S]*"(\([iI]*\)[iI]?)"\s*\)\s*\\?\s*$/.exec(line);
+        const match = /^\s*(?:GQ|GI|HQ|HI)\(\s*"([^"]+)"[\s\S]*"(\([iI]*\)[iI]?)"\s*\)\s*\\?\s*$/.exec(line);
         if (!match) continue;
         lhost.push({ name: match[1], ...parseWamrSignature(match[2]) });
     }
     if (!lhost.length) throw new Error("core ABI metadata contains no LHOST rows");
-    const duplicateImport = lhost.find(
-        (row, index) => lhost.findIndex((other) => other.name === row.name) !== index,
-    );
+    const duplicateImport = lhost.find((row, index) => lhost.findIndex((other) => other.name === row.name) !== index);
     if (duplicateImport) throw new Error(`duplicate LHOST import '${duplicateImport.name}'`);
 
     const systemProcedures: WasmAbiSource["systemProcedures"] = [];
     for (const line of metadataSource.split(/\r?\n/)) {
         const match = /^\s*X\(\s*([A-Z0-9_]+)\s*,\s*(\d+)\s*,\s*(\w+)\s*,/.exec(line);
-        if (match)
-            systemProcedures.push({ name: match[1], id: Number(match[2]), method: match[3] });
+        if (match) systemProcedures.push({ name: match[1], id: Number(match[2]), method: match[3] });
     }
-    if (!systemProcedures.length)
-        throw new Error("core ABI metadata contains no system-procedure rows");
+    if (!systemProcedures.length) throw new Error("core ABI metadata contains no system-procedure rows");
     for (let index = 0; index < systemProcedures.length; index++) {
         if (systemProcedures[index].id !== index) {
-            throw new Error(
-                `ambiguous system-procedure order: ${systemProcedures[index].name} has id ${systemProcedures[index].id}, expected ${index}`,
-            );
+            throw new Error(`ambiguous system-procedure order: ${systemProcedures[index].name} has id ${systemProcedures[index].id}, expected ${index}`);
         }
     }
 

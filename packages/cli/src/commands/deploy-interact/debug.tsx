@@ -2,14 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-    DEFAULT_RPC_BASE,
-    LiteRpc,
-    resolveTrapBacktrace,
-    formatTrapBacktrace,
-    type DebugEntry,
-    type DynamicContractRegistryEntry,
-} from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry, type DynamicContractRegistryEntry } from "@qinit/core";
 import { describeTrace, type DecodedTrace } from "../../trace/format";
 import { entryLabel } from "../../trace/entry-label";
 import { TraceView, shownStateLines } from "../../trace/views";
@@ -46,39 +39,24 @@ type TickClock = { tick: number; chainMs: number; resolvedAt: number };
 function latestTickClock(tickTimes: Iterable<TickClock>): TickClock | undefined {
     let latest: TickClock | undefined;
     for (const tickTime of tickTimes) {
-        if (
-            !latest ||
-            tickTime.chainMs > latest.chainMs ||
-            (tickTime.chainMs === latest.chainMs && tickTime.tick > latest.tick)
-        ) {
+        if (!latest || tickTime.chainMs > latest.chainMs || (tickTime.chainMs === latest.chainMs && tickTime.tick > latest.tick)) {
             latest = tickTime;
         }
     }
     return latest;
 }
 
-export function mergeTraceEntries<T extends { seq: number }>(
-    previous: readonly T[],
-    incoming: readonly T[],
-    hidden: ReadonlySet<number>,
-): T[] {
-    const bySequence = new Map(
-        previous.filter((entry) => !hidden.has(entry.seq)).map((entry) => [entry.seq, entry]),
-    );
+export function mergeTraceEntries<T extends { seq: number }>(previous: readonly T[], incoming: readonly T[], hidden: ReadonlySet<number>): T[] {
+    const bySequence = new Map(previous.filter((entry) => !hidden.has(entry.seq)).map((entry) => [entry.seq, entry]));
     for (const entry of incoming) {
         if (!hidden.has(entry.seq)) {
             bySequence.set(entry.seq, entry);
         }
     }
-    return [...bySequence.values()]
-        .sort((left, right) => right.seq - left.seq)
-        .slice(0, TRACE_LIST_LIMIT);
+    return [...bySequence.values()].sort((left, right) => right.seq - left.seq).slice(0, TRACE_LIST_LIMIT);
 }
 
-export function traceSelectionIndex<T extends { seq: number }>(
-    entries: readonly T[],
-    selectedSeq: number | null,
-): number {
+export function traceSelectionIndex<T extends { seq: number }>(entries: readonly T[], selectedSeq: number | null): number {
     if (!entries.length) {
         return 0;
     }
@@ -168,13 +146,8 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
                 const t = await rpc.debugTrace(since.current, 200);
                 if (!alive || !t.entries.length) return;
-                since.current = t.entries.reduce(
-                    (latest, entry) => Math.max(latest, entry.seq),
-                    since.current,
-                );
-                setEntries((previous) =>
-                    mergeTraceEntries(previous, t.entries, hiddenSeqs.current),
-                );
+                since.current = t.entries.reduce((latest, entry) => Math.max(latest, entry.seq), since.current);
+                setEntries((previous) => mergeTraceEntries(previous, t.entries, hiddenSeqs.current));
             } catch (e: any) {
                 setErr(String(e?.message ?? e));
             }
@@ -188,13 +161,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
         };
     }, []);
 
-    const list = target
-        ? entries.filter(
-              (entry) =>
-                  nameOf(entry.index).toLowerCase() === target.toLowerCase() ||
-                  String(entry.index) === target,
-          )
-        : entries;
+    const list = target ? entries.filter((entry) => nameOf(entry.index).toLowerCase() === target.toLowerCase() || String(entry.index) === target) : entries;
     visibleEntriesRef.current = list;
 
     // The frame is pinned to the terminal, so both panes are sized from what is left under the chrome.
@@ -209,13 +176,8 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     const start = Math.max(0, Math.min(selectedIndex - (listRows >> 1), list.length - listRows));
     const win = list.slice(start, start + listRows);
 
-    const timestampTicks = [
-        ...new Set([entries[0]?.tick, ...win.map((entry) => entry.tick)]),
-    ].filter(
-        (tick): tick is number =>
-            tick != null &&
-            !tickTimes.has(tick) &&
-            (tickTimeAttempts.current.get(tick) ?? 0) < TICK_TIME_ATTEMPTS,
+    const timestampTicks = [...new Set([entries[0]?.tick, ...win.map((entry) => entry.tick)])].filter(
+        (tick): tick is number => tick != null && !tickTimes.has(tick) && (tickTimeAttempts.current.get(tick) ?? 0) < TICK_TIME_ATTEMPTS,
     );
     const timestampKey = timestampTicks.join(",");
 
@@ -239,9 +201,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                     const seconds = Number(timestamp);
                     return [
                         tick,
-                        timestamp && Number.isFinite(seconds) && seconds > 0
-                            ? { tick, chainMs: seconds * 1000, resolvedAt: performance.now() }
-                            : null,
+                        timestamp && Number.isFinite(seconds) && seconds > 0 ? { tick, chainMs: seconds * 1000, resolvedAt: performance.now() } : null,
                     ] as const;
                 } catch {
                     return [tick, null] as const;
@@ -249,9 +209,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
             }),
         ).then((resolved) => {
             if (!mounted.current) return;
-            const found = resolved.filter(
-                (result): result is readonly [number, TickClock] => result[1] != null,
-            );
+            const found = resolved.filter((result): result is readonly [number, TickClock] => result[1] != null);
             if (found.length) {
                 setTickTimes((previous) => {
                     const next = new Map(previous);
@@ -259,12 +217,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                     return next;
                 });
             }
-            if (
-                resolved.some(
-                    ([tick, tickTime]) =>
-                        !tickTime && (tickTimeAttempts.current.get(tick) ?? 0) < TICK_TIME_ATTEMPTS,
-                )
-            ) {
+            if (resolved.some(([tick, tickTime]) => !tickTime && (tickTimeAttempts.current.get(tick) ?? 0) < TICK_TIME_ATTEMPTS)) {
                 setTimeout(() => {
                     if (mounted.current) setTickTimeRetry((retry) => retry + 1);
                 }, TRACE_POLL_MS);
@@ -279,21 +232,15 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
         }
         setTickTimes((previous) => {
             const anchor = latestTickClock(previous.values());
-            if (
-                [...previous.keys()].every((tick) => activeTicks.has(tick) || tick === anchor?.tick)
-            ) {
+            if ([...previous.keys()].every((tick) => activeTicks.has(tick) || tick === anchor?.tick)) {
                 return previous;
             }
-            return new Map(
-                [...previous].filter(([tick]) => activeTicks.has(tick) || tick === anchor?.tick),
-            );
+            return new Map([...previous].filter(([tick]) => activeTicks.has(tick) || tick === anchor?.tick));
         });
     }, [entries]);
 
     const clockAnchor = latestTickClock(tickTimes.values());
-    const chainNowMs = clockAnchor
-        ? clockAnchor.chainMs + Math.max(0, performance.now() - clockAnchor.resolvedAt)
-        : undefined;
+    const chainNowMs = clockAnchor ? clockAnchor.chainMs + Math.max(0, performance.now() - clockAnchor.resolvedAt) : undefined;
 
     // isActive=false in a non-TTY (CI/pipe) → Ink skips raw mode instead of throwing; still renders + polls.
     useInput(
@@ -321,9 +268,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                 hiddenSeqs.current.add(entry.seq);
                 const remaining = visible.filter((candidate) => candidate.seq !== entry.seq);
                 visibleEntriesRef.current = remaining;
-                setEntries((previous) =>
-                    previous.filter((candidate) => candidate.seq !== entry.seq),
-                );
+                setEntries((previous) => previous.filter((candidate) => candidate.seq !== entry.seq));
                 const nextIndex = Math.min(index, remaining.length - 1);
                 select(nextIndex <= 0 ? null : (remaining[nextIndex]?.seq ?? null));
             }
@@ -337,8 +282,8 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
         <Box flexDirection="column" height={rows - 1}>
             <Header cmd="debug" />
             <Text dimColor wrap="truncate-end">
-                {enabled ? "● capturing" : "toggle off"} · {list.length} calls · ↑/↓ select · x hide
-                · ctrl+t {showInternals ? "hide" : "show"} internals · q quit
+                {enabled ? "● capturing" : "toggle off"} · {list.length} calls · ↑/↓ select · x hide · ctrl+t {showInternals ? "hide" : "show"} internals · q
+                quit
                 {err ? "   err: " + err : ""}
             </Text>
             {list.length === 0 ? (
@@ -352,9 +297,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                     )}
                     <Text dimColor>
                         {" "}
-                        invoke a contract from another terminal:{" "}
-                        <Text color={theme.info}>qinit call</Text> (or{" "}
-                        <Text color={theme.info}>qinit deploy</Text>)
+                        invoke a contract from another terminal: <Text color={theme.info}>qinit call</Text> (or <Text color={theme.info}>qinit deploy</Text>)
                     </Text>
                 </Box>
             ) : (
@@ -464,18 +407,14 @@ function Detail({
         e.hostCalls.length +
         (e.trap ? 1 : 0);
     // A trap backtrace takes at most half of what is left, so it can never crowd out the state diff.
-    const btLines = bt
-        ? bt.split("\n").slice(0, Math.max(0, Math.floor((bodyRows - fixedRows) / 2)))
-        : [];
+    const btLines = bt ? bt.split("\n").slice(0, Math.max(0, Math.floor((bodyRows - fixedRows) / 2))) : [];
     const stateRows = Math.max(1, bodyRows - fixedRows - btLines.length - (btLines.length ? 1 : 0));
     const changed = v ? shownStateLines(v.stateDiff, showInternals).length : 0;
 
     useInput(
         (_, key) => {
             if (key.pageDown) {
-                setStateOffset((offset) =>
-                    Math.min(offset + stateRows, Math.max(0, changed - stateRows)),
-                );
+                setStateOffset((offset) => Math.min(offset + stateRows, Math.max(0, changed - stateRows)));
             } else if (key.pageUp) {
                 setStateOffset((offset) => Math.max(0, offset - stateRows));
             }

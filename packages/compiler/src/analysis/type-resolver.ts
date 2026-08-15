@@ -4,11 +4,7 @@ import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
 
-export function sizeOfType(
-    programAnalysis: ProgramAnalysis,
-    type: TypeSpec,
-    templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
-): number {
+export function sizeOfType(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {
     // Guard against recursive/self-referential types (a struct reachable from its own field).
     if (programAnalysis.sizeDepth > 80) {
         programAnalysis.warn("type nesting too deep / recursive — sized as 0", 0);
@@ -22,13 +18,8 @@ export function sizeOfType(
     }
 }
 
-export function sizeOfTypeInner(
-    programAnalysis: ProgramAnalysis,
-    type: TypeSpec,
-    templateBindings: TemplateBindings,
-): number {
-    if (type.kind === AstKind.CONST)
-        return programAnalysis.sizeOfType(type.valueType, templateBindings);
+export function sizeOfTypeInner(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings): number {
+    if (type.kind === AstKind.CONST) return programAnalysis.sizeOfType(type.valueType, templateBindings);
     if (type.kind === AstKind.REFERENCE || type.kind === AstKind.POINTER) return 4;
     if (type.kind === AstKind.VOID) return 0;
     if (type.kind === AstKind.ARRAY) {
@@ -39,16 +30,13 @@ export function sizeOfTypeInner(
         return programAnalysis.layoutOfStruct(type.struct, templateBindings).size;
     }
     if (type.kind === AstKind.NAME) {
-        const baseName = type.name.includes("::")
-            ? type.name.slice(type.name.lastIndexOf("::") + 2)
-            : type.name;
+        const baseName = type.name.includes("::") ? type.name.slice(type.name.lastIndexOf("::") + 2) : type.name;
         // template parameter bound to a concrete type?
         const bound = templateBindings.types.get(type.name) ?? templateBindings.types.get(baseName);
         if (bound) return programAnalysis.sizeOfType(bound, templateBindings);
         const size = SCALAR_SIZE[type.name] ?? SCALAR_SIZE[baseName];
         if (size !== undefined) return size;
-        const td =
-            programAnalysis.typedefs.get(type.name) ?? programAnalysis.typedefs.get(baseName);
+        const td = programAnalysis.typedefs.get(type.name) ?? programAnalysis.typedefs.get(baseName);
         if (td) return programAnalysis.sizeOfType(td, templateBindings);
         const struct = programAnalysis.structByName(type.name, templateBindings);
         if (struct) return programAnalysis.layoutOfStruct(struct, templateBindings).size;
@@ -57,22 +45,18 @@ export function sizeOfTypeInner(
         // asset iterators occupy their 8-byte runtime shape (count @0, cursor @4) wherever they live
         if (/Asset(Ownership|Possession)Iterator$/.test(type.name)) return 8;
         // an enum type: sized by its declared underlying type (enum class X : uint8 → 1), default int
-        const es =
-            programAnalysis.enumSize.get(type.name) ??
-            programAnalysis.enumSize.get(type.name.split("::").pop()!);
+        const es = programAnalysis.enumSize.get(type.name) ?? programAnalysis.enumSize.get(type.name.split("::").pop()!);
         if (es !== undefined) return es;
         const num = parseInt(type.name);
         if (!isNaN(num)) return num; // shouldn't happen for a type, defensive
         return 4; // assume enum-sized
     }
     if (type.kind === AstKind.TEMPLATE_INSTANCE) {
-        return programAnalysis.layoutOfTemplate(type.name, type.callArguments, templateBindings)
-            .size;
+        return programAnalysis.layoutOfTemplate(type.name, type.callArguments, templateBindings).size;
     }
     if (type.kind === AstKind.DEPENDENT_MEMBER) {
         const resolvedMember = programAnalysis.resolveDependentMember(type, templateBindings);
-        if (resolvedMember)
-            return programAnalysis.sizeOfType(resolvedMember.type, resolvedMember.bindings);
+        if (resolvedMember) return programAnalysis.sizeOfType(resolvedMember.type, resolvedMember.bindings);
         return 0;
     }
     return 0;
@@ -93,11 +77,7 @@ export function resolveDependentMember(
 } | null {
     const base = type.base;
     if (base.kind !== AstKind.TEMPLATE_INSTANCE) return null;
-    const inst = programAnalysis.instantiateTemplate(
-        base.name,
-        base.callArguments,
-        templateBindings,
-    );
+    const inst = programAnalysis.instantiateTemplate(base.name, base.callArguments, templateBindings);
     if (!inst) return null;
     for (const member of inst.templateDeclaration.members) {
         if (member.kind === AstKind.TYPEDEF_DECL && (member as any).name === type.member) {
@@ -107,12 +87,7 @@ export function resolveDependentMember(
     return null;
 }
 
-export function resolveType(
-    programAnalysis: ProgramAnalysis,
-    type: TypeSpec,
-    templateBindings: TemplateBindings,
-    depth = 0,
-): TypeSpec {
+export function resolveType(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings, depth = 0): TypeSpec {
     if (depth > 24 || type.kind !== AstKind.NAME) return type;
     const bound = templateBindings.types.get(type.name);
     if (bound && !(bound.kind === AstKind.NAME && bound.name === type.name)) {
@@ -135,16 +110,11 @@ export function concreteMemberType(
     },
     depth = 0,
 ): TypeSpec {
-    const inst = programAnalysis.instantiateTemplate(
-        parent.name,
-        parent.callArguments,
-        EMPTY_TEMPLATE_BINDINGS,
-    );
+    const inst = programAnalysis.instantiateTemplate(parent.name, parent.callArguments, EMPTY_TEMPLATE_BINDINGS);
     if (!inst) return type;
     const nested = new Map<string, TypeSpec>();
     for (const member of inst.templateDeclaration.members) {
-        if (member.kind === AstKind.TYPEDEF_DECL)
-            nested.set((member as any).name, (member as any).type);
+        if (member.kind === AstKind.TYPEDEF_DECL) nested.set((member as any).name, (member as any).type);
     }
     return programAnalysis.resolveInScope(type, inst.b, nested, depth);
 }
@@ -174,12 +144,7 @@ export function resolveInScope(
         return programAnalysis.resolveNamedTypeInScope(type, scope, nested, depth);
     }
     if (type.kind === AstKind.TEMPLATE_INSTANCE) {
-        const resolvedCallArguments = programAnalysis.resolveTemplateInstanceArguments(
-            type,
-            scope,
-            nested,
-            depth,
-        );
+        const resolvedCallArguments = programAnalysis.resolveTemplateInstanceArguments(type, scope, nested, depth);
         return {
             kind: AstKind.TEMPLATE_INSTANCE,
             name: type.name,
@@ -242,30 +207,17 @@ export function resolveTemplateInstanceArguments(
     });
 }
 
-export function substInBindings(
-    programAnalysis: ProgramAnalysis,
-    type: TypeSpec,
-    bind: TemplateBindings,
-): TypeSpec {
+export function substInBindings(programAnalysis: ProgramAnalysis, type: TypeSpec, bind: TemplateBindings): TypeSpec {
     return programAnalysis.resolveInScope(type, bind, new Map(), 0);
 }
 
-export function valueOfTypeArg(
-    programAnalysis: ProgramAnalysis,
-    type: TypeSpec,
-    templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
-): bigint {
+export function valueOfTypeArg(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): bigint {
     return programAnalysis.evalConstFromType(type, templateBindings);
 }
 
-export function evalConstFromType(
-    programAnalysis: ProgramAnalysis,
-    type: TypeSpec,
-    templateBindings: TemplateBindings,
-): bigint {
+export function evalConstFromType(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings): bigint {
     // A non-type template arg arrives as a TypeSpec; recover its integer value.
-    if (type.kind === AstKind.EXPR_VALUE)
-        return programAnalysis.evalConstBig(type.expression, templateBindings);
+    if (type.kind === AstKind.EXPR_VALUE) return programAnalysis.evalConstBig(type.expression, templateBindings);
     if (type.kind === AstKind.NAME) {
         const numericValue = templateBindings.values.get(type.name);
         if (numericValue !== undefined) return numericValue;
@@ -280,8 +232,7 @@ export function evalConstFromType(
 
 export function typeKey(programAnalysis: ProgramAnalysis, type: TypeSpec): string {
     if (type.kind === AstKind.NAME) return type.name;
-    if (type.kind === AstKind.TEMPLATE_INSTANCE)
-        return `${type.name}<${type.callArguments.map((argument) => programAnalysis.typeKey(argument)).join(",")}>`;
+    if (type.kind === AstKind.TEMPLATE_INSTANCE) return `${type.name}<${type.callArguments.map((argument) => programAnalysis.typeKey(argument)).join(",")}>`;
     if (type.kind === AstKind.CONST) return "c" + programAnalysis.typeKey(type.valueType);
     if (type.kind === AstKind.ARRAY) return `${programAnalysis.typeKey(type.element)}[]`;
     if (type.kind === AstKind.POINTER) return "*";
@@ -305,35 +256,17 @@ export function derefType(programAnalysis: ProgramAnalysis, type: TypeSpec): Typ
 
 export function isVoidType(programAnalysis: ProgramAnalysis, type: TypeSpec): boolean {
     const dereferencedType = programAnalysis.derefType(type);
-    return (
-        dereferencedType.kind === AstKind.VOID ||
-        (dereferencedType.kind === AstKind.NAME && dereferencedType.name === "void")
-    );
+    return dereferencedType.kind === AstKind.VOID || (dereferencedType.kind === AstKind.NAME && dereferencedType.name === "void");
 }
 
 export function isAggregateType(programAnalysis: ProgramAnalysis, type: TypeSpec): boolean {
     if (type.kind === AstKind.CONST) return programAnalysis.isAggregateType(type.valueType);
     if (type.kind === AstKind.REFERENCE) return programAnalysis.isAggregateType(type.referentType);
-    if (
-        type.kind === AstKind.ARRAY ||
-        type.kind === AstKind.INLINE_STRUCT ||
-        type.kind === AstKind.TEMPLATE_INSTANCE
-    )
-        return true;
+    if (type.kind === AstKind.ARRAY || type.kind === AstKind.INLINE_STRUCT || type.kind === AstKind.TEMPLATE_INSTANCE) return true;
     if (type.kind === AstKind.NAME) {
-        const baseName = type.name.includes("::")
-            ? type.name.slice(type.name.lastIndexOf("::") + 2)
-            : type.name;
-        if (
-            baseName === "id" ||
-            baseName === "m256i" ||
-            baseName === "__m256i" ||
-            baseName === "uint128" ||
-            baseName === "uint128_t"
-        )
-            return true;
-        if (SCALAR_SIZE[type.name] !== undefined || SCALAR_SIZE[baseName] !== undefined)
-            return false;
+        const baseName = type.name.includes("::") ? type.name.slice(type.name.lastIndexOf("::") + 2) : type.name;
+        if (baseName === "id" || baseName === "m256i" || baseName === "__m256i" || baseName === "uint128" || baseName === "uint128_t") return true;
+        if (SCALAR_SIZE[type.name] !== undefined || SCALAR_SIZE[baseName] !== undefined) return false;
         return programAnalysis.layoutOfType(type) !== null;
     }
     return false;

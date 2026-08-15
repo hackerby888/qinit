@@ -16,9 +16,7 @@ import {
     splitCompileArgs,
 } from "../../src/member-fallback";
 
-const BUNDLED_CORE =
-    process.env.QPI_VSCODE_HEADERS ??
-    resolve(import.meta.dir, "..", "..", "resources", "core-headers");
+const BUNDLED_CORE = process.env.QPI_VSCODE_HEADERS ?? resolve(import.meta.dir, "..", "..", "resources", "core-headers");
 const hasHeaders = existsSync(join(BUNDLED_CORE, "src", "qpi", "qpi.h"));
 const hasClang = (() => {
     for (const candidate of [process.env.WASM_CLANG, "clang++"]) {
@@ -121,12 +119,7 @@ test("compileEntryFor finds the entry recorded next to the prefix", () => {
     const dir = mkdtempSync(join(tmpdir(), "qpi-fallback-db-"));
     try {
         const prefixPath = join(dir, "CrossCall.prefix.h");
-        writeFileSync(
-            join(dir, "compile_commands.json"),
-            JSON.stringify([
-                { directory: dir, file: "/ws/contracts/CrossCall.h", arguments: DB_ARGS },
-            ]),
-        );
+        writeFileSync(join(dir, "compile_commands.json"), JSON.stringify([{ directory: dir, file: "/ws/contracts/CrossCall.h", arguments: DB_ARGS }]));
 
         expect(compileEntryFor(prefixPath, "/ws/contracts/CrossCall.h")?.args).toEqual(DB_ARGS);
         expect(compileEntryFor(prefixPath, "/ws/contracts/Other.h")).toBeUndefined();
@@ -202,8 +195,7 @@ test.if(hasHeaders && hasClang)(
                 dynCallees: { Counter: { header: counterPath, index: 29 } },
             });
 
-            const markerLine =
-                "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
+            const markerLine = "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
             const probeLine = "    locals.gi.";
             const buffer = CROSSCALL_SOURCE.replace(markerLine, `${markerLine}\n${probeLine}`);
             const line = buffer.split("\n").findIndex((text) => text === probeLine);
@@ -251,8 +243,7 @@ test.if(hasHeaders && hasClang)(
                 dynCallees: { Counter: { header: counterPath, index: 29 } },
             });
 
-            const markerLine =
-                "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
+            const markerLine = "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
             const probeLine = "    locals.gi.a";
             const buffer = CROSSCALL_SOURCE.replace(markerLine, `${markerLine}\n${probeLine}`);
             const request = {
@@ -271,9 +262,7 @@ test.if(hasHeaders && hasClang)(
             expect(completionRunsForTests()).toBe(runs + 1);
 
             // The same member expression, asked again: answered from the last result, without a clang run.
-            expect((await memberFallbackCompletions(request))?.map((item) => item.name)).toEqual(
-                names!,
-            );
+            expect((await memberFallbackCompletions(request))?.map((item) => item.name)).toEqual(names!);
             expect(completionRunsForTests()).toBe(runs + 1);
 
             // A cancelled run comes back empty; keeping that would answer its member expression with
@@ -284,9 +273,7 @@ test.if(hasHeaders && hasClang)(
                 onCancellationRequested: () => ({ dispose: () => {} }),
             };
             expect(await memberFallbackCompletions({ ...outer, cancel: aborted })).toBeUndefined();
-            expect((await memberFallbackCompletions(outer))?.map((item) => item.name)).toContain(
-                "gi",
-            );
+            expect((await memberFallbackCompletions(outer))?.map((item) => item.name)).toContain("gi");
         } finally {
             rmSync(workspace, { recursive: true, force: true });
         }
@@ -328,8 +315,7 @@ test.if(hasHeaders && hasClang)(
             });
             expect(calleeConfig.prefixPath).not.toBe(callerConfig.prefixPath);
 
-            const markerLine =
-                "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
+            const markerLine = "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
             const probeLine = "    locals.gi.";
             const buffer = CROSSCALL_SOURCE.replace(markerLine, `${markerLine}\n${probeLine}`);
             const line = buffer.split("\n").findIndex((text) => text === probeLine);
@@ -376,8 +362,7 @@ test.if(hasHeaders && hasClang)(
                     dynCallees: { Counter: { header: counterPath, index: 29 } },
                 });
 
-            const markerLine =
-                "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
+            const markerLine = "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
             const probeLine = "    locals.gi.";
             const buffer = CROSSCALL_SOURCE.replace(markerLine, `${markerLine}\n${probeLine}`);
             const line = buffer.split("\n").findIndex((text) => text === probeLine);
@@ -395,10 +380,7 @@ test.if(hasHeaders && hasClang)(
             const first = generate();
             expect(await complete(first.prefixPath, first.contractFile)).toContain("bc");
 
-            writeFileSync(
-                counterPath,
-                COUNTER_SOURCE.replace("sint16 a;", "sint16 a;\n    sint16 zz;"),
-            );
+            writeFileSync(counterPath, COUNTER_SOURCE.replace("sint16 a;", "sint16 a;\n    sint16 zz;"));
             const second = generate();
             const labels = await complete(second.prefixPath, second.contractFile);
             expect(labels).toContain("zz");
@@ -434,8 +416,7 @@ test.if(hasHeaders && hasClang)(
                 dynCallees: { Counter: { header: counterPath, index: 29 } },
             });
 
-            const markerLine =
-                "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
+            const markerLine = "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
             const probeLine = "    locals.gi.";
             const buffer = CROSSCALL_SOURCE.replace(markerLine, `${markerLine}\n${probeLine}`);
             const line = buffer.split("\n").findIndex((text) => text === probeLine);
@@ -447,9 +428,7 @@ test.if(hasHeaders && hasClang)(
                 character: probeLine.length,
             };
 
-            expect((await memberFallbackCompletions(request))?.map((item) => item.name)).toContain(
-                "bc",
-            );
+            expect((await memberFallbackCompletions(request))?.map((item) => item.name)).toContain("bc");
 
             // Rewriting the PCH's own source with identical bytes moves its mtime, which is exactly what
             // clang refuses to load — without changing anything the cache key hashes.

@@ -1,27 +1,16 @@
 import { InspectedMemoryMode, WasmExternalKind, WasmMemorySource } from "../../shared/enums";
-import type {
-    InspectedWasmExport,
-    InspectedWasmMemory,
-    WasmFunctionSignature,
-} from "./inspection-types";
+import type { InspectedWasmExport, InspectedWasmMemory, WasmFunctionSignature } from "./inspection-types";
 import { WASM_MODULE_EXPORT_ABI } from "./inspection-types";
 import type { ParsedModule } from "./parsed-module";
 import { error } from "./binary-reader";
 
-export function sameSignature(
-    argument: WasmFunctionSignature | undefined,
-    templateBindings: WasmFunctionSignature,
-): boolean {
+export function sameSignature(argument: WasmFunctionSignature | undefined, templateBindings: WasmFunctionSignature): boolean {
     return (
         !!argument &&
         argument.params.length === templateBindings.params.length &&
         argument.results.length === templateBindings.results.length &&
-        argument.params.every(
-            (value, parameterIndex) => value === templateBindings.params[parameterIndex],
-        ) &&
-        argument.results.every(
-            (value, resultIndex) => value === templateBindings.results[resultIndex],
-        )
+        argument.params.every((value, parameterIndex) => value === templateBindings.params[parameterIndex]) &&
+        argument.results.every((value, resultIndex) => value === templateBindings.results[resultIndex])
     );
 }
 
@@ -38,19 +27,12 @@ export function classifyMemory(memories: readonly InspectedWasmMemory[]): Inspec
     return imported ? InspectedMemoryMode.IMPORTED : InspectedMemoryMode.DEFINED;
 }
 
-export function validateImports(
-    parsed: ParsedModule,
-    lhostAbi: Readonly<Record<string, WasmFunctionSignature>>,
-): void {
+export function validateImports(parsed: ParsedModule, lhostAbi: Readonly<Record<string, WasmFunctionSignature>>): void {
     for (const imported of parsed.imports) {
         if (imported.module === "lhost" && imported.kind === WasmExternalKind.FUNCTION) {
             const expected = lhostAbi[imported.name];
             if (!expected) {
-                error(
-                    parsed.diagnostics,
-                    "unknown-import",
-                    `unknown lhost import '${imported.name}'`,
-                );
+                error(parsed.diagnostics, "unknown-import", `unknown lhost import '${imported.name}'`);
             } else if (!sameSignature(imported.signature, expected)) {
                 error(
                     parsed.diagnostics,
@@ -60,17 +42,8 @@ export function validateImports(
             }
             continue;
         }
-        if (
-            imported.module === "env" &&
-            imported.name === "memory" &&
-            imported.kind === WasmExternalKind.MEMORY
-        )
-            continue;
-        error(
-            parsed.diagnostics,
-            "unknown-import",
-            `unsupported import '${imported.module}.${imported.name}' (${imported.kind})`,
-        );
+        if (imported.module === "env" && imported.name === "memory" && imported.kind === WasmExternalKind.MEMORY) continue;
+        error(parsed.diagnostics, "unknown-import", `unsupported import '${imported.module}.${imported.name}' (${imported.kind})`);
     }
 }
 
@@ -82,57 +55,27 @@ export function validateExports(parsed: ParsedModule, mode: InspectedMemoryMode)
         byName.set(exported.name, values);
     }
     for (const [name, values] of byName) {
-        if (values.length > 1)
-            error(
-                parsed.diagnostics,
-                "duplicate-export",
-                `export '${name}' appears ${values.length} times`,
-            );
+        if (values.length > 1) error(parsed.diagnostics, "duplicate-export", `export '${name}' appears ${values.length} times`);
     }
     for (const [name, expected] of Object.entries(WASM_MODULE_EXPORT_ABI)) {
         const exported = byName.get(name)?.[0];
         if (!exported) {
-            error(
-                parsed.diagnostics,
-                "missing-export",
-                `missing required function export '${name}'`,
-            );
+            error(parsed.diagnostics, "missing-export", `missing required function export '${name}'`);
         } else if (exported.kind !== WasmExternalKind.FUNCTION) {
-            error(
-                parsed.diagnostics,
-                "export-kind",
-                `export '${name}' is ${exported.kind}; expected function`,
-            );
+            error(parsed.diagnostics, "export-kind", `export '${name}' is ${exported.kind}; expected function`);
         } else if (!sameSignature(exported.signature, expected)) {
-            error(
-                parsed.diagnostics,
-                "export-signature",
-                `export '${name}' has ${formatSignature(exported.signature)}; expected ${formatSignature(expected)}`,
-            );
+            error(parsed.diagnostics, "export-signature", `export '${name}' has ${formatSignature(exported.signature)}; expected ${formatSignature(expected)}`);
         }
     }
-    if (byName.has("arena_top"))
-        error(parsed.diagnostics, "legacy-export", "legacy export 'arena_top' is not supported");
+    if (byName.has("arena_top")) error(parsed.diagnostics, "legacy-export", "legacy export 'arena_top' is not supported");
     if (mode === InspectedMemoryMode.DEFINED) {
         const memory = byName.get("memory")?.[0];
         if (!memory) {
-            error(
-                parsed.diagnostics,
-                "missing-export",
-                "defined-memory contracts must export 'memory'",
-            );
+            error(parsed.diagnostics, "missing-export", "defined-memory contracts must export 'memory'");
         } else if (memory.kind !== WasmExternalKind.MEMORY) {
-            error(
-                parsed.diagnostics,
-                "export-kind",
-                `export 'memory' is ${memory.kind}; expected memory`,
-            );
+            error(parsed.diagnostics, "export-kind", `export 'memory' is ${memory.kind}; expected memory`);
         } else if (parsed.memories[memory.index]?.source !== WasmMemorySource.DEFINED) {
-            error(
-                parsed.diagnostics,
-                "memory-export",
-                "export 'memory' does not refer to the defined contract memory",
-            );
+            error(parsed.diagnostics, "memory-export", "export 'memory' does not refer to the defined contract memory");
         }
     }
 }

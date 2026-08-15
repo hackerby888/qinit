@@ -27,9 +27,7 @@ const res = await browser.compileContract({
     slot: 27,
     arenaSizeBytes: 1 << 20,
 });
-const errors = res.diagnostics.filter(
-    (diagnostic: { severity: string }) => diagnostic.severity === browser.DiagnosticSeverity.ERROR,
-);
+const errors = res.diagnostics.filter((diagnostic: { severity: string }) => diagnostic.severity === browser.DiagnosticSeverity.ERROR);
 if (errors.length || res.wasm.byteLength === 0) {
     console.error("browser bundle compile failed:", errors);
     process.exit(1);

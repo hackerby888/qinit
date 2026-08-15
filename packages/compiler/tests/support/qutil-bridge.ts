@@ -6,12 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { wasiToolchain } from "./container-toolchains";
 import { runContractTesting } from "@qinit/engine";
-import {
-    compileContract,
-    loadQpiHeader,
-    type CompileResult,
-    type ContractIdl,
-} from "../../src/index";
+import { compileContract, loadQpiHeader, type CompileResult, type ContractIdl } from "../../src/index";
 import { buildContractWithWasiClang, buildCorpusRunner } from "@qinit/build";
 
 export const CORE = CORE_PATH;
@@ -63,9 +58,7 @@ export async function buildRunner(core: string): Promise<Uint8Array> {
 }
 
 // Compile QUTIL and QX with the TS compiler, including QX as a callee.
-export async function buildContractsWithTypeScript(
-    core: string,
-): Promise<Record<number, Uint8Array>> {
+export async function buildContractsWithTypeScript(core: string): Promise<Record<number, Uint8Array>> {
     const headers = loadQpiHeader(core);
     const qutilSrc = readFileSync(`${core}/src/contracts/QUtil.h`, "utf8");
     const qxSrc = readFileSync(`${core}/src/contracts/Qx.h`, "utf8");
@@ -92,14 +85,8 @@ export async function buildContractsWithTypeScript(
     const qxErrs = mineQx.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
     const qutilErrs = mineQutil.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
     if (qxErrs.length || qutilErrs.length) {
-        const fmt = (label: string, ds: typeof qxErrs) =>
-            ds.map((d) => `  ${label} L${d.span.line}: ${d.message}`).join("\n");
-        throw new Error(
-            "TypeScript compile errors:\n" +
-                fmt("QX", qxErrs) +
-                (qxErrs.length && qutilErrs.length ? "\n" : "") +
-                fmt("QUTIL", qutilErrs),
-        );
+        const fmt = (label: string, ds: typeof qxErrs) => ds.map((d) => `  ${label} L${d.span.line}: ${d.message}`).join("\n");
+        throw new Error("TypeScript compile errors:\n" + fmt("QX", qxErrs) + (qxErrs.length && qutilErrs.length ? "\n" : "") + fmt("QUTIL", qutilErrs));
     }
     return { [QUTIL_IDX]: mineQutil.wasm, [QX_IDX]: mineQx.wasm };
 }
@@ -120,9 +107,7 @@ export async function buildContractsWithClang(core: string): Promise<Record<numb
             skipVerify: true,
         });
         if (!qx.ok) {
-            throw new Error(
-                "Clang QX build failed:\n" + (qx.stderr ?? "").split("\n").slice(-15).join("\n"),
-            );
+            throw new Error("Clang QX build failed:\n" + (qx.stderr ?? "").split("\n").slice(-15).join("\n"));
         }
 
         const qutil = await buildContractWithWasiClang({
@@ -136,10 +121,7 @@ export async function buildContractsWithClang(core: string): Promise<Record<numb
             skipVerify: true,
         });
         if (!qutil.ok) {
-            throw new Error(
-                "Clang QUTIL build failed:\n" +
-                    (qutil.stderr ?? "").split("\n").slice(-15).join("\n"),
-            );
+            throw new Error("Clang QUTIL build failed:\n" + (qutil.stderr ?? "").split("\n").slice(-15).join("\n"));
         }
 
         const qxBytes = new Uint8Array(readFileSync(qx.wasmPath!));
@@ -151,9 +133,6 @@ export async function buildContractsWithClang(core: string): Promise<Record<numb
 }
 
 // Run the shared test runner against a deployed contract set.
-export async function runUpstream(
-    runnerWasm: Uint8Array,
-    contracts: Record<number, Uint8Array>,
-): Promise<TR[]> {
+export async function runUpstream(runnerWasm: Uint8Array, contracts: Record<number, Uint8Array>): Promise<TR[]> {
     return runContractTesting(runnerWasm, contracts);
 }

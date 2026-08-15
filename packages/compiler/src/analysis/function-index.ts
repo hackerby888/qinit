@@ -3,11 +3,7 @@ import { EMPTY_TEMPLATE_BINDINGS, ResolvedSourceMethod, TemplateBindings } from 
 import type { TypeSpec, FunctionDecl, FunctionTemplateDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
 
-export function methodOwnerNames(
-    programAnalysis: ProgramAnalysis,
-    name: string,
-    seen = new Set<string>(),
-): string[] {
+export function methodOwnerNames(programAnalysis: ProgramAnalysis, name: string, seen = new Set<string>()): string[] {
     const bare = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
     if (seen.has(bare)) return [];
     seen.add(bare);
@@ -32,17 +28,10 @@ export function baseTemplateName(type: TypeSpec): string | null {
     return null;
 }
 
-export function hasInstanceMethod(
-    programAnalysis: ProgramAnalysis,
-    name: string,
-    methodName: string,
-): boolean {
+export function hasInstanceMethod(programAnalysis: ProgramAnalysis, name: string, methodName: string): boolean {
     return programAnalysis.methodOwnerNames(name).some((owner) => {
         const methods = programAnalysis.templateMethods.get(owner);
-        return (
-            methods?.has(methodName) ||
-            [...(methods?.keys() ?? [])].some((key) => key.startsWith(`${methodName}/`))
-        );
+        return methods?.has(methodName) || [...(methods?.keys() ?? [])].some((key) => key.startsWith(`${methodName}/`));
     });
 }
 
@@ -55,11 +44,7 @@ export function resolveSourceMethodDefinition(
     parameterTypeDiscriminator?: string,
 ): ResolvedSourceMethod | null {
     const ownerBindings = programAnalysis.bindContainer(ownerTypeName, ownerTemplateArguments);
-    const templateInstance = programAnalysis.instantiateTemplate(
-        ownerTypeName,
-        ownerTemplateArguments,
-        EMPTY_TEMPLATE_BINDINGS,
-    );
+    const templateInstance = programAnalysis.instantiateTemplate(ownerTypeName, ownerTemplateArguments, EMPTY_TEMPLATE_BINDINGS);
 
     if (templateInstance) {
         const inlineMethodCandidates = templateInstance.templateDeclaration.members.filter(
@@ -69,17 +54,13 @@ export function resolveSourceMethodDefinition(
                 (member as FunctionDecl | FunctionTemplateDecl).body,
         ) as Array<FunctionDecl | FunctionTemplateDecl>;
         const parametersOf = (method: FunctionDecl | FunctionTemplateDecl) =>
-            method.kind === AstKind.FUNCTION_TEMPLATE
-                ? (method.functionParameters ?? [])
-                : method.params;
+            method.kind === AstKind.FUNCTION_TEMPLATE ? (method.functionParameters ?? []) : method.params;
 
         let selectedInlineMethod = inlineMethodCandidates[0];
 
         if (methodArgumentCount !== undefined && inlineMethodCandidates.length > 1) {
             selectedInlineMethod =
-                inlineMethodCandidates.find(
-                    (method) => parametersOf(method).length === methodArgumentCount,
-                ) ??
+                inlineMethodCandidates.find((method) => parametersOf(method).length === methodArgumentCount) ??
                 inlineMethodCandidates.find(
                     (method) =>
                         parametersOf(method).length > methodArgumentCount &&
@@ -105,31 +86,18 @@ export function resolveSourceMethodDefinition(
                           span: selectedInlineMethod.span,
                       };
 
-            programAnalysis.namespaceContexts.set(
-                definition,
-                programAnalysis.namespaceContextOf(selectedInlineMethod),
-            );
+            programAnalysis.namespaceContexts.set(definition, programAnalysis.namespaceContextOf(selectedInlineMethod));
 
             return {
                 definition,
                 ownerBindings,
-                requiresMethodTemplateInference:
-                    selectedInlineMethod.kind === AstKind.FUNCTION_TEMPLATE,
+                requiresMethodTemplateInference: selectedInlineMethod.kind === AstKind.FUNCTION_TEMPLATE,
             };
         }
     }
 
-    const specializationKey = programAnalysis.buildMethodSpecializationKey(
-        methodName,
-        methodArgumentCount,
-        ownerTemplateArguments,
-        ownerBindings,
-    );
-    const overloadKey = programAnalysis.buildMethodOverloadKey(
-        methodName,
-        methodArgumentCount,
-        parameterTypeDiscriminator,
-    );
+    const specializationKey = programAnalysis.buildMethodSpecializationKey(methodName, methodArgumentCount, ownerTemplateArguments, ownerBindings);
+    const overloadKey = programAnalysis.buildMethodOverloadKey(methodName, methodArgumentCount, parameterTypeDiscriminator);
     let definition: FunctionTemplateDecl | undefined;
 
     for (const ownerName of programAnalysis.methodOwnerNames(ownerTypeName)) {
@@ -137,9 +105,7 @@ export function resolveSourceMethodDefinition(
         definition =
             (overloadKey ? methodsByName?.get(overloadKey) : undefined) ??
             (specializationKey ? methodsByName?.get(specializationKey) : undefined) ??
-            (methodArgumentCount !== undefined
-                ? methodsByName?.get(`${methodName}/${methodArgumentCount}`)
-                : undefined) ??
+            (methodArgumentCount !== undefined ? methodsByName?.get(`${methodName}/${methodArgumentCount}`) : undefined) ??
             methodsByName?.get(methodName);
 
         if (definition) {
@@ -151,17 +117,14 @@ export function resolveSourceMethodDefinition(
         return null;
     }
 
-    const methodDeclaration = templateInstance?.templateDeclaration.members.find(
-        (member): member is FunctionDecl => {
-            if (member.kind !== AstKind.FUNCTION || member.name !== methodName) {
-                return false;
-            }
+    const methodDeclaration = templateInstance?.templateDeclaration.members.find((member): member is FunctionDecl => {
+        if (member.kind !== AstKind.FUNCTION || member.name !== methodName) {
+            return false;
+        }
 
-            return member.params.length === (definition!.functionParameters ?? []).length;
-        },
-    );
-    const requiresMethodTemplateInference =
-        !programAnalysis.templates.has(ownerTypeName) && definition.params.length > 0;
+        return member.params.length === (definition!.functionParameters ?? []).length;
+    });
+    const requiresMethodTemplateInference = !programAnalysis.templates.has(ownerTypeName) && definition.params.length > 0;
 
     if (!methodDeclaration) {
         return {
@@ -179,10 +142,7 @@ export function resolveSourceMethodDefinition(
         })),
     };
 
-    programAnalysis.namespaceContexts.set(
-        definitionWithDefaults,
-        programAnalysis.namespaceContextOf(definition),
-    );
+    programAnalysis.namespaceContexts.set(definitionWithDefaults, programAnalysis.namespaceContextOf(definition));
 
     return {
         definition: definitionWithDefaults,
@@ -199,9 +159,7 @@ export function buildMethodSpecializationKey(
     ownerBindings: TemplateBindings,
 ): string | undefined {
     if (methodArgumentCount === undefined || !ownerTemplateArguments[0]) return undefined;
-    const firstTemplateArgument = programAnalysis.typeKey(
-        programAnalysis.resolveType(ownerTemplateArguments[0], ownerBindings),
-    );
+    const firstTemplateArgument = programAnalysis.typeKey(programAnalysis.resolveType(ownerTemplateArguments[0], ownerBindings));
     return `${methodName}/${methodArgumentCount}@${firstTemplateArgument}`;
 }
 

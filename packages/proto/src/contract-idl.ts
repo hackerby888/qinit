@@ -103,15 +103,7 @@ export interface AbiLinkedList extends AbiTypeBase {
     value: AbiType;
 }
 
-export type AbiType =
-    | AbiScalar
-    | AbiStruct
-    | AbiArray
-    | AbiBitArray
-    | AbiCollection
-    | AbiHashMap
-    | AbiHashSet
-    | AbiLinkedList;
+export type AbiType = AbiScalar | AbiStruct | AbiArray | AbiBitArray | AbiCollection | AbiHashMap | AbiHashSet | AbiLinkedList;
 
 export interface AbiField {
     name: string;
@@ -257,19 +249,10 @@ function parseContract(value: unknown, label: string): ContractIdl {
     const procedures = entryArray(contract.procedures, `${label} procedures`);
     const state = abiStruct(contract.state, `${label} state`);
     const sysprocMask = uintValue(contract.sysprocMask, `${label} sysprocMask`);
-    const enums = arrayValue(contract.enums, `${label} enums`).map((item, index) =>
-        contractEnum(item, `${label} enum ${index}`),
-    );
-    const logs = arrayValue(contract.logs, `${label} logs`).map((item, index) =>
-        contractLog(item, `${label} log ${index}`),
-    );
-    const dependencies = arrayValue(contract.dependencies, `${label} dependencies`).map(
-        (item, index) => stringValue(item, `${label} dependency ${index}`),
-    );
-    const migration =
-        contract.migration === undefined
-            ? undefined
-            : contractMigration(contract.migration, `${label} migration`);
+    const enums = arrayValue(contract.enums, `${label} enums`).map((item, index) => contractEnum(item, `${label} enum ${index}`));
+    const logs = arrayValue(contract.logs, `${label} logs`).map((item, index) => contractLog(item, `${label} log ${index}`));
+    const dependencies = arrayValue(contract.dependencies, `${label} dependencies`).map((item, index) => stringValue(item, `${label} dependency ${index}`));
+    const migration = contract.migration === undefined ? undefined : contractMigration(contract.migration, `${label} migration`);
 
     return {
         version: QINIT_IDL_VERSION,
@@ -287,9 +270,7 @@ function parseContract(value: unknown, label: string): ContractIdl {
 }
 
 function entryArray(value: unknown, label: string): ContractEntry[] {
-    const entries = arrayValue(value, label).map((item, index) =>
-        contractEntry(item, `${label} ${index}`),
-    );
+    const entries = arrayValue(value, label).map((item, index) => contractEntry(item, `${label} ${index}`));
     const ids = new Set<number>();
     for (const entry of entries) {
         if (ids.has(entry.inputType)) {
@@ -405,11 +386,8 @@ function abiType(value: unknown, label: string, allowUnpaddedTail = false): AbiT
             break;
         }
         case AbiTypeKind.STRUCT: {
-            const fields = arrayValue(raw.fields, `${label} fields`).map((item, index) =>
-                abiField(item, `${label} field ${index}`),
-            );
-            const name =
-                raw.name === undefined ? undefined : stringValue(raw.name, `${label} name`);
+            const fields = arrayValue(raw.fields, `${label} fields`).map((item, index) => abiField(item, `${label} field ${index}`));
+            const name = raw.name === undefined ? undefined : stringValue(raw.name, `${label} name`);
             type = { kind, name, fields, ...common };
             break;
         }
@@ -601,9 +579,7 @@ function validateStruct(type: AbiStruct, label: string, allowUnpaddedTail: boole
         names.add(field.name);
 
         if (field.offset % field.type.align !== 0) {
-            throw new Error(
-                `${label} field '${field.name}' offset ${field.offset} is not aligned to ${field.type.align}`,
-            );
+            throw new Error(`${label} field '${field.name}' offset ${field.offset} is not aligned to ${field.type.align}`);
         }
         if (field.offset < previousOffset) {
             throw new Error(`${label} field '${field.name}' offsets are out of order`);
@@ -617,9 +593,7 @@ function validateStruct(type: AbiStruct, label: string, allowUnpaddedTail: boole
         end = Math.max(end, fieldEnd);
     }
 
-    const expectedAlign = type.fields.length
-        ? Math.max(...type.fields.map((field) => field.type.align))
-        : 1;
+    const expectedAlign = type.fields.length ? Math.max(...type.fields.map((field) => field.type.align)) : 1;
     const paddedSize = type.fields.length ? roundUp(end, expectedAlign) : 1;
     const sizeIsValid = type.size === paddedSize || (allowUnpaddedTail && type.size === end);
     if (!sizeIsValid) {
@@ -630,11 +604,7 @@ function validateStruct(type: AbiStruct, label: string, allowUnpaddedTail: boole
     }
 }
 
-function assertLayout(
-    actual: { size: number; align: number },
-    expected: { size: number; align: number },
-    label: string,
-): void {
+function assertLayout(actual: { size: number; align: number }, expected: { size: number; align: number }, label: string): void {
     if (actual.size !== expected.size) {
         throw new Error(`${label} size ${actual.size} must be ${expected.size}`);
     }

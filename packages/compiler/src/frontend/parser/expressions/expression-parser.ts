@@ -1,12 +1,4 @@
-import {
-    AssignOp,
-    AstKind,
-    BinaryOp,
-    DiagnosticSeverity,
-    TokenKind,
-    UnaryOp,
-    UpdateOp,
-} from "../../../shared/enums";
+import { AssignOp, AstKind, BinaryOp, DiagnosticSeverity, TokenKind, UnaryOp, UpdateOp } from "../../../shared/enums";
 import type { Expression, TypeSpec } from "../../../ast";
 import type { Parser } from "../parser";
 
@@ -169,10 +161,7 @@ export class ExpressionParser {
                 gt_eq: BinaryOp.GREATER_THAN_OR_EQUAL,
             };
             // Inside a template arg/param list a top-level `>` / `>=` closes the list, not a comparison.
-            if (
-                this.parser.state.templateAngleDepth > 0 &&
-                (tok.kind === TokenKind.R_ANGLE || tok.kind === TokenKind.GT_EQ)
-            ) {
+            if (this.parser.state.templateAngleDepth > 0 && (tok.kind === TokenKind.R_ANGLE || tok.kind === TokenKind.GT_EQ)) {
                 break;
             }
             const operator = ops[tok.kind];
@@ -205,10 +194,7 @@ export class ExpressionParser {
     parseShift(): Expression {
         let left = this.parser.expressions.parseAdditive();
         while (!this.parser.state.eof()) {
-            if (
-                this.parser.state.templateAngleDepth > 0 &&
-                this.parser.state.peek().kind === TokenKind.R_SHIFT
-            ) {
+            if (this.parser.state.templateAngleDepth > 0 && this.parser.state.peek().kind === TokenKind.R_SHIFT) {
                 break; // `>>` closes two nested template lists here, not a shift operator
             }
             if (this.parser.state.tryConsume(TokenKind.L_SHIFT)) {
@@ -297,20 +283,13 @@ export class ExpressionParser {
     parseUnary(): Expression {
         const tok = this.parser.state.peek();
         // Reject heap operations once, then skip the rest of the statement.
-        if (
-            (tok.kind === TokenKind.IDENTIFIER && tok.text === "new") ||
-            tok.kind === TokenKind.KW_DELETE
-        ) {
+        if ((tok.kind === TokenKind.IDENTIFIER && tok.text === "new") || tok.kind === TokenKind.KW_DELETE) {
             this.parser.state.diagnostics.push({
                 severity: DiagnosticSeverity.ERROR,
                 message: `dynamic memory allocation ('${tok.text}') is not allowed in a contract`,
                 span: tok.span,
             });
-            while (
-                !this.parser.state.eof() &&
-                this.parser.state.peek().kind !== TokenKind.SEMICOLON &&
-                this.parser.state.peek().kind !== TokenKind.R_BRACE
-            ) {
+            while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.SEMICOLON && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
                 this.parser.state.next();
             }
             return { kind: AstKind.INT_LITERAL, value: "0", span: tok.span };
@@ -341,8 +320,7 @@ export class ExpressionParser {
         }
         // Prefix ++ / --
         if (tok.kind === TokenKind.PLUS_PLUS || tok.kind === TokenKind.MINUS_MINUS) {
-            const operator =
-                tok.kind === TokenKind.PLUS_PLUS ? UpdateOp.INCREMENT : UpdateOp.DECREMENT;
+            const operator = tok.kind === TokenKind.PLUS_PLUS ? UpdateOp.INCREMENT : UpdateOp.DECREMENT;
             this.parser.state.next();
             const argument = this.parser.expressions.parseUnary();
             return { kind: AstKind.PREFIX_OP, operator, argument, span: tok.span };
@@ -363,21 +341,11 @@ export class ExpressionParser {
         while (!this.parser.state.eof()) {
             const tok = this.parser.state.peek();
             // Parse brace initialization only when the prefix names a type.
-            if (
-                tok.kind === TokenKind.L_BRACE &&
-                (expression.kind === AstKind.IDENTIFIER ||
-                    expression.kind === AstKind.QUALIFIED_NAME)
-            ) {
-                const name =
-                    expression.kind === AstKind.IDENTIFIER
-                        ? expression.name
-                        : `${expression.namespace}::${expression.name}`;
+            if (tok.kind === TokenKind.L_BRACE && (expression.kind === AstKind.IDENTIFIER || expression.kind === AstKind.QUALIFIED_NAME)) {
+                const name = expression.kind === AstKind.IDENTIFIER ? expression.name : `${expression.namespace}::${expression.name}`;
                 this.parser.state.next(); // {
                 const callArguments: Expression[] = [];
-                while (
-                    !this.parser.state.eof() &&
-                    this.parser.state.peek().kind !== TokenKind.R_BRACE
-                ) {
+                while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
                     callArguments.push(this.parser.expressions.parseBraceArg());
                     if (!this.parser.state.tryConsume(TokenKind.COMMA)) break;
                 }
@@ -436,10 +404,7 @@ export class ExpressionParser {
             if (tok.kind === TokenKind.L_ANGLE && this.parser.expressions.looksLikeTemplateArgs()) {
                 this.parser.state.next();
                 const templateArguments: TypeSpec[] = [];
-                while (
-                    !this.parser.state.eof() &&
-                    this.parser.state.peek().kind !== TokenKind.R_ANGLE
-                ) {
+                while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_ANGLE) {
                     const argStart = this.parser.state.peek().span;
                     const kind = this.parser.state.peek().kind;
                     // Preserve value arguments in function templates such as `irootK64<2>`.
@@ -479,8 +444,7 @@ export class ExpressionParser {
             }
             // Postfix ++ / --
             if (tok.kind === TokenKind.PLUS_PLUS || tok.kind === TokenKind.MINUS_MINUS) {
-                const operator =
-                    tok.kind === TokenKind.PLUS_PLUS ? UpdateOp.INCREMENT : UpdateOp.DECREMENT;
+                const operator = tok.kind === TokenKind.PLUS_PLUS ? UpdateOp.INCREMENT : UpdateOp.DECREMENT;
                 this.parser.state.next();
                 expression = {
                     kind: AstKind.POSTFIX_OP,
@@ -541,8 +505,7 @@ export class ExpressionParser {
             }
             this.parser.state.next();
         }
-        const followedByParen =
-            ok && depth <= 0 && this.parser.state.peek().kind === TokenKind.L_PAREN;
+        const followedByParen = ok && depth <= 0 && this.parser.state.peek().kind === TokenKind.L_PAREN;
         this.parser.state.position = save;
         return followedByParen;
     }
@@ -551,10 +514,7 @@ export class ExpressionParser {
         if (this.parser.state.peek().kind === TokenKind.L_BRACE) {
             const start = this.parser.state.next().span; // {
             const expressions: Expression[] = [];
-            while (
-                !this.parser.state.eof() &&
-                this.parser.state.peek().kind !== TokenKind.R_BRACE
-            ) {
+            while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
                 expressions.push(this.parser.expressions.parseBraceArg());
                 if (!this.parser.state.tryConsume(TokenKind.COMMA)) break;
             }
@@ -635,10 +595,7 @@ export class ExpressionParser {
             const savedGt = this.parser.state.templateAngleDepth;
             this.parser.state.templateAngleDepth = 0;
             const expressions: Expression[] = [];
-            while (
-                !this.parser.state.eof() &&
-                this.parser.state.peek().kind !== TokenKind.R_BRACE
-            ) {
+            while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
                 expressions.push(this.parser.expressions.parseExpression());
                 if (!this.parser.state.tryConsume(TokenKind.COMMA)) break;
             }
@@ -678,11 +635,7 @@ export class ExpressionParser {
         if (t0 !== TokenKind.IDENTIFIER) return false;
         // Skip a qualified type name: identifier (:: identifier)* — e.g. QPI::uint64 name.
         let index = 1;
-        while (
-            this.parser.state.peek(index).kind === TokenKind.D_COLON &&
-            this.parser.state.peek(index + 1).kind === TokenKind.IDENTIFIER
-        )
-            index += 2;
+        while (this.parser.state.peek(index).kind === TokenKind.D_COLON && this.parser.state.peek(index + 1).kind === TokenKind.IDENTIFIER) index += 2;
         // Skip template arguments `<...>` so `ProposalWithAllVoteData<D, N>& p` is recognized as a decl, not read as a `<`
         if (this.parser.state.peek(index).kind === TokenKind.L_ANGLE) {
             let depth = 0;
@@ -701,24 +654,14 @@ export class ExpressionParser {
                         templateEndIndex++;
                         break;
                     }
-                } else if (
-                    kind === TokenKind.SEMICOLON ||
-                    kind === TokenKind.L_BRACE ||
-                    kind === TokenKind.R_BRACE ||
-                    kind === TokenKind.R_PAREN
-                )
-                    return false;
+                } else if (kind === TokenKind.SEMICOLON || kind === TokenKind.L_BRACE || kind === TokenKind.R_BRACE || kind === TokenKind.R_PAREN) return false;
             }
             if (depth > 0) return false;
             index = templateEndIndex;
         }
         const t1 = this.parser.state.peek(index).kind;
         if (t1 === TokenKind.IDENTIFIER) return true;
-        if (
-            (t1 === TokenKind.STAR || t1 === TokenKind.AMP) &&
-            this.parser.state.peek(index + 1).kind === TokenKind.IDENTIFIER
-        )
-            return true;
+        if ((t1 === TokenKind.STAR || t1 === TokenKind.AMP) && this.parser.state.peek(index + 1).kind === TokenKind.IDENTIFIER) return true;
         return false;
     }
 

@@ -18,12 +18,7 @@ export interface SourceContractCall {
     span: Span;
 }
 
-export function collectSourceContractCalls(
-    source: string,
-    contractName: string,
-    contractSlot: number,
-    macros: Map<string, MacroDef>,
-): SourceContractCall[] {
+export function collectSourceContractCalls(source: string, contractName: string, contractSlot: number, macros: Map<string, MacroDef>): SourceContractCall[] {
     const activeSource = activeSourceWithStableOffsets(source, contractName, contractSlot, macros);
     const tokens = new Lexer(activeSource).tokenize();
     const calls: SourceContractCall[] = [];
@@ -64,12 +59,7 @@ export function collectSourceContractCalls(
     return calls;
 }
 
-function activeSourceWithStableOffsets(
-    source: string,
-    contractName: string,
-    contractSlot: number,
-    macros: Map<string, MacroDef>,
-): string {
+function activeSourceWithStableOffsets(source: string, contractName: string, contractSlot: number, macros: Map<string, MacroDef>): string {
     const preprocessed = new Preprocessor().preprocess({
         source,
         qpiHeader: "",
@@ -142,8 +132,7 @@ function firstIdentifier(tokens: Token[] | undefined): string | undefined {
 
 // PUBLIC/PRIVATE_PROCEDURE[_WITH_LOCALS] declare `__id_<proc> = (CONTRACT_INDEX << 22) | __LINE__`
 // (qpi_macros.h). __LINE__ is the raw-source line, which preprocessing does not preserve, so read it here.
-const PROCEDURE_DECL =
-    /^[ \t]*(?:PUBLIC|PRIVATE)_PROCEDURE(?:_WITH_LOCALS)?[ \t]*\([ \t]*([A-Za-z_]\w*)[ \t]*\)/;
+const PROCEDURE_DECL = /^[ \t]*(?:PUBLIC|PRIVATE)_PROCEDURE(?:_WITH_LOCALS)?[ \t]*\([ \t]*([A-Za-z_]\w*)[ \t]*\)/;
 
 export function collectProcedureDeclLines(source: string): Map<string, number> {
     const lines = new Map<string, number>();

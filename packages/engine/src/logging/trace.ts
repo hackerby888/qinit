@@ -102,9 +102,7 @@ export class TraceRecorder {
             stateSize,
             // Snapshots are whole-state, so this only fires if one came up short.
             stateTruncated: metadata.stateBefore.length < stateSize,
-            invocator: metadata.invocator
-                ? toHex(metadata.invocator.subarray(0, 32))
-                : "0".repeat(64),
+            invocator: metadata.invocator ? toHex(metadata.invocator.subarray(0, 32)) : "0".repeat(64),
             invocationReward: Number(metadata.invocationReward),
             inHex: toHex(metadata.input),
             outHex: "",

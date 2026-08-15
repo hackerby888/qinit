@@ -1,12 +1,5 @@
 import { test, expect } from "bun:test";
-import {
-    jsonToInputFormat,
-    encodeInputJson,
-    encodeInput,
-    decodeOutput,
-    hasOverlappingAbiType,
-    zeroInputFormat,
-} from "../../src/abi-fmt";
+import { jsonToInputFormat, encodeInputJson, encodeInput, decodeOutput, hasOverlappingAbiType, zeroInputFormat } from "../../src/abi-fmt";
 import { callFunction } from "../../src/call";
 import { linkedListGeometry } from "../../src/qpi-layout";
 import { AbiScalarKind, AbiTypeKind, type AbiStruct, type AbiType } from "../../src/contract-idl";
@@ -47,40 +40,26 @@ test("encodeInputJson: the 60-A zero identity hint encodes to the zero id", asyn
 });
 
 test("jsonToInputFormat: nested struct (positional) + fixed array", () => {
-    expect(jsonToInputFormat([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1, 2] })).toBe(
-        "{ 1uint64, 2uint32 }",
-    );
-    expect(jsonToInputFormat([{ name: "xs", type: "[3;uint64]" }], { xs: [1, 2, 3] })).toBe(
-        "[3; 1uint64, 2uint64, 3uint64]",
-    );
+    expect(jsonToInputFormat([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1, 2] })).toBe("{ 1uint64, 2uint32 }");
+    expect(jsonToInputFormat([{ name: "xs", type: "[3;uint64]" }], { xs: [1, 2, 3] })).toBe("[3; 1uint64, 2uint64, 3uint64]");
 });
 
 test("jsonToInputFormat: bool -> bit, big numeric string preserved", () => {
     expect(jsonToInputFormat([{ name: "f", type: "bit" }], { f: true })).toBe("1bit");
-    expect(jsonToInputFormat([{ name: "n", type: "uint64" }], { n: "18446744073709551615" })).toBe(
-        "18446744073709551615uint64",
-    );
+    expect(jsonToInputFormat([{ name: "n", type: "uint64" }], { n: "18446744073709551615" })).toBe("18446744073709551615uint64");
 });
 
 test("jsonToInputFormat: uint128 decimal string remains lossless", async () => {
     const max = (1n << 128n) - 1n;
-    expect(jsonToInputFormat([{ name: "n", type: "uint128" }], { n: max.toString() })).toBe(
-        `${max}uint128`,
-    );
+    expect(jsonToInputFormat([{ name: "n", type: "uint128" }], { n: max.toString() })).toBe(`${max}uint128`);
     const b = await encodeInputJson([{ name: "n", type: "uint128" }], { n: max.toString() });
     expect(await decodeOutput(b, "uint128")).toBe(max);
 });
 
 test("jsonToInputFormat: missing field + arity mismatch throw", () => {
-    expect(() => jsonToInputFormat([{ name: "value", type: "uint64" }], {})).toThrow(
-        /missing input field 'value'/,
-    );
-    expect(() => jsonToInputFormat([{ name: "xs", type: "[2;uint64]" }], { xs: [1] })).toThrow(
-        /expects 2 elements/,
-    );
-    expect(() =>
-        jsonToInputFormat([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1] }),
-    ).toThrow(/expects 2 values/);
+    expect(() => jsonToInputFormat([{ name: "value", type: "uint64" }], {})).toThrow(/missing input field 'value'/);
+    expect(() => jsonToInputFormat([{ name: "xs", type: "[2;uint64]" }], { xs: [1] })).toThrow(/expects 2 elements/);
+    expect(() => jsonToInputFormat([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1] })).toThrow(/expects 2 values/);
 });
 
 test("encodeInputJson === encodeInput of the equivalent fmt (incl alignment)", async () => {
@@ -97,21 +76,15 @@ test("jsonToInputFormat: float value is rejected (BigInt refuses non-integers)",
 });
 
 test("jsonToInputFormat: null/undefined value throws", () => {
-    expect(() => jsonToInputFormat([{ name: "v", type: "uint64" }], { v: null })).toThrow(
-        /missing value/,
-    );
+    expect(() => jsonToInputFormat([{ name: "v", type: "uint64" }], { v: null })).toThrow(/missing value/);
 });
 
 test("jsonToInputFormat: extra JSON keys are ignored (only declared fields used)", () => {
-    expect(jsonToInputFormat([{ name: "a", type: "uint64" }], { a: 1, unrelated: 99 })).toBe(
-        "1uint64",
-    );
+    expect(jsonToInputFormat([{ name: "a", type: "uint64" }], { a: 1, unrelated: 99 })).toBe("1uint64");
 });
 
 test("encodeInputJson: a bad id surfaces the encode-time validation error", async () => {
-    await expect(
-        encodeInputJson([{ name: "dst", type: "id" }], { dst: "tooshort" }),
-    ).rejects.toThrow(/id must be/);
+    await expect(encodeInputJson([{ name: "dst", type: "id" }], { dst: "tooshort" })).rejects.toThrow(/id must be/);
 });
 
 test("encodeInputJson: m256i field round-trips (64-hex -> 32 bytes)", async () => {
@@ -205,11 +178,7 @@ test("typed codec accepts direct scalar and array roots", async () => {
     expect(jsonToInputFormat(scalar, 42n)).toBe("42uint64");
     let captured: number[] = [];
     const rpc = {
-        querySmartContract: async (
-            _contractIndex: number,
-            _inputType: number,
-            input: Uint8Array,
-        ) => {
+        querySmartContract: async (_contractIndex: number, _inputType: number, input: Uint8Array) => {
             captured = [...input];
             return input;
         },
@@ -424,9 +393,7 @@ test("typed BitArray encodes logical bits LSB-first and ignores padding", async 
     expect(new DataView(bytes.buffer).getBigUint64(0, true)).toBe((1n << 63n) | 1n);
     expect(new DataView(bytes.buffer).getBigUint64(8, true)).toBe((1n << 63n) | 1n);
     expect(await decodeOutput(bytes, bitArray)).toEqual(bits);
-    expect(jsonToInputFormat(bitArray, bits)).toBe(
-        "[2; 9223372036854775809uint64, 9223372036854775809uint64]",
-    );
+    expect(jsonToInputFormat(bitArray, bits)).toBe("[2; 9223372036854775809uint64, 9223372036854775809uint64]");
     expect(zeroInputFormat(bitArray)).toBe("[2; 0uint64 ×2]");
     expect(hasOverlappingAbiType(bitArray)).toBe(false);
 
@@ -483,9 +450,7 @@ test("typed LinkedList decodes logical order and rejects public input", async ()
         { slot: 5, value: 50n },
         { slot: 1, value: 10n },
     ]);
-    await expect(encodeInputJson(linkedList, bytes)).rejects.toThrow(
-        /linked_list input is not supported/,
-    );
+    await expect(encodeInputJson(linkedList, bytes)).rejects.toThrow(/linked_list input is not supported/);
     expect(() => jsonToInputFormat(linkedList, [])).toThrow(/linked_list input is not supported/);
 });
 
@@ -542,9 +507,7 @@ test("nested LinkedList cannot bypass an overlapping struct raw input", async ()
     const raw = new Uint8Array(overlapping.size);
 
     expect(hasOverlappingAbiType(overlapping)).toBe(true);
-    await expect(encodeInputJson(overlapping, raw)).rejects.toThrow(
-        /linked_list input is not supported/,
-    );
+    await expect(encodeInputJson(overlapping, raw)).rejects.toThrow(/linked_list input is not supported/);
     expect(() => jsonToInputFormat(overlapping, raw)).toThrow(/linked_list input is not supported/);
 });
 
@@ -595,11 +558,7 @@ test("nested LinkedList cannot bypass opaque container raw inputs", async () => 
 
     for (const container of containers) {
         const raw = new Uint8Array(container.size);
-        await expect(encodeInputJson(container, raw)).rejects.toThrow(
-            /linked_list input is not supported/,
-        );
-        expect(() => jsonToInputFormat(container, raw)).toThrow(
-            /linked_list input is not supported/,
-        );
+        await expect(encodeInputJson(container, raw)).rejects.toThrow(/linked_list input is not supported/);
+        expect(() => jsonToInputFormat(container, raw)).toThrow(/linked_list input is not supported/);
     }
 });

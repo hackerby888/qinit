@@ -11,10 +11,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             break;
         case AstKind.EXPRESSION: {
             // “Discarded” means the expression's result is not used - e.g., transfer(...); // return value discarded
-            const discardedText = context.lowering.emitDiscardedExpression(
-                context,
-                statement.expression,
-            );
+            const discardedText = context.lowering.emitDiscardedExpression(context, statement.expression);
             if (discardedText) context.lines.push(`    ${discardedText}`);
             break;
         }
@@ -22,29 +19,17 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             if (statement.declaration.kind === AstKind.VARIABLE) {
                 const variableDeclaration = statement.declaration as VariableDecl;
                 // Keep initializer classification consistent with the pre-scanned local type.
-                const declared =
-                    context.localVars.get(variableDeclaration.name)?.type ??
-                    variableDeclaration.type;
+                const declared = context.localVars.get(variableDeclaration.name)?.type ?? variableDeclaration.type;
                 // Allocate scratchpad storage from the arena and retain its base address.
-                if (
-                    variableDeclaration.type.kind === AstKind.NAME &&
-                    /ScopedScratchpad$/.test(variableDeclaration.type.name)
-                ) {
+                if (variableDeclaration.type.kind === AstKind.NAME && /ScopedScratchpad$/.test(variableDeclaration.type.name)) {
                     const callArguments =
                         variableDeclaration.initializer &&
-                        (variableDeclaration.initializer.kind === AstKind.CONSTRUCT ||
-                            variableDeclaration.initializer.kind === AstKind.CALL)
+                        (variableDeclaration.initializer.kind === AstKind.CONSTRUCT || variableDeclaration.initializer.kind === AstKind.CALL)
                             ? variableDeclaration.initializer.callArguments
                             : [];
-                    const size = callArguments[0]
-                        ? context.lowering.lowerValueExpression(context, callArguments[0])
-                        : watIr.i64Constant(0);
+                    const size = callArguments[0] ? context.lowering.lowerValueExpression(context, callArguments[0]) : watIr.i64Constant(0);
                     const initZero = callArguments[1]
-                        ? watIr.operation(
-                              "i64.ne",
-                              watIr.i64Constant(0),
-                              context.lowering.lowerValueExpression(context, callArguments[1]),
-                          )
+                        ? watIr.operation("i64.ne", watIr.i64Constant(0), context.lowering.lowerValueExpression(context, callArguments[1]))
                         : watIr.i32Constant(0);
                     context.lines.push(
                         `    ${context.lowering.setLocal(context, variableDeclaration.name, watIr.functionCall("$acquireScratchpad", size, initZero))}`,
@@ -54,21 +39,14 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                     break;
                 }
                 // Track asset iterators so their methods use the iterator buffer.
-                if (
-                    variableDeclaration.type.kind === AstKind.NAME &&
-                    /Asset(Ownership|Possession)Iterator$/.test(variableDeclaration.type.name)
-                ) {
+                if (variableDeclaration.type.kind === AstKind.NAME && /Asset(Ownership|Possession)Iterator$/.test(variableDeclaration.type.name)) {
                     context.lines.push(
                         `    ${context.lowering.setLocal(context, variableDeclaration.name, watIr.functionCall("$qpiAllocLocals", watIr.i32Constant(8)))}`,
                     );
-                    (context.refLocals ??= new Map()).set(
-                        variableDeclaration.name,
-                        variableDeclaration.type,
-                    );
+                    (context.refLocals ??= new Map()).set(variableDeclaration.name, variableDeclaration.type);
                     const argument =
                         variableDeclaration.initializer &&
-                        (variableDeclaration.initializer.kind === AstKind.CONSTRUCT ||
-                            variableDeclaration.initializer.kind === AstKind.CALL)
+                        (variableDeclaration.initializer.kind === AstKind.CONSTRUCT || variableDeclaration.initializer.kind === AstKind.CALL)
                             ? variableDeclaration.initializer.callArguments[0]
                             : undefined;
                     if (argument) {
@@ -99,36 +77,19 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                 // reference/pointer local: bind to the ADDRESS of its lvalue initializer; member access on it resolves through that address.
                 if (declared.kind === AstKind.REFERENCE || declared.kind === AstKind.POINTER) {
                     // proxy `pv`/`qpi` aliases are already bound as parameters — drop the alias declaration.
-                    if (
-                        context.proxyClass &&
-                        (variableDeclaration.name === "pv" || variableDeclaration.name === "qpi")
-                    )
-                        break;
+                    if (context.proxyClass && (variableDeclaration.name === "pv" || variableDeclaration.name === "qpi")) break;
                     if (variableDeclaration.initializer) {
-                        const node = context.lowering.resolveExpressionAddress(
-                            context,
-                            variableDeclaration.initializer,
-                        );
+                        const node = context.lowering.resolveExpressionAddress(context, variableDeclaration.initializer);
                         // Materialize address-yielding initializers that are not plain lvalues.
-                        const addr =
-                            node?.addr ??
-                            context.lowering.emitAddress(context, variableDeclaration.initializer);
+                        const addr = node?.addr ?? context.lowering.emitAddress(context, variableDeclaration.initializer);
                         if (addr) {
                             if (!context.refLocals) context.refLocals = new Map();
                             // Preserve pointer types for indexing; references bind to their referent type.
-                            const refType =
-                                declared.kind === AstKind.POINTER
-                                    ? declared
-                                    : (node?.type ?? declared.referentType);
+                            const refType = declared.kind === AstKind.POINTER ? declared : (node?.type ?? declared.referentType);
                             context.refLocals.set(variableDeclaration.name, refType);
-                            context.lines.push(
-                                `    ${context.lowering.setLocal(context, variableDeclaration.name, addrIr(addr))}`,
-                            );
+                            context.lines.push(`    ${context.lowering.setLocal(context, variableDeclaration.name, addrIr(addr))}`);
                         } else {
-                            context.programAnalysis.warn(
-                                `unsupported reference initializer for '${variableDeclaration.name}'`,
-                                statement.span.line,
-                            );
+                            context.programAnalysis.warn(`unsupported reference initializer for '${variableDeclaration.name}'`, statement.span.line);
                         }
                     }
                     break;
@@ -136,21 +97,13 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                 // Store aggregate locals in slots so member access uses their address.
                 {
                     const db = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
-                    const concrete =
-                        declared.kind === AstKind.NAME && db.types.has(declared.name)
-                            ? db.types.get(declared.name)!
-                            : declared;
+                    const concrete = declared.kind === AstKind.NAME && db.types.has(declared.name) ? db.types.get(declared.name)! : declared;
                     if (context.programAnalysis.isAggregateType(concrete)) {
                         // matches collectLocals' aggregate predicate: the wasm local is i32 (slot address), so this branch must consume the declaration
                         let aggSz = context.programAnalysis.sizeOfType(concrete, db);
-                        if (
-                            concrete.kind === AstKind.ARRAY &&
-                            aggSz <= 0 &&
-                            variableDeclaration.initializer?.kind === AstKind.INITIALIZER_LIST
-                        ) {
+                        if (concrete.kind === AstKind.ARRAY && aggSz <= 0 && variableDeclaration.initializer?.kind === AstKind.INITIALIZER_LIST) {
                             aggSz =
-                                context.programAnalysis.sizeOfType(concrete.element, db) *
-                                ((variableDeclaration.initializer as any).expressions ?? []).length;
+                                context.programAnalysis.sizeOfType(concrete.element, db) * ((variableDeclaration.initializer as any).expressions ?? []).length;
                         }
                         const byteSize = Math.max(aggSz, 8);
                         context.lines.push(
@@ -158,10 +111,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                         );
                         (context.refLocals ??= new Map()).set(variableDeclaration.name, concrete);
                         // Route uint128 construction through its high/low-aware constructor.
-                        if (
-                            variableDeclaration.initializer &&
-                            isUint128(context.programAnalysis, concrete)
-                        ) {
+                        if (variableDeclaration.initializer && isUint128(context.programAnalysis, concrete)) {
                             context.lines.push(
                                 `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", watIr.localGet(variableDeclaration.name, WatNodeType.I32), context.lowering.lowerUint128Expression(context, variableDeclaration.initializer), watIr.i32Constant(16)))}`,
                             );
@@ -171,23 +121,12 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                             variableDeclaration.initializer &&
                             (variableDeclaration.initializer.kind === AstKind.CONSTRUCT ||
                                 (variableDeclaration.initializer.kind === AstKind.CALL &&
-                                    variableDeclaration.initializer.callee.kind ===
-                                        AstKind.IDENTIFIER &&
+                                    variableDeclaration.initializer.callee.kind === AstKind.IDENTIFIER &&
                                     (variableDeclaration.initializer.callee as any).name ===
-                                        (variableDeclaration.type.kind === AstKind.NAME
-                                            ? variableDeclaration.type.name
-                                            : "")))
+                                        (variableDeclaration.type.kind === AstKind.NAME ? variableDeclaration.type.name : "")))
                                 ? (variableDeclaration.initializer as any).callArguments
                                 : null;
-                        if (
-                            ctorArgs &&
-                            context.lowering.emitConstruct(
-                                context,
-                                `(local.get $${variableDeclaration.name})`,
-                                concrete,
-                                ctorArgs,
-                            )
-                        ) {
+                        if (ctorArgs && context.lowering.emitConstruct(context, `(local.get $${variableDeclaration.name})`, concrete, ctorArgs)) {
                             break;
                         }
                         // brace-init: array locals (const int daysInMonth[] = {0, 31, ...}) store element-wise; struct locals go field-wise through emitConstruct.
@@ -217,39 +156,24 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                         }
                         if (variableDeclaration.initializer) {
                             const src =
-                                context.lowering.resolveExpressionAddress(
-                                    context,
-                                    variableDeclaration.initializer,
-                                )?.addr ??
-                                context.lowering.emitAddress(
-                                    context,
-                                    variableDeclaration.initializer,
-                                );
+                                context.lowering.resolveExpressionAddress(context, variableDeclaration.initializer)?.addr ??
+                                context.lowering.emitAddress(context, variableDeclaration.initializer);
                             if (src) {
                                 context.lines.push(
                                     `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", watIr.localGet(variableDeclaration.name, WatNodeType.I32), addrIr(src), watIr.i32Constant(byteSize)))}`,
                                 );
                                 break;
                             }
-                            context.programAnalysis.warn(
-                                `unsupported struct-local initializer for '${variableDeclaration.name}'`,
-                                statement.span.line,
-                            );
+                            context.programAnalysis.warn(`unsupported struct-local initializer for '${variableDeclaration.name}'`, statement.span.line);
                         }
                         context.lines.push(
                             `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", watIr.localGet(variableDeclaration.name, WatNodeType.I32), watIr.i32Constant(byteSize), watIr.i32Constant(0)))}`,
                         );
-                        if (
-                            context.programAnalysis.gtestMode &&
-                            !variableDeclaration.initializer &&
-                            concrete.kind === AstKind.NAME
-                        ) {
+                        if (context.programAnalysis.gtestMode && !variableDeclaration.initializer && concrete.kind === AstKind.NAME) {
                             const struct = context.programAnalysis.structOf(concrete, db);
                             const constructor = struct?.members.find(
                                 (member) =>
-                                    member.kind === AstKind.FUNCTION &&
-                                    (member as FunctionDecl).name === concrete.name &&
-                                    (member as FunctionDecl).body,
+                                    member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === concrete.name && (member as FunctionDecl).body,
                             ) as FunctionDecl | undefined;
                             const layout = context.programAnalysis.layoutOfType(concrete, db);
                             if (constructor && layout) {
@@ -296,9 +220,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                 cont = `$cont${count}`;
             context.lines.push(`    (block ${brk} (loop ${loop}`);
             if (statement.condition) {
-                context.lines.push(
-                    `      (br_if ${brk} (i64.eqz ${context.lowering.emitValue(context, statement.condition)}))`,
-                );
+                context.lines.push(`      (br_if ${brk} (i64.eqz ${context.lowering.emitValue(context, statement.condition)}))`);
             }
             // continue jumps out of the $cont block to run the update, then loops — matching C semantics.
             context.lines.push(`      (block ${cont}`);
@@ -307,10 +229,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             context.loops.pop();
             context.lines.push(`      )`);
             if (statement.update) {
-                const discardedText = context.lowering.emitDiscardedExpression(
-                    context,
-                    statement.update,
-                );
+                const discardedText = context.lowering.emitDiscardedExpression(context, statement.update);
                 if (discardedText) context.lines.push(`      ${discardedText}`);
             }
             context.lines.push(`      (br ${loop})))`);
@@ -322,9 +241,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                 loop = `$loop${count}`,
                 cont = `$cont${count}`;
             context.lines.push(`    (block ${brk} (loop ${loop}`);
-            context.lines.push(
-                `      (br_if ${brk} (i64.eqz ${context.lowering.emitValue(context, statement.condition)}))`,
-            );
+            context.lines.push(`      (br_if ${brk} (i64.eqz ${context.lowering.emitValue(context, statement.condition)}))`);
             context.lines.push(`      (block ${cont}`);
             context.loops.push({ brk, cont, scratchDepth: context.scratchpadScope?.length ?? 0 });
             emitStatement(context, statement.body);
@@ -344,9 +261,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             emitStatement(context, statement.body);
             context.loops.pop();
             context.lines.push(`      )`);
-            context.lines.push(
-                `      (br_if ${loop} (i64.ne (i64.const 0) ${context.lowering.emitValue(context, statement.condition)}))))`,
-            );
+            context.lines.push(`      (br_if ${loop} (i64.ne (i64.const 0) ${context.lowering.emitValue(context, statement.condition)}))))`);
             break;
         }
         case AstKind.SWITCH: {
@@ -355,15 +270,12 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             let sw = `__qinit_sw${count}`;
             while (context.localVars.has(sw) || context.params?.has(sw)) sw += "_";
             context.localVars.set(sw, { wasmType: WatNodeType.I64 });
-            context.lines.push(
-                `    ${context.lowering.setLocal(context, sw, context.lowering.lowerValueExpression(context, statement.condition))}`,
-            );
+            context.lines.push(`    ${context.lowering.setLocal(context, sw, context.lowering.lowerValueExpression(context, statement.condition))}`);
             context.lines.push(`    (block ${brk}`);
             // break targets the switch; continue still targets the enclosing loop (if any).
             const cont = context.loops.length ? context.loops[context.loops.length - 1].cont : brk;
             context.loops.push({ brk, cont, scratchDepth: context.scratchpadScope?.length ?? 0 });
-            const body =
-                statement.body.kind === AstKind.COMPOUND ? statement.body.body : [statement.body];
+            const body = statement.body.kind === AstKind.COMPOUND ? statement.body.body : [statement.body];
             // Give each switch group a block label for fallthrough dispatch.
             const groups: {
                 test: string | null;
@@ -430,31 +342,13 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                         context.lines.push(
                             `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(context.retAddr), addrIr(src), watIr.i32Constant(context.retAggSize ?? 0)))}`,
                         );
-                    } else if (
-                        context.retType &&
-                        (statement.value.kind === AstKind.INITIALIZER_LIST ||
-                            statement.value.kind === AstKind.CONSTRUCT)
-                    ) {
-                        const callArguments =
-                            statement.value.kind === AstKind.INITIALIZER_LIST
-                                ? statement.value.expressions
-                                : statement.value.callArguments;
-                        if (
-                            !context.lowering.emitConstruct(
-                                context,
-                                context.retAddr,
-                                context.retType,
-                                callArguments,
-                            )
-                        ) {
-                            throw new Error(
-                                "aggregate return initializer could not be constructed",
-                            );
+                    } else if (context.retType && (statement.value.kind === AstKind.INITIALIZER_LIST || statement.value.kind === AstKind.CONSTRUCT)) {
+                        const callArguments = statement.value.kind === AstKind.INITIALIZER_LIST ? statement.value.expressions : statement.value.callArguments;
+                        if (!context.lowering.emitConstruct(context, context.retAddr, context.retType, callArguments)) {
+                            throw new Error("aggregate return initializer could not be constructed");
                         }
                     } else {
-                        throw new Error(
-                            "aggregate return expression from inline method is not addressable",
-                        );
+                        throw new Error("aggregate return expression from inline method is not addressable");
                     }
                 } else if (statement.value && context.inlineValueLocal) {
                     context.lines.push(
@@ -473,23 +367,9 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                     context.lines.push(
                         `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(context.retAddr!), addrIr(src), watIr.i32Constant(context.retAggSize!)))}`,
                     );
-                } else if (
-                    context.retType &&
-                    (statement.value.kind === AstKind.INITIALIZER_LIST ||
-                        statement.value.kind === AstKind.CONSTRUCT)
-                ) {
-                    const callArguments =
-                        statement.value.kind === AstKind.INITIALIZER_LIST
-                            ? statement.value.expressions
-                            : statement.value.callArguments;
-                    if (
-                        !context.lowering.emitConstruct(
-                            context,
-                            context.retAddr,
-                            context.retType,
-                            callArguments,
-                        )
-                    ) {
+                } else if (context.retType && (statement.value.kind === AstKind.INITIALIZER_LIST || statement.value.kind === AstKind.CONSTRUCT)) {
+                    const callArguments = statement.value.kind === AstKind.INITIALIZER_LIST ? statement.value.expressions : statement.value.callArguments;
+                    if (!context.lowering.emitConstruct(context, context.retAddr, context.retType, callArguments)) {
                         throw new Error("aggregate return initializer could not be constructed");
                     }
                 } else {
@@ -507,10 +387,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                     addr = context.lowering.emitAddress(context, statement.value);
                 }
                 if (!addr) {
-                    context.programAnalysis.warn(
-                        "reference return expression is not addressable",
-                        statement.span.line,
-                    );
+                    context.programAnalysis.warn("reference return expression is not addressable", statement.span.line);
                     context.lines.push("    (return (i32.const 0))");
                     break;
                 }
@@ -520,10 +397,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                 context.lines.push(`    (return (local.get $${result}))`);
             } else if (statement.value && context.retIsValue) {
                 // `return e` converts e to the declared return type (sub-64-bit returns truncate / sign-extend).
-                const value = narrowCast(
-                    context.lowering.emitValue(context, statement.value),
-                    context.retTypeName,
-                );
+                const value = narrowCast(context.lowering.emitValue(context, statement.value), context.retTypeName);
                 if (context.scratchpadScope?.length) {
                     const result = context.lowering.allocateTemporaryLocalName(context);
                     context.localVars.set(result, { wasmType: WatNodeType.I64 });
@@ -547,18 +421,11 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             if (target) {
                 context.lowering.emitScratchpadReleases(context, target.scratchDepth, false);
                 context.lines.push(`    (br ${target.label})`);
-            } else
-                context.programAnalysis.warn(
-                    `unsupported goto '${statement.label}'`,
-                    statement.span.line,
-                );
+            } else context.programAnalysis.warn(`unsupported goto '${statement.label}'`, statement.span.line);
             break;
         }
         default:
-            context.programAnalysis.warn(
-                `unsupported statement '${statement.kind}'`,
-                statement.span.line,
-            );
+            context.programAnalysis.warn(`unsupported statement '${statement.kind}'`, statement.span.line);
             break;
     }
 }

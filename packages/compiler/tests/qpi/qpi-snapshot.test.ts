@@ -6,12 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { loadQpiHeader } from "../../src/index";
-import {
-    assembleQpiHeader,
-    GENERATOR_VERSION,
-    qpiHeadersEquivalent,
-    snapshotInputFiles,
-} from "../../src/driver/qpi/snapshot";
+import { assembleQpiHeader, GENERATOR_VERSION, qpiHeadersEquivalent, snapshotInputFiles } from "../../src/driver/qpi/snapshot";
 import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "../../src/driver/qpi/snapshot-format";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "../../src/generated/qpi-snapshot";
 import { QPI_PROTOCOL_PRELUDE } from "../../src/generated/qpi-protocol-prelude";
@@ -19,9 +14,7 @@ import { assembleQpiProtocolPrelude } from "../../src/driver/qpi/prelude";
 
 const CORE = CORE_PATH;
 const coreOk = existsSync(join(CORE, "src", "qpi", "qpi.h"));
-const snapshotManifest = JSON.parse(
-    readFileSync(join(import.meta.dir, "..", "..", "core-snapshot.json"), "utf8"),
-) as { coreCommit: string };
+const snapshotManifest = JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "core-snapshot.json"), "utf8")) as { coreCommit: string };
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -61,30 +54,13 @@ int add(int left,int right){return left+right;}
 describe("qpi header equivalence", () => {
     test("ignores endlines, spaces, and empty lines", () => {
         expect(qpiHeadersEquivalent(FORMATTED_HEADER, COMPACT_HEADER)).toBe(true);
-        expect(qpiHeadersEquivalent(FORMATTED_HEADER.replace(/\n/g, "\r\n"), COMPACT_HEADER)).toBe(
-            true,
-        );
+        expect(qpiHeadersEquivalent(FORMATTED_HEADER.replace(/\n/g, "\r\n"), COMPACT_HEADER)).toBe(true);
     });
 
     test("preserves semantic tokens", () => {
-        expect(
-            qpiHeadersEquivalent(
-                FORMATTED_HEADER,
-                COMPACT_HEADER.replace("left+right", "left-right"),
-            ),
-        ).toBe(false);
-        expect(
-            qpiHeadersEquivalent(
-                COMPACT_HEADER.replace("left+right", "left + +right"),
-                COMPACT_HEADER.replace("left+right", "left++right"),
-            ),
-        ).toBe(false);
-        expect(
-            qpiHeadersEquivalent(
-                FORMATTED_HEADER,
-                COMPACT_HEADER.replace('"abiVersion":1', '"abiVersion":2'),
-            ),
-        ).toBe(false);
+        expect(qpiHeadersEquivalent(FORMATTED_HEADER, COMPACT_HEADER.replace("left+right", "left-right"))).toBe(false);
+        expect(qpiHeadersEquivalent(COMPACT_HEADER.replace("left+right", "left + +right"), COMPACT_HEADER.replace("left+right", "left++right"))).toBe(false);
+        expect(qpiHeadersEquivalent(FORMATTED_HEADER, COMPACT_HEADER.replace('"abiVersion":1', '"abiVersion":2'))).toBe(false);
     });
 });
 
@@ -109,11 +85,9 @@ describe.if(coreOk)("qpi snapshot assembly", () => {
         for (const relativePath of wasmInputs) {
             expect(inputs).toContain(join(CORE, "src", relativePath));
         }
-        expect(
-            inputs
-                .filter((path) => path.startsWith(join(CORE, "src", CORE_WASM_HEADERS.root)))
-                .sort(),
-        ).toEqual(wasmInputs.map((path) => join(CORE, "src", path)).sort());
+        expect(inputs.filter((path) => path.startsWith(join(CORE, "src", CORE_WASM_HEADERS.root))).sort()).toEqual(
+            wasmInputs.map((path) => join(CORE, "src", path)).sort(),
+        );
         expect(inputs).toContain(join(CORE, "src", "oc_interfaces", "Mock.h"));
         expect(inputs).toContain(join(CORE, "src", "network_messages", "common_def.h"));
         expect(inputs).toContain(join(CORE, "src", "qpi", "impl", "qpi_trivial_impl.h"));
@@ -134,16 +108,9 @@ const browserModule = "../../src/browser";
 
 describe("tracked snapshot + browser entry", () => {
     test("protocol prelude extraction rejects drift and preserves source values", () => {
-        const changed = QPI_PROTOCOL_PRELUDE.replace(
-            "#define MAX_NUMBER_OF_CONTRACTS 1024",
-            "#define MAX_NUMBER_OF_CONTRACTS 2048",
-        );
-        expect(assembleQpiProtocolPrelude(changed)).toContain(
-            "#define MAX_NUMBER_OF_CONTRACTS 2048",
-        );
-        expect(() =>
-            assembleQpiProtocolPrelude(QPI_PROTOCOL_PRELUDE.replace(/^.*MAX_AMOUNT.*\n/m, "")),
-        ).toThrow(/MAX_AMOUNT/);
+        const changed = QPI_PROTOCOL_PRELUDE.replace("#define MAX_NUMBER_OF_CONTRACTS 1024", "#define MAX_NUMBER_OF_CONTRACTS 2048");
+        expect(assembleQpiProtocolPrelude(changed)).toContain("#define MAX_NUMBER_OF_CONTRACTS 2048");
+        expect(() => assembleQpiProtocolPrelude(QPI_PROTOCOL_PRELUDE.replace(/^.*MAX_AMOUNT.*\n/m, ""))).toThrow(/MAX_AMOUNT/);
     });
 
     test("generated module matches the assembly semantically with an exact byte hash", async () => {
@@ -164,9 +131,7 @@ describe("tracked snapshot + browser entry", () => {
             slot: 27,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            res.diagnostics.filter((d: { severity: string }) => d.severity === "error"),
-        ).toHaveLength(0);
+        expect(res.diagnostics.filter((d: { severity: string }) => d.severity === "error")).toHaveLength(0);
         expect(res.wasm.byteLength).toBeGreaterThan(0);
         expect(res.idl.procedures.map((p: { name: string }) => p.name)).toContain("Bump");
 

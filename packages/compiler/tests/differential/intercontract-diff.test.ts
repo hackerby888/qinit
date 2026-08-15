@@ -4,12 +4,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import {
-    compileContract,
-    loadQpiHeader,
-    type CompileResult,
-    type ContractIdl,
-} from "../../src/index";
+import { compileContract, loadQpiHeader, type CompileResult, type ContractIdl } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -70,9 +65,7 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
             qpiHeader: HEADERS,
             arenaSizeBytes: 1024 * 1024,
         });
-        expect(
-            counter.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-        ).toHaveLength(0);
+        expect(counter.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
         const callees = [requireIdl(counter)];
         const caller = await compileContract({
@@ -83,9 +76,7 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
             arenaSizeBytes: 1024 * 1024,
             callees,
         });
-        expect(
-            caller.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-        ).toHaveLength(0);
+        expect(caller.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
         expect(caller.idl?.dependencies).toEqual(["Counter"]);
 
         const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });

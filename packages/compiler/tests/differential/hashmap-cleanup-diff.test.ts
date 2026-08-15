@@ -105,9 +105,7 @@ describe("differential — HashMap set-reuse + cleanup state parity", () => {
                 qpiHeader: HEADERS,
                 arenaSizeBytes: 4 * 1024 * 1024,
             });
-            expect(
-                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-            ).toHaveLength(0);
+            expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
             const run = (wasm: Uint8Array) => {
                 const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
@@ -127,9 +125,7 @@ describe("differential — HashMap set-reuse + cleanup state parity", () => {
                 for (let i = 0; i < nat.length; i++) {
                     if (nat[i] !== ours[i]) diffs++;
                 }
-                console.log(
-                    `  STATE DIVERGENCE at byte ${firstDiff}: native=${nat[firstDiff]} ours=${ours[firstDiff]} (${diffs} of ${nat.length} differ)`,
-                );
+                console.log(`  STATE DIVERGENCE at byte ${firstDiff}: native=${nat[firstDiff]} ours=${ours[firstDiff]} (${diffs} of ${nat.length} differ)`);
             }
             expect(firstDiff).toBe(-1);
         },

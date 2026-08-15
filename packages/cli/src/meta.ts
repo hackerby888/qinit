@@ -25,12 +25,7 @@ export interface CommandMeta {
     hidden?: boolean;
 }
 
-const stringOption = (
-    name: string,
-    valueLabel: string,
-    description: string,
-    extra: Pick<OptionMeta, "multiple" | "hidden"> = {},
-): OptionMeta => ({
+const stringOption = (name: string, valueLabel: string, description: string, extra: Pick<OptionMeta, "multiple" | "hidden"> = {}): OptionMeta => ({
     name,
     type: "string",
     valueLabel,
@@ -38,11 +33,7 @@ const stringOption = (
     ...extra,
 });
 
-const booleanOption = (
-    name: string,
-    description: string,
-    extra: Pick<OptionMeta, "hidden"> = {},
-): OptionMeta => ({
+const booleanOption = (name: string, description: string, extra: Pick<OptionMeta, "hidden"> = {}): OptionMeta => ({
     name,
     type: "boolean",
     description,
@@ -73,10 +64,7 @@ const commandMeta = {
     update: {
         group: "setup",
         summary: "update the Qinit CLI",
-        options: [
-            booleanOption("force", "update even if already latest"),
-            booleanOption("dry-run", "preview the update"),
-        ],
+        options: [booleanOption("force", "update even if already latest"), booleanOption("dry-run", "preview the update")],
     },
     uninstall: {
         group: "setup",
@@ -93,35 +81,20 @@ const commandMeta = {
         json: true,
         summary: "manage the local node",
         usage: "<run|status|stop|get> [--ref <tag>] [--rpc <url>]",
-        options: [
-            stringOption("ref", "<tag>", "node and headers release"),
-            stringOption("rpc", "<url>", "RPC URL"),
-        ],
+        options: [stringOption("ref", "<tag>", "node and headers release"), stringOption("rpc", "<url>", "RPC URL")],
         subcommands: {
             run: {
                 options: [
-                    stringOption(
-                        "core-dir",
-                        "<path>",
-                        "Core checkout (Core runtime also requires --node-bin)",
-                    ),
+                    stringOption("core-dir", "<path>", "Core checkout (Core runtime also requires --node-bin)"),
                     stringOption("node-bin", "<path>", "Core node binary (skip download)"),
                     stringOption("tick-ms", "<n>", "simulator tick interval in ms (0 = fastest)"),
-                    stringOption(
-                        "peer-port",
-                        "<n>",
-                        `simulator peer port (default: ${DEFAULT_PEER_PORT})`,
-                    ),
+                    stringOption("peer-port", "<n>", `simulator peer port (default: ${DEFAULT_PEER_PORT})`),
                     stringOption("wait", "<s>", "node start timeout in seconds"),
                     stringOption("scratch-dir", "<path>", "node data and log directory"),
                     stringOption("node-mode", "<n>", "Core node mode"),
                     stringOption("peers", "<addr>", "Core peer address"),
                     stringOption("runtime", "<core|simulator>", "runtime for this run"),
-                    stringOption(
-                        "compiler",
-                        "<clang|typescript>",
-                        "simulator system-contract compiler",
-                    ),
+                    stringOption("compiler", "<clang|typescript>", "simulator system-contract compiler"),
                     booleanOption("restart", "restart even if the node is running"),
                     booleanOption("offline", "use cached files without network access"),
                     booleanOption("keep", "preserve existing node data"),
@@ -150,10 +123,7 @@ const commandMeta = {
         group: "develop",
         summary: "create a contract project",
         usage: "<name> [--template counter|hashmap|asset|intercontract]",
-        options: [
-            stringOption("template", "<t>", "project template (default: counter)"),
-            stringOption("core-dir", "<path>", "Core checkout"),
-        ],
+        options: [stringOption("template", "<t>", "project template (default: counter)"), stringOption("core-dir", "<path>", "Core checkout")],
         examples: ["qinit new mytoken --template asset"],
     },
     integrate: {
@@ -168,9 +138,7 @@ const commandMeta = {
             stringOption("construction-epoch", "<n>", "first active epoch"),
             stringOption("destruction-epoch", "<n>", "first inactive epoch (default: 10000)"),
         ],
-        examples: [
-            "qinit integrate ./contracts/Mytoken.h --asset MYTOKEN --construction-epoch 200",
-        ],
+        examples: ["qinit integrate ./contracts/Mytoken.h --asset MYTOKEN --construction-epoch 200"],
     },
     dev: {
         group: "develop",
@@ -285,11 +253,7 @@ const commandMeta = {
         group: "deploy & interact",
         summary: "manage the transaction signer seed",
         usage: "[<seed>]",
-        options: [
-            booleanOption("show", "show the saved seed"),
-            booleanOption("clear", "remove the saved seed"),
-            stringOption("rpc", "<url>", "RPC URL"),
-        ],
+        options: [booleanOption("show", "show the saved seed"), booleanOption("clear", "remove the saved seed"), stringOption("rpc", "<url>", "RPC URL")],
     },
     ls: {
         group: "deploy & interact",
@@ -318,20 +282,13 @@ const commandMeta = {
         summary: "explore the chain",
         usage: "[<tick|txid|identity>]",
         options: [stringOption("rpc", "<url>", "RPC URL")],
-        examples: [
-            "qinit explorer # interactive mode",
-            "qinit explorer 7474 # quick jump to tick",
-            "qinit explorer <identity> # quick jump ID details",
-        ],
+        examples: ["qinit explorer # interactive mode", "qinit explorer 7474 # quick jump to tick", "qinit explorer <identity> # quick jump ID details"],
     },
     debug: {
         group: "deploy & interact",
         summary: "inspect contract calls and state changes",
         usage: "<Contract>",
-        options: [
-            stringOption("contract", "<name|slot>", "contract name or slot"),
-            stringOption("rpc", "<url>", "RPC URL"),
-        ],
+        options: [stringOption("contract", "<name|slot>", "contract name or slot"), stringOption("rpc", "<url>", "RPC URL")],
     },
     test: {
         group: "deploy & interact",
@@ -408,10 +365,7 @@ const commandMeta = {
         group: "deploy & interact",
         summary: "manage system contracts",
         usage: "[ls | add <name…> | rm <name…>]",
-        options: [
-            stringOption("rpc", "<url>", "RPC URL"),
-            stringOption("compiler", "<clang|typescript>", "simulator system-contract compiler"),
-        ],
+        options: [stringOption("rpc", "<url>", "RPC URL"), stringOption("compiler", "<clang|typescript>", "simulator system-contract compiler")],
         examples: ["qinit system add QX QEARN", "qinit system ls"],
     },
     theme: {
@@ -439,10 +393,7 @@ export function isCommandName(command: string): command is CommandName {
 
 export function commandOptions(command: CommandName, subcommand?: string): OptionMeta[] {
     const meta: CommandMeta = META[command];
-    return [
-        ...(meta.options ?? []),
-        ...(subcommand ? (meta.subcommands?.[subcommand]?.options ?? []) : []),
-    ];
+    return [...(meta.options ?? []), ...(subcommand ? (meta.subcommands?.[subcommand]?.options ?? []) : [])];
 }
 
 // Canonical names for routing and suggestions. The router handles aliases.

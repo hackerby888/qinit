@@ -29,9 +29,7 @@ async function compile(source: string) {
 
 async function run(stateFields: string, body: string): Promise<bigint> {
     const result = await compile(wrap(stateFields, body));
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
-        0,
-    );
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(WebAssembly.validate(result.wasm)).toBe(true);
     const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     const user = new Uint8Array(32).fill(7);
@@ -48,21 +46,15 @@ describe("edge audit — fixed C arrays", () => {
     });
 
     test("an exact local initializer populates every element", async () => {
-        expect(await run("", `uint64 xs[2] = {7, 9}; state.mut().result = xs[0] + xs[1];`)).toBe(
-            16n,
-        );
+        expect(await run("", `uint64 xs[2] = {7, 9}; state.mut().result = xs[0] + xs[1];`)).toBe(16n);
     });
 
     test("an omitted local bound is inferred from the initializer", async () => {
-        expect(await run("", `uint64 xs[] = {7, 9}; state.mut().result = xs[0] + xs[1];`)).toBe(
-            16n,
-        );
+        expect(await run("", `uint64 xs[] = {7, 9}; state.mut().result = xs[0] + xs[1];`)).toBe(16n);
     });
 
     test("missing local initializers zero-fill the remaining elements", async () => {
-        expect(
-            await run("", `uint64 xs[3] = {7}; state.mut().result = xs[0] + xs[1] + xs[2];`),
-        ).toBe(7n);
+        expect(await run("", `uint64 xs[3] = {7}; state.mut().result = xs[0] + xs[1] + xs[2];`)).toBe(7n);
     });
 
     test("multidimensional state arrays preserve row-major indexing", async () => {
@@ -73,22 +65,13 @@ describe("edge audit — fixed C arrays", () => {
     });
 
     test("nested initializer lists populate a multidimensional local array", async () => {
-        expect(
-            await run(
-                "",
-                `uint64 xs[2][2] = {{1, 2}, {3, 4}}; state.mut().result = xs[0][1] + xs[1][1];`,
-            ),
-        ).toBe(6n);
+        expect(await run("", `uint64 xs[2][2] = {{1, 2}, {3, 4}}; state.mut().result = xs[0][1] + xs[1][1];`)).toBe(6n);
     });
 
     test("too many local array initializers are rejected", async () => {
-        const result = await compile(
-            wrap("", `uint64 xs[2] = {1, 2, 3}; state.mut().result = xs[0];`),
-        );
+        const result = await compile(wrap("", `uint64 xs[2] = {1, 2, 3}; state.mut().result = xs[0];`));
         const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
-        expect(
-            errors.some((d) => /initializer|too many|array.*bound|array.*size/i.test(d.message)),
-        ).toBe(true);
+        expect(errors.some((d) => /initializer|too many|array.*bound|array.*size/i.test(d.message))).toBe(true);
         expect(result.wasm).toHaveLength(0);
     });
 });

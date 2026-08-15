@@ -9,10 +9,7 @@ import { tryEmitUint128Assignment } from "./uint128-assignment";
 export { compoundToBinary, narrowLocalValue, newValueTmp } from "./assignment-helpers";
 export type { AssignmentExpression, AssignmentTarget } from "./assignment-types";
 
-export function emitAssignment(
-    context: FunctionEmissionContext,
-    expression: AssignmentExpression,
-): void {
+export function emitAssignment(context: FunctionEmissionContext, expression: AssignmentExpression): void {
     if (tryEmitTestHarnessAssignment(context, expression)) {
         return;
     }
@@ -31,17 +28,11 @@ export function emitAssignment(
         return;
     }
 
-    context.programAnalysis.warn(
-        `unsupported assignment target [${describeShape(expression.left)}]`,
-        expression.span.line,
-    );
+    context.programAnalysis.warn(`unsupported assignment target [${describeShape(expression.left)}]`, expression.span.line);
 }
 
 // Compatibility export for callers that still expect discarded-expression text.
-export function emitAssign(
-    context: FunctionEmissionContext,
-    expression: AssignmentExpression,
-): string {
+export function emitAssign(context: FunctionEmissionContext, expression: AssignmentExpression): string {
     emitAssignment(context, expression);
     return "";
 }

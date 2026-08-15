@@ -108,14 +108,8 @@ test("a header added to the tree joins the allowlist on its own", () => {
         const src = join(root, "src");
         mkdirSync(join(src, "qpi"), { recursive: true });
         mkdirSync(join(root, "lib"), { recursive: true });
-        writeFileSync(
-            join(src, "qpi", "qpi.h"),
-            '#include <vector>\n#include "qpi_future.h"\n#include "../../lib/vendored.h"\nstruct id {};\n',
-        );
-        writeFileSync(
-            join(src, "qpi", "qpi_future.h"),
-            "struct FutureContainer { uint64 futureField; };\n",
-        );
+        writeFileSync(join(src, "qpi", "qpi.h"), '#include <vector>\n#include "qpi_future.h"\n#include "../../lib/vendored.h"\nstruct id {};\n');
+        writeFileSync(join(src, "qpi", "qpi_future.h"), "struct FutureContainer { uint64 futureField; };\n");
         writeFileSync(join(root, "lib", "vendored.h"), "int simde_mm_add_epi64(int);\n");
 
         const prefix = join(root, "Probe.prefix.h");
@@ -177,9 +171,7 @@ test("labels are matched by their leading identifier", () => {
     expect(keepCompletionLabel(" div(sint64 a, sint64 b)", allowed, documentNames)).toBe(true);
     expect(keepCompletionLabel("uint64", allowed, documentNames)).toBe(true);
     expect(keepCompletionLabel(" myLocal", allowed, documentNames)).toBe(true);
-    expect(keepCompletionLabel(" fprintf(FILE *__restrict, ...)", allowed, documentNames)).toBe(
-        false,
-    );
+    expect(keepCompletionLabel(" fprintf(FILE *__restrict, ...)", allowed, documentNames)).toBe(false);
     expect(keepCompletionLabel(" __implementQpiFunction()", allowed, documentNames)).toBe(false);
     // No leading identifier to judge (operators, destructors) — left alone.
     expect(keepCompletionLabel("~Counter()", allowed, documentNames)).toBe(true);

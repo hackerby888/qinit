@@ -125,15 +125,11 @@ describe("differential gtest — semantic fidelity edges", () => {
                 qpiHeader: HEADERS,
                 arenaSizeBytes: 1024 * 1024,
             });
-            expect(
-                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-            ).toHaveLength(0);
+            expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
             const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
             for (const r of results) {
-                console.log(
-                    `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`,
-                );
+                console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`);
             }
             expect(results.length).toBeGreaterThan(0);
             expect(results.every((r) => r.passed)).toBe(true);

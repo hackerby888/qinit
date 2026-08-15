@@ -1,14 +1,6 @@
 // Tick consensus state and history, mirroring core-lite vote processing.
 // The leader signs each tick's transaction digests in TickData.
-import {
-    Committee,
-    type CommitteeOpts,
-    type TickStateDigests,
-    buildTickVote,
-    buildTickData,
-    voteIsAligned,
-    DEFAULT_NUMBER_OF_COMPUTORS,
-} from "./consensus";
+import { Committee, type CommitteeOpts, type TickStateDigests, buildTickVote, buildTickData, voteIsAligned, DEFAULT_NUMBER_OF_COMPUTORS } from "./consensus";
 import { k12Bytes } from "../support/k12";
 import type { Tick, TickData } from "../protocol/wire";
 
@@ -51,12 +43,7 @@ export class TickConsensus {
         computer: ZERO32,
     }; // previous tick's committed roots
 
-    constructor(
-        host: ConsensusHost,
-        opts: CommitteeOpts,
-        lite = false,
-        historyTicks = DEFAULT_TICK_HISTORY,
-    ) {
+    constructor(host: ConsensusHost, opts: CommitteeOpts, lite = false, historyTicks = DEFAULT_TICK_HISTORY) {
         this.host = host;
         this.opts = opts;
         this.lite = lite;
@@ -65,11 +52,7 @@ export class TickConsensus {
 
     // The configured committee size, available without deriving keys (used for dividend payout + quorum sizing).
     committeeSize(): number {
-        return (
-            this.opts.computorSeeds?.length ??
-            this.opts.numberOfComputors ??
-            DEFAULT_NUMBER_OF_COMPUTORS
-        );
+        return this.opts.computorSeeds?.length ?? this.opts.numberOfComputors ?? DEFAULT_NUMBER_OF_COMPUTORS;
     }
 
     // The committee, derived (sync FourQ) on first use — requires initK12() to have resolved the crypto module.
@@ -117,14 +100,7 @@ export class TickConsensus {
         }
 
         const committee = this.getCommittee();
-        const tickData = buildTickData(
-            committee,
-            epoch,
-            tick,
-            txDigests,
-            { spectrum, universe, computer },
-            this.host.nowMs(),
-        );
+        const tickData = buildTickData(committee, epoch, tick, txDigests, { spectrum, universe, computer }, this.host.nowMs());
 
         const digests: TickStateDigests = {
             spectrum,

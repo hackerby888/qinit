@@ -67,10 +67,7 @@ export const TYPE_COMPOUNDS: [TokenKind[], TokenKind][] = [
     [[TokenKind.KW_SIGNED, TokenKind.KW_INT], TokenKind.KW_SIGNED_INT],
     [[TokenKind.KW_UNSIGNED, TokenKind.KW_INT], TokenKind.KW_UNSIGNED_INT],
     [[TokenKind.KW_SIGNED, TokenKind.KW_LONG, TokenKind.KW_LONG], TokenKind.KW_SIGNED_LONG_LONG],
-    [
-        [TokenKind.KW_UNSIGNED, TokenKind.KW_LONG, TokenKind.KW_LONG],
-        TokenKind.KW_UNSIGNED_LONG_LONG,
-    ],
+    [[TokenKind.KW_UNSIGNED, TokenKind.KW_LONG, TokenKind.KW_LONG], TokenKind.KW_UNSIGNED_LONG_LONG],
     [[TokenKind.KW_LONG, TokenKind.KW_LONG], TokenKind.KW_LONG_LONG],
 ];
 

@@ -38,15 +38,7 @@ export function Banner({ version, tagline }: { version: string; tagline: string 
     );
 }
 
-export function Panel({
-    title,
-    color = theme.info,
-    children,
-}: {
-    title?: string;
-    color?: string;
-    children: React.ReactNode;
-}) {
+export function Panel({ title, color = theme.info, children }: { title?: string; color?: string; children: React.ReactNode }) {
     return (
         <Box flexDirection="column">
             {title && (
@@ -54,13 +46,7 @@ export function Panel({
                     <Badge text={title} color={color} />
                 </Box>
             )}
-            <Box
-                borderStyle="round"
-                borderColor={color}
-                paddingX={1}
-                flexDirection="column"
-                alignSelf="flex-start"
-            >
+            <Box borderStyle="round" borderColor={color} paddingX={1} flexDirection="column" alignSelf="flex-start">
                 {children}
             </Box>
         </Box>
@@ -87,8 +73,7 @@ export function SectionHeader({
     const total = width ?? termCols();
     const label = title.toUpperCase();
     // Badges and errors are variable-width; the rule just fills whatever is left over.
-    const used =
-        2 + label.length + (detail ? detail.length + 2 : 0) + (badge ? badge.length + 4 : 0);
+    const used = 2 + label.length + (detail ? detail.length + 2 : 0) + (badge ? badge.length + 4 : 0);
     // Leave the terminal's last cell empty: a header filling it exactly wraps on some terminals.
     const rule = Math.max(0, total - used - (error ? error.length + 2 : 0) - 2);
 

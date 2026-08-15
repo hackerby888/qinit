@@ -145,9 +145,7 @@ test("runtimeImport emits a self-contained client (./runtime, no unpublished @qi
     // `qinit gen` / `qinit test` pass runtimeImport so the output works outside the monorepo (the @qinit/*
     // packages are unpublished); without it the client imports @qinit/core + @qinit/proto.
     const sc = generateClient(extractIdl(SRC, "Demo"), 28, { runtimeImport: "./runtime" });
-    expect(sc).toContain(
-        'import { DEFAULT_RPC_BASE, LiteRpc, callFunction, invokeProcedure } from "./runtime";',
-    );
+    expect(sc).toContain('import { DEFAULT_RPC_BASE, LiteRpc, callFunction, invokeProcedure } from "./runtime";');
     expect(sc).toContain("this.rpcBaseUrl = o.rpcBaseUrl ?? DEFAULT_RPC_BASE;");
     expect(sc).not.toContain("@qinit/");
     expect(out).toContain('import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";');
@@ -162,13 +160,9 @@ test("imports only the runtime calls used by the contract", () => {
         runtimeImport: "./runtime",
     });
 
-    expect(functionsOnly).toContain(
-        'import { DEFAULT_RPC_BASE, LiteRpc, callFunction } from "./runtime";',
-    );
+    expect(functionsOnly).toContain('import { DEFAULT_RPC_BASE, LiteRpc, callFunction } from "./runtime";');
     expect(functionsOnly).not.toContain("invokeProcedure");
-    expect(proceduresOnly).toContain(
-        'import { DEFAULT_RPC_BASE, LiteRpc, invokeProcedure } from "./runtime";',
-    );
+    expect(proceduresOnly).toContain('import { DEFAULT_RPC_BASE, LiteRpc, invokeProcedure } from "./runtime";');
     expect(proceduresOnly).not.toContain("callFunction");
 });
 
@@ -199,26 +193,18 @@ test("scalar and array roots use direct aliases, arguments, and results", () => 
     }).not.toThrow();
     expect(directRootClient).toContain("export type DirectScalar_input = bigint;");
     expect(directRootClient).toContain("export type DirectScalar_output = bigint;");
-    expect(directRootClient).toContain(
-        "async DirectScalar(args: DirectScalar_input): Promise<DirectScalar_output>",
-    );
+    expect(directRootClient).toContain("async DirectScalar(args: DirectScalar_input): Promise<DirectScalar_output>");
     expect(directRootClient).toContain("value: args");
     expect(directRootClient).toContain("return r as bigint;");
 
     expect(directRootClient).toContain("export type DirectRows_input = number[];");
     expect(directRootClient).toContain("export type DirectRows_output = { amount: bigint }[];");
-    expect(directRootClient).toContain(
-        "async DirectRows(args: DirectRows_input): Promise<DirectRows_output>",
-    );
-    expect(directRootClient).toContain(
-        "return (r as unknown[]).map((element) => ((s) => ({ amount: s[0] as bigint }))(element as unknown[]));",
-    );
+    expect(directRootClient).toContain("async DirectRows(args: DirectRows_input): Promise<DirectRows_output>");
+    expect(directRootClient).toContain("return (r as unknown[]).map((element) => ((s) => ({ amount: s[0] as bigint }))(element as unknown[]));");
 
     expect(directRootClient).toContain("export type DirectBits_input = number[];");
     expect(directRootClient).toContain("export type DirectBits_output = number[];");
-    expect(directRootClient).toContain(
-        "async DirectBits(args: DirectBits_input): Promise<DirectBits_output>",
-    );
+    expect(directRootClient).toContain("async DirectBits(args: DirectBits_input): Promise<DirectBits_output>");
     expect(directRootClient).toContain("return r as number[];");
 
     expect(directRootClient).toContain("export interface Empty_input {}");
@@ -228,9 +214,7 @@ test("scalar and array roots use direct aliases, arguments, and results", () => 
 
     expect(directRootClient).toContain("export type DirectProcedure_input = bigint;");
     expect(directRootClient).toContain("async DirectProcedure(args: DirectProcedure_input, opts:");
-    expect(directRootClient).toContain(
-        "input: { type: DirectProcedure_procedure_input_schema, value: args }",
-    );
+    expect(directRootClient).toContain("input: { type: DirectProcedure_procedure_input_schema, value: args }");
 });
 
 test("procedure wiring: tick+8, confirm-by-default, typed return", () => {

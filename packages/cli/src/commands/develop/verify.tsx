@@ -17,17 +17,10 @@ export function Verify({ commandArgs }: { commandArgs: CommandArguments }) {
         (async () => {
             try {
                 const cfg = loadConfig();
-                const cpath =
-                    commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract;
-                if (!cpath)
-                    throw new Error(
-                        "no contract: pass `qinit verify <file.h>` (or set contract in qinit.json)",
-                    );
+                const cpath = commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract;
+                if (!cpath) throw new Error("no contract: pass `qinit verify <file.h>` (or set contract in qinit.json)");
                 const file = resolve(cpath);
-                const name =
-                    commandArgs.get("contract-name") ??
-                    cfg.contractName ??
-                    basename(file).replace(/\.[^.]+$/, "");
+                const name = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(file).replace(/\.[^.]+$/, "");
                 const graph = resolveProjectDependencies({
                     projectRoot: process.cwd(),
                     corePath: resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir),
@@ -35,9 +28,7 @@ export function Verify({ commandArgs }: { commandArgs: CommandArguments }) {
                     contractPath: file,
                     explicitCallees: dynCallees,
                 });
-                const calleeNames = graph
-                    .filter((contract) => contract.stateType !== name)
-                    .flatMap((contract) => [contract.name, contract.stateType]);
+                const calleeNames = graph.filter((contract) => contract.stateType !== name).flatMap((contract) => [contract.name, contract.stateType]);
                 setR(await verifyContract(file, name, { allowedPrefixes: calleeNames }));
             } catch (e: any) {
                 setErr(String(e?.message ?? e));
@@ -81,19 +72,9 @@ export function Verify({ commandArgs }: { commandArgs: CommandArguments }) {
         <Box flexDirection="column">
             <Header cmd="verify" />
             {!v.available ? (
-                <Status
-                    ok={null}
-                    label="protocol rules"
-                    detail="skipped — verify tool not fetched (run qinit setup)"
-                    pad={16}
-                />
+                <Status ok={null} label="protocol rules" detail="skipped — verify tool not fetched (run qinit setup)" pad={16} />
             ) : v.ok ? (
-                <Status
-                    ok={true}
-                    label="protocol rules"
-                    detail="passed — complies with qpi.h restrictions"
-                    pad={16}
-                />
+                <Status ok={true} label="protocol rules" detail="passed — complies with qpi.h restrictions" pad={16} />
             ) : (
                 <Panel title="protocol violations" color={theme.err}>
                     <Box flexDirection="column" width={Math.min(100, termCols() - 4)}>

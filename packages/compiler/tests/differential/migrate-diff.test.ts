@@ -106,9 +106,7 @@ describe("differential — MIGRATE() redeploy state parity", () => {
                     qpiHeader: HEADERS,
                     arenaSizeBytes: 4 * 1024 * 1024,
                 });
-                expect(
-                    mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-                ).toHaveLength(0);
+                expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
                 return mine.wasm;
             };
 
@@ -144,9 +142,7 @@ describe("differential — MIGRATE() redeploy state parity", () => {
                 expect(b.length).toBe(a.length);
                 const firstDiff = a.findIndex((v, i) => b[i] !== v);
                 if (firstDiff >= 0) {
-                    console.log(
-                        `  ${phase} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`,
-                    );
+                    console.log(`  ${phase} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`);
                 }
                 expect(firstDiff).toBe(-1);
             }

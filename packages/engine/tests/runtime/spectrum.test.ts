@@ -77,9 +77,7 @@ test("collisions use Core's first-u32 slot and linear probing", () => {
     expect(spectrum.spectrumProof(third).index).toBe(0x123458);
     expect(spectrum.spectrumProof(end).index).toBe(0xffffff);
     expect(spectrum.spectrumProof(wrapped).index).toBe(0);
-    expect(
-        toHex(rootFromSiblings(secondProof.record, secondProof.index, secondProof.siblings)),
-    ).toBe(toHex(spectrum.getSpectrumDigest()));
+    expect(toHex(rootFromSiblings(secondProof.record, secondProof.index, secondProof.siblings))).toBe(toHex(spectrum.getSpectrumDigest()));
 });
 
 test("nextId / prevId walk occupied spectrum slots", () => {
@@ -124,9 +122,7 @@ test("spectrumProof: 24 siblings for a known entity, index -1 for an unknown one
     expect(p.index).toBeGreaterThanOrEqual(0);
     expect(p.siblings.length).toBe(24); // SPECTRUM_DEPTH
     expect(p.record.length).toBe(64); // EntityRecord
-    expect(toHex(rootFromSiblings(p.record, p.index, p.siblings))).toBe(
-        toHex(s.getSpectrumDigest()),
-    );
+    expect(toHex(rootFromSiblings(p.record, p.index, p.siblings))).toBe(toHex(s.getSpectrumDigest()));
 
     const miss = s.spectrumProof(id(9));
     expect(miss.index).toBe(-1);

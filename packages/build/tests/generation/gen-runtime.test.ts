@@ -14,9 +14,7 @@ test("the bundled runtime is portable: no externals at all, no node-only refs", 
     const src = generateRuntimeMacro();
     const externals = [
         ...new Set(
-            [...src.matchAll(/from\s*"([^"]+)"|require\("([^"]+)"\)/g)]
-                .map((m) => m[1] || m[2])
-                .filter((x) => x && !x.startsWith(".") && !x.startsWith("/")),
+            [...src.matchAll(/from\s*"([^"]+)"|require\("([^"]+)"\)/g)].map((m) => m[1] || m[2]).filter((x) => x && !x.startsWith(".") && !x.startsWith("/")),
         ),
     ];
     expect(externals).toEqual([]);

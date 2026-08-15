@@ -1,30 +1,12 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, type DynamicContractRegistryEntry } from "@qinit/core";
-import {
-    callFunction,
-    invokeProcedure,
-    encodeInput,
-    hasOverlappingAbiType,
-    zeroInputFormat,
-    TX_TICK_OFFSET,
-} from "@qinit/proto";
-import {
-    AbiTypeKind,
-    type AbiField,
-    type AbiType,
-    type ContractEntry,
-    type ContractIdl,
-    type ContractIdlFile,
-} from "@qinit/proto/contract-idl";
+import { callFunction, invokeProcedure, encodeInput, hasOverlappingAbiType, zeroInputFormat, TX_TICK_OFFSET } from "@qinit/proto";
+import { AbiTypeKind, type AbiField, type AbiType, type ContractEntry, type ContractIdl, type ContractIdlFile } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { loadConfiguredQpiHeader, resolveSeed } from "../../config";
 import { loadContracts, mergeContracts } from "../../contracts/registry";
-import {
-    contractIdlForSlot,
-    emptyContractIdlFile,
-    loadContractIdlFile,
-} from "../../contracts/idl-file";
+import { contractIdlForSlot, emptyContractIdlFile, loadContractIdlFile } from "../../contracts/idl-file";
 import { fmtVal, formatStateValue } from "../../trace/format";
 import { Header, Spinner, Panel, theme } from "../../ui";
 import { Select, TextPrompt } from "../../ui/prompt";
@@ -50,19 +32,7 @@ export function formatContractPickerRows(
     );
 }
 
-const QPI_TYPES = [
-    "uint64",
-    "uint32",
-    "uint16",
-    "uint8",
-    "sint64",
-    "sint32",
-    "sint16",
-    "sint8",
-    "id",
-    "bit",
-    "m256i",
-];
+const QPI_TYPES = ["uint64", "uint32", "uint16", "uint8", "sint64", "sint32", "sint16", "sint8", "id", "bit", "m256i"];
 
 export function completerFor(fields?: AbiField[], completeBareValue = false) {
     return (value: string, idle = false): string | null => {
@@ -73,17 +43,10 @@ export function completerFor(fields?: AbiField[], completeBareValue = false) {
         const expectedType = fields?.[fieldIndex]?.type.format;
         const fragment = current.match(/[a-z][a-z0-9]*$/);
         if (fragment) {
-            const candidates =
-                expectedType && QPI_TYPES.includes(expectedType)
-                    ? [expectedType, ...QPI_TYPES]
-                    : QPI_TYPES;
-            const match = candidates.find(
-                (type) => type.startsWith(fragment[0]) && type !== fragment[0],
-            );
+            const candidates = expectedType && QPI_TYPES.includes(expectedType) ? [expectedType, ...QPI_TYPES] : QPI_TYPES;
+            const match = candidates.find((type) => type.startsWith(fragment[0]) && type !== fragment[0]);
 
-            return match
-                ? completed + current.slice(0, current.length - fragment[0].length) + match
-                : null;
+            return match ? completed + current.slice(0, current.length - fragment[0].length) + match : null;
         }
 
         if (!idle || !completeBareValue || !expectedType || !QPI_TYPES.includes(expectedType)) {
@@ -107,30 +70,16 @@ export function completerFor(fields?: AbiField[], completeBareValue = false) {
     };
 }
 
-export const tmplOf = (fields?: AbiField[]) =>
-    fields && fields.length
-        ? fields.map((field) => `<${field.name}>${field.type.format}`).join(", ")
-        : undefined;
+export const tmplOf = (fields?: AbiField[]) => (fields && fields.length ? fields.map((field) => `<${field.name}>${field.type.format}`).join(", ") : undefined);
 
-function SchemaBox({
-    kind,
-    name,
-    type,
-}: {
-    kind: "input" | "output";
-    name?: string;
-    type?: AbiType;
-}) {
+function SchemaBox({ kind, name, type }: { kind: "input" | "output"; name?: string; type?: AbiType }) {
     if (type === undefined) {
         return null;
     }
 
     const fields = type.kind === AbiTypeKind.STRUCT ? type.fields : undefined;
     return (
-        <Panel
-            title={`${kind}${name ? "  ·  " + name : ""}`}
-            color={kind === "input" ? theme.info : theme.accent}
-        >
+        <Panel title={`${kind}${name ? "  ·  " + name : ""}`} color={kind === "input" ? theme.info : theme.accent}>
             {fields === undefined ? (
                 <Text color={theme.info}>{type.format}</Text>
             ) : fields.length === 0 ? (
@@ -138,8 +87,7 @@ function SchemaBox({
             ) : (
                 fields.map((field, index) => (
                     <Text key={index}>
-                        <Text color={theme.info}>{field.type.format.padEnd(10)}</Text>{" "}
-                        <Text bold>{field.name}</Text>
+                        <Text color={theme.info}>{field.type.format.padEnd(10)}</Text> <Text bold>{field.name}</Text>
                     </Text>
                 ))
             )}
@@ -160,10 +108,7 @@ type Entry = {
 
 export function zeroSample(entry: Entry): string | null {
     try {
-        if (
-            !entry.input ||
-            (entry.input.kind === AbiTypeKind.STRUCT && entry.input.fields.length === 0)
-        ) {
+        if (!entry.input || (entry.input.kind === AbiTypeKind.STRUCT && entry.input.fields.length === 0)) {
             return null;
         }
 
@@ -207,14 +152,10 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
         (async () => {
             try {
                 setIdlFile(loadContractIdlFile());
-                const { all: combined, userCount: deployed } = mergeContracts(
-                    await loadContracts(new LiteRpc(rpcBaseUrl)),
-                );
+                const { all: combined, userCount: deployed } = mergeContracts(await loadContracts(new LiteRpc(rpcBaseUrl)));
 
                 if (!combined.length) {
-                    addResult(
-                        "no contracts — deploy one, or run `qinit node run` to load system contracts",
-                    );
+                    addResult("no contracts — deploy one, or run `qinit node run` to load system contracts");
                     setStage("done");
                     return;
                 }
@@ -278,17 +219,9 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
             addResult("≡ " + equivCmd(contract, entry, selected));
 
             if (entry.kind === "fn") {
-                const output = await callFunction(
-                    rpc,
-                    contractIndex,
-                    entry.inputType,
-                    selected.input ?? "",
-                    entry.output ?? selected.out ?? "",
-                );
+                const output = await callFunction(rpc, contractIndex, entry.inputType, selected.input ?? "", entry.output ?? selected.out ?? "");
                 // The IDL type wins over a typed-in format above, and it is the one that names the fields.
-                const shown = entry.output
-                    ? formatStateValue(output, entry.output, false, true)
-                    : fmtVal(output);
+                const shown = entry.output ? formatStateValue(output, entry.output, false, true) : fmtVal(output);
                 addResult(`${labelFor(contract, entry)} -> ${shown}`);
             } else {
                 const tickInfo = await rpc.tickInfo();
@@ -304,9 +237,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
                     confirm: true,
                     rpc,
                     onProgress: ({ tick: net, target }) =>
-                        setStatus(
-                            `confirming · tick ${net} → ${target}${net < target ? ` (${target - net} to go)` : " · processing"}`,
-                        ),
+                        setStatus(`confirming · tick ${net} → ${target}${net < target ? ` (${target - net} to go)` : " · processing"}`),
                 });
                 setStatus("");
 
@@ -320,9 +251,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
                 let contractError = "";
 
                 try {
-                    const deployed = (await rpc.dynRegistry()).contracts?.find(
-                        (candidate) => candidate.index === contractIndex,
-                    );
+                    const deployed = (await rpc.dynRegistry()).contracts?.find((candidate) => candidate.index === contractIndex);
                     if (deployed?.lastError) {
                         contractError = ` · contract error: ${deployed.lastError}`;
                     }
@@ -330,11 +259,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
                     // The procedure verdict remains useful if the registry is unavailable.
                 }
 
-                addResult(
-                    `${labelFor(contract, entry)} @tick ${tick}: ${verdict}  ${
-                        procedure.txId ?? ""
-                    }${contractError}`,
-                );
+                addResult(`${labelFor(contract, entry)} @tick ${tick}: ${verdict}  ${procedure.txId ?? ""}${contractError}`);
             }
         } catch (error: any) {
             addResult("ERROR: " + String(error?.message ?? error));
@@ -343,8 +268,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
         setStage("done");
     };
 
-    const noInput = (entry: Entry) =>
-        entry.input?.kind === AbiTypeKind.STRUCT && entry.input.fields.length === 0;
+    const noInput = (entry: Entry) => entry.input?.kind === AbiTypeKind.STRUCT && entry.input.fields.length === 0;
 
     const startEntry = (entry: Entry) => {
         const next = { ...selection, e: entry, input: "" };
@@ -378,21 +302,11 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
         }
     };
 
-    const labelFor = (contract: DynamicContractRegistryEntry, entry: Entry) =>
-        `${nameOf(contract)}.${entry.name ?? entry.kind + "#" + entry.inputType}`;
+    const labelFor = (contract: DynamicContractRegistryEntry, entry: Entry) => `${nameOf(contract)}.${entry.name ?? entry.kind + "#" + entry.inputType}`;
 
-    const equivCmd = (
-        contract: DynamicContractRegistryEntry,
-        entry: Entry,
-        selected: typeof selection,
-    ) => {
+    const equivCmd = (contract: DynamicContractRegistryEntry, entry: Entry, selected: typeof selection) => {
         const entryName = entry.name ?? entry.inputType;
-        const parts = [
-            "qinit call",
-            entry.kind === "fn" ? "--fn" : "--proc",
-            String(nameOf(contract)),
-            String(entryName),
-        ];
+        const parts = ["qinit call", entry.kind === "fn" ? "--fn" : "--proc", String(nameOf(contract)), String(entryName)];
 
         if ((selected.input ?? "").trim()) {
             parts.push(`--in "${selected.input!.trim()}"`);
@@ -410,9 +324,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
     };
 
     const nameOf = (contract: DynamicContractRegistryEntry) =>
-        contract.name ||
-        contractIdlForSlot(idlFile, contract.index, contract.codeHash)?.name ||
-        `contract ${contract.index}`;
+        contract.name || contractIdlForSlot(idlFile, contract.index, contract.codeHash)?.name || `contract ${contract.index}`;
 
     const entriesFor = (contract: DynamicContractRegistryEntry): Entry[] => {
         const localIdl = contractIdlForSlot(idlFile, contract.index, contract.codeHash);
@@ -429,12 +341,8 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
             // Registry metadata remains usable without source-derived names.
         }
 
-        const entryIdl = (
-            kind: "functions" | "procedures",
-            inputType: number,
-        ): ContractEntry | undefined =>
-            localIdl?.[kind].find((entry) => entry.inputType === inputType) ??
-            sourceIdl?.[kind].find((entry) => entry.inputType === inputType);
+        const entryIdl = (kind: "functions" | "procedures", inputType: number): ContractEntry | undefined =>
+            localIdl?.[kind].find((entry) => entry.inputType === inputType) ?? sourceIdl?.[kind].find((entry) => entry.inputType === inputType);
 
         const byId = (left: Entry, right: Entry) => left.inputType - right.inputType;
         const functions: Entry[] = (contract.functions ?? [])
@@ -491,9 +399,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
                     <Text
                         key={index}
                         color={
-                            line.startsWith("ERROR") ||
-                            line.startsWith("✗") ||
-                            line.includes("FAIL")
+                            line.startsWith("ERROR") || line.startsWith("✗") || line.includes("FAIL")
                                 ? theme.err
                                 : line.includes("->") || line.includes(": ok")
                                   ? theme.ok
@@ -552,27 +458,15 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
             };
         });
 
-        return wrap(
-            <Select
-                label={`${nameOf(selection.c!)} — pick a function/procedure:`}
-                items={items}
-                onSelect={startEntry}
-            />,
-        );
+        return wrap(<Select label={`${nameOf(selection.c!)} — pick a function/procedure:`} items={items} onSelect={startEntry} />);
     }
 
     if (stage === "input") {
         return wrap(
             <Box flexDirection="column">
-                <SchemaBox
-                    kind="input"
-                    name={`${selection.e!.name ?? selection.e!.kind + "#" + selection.e!.inputType}_input`}
-                    type={selection.e!.input}
-                />
+                <SchemaBox kind="input" name={`${selection.e!.name ?? selection.e!.kind + "#" + selection.e!.inputType}_input`} type={selection.e!.input} />
                 <TextPrompt
-                    label={`value format, e.g. 5uint64 · [N; v…] arrays · ×N repeats${
-                        selection.e!.kind === "fn" ? "  (empty = none)" : ""
-                    }`}
+                    label={`value format, e.g. 5uint64 · [N; v…] arrays · ×N repeats${selection.e!.kind === "fn" ? "  (empty = none)" : ""}`}
                     initial={selection.input ?? ""}
                     placeholder={
                         selection.e!.input && hasOverlappingAbiType(selection.e!.input)
@@ -581,12 +475,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
                               ? tmplOf(selection.e!.input.fields)
                               : (zeroSample(selection.e!) ?? undefined)
                     }
-                    complete={completerFor(
-                        selection.e!.input?.kind === AbiTypeKind.STRUCT
-                            ? selection.e!.input.fields
-                            : undefined,
-                        true,
-                    )}
+                    complete={completerFor(selection.e!.input?.kind === AbiTypeKind.STRUCT ? selection.e!.input.fields : undefined, true)}
                     onSubmit={(input) => {
                         const next = { ...selection, input };
                         setSelection(next);
@@ -600,27 +489,16 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
     if (stage === "output") {
         return wrap(
             <Box flexDirection="column">
-                <SchemaBox
-                    kind="output"
-                    name={`${selection.e!.name ?? selection.e!.kind + "#" + selection.e!.inputType}_output`}
-                    type={selection.e!.output}
-                />
+                <SchemaBox kind="output" name={`${selection.e!.name ?? selection.e!.kind + "#" + selection.e!.inputType}_output`} type={selection.e!.output} />
                 <TextPrompt
                     label="output types only, e.g. uint64 or { id, uint16 }"
                     initial={selection.e!.output?.format ?? ""}
                     placeholder={
-                        selection.e!.output?.kind === AbiTypeKind.STRUCT &&
-                        selection.e!.output.fields.length
-                            ? selection
-                                  .e!.output.fields.map((field) => field.type.format)
-                                  .join(", ")
+                        selection.e!.output?.kind === AbiTypeKind.STRUCT && selection.e!.output.fields.length
+                            ? selection.e!.output.fields.map((field) => field.type.format).join(", ")
                             : selection.e!.output?.format
                     }
-                    complete={completerFor(
-                        selection.e!.output?.kind === AbiTypeKind.STRUCT
-                            ? selection.e!.output.fields
-                            : undefined,
-                    )}
+                    complete={completerFor(selection.e!.output?.kind === AbiTypeKind.STRUCT ? selection.e!.output.fields : undefined)}
                     onSubmit={(out) => {
                         const next = { ...selection, out };
                         setSelection(next);

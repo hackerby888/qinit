@@ -10,12 +10,7 @@ const temporaryRoots: string[] = [];
 function copySources(): string {
     const root = mkdtempSync(resolve(tmpdir(), "qinit-sources-"));
     temporaryRoots.push(root);
-    for (const relativePath of [
-        "config/repositories.json",
-        "config/toolchains.json",
-        "bun.lock",
-        ...synchronizedSourceFiles,
-    ]) {
+    for (const relativePath of ["config/repositories.json", "config/toolchains.json", "bun.lock", ...synchronizedSourceFiles]) {
         const target = resolve(root, relativePath);
         mkdirSync(dirname(target), { recursive: true });
         copyFileSync(resolve(repositoryRoot, relativePath), target);
@@ -49,15 +44,9 @@ describe("source configuration sync", () => {
             ".github/workflows/test.yml",
             ".github/workflows/verify-tool.yml",
         ]);
-        expect(readFileSync(resolve(root, "install.sh"), "utf8")).toContain(
-            "new-org/qinit/develop/install.sh",
-        );
-        expect(readFileSync(resolve(root, ".github/workflows/test.yml"), "utf8")).toContain(
-            "branches: [develop]",
-        );
-        expect(readFileSync(resolve(root, ".github/workflows/verify-tool.yml"), "utf8")).toContain(
-            "github.ref == 'refs/heads/develop'",
-        );
+        expect(readFileSync(resolve(root, "install.sh"), "utf8")).toContain("new-org/qinit/develop/install.sh");
+        expect(readFileSync(resolve(root, ".github/workflows/test.yml"), "utf8")).toContain("branches: [develop]");
+        expect(readFileSync(resolve(root, ".github/workflows/verify-tool.yml"), "utf8")).toContain("github.ref == 'refs/heads/develop'");
         expect(syncSources(root, true)).toEqual([]);
     });
 
@@ -100,16 +89,10 @@ describe("source configuration sync", () => {
 
     test("requires bun.lock to match the configured Bun version", () => {
         const root = copySources();
-        const version = JSON.parse(readFileSync(resolve(root, "config/toolchains.json"), "utf8"))
-            .bun.version;
+        const version = JSON.parse(readFileSync(resolve(root, "config/toolchains.json"), "utf8")).bun.version;
         const lockPath = resolve(root, "bun.lock");
-        writeFileSync(
-            lockPath,
-            readFileSync(lockPath, "utf8").replaceAll(`bun-types@${version}`, "bun-types@0.0.0"),
-        );
+        writeFileSync(lockPath, readFileSync(lockPath, "utf8").replaceAll(`bun-types@${version}`, "bun-types@0.0.0"));
 
-        expect(() => syncSources(root, true)).toThrow(
-            `bun.lock does not match bun.version ${version}; run bun install`,
-        );
+        expect(() => syncSources(root, true)).toThrow(`bun.lock does not match bun.version ${version}; run bun install`);
     });
 });

@@ -3,12 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Manifest, VerifyUpdate } from "@qinit/core";
-import {
-    runSetup,
-    type SetupDeps,
-    type SetupEvent,
-    type SetupUpdate,
-} from "../../src/commands/setup/setup";
+import { runSetup, type SetupDeps, type SetupEvent, type SetupUpdate } from "../../src/commands/setup/setup";
 
 const asset = { url: "https://example.invalid/asset", sha256: "abc" };
 const manifest: Manifest = {
@@ -102,12 +97,7 @@ test("setup prepares every dependency sequentially and reports download progress
 
     expect(calls).toEqual(["headers", "node", "wasi", "verifier"]);
     expect(prompts).toBe(0);
-    expect(events.filter((event) => event.state === "ok").map((event) => event.step)).toEqual([
-        "headers",
-        "node",
-        "wasi",
-        "verifier",
-    ]);
+    expect(events.filter((event) => event.state === "ok").map((event) => event.step)).toEqual(["headers", "node", "wasi", "verifier"]);
     expect(events).toContainEqual({
         step: "headers",
         state: "active",
@@ -325,11 +315,7 @@ test("setup rejects a cached SDK hidden by invalid environment overrides", async
 test("setup can update the managed half of a partial external WASI override", async () => {
     const cache = mkdtempSync(join(tmpdir(), "qinit-setup-wasi-"));
     const managedRoot = join(cache, "wasi-sdk", "wasi-sdk-previous");
-    const managedClang = join(
-        managedRoot,
-        "bin",
-        process.platform === "win32" ? "clang++.exe" : "clang++",
-    );
+    const managedClang = join(managedRoot, "bin", process.platform === "win32" ? "clang++.exe" : "clang++");
     const externalClang = join(cache, "external", "clang++");
     const previous = {
         cache: process.env.QINIT_CACHE,
@@ -582,12 +568,7 @@ test("setup --force installs available updates without refreshing current assets
 });
 
 test("setup stays download-only", () => {
-    const source = readFileSync(
-        new URL("../../src/commands/setup/setup.tsx", import.meta.url),
-        "utf8",
-    );
+    const source = readFileSync(new URL("../../src/commands/setup/setup.tsx", import.meta.url), "utf8");
 
-    expect(source).not.toMatch(
-        /\b(?:killNode|launchNode|launchSimulatorNode|nodeStatus|waitTicking|nodeAlive)\b/,
-    );
+    expect(source).not.toMatch(/\b(?:killNode|launchNode|launchSimulatorNode|nodeStatus|waitTicking|nodeAlive)\b/);
 });

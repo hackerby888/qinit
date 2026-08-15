@@ -24,8 +24,7 @@ export function handleDirective(preprocessor: Preprocessor): void {
         }
         case "elif": {
             const condition =
-                preprocessor.condStack.length > 0 &&
-                !preprocessor.condStack[preprocessor.condStack.length - 1].taken
+                preprocessor.condStack.length > 0 && !preprocessor.condStack[preprocessor.condStack.length - 1].taken
                     ? preprocessor.evalIfCondition()
                     : (preprocessor.skipToNewline(), false);
             preprocessor.applyElif(condition);
@@ -105,11 +104,7 @@ export function handleInclude(preprocessor: Preprocessor): void {
     let filename = "";
     if (ch === '"') {
         preprocessor.pos++; // skip opening "
-        while (
-            preprocessor.pos < preprocessor.input.length &&
-            preprocessor.input[preprocessor.pos] !== '"' &&
-            preprocessor.input[preprocessor.pos] !== "\n"
-        ) {
+        while (preprocessor.pos < preprocessor.input.length && preprocessor.input[preprocessor.pos] !== '"' && preprocessor.input[preprocessor.pos] !== "\n") {
             filename += preprocessor.input[preprocessor.pos];
             preprocessor.pos++;
         }
@@ -119,11 +114,7 @@ export function handleInclude(preprocessor: Preprocessor): void {
         preprocessor.skipToNewline();
     } else if (ch === "<") {
         preprocessor.pos++; // skip opening <
-        while (
-            preprocessor.pos < preprocessor.input.length &&
-            preprocessor.input[preprocessor.pos] !== ">" &&
-            preprocessor.input[preprocessor.pos] !== "\n"
-        ) {
+        while (preprocessor.pos < preprocessor.input.length && preprocessor.input[preprocessor.pos] !== ">" && preprocessor.input[preprocessor.pos] !== "\n") {
             filename += preprocessor.input[preprocessor.pos];
             preprocessor.pos++;
         }

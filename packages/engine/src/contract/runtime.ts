@@ -137,25 +137,10 @@ export interface HostServices {
     prevUniverseDigest(): Uint8Array;
     prevComputerDigest(): Uint8Array;
     queryFeeReserve(callerSlot: number, contractIndex: number): bigint;
-    issueAsset(
-        slot: number,
-        name: bigint,
-        issuer: Uint8Array,
-        decimals: number,
-        shares: bigint,
-        unit: bigint,
-        invocator: Uint8Array,
-    ): bigint;
+    issueAsset(slot: number, name: bigint, issuer: Uint8Array, decimals: number, shares: bigint, unit: bigint, invocator: Uint8Array): bigint;
     isAssetIssued(issuer: Uint8Array, name: bigint): number;
     numberOfShares(asset: Uint8Array, ownSel: Uint8Array, posSel: Uint8Array): bigint;
-    numberOfPossessedShares(
-        name: bigint,
-        issuer: Uint8Array,
-        owner: Uint8Array,
-        possessor: Uint8Array,
-        ownMgmt: number,
-        posMgmt: number,
-    ): bigint;
+    numberOfPossessedShares(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, ownMgmt: number, posMgmt: number): bigint;
     assetEnumerate(
         asset: Uint8Array,
         ownSel: Uint8Array,
@@ -168,15 +153,7 @@ export interface HostServices {
         ownMgmt: number;
         posMgmt: number;
     }[];
-    transferShares(
-        slot: number,
-        name: bigint,
-        issuer: Uint8Array,
-        owner: Uint8Array,
-        possessor: Uint8Array,
-        shares: bigint,
-        newOwner: Uint8Array,
-    ): bigint;
+    transferShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, newOwner: Uint8Array): bigint;
     acquireShares(
         slot: number,
         name: bigint,
@@ -204,11 +181,7 @@ export interface HostServices {
     bidInIPO(slot: number, ipoContractIndex: number, price: bigint, quantity: number): bigint;
     ipoBidId(ipoContractIndex: number, ipoBidIndex: number): Uint8Array;
     ipoBidPrice(ipoContractIndex: number, ipoBidIndex: number): bigint;
-    computeMiningFunction(
-        miningSeed: Uint8Array,
-        publicKey: Uint8Array,
-        nonce: Uint8Array,
-    ): Uint8Array;
+    computeMiningFunction(miningSeed: Uint8Array, publicKey: Uint8Array, nonce: Uint8Array): Uint8Array;
     initMiningSeed(miningSeed: Uint8Array): void;
     getOracleQueryStatus(queryId: bigint): number;
     getOcInvocationStatus(invocationId: bigint): number;
@@ -237,13 +210,7 @@ export interface HostServices {
     getOracleQuery(queryId: bigint): Uint8Array | null;
     getOracleReply(queryId: bigint): Uint8Array | null;
     distributeDividends(slot: number, amountPerShare: bigint): number;
-    callFunction(
-        callerSlot: number,
-        calleeIdx: number,
-        inputType: number,
-        input: Uint8Array,
-        originator: Uint8Array,
-    ): { error: number; output: Uint8Array };
+    callFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Uint8Array): { error: number; output: Uint8Array };
     invokeProcedure(
         callerSlot: number,
         calleeIdx: number,
@@ -254,20 +221,8 @@ export interface HostServices {
     ): { error: number; output: Uint8Array };
     nextId(id: Uint8Array): Uint8Array;
     prevId(id: Uint8Array): Uint8Array;
-    setShareholderProposal(
-        callerSlot: number,
-        calleeIdx: number,
-        proposal: Uint8Array,
-        reward: bigint,
-        originator: Uint8Array,
-    ): number;
-    setShareholderVotes(
-        callerSlot: number,
-        calleeIdx: number,
-        vote: Uint8Array,
-        reward: bigint,
-        originator: Uint8Array,
-    ): number;
+    setShareholderProposal(callerSlot: number, calleeIdx: number, proposal: Uint8Array, reward: bigint, originator: Uint8Array): number;
+    setShareholderVotes(callerSlot: number, calleeIdx: number, vote: Uint8Array, reward: bigint, originator: Uint8Array): number;
 }
 
 export interface ContractCallContext {
@@ -390,21 +345,13 @@ export class Contract {
         this.stateAddr = this.ex.state_addr() >>> 0;
         this.stateSize = this.ex.state_size() >>> 0;
         this.ctxAddr = this.ex.ctx_addr() >>> 0;
-        this.arenaBase =
-            this.ioBase +
-            INPUT_BUFFER_SIZE_BYTES +
-            OUTPUT_BUFFER_SIZE_BYTES +
-            LOCALS_BUFFER_SIZE_BYTES;
+        this.arenaBase = this.ioBase + INPUT_BUFFER_SIZE_BYTES + OUTPUT_BUFFER_SIZE_BYTES + LOCALS_BUFFER_SIZE_BYTES;
         this.arenaStart = this.arenaBase;
         this.arenaTop = this.arenaBase;
         this.arenaEnd = this.ioBase + (this.ex.io_size() >>> 0);
 
         if (externalMemory && this.stateSize > 0) {
-            new Uint8Array(this.mem.buffer).fill(
-                0,
-                this.stateAddr,
-                this.stateAddr + this.stateSize,
-            );
+            new Uint8Array(this.mem.buffer).fill(0, this.stateAddr, this.stateAddr + this.stateSize);
         }
         if (typeof this.ex._initialize === "function") {
             this.ex._initialize();
@@ -413,18 +360,10 @@ export class Contract {
         this.readRegistry();
     }
 
-    static load(
-        bytes: Uint8Array,
-        slot: number,
-        host: HostServices,
-        externalMemory?: WebAssembly.Memory,
-        extraImports?: WebAssembly.Imports,
-    ): Contract {
+    static load(bytes: Uint8Array, slot: number, host: HostServices, externalMemory?: WebAssembly.Memory, extraImports?: WebAssembly.Imports): Contract {
         validateContractIndexSignature(bytes);
         const wasmModule = new WebAssembly.Module(bytes as BufferSource);
-        const hasLegacyArena = WebAssembly.Module.exports(wasmModule).some(
-            (entry) => entry.name === "arena_top",
-        );
+        const hasLegacyArena = WebAssembly.Module.exports(wasmModule).some((entry) => entry.name === "arena_top");
 
         if (hasLegacyArena) {
             throw new Error("legacy arena_top export is not supported");
@@ -469,14 +408,8 @@ export class Contract {
 
         for (let systemProcedure = 0; systemProcedure < 12; systemProcedure++) {
             if ((this.sysMask >>> systemProcedure) & 1) {
-                this.sysInSizes.set(
-                    systemProcedure,
-                    this.ex.sysproc_in_size(systemProcedure >>> 0) >>> 0,
-                );
-                this.sysOutSizes.set(
-                    systemProcedure,
-                    this.ex.sysproc_out_size(systemProcedure >>> 0) >>> 0,
-                );
+                this.sysInSizes.set(systemProcedure, this.ex.sysproc_in_size(systemProcedure >>> 0) >>> 0);
+                this.sysOutSizes.set(systemProcedure, this.ex.sysproc_out_size(systemProcedure >>> 0) >>> 0);
             }
         }
 
@@ -534,12 +467,7 @@ export class Contract {
         view.entryPoint = context.entryPoint ?? 0;
     }
 
-    invoke(
-        kind: number,
-        inputType: number,
-        input: Uint8Array = new Uint8Array(0),
-        context: ContractCallContext = {},
-    ): Uint8Array {
+    invoke(kind: number, inputType: number, input: Uint8Array = new Uint8Array(0), context: ContractCallContext = {}): Uint8Array {
         const nested = this.dispatchDepth > 0;
         let inputOffset: number;
         let outputOffset: number;
@@ -611,13 +539,7 @@ export class Contract {
         this.dispatchDepth++;
         this.executionKinds.push(kind);
         try {
-            this.ex.dispatch(
-                kind >>> 0,
-                inputType >>> 0,
-                inputOffset >>> 0,
-                outputOffset >>> 0,
-                localsOffset >>> 0,
-            );
+            this.ex.dispatch(kind >>> 0, inputType >>> 0, inputOffset >>> 0, outputOffset >>> 0, localsOffset >>> 0);
         } catch (error) {
             const stateAfter = wantState ? this.stateSnapshot(snapshotLimit) : EMPTY;
             this.finishMeter(metering, savedCost, stateBefore, stateAfter);
@@ -632,9 +554,7 @@ export class Contract {
                     execNs: (performance.now() - startedAt) * 1e6,
                 });
             }
-            throw error instanceof ContractExecutionError
-                ? error
-                : new ContractExecutionError(this.slot, kind, inputType, error);
+            throw error instanceof ContractExecutionError ? error : new ContractExecutionError(this.slot, kind, inputType, error);
         } finally {
             this.executionKinds.pop();
             this.dispatchDepth--;
@@ -696,13 +616,7 @@ export class Contract {
 
         this.executionKinds.push(CONTRACT_ENTRY_KIND.MIGRATE);
         try {
-            this.ex.dispatch(
-                CONTRACT_ENTRY_KIND.MIGRATE >>> 0,
-                0,
-                oldStateOffset >>> 0,
-                0,
-                localsOffset >>> 0,
-            );
+            this.ex.dispatch(CONTRACT_ENTRY_KIND.MIGRATE >>> 0, 0, oldStateOffset >>> 0, 0, localsOffset >>> 0);
         } catch (error) {
             const stateAfter = recorder ? this.stateSnapshot(this.stateSize) : EMPTY;
             recorder?.end(traceEntry, {
@@ -714,9 +628,7 @@ export class Contract {
                 execNs: (performance.now() - startedAt) * 1e6,
             });
 
-            throw error instanceof ContractExecutionError
-                ? error
-                : new ContractExecutionError(this.slot, CONTRACT_ENTRY_KIND.MIGRATE, 0, error);
+            throw error instanceof ContractExecutionError ? error : new ContractExecutionError(this.slot, CONTRACT_ENTRY_KIND.MIGRATE, 0, error);
         } finally {
             this.executionKinds.pop();
         }
@@ -733,12 +645,7 @@ export class Contract {
         this.host.markDirty(this.slot);
     }
 
-    private finishMeter(
-        metering: boolean,
-        savedCost: bigint,
-        before: Uint8Array,
-        after: Uint8Array,
-    ): void {
+    private finishMeter(metering: boolean, savedCost: bigint, before: Uint8Array, after: Uint8Array): void {
         if (metering) {
             let cost = BASE_CALL_COST + this.cost;
             if (!bytesEqual(before, after)) {
@@ -827,10 +734,8 @@ export class Contract {
                     this.arenaTop = pointer;
                 }
             },
-            logBytes: (_ci: number, level: number, msgOff: number, size: number) =>
-                this.host.log(this.slot, level, u8().slice(msgOff, msgOff + size)),
-            k12: (inOff: number, len: number, outOff: number) =>
-                u8().set(k12Bytes(u8().slice(inOff, inOff + len)), outOff),
+            logBytes: (_ci: number, level: number, msgOff: number, size: number) => this.host.log(this.slot, level, u8().slice(msgOff, msgOff + size)),
+            k12: (inOff: number, len: number, outOff: number) => u8().set(k12Bytes(u8().slice(inOff, inOff + len)), outOff),
             abort: (code: number) => {
                 throw new ContractAbort(code);
             },
@@ -847,19 +752,12 @@ export class Contract {
             second: () => dateFields(this.host.nowMs()).second,
             millisecond: () => dateFields(this.host.nowMs()).milli,
             now: (out: number) => {
-                new DataView(this.mem.buffer).setBigUint64(
-                    out,
-                    packDateAndTime(this.host.nowMs()),
-                    true,
-                );
+                new DataView(this.mem.buffer).setBigUint64(out, packDateAndTime(this.host.nowMs()), true);
             },
             // etalon-tick digests — the previous tick's committed state roots
-            prevSpectrumDigest: (out: number) =>
-                u8().set(this.host.prevSpectrumDigest().subarray(0, 32), out),
-            prevUniverseDigest: (out: number) =>
-                u8().set(this.host.prevUniverseDigest().subarray(0, 32), out),
-            prevComputerDigest: (out: number) =>
-                u8().set(this.host.prevComputerDigest().subarray(0, 32), out),
+            prevSpectrumDigest: (out: number) => u8().set(this.host.prevSpectrumDigest().subarray(0, 32), out),
+            prevUniverseDigest: (out: number) => u8().set(this.host.prevUniverseDigest().subarray(0, 32), out),
+            prevComputerDigest: (out: number) => u8().set(this.host.prevComputerDigest().subarray(0, 32), out),
             // identity / spectrum
             getEntity: (idOff: number, entityOff: number) => {
                 const id = u8().slice(idOff, idOff + 32);
@@ -883,8 +781,7 @@ export class Contract {
             },
             isContractId: (idOff: number) => this.host.isContractId(u8().slice(idOff, idOff + 32)),
             arbitrator: (out: number) => u8().set(this.host.arbitrator().subarray(0, 32), out),
-            computor: (i: number, out: number) =>
-                u8().set(this.host.computor(i >>> 0).subarray(0, 32), out),
+            computor: (i: number, out: number) => u8().set(this.host.computor(i >>> 0).subarray(0, 32), out),
             // value / ledger (delegated to Layer 2; return the contract's new balance per qpi_spectrum_impl.h)
             transfer: (destOff: number, amount: bigint) => {
                 const dest = u8().slice(destOff, destOff + 32);
@@ -895,10 +792,7 @@ export class Contract {
             transferTyped: (destOff: number, amount: bigint, type: number) => {
                 const dest = u8().slice(destOff, destOff + 32);
                 const r = this.host.transfer(this.slot, dest, amount, type & 0xff);
-                this.recHost(
-                    "transfer",
-                    () => `→ ${shortId(dest)} ${amount} (type ${type & 0xff})${r < 0n ? " ✗" : ""}`,
-                );
+                this.recHost("transfer", () => `→ ${shortId(dest)} ${amount} (type ${type & 0xff})${r < 0n ? " ✗" : ""}`);
                 return r;
             },
             burn: (amount: bigint, burnedFor: number) => {
@@ -907,41 +801,15 @@ export class Contract {
                 return r;
             },
             // assets / shares
-            isAssetIssued: (issOff: number, name: bigint) =>
-                this.host.isAssetIssued(u8().slice(issOff, issOff + 32), name),
-            issueAsset: (
-                name: bigint,
-                issOff: number,
-                dec: number,
-                shares: bigint,
-                unit: bigint,
-            ) => {
-                const r = this.host.issueAsset(
-                    this.slot,
-                    name,
-                    u8().slice(issOff, issOff + 32),
-                    (dec << 24) >> 24,
-                    shares,
-                    unit,
-                    contextView().invocator,
-                );
+            isAssetIssued: (issOff: number, name: bigint) => this.host.isAssetIssued(u8().slice(issOff, issOff + 32), name),
+            issueAsset: (name: bigint, issOff: number, dec: number, shares: bigint, unit: bigint) => {
+                const r = this.host.issueAsset(this.slot, name, u8().slice(issOff, issOff + 32), (dec << 24) >> 24, shares, unit, contextView().invocator);
                 this.recHost("issueAsset", () => `${assetName(name)} shares=${shares}`);
                 return r;
             },
             numberOfShares: (aOff: number, oOff: number, pOff: number) =>
-                this.host.numberOfShares(
-                    u8().slice(aOff, aOff + 40),
-                    u8().slice(oOff, oOff + 40),
-                    u8().slice(pOff, pOff + 40),
-                ),
-            numberOfPossessedShares: (
-                name: bigint,
-                issOff: number,
-                ownOff: number,
-                posOff: number,
-                ownMgmt: number,
-                posMgmt: number,
-            ) =>
+                this.host.numberOfShares(u8().slice(aOff, aOff + 40), u8().slice(oOff, oOff + 40), u8().slice(pOff, pOff + 40)),
+            numberOfPossessedShares: (name: bigint, issOff: number, ownOff: number, posOff: number, ownMgmt: number, posMgmt: number) =>
                 this.host.numberOfPossessedShares(
                     name,
                     u8().slice(issOff, issOff + 32),
@@ -951,14 +819,7 @@ export class Contract {
                     posMgmt & 0xffff,
                 ),
             // Write selected ownership or possession records to the contract's output buffer.
-            assetEnumerate: (
-                kind: number,
-                issOff: number,
-                ownOff: number,
-                posOff: number,
-                outOff: number,
-                maxN: number,
-            ) => {
+            assetEnumerate: (kind: number, issOff: number, ownOff: number, posOff: number, outOff: number, maxN: number) => {
                 const entries = this.host.assetEnumerate(
                     u8().slice(issOff, issOff + 40),
                     u8().slice(ownOff, ownOff + 36),
@@ -972,37 +833,16 @@ export class Contract {
                 let p = outOff >>> 0;
                 for (let i = 0; i < n; i++) {
                     const e = entries[i];
-                    mem.set(
-                        e.owner.subarray(0, record.fields.owner.size),
-                        p + record.fields.owner.offset,
-                    );
-                    mem.set(
-                        e.possessor.subarray(0, record.fields.possessor.size),
-                        p + record.fields.possessor.offset,
-                    );
+                    mem.set(e.owner.subarray(0, record.fields.owner.size), p + record.fields.owner.offset);
+                    mem.set(e.possessor.subarray(0, record.fields.possessor.size), p + record.fields.possessor.offset);
                     dv.setBigInt64(p + record.fields.shares.offset, e.shares, true);
-                    dv.setUint16(
-                        p + record.fields.ownershipManagingContract.offset,
-                        e.ownMgmt & 0xffff,
-                        true,
-                    );
-                    dv.setUint16(
-                        p + record.fields.possessionManagingContract.offset,
-                        e.posMgmt & 0xffff,
-                        true,
-                    );
+                    dv.setUint16(p + record.fields.ownershipManagingContract.offset, e.ownMgmt & 0xffff, true);
+                    dv.setUint16(p + record.fields.possessionManagingContract.offset, e.posMgmt & 0xffff, true);
                     p += record.size;
                 }
                 return n;
             },
-            transferShareOwnershipAndPossession: (
-                name: bigint,
-                issOff: number,
-                ownOff: number,
-                posOff: number,
-                shares: bigint,
-                newOwnerOff: number,
-            ) => {
+            transferShareOwnershipAndPossession: (name: bigint, issOff: number, ownOff: number, posOff: number, shares: bigint, newOwnerOff: number) => {
                 const newOwner = u8().slice(newOwnerOff, newOwnerOff + 32);
                 const r = this.host.transferShares(
                     this.slot,
@@ -1013,10 +853,7 @@ export class Contract {
                     shares,
                     newOwner,
                 );
-                this.recHost(
-                    "transferShares",
-                    () => `${assetName(name)} ${shares} → ${shortId(newOwner)}`,
-                );
+                this.recHost("transferShares", () => `${assetName(name)} ${shares} → ${shortId(newOwner)}`);
                 if ((globalThis as any).process?.env?.QINIT_GTEST_DUMP_ASSETS) {
                     (globalThis as any).process.stderr.write(
                         `[lh transferShares] slot=${this.slot} name=${name} owner=${Array.from(u8().slice(ownOff, ownOff + 8)).join(",")} newOwner=${Array.from(newOwner.slice(0, 8)).join(",")} shares=${shares} -> ${r}\n`,
@@ -1047,10 +884,7 @@ export class Contract {
                     srcPosMgmt & 0xffff,
                     fee,
                 );
-                this.recHost(
-                    "acquireShares",
-                    () => `${assetName(name)} ${shares} ← mgmt ${srcPosMgmt & 0xffff}`,
-                );
+                this.recHost("acquireShares", () => `${assetName(name)} ${shares} ← mgmt ${srcPosMgmt & 0xffff}`);
                 return r;
             },
             releaseShares: (
@@ -1074,69 +908,33 @@ export class Contract {
                     dstPosMgmt & 0xffff,
                     fee,
                 );
-                this.recHost(
-                    "releaseShares",
-                    () => `${assetName(name)} ${shares} → mgmt ${dstPosMgmt & 0xffff}`,
-                );
+                this.recHost("releaseShares", () => `${assetName(name)} ${shares} → mgmt ${dstPosMgmt & 0xffff}`);
                 return r;
             },
             // date / signature / IPO / mining / oracle-status — see HostServices (the dev engine stubs IPO/mining/oracle)
-            dayOfWeek: (year: number, month: number, day: number) =>
-                this.host.dayOfWeek(year & 0xff, month & 0xff, day & 0xff),
+            dayOfWeek: (year: number, month: number, day: number) => this.host.dayOfWeek(year & 0xff, month & 0xff, day & 0xff),
             signatureValidity: (entOff: number, digOff: number, sigOff: number) =>
-                this.host.signatureValidity(
-                    u8().slice(entOff, entOff + 32),
-                    u8().slice(digOff, digOff + 32),
-                    u8().slice(sigOff, sigOff + 64),
-                ),
-            bidInIPO: (idx: number, price: bigint, qty: number) =>
-                this.host.bidInIPO(this.slot, idx >>> 0, price, qty >>> 0),
+                this.host.signatureValidity(u8().slice(entOff, entOff + 32), u8().slice(digOff, digOff + 32), u8().slice(sigOff, sigOff + 64)),
+            bidInIPO: (idx: number, price: bigint, qty: number) => this.host.bidInIPO(this.slot, idx >>> 0, price, qty >>> 0),
             ipoBidId: (idx: number, bid: number, outOff: number) => {
                 u8().set(this.host.ipoBidId(idx >>> 0, bid >>> 0).subarray(0, 32), outOff);
             },
             ipoBidPrice: (idx: number, bid: number) => this.host.ipoBidPrice(idx >>> 0, bid >>> 0),
             computeMiningFunction: (sOff: number, pkOff: number, nOff: number, outOff: number) => {
                 u8().set(
-                    this.host
-                        .computeMiningFunction(
-                            u8().slice(sOff, sOff + 32),
-                            u8().slice(pkOff, pkOff + 32),
-                            u8().slice(nOff, nOff + 32),
-                        )
-                        .subarray(0, 32),
+                    this.host.computeMiningFunction(u8().slice(sOff, sOff + 32), u8().slice(pkOff, pkOff + 32), u8().slice(nOff, nOff + 32)).subarray(0, 32),
                     outOff,
                 );
             },
             initMiningSeed: (sOff: number) => this.host.initMiningSeed(u8().slice(sOff, sOff + 32)),
             getOracleQueryStatus: (queryId: bigint) => this.host.getOracleQueryStatus(queryId),
-            getOcInvocationStatus: (invocationId: bigint) =>
-                this.host.getOcInvocationStatus(invocationId),
+            getOcInvocationStatus: (invocationId: bigint) => this.host.getOcInvocationStatus(invocationId),
             invokeOc: (interfaceIndex: number, requestOffset: number, requestSize: number) =>
-                this.host.invokeOc(
-                    this.slot,
-                    interfaceIndex >>> 0,
-                    u8().slice(requestOffset, requestOffset + requestSize),
-                ),
+                this.host.invokeOc(this.slot, interfaceIndex >>> 0, u8().slice(requestOffset, requestOffset + requestSize)),
             unsubscribeOracle: (sub: number) => this.host.unsubscribeOracle(this.slot, sub | 0),
             // oracle query/subscribe/read — the query/reply are opaque sized buffers (the contract owns the typing)
-            queryOracle: (
-                ifaceIdx: number,
-                queryOff: number,
-                querySize: number,
-                replySize: number,
-                procId: number,
-                timeout: number,
-                fee: bigint,
-            ) =>
-                this.host.queryOracle(
-                    this.slot,
-                    ifaceIdx >>> 0,
-                    u8().slice(queryOff, queryOff + querySize),
-                    replySize >>> 0,
-                    procId >>> 0,
-                    timeout >>> 0,
-                    fee,
-                ),
+            queryOracle: (ifaceIdx: number, queryOff: number, querySize: number, replySize: number, procId: number, timeout: number, fee: bigint) =>
+                this.host.queryOracle(this.slot, ifaceIdx >>> 0, u8().slice(queryOff, queryOff + querySize), replySize >>> 0, procId >>> 0, timeout >>> 0, fee),
             subscribeOracle: (
                 ifaceIdx: number,
                 queryOff: number,
@@ -1181,94 +979,38 @@ export class Contract {
                 return r;
             },
             // Nested calls keep the original originator.
-            liteCallFunction: (
-                calleeIdx: number,
-                inputType: number,
-                inOff: number,
-                inSize: number,
-                outOff: number,
-                outSize: number,
-            ) => {
+            liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number) => {
                 const input = u8().slice(inOff, inOff + inSize);
                 const originator = contextView().originator;
-                const result = this.host.callFunction(
-                    this.slot,
-                    calleeIdx >>> 0,
-                    inputType & 0xffff,
-                    input,
-                    originator,
-                );
-                this.recHost(
-                    "callFunction",
-                    () =>
-                        `→ @${calleeIdx >>> 0} fn #${inputType & 0xffff}${result.error ? ` ✗ err ${result.error}` : ""}`,
-                );
+                const result = this.host.callFunction(this.slot, calleeIdx >>> 0, inputType & 0xffff, input, originator);
+                this.recHost("callFunction", () => `→ @${calleeIdx >>> 0} fn #${inputType & 0xffff}${result.error ? ` ✗ err ${result.error}` : ""}`);
                 if (result.error === 0 && result.output.length > 0) {
-                    u8().set(
-                        result.output.subarray(0, Math.min(outSize, result.output.length)),
-                        outOff,
-                    );
+                    u8().set(result.output.subarray(0, Math.min(outSize, result.output.length)), outOff);
                 }
                 return result.error;
             },
-            liteInvokeProcedure: (
-                calleeIdx: number,
-                inputType: number,
-                inOff: number,
-                inSize: number,
-                outOff: number,
-                outSize: number,
-                reward: bigint,
-            ) => {
+            liteInvokeProcedure: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number, reward: bigint) => {
                 const input = u8().slice(inOff, inOff + inSize);
                 const originator = contextView().originator;
-                const result = this.host.invokeProcedure(
-                    this.slot,
-                    calleeIdx >>> 0,
-                    inputType & 0xffff,
-                    input,
-                    reward,
-                    originator,
-                );
+                const result = this.host.invokeProcedure(this.slot, calleeIdx >>> 0, inputType & 0xffff, input, reward, originator);
                 this.recHost(
                     "invokeProcedure",
-                    () =>
-                        `→ @${calleeIdx >>> 0} proc #${inputType & 0xffff} reward=${reward}${result.error ? ` ✗ err ${result.error}` : ""}`,
+                    () => `→ @${calleeIdx >>> 0} proc #${inputType & 0xffff} reward=${reward}${result.error ? ` ✗ err ${result.error}` : ""}`,
                 );
                 if (result.error === 0 && result.output.length > 0) {
-                    u8().set(
-                        result.output.subarray(0, Math.min(outSize, result.output.length)),
-                        outOff,
-                    );
+                    u8().set(result.output.subarray(0, Math.min(outSize, result.output.length)), outOff);
                 }
                 return result.error;
             },
             liteSetShareholderProposal: (calleeIdx: number, propOff: number, reward: bigint) => {
                 const proposal = u8().slice(propOff, propOff + 1024);
                 const originator = contextView().originator;
-                return this.host.setShareholderProposal(
-                    this.slot,
-                    calleeIdx >>> 0,
-                    proposal,
-                    reward,
-                    originator,
-                );
+                return this.host.setShareholderProposal(this.slot, calleeIdx >>> 0, proposal, reward, originator);
             },
-            liteSetShareholderVotes: (
-                calleeIdx: number,
-                voteOff: number,
-                voteSize: number,
-                reward: bigint,
-            ) => {
+            liteSetShareholderVotes: (calleeIdx: number, voteOff: number, voteSize: number, reward: bigint) => {
                 const vote = u8().slice(voteOff, voteOff + voteSize);
                 const originator = contextView().originator;
-                return this.host.setShareholderVotes(
-                    this.slot,
-                    calleeIdx >>> 0,
-                    vote,
-                    reward,
-                    originator,
-                );
+                return this.host.setShareholderVotes(this.slot, calleeIdx >>> 0, vote, reward, originator);
             },
         };
 
@@ -1308,20 +1050,14 @@ export class Contract {
         const missingLhost = Object.keys(LHOST_ABI).filter((name) => !(name in lhost));
         const extraLhost = Object.keys(lhost).filter((name) => !(name in LHOST_ABI));
         if (missingLhost.length || extraLhost.length) {
-            throw new Error(
-                `simulator lhost table drift (missing: ${missingLhost.join(", ") || "none"}; extra: ${extraLhost.join(", ") || "none"})`,
-            );
+            throw new Error(`simulator lhost table drift (missing: ${missingLhost.join(", ") || "none"}; extra: ${extraLhost.join(", ") || "none"})`);
         }
         this.meterLhost(lhost);
         // Wasm i32 parameters arrive signed in JS; coerce offsets to unsigned above 2 GiB.
         const toU32Args =
             (hostFunction: Function) =>
             (...args: unknown[]) =>
-                hostFunction(
-                    ...args.map((argument) =>
-                        typeof argument === "number" ? argument >>> 0 : argument,
-                    ),
-                );
+                hostFunction(...args.map((argument) => (typeof argument === "number" ? argument >>> 0 : argument)));
 
         for (const name of Object.keys(lhost)) {
             lhost[name] = toU32Args(lhost[name]);
@@ -1342,14 +1078,9 @@ export class Contract {
                 }
 
                 const results = ((imported as any).type?.results ?? []) as string[];
-                const noopFunction = results.includes("i64")
-                    ? (..._args: unknown[]) => 0n
-                    : (..._args: unknown[]) => 0;
+                const noopFunction = results.includes("i64") ? (..._args: unknown[]) => 0n : (..._args: unknown[]) => 0;
 
-                if (
-                    imported.module === "wasi_snapshot_preview1" &&
-                    !(imported.name in wasiImports)
-                ) {
+                if (imported.module === "wasi_snapshot_preview1" && !(imported.name in wasiImports)) {
                     wasiImports[imported.name] = noopFunction;
                 } else if (imported.module === "env" && !(imported.name in envImports)) {
                     envImports[imported.name] = envImportStub(imported.name);
@@ -1373,10 +1104,7 @@ export class Contract {
 function shortId(id: Uint8Array): string {
     const hasHighBytes = id.subarray(8, 32).some((byte) => byte !== 0);
     if (!hasHighBytes) {
-        const contractIndex = new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(
-            0,
-            true,
-        );
+        const contractIndex = new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(0, true);
         return "@" + contractIndex;
     }
 

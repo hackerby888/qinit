@@ -33,15 +33,11 @@ describe("Qubic log store", () => {
         const view = new DataView(record.buffer, record.byteOffset, record.byteLength);
         expect(view.getUint16(0, true)).toBe(4);
         expect(view.getUint32(2, true)).toBe(12);
-        expect(view.getUint32(6, true)).toBe(
-            (QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE << 24) | source.length,
-        );
+        expect(view.getUint32(6, true)).toBe((QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE << 24) | source.length);
         expect(view.getBigUint64(10, true)).toBe(0n);
         const stamped = record.slice(LOG_HEADER_SIZE);
         expect(new DataView(stamped.buffer).getUint32(0, true)).toBe(28);
-        expect(view.getBigUint64(18, true)).toBe(
-            new DataView(k12Bytes(stamped).buffer).getBigUint64(0, true),
-        );
+        expect(view.getBigUint64(18, true)).toBe(new DataView(k12Bytes(stamped).buffer).getBigUint64(0, true));
     });
 
     test("uses the exact core-lite state-digest message allowlist", () => {
@@ -65,9 +61,7 @@ describe("Qubic log store", () => {
             logger.end();
             logger.finalizeTick(1);
 
-            const digestInput = includedTypes.has(type)
-                ? concatBytes([ZERO32, stampedMessage(28, type)])
-                : ZERO32;
+            const digestInput = includedTypes.has(type) ? concatBytes([ZERO32, stampedMessage(28, type)]) : ZERO32;
             expect(logger.digest(1)).toEqual(k12Bytes(digestInput));
         }
     });

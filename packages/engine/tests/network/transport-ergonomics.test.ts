@@ -40,9 +40,7 @@ test("redeploy by name reuses the same slot (routes into the migrate/preserve pa
 
 test("unnamed deploys never collide — each gets a fresh slot", async () => {
     const eng = await VirtualNode.create();
-    expect(eng.deploy(await wasm("Counter29")).slot).not.toBe(
-        eng.deploy(await wasm("Counter30")).slot,
-    );
+    expect(eng.deploy(await wasm("Counter29")).slot).not.toBe(eng.deploy(await wasm("Counter30")).slot);
 });
 
 test("explicit slot pins (escape hatch); auto-assign skips taken slots", async () => {

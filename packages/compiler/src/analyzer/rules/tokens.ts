@@ -45,13 +45,7 @@ const TYPE_KINDS = new Set<TokenKind>([
     TokenKind.KW_VOLATILE,
 ]);
 
-const DECLARATION_PREFIXES = new Set<TokenKind>([
-    TokenKind.COLON,
-    TokenKind.L_BRACE,
-    TokenKind.R_BRACE,
-    TokenKind.R_PAREN,
-    TokenKind.SEMICOLON,
-]);
+const DECLARATION_PREFIXES = new Set<TokenKind>([TokenKind.COLON, TokenKind.L_BRACE, TokenKind.R_BRACE, TokenKind.R_PAREN, TokenKind.SEMICOLON]);
 
 export interface EntryFunction {
     name: string;
@@ -79,9 +73,7 @@ export function findEntryFunctions(tokens: Token[]): EntryFunction[] {
     for (let index = 0; index < tokens.length; index++) {
         const macro = tokens[index].text;
         const named = /^(PUBLIC|PRIVATE)_(FUNCTION|PROCEDURE)(_WITH_LOCALS)?$/.exec(macro);
-        const lifecycle = macro.endsWith("_WITH_LOCALS")
-            ? macro.slice(0, -"_WITH_LOCALS".length)
-            : macro;
+        const lifecycle = macro.endsWith("_WITH_LOCALS") ? macro.slice(0, -"_WITH_LOCALS".length) : macro;
         const lifecycleMatch = LIFECYCLE.has(lifecycle);
 
         if (!named && !lifecycleMatch) {
@@ -137,13 +129,8 @@ export function findLocalDeclarations(tokens: Token[], entry: EntryFunction): Lo
 
     for (let index = entry.bodyOpen + 1; index < entry.bodyClose; index++) {
         const previous = tokens[index - 1];
-        const forInitializer =
-            previous?.kind === TokenKind.L_PAREN && tokens[index - 2]?.kind === TokenKind.KW_FOR;
-        if (
-            index !== entry.bodyOpen + 1 &&
-            !forInitializer &&
-            !DECLARATION_PREFIXES.has(previous?.kind)
-        ) {
+        const forInitializer = previous?.kind === TokenKind.L_PAREN && tokens[index - 2]?.kind === TokenKind.KW_FOR;
+        if (index !== entry.bodyOpen + 1 && !forInitializer && !DECLARATION_PREFIXES.has(previous?.kind)) {
             continue;
         }
 
@@ -159,12 +146,7 @@ export function findLocalDeclarations(tokens: Token[], entry: EntryFunction): Lo
     return declarations;
 }
 
-function parseLocalDeclaration(
-    tokens: Token[],
-    start: number,
-    limit: number,
-    forInitializer: boolean,
-): { value: LocalDeclaration; end: number } | null {
+function parseLocalDeclaration(tokens: Token[], start: number, limit: number, forInitializer: boolean): { value: LocalDeclaration; end: number } | null {
     let cursor = start;
     while (
         tokens[cursor]?.kind === TokenKind.KW_CONST ||
@@ -176,19 +158,13 @@ function parseLocalDeclaration(
     }
 
     const typeStart = tokens[cursor];
-    if (
-        !typeStart ||
-        (typeStart.kind !== TokenKind.IDENTIFIER && !TYPE_KINDS.has(typeStart.kind))
-    ) {
+    if (!typeStart || (typeStart.kind !== TokenKind.IDENTIFIER && !TYPE_KINDS.has(typeStart.kind))) {
         return null;
     }
     cursor++;
 
     if (typeStart.kind === TokenKind.IDENTIFIER) {
-        while (
-            tokens[cursor]?.kind === TokenKind.D_COLON &&
-            tokens[cursor + 1]?.kind === TokenKind.IDENTIFIER
-        ) {
+        while (tokens[cursor]?.kind === TokenKind.D_COLON && tokens[cursor + 1]?.kind === TokenKind.IDENTIFIER) {
             cursor += 2;
         }
     }
@@ -199,11 +175,7 @@ function parseLocalDeclaration(
             return null;
         }
     }
-    while (
-        tokens[cursor]?.kind === TokenKind.STAR ||
-        tokens[cursor]?.kind === TokenKind.AMP ||
-        tokens[cursor]?.kind === TokenKind.KW_CONST
-    ) {
+    while (tokens[cursor]?.kind === TokenKind.STAR || tokens[cursor]?.kind === TokenKind.AMP || tokens[cursor]?.kind === TokenKind.KW_CONST) {
         cursor++;
     }
 
@@ -263,10 +235,7 @@ function parseLocalDeclaration(
         }
 
         let nameIndex = cursor + 1;
-        while (
-            tokens[nameIndex]?.kind === TokenKind.STAR ||
-            tokens[nameIndex]?.kind === TokenKind.AMP
-        ) {
+        while (tokens[nameIndex]?.kind === TokenKind.STAR || tokens[nameIndex]?.kind === TokenKind.AMP) {
             nameIndex++;
         }
         if (tokens[nameIndex]?.kind === TokenKind.IDENTIFIER) {
@@ -304,19 +273,10 @@ function afterTemplateArguments(tokens: Token[], start: number): number {
 }
 
 export function isUsingNamespaceQpi(tokens: Token[], index: number): boolean {
-    return (
-        tokens[index + 1]?.kind === TokenKind.KW_NAMESPACE &&
-        tokens[index + 2]?.kind === TokenKind.IDENTIFIER &&
-        tokens[index + 2]?.text === "QPI"
-    );
+    return tokens[index + 1]?.kind === TokenKind.KW_NAMESPACE && tokens[index + 2]?.kind === TokenKind.IDENTIFIER && tokens[index + 2]?.text === "QPI";
 }
 
-export function matchingToken(
-    tokens: Token[],
-    open: number,
-    openKind: TokenKind,
-    closeKind: TokenKind,
-): number {
+export function matchingToken(tokens: Token[], open: number, openKind: TokenKind, closeKind: TokenKind): number {
     let depth = 0;
     for (let index = open; index < tokens.length; index++) {
         if (tokens[index].kind === openKind) {
@@ -331,12 +291,7 @@ export function matchingToken(
     return -1;
 }
 
-export function findNext(
-    tokens: Token[],
-    start: number,
-    wanted: TokenKind,
-    stop: TokenKind,
-): number {
+export function findNext(tokens: Token[], start: number, wanted: TokenKind, stop: TokenKind): number {
     for (let index = start; index < tokens.length; index++) {
         if (tokens[index].kind === wanted || tokens[index].kind === stop) {
             return index;

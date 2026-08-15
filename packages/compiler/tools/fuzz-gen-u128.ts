@@ -30,17 +30,7 @@ const U64_BOUNDARIES: bigint[] = [
 
 const SHIFT_COUNTS = [0, 1, 7, 31, 63, 64, 65, 100, 127, 128, 129, 200];
 
-const INPUT_BOUNDARIES: bigint[] = [
-    0n,
-    1n,
-    2n,
-    255n,
-    4294967295n,
-    4294967296n,
-    9223372036854775807n,
-    9223372036854775808n,
-    18446744073709551615n,
-];
+const INPUT_BOUNDARIES: bigint[] = [0n, 1n, 2n, 255n, 4294967295n, 4294967296n, 9223372036854775807n, 9223372036854775808n, 18446744073709551615n];
 
 function mulberry32(seed: number): () => number {
     let a = seed >>> 0;
@@ -259,9 +249,7 @@ class Gen {
         const u128Count = 2 + this.int(3);
         for (let k = 0; k < u128Count; k++) {
             const name = this.freshName("q");
-            const initializer = this.chance(0.5)
-                ? `uint128(0ull, ${this.scalarExpr(1)})`
-                : `uint128(${this.scalarExpr(1)}, ${this.scalarExpr(1)})`;
+            const initializer = this.chance(0.5) ? `uint128(0ull, ${this.scalarExpr(1)})` : `uint128(${this.scalarExpr(1)}, ${this.scalarExpr(1)})`;
             lines.push(`    uint128 ${name} = ${initializer};`);
             this.u128Vars.push(name);
         }

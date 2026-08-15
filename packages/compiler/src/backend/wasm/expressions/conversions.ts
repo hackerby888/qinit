@@ -13,13 +13,7 @@ export function isAutoType(type: TypeSpec): boolean {
 // Resolve named aliases to their underlying types with a bounded walk.
 export function resolveAliasType(programAnalysis: ProgramAnalysis, type: TypeSpec): TypeSpec {
     let resolvedType = type;
-    for (
-        let index = 0;
-        index < 8 &&
-        resolvedType.kind === AstKind.NAME &&
-        SCALAR_SIZE[resolvedType.name] === undefined;
-        index++
-    ) {
+    for (let index = 0; index < 8 && resolvedType.kind === AstKind.NAME && SCALAR_SIZE[resolvedType.name] === undefined; index++) {
         const typedefType = programAnalysis.typedefs.get(resolvedType.name);
         if (!typedefType || typedefType.kind === AstKind.VOID) {
             break;
@@ -35,11 +29,7 @@ export function unsignedScalar(type: TypeSpec | null | undefined): boolean {
     if (type.kind === AstKind.REFERENCE) return unsignedScalar(type.referentType);
     if (type.kind === AstKind.POINTER) return false;
     if (type.kind !== AstKind.NAME) return false;
-    return (
-        /^(uint|unsigned\b|size_t$|bool$|bit$)/.test(type.name) ||
-        type.name === "uint128" ||
-        type.name === "uint128_t"
-    );
+    return /^(uint|unsigned\b|size_t$|bool$|bit$)/.test(type.name) || type.name === "uint128" || type.name === "uint128_t";
 }
 // Best-effort signedness is unsigned when unsigned lvalue/params, casts, or suffixed literals are present.
 export function isUnsignedExpr(context: FunctionEmissionContext, expression: Expression): boolean {
@@ -59,17 +49,13 @@ export function isUnsignedExpr(context: FunctionEmissionContext, expression: Exp
             const lv = context.localVars.get(expression.name)?.type;
             if (lv) return unsignedScalar(context.programAnalysis.scalarStorageType(lv));
             const constant = context.programAnalysis.typeOfConstant(expression.name);
-            if (constant)
-                return unsignedScalar(context.programAnalysis.scalarStorageType(constant));
+            if (constant) return unsignedScalar(context.programAnalysis.scalarStorageType(constant));
             const addrType = context.lowering.resolveExpressionAddress(context, expression)?.type;
-            return addrType
-                ? unsignedScalar(context.programAnalysis.scalarStorageType(addrType))
-                : false;
+            return addrType ? unsignedScalar(context.programAnalysis.scalarStorageType(addrType)) : false;
         }
         case AstKind.MEMBER_ACCESS:
         case AstKind.SUBSCRIPT: {
-            const type =
-                context.lowering.resolveExpressionAddress(context, expression)?.type ?? null;
+            const type = context.lowering.resolveExpressionAddress(context, expression)?.type ?? null;
             if (type?.kind === AstKind.NAME && type.name === "DateAndTime") return true; // compares via its packed uint64 value
             return type ? unsignedScalar(context.programAnalysis.scalarStorageType(type)) : false;
         }
@@ -81,14 +67,8 @@ export function isUnsignedExpr(context: FunctionEmissionContext, expression: Exp
             ) {
                 return false;
             }
-            const calleeObjectType = context.lowering.resolveExpressionAddress(
-                context,
-                expression.callee.object,
-            )?.type;
-            const separator =
-                calleeObjectType?.kind === AstKind.NAME
-                    ? calleeObjectType.name.lastIndexOf("::")
-                    : -1;
+            const calleeObjectType = context.lowering.resolveExpressionAddress(context, expression.callee.object)?.type;
+            const separator = calleeObjectType?.kind === AstKind.NAME ? calleeObjectType.name.lastIndexOf("::") : -1;
             const owner =
                 calleeObjectType?.kind === AstKind.NAME
                     ? separator >= 0
@@ -100,9 +80,7 @@ export function isUnsignedExpr(context: FunctionEmissionContext, expression: Exp
             if (!owner) return false;
             const resolvedMethod = context.programAnalysis.resolveSourceMethodDefinition(
                 owner,
-                calleeObjectType?.kind === AstKind.TEMPLATE_INSTANCE
-                    ? calleeObjectType.callArguments
-                    : [],
+                calleeObjectType?.kind === AstKind.TEMPLATE_INSTANCE ? calleeObjectType.callArguments : [],
                 expression.callee.member,
                 expression.callArguments.length,
             );
@@ -111,10 +89,7 @@ export function isUnsignedExpr(context: FunctionEmissionContext, expression: Exp
                 context.programAnalysis.derefType(resolvedMethod.definition.returnType),
                 resolvedMethod.ownerBindings,
             );
-            return (
-                context.programAnalysis.isAggregateType(result) ||
-                unsignedScalar(context.programAnalysis.scalarStorageType(result))
-            );
+            return context.programAnalysis.isAggregateType(result) || unsignedScalar(context.programAnalysis.scalarStorageType(result));
         }
         case AstKind.BINARY_OP:
             if (
@@ -131,27 +106,17 @@ export function isUnsignedExpr(context: FunctionEmissionContext, expression: Exp
                     BinaryOp.SHIFT_RIGHT,
                 ].includes(expression.operator)
             )
-                return (
-                    isUnsignedExpr(context, expression.left) ||
-                    isUnsignedExpr(context, expression.right)
-                );
+                return isUnsignedExpr(context, expression.left) || isUnsignedExpr(context, expression.right);
             return false;
         case AstKind.UNARY_OP:
-            if (
-                expression.operator === UnaryOp.MINUS ||
-                expression.operator === UnaryOp.BITWISE_NOT ||
-                expression.operator === UnaryOp.PLUS
-            )
+            if (expression.operator === UnaryOp.MINUS || expression.operator === UnaryOp.BITWISE_NOT || expression.operator === UnaryOp.PLUS)
                 return isUnsignedExpr(context, expression.argument);
             return false;
         case AstKind.PREFIX_OP:
         case AstKind.POSTFIX_OP:
             return isUnsignedExpr(context, expression.argument);
         case AstKind.TERNARY:
-            return (
-                isUnsignedExpr(context, expression.then) ||
-                isUnsignedExpr(context, expression.else_)
-            );
+            return isUnsignedExpr(context, expression.then) || isUnsignedExpr(context, expression.else_);
         default:
             return false;
     }
@@ -169,23 +134,18 @@ export function scalarTypeInfo(
             return scalarTypeInfo(context, expression.expression);
         case AstKind.C_CAST:
         case AstKind.STATIC_CAST: {
-            const castTypeName =
-                expression.type?.kind === AstKind.NAME ? expression.type.name : null;
+            const castTypeName = expression.type?.kind === AstKind.NAME ? expression.type.name : null;
             const byteWidth = castTypeName ? SCALAR_SIZE[castTypeName] : undefined;
-            return byteWidth
-                ? { width: byteWidth, unsigned: unsignedScalar(expression.type) }
-                : null;
+            return byteWidth ? { width: byteWidth, unsigned: unsignedScalar(expression.type) } : null;
         }
         case AstKind.INT_LITERAL: {
             // C++ literal typing: int → (uint for hex/octal) → long long by fit; a u/U suffix forces unsigned
-            const numericValue =
-                context.programAnalysis["sema"].evaluateConstexpr(expression) ?? 0n;
+            const numericValue = context.programAnalysis["sema"].evaluateConstexpr(expression) ?? 0n;
             const suffixU = /[uU]/.test(expression.suffix ?? "");
             const suffixL = /[lL]/.test(expression.suffix ?? "");
             const hex = /^0[xX0-7]/.test(expression.value ?? "");
             if (suffixL) return { width: 8, unsigned: suffixU };
-            if (numericValue >= -(2n ** 31n) && numericValue < 2n ** 31n)
-                return { width: 4, unsigned: suffixU };
+            if (numericValue >= -(2n ** 31n) && numericValue < 2n ** 31n) return { width: 4, unsigned: suffixU };
             if (suffixU && numericValue < 2n ** 32n) return { width: 4, unsigned: true };
             if (hex && numericValue < 2n ** 32n) return { width: 4, unsigned: true };
             if (!suffixU && numericValue < 2n ** 63n) return { width: 8, unsigned: false };
@@ -202,15 +162,12 @@ export function scalarTypeInfo(
                       context.programAnalysis.typeOfConstant(expression.name) ??
                       context.lowering.resolveExpressionAddress(context, expression)?.type ??
                       null)
-                    : (context.lowering.resolveExpressionAddress(context, expression)?.type ??
-                      null);
+                    : (context.lowering.resolveExpressionAddress(context, expression)?.type ?? null);
             let resolvedType = type;
             if (resolvedType?.kind === AstKind.CONST) resolvedType = resolvedType.valueType;
             if (resolvedType?.kind === AstKind.REFERENCE) resolvedType = resolvedType.referentType;
-            if (resolvedType)
-                resolvedType = context.programAnalysis.scalarStorageType(resolvedType);
-            const byteWidth =
-                resolvedType?.kind === AstKind.NAME ? SCALAR_SIZE[resolvedType.name] : undefined;
+            if (resolvedType) resolvedType = context.programAnalysis.scalarStorageType(resolvedType);
+            const byteWidth = resolvedType?.kind === AstKind.NAME ? SCALAR_SIZE[resolvedType.name] : undefined;
             return byteWidth ? { width: byteWidth, unsigned: unsignedScalar(resolvedType) } : null;
         }
         case AstKind.BINARY_OP: {
@@ -229,11 +186,7 @@ export function scalarTypeInfo(
                 const cv = usualConversion(context, expression.left, expression.right);
                 return { width: cv.width, unsigned: cv.unsigned };
             }
-            if (
-                expression.operator === BinaryOp.SHIFT_LEFT ||
-                expression.operator === BinaryOp.SHIFT_RIGHT
-            )
-                return promoteInfo(context, expression.left);
+            if (expression.operator === BinaryOp.SHIFT_LEFT || expression.operator === BinaryOp.SHIFT_RIGHT) return promoteInfo(context, expression.left);
             // Comparisons and logical ops yield bool, which promotes to int.
             if (
                 [
@@ -256,11 +209,7 @@ export function scalarTypeInfo(
             return { width: cv.width, unsigned: cv.unsigned };
         }
         case AstKind.UNARY_OP: {
-            if (
-                expression.operator === UnaryOp.MINUS ||
-                expression.operator === UnaryOp.BITWISE_NOT ||
-                expression.operator === UnaryOp.PLUS
-            )
+            if (expression.operator === UnaryOp.MINUS || expression.operator === UnaryOp.BITWISE_NOT || expression.operator === UnaryOp.PLUS)
                 return promoteInfo(context, expression.argument);
             if (expression.operator === UnaryOp.LOGICAL_NOT) return { width: 4, unsigned: false };
             return null;
@@ -272,30 +221,21 @@ export function scalarTypeInfo(
         case AstKind.CALL:
         case AstKind.TEMPLATE_CALL: {
             // Preserve the deduced scalar type of QPI safe-math calls.
-            const nm =
-                expression.callee?.kind === AstKind.IDENTIFIER ? expression.callee.name : null;
+            const nm = expression.callee?.kind === AstKind.IDENTIFIER ? expression.callee.name : null;
             if (!nm) return null;
             const base = nm.includes("::") ? nm.slice(nm.lastIndexOf("::") + 2) : nm;
             if (!MATH_INTRINSIC_NAMES.has(base)) {
                 // Use a member helper's declared return type for width and signedness.
                 const set = context.programAnalysis.helperOverloads.get(nm);
                 const helper = set?.length
-                    ? context.lowering.pickHelperOverload(
-                          context,
-                          set,
-                          expression.callArguments ?? [],
-                      )
+                    ? context.lowering.pickHelperOverload(context, set, expression.callArguments ?? [])
                     : context.programAnalysis.helpers.get(nm);
                 const rt = helper?.retType;
                 const byteWidth = rt?.kind === AstKind.NAME ? SCALAR_SIZE[rt.name] : undefined;
-                if (byteWidth !== undefined && byteWidth <= 8)
-                    return { width: byteWidth, unsigned: unsignedScalar(rt) };
+                if (byteWidth !== undefined && byteWidth <= 8) return { width: byteWidth, unsigned: unsignedScalar(rt) };
                 return null;
             }
-            if (
-                expression.kind === AstKind.TEMPLATE_CALL &&
-                expression.templateArguments?.[0]?.kind === AstKind.NAME
-            ) {
+            if (expression.kind === AstKind.TEMPLATE_CALL && expression.templateArguments?.[0]?.kind === AstKind.NAME) {
                 const byteWidth = SCALAR_SIZE[expression.templateArguments[0].name];
                 if (byteWidth)
                     return {
@@ -344,7 +284,5 @@ export function usualConversion(
     if (leftInfo.unsigned === rightInfo.unsigned) return { width, unsigned: leftInfo.unsigned };
     const unsignedInfo = leftInfo.unsigned ? leftInfo : rightInfo;
     const signedInfo = leftInfo.unsigned ? rightInfo : leftInfo;
-    return unsignedInfo.width >= signedInfo.width
-        ? { width, unsigned: true }
-        : { width, unsigned: false };
+    return unsignedInfo.width >= signedInfo.width ? { width, unsigned: true } : { width, unsigned: false };
 }

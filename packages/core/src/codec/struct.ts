@@ -183,10 +183,7 @@ export const array = <T>(elem: Codec<T>, n: number): Codec<ArrayView<T>> => ({
 });
 
 // Embed a zero-copy struct view over the parent buffer, using eight-byte alignment by default.
-export const sub = <T extends { bytes: Uint8Array }>(
-    klass: { SIZE: number; wrap(buf: Uint8Array, off?: number): T },
-    align = 8,
-): Codec<T> => ({
+export const sub = <T extends { bytes: Uint8Array }>(klass: { SIZE: number; wrap(buf: Uint8Array, off?: number): T }, align = 8): Codec<T> => ({
     size: klass.SIZE,
     align,
     read(v, o) {
@@ -215,8 +212,7 @@ export type StructFields<S> = { [K in keyof S]: FieldType<S[K]> };
 
 // A live struct view: every wire field as a read/write property (writes go straight through to `.bytes`), plus
 // `.clone()` for a detached copy you can mutate without touching the original buffer.
-export type StructInstance<S extends Record<string, Codec<any>>> = View &
-    StructFields<S> & { clone(): StructInstance<S> };
+export type StructInstance<S extends Record<string, Codec<any>>> = View & StructFields<S> & { clone(): StructInstance<S> };
 
 export interface StructClass<S extends Record<string, Codec<any>>> {
     new (buf: Uint8Array, off?: number): StructInstance<S>;
@@ -227,11 +223,7 @@ export interface StructClass<S extends Record<string, Codec<any>>> {
 }
 
 // Build a struct view with C-style field alignment and trailing size alignment.
-export function defineStruct<S extends Record<string, Codec<any>>>(
-    name: string,
-    fields: S,
-    opts: { packed?: boolean } = {},
-): StructClass<S> {
+export function defineStruct<S extends Record<string, Codec<any>>>(name: string, fields: S, opts: { packed?: boolean } = {}): StructClass<S> {
     const packed = opts.packed ?? false;
     const keys = Object.keys(fields) as (keyof S & string)[];
     const offsets = {} as { [K in keyof S]: number };

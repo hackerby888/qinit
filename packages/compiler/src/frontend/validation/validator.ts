@@ -1,15 +1,6 @@
 import { AstKind, DiagnosticSeverity } from "../../shared/enums";
 // Validation runs after parse and before codegen.
-import type {
-    Declaration,
-    StructDecl,
-    FunctionDecl,
-    VariableDecl,
-    Statement,
-    Expression,
-    TypeSpec,
-    Span,
-} from "../../ast";
+import type { Declaration, StructDecl, FunctionDecl, VariableDecl, Statement, Expression, TypeSpec, Span } from "../../ast";
 import type { FnSig, ValidateDiagnostic } from "./validator-context";
 import * as declarationValidator from "./declaration-validator";
 import * as functionValidator from "./function-validator";
@@ -105,15 +96,7 @@ export class Validator {
             >
         >,
     ): void {
-        return scopeValidator.walkScope(
-            this,
-            statement,
-            fn,
-            memberFns,
-            allLocals,
-            constParams,
-            scopes,
-        );
+        return scopeValidator.walkScope(this, statement, fn, memberFns, allLocals, constParams, scopes);
     }
     checkDeclarationStatement(
         statement: Statement & {
@@ -151,14 +134,7 @@ export class Validator {
             >
         >,
     ): void {
-        return expressionValidator.checkExpression(
-            this,
-            root,
-            memberFns,
-            allLocals,
-            constParams,
-            scopes,
-        );
+        return expressionValidator.checkExpression(this, root, memberFns, allLocals, constParams, scopes);
     }
     // Assignment roots must be mutable; accessor results are read-only views.
     checkAssignTarget(

@@ -272,16 +272,10 @@ test("debug-trace honours since and limit (what qinit debug polls with)", async 
 
         const latest = all[all.length - 1].seq;
         expect((await rpc.debugTrace(latest, 500)).entries).toEqual([]);
-        expect((await rpc.debugTrace(all[0].seq, 500)).entries.map((e) => e.seq)).toEqual([
-            all[1].seq,
-            all[2].seq,
-        ]);
+        expect((await rpc.debugTrace(all[0].seq, 500)).entries.map((e) => e.seq)).toEqual([all[1].seq, all[2].seq]);
 
         // The limit keeps the newest entries.
-        expect((await rpc.debugTrace(0, 2)).entries.map((e) => e.seq)).toEqual([
-            all[1].seq,
-            all[2].seq,
-        ]);
+        expect((await rpc.debugTrace(0, 2)).entries.map((e) => e.seq)).toEqual([all[1].seq, all[2].seq]);
     } finally {
         await rpc.setDebug(false);
         stop();

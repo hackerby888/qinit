@@ -92,10 +92,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         msg: /void/i,
     },
     "missing return in non-void function": {
-        src: wrap(
-            `state.mut().a = h();`,
-            `static uint64 h() { return_nothing(); } static void return_nothing() { }`,
-        ),
+        src: wrap(`state.mut().a = h();`, `static uint64 h() { return_nothing(); } static void return_nothing() { }`),
         msg: /must return/i,
     },
     "non-static member call from static context": {
@@ -145,24 +142,15 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         msg: /global/i,
     },
     "call with too few arguments": {
-        src: wrap(
-            `state.mut().a = add(1);`,
-            `static uint64 add(uint64 x, uint64 y) { return x + y; }`,
-        ),
+        src: wrap(`state.mut().a = add(1);`, `static uint64 add(uint64 x, uint64 y) { return x + y; }`),
         msg: /argument/i,
     },
     "call with too many arguments": {
-        src: wrap(
-            `state.mut().a = add(1, 2, 3);`,
-            `static uint64 add(uint64 x, uint64 y) { return x + y; }`,
-        ),
+        src: wrap(`state.mut().a = add(1, 2, 3);`, `static uint64 add(uint64 x, uint64 y) { return x + y; }`),
         msg: /argument/i,
     },
     "direct recursion": {
-        src: wrap(
-            `state.mut().a = fib(5);`,
-            `static uint64 fib(uint64 n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }`,
-        ),
+        src: wrap(`state.mut().a = fib(5);`, `static uint64 fib(uint64 n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }`),
         msg: /recursi/i,
     },
     "mutual recursion": {
@@ -215,10 +203,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`,
     "block-scope function prototype": wrap(`uint64 h(uint64 x); state.mut().a = 1;`),
-    "default argument call": wrap(
-        `state.mut().a = add(5);`,
-        `static uint64 add(uint64 x, uint64 y = 2) { return x + y; }`,
-    ),
+    "default argument call": wrap(`state.mut().a = add(5);`, `static uint64 add(uint64 x, uint64 y = 2) { return x + y; }`),
 };
 
 describe("semantic validation — invalid source must fail loudly", () => {

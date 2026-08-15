@@ -28,12 +28,7 @@ export function Ext({ commandArgs }: { commandArgs: CommandArguments }) {
                 setR({
                     ok: false,
                     title: "usage",
-                    rows: [
-                        [
-                            "usage",
-                            "qinit ext install [--vsix <path>] [--editor <code|cursor|windsurf|codium>]",
-                        ],
-                    ],
+                    rows: [["usage", "qinit ext install [--vsix <path>] [--editor <code|cursor|windsurf|codium>]"]],
                 });
                 return;
             }
@@ -67,19 +62,14 @@ export function Ext({ commandArgs }: { commandArgs: CommandArguments }) {
                     ["editor", editorCmd],
                     ["source", vsix ? target : `marketplace (${EXTENSION_ID})`],
                 ],
-                note: ok
-                    ? "Open a QPI contract header to start using IntelliSense and diagnostics."
-                    : log.split("\n").slice(0, 6).join("\n"),
+                note: ok ? "Open a QPI contract header to start using IntelliSense and diagnostics." : log.split("\n").slice(0, 6).join("\n"),
             });
         })();
     }, []);
 
     useEffect(() => {
         if (!r) return;
-        if (output.json)
-            process.stdout.write(
-                JSON.stringify({ ok: r.ok, ...Object.fromEntries(r.rows) }) + "\n",
-            );
+        if (output.json) process.stdout.write(JSON.stringify({ ok: r.ok, ...Object.fromEntries(r.rows) }) + "\n");
         process.exitCode = r.ok ? 0 : 1;
         const t = setTimeout(() => exit(), 40);
         return () => clearTimeout(t);

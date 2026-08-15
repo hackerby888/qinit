@@ -31,9 +31,7 @@ export class ParserState {
 
     peek(offset = 0): Token {
         const index = this.position + offset;
-        return index >= this.tokens.length
-            ? this.tokens[this.tokens.length - 1]
-            : this.tokens[index];
+        return index >= this.tokens.length ? this.tokens[this.tokens.length - 1] : this.tokens[index];
     }
 
     next(): Token {
@@ -60,15 +58,7 @@ export class ParserState {
 
         this.diagnostics.push({
             severity: DiagnosticSeverity.ERROR,
-            message:
-                "Expected " +
-                kind +
-                " but got " +
-                token.kind +
-                " (" +
-                token.text +
-                ") in " +
-                context,
+            message: "Expected " + kind + " but got " + token.kind + " (" + token.text + ") in " + context,
             span: token.span,
         });
 

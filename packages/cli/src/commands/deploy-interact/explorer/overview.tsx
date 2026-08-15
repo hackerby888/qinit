@@ -1,25 +1,8 @@
 import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import type { ExplorerData } from "@qinit/core";
-import {
-    SectionHeader,
-    Sparkline,
-    Spinner,
-    Table,
-    TileRow,
-    darken,
-    fmtCompact,
-    theme,
-    type Column,
-} from "../../../ui";
-import {
-    SectionBody,
-    errText,
-    fmtClock,
-    sectionTableWidth,
-    windowOf,
-    type ViewProps,
-} from "./chrome";
+import { SectionHeader, Sparkline, Spinner, Table, TileRow, darken, fmtCompact, theme, type Column } from "../../../ui";
+import { SectionBody, errText, fmtClock, sectionTableWidth, windowOf, type ViewProps } from "./chrome";
 
 // ---- overview -----------------------------------------------------------------------------------
 
@@ -40,25 +23,14 @@ const RAIL_FADE = 0.75;
 // The leader identity is 60 characters and takes what it can; the recency rail then fills the exact
 // remainder. Both are sized here rather than left to Table, whose overflow loop shrinks the widest column
 // and truncates with truncMid — on a rail that would render as `───…───`.
-function tickLayout(
-    tableWidth: number,
-    railColor: (rowIndex: number) => string,
-): { columns: Column[]; railWidth: number } {
+function tickLayout(tableWidth: number, railColor: (rowIndex: number) => string): { columns: Column[]; railWidth: number } {
     const fixedWidth = TICK_WIDTH + TXS_WIDTH + TIME_WIDTH;
     const flexWithRail = tableWidth - fixedWidth - COLUMN_GAP * 4;
-    const leaderWithRail = Math.min(
-        LEADER_MAX_WIDTH,
-        Math.max(LEADER_MIN_WIDTH, flexWithRail - RAIL_MIN_WIDTH),
-    );
+    const leaderWithRail = Math.min(LEADER_MAX_WIDTH, Math.max(LEADER_MIN_WIDTH, flexWithRail - RAIL_MIN_WIDTH));
     const railWidth = Math.min(RAIL_MAX_WIDTH, flexWithRail - leaderWithRail);
     // Too narrow for a rail worth drawing: drop the column and let the leader have its width.
     const leaderWidth =
-        railWidth >= RAIL_MIN_WIDTH
-            ? leaderWithRail
-            : Math.min(
-                  LEADER_MAX_WIDTH,
-                  Math.max(LEADER_MIN_WIDTH, tableWidth - fixedWidth - COLUMN_GAP * 3),
-              );
+        railWidth >= RAIL_MIN_WIDTH ? leaderWithRail : Math.min(LEADER_MAX_WIDTH, Math.max(LEADER_MIN_WIDTH, tableWidth - fixedWidth - COLUMN_GAP * 3));
 
     const columns: Column[] = [
         { header: "tick", align: "right", max: TICK_WIDTH },
@@ -73,16 +45,7 @@ function tickLayout(
     return { columns, railWidth: railWidth >= RAIL_MIN_WIDTH ? railWidth : 0 };
 }
 
-export function OverviewView({
-    rpc,
-    refreshToken,
-    selected,
-    push,
-    rowCount,
-    openRow,
-    bodyRows,
-    columns,
-}: ViewProps) {
+export function OverviewView({ rpc, refreshToken, selected, push, rowCount, openRow, bodyRows, columns }: ViewProps) {
     const [data, setData] = useState<ExplorerData | null>(null);
     const [err, setErr] = useState("");
 
@@ -151,8 +114,7 @@ export function OverviewView({
     const { win, offset } = windowOf(ticks, selected, bodyRows - tileRows - mempoolRows - 3);
 
     // The rail fades down the window, so the newest tick reads as the live end of the list.
-    const railColor = (rowIndex: number): string =>
-        darken(theme.gradFrom, (rowIndex / Math.max(1, win.length - 1)) * RAIL_FADE);
+    const railColor = (rowIndex: number): string => darken(theme.gradFrom, (rowIndex / Math.max(1, win.length - 1)) * RAIL_FADE);
     const { columns: tickColumns, railWidth } = tickLayout(sectionTableWidth(columns), railColor);
     const rail = "─".repeat(railWidth);
 
@@ -161,11 +123,7 @@ export function OverviewView({
             <Box marginTop={1}>
                 <TileRow tiles={tiles} columns={columns} />
             </Box>
-            <SectionHeader
-                title="mempool"
-                detail={mempool.totalPending > 0 ? `${mempool.totalPending} pending` : undefined}
-                width={columns}
-            />
+            <SectionHeader title="mempool" detail={mempool.totalPending > 0 ? `${mempool.totalPending} pending` : undefined} width={columns} />
             <SectionBody>
                 {pending.length > 0 ? (
                     <Sparkline
@@ -173,32 +131,18 @@ export function OverviewView({
                             label: String(entry.tick),
                             value: entry.count,
                         }))}
-                        width={Math.max(
-                            16,
-                            Math.min(MEMPOOL_BAR_MAX_WIDTH, sectionTableWidth(columns) - 24),
-                        )}
+                        width={Math.max(16, Math.min(MEMPOOL_BAR_MAX_WIDTH, sectionTableWidth(columns) - 24))}
                     />
                 ) : (
                     <Text dimColor>no pending transactions</Text>
                 )}
             </SectionBody>
-            <SectionHeader
-                title="recent ticks"
-                detail={`${ticks.length} newest first`}
-                badge={err ? "OFFLINE" : undefined}
-                error={err}
-                width={columns}
-            />
+            <SectionHeader title="recent ticks" detail={`${ticks.length} newest first`} badge={err ? "OFFLINE" : undefined} error={err} width={columns} />
             <SectionBody>
                 <Table
                     columns={tickColumns}
                     rows={win.map((t) => {
-                        const cells = [
-                            String(t.tick),
-                            t.leader,
-                            String(t.txCount),
-                            fmtClock(t.timestamp),
-                        ];
+                        const cells = [String(t.tick), t.leader, String(t.txCount), fmtClock(t.timestamp)];
                         if (railWidth > 0) {
                             cells.push(rail);
                         }

@@ -23,13 +23,7 @@ export function parseFindQuery(value: string): View | null {
 
 // ---- find ---------------------------------------------------------------------------------------
 
-export function FindView({
-    rpc,
-    refreshToken,
-    rowCount,
-    columns,
-    onSubmit,
-}: ViewProps & { onSubmit: (view: View) => void }) {
+export function FindView({ rpc, refreshToken, rowCount, columns, onSubmit }: ViewProps & { onSubmit: (view: View) => void }) {
     const [head, setHead] = useState<{ first: number; last: number } | null>(null);
     const [err, setErr] = useState("");
 
@@ -53,11 +47,7 @@ export function FindView({
         <Box marginTop={1} flexDirection="column">
             <SectionHeader
                 title="find"
-                detail={
-                    head
-                        ? `ticks ${head.first}–${head.last} · identity · transaction`
-                        : "tick · identity · transaction"
-                }
+                detail={head ? `ticks ${head.first}–${head.last} · identity · transaction` : "tick · identity · transaction"}
                 width={columns}
             />
             <TextPrompt
@@ -65,17 +55,11 @@ export function FindView({
                 label="tick number, identity, or tx hash"
                 placeholder={head ? String(head.last) : undefined}
                 onSubmit={(value) => {
-                    const target = value.trim()
-                        ? parseFindQuery(value)
-                        : head
-                          ? ({ kind: "tick", tick: head.last } as View)
-                          : null;
+                    const target = value.trim() ? parseFindQuery(value) : head ? ({ kind: "tick", tick: head.last } as View) : null;
                     if (target) {
                         onSubmit(target);
                     } else {
-                        setErr(
-                            `not a tick number, identity, or transaction hash: ${truncMid(value.trim(), 24)}`,
-                        );
+                        setErr(`not a tick number, identity, or transaction hash: ${truncMid(value.trim(), 24)}`);
                     }
                 }}
             />

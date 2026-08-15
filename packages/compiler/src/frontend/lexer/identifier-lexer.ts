@@ -11,12 +11,7 @@ export function isIdContinue(lexer: Lexer, ch: string): boolean {
     return lexer.isIdStart(ch) || (ch >= "0" && ch <= "9");
 }
 
-export function lexIdOrKeyword(
-    lexer: Lexer,
-    start: number,
-    startLine: number,
-    startCol: number,
-): Token {
+export function lexIdOrKeyword(lexer: Lexer, start: number, startLine: number, startCol: number): Token {
     let text = "";
     while (!lexer.eof() && lexer.isIdContinue(lexer.peekChar())) {
         text += lexer.advance();

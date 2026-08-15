@@ -2,16 +2,7 @@ import { AccessSpec, AstKind, DiagnosticSeverity } from "../../src/shared/enums"
 // Validator unit tests: validateAndDesugar in isolation.
 import { describe, test, expect } from "bun:test";
 import { validateAndDesugar } from "../../src/frontend/validation";
-import type {
-    Declaration,
-    StructDecl,
-    FunctionDecl,
-    VariableDecl,
-    Statement,
-    Expression,
-    TypeSpec,
-    Span,
-} from "../../src/ast";
+import type { Declaration, StructDecl, FunctionDecl, VariableDecl, Statement, Expression, TypeSpec, Span } from "../../src/ast";
 
 const NO_SPAN: Span = { start: 0, end: 0, line: 1, column: 1 };
 
@@ -19,17 +10,13 @@ const NO_SPAN: Span = { start: 0, end: 0, line: 1, column: 1 };
 
 const nt = (name: string): TypeSpec => ({ kind: AstKind.NAME, name, span: NO_SPAN }) as TypeSpec;
 const vd = (): TypeSpec => ({ kind: AstKind.VOID, span: NO_SPAN }) as TypeSpec;
-const cnst = (inner: TypeSpec): TypeSpec =>
-    ({ kind: AstKind.CONST, valueType: inner, span: NO_SPAN }) as TypeSpec;
+const cnst = (inner: TypeSpec): TypeSpec => ({ kind: AstKind.CONST, valueType: inner, span: NO_SPAN }) as TypeSpec;
 
-const ident = (name: string): Expression =>
-    ({ kind: AstKind.IDENTIFIER, name, span: NO_SPAN }) as Expression;
-const iLit = (value: string): Expression =>
-    ({ kind: AstKind.INT_LITERAL, value, span: NO_SPAN }) as Expression;
+const ident = (name: string): Expression => ({ kind: AstKind.IDENTIFIER, name, span: NO_SPAN }) as Expression;
+const iLit = (value: string): Expression => ({ kind: AstKind.INT_LITERAL, value, span: NO_SPAN }) as Expression;
 const bin = (left: Expression, operator: string, right: Expression): Expression =>
     ({ kind: AstKind.BINARY_OP, operator, left, right, span: NO_SPAN }) as Expression;
-const callx = (callee: Expression, callArguments: Expression[]): Expression =>
-    ({ kind: AstKind.CALL, callee, callArguments, span: NO_SPAN }) as Expression;
+const callx = (callee: Expression, callArguments: Expression[]): Expression => ({ kind: AstKind.CALL, callee, callArguments, span: NO_SPAN }) as Expression;
 const assign = (target: Expression, value: Expression): Expression =>
     ({
         kind: AstKind.ASSIGN,
@@ -38,28 +25,16 @@ const assign = (target: Expression, value: Expression): Expression =>
         right: value,
         span: NO_SPAN,
     }) as Expression;
-const unary = (operator: string, argument: Expression): Expression =>
-    ({ kind: AstKind.UNARY_OP, operator, argument, span: NO_SPAN }) as Expression;
+const unary = (operator: string, argument: Expression): Expression => ({ kind: AstKind.UNARY_OP, operator, argument, span: NO_SPAN }) as Expression;
 
-const eStmt = (expression: Expression): Statement =>
-    ({ kind: AstKind.EXPRESSION, expression, span: NO_SPAN }) as Statement;
-const retStmt = (value?: Expression): Statement =>
-    ({ kind: AstKind.RETURN, value, span: NO_SPAN }) as Statement;
-const compStmt = (body: Statement[]): Statement =>
-    ({ kind: AstKind.COMPOUND, body, span: NO_SPAN }) as Statement;
-const declStmt = (declaration: Declaration): Statement =>
-    ({ kind: AstKind.DECLARATION, declaration, span: NO_SPAN }) as Statement;
-const forStmt = (
-    initializer: Statement | undefined,
-    condition: Expression | undefined,
-    update: Expression | undefined,
-    body: Statement,
-): Statement =>
+const eStmt = (expression: Expression): Statement => ({ kind: AstKind.EXPRESSION, expression, span: NO_SPAN }) as Statement;
+const retStmt = (value?: Expression): Statement => ({ kind: AstKind.RETURN, value, span: NO_SPAN }) as Statement;
+const compStmt = (body: Statement[]): Statement => ({ kind: AstKind.COMPOUND, body, span: NO_SPAN }) as Statement;
+const declStmt = (declaration: Declaration): Statement => ({ kind: AstKind.DECLARATION, declaration, span: NO_SPAN }) as Statement;
+const forStmt = (initializer: Statement | undefined, condition: Expression | undefined, update: Expression | undefined, body: Statement): Statement =>
     ({ kind: AstKind.FOR, initializer, condition, update, body, span: NO_SPAN }) as Statement;
-const swStmt = (condition: Expression, body: Statement): Statement =>
-    ({ kind: AstKind.SWITCH, condition, body, span: NO_SPAN }) as Statement;
-const caseStmt = (value: Expression, body: Statement[]): Statement =>
-    ({ kind: AstKind.CASE, value, body, span: NO_SPAN }) as Statement;
+const swStmt = (condition: Expression, body: Statement): Statement => ({ kind: AstKind.SWITCH, condition, body, span: NO_SPAN }) as Statement;
+const caseStmt = (value: Expression, body: Statement[]): Statement => ({ kind: AstKind.CASE, value, body, span: NO_SPAN }) as Statement;
 const breakStmt = (): Statement => ({ kind: AstKind.BREAK, span: NO_SPAN }) as Statement;
 const ppOp = (argument: Expression, prefix: boolean): Expression =>
     ({
@@ -132,8 +107,7 @@ const translationUnit = (declarations: Declaration[]): { declarations: Declarati
 });
 
 const validate = (declarations: Declaration[]) => validateAndDesugar(translationUnit(declarations));
-const hasError = (diags: ReturnType<typeof validateAndDesugar>, pattern: RegExp): boolean =>
-    diags.some((d) => pattern.test(d.message));
+const hasError = (diags: ReturnType<typeof validateAndDesugar>, pattern: RegExp): boolean => diags.some((d) => pattern.test(d.message));
 
 // ---- rejection rules ----
 
@@ -144,30 +118,22 @@ describe("validateAndDesugar — rejection rules", () => {
     });
 
     test("allows global constexpr variable", () => {
-        const diags = validate([
-            varDecl("G_OK", nt("uint64"), { isConstexpr: true, initializer: iLit("7") }),
-        ]);
+        const diags = validate([varDecl("G_OK", nt("uint64"), { isConstexpr: true, initializer: iLit("7") })]);
         expect(hasError(diags, /global/i)).toBe(false);
     });
 
     test("allows global const variable", () => {
-        const diags = validate([
-            varDecl("G_CONST", cnst(nt("uint64")), { initializer: iLit("7") }),
-        ]);
+        const diags = validate([varDecl("G_CONST", cnst(nt("uint64")), { initializer: iLit("7") })]);
         expect(hasError(diags, /global/i)).toBe(false);
     });
 
     test("rejects duplicate struct member", () => {
-        const diags = validate([
-            structDecl("S", [varDecl("x", nt("uint64")), varDecl("x", nt("uint64"))]),
-        ]);
+        const diags = validate([structDecl("S", [varDecl("x", nt("uint64")), varDecl("x", nt("uint64"))])]);
         expect(hasError(diags, /duplicate member.*'x'/i)).toBe(true);
     });
 
     test("allows unique struct members", () => {
-        const diags = validate([
-            structDecl("S", [varDecl("x", nt("uint64")), varDecl("y", nt("uint64"))]),
-        ]);
+        const diags = validate([structDecl("S", [varDecl("x", nt("uint64")), varDecl("y", nt("uint64"))])]);
         expect(hasError(diags, /duplicate member/i)).toBe(false);
     });
 
@@ -215,9 +181,7 @@ describe("validateAndDesugar — rejection rules", () => {
     });
 
     test("rejects void variable", () => {
-        const s = structDecl("S", [
-            funcDecl("f", [], vd(), [declStmt(varDecl("v", vd())), retStmt()]),
-        ]);
+        const s = structDecl("S", [funcDecl("f", [], vd(), [declStmt(varDecl("v", vd())), retStmt()])]);
         const diags = validate([s]);
         expect(hasError(diags, /void/i)).toBe(true);
     });
@@ -259,16 +223,7 @@ describe("validateAndDesugar — rejection rules", () => {
 
     test("rejects duplicate case labels", () => {
         const s = structDecl("S", [
-            funcDecl("f", [], vd(), [
-                swStmt(
-                    ident("x"),
-                    compStmt([
-                        caseStmt(iLit("1"), [breakStmt()]),
-                        caseStmt(iLit("1"), [breakStmt()]),
-                    ]),
-                ),
-                retStmt(),
-            ]),
+            funcDecl("f", [], vd(), [swStmt(ident("x"), compStmt([caseStmt(iLit("1"), [breakStmt()]), caseStmt(iLit("1"), [breakStmt()])])), retStmt()]),
         ]);
         const diags = validate([s]);
         expect(hasError(diags, /duplicate case/i)).toBe(true);
@@ -276,52 +231,33 @@ describe("validateAndDesugar — rejection rules", () => {
 
     test("allows distinct case labels", () => {
         const s = structDecl("S", [
-            funcDecl("f", [], vd(), [
-                swStmt(
-                    ident("x"),
-                    compStmt([
-                        caseStmt(iLit("1"), [breakStmt()]),
-                        caseStmt(iLit("2"), [breakStmt()]),
-                    ]),
-                ),
-                retStmt(),
-            ]),
+            funcDecl("f", [], vd(), [swStmt(ident("x"), compStmt([caseStmt(iLit("1"), [breakStmt()]), caseStmt(iLit("2"), [breakStmt()])])), retStmt()]),
         ]);
         const diags = validate([s]);
         expect(hasError(diags, /duplicate case/i)).toBe(false);
     });
 
     test("rejects division by zero", () => {
-        const s = structDecl("S", [
-            funcDecl("f", [], vd(), [eStmt(bin(ident("x"), "/", iLit("0"))), retStmt()]),
-        ]);
+        const s = structDecl("S", [funcDecl("f", [], vd(), [eStmt(bin(ident("x"), "/", iLit("0"))), retStmt()])]);
         const diags = validate([s]);
         expect(hasError(diags, /division by zero/i)).toBe(true);
     });
 
     test("rejects modulo by zero", () => {
-        const s = structDecl("S", [
-            funcDecl("f", [], vd(), [eStmt(bin(ident("x"), "%", iLit("0"))), retStmt()]),
-        ]);
+        const s = structDecl("S", [funcDecl("f", [], vd(), [eStmt(bin(ident("x"), "%", iLit("0"))), retStmt()])]);
         const diags = validate([s]);
         expect(hasError(diags, /division by zero/i)).toBe(true);
     });
 
     test("allows division by non-zero constant", () => {
-        const s = structDecl("S", [
-            funcDecl("f", [], vd(), [eStmt(bin(ident("x"), "/", iLit("2"))), retStmt()]),
-        ]);
+        const s = structDecl("S", [funcDecl("f", [], vd(), [eStmt(bin(ident("x"), "/", iLit("2"))), retStmt()])]);
         const diags = validate([s]);
         expect(hasError(diags, /division by zero/i)).toBe(false);
     });
 
     test("rejects const assignment", () => {
         const s = structDecl("S", [
-            funcDecl("f", [], vd(), [
-                declStmt(varDecl("c", cnst(nt("uint64")), { initializer: iLit("5") })),
-                eStmt(assign(ident("c"), iLit("6"))),
-                retStmt(),
-            ]),
+            funcDecl("f", [], vd(), [declStmt(varDecl("c", cnst(nt("uint64")), { initializer: iLit("5") })), eStmt(assign(ident("c"), iLit("6"))), retStmt()]),
         ]);
         const diags = validate([s]);
         expect(hasError(diags, /const|read-only/i)).toBe(true);
@@ -331,10 +267,7 @@ describe("validateAndDesugar — rejection rules", () => {
         const s = structDecl("S", [
             funcDecl("f", [], vd(), [
                 declStmt(varDecl("v", nt("uint64"), { initializer: iLit("1") })),
-                compStmt([
-                    declStmt(varDecl("v", nt("uint64"), { initializer: iLit("2") })),
-                    eStmt(ident("v")),
-                ]),
+                compStmt([declStmt(varDecl("v", nt("uint64"), { initializer: iLit("2") })), eStmt(ident("v"))]),
                 retStmt(),
             ]),
         ]);
@@ -343,47 +276,29 @@ describe("validateAndDesugar — rejection rules", () => {
     });
 
     test("rejects use-before-declaration", () => {
-        const s = structDecl("S", [
-            funcDecl("f", [], vd(), [
-                eStmt(assign(ident("v"), iLit("1"))),
-                declStmt(varDecl("v", nt("uint64"))),
-                retStmt(),
-            ]),
-        ]);
+        const s = structDecl("S", [funcDecl("f", [], vd(), [eStmt(assign(ident("v"), iLit("1"))), declStmt(varDecl("v", nt("uint64"))), retStmt()])]);
         const diags = validate([s]);
         expect(hasError(diags, /before its declaration/i)).toBe(true);
     });
 
     test("rejects use-after-scope-exit", () => {
         const s = structDecl("S", [
-            funcDecl("f", [], vd(), [
-                compStmt([declStmt(varDecl("v", nt("uint64"), { initializer: iLit("1") }))]),
-                eStmt(ident("v")),
-                retStmt(),
-            ]),
+            funcDecl("f", [], vd(), [compStmt([declStmt(varDecl("v", nt("uint64"), { initializer: iLit("1") }))]), eStmt(ident("v")), retStmt()]),
         ]);
         const diags = validate([s]);
         expect(hasError(diags, /scope|declaration/i)).toBe(true);
     });
 
     test("rejects direct recursion", () => {
-        const s = structDecl("S", [
-            funcDecl("fib", [{ name: "n", type: nt("uint64") }], nt("uint64"), [
-                retStmt(callx(ident("fib"), [iLit("5")])),
-            ]),
-        ]);
+        const s = structDecl("S", [funcDecl("fib", [{ name: "n", type: nt("uint64") }], nt("uint64"), [retStmt(callx(ident("fib"), [iLit("5")]))])]);
         const diags = validate([s]);
         expect(hasError(diags, /recursi/i)).toBe(true);
     });
 
     test("rejects mutual recursion", () => {
         const s = structDecl("S", [
-            funcDecl("ping", [{ name: "n", type: nt("uint64") }], nt("uint64"), [
-                retStmt(callx(ident("pong"), [ident("n")])),
-            ]),
-            funcDecl("pong", [{ name: "n", type: nt("uint64") }], nt("uint64"), [
-                retStmt(callx(ident("ping"), [ident("n")])),
-            ]),
+            funcDecl("ping", [{ name: "n", type: nt("uint64") }], nt("uint64"), [retStmt(callx(ident("pong"), [ident("n")]))]),
+            funcDecl("pong", [{ name: "n", type: nt("uint64") }], nt("uint64"), [retStmt(callx(ident("ping"), [ident("n")]))]),
         ]);
         const diags = validate([s]);
         expect(hasError(diags, /recursi/i)).toBe(true);
@@ -399,20 +314,13 @@ describe("validateAndDesugar — rejection rules", () => {
     });
 
     test("rejects address-of-literal", () => {
-        const s = structDecl("S", [
-            funcDecl("f", [], vd(), [eStmt(unary("&", iLit("5"))), retStmt()]),
-        ]);
+        const s = structDecl("S", [funcDecl("f", [], vd(), [eStmt(unary("&", iLit("5"))), retStmt()])]);
         const diags = validate([s]);
         expect(hasError(diags, /address/i)).toBe(true);
     });
 
     test("rejects static local variable", () => {
-        const s = structDecl("S", [
-            funcDecl("f", [], vd(), [
-                declStmt(varDecl("s", nt("uint64"), { isStatic: true, initializer: iLit("0") })),
-                retStmt(),
-            ]),
-        ]);
+        const s = structDecl("S", [funcDecl("f", [], vd(), [declStmt(varDecl("s", nt("uint64"), { isStatic: true, initializer: iLit("0") })), retStmt()])]);
         const diags = validate([s]);
         expect(hasError(diags, /static local/i)).toBe(true);
     });
@@ -445,10 +353,7 @@ describe("validateAndDesugar — rejection rules", () => {
                 nt("uint64"),
                 [retStmt(bin(ident("x"), "+", ident("y")))],
             ),
-            funcDecl("caller", [], vd(), [
-                eStmt(callx(ident("add"), [iLit("1"), iLit("2"), iLit("3")])),
-                retStmt(),
-            ]),
+            funcDecl("caller", [], vd(), [eStmt(callx(ident("add"), [iLit("1"), iLit("2"), iLit("3")])), retStmt()]),
         ]);
         const diags = validate([s]);
         expect(hasError(diags, /argument/i)).toBe(true);
@@ -469,10 +374,7 @@ describe("validateAndDesugar — default argument desugaring", () => {
             [retStmt(bin(ident("x"), "+", ident("y")))],
         );
 
-        const caller = funcDecl("caller", [], vd(), [
-            eStmt(bin(ident("ignored"), "+", callx(ident("add"), [iLit("5")]))),
-            retStmt(),
-        ]);
+        const caller = funcDecl("caller", [], vd(), [eStmt(bin(ident("ignored"), "+", callx(ident("add"), [iLit("5")]))), retStmt()]);
 
         validate([structDecl("S", [fn, caller])]);
 
@@ -480,9 +382,10 @@ describe("validateAndDesugar — default argument desugaring", () => {
             kind: "expression";
             expression: Expression;
         };
-        const callNode = (
-            callExpr.expression as { kind: "binary_op"; left: Expression; right: Expression }
-        ).right as { kind: "call"; callArguments: Expression[] };
+        const callNode = (callExpr.expression as { kind: "binary_op"; left: Expression; right: Expression }).right as {
+            kind: "call";
+            callArguments: Expression[];
+        };
         expect(callNode.kind).toBe("call");
         expect(callNode.callArguments).toHaveLength(2);
         expect(callNode.callArguments[1].kind).toBe(AstKind.INT_LITERAL);
@@ -500,10 +403,7 @@ describe("validateAndDesugar — default argument desugaring", () => {
             [retStmt(bin(ident("x"), "+", ident("y")))],
         );
 
-        const caller = funcDecl("caller", [], vd(), [
-            eStmt(callx(ident("add"), [iLit("5"), iLit("7")])),
-            retStmt(),
-        ]);
+        const caller = funcDecl("caller", [], vd(), [eStmt(callx(ident("add"), [iLit("5"), iLit("7")])), retStmt()]);
 
         validate([structDecl("S", [fn, caller])]);
 

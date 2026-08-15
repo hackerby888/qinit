@@ -80,8 +80,7 @@ export type StateReadOptions = {
     loadAllContainers?: boolean;
 };
 
-export const jstr = (value: any) =>
-    JSON.stringify(value, (_key, item) => (typeof item === "bigint" ? item.toString() : item));
+export const jstr = (value: any) => JSON.stringify(value, (_key, item) => (typeof item === "bigint" ? item.toString() : item));
 
 const RUN_MIN = 6;
 const MAX_ITEMS = 32;
@@ -98,11 +97,7 @@ function groupedParts(parts: string[]): string[] {
             groups.push({ value: part, count: 1 });
         }
     }
-    return groups.flatMap((group) =>
-        group.count >= RUN_MIN
-            ? [`${group.value} ×${group.count}`]
-            : Array(group.count).fill(group.value),
-    );
+    return groups.flatMap((group) => (group.count >= RUN_MIN ? [`${group.value} ×${group.count}`] : Array(group.count).fill(group.value)));
 }
 
 export function fmtVal(value: any, full = false): string {
@@ -162,12 +157,7 @@ function formatBits(bitCount: number, valueAt: (index: number) => number, full: 
 // A block row collapsed back to the one-line form the trace views and nested container values use.
 const flatLine = (line: StateLine) => `${line.label} ${line.text}`;
 
-function linkedListValueLines(
-    value: { slot: number; value: unknown }[],
-    valueType: AbiType,
-    capacity: number,
-    full: boolean,
-): StateLine[] {
+function linkedListValueLines(value: { slot: number; value: unknown }[], valueType: AbiType, capacity: number, full: boolean): StateLine[] {
     const logical = value.map((entry, index) => ({
         label: `item[${index}] slot[${entry.slot}]`,
         text: `= ${formatStateValue(entry.value, valueType, full)}`,
@@ -181,12 +171,7 @@ function linkedListValueLines(
     );
 }
 
-export function formatStateValue(
-    value: unknown,
-    type: AbiType,
-    full: boolean,
-    topLevel = false,
-): string {
+export function formatStateValue(value: unknown, type: AbiType, full: boolean, topLevel = false): string {
     switch (type.kind) {
         case AbiTypeKind.BIT_ARRAY: {
             const bits = Array.isArray(value) ? value : [];
@@ -194,23 +179,15 @@ export function formatStateValue(
         }
         case AbiTypeKind.LINKED_LIST:
             return limitedParts(
-                linkedListValueLines(
-                    Array.isArray(value) ? (value as { slot: number; value: unknown }[]) : [],
-                    type.value,
-                    type.capacity,
-                    full,
-                ).map(flatLine),
+                linkedListValueLines(Array.isArray(value) ? (value as { slot: number; value: unknown }[]) : [], type.value, type.capacity, full).map(flatLine),
                 full,
             ).join(", ");
         case AbiTypeKind.STRUCT: {
             if (!type.fields.length) {
                 return "{}";
             }
-            const values =
-                topLevel && type.fields.length === 1 ? [value] : Array.isArray(value) ? value : [];
-            const rawParts = type.fields.map((field, index) =>
-                formatStateValue(values[index], field.type, full, false),
-            );
+            const values = topLevel && type.fields.length === 1 ? [value] : Array.isArray(value) ? value : [];
+            const rawParts = type.fields.map((field, index) => formatStateValue(values[index], field.type, full, false));
             // A one-field struct read as a whole field is its value, so it keeps the bare form.
             if (topLevel && type.fields.length === 1) {
                 return rawParts[0];
@@ -224,12 +201,7 @@ export function formatStateValue(
         }
         case AbiTypeKind.ARRAY: {
             const values = Array.isArray(value) ? value : [];
-            return `[${limitedParts(
-                groupedParts(
-                    values.map((element) => formatStateValue(element, type.element, full, false)),
-                ),
-                full,
-            ).join(", ")}]`;
+            return `[${limitedParts(groupedParts(values.map((element) => formatStateValue(element, type.element, full, false))), full).join(", ")}]`;
         }
         default:
             return fmtVal(value, full);
@@ -237,19 +209,13 @@ export function formatStateValue(
 }
 
 // A struct key has to read like the value beside it, which takes the type — decoded structs are positional.
-export const keyLabel = (key: unknown, type?: AbiType) =>
-    typeof key === "string" ? key : type ? formatStateValue(key, type, false) : jstr(key);
+export const keyLabel = (key: unknown, type?: AbiType) => (typeof key === "string" ? key : type ? formatStateValue(key, type, false) : jstr(key));
 
 function stateReadError(error: unknown): string {
     return error instanceof Error && error.message ? error.message : String(error);
 }
 
-function stateByteSource(
-    rpc: StateReader,
-    contractIndex: number,
-    field: StateField,
-    onRead?: (completedBytes: number) => void,
-): QpiByteSource {
+function stateByteSource(rpc: StateReader, contractIndex: number, field: StateField, onRead?: (completedBytes: number) => void): QpiByteSource {
     return {
         byteLength: field.size,
         maxReadLength: MAX_STATE_READ,
@@ -272,22 +238,14 @@ function stateByteSource(
 
             while (completedBytes < length) {
                 const remainingBytes = length - completedBytes;
-                const { hex } = await rpc.stateRead(
-                    contractIndex,
-                    absoluteOffset + completedBytes,
-                    remainingBytes,
-                );
+                const { hex } = await rpc.stateRead(contractIndex, absoluteOffset + completedBytes, remainingBytes);
                 if (hex.length % 2 || !/^[0-9a-f]*$/i.test(hex)) {
-                    throw new QpiIncompleteReadError(
-                        `invalid state read at ${absoluteOffset + completedBytes}`,
-                    );
+                    throw new QpiIncompleteReadError(`invalid state read at ${absoluteOffset + completedBytes}`);
                 }
 
                 const chunk = hexToBytes(hex);
                 if (!chunk.length || chunk.length > remainingBytes) {
-                    throw new QpiIncompleteReadError(
-                        `short state read at ${absoluteOffset}: expected ${length} bytes, got ${completedBytes}`,
-                    );
+                    throw new QpiIncompleteReadError(`short state read at ${absoluteOffset}: expected ${length} bytes, got ${completedBytes}`);
                 }
 
                 bytes.set(chunk, completedBytes);
@@ -317,11 +275,7 @@ function gapLine(start: number, end: number, collection = false): StateLine {
     return { label, text: `(unoccupied ×${count}; skipped)`, filled: false };
 }
 
-function containerLines(
-    capacity: number,
-    entries: { slot: number; text: string }[],
-    collection = false,
-): StateLine[] {
+function containerLines(capacity: number, entries: { slot: number; text: string }[], collection = false): StateLine[] {
     const lines: StateLine[] = [];
     const slots = [...new Set(entries.map((entry) => entry.slot))];
     let nextSlot = 0;
@@ -446,11 +400,7 @@ type FormattedContainerView = {
     totalEntries: number;
 };
 
-async function formatContainerView(
-    field: StateField,
-    source: QpiByteSource,
-    full: boolean,
-): Promise<FormattedContainerView> {
+async function formatContainerView(field: StateField, source: QpiByteSource, full: boolean): Promise<FormattedContainerView> {
     const container = field.container;
     if (!field.abi || !container) {
         throw new Error(`missing ${field.name} container type`);
@@ -544,12 +494,7 @@ async function formatContainerView(
             }
             const entries = await view.entries();
             return {
-                stateLines: linkedListValueLines(
-                    entries,
-                    container.value,
-                    container.capacity,
-                    full,
-                ),
+                stateLines: linkedListValueLines(entries, container.value, container.capacity, full),
                 occupiedSlots: entries.length,
                 totalEntries: entries.length,
             };
@@ -580,11 +525,7 @@ async function readContainerBlock(
     // Separate range reads can span a state update, so one inconsistent view is retried before failing.
     for (let attempt = 0; attempt < 2; attempt++) {
         try {
-            const formatted = await formatContainerView(
-                field,
-                stateByteSource(rpc, contractIndex, field, onRead),
-                true,
-            );
+            const formatted = await formatContainerView(field, stateByteSource(rpc, contractIndex, field, onRead), true);
             return {
                 ...head,
                 status: "loaded",
@@ -610,11 +551,7 @@ async function readContainerBlock(
     };
 }
 
-function collapsedContainer(
-    index: number,
-    field: StateField,
-    container: StateContainerLayout,
-): StateContainer {
+function collapsedContainer(index: number, field: StateField, container: StateContainerLayout): StateContainer {
     return {
         index,
         name: field.name,
@@ -647,28 +584,14 @@ export async function loadStateContainer(
         onProgress?.(field.name, value, field.size);
     };
     const tracksReads = field.container.kind === "array" || field.container.kind === "bitarray";
-    const loaded = await readContainerBlock(
-        rpc,
-        contractIndex,
-        container.index,
-        field,
-        field.container,
-        tracksReads ? reportRead : undefined,
-    );
+    const loaded = await readContainerBlock(rpc, contractIndex, container.index, field, field.container, tracksReads ? reportRead : undefined);
     if (!tracksReads && completedBytes < field.size) {
         onProgress?.(field.name, field.size, field.size);
     }
     return loaded;
 }
 
-export const sevColor = (severity: string) =>
-    severity === "ERROR"
-        ? "red"
-        : severity === "WARN"
-          ? "yellow"
-          : severity === "INFO"
-            ? "green"
-            : undefined;
+export const sevColor = (severity: string) => (severity === "ERROR" ? "red" : severity === "WARN" ? "yellow" : severity === "INFO" ? "green" : undefined);
 
 export interface DecodedTrace {
     inDecoded: string;
@@ -679,12 +602,7 @@ export interface DecodedTrace {
     logs: DecodedLog[];
 }
 
-export async function describeTrace(
-    entry: DebugEntry,
-    source: string | undefined,
-    name: string,
-    qpiHeader?: string,
-): Promise<DecodedTrace> {
+export async function describeTrace(entry: DebugEntry, source: string | undefined, name: string, qpiHeader?: string): Promise<DecodedTrace> {
     let input = entry.inHex ? "0x" + entry.inHex : "(none)";
     let output = entry.outHex ? "0x" + entry.outHex : "(none)";
     let caller = "(none)";
@@ -724,11 +642,7 @@ export async function describeTrace(
             const enumNames = enumMap(idl);
 
             if (entry.logs?.length) {
-                logs = await Promise.all(
-                    entry.logs.map((log) =>
-                        decodeLog(log.type, log.size, log.hex, idl.logs, enumNames),
-                    ),
-                );
+                logs = await Promise.all(entry.logs.map((log) => decodeLog(log.type, log.size, log.hex, idl.logs, enumNames)));
             }
         } catch {
             // Raw trace bytes remain available when source decoding fails.
@@ -859,10 +773,7 @@ export async function readState(
             containerIndex++;
             const selected = options.containerIndexes?.has(containerIndex) ?? false;
             const collapsed =
-                options.collapseContainersAtBytes !== undefined &&
-                field.size >= options.collapseContainersAtBytes &&
-                !selected &&
-                !options.loadAllContainers;
+                options.collapseContainersAtBytes !== undefined && field.size >= options.collapseContainersAtBytes && !selected && !options.loadAllContainers;
 
             if (collapsed) {
                 containers.push(collapsedContainer(containerIndex, field, field.container));
@@ -873,18 +784,8 @@ export async function readState(
                     completedBytes = value;
                     onProgress?.(field.name, value, field.size);
                 };
-                const tracksReads =
-                    field.container.kind === "array" || field.container.kind === "bitarray";
-                containers.push(
-                    await readContainerBlock(
-                        rpc,
-                        contractIndex,
-                        containerIndex,
-                        field,
-                        field.container,
-                        tracksReads ? reportRead : undefined,
-                    ),
-                );
+                const tracksReads = field.container.kind === "array" || field.container.kind === "bitarray";
+                containers.push(await readContainerBlock(rpc, contractIndex, containerIndex, field, field.container, tracksReads ? reportRead : undefined));
                 if (!tracksReads && completedBytes < field.size) {
                     onProgress?.(field.name, field.size, field.size);
                 }
@@ -894,13 +795,8 @@ export async function readState(
 
         onProgress?.(field.name, 0, field.size);
         try {
-            const byteSource = stateByteSource(rpc, contractIndex, field, (completedBytes) =>
-                onProgress?.(field.name, completedBytes, field.size),
-            );
-            const decoded = await decodeOutput(
-                await readAllBytes(byteSource),
-                field.abi ?? field.type,
-            );
+            const byteSource = stateByteSource(rpc, contractIndex, field, (completedBytes) => onProgress?.(field.name, completedBytes, field.size));
+            const decoded = await decodeOutput(await readAllBytes(byteSource), field.abi ?? field.type);
             decodedFields.push({
                 name: field.name,
                 value:
@@ -929,8 +825,7 @@ export async function readState(
 
 export function stateIsComplete(state: Pick<DecodedState, "fields" | "containers">): boolean {
     return (
-        !state.fields.some(
-            (field) => field.value.includes("read failed") || field.value.includes("undecodable"),
-        ) && state.containers.every((container) => container.status !== "error")
+        !state.fields.some((field) => field.value.includes("read failed") || field.value.includes("undecodable")) &&
+        state.containers.every((container) => container.status !== "error")
     );
 }

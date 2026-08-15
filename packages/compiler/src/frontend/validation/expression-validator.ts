@@ -36,10 +36,7 @@ export function checkExpression(
         switch (expression.kind) {
             case AstKind.IDENTIFIER:
                 if (allLocals.has(expression.name) && !lookup(expression.name)) {
-                    validator.error(
-                        `'${expression.name}' is used before its declaration (or outside the scope that declares it)`,
-                        expression.span,
-                    );
+                    validator.error(`'${expression.name}' is used before its declaration (or outside the scope that declares it)`, expression.span);
                 }
                 break;
             case AstKind.ASSIGN: {
@@ -52,10 +49,7 @@ export function checkExpression(
                     validator.isAggregateType(rightType) &&
                     validator.canonTypeKey(leftType) !== validator.canonTypeKey(rightType)
                 ) {
-                    validator.error(
-                        `incompatible aggregate assignment from '${typeKey(rightType)}' to '${typeKey(leftType)}'`,
-                        expression.span,
-                    );
+                    validator.error(`incompatible aggregate assignment from '${typeKey(rightType)}' to '${typeKey(leftType)}'`, expression.span);
                 }
                 validator.checkAssignTarget(expression.left, constParams, lookup);
                 walk(expression.left);
@@ -74,11 +68,7 @@ export function checkExpression(
                 walk(expression.argument);
                 break;
             case AstKind.BINARY_OP:
-                if (
-                    (expression.operator === BinaryOp.DIVIDE ||
-                        expression.operator === BinaryOp.MODULO) &&
-                    isZeroLiteral(expression.right)
-                ) {
+                if ((expression.operator === BinaryOp.DIVIDE || expression.operator === BinaryOp.MODULO) && isZeroLiteral(expression.right)) {
                     validator.error(`constant division by zero`, expression.span);
                 }
                 walk(expression.left);
@@ -98,75 +88,34 @@ export function checkExpression(
                     const object = expression.callee.object;
                     const receiverType = validator.inferSimpleType(object);
                     const receiver = receiverType ? unwrapType(receiverType) : null;
-                    const isArray =
-                        receiver?.kind === AstKind.TEMPLATE_INSTANCE && receiver.name === "Array";
+                    const isArray = receiver?.kind === AstKind.TEMPLATE_INSTANCE && receiver.name === "Array";
                     if (isArray && method === "set" && expression.callArguments.length !== 2) {
-                        validator.error(
-                            `container set expects 2 argument(s) but got ${expression.callArguments.length}`,
-                            expression.span,
-                        );
+                        validator.error(`container set expects 2 argument(s) but got ${expression.callArguments.length}`, expression.span);
                     }
                     // state.get() is a zero-argument accessor; a get call with operands is a container get.
                     if (isArray && method === "get" && expression.callArguments.length !== 1) {
-                        validator.error(
-                            `container get expects 1 argument but got ${expression.callArguments.length}`,
-                            expression.span,
-                        );
+                        validator.error(`container get expects 1 argument but got ${expression.callArguments.length}`, expression.span);
                     }
-                    if (
-                        validator.isPublicFunctionContext() &&
-                        object.kind === AstKind.IDENTIFIER &&
-                        object.name === "state" &&
-                        method === "mut"
-                    ) {
-                        validator.error(
-                            `public function is read-only and cannot call state.mut()`,
-                            expression.span,
-                        );
+                    if (validator.isPublicFunctionContext() && object.kind === AstKind.IDENTIFIER && object.name === "state" && method === "mut") {
+                        validator.error(`public function is read-only and cannot call state.mut()`, expression.span);
                     }
                 }
-                const sig =
-                    name !== null && !lookup(name) && !allLocals.has(name)
-                        ? memberFns.get(name)
-                        : undefined;
+                const sig = name !== null && !lookup(name) && !allLocals.has(name) ? memberFns.get(name) : undefined;
                 if (sig) {
                     // Entry bodies are static, so reject bare non-static member calls.
                     if (validator.currentFn?.isStatic && !sig.declaration.isStatic) {
-                        validator.error(
-                            `cannot call non-static member function '${name}' from a static context — declare it static`,
-                            expression.span,
-                        );
+                        validator.error(`cannot call non-static member function '${name}' from a static context — declare it static`, expression.span);
                     }
-                    if (
-                        expression.callArguments.length < sig.minArgs ||
-                        expression.callArguments.length > sig.maxArgs
-                    ) {
-                        const want =
-                            sig.minArgs === sig.maxArgs
-                                ? `${sig.maxArgs}`
-                                : `${sig.minArgs}..${sig.maxArgs}`;
-                        validator.error(
-                            `'${name}' expects ${want} argument(s) but got ${expression.callArguments.length}`,
-                            expression.span,
-                        );
+                    if (expression.callArguments.length < sig.minArgs || expression.callArguments.length > sig.maxArgs) {
+                        const want = sig.minArgs === sig.maxArgs ? `${sig.maxArgs}` : `${sig.minArgs}..${sig.maxArgs}`;
+                        validator.error(`'${name}' expects ${want} argument(s) but got ${expression.callArguments.length}`, expression.span);
                     } else {
                         // Append default arguments so codegen sees the complete call.
-                        for (
-                            let sigItemIndex = expression.callArguments.length;
-                            sigItemIndex < sig.maxArgs;
-                            sigItemIndex++
-                        ) {
-                            expression.callArguments.push(
-                                sig.declaration.params[sigItemIndex].defaultValue!,
-                            );
+                        for (let sigItemIndex = expression.callArguments.length; sigItemIndex < sig.maxArgs; sigItemIndex++) {
+                            expression.callArguments.push(sig.declaration.params[sigItemIndex].defaultValue!);
                         }
                     }
-                    for (
-                        let index = 0;
-                        index <
-                        Math.min(expression.callArguments.length, sig.declaration.params.length);
-                        index++
-                    ) {
+                    for (let index = 0; index < Math.min(expression.callArguments.length, sig.declaration.params.length); index++) {
                         const paramType = sig.declaration.params[index].type;
                         const argType = validator.inferSimpleType(expression.callArguments[index]);
                         if (
@@ -180,14 +129,10 @@ export function checkExpression(
                                 expression.callArguments[index].span,
                             );
                         }
-                        if (paramType.kind !== AstKind.REFERENCE || isConstType(paramType))
-                            continue;
+                        if (paramType.kind !== AstKind.REFERENCE || isConstType(paramType)) continue;
                         const argument = expression.callArguments[index];
                         if (!validator.isWritableReferenceArgument(argument, constParams, lookup)) {
-                            validator.error(
-                                `argument ${index + 1} to '${name}' cannot bind to a non-const reference`,
-                                argument.span,
-                            );
+                            validator.error(`argument ${index + 1} to '${name}' cannot bind to a non-const reference`, argument.span);
                         }
                     }
                 }
@@ -228,9 +173,7 @@ export function checkExpression(
                 break;
             case AstKind.CONSTRUCT:
             case AstKind.INITIALIZER_LIST:
-                for (const item of (expression as any).callArguments ??
-                    (expression as any).expressions ??
-                    []) {
+                for (const item of (expression as any).callArguments ?? (expression as any).expressions ?? []) {
                     walk(item);
                 }
                 break;
@@ -254,15 +197,8 @@ export function checkAssignTarget(
     while (root.kind === AstKind.MEMBER_ACCESS || root.kind === AstKind.SUBSCRIPT) {
         root = root.kind === AstKind.MEMBER_ACCESS ? root.object : root.object;
     }
-    if (
-        root.kind === AstKind.CALL &&
-        root.callee.kind === AstKind.MEMBER_ACCESS &&
-        root.callee.member === "get"
-    ) {
-        validator.error(
-            `cannot modify through get(): it returns a read-only view — use mut()`,
-            target.span,
-        );
+    if (root.kind === AstKind.CALL && root.callee.kind === AstKind.MEMBER_ACCESS && root.callee.member === "get") {
+        validator.error(`cannot modify through get(): it returns a read-only view — use mut()`, target.span);
         return;
     }
     if (root.kind === AstKind.IDENTIFIER) {
@@ -304,8 +240,7 @@ export function inferSimpleType(validator: Validator, expression: Expression): T
         case AstKind.CONSTRUCT:
             return expression.type;
         case AstKind.CALL: {
-            const name =
-                expression.callee.kind === AstKind.IDENTIFIER ? expression.callee.name : null;
+            const name = expression.callee.kind === AstKind.IDENTIFIER ? expression.callee.name : null;
             if (
                 expression.callee.kind === AstKind.MEMBER_ACCESS &&
                 expression.callee.object.kind === AstKind.IDENTIFIER &&
@@ -314,16 +249,12 @@ export function inferSimpleType(validator: Validator, expression: Expression): T
             ) {
                 return { kind: AstKind.NAME, name: "StateData" };
             }
-            return name
-                ? (validator.currentMemberFns.get(name)?.declaration.returnType ?? null)
-                : null;
+            return name ? (validator.currentMemberFns.get(name)?.declaration.returnType ?? null) : null;
         }
         case AstKind.MEMBER_ACCESS: {
             const owner = validator.inferSimpleType(expression.object);
             const concrete = owner ? unwrapType(owner) : null;
-            return concrete?.kind === AstKind.NAME
-                ? (validator.structFields.get(concrete.name)?.get(expression.member) ?? null)
-                : null;
+            return concrete?.kind === AstKind.NAME ? (validator.structFields.get(concrete.name)?.get(expression.member) ?? null) : null;
         }
         default:
             return null;
@@ -332,8 +263,7 @@ export function inferSimpleType(validator: Validator, expression: Expression): T
 
 export function isReadonlyStateExpression(expression: Expression): boolean {
     let root = expression;
-    while (root.kind === AstKind.MEMBER_ACCESS || root.kind === AstKind.SUBSCRIPT)
-        root = root.object;
+    while (root.kind === AstKind.MEMBER_ACCESS || root.kind === AstKind.SUBSCRIPT) root = root.object;
     return (
         root.kind === AstKind.CALL &&
         root.callee.kind === AstKind.MEMBER_ACCESS &&

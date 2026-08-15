@@ -1,21 +1,11 @@
 import { test, expect } from "bun:test";
-import {
-    LITE_TX,
-    CHUNK_DATA_MAX,
-    encodeUploadBegin,
-    encodeUploadChunk,
-    encodeDeploy,
-    splitUploadChunks,
-    createUploadSessionId,
-} from "../../src/deploy";
+import { LITE_TX, CHUNK_DATA_MAX, encodeUploadBegin, encodeUploadChunk, encodeDeploy, splitUploadChunks, createUploadSessionId } from "../../src/deploy";
 import { contractAddress } from "../../src/call";
 import { WASM_ABI_VERSION } from "@qinit/core";
 
 const hx = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-const u32le = (b: Uint8Array, o: number) =>
-    new DataView(b.buffer, b.byteOffset, b.byteLength).getUint32(o, true);
-const u64le = (b: Uint8Array, o: number) =>
-    new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(o, true);
+const u32le = (b: Uint8Array, o: number) => new DataView(b.buffer, b.byteOffset, b.byteLength).getUint32(o, true);
+const u64le = (b: Uint8Array, o: number) => new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(o, true);
 const HASH32 = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
 test("LITE_TX inputTypes + CHUNK_DATA_MAX are the wire constants", () => {
@@ -38,9 +28,7 @@ test("encodeUploadBegin: 48 bytes, LE fields, hash at offset 16", () => {
 });
 
 test("encodeUploadBegin: rejects a wrong-length finalHash", () => {
-    expect(() =>
-        encodeUploadBegin({ sessionId: 1n, totalSize: 1, chunkCount: 1, finalHashHex: "abcd" }),
-    ).toThrow(/32-byte hex/);
+    expect(() => encodeUploadBegin({ sessionId: 1n, totalSize: 1, chunkCount: 1, finalHashHex: "abcd" })).toThrow(/32-byte hex/);
 });
 
 test("encodeUploadChunk: 14B header + data; len field; empty data", () => {
@@ -55,12 +43,8 @@ test("encodeUploadChunk: 14B header + data; len field; empty data", () => {
 });
 
 test("encodeUploadChunk: exactly CHUNK_DATA_MAX ok, one more throws", () => {
-    expect(
-        encodeUploadChunk({ sessionId: 1n, seq: 0, bytes: new Uint8Array(CHUNK_DATA_MAX) }).length,
-    ).toBe(14 + CHUNK_DATA_MAX);
-    expect(() =>
-        encodeUploadChunk({ sessionId: 1n, seq: 0, bytes: new Uint8Array(CHUNK_DATA_MAX + 1) }),
-    ).toThrow(/chunk too large/);
+    expect(encodeUploadChunk({ sessionId: 1n, seq: 0, bytes: new Uint8Array(CHUNK_DATA_MAX) }).length).toBe(14 + CHUNK_DATA_MAX);
+    expect(() => encodeUploadChunk({ sessionId: 1n, seq: 0, bytes: new Uint8Array(CHUNK_DATA_MAX + 1) })).toThrow(/chunk too large/);
 });
 
 test("encodeDeploy: 84 bytes, offsets, version defaults", () => {
@@ -90,9 +74,7 @@ test("encodeDeploy: name written at 52, truncated to 31, high bit stripped", () 
 
 test("splitUploadChunks: empty, partial, exact-multiple boundaries; concat === original", () => {
     expect(splitUploadChunks(new Uint8Array(0))).toEqual([]);
-    expect(splitUploadChunks(new Uint8Array(10), 4).map((chunk) => chunk.length)).toEqual([
-        4, 4, 2,
-    ]);
+    expect(splitUploadChunks(new Uint8Array(10), 4).map((chunk) => chunk.length)).toEqual([4, 4, 2]);
     expect(splitUploadChunks(new Uint8Array(8), 4).map((chunk) => chunk.length)).toEqual([4, 4]);
     expect(splitUploadChunks(new Uint8Array(3), 4).map((chunk) => chunk.length)).toEqual([3]);
     const src = new Uint8Array(2050);

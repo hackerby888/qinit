@@ -61,8 +61,7 @@ const gcd = (left: number, right: number): number => {
 function channelKey(interfaceIndex: number, query: Uint8Array, timestampOffset: number): string {
     let key = `${interfaceIndex}:`;
     for (let index = 0; index < query.length; index++) {
-        if (index < timestampOffset || index >= timestampOffset + 8)
-            key += query[index].toString(16).padStart(2, "0");
+        if (index < timestampOffset || index >= timestampOffset + 8) key += query[index].toString(16).padStart(2, "0");
     }
     return key;
 }
@@ -74,8 +73,7 @@ export class OracleManager {
     private channelIds = new Map<string, number>();
     private nextQueryId = 1n;
     private nextSubscriptionId = 0;
-    private provider: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null =
-        null;
+    private provider: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null = null;
 
     constructor(host: OracleHost) {
         this.host = host;
@@ -108,9 +106,7 @@ export class OracleManager {
             return -1n;
         }
 
-        return this.createQuery(interfaceIndex, query, replySize, -1, timeoutMillisec, [
-            { slot, notificationProcId },
-        ]);
+        return this.createQuery(interfaceIndex, query, replySize, -1, timeoutMillisec, [{ slot, notificationProcId }]);
     }
 
     subscribe(
@@ -145,8 +141,7 @@ export class OracleManager {
         }
 
         const now = this.host.nowMs();
-        const channel =
-            existing ?? this.createChannel(key, interfaceIndex, query, replySize, timestampOffset);
+        const channel = existing ?? this.createChannel(key, interfaceIndex, query, replySize, timestampOffset);
         let nextQueryMs = now;
         if (channel.subscribers.size) {
             let reference: OracleSubscriber | undefined;
@@ -158,9 +153,7 @@ export class OracleManager {
                     reference = subscriber;
                 }
             }
-            const periodsUntilReference = Math.floor(
-                Math.max(0, reference!.nextQueryMs - now) / periodMillisec,
-            );
+            const periodsUntilReference = Math.floor(Math.max(0, reference!.nextQueryMs - now) / periodMillisec);
             nextQueryMs = reference!.nextQueryMs - periodsUntilReference * periodMillisec;
         }
 
@@ -172,15 +165,7 @@ export class OracleManager {
         });
 
         if (notifyPrevious && channel.lastQueryId !== null && channel.lastReply) {
-            this.fire(
-                slot,
-                notificationProcId,
-                channel.lastQueryId,
-                channel.id,
-                ORACLE_STATUS.SUCCESS,
-                replySize,
-                channel.lastReply,
-            );
+            this.fire(slot, notificationProcId, channel.lastQueryId, channel.id, ORACLE_STATUS.SUCCESS, replySize, channel.lastReply);
         }
 
         if (channel.subscribers.size === 1) this.emitDueChannel(channel, now);
@@ -200,13 +185,7 @@ export class OracleManager {
         this.nextSubscriptionId = 0;
     }
 
-    private createChannel(
-        key: string,
-        interfaceIndex: number,
-        query: Uint8Array,
-        replySize: number,
-        timestampOffset: number,
-    ): OracleChannel {
+    private createChannel(key: string, interfaceIndex: number, query: Uint8Array, replySize: number, timestampOffset: number): OracleChannel {
         const channel: OracleChannel = {
             id: this.nextSubscriptionId++,
             key,
@@ -255,55 +234,30 @@ export class OracleManager {
 
     private emitDueChannel(channel: OracleChannel, now: number): void {
         while (channel.subscribers.size) {
-            const queryTimestamp = Math.min(
-                ...[...channel.subscribers.values()].map((subscriber) => subscriber.nextQueryMs),
-            );
+            const queryTimestamp = Math.min(...[...channel.subscribers.values()].map((subscriber) => subscriber.nextQueryMs));
             if (queryTimestamp > now) return;
 
-            const due = [...channel.subscribers.values()].filter(
-                (subscriber) => subscriber.nextQueryMs <= queryTimestamp,
-            );
+            const due = [...channel.subscribers.values()].filter((subscriber) => subscriber.nextQueryMs <= queryTimestamp);
             for (const subscriber of due) {
                 do subscriber.nextQueryMs += subscriber.periodMs;
                 while (subscriber.nextQueryMs < now);
             }
 
             const query = channel.initialQuery.slice();
-            new DataView(query.buffer, query.byteOffset, query.byteLength).setBigUint64(
-                channel.timestampOffset,
-                packDateAndTime(queryTimestamp),
-                true,
-            );
-            this.createQuery(
-                channel.interfaceIndex,
-                query,
-                channel.replySize,
-                channel.id,
-                SUBSCRIPTION_TIMEOUT_MS,
-                due,
-                queryTimestamp,
-            );
+            new DataView(query.buffer, query.byteOffset, query.byteLength).setBigUint64(channel.timestampOffset, packDateAndTime(queryTimestamp), true);
+            this.createQuery(channel.interfaceIndex, query, channel.replySize, channel.id, SUBSCRIPTION_TIMEOUT_MS, due, queryTimestamp);
         }
     }
 
     resolve(queryId: bigint, reply: Uint8Array, status: number = ORACLE_STATUS.SUCCESS): boolean {
         const query = this.queries.get(queryId);
-        if (
-            !query ||
-            (query.status !== ORACLE_STATUS.PENDING && query.status !== ORACLE_STATUS.COMMITTED)
-        )
-            return false;
+        if (!query || (query.status !== ORACLE_STATUS.PENDING && query.status !== ORACLE_STATUS.COMMITTED)) return false;
 
         if (status === ORACLE_STATUS.COMMITTED) {
             query.status = status;
             return true;
         }
-        if (
-            status !== ORACLE_STATUS.SUCCESS &&
-            status !== ORACLE_STATUS.TIMEOUT &&
-            status !== ORACLE_STATUS.UNRESOLVABLE
-        )
-            return false;
+        if (status !== ORACLE_STATUS.SUCCESS && status !== ORACLE_STATUS.TIMEOUT && status !== ORACLE_STATUS.UNRESOLVABLE) return false;
         if (status === ORACLE_STATUS.SUCCESS && reply.length !== query.replySize) return false;
 
         query.status = status;
@@ -317,22 +271,12 @@ export class OracleManager {
         }
 
         for (const recipient of query.recipients) {
-            this.fire(
-                recipient.slot,
-                recipient.notificationProcId,
-                query.id,
-                query.subscriptionId,
-                status,
-                query.replySize,
-                query.reply ?? undefined,
-            );
+            this.fire(recipient.slot, recipient.notificationProcId, query.id, query.subscriptionId, status, query.replySize, query.reply ?? undefined);
         }
         return true;
     }
 
-    setProvider(
-        fn: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null,
-    ): void {
+    setProvider(fn: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null): void {
         this.provider = fn;
     }
 
@@ -367,11 +311,7 @@ export class OracleManager {
         const now = this.host.nowMs();
         for (const channel of this.channels.values()) this.emitDueChannel(channel, now);
         for (const query of [...this.queries.values()]) {
-            if (
-                (query.status === ORACLE_STATUS.PENDING ||
-                    query.status === ORACLE_STATUS.COMMITTED) &&
-                query.deadlineMs <= now
-            )
+            if ((query.status === ORACLE_STATUS.PENDING || query.status === ORACLE_STATUS.COMMITTED) && query.deadlineMs <= now)
                 this.resolve(query.id, new Uint8Array(0), ORACLE_STATUS.TIMEOUT);
         }
     }

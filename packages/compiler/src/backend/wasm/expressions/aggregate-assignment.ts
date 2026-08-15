@@ -6,16 +6,8 @@ import type { Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
 import type { AssignmentExpression, AssignmentTarget } from "./assignment-types";
 
-export function tryEmitAggregateAssignment(
-    context: FunctionEmissionContext,
-    expression: AssignmentExpression,
-    target: AssignmentTarget | null,
-): boolean {
-    if (
-        !target ||
-        expression.operator !== AssignOp.ASSIGN ||
-        !context.lowering.isAggregate(context, target.type, target.size)
-    ) {
+export function tryEmitAggregateAssignment(context: FunctionEmissionContext, expression: AssignmentExpression, target: AssignmentTarget | null): boolean {
+    if (!target || expression.operator !== AssignOp.ASSIGN || !context.lowering.isAggregate(context, target.type, target.size)) {
         return false;
     }
 
@@ -26,12 +18,7 @@ export function tryEmitAggregateAssignment(
     if (
         expression.right.kind === AstKind.CONSTRUCT &&
         target.type &&
-        context.lowering.emitConstruct(
-            context,
-            target.addr,
-            target.type,
-            expression.right.callArguments,
-        )
+        context.lowering.emitConstruct(context, target.addr, target.type, expression.right.callArguments)
     ) {
         return true;
     }
@@ -39,24 +26,14 @@ export function tryEmitAggregateAssignment(
     if (
         expression.right.kind === AstKind.INITIALIZER_LIST &&
         target.type &&
-        context.lowering.emitConstruct(
-            context,
-            target.addr,
-            target.type,
-            expression.right.expressions,
-        )
+        context.lowering.emitConstruct(context, target.addr, target.type, expression.right.expressions)
     ) {
         return true;
     }
 
     const sourceAddress = context.lowering.emitAddress(context, expression.right);
     if (sourceAddress) {
-        const copyCall = watIr.functionCall(
-            "$copyMem",
-            addrIr(target.addr),
-            addrIr(sourceAddress),
-            watIr.i32Constant(target.size),
-        );
+        const copyCall = watIr.functionCall("$copyMem", addrIr(target.addr), addrIr(sourceAddress), watIr.i32Constant(target.size));
         context.lines.push(`    ${watIr.serializeWatNode(copyCall)}`);
         return true;
     }
@@ -68,18 +45,13 @@ export function tryEmitAggregateAssignment(
     return true;
 }
 
-function tryEmitAssetIteratorAssignment(
-    context: FunctionEmissionContext,
-    expression: AssignmentExpression,
-    target: AssignmentTarget,
-): boolean {
+function tryEmitAssetIteratorAssignment(context: FunctionEmissionContext, expression: AssignmentExpression, target: AssignmentTarget): boolean {
     if (
         target.type?.kind !== AstKind.NAME ||
         !/Asset(Ownership|Possession)Iterator$/.test(target.type.name) ||
         (expression.right.kind !== AstKind.CALL && expression.right.kind !== AstKind.CONSTRUCT) ||
         (expression.right.kind === AstKind.CALL &&
-            (expression.right.callee.kind !== AstKind.IDENTIFIER ||
-                !/Asset(Ownership|Possession)Iterator$/.test(expression.right.callee.name)))
+            (expression.right.callee.kind !== AstKind.IDENTIFIER || !/Asset(Ownership|Possession)Iterator$/.test(expression.right.callee.name)))
     ) {
         return false;
     }
@@ -102,12 +74,7 @@ function tryEmitAssetIteratorAssignment(
             ContainerEmissionMode.STATEMENT,
         );
     } else {
-        const clearIterator = watIr.rawStore(
-            "i64.store",
-            null,
-            addrIr(target.addr),
-            watIr.i64Constant(0),
-        );
+        const clearIterator = watIr.rawStore("i64.store", null, addrIr(target.addr), watIr.i64Constant(0));
         context.lines.push(`    ${watIr.serializeWatNode(clearIterator)}`);
     }
 

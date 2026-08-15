@@ -52,10 +52,7 @@ export function resolveProjectPlan(options: {
     return planProjectSlots(dependencies, options.slotLayout, options.registry);
 }
 
-function transitiveDependencies(
-    contract: PlannedProjectContract,
-    byStateType: ReadonlyMap<string, PlannedProjectContract>,
-): PlannedProjectContract[] {
+function transitiveDependencies(contract: PlannedProjectContract, byStateType: ReadonlyMap<string, PlannedProjectContract>): PlannedProjectContract[] {
     const visited = new Set<string>();
     const ordered: PlannedProjectContract[] = [];
 
@@ -67,9 +64,7 @@ function transitiveDependencies(
 
         const dependency = byStateType.get(stateType);
         if (!dependency) {
-            throw new Error(
-                `${contract.stateType} references unresolved project contract '${stateType}'`,
-            );
+            throw new Error(`${contract.stateType} references unresolved project contract '${stateType}'`);
         }
         for (const nested of dependency.dependencies) {
             visit(nested);
@@ -97,9 +92,7 @@ function clangCallees(dependencies: readonly PlannedProjectContract[]): DynCalle
     );
 }
 
-function typescriptCallees(
-    dependencies: readonly PlannedProjectContract[],
-): Record<string, TypeScriptCalleeBuildOptions> {
+function typescriptCallees(dependencies: readonly PlannedProjectContract[]): Record<string, TypeScriptCalleeBuildOptions> {
     return Object.fromEntries(
         dependencies.map((dependency) => [
             dependency.stateType,

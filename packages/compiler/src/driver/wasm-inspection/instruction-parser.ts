@@ -2,11 +2,7 @@ import { WasmLimitKind, WasmValueType } from "../../shared/enums";
 import { Reader, WasmParseError, error } from "./binary-reader";
 import type { InternalGlobal, ParsedModule } from "./parsed-module";
 
-export function readValueType(
-    reader: Reader,
-    parsed: ParsedModule,
-    context: string,
-): WasmValueType {
+export function readValueType(reader: Reader, parsed: ParsedModule, context: string): WasmValueType {
     const at = reader.pos;
     switch (reader.byte(`${context} value type`)) {
         case 0x7f:
@@ -29,11 +25,7 @@ export function readValueType(
     }
 }
 
-export function readValueTypeVector(
-    reader: Reader,
-    parsed: ParsedModule,
-    context: string,
-): WasmValueType[] {
+export function readValueTypeVector(reader: Reader, parsed: ParsedModule, context: string): WasmValueType[] {
     const count = reader.u32(`${context} count`);
     const values: WasmValueType[] = [];
     for (let index = 0; index < count; index++) values.push(readValueType(reader, parsed, context));
@@ -58,13 +50,8 @@ export function readLimits(
     if (shared) parsed.features.add("threads/shared-memory");
     if (memory64) parsed.features.add("memory64");
     const known = context === WasmLimitKind.MEMORY ? 0x07 : 0x01;
-    if ((flags & ~known) !== 0)
-        throw new WasmParseError(
-            `${context} has unsupported limits flags 0x${flags.toString(16)}`,
-            at,
-        );
-    const readLimit = () =>
-        memory64 ? reader.u64(`${context} limit`) : BigInt(reader.u32(`${context} limit`));
+    if ((flags & ~known) !== 0) throw new WasmParseError(`${context} has unsupported limits flags 0x${flags.toString(16)}`, at);
+    const readLimit = () => (memory64 ? reader.u64(`${context} limit`) : BigInt(reader.u32(`${context} limit`)));
     const minimum = readLimit();
     const maximum = hasMaximum ? readLimit() : undefined;
     return { minimum, maximum, shared, memory64 };
@@ -76,8 +63,7 @@ export function readTableType(reader: Reader, parsed: ParsedModule): void {
     // 0x70 was anyfunc in MVP and is funcref in the reference-types spelling.
     if (elementType !== 0x70) {
         parsed.features.add("reference-types");
-        if (elementType !== 0x6f)
-            throw new WasmParseError("table has an unsupported element type", at);
+        if (elementType !== 0x6f) throw new WasmParseError("table has an unsupported element type", at);
     }
     readLimits(reader, parsed, WasmLimitKind.TABLE);
 }
@@ -86,8 +72,7 @@ export function readGlobalType(reader: Reader, parsed: ParsedModule): InternalGl
     const type = readValueType(reader, parsed, "global");
     const at = reader.pos;
     const mutable = reader.byte("global mutability");
-    if (mutable !== 0 && mutable !== 1)
-        throw new WasmParseError("global mutability must be 0 or 1", at);
+    if (mutable !== 0 && mutable !== 1) throw new WasmParseError("global mutability must be 0 or 1", at);
     return { type, mutable: mutable === 1 };
 }
 
@@ -119,18 +104,14 @@ export function readConstExpression(reader: Reader, parsed: ParsedModule): void 
     }
     if (reader.byte("constant-expression end") !== 0x0b) {
         parsed.features.add("extended-constant-expressions");
-        throw new WasmParseError(
-            "constant expression has more than one instruction",
-            reader.pos - 1,
-        );
+        throw new WasmParseError("constant expression has more than one instruction", reader.pos - 1);
     }
 }
 
 export function readBlockType(reader: Reader, parsed: ParsedModule): void {
     const at = reader.pos;
     const first = reader.byte("block type");
-    if (first === 0x40 || first === 0x7f || first === 0x7e || first === 0x7d || first === 0x7c)
-        return;
+    if (first === 0x40 || first === 0x7f || first === 0x7e || first === 0x7d || first === 0x7c) return;
     parsed.features.add("multi-value/block-type-index");
     for (let index = 1; index < 5 && (first & 0x80) !== 0; index++) {
         if ((reader.byte("block type index") & 0x80) === 0) return;
@@ -217,8 +198,7 @@ export function readInstruction(reader: Reader, parsed: ParsedModule): boolean {
         case 0x1c: {
             parsed.features.add("typed-select");
             const count = reader.u32("typed select type count");
-            for (let index = 0; index < count; index++)
-                readValueType(reader, parsed, "typed select");
+            for (let index = 0; index < count; index++) readValueType(reader, parsed, "typed select");
             return true;
         }
         case 0xc0:
@@ -296,12 +276,7 @@ export function readInstruction(reader: Reader, parsed: ParsedModule): boolean {
             }
             if (opcode >= 0x45 && opcode <= 0xbf) return true;
             parsed.features.add(`unknown-opcode-0x${opcode.toString(16).padStart(2, "0")}`);
-            error(
-                parsed.diagnostics,
-                "unsupported-opcode",
-                `opcode 0x${opcode.toString(16).padStart(2, "0")} is outside the portable MVP profile`,
-                at,
-            );
+            error(parsed.diagnostics, "unsupported-opcode", `opcode 0x${opcode.toString(16).padStart(2, "0")} is outside the portable MVP profile`, at);
             return false;
     }
 }

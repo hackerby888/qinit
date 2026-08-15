@@ -15,23 +15,15 @@ export function tryInlineStructMethod(
     const method = expression.callee.member;
     const objNode = context.lowering.resolveExpressionAddress(context, expression.callee.object);
     if (!objNode || !objNode.layout || !objNode.type) return null;
-    const struct = context.programAnalysis.structOf(
-        objNode.type,
-        context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-    );
+    const struct = context.programAnalysis.structOf(objNode.type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
     if (!struct) return null;
     const fn = struct.members.find(
-        (member) =>
-            member.kind === AstKind.FUNCTION &&
-            (member as FunctionDecl).name === method &&
-            (member as FunctionDecl).body,
+        (member) => member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === method && (member as FunctionDecl).body,
     ) as FunctionDecl | undefined;
     if (!fn) return null;
     // Keep scalar-returning methods on the normal value-call path.
     const returnsAddress = (type: TypeSpec): boolean =>
-        type.kind === AstKind.REFERENCE ||
-        type.kind === AstKind.POINTER ||
-        (type.kind === AstKind.CONST && returnsAddress(type.valueType));
+        type.kind === AstKind.REFERENCE || type.kind === AstKind.POINTER || (type.kind === AstKind.CONST && returnsAddress(type.valueType));
     if (!returnsAddress(fn.returnType)) return null;
     const addr = emitInlineStructMethod(context, objNode, fn, expression.callArguments);
     return { addr, type: objNode.type, size: objNode.size, layout: objNode.layout };
@@ -49,16 +41,10 @@ export function inlineMethodInfo(
     const object = context.lowering.resolveExpressionAddress(context, expression.callee.object);
     if (!object?.type || !object.layout) return null;
     if (object.type.kind === AstKind.TEMPLATE_INSTANCE) return null;
-    const struct = context.programAnalysis.structOf(
-        object.type,
-        context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-    );
+    const struct = context.programAnalysis.structOf(object.type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
     const method = expression.callee.member;
     const fn = struct?.members.find(
-        (member) =>
-            member.kind === AstKind.FUNCTION &&
-            (member as FunctionDecl).name === method &&
-            (member as FunctionDecl).body,
+        (member) => member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === method && (member as FunctionDecl).body,
     ) as FunctionDecl | undefined;
     return fn ? { object, fn } : null;
 }
@@ -73,9 +59,7 @@ export function emitInlineStructValue(
     if (
         !resolved ||
         context.programAnalysis.isVoidType(resolved.fn.returnType) ||
-        context.programAnalysis.isAggregateType(
-            context.programAnalysis.derefType(resolved.fn.returnType),
-        )
+        context.programAnalysis.isAggregateType(context.programAnalysis.derefType(resolved.fn.returnType))
     )
         return null;
     const result = context.lowering.allocateTemporaryLocalName(context);
@@ -110,11 +94,7 @@ export function renameInlineLocals(body: Statement, suffix: string): Statement {
             return;
         }
         const node = value as Record<string, unknown>;
-        if (
-            node.kind === AstKind.VARIABLE &&
-            node.isMember === false &&
-            typeof node.name === "string"
-        ) {
+        if (node.kind === AstKind.VARIABLE && node.isMember === false && typeof node.name === "string") {
             names.set(node.name, `${node.name}${suffix}`);
         }
         for (const child of Object.values(node)) collect(child);
@@ -126,11 +106,7 @@ export function renameInlineLocals(body: Statement, suffix: string): Statement {
         const node = value as Record<string, unknown>;
         const out: Record<string, unknown> = {};
         for (const [key, child] of Object.entries(node)) out[key] = clone(child);
-        if (
-            (node.kind === AstKind.IDENTIFIER ||
-                (node.kind === AstKind.VARIABLE && node.isMember === false)) &&
-            typeof node.name === "string"
-        ) {
+        if ((node.kind === AstKind.IDENTIFIER || (node.kind === AstKind.VARIABLE && node.isMember === false)) && typeof node.name === "string") {
             out.name = names.get(node.name) ?? node.name;
         }
         return out;
@@ -167,21 +143,10 @@ export function emitInlineStructMethod(
         const slot = `marg${context.tmpCount++}`;
         context.localVars.set(slot, { wasmType: cls.wasmType });
         const argument = callArguments[parameterIndex] ?? parameter.defaultValue;
-        const paramType = context.programAnalysis.substInBindings(
-            context.programAnalysis.derefType(parameter.type),
-            bind,
-        );
+        const paramType = context.programAnalysis.substInBindings(context.programAnalysis.derefType(parameter.type), bind);
         if (argument) {
             const value = cls.isAddr
-                ? addrIr(
-                      context.lowering.argAddr(
-                          context,
-                          argument,
-                          context.programAnalysis.sizeOfType(paramType, bind),
-                          paramType,
-                          cls.readOnlyRef === true,
-                      ),
-                  )
+                ? addrIr(context.lowering.argAddr(context, argument, context.programAnalysis.sizeOfType(paramType, bind), paramType, cls.readOnlyRef === true))
                 : context.lowering.lowerValueExpression(context, argument);
             context.lines.push(`    ${context.lowering.setLocal(context, slot, value)}`);
         }

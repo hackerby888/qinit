@@ -26,10 +26,7 @@ test("a funded seed is used as it stands", async () => {
 
 test("an empty seed falls back to the node's funded one", async () => {
     const fundedIdentity = await identityOf(funded);
-    const signer = await resolveFundedSigner(
-        balanceRpc({ [fundedIdentity]: "10000000000" }),
-        saved,
-    );
+    const signer = await resolveFundedSigner(balanceRpc({ [fundedIdentity]: "10000000000" }), saved);
 
     expect(signer).toEqual({
         seed: funded,
@@ -42,13 +39,9 @@ test("an empty seed falls back to the node's funded one", async () => {
 // A seed the user typed is their choice — report it rather than signing as somebody else.
 test("an explicit empty seed is reported instead of swapped", async () => {
     const fundedIdentity = await identityOf(funded);
-    const signer = await resolveFundedSigner(
-        balanceRpc({ [fundedIdentity]: "10000000000" }),
-        saved,
-        {
-            explicit: true,
-        },
-    );
+    const signer = await resolveFundedSigner(balanceRpc({ [fundedIdentity]: "10000000000" }), saved, {
+        explicit: true,
+    });
 
     expect(signer.seed).toBe(saved);
     expect(signer.switched).toBeUndefined();

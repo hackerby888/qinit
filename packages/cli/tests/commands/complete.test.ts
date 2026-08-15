@@ -1,17 +1,6 @@
 import { test, expect } from "bun:test";
-import {
-    AbiScalarKind,
-    AbiTypeKind,
-    type AbiField,
-    type AbiStruct,
-    type AbiType,
-} from "@qinit/proto/contract-idl";
-import {
-    completerFor,
-    formatContractPickerRows,
-    zeroSample,
-    tmplOf,
-} from "../../src/commands/deploy-interact/call-interactive";
+import { AbiScalarKind, AbiTypeKind, type AbiField, type AbiStruct, type AbiType } from "@qinit/proto/contract-idl";
+import { completerFor, formatContractPickerRows, zeroSample, tmplOf } from "../../src/commands/deploy-interact/call-interactive";
 
 const SIZES: Record<AbiScalarKind, number> = {
     [AbiScalarKind.BIT]: 1,
@@ -71,11 +60,7 @@ test("zeroSample builds typed schema-matched values", () => {
         align: 8,
         format: "[64;uint64]",
     };
-    expect(
-        zeroSample(
-            entry(input(field("values", array), field("owner", scalar(AbiScalarKind.ID), 512))),
-        ),
-    ).toBe("[64; 0uint64 ×64], 0id");
+    expect(zeroSample(entry(input(field("values", array), field("owner", scalar(AbiScalarKind.ID), 512))))).toBe("[64; 0uint64 ×64], 0id");
 });
 
 test("zeroSample handles empty and uint128 inputs", () => {
@@ -109,10 +94,7 @@ test("tmplOf shows field names and formats", () => {
 });
 
 test("completerFor prefers the field's scalar type", () => {
-    const complete = completerFor([
-        field("who", scalar(AbiScalarKind.ID)),
-        field("amount", scalar(AbiScalarKind.UINT32), 32),
-    ]);
+    const complete = completerFor([field("who", scalar(AbiScalarKind.ID)), field("amount", scalar(AbiScalarKind.UINT32), 32)]);
     expect(complete("<id>id, 1u")).toBe("<id>id, 1uint32");
     expect(complete("1u")).toBe("1uint64");
 });
@@ -128,13 +110,7 @@ test("completerFor falls back to generic scalar types", () => {
 });
 
 test("completerFor adds schema types to bare values only after idle", () => {
-    const complete = completerFor(
-        [
-            field("unsigned", scalar(AbiScalarKind.UINT64)),
-            field("signed", scalar(AbiScalarKind.SINT64), 8),
-        ],
-        true,
-    );
+    const complete = completerFor([field("unsigned", scalar(AbiScalarKind.UINT64)), field("signed", scalar(AbiScalarKind.SINT64), 8)], true);
 
     expect(complete("1")).toBe(null);
     expect(complete("1u")).toBe("1uint64");
@@ -145,11 +121,7 @@ test("completerFor adds schema types to bare values only after idle", () => {
 
 test("completerFor suggests only valid bit and zero-value shorthand", () => {
     const complete = completerFor(
-        [
-            field("bit", scalar(AbiScalarKind.BIT)),
-            field("identity", scalar(AbiScalarKind.ID), 1),
-            field("digest", scalar(AbiScalarKind.M256I), 40),
-        ],
+        [field("bit", scalar(AbiScalarKind.BIT)), field("identity", scalar(AbiScalarKind.ID), 1), field("digest", scalar(AbiScalarKind.M256I), 40)],
         true,
     );
 
@@ -167,9 +139,5 @@ test("formatContractPickerRows aligns contract metadata columns", () => {
             { name: "QX", index: 1, functionCount: 5, procedureCount: 7 },
             { name: "QUTIL", index: 4, functionCount: 14, procedureCount: 17 },
         ]),
-    ).toEqual([
-        "Counter  [idx 29]   1 fn /  1 proc",
-        "QX       [idx  1]   5 fn /  7 proc",
-        "QUTIL    [idx  4]  14 fn / 17 proc",
-    ]);
+    ).toEqual(["Counter  [idx 29]   1 fn /  1 proc", "QX       [idx  1]   5 fn /  7 proc", "QUTIL    [idx  4]  14 fn / 17 proc"]);
 });

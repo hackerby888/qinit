@@ -21,9 +21,7 @@ for (const name of ["PULSE", "QEARN"]) {
             .slice(0, 8)
             .map((result) => `${result.name}: ${result.message}`)
             .join("; ");
-        throw new Error(
-            `${name} shared-memory gate failed: ${run.buildError ?? details ?? "invalid corpus result"}`,
-        );
+        throw new Error(`${name} shared-memory gate failed: ${run.buildError ?? details ?? "invalid corpus result"}`);
     }
     console.log(`[${name}] SHARED OK — ${run.results.length}/${run.results.length} tests passed`);
 }

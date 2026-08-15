@@ -1,14 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc, type DynamicContractRegistryEntry } from "@qinit/core";
-import {
-    LARGE_STATE_CONTAINER_BYTES,
-    loadStateContainer,
-    readState,
-    stateIsComplete,
-    type DecodedState,
-    type StateContainer,
-} from "../../trace/format";
+import { LARGE_STATE_CONTAINER_BYTES, loadStateContainer, readState, stateIsComplete, type DecodedState, type StateContainer } from "../../trace/format";
 import { StateView } from "../../trace/views";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
 import { loadContracts, mergeContracts } from "../../contracts/registry";
@@ -82,23 +75,16 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
         setDecodedState(state);
     };
 
-    const replaceContainer = (
-        container: StateContainer,
-        recomputeComplete = false,
-    ): DecodedState | null => {
+    const replaceContainer = (container: StateContainer, recomputeComplete = false): DecodedState | null => {
         const current = decodedStateRef.current;
         if (!current) {
             return null;
         }
-        const containers = current.containers.map((candidate) =>
-            candidate.index === container.index ? container : candidate,
-        );
+        const containers = current.containers.map((candidate) => (candidate.index === container.index ? container : candidate));
         const next = {
             ...current,
             containers,
-            complete: recomputeComplete
-                ? stateIsComplete({ fields: current.fields, containers })
-                : current.complete,
+            complete: recomputeComplete ? stateIsComplete({ fields: current.fields, containers }) : current.complete,
         };
         setCurrentState(next);
         return next;
@@ -136,9 +122,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
             await dumpContractState(new LiteRpc(rpcBaseUrl), slot, label, {
                 out: o.out,
                 onProgress: (writtenBytes, totalBytes) => {
-                    const percent = totalBytes
-                        ? Math.floor((writtenBytes * 100) / totalBytes)
-                        : 100;
+                    const percent = totalBytes ? Math.floor((writtenBytes * 100) / totalBytes) : 100;
                     setProgress(`dumping ${label} · ${percent}%`);
                 },
             }),
@@ -156,8 +140,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                 await runDump(c.index, label);
                 return;
             }
-            if (!c.source)
-                throw new Error(`node has no source for slot ${c.index} — cannot decode state`);
+            if (!c.source) throw new Error(`node has no source for slot ${c.index} — cannot decode state`);
             const rpc = new LiteRpc(rpcBaseUrl);
             await rpc.tickInfo(); // fail fast + loud if the node is unreachable (else readState silently fills "(read failed)")
             const state = await readState(
@@ -167,9 +150,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                 c.name || "Contract",
                 loadConfiguredQpiHeader(),
                 (field, completedBytes, totalBytes) => {
-                    const percent = totalBytes
-                        ? Math.floor((completedBytes * 100) / totalBytes)
-                        : 100;
+                    const percent = totalBytes ? Math.floor((completedBytes * 100) / totalBytes) : 100;
                     setProgress(`reading ${field} · ${percent}%`);
                 },
                 {
@@ -266,9 +247,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                 contractIndex,
                 container,
                 (field, completedBytes, totalBytes) => {
-                    const percent = totalBytes
-                        ? Math.floor((completedBytes * 100) / totalBytes)
-                        : 100;
+                    const percent = totalBytes ? Math.floor((completedBytes * 100) / totalBytes) : 100;
                     setProgress(`reading ${field} · ${percent}%`);
                 },
             );
@@ -293,11 +272,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
             process.exitCode = next.complete ? 0 : 1;
         }
         setProgress("");
-        setContainerHint(
-            loaded.status === "loaded"
-                ? `container ${index} loaded`
-                : `container ${index} failed · press ${index} to retry`,
-        );
+        setContainerHint(loaded.status === "loaded" ? `container ${index} loaded` : `container ${index} failed · press ${index} to retry`);
     };
 
     const clearContainerInputTimer = () => {
@@ -323,10 +298,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
         setContainerInput(value);
         setContainerHint("");
         if (value) {
-            containerInputTimerRef.current = setTimeout(
-                commitContainerInput,
-                CONTAINER_INPUT_DELAY_MS,
-            );
+            containerInputTimerRef.current = setTimeout(commitContainerInput, CONTAINER_INPUT_DELAY_MS);
         }
     };
 
@@ -346,11 +318,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
                 const { all, userCount: deployed } = mergeContracts(await loadContracts(rpc));
                 if (o.target) {
-                    const c = all.find(
-                        (x) =>
-                            String(x.index) === o.target ||
-                            (x.name || "").toLowerCase() === o.target.toLowerCase(),
-                    );
+                    const c = all.find((x) => String(x.index) === o.target || (x.name || "").toLowerCase() === o.target.toLowerCase());
                     if (!c) {
                         // A dump needs neither IDL nor source, so a slot the registry does not list is still one
                         // the node can hand over byte for byte.
@@ -358,22 +326,15 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                             await runDump(Number(o.target.trim()), o.target.trim());
                             return;
                         }
-                        throw new Error(
-                            `no contract '${o.target}' (deployed or system — run \`qinit node run\` for system)`,
-                        );
+                        throw new Error(`no contract '${o.target}' (deployed or system — run \`qinit node run\` for system)`);
                     }
                     await load(c);
                     return;
                 }
-                if (!all.length)
-                    throw new Error(
-                        "no contracts — deploy one, or run `qinit node run` to load system contracts",
-                    );
+                if (!all.length) throw new Error("no contracts — deploy one, or run `qinit node run` to load system contracts");
                 // `--json` renders nothing, so the picker would be an invisible prompt.
                 if (!process.stdin.isTTY || output.json)
-                    throw new Error(
-                        `specify a contract: qinit state <name|slot> (${all.map((c) => c.name || c.index).join(", ")})`,
-                    );
+                    throw new Error(`specify a contract: qinit state <name|slot> (${all.map((c) => c.name || c.index).join(", ")})`);
                 setContracts(all);
                 setUserCount(deployed);
                 setPhase("pick");
@@ -524,28 +485,17 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
             {phase === "pick" && (
                 <Box flexDirection="column">
                     <Text dimColor>↑/↓ select · ↵ show state · q quit</Text>
-                    <Box
-                        borderStyle="round"
-                        borderColor={theme.brand}
-                        paddingX={1}
-                        flexDirection="column"
-                    >
+                    <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
                         {(() => {
                             const row = (c: DynamicContractRegistryEntry, idx: number) => {
                                 const sel = idx === i;
                                 const detail = `idx ${c.index} · ${c.functions?.length ?? 0}fn/${c.procedures?.length ?? 0}proc`;
                                 return sel ? (
-                                    <GradLine
-                                        key={c.index}
-                                        text={`▸ ${(c.name || "—").padEnd(16)} ${detail}`}
-                                    />
+                                    <GradLine key={c.index} text={`▸ ${(c.name || "—").padEnd(16)} ${detail}`} />
                                 ) : (
                                     <Text key={c.index}>
                                         {"  "}
-                                        <Text color={theme.brand}>
-                                            {(c.name || "—").padEnd(16)}
-                                        </Text>{" "}
-                                        <Text dimColor>{detail}</Text>
+                                        <Text color={theme.brand}>{(c.name || "—").padEnd(16)}</Text> <Text dimColor>{detail}</Text>
                                     </Text>
                                 );
                             };
@@ -557,9 +507,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                                         deployed
                                     </Text>,
                                 );
-                                contracts
-                                    .slice(0, userCount)
-                                    .forEach((c, k) => out.push(row(c, k)));
+                                contracts.slice(0, userCount).forEach((c, k) => out.push(row(c, k)));
                             }
                             if (contracts.length > userCount) {
                                 out.push(
@@ -568,9 +516,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                                         system
                                     </Text>,
                                 );
-                                contracts
-                                    .slice(userCount)
-                                    .forEach((c, k) => out.push(row(c, userCount + k)));
+                                contracts.slice(userCount).forEach((c, k) => out.push(row(c, userCount + k)));
                             }
                             return out;
                         })()}
@@ -580,30 +526,16 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
             {phase === "loading" && <Spinner label={progress || "reading state"} />}
             {phase === "browse" ? (
                 <Box flexDirection="column">
-                    <Text dimColor>
-                        type container # · wait 0.5s or ↵ · loaded toggles · Esc/q quit
-                    </Text>
+                    <Text dimColor>type container # · wait 0.5s or ↵ · loaded toggles · Esc/q quit</Text>
                     {containerInput || progress || containerHint ? (
-                        <Text color={progress ? theme.info : undefined}>
-                            {containerInput
-                                ? `container ${containerInput}…`
-                                : progress || containerHint}
-                        </Text>
+                        <Text color={progress ? theme.info : undefined}>{containerInput ? `container ${containerInput}…` : progress || containerHint}</Text>
                     ) : null}
                 </Box>
             ) : decodedState?.containers.some((container) => container.status === "collapsed") ? (
-                <Text dimColor>
-                    rerun with --container &lt;index&gt; (repeatable) or --all to load large
-                    containers
-                </Text>
+                <Text dimColor>rerun with --container &lt;index&gt; (repeatable) or --all to load large containers</Text>
             ) : null}
             {decodedState ? (
-                <StateView
-                    name={name}
-                    state={decodedState}
-                    hiddenContainerIndexes={hiddenContainerIndexes}
-                    interactive={phase === "browse"}
-                />
+                <StateView name={name} state={decodedState} hiddenContainerIndexes={hiddenContainerIndexes} interactive={phase === "browse"} />
             ) : null}
         </Box>
     );

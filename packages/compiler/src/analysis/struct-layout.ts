@@ -3,15 +3,10 @@ import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout } 
 import type { TypeSpec, Declaration, StructDecl, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
 
-function emptyStructIdentity(
-    programAnalysis: ProgramAnalysis,
-    type: TypeSpec,
-    templateBindings: TemplateBindings,
-): StructDecl | string | null {
+function emptyStructIdentity(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings): StructDecl | string | null {
     let resolved = programAnalysis.substInBindings(type, templateBindings);
     while (resolved.kind === AstKind.CONST) resolved = resolved.valueType;
-    if (resolved.kind === AstKind.TEMPLATE_INSTANCE)
-        return `template:${programAnalysis.typeKey(resolved)}`;
+    if (resolved.kind === AstKind.TEMPLATE_INSTANCE) return `template:${programAnalysis.typeKey(resolved)}`;
     if (resolved.kind !== AstKind.NAME && resolved.kind !== AstKind.INLINE_STRUCT) return null;
     return programAnalysis.structOf(resolved, templateBindings);
 }
@@ -41,11 +36,7 @@ export function baseContribution(
         const templateDeclaration = programAnalysis.templates.get(resolvedBaseType.name);
         if (!templateDeclaration)
             return {
-                layout: programAnalysis.layoutOfTemplate(
-                    resolvedBaseType.name,
-                    resolvedBaseType.callArguments,
-                    parentB,
-                ),
+                layout: programAnalysis.layoutOfTemplate(resolvedBaseType.name, resolvedBaseType.callArguments, parentB),
                 consts: new Map(),
             };
         const templateBindings: TemplateBindings = {
@@ -53,24 +44,13 @@ export function baseContribution(
             values: new Map(),
             structs: new Map(),
         };
-        const resolved = resolvedBaseType.callArguments.map((argument) =>
-            programAnalysis.resolveType(argument, parentB),
-        );
-        for (
-            let parameterIndex = 0;
-            parameterIndex < templateDeclaration.params.length;
-            parameterIndex++
-        ) {
+        const resolved = resolvedBaseType.callArguments.map((argument) => programAnalysis.resolveType(argument, parentB));
+        for (let parameterIndex = 0; parameterIndex < templateDeclaration.params.length; parameterIndex++) {
             const parameter = templateDeclaration.params[parameterIndex];
             const argument = resolved[parameterIndex];
             if (!argument) continue;
-            if (parameter.kind === AstKind.TYPE)
-                templateBindings.types.set(parameter.name, argument);
-            else
-                templateBindings.values.set(
-                    parameter.name,
-                    programAnalysis.evalConstFromType(argument, parentB),
-                );
+            if (parameter.kind === AstKind.TYPE) templateBindings.types.set(parameter.name, argument);
+            else templateBindings.values.set(parameter.name, programAnalysis.evalConstFromType(argument, parentB));
         }
         const consts = new Map<string, bigint>();
         for (const member of templateDeclaration.members) {
@@ -82,10 +62,7 @@ export function baseContribution(
                 !templateBindings.values.has(variableDeclaration.name)
             ) {
                 try {
-                    const val = programAnalysis.evalConstBig(
-                        variableDeclaration.initializer,
-                        templateBindings,
-                    );
+                    const val = programAnalysis.evalConstBig(variableDeclaration.initializer, templateBindings);
                     templateBindings.values.set(variableDeclaration.name, val);
                     consts.set(variableDeclaration.name, val);
                 } catch {
@@ -109,15 +86,9 @@ export function baseContribution(
             for (const member of struct.members) {
                 if (member.kind !== AstKind.VARIABLE) continue;
                 const variableDeclaration = member as VariableDecl;
-                if (
-                    (variableDeclaration.isStatic || variableDeclaration.isConstexpr) &&
-                    variableDeclaration.initializer
-                ) {
+                if ((variableDeclaration.isStatic || variableDeclaration.isConstexpr) && variableDeclaration.initializer) {
                     try {
-                        consts.set(
-                            variableDeclaration.name,
-                            programAnalysis.evalConstBig(variableDeclaration.initializer, parentB),
-                        );
+                        consts.set(variableDeclaration.name, programAnalysis.evalConstBig(variableDeclaration.initializer, parentB));
                     } catch {
                         /* not a dimension */
                     }
@@ -130,24 +101,12 @@ export function baseContribution(
     return null;
 }
 
-export function evalQualifiedConst(
-    programAnalysis: ProgramAnalysis,
-    typeName: string,
-    member: string,
-    templateBindings: TemplateBindings,
-): bigint | null {
-    const type = programAnalysis.resolveType(
-        { kind: AstKind.NAME, name: typeName },
-        templateBindings,
-    );
+export function evalQualifiedConst(programAnalysis: ProgramAnalysis, typeName: string, member: string, templateBindings: TemplateBindings): bigint | null {
+    const type = programAnalysis.resolveType({ kind: AstKind.NAME, name: typeName }, templateBindings);
     let members: Declaration[] | null = null;
     let tb: TemplateBindings = templateBindings;
     if (type.kind === AstKind.TEMPLATE_INSTANCE) {
-        const inst = programAnalysis.instantiateTemplate(
-            type.name,
-            type.callArguments,
-            templateBindings,
-        );
+        const inst = programAnalysis.instantiateTemplate(type.name, type.callArguments, templateBindings);
         if (!inst) return null;
         members = inst.templateDeclaration.members;
         tb = inst.b;
@@ -182,37 +141,17 @@ export function structCacheKey(programAnalysis: ProgramAnalysis, struct: StructD
     return cacheKey;
 }
 
-export function layoutOfStruct(
-    programAnalysis: ProgramAnalysis,
-    struct: StructDecl,
-    templateBindings: TemplateBindings,
-): StructLayout {
+export function layoutOfStruct(programAnalysis: ProgramAnalysis, struct: StructDecl, templateBindings: TemplateBindings): StructLayout {
     if (struct.hasBody === false) return { size: 0, align: 1, fields: new Map() };
-    return programAnalysis.layoutOfMembers(
-        struct.members,
-        templateBindings,
-        programAnalysis.structCacheKey(struct),
-        struct.isUnion,
-        struct.bases,
-    );
+    return programAnalysis.layoutOfMembers(struct.members, templateBindings, programAnalysis.structCacheKey(struct), struct.isUnion, struct.bases);
 }
 
-export function bindingSig(
-    programAnalysis: ProgramAnalysis,
-    templateBindings: TemplateBindings,
-): string {
-    const bindingCount =
-        templateBindings.types.size + templateBindings.values.size + templateBindings.structs.size;
+export function bindingSig(programAnalysis: ProgramAnalysis, templateBindings: TemplateBindings): string {
+    const bindingCount = templateBindings.types.size + templateBindings.values.size + templateBindings.structs.size;
     if (bindingCount === 0) return "";
-    const typeBindingSignature = [...templateBindings.types]
-        .map(([name, type]) => `${name}=${programAnalysis.typeKey(type)}`)
-        .join(",");
-    const valueBindingSignature = [...templateBindings.values]
-        .map(([name, value]) => `${name}=${value}`)
-        .join(",");
-    const structBindingSignature = [...templateBindings.structs]
-        .map(([name, struct]) => `${name}=${programAnalysis.structCacheKey(struct)}`)
-        .join(",");
+    const typeBindingSignature = [...templateBindings.types].map(([name, type]) => `${name}=${programAnalysis.typeKey(type)}`).join(",");
+    const valueBindingSignature = [...templateBindings.values].map(([name, value]) => `${name}=${value}`).join(",");
+    const structBindingSignature = [...templateBindings.structs].map(([name, struct]) => `${name}=${programAnalysis.structCacheKey(struct)}`).join(",");
     return `|${typeBindingSignature}|${valueBindingSignature}|${structBindingSignature}`;
 }
 
@@ -244,22 +183,13 @@ export function layoutOfMembers(
                 if (member.kind === AstKind.VARIABLE) {
                     const variableDeclaration = member as VariableDecl;
                     if (variableDeclaration.isStatic || variableDeclaration.isConstexpr) continue;
-                    const byteSize = programAnalysis.sizeOfType(
-                        variableDeclaration.type,
-                        templateBindings,
-                    );
-                    const align = programAnalysis.alignOfTypeB(
-                        variableDeclaration.type,
-                        templateBindings,
-                    );
+                    const byteSize = programAnalysis.sizeOfType(variableDeclaration.type, templateBindings);
+                    const align = programAnalysis.alignOfTypeB(variableDeclaration.type, templateBindings);
                     fields.set(variableDeclaration.name, {
                         name: variableDeclaration.name,
                         offset: 0,
                         size: byteSize,
-                        type: programAnalysis.inlineNestedStruct(
-                            variableDeclaration.type,
-                            templateBindings,
-                        ),
+                        type: programAnalysis.inlineNestedStruct(variableDeclaration.type, templateBindings),
                     });
                     if (byteSize > max) max = byteSize;
                     if (align > maxAlign) maxAlign = align;
@@ -291,24 +221,17 @@ export function layoutOfMembers(
             }
             if (baseContribution.layout.fields.size > 0) offset += baseContribution.layout.size;
             else if (baseContribution.layout.size > 0) {
-                const baseIdentity = emptyStructIdentity(
-                    programAnalysis,
-                    baseType,
-                    templateBindings,
-                );
+                const baseIdentity = emptyStructIdentity(programAnalysis, baseType, templateBindings);
                 if (baseIdentity) zeroOffsetEmptyStructs.add(baseIdentity);
             }
             if (baseOffset === 0 || baseContribution.layout.fields.size === 0) {
-                for (const identity of baseContribution.layout.zeroOffsetEmptyStructs ?? [])
-                    zeroOffsetEmptyStructs.add(identity);
+                for (const identity of baseContribution.layout.zeroOffsetEmptyStructs ?? []) zeroOffsetEmptyStructs.add(identity);
             }
             if (baseContribution.layout.align > maxAlign) maxAlign = baseContribution.layout.align;
             if (baseContribution.consts.size) {
-                if (memberVals === templateBindings.values)
-                    memberVals = new Map(templateBindings.values);
+                if (memberVals === templateBindings.values) memberVals = new Map(templateBindings.values);
                 for (const [baseConstName, baseConstValue] of baseContribution.consts)
-                    if (!memberVals.has(baseConstName))
-                        memberVals.set(baseConstName, baseConstValue);
+                    if (!memberVals.has(baseConstName)) memberVals.set(baseConstName, baseConstValue);
             }
         }
         // Add nested typedefs to the member binding scope.
@@ -316,8 +239,7 @@ export function layoutOfMembers(
         for (const member of members) {
             if (member.kind !== AstKind.TYPEDEF_DECL) continue;
             const td = member as any;
-            if (memberTypes === templateBindings.types)
-                memberTypes = new Map(templateBindings.types);
+            if (memberTypes === templateBindings.types) memberTypes = new Map(templateBindings.types);
             if (!memberTypes.has(td.name)) memberTypes.set(td.name, td.type);
         }
         const bMem =
@@ -326,10 +248,7 @@ export function layoutOfMembers(
                 : { types: memberTypes, values: memberVals, structs: templateBindings.structs };
         for (const memberDeclaration of members) {
             // Promote anonymous struct and union members at the current offset.
-            if (
-                memberDeclaration.kind === AstKind.STRUCT &&
-                !(memberDeclaration as StructDecl).name
-            ) {
+            if (memberDeclaration.kind === AstKind.STRUCT && !(memberDeclaration as StructDecl).name) {
                 const sub = programAnalysis.layoutOfStruct(memberDeclaration as StructDecl, bMem);
                 offset = programAnalysis.alignUp(offset, sub.align);
                 for (const inheritedField of sub.fields.values())
@@ -349,13 +268,8 @@ export function layoutOfMembers(
             const byteSize = programAnalysis.sizeOfType(variableDeclaration.type, bMem);
             const align = Math.min(programAnalysis.alignOfTypeB(variableDeclaration.type, bMem), 8);
             offset = programAnalysis.alignUp(offset, align);
-            const memberIdentity = emptyStructIdentity(
-                programAnalysis,
-                variableDeclaration.type,
-                bMem,
-            );
-            if (offset === 0 && memberIdentity && zeroOffsetEmptyStructs.has(memberIdentity))
-                offset = programAnalysis.alignUp(1, align);
+            const memberIdentity = emptyStructIdentity(programAnalysis, variableDeclaration.type, bMem);
+            if (offset === 0 && memberIdentity && zeroOffsetEmptyStructs.has(memberIdentity)) offset = programAnalysis.alignUp(1, align);
             fields.set(variableDeclaration.name, {
                 name: variableDeclaration.name,
                 offset,

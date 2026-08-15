@@ -29,11 +29,7 @@ describe("in-memory Wasm fixtures", () => {
         sim.procedure(29, 1);
 
         const result = sim.query(29, 1);
-        const value = new DataView(
-            result.buffer,
-            result.byteOffset,
-            result.byteLength,
-        ).getBigUint64(0, true);
+        const value = new DataView(result.buffer, result.byteOffset, result.byteLength).getBigUint64(0, true);
         expect(value).toBe(1n);
     });
 

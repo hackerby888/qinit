@@ -61,17 +61,11 @@ describe.skipIf(!ENABLED)(TEST_TITLE, () => {
                     executeContainerScript(tsWasm, fixture.boundary, true),
                     executeContainerScript(clangWasm, fixture.boundary, true),
                 );
-                expect(
-                    boundaryMismatch,
-                    `${fixture.family} boundary matrix: ${boundaryMismatch}`,
-                ).toBeNull();
+                expect(boundaryMismatch, `${fixture.family} boundary matrix: ${boundaryMismatch}`).toBeNull();
                 for (let seedOffset = 0; seedOffset < SEEDS; seedOffset++) {
                     const seed = SEED_START + seedOffset;
                     const operations = seededOperations(fixture.family, seed, OPERATIONS);
-                    const mismatch = compareExecutions(
-                        executeContainerScript(tsWasm, operations),
-                        executeContainerScript(clangWasm, operations),
-                    );
+                    const mismatch = compareExecutions(executeContainerScript(tsWasm, operations), executeContainerScript(clangWasm, operations));
                     expect(mismatch, `${fixture.family} seed ${seed}: ${mismatch}`).toBeNull();
                 }
             },
@@ -90,44 +84,20 @@ describe.skipIf(!ENABLED)(TEST_TITLE, () => {
                     ["boundary", fixture.boundary],
                     ...Array.from({ length: SEEDS }, (_, seedOffset) => {
                         const seed = SEED_START + seedOffset;
-                        return [
-                            `seed ${seed}`,
-                            seededOperations(fixture.family, seed, OPERATIONS),
-                        ] as const;
+                        return [`seed ${seed}`, seededOperations(fixture.family, seed, OPERATIONS)] as const;
                     }),
                 ] as const;
                 for (const [scriptName, operations] of scripts) {
                     const captureCheckpoints = scriptName === "boundary";
-                    const oracle = executeWamr(
-                        wamr.path!,
-                        artifacts[1][1],
-                        operations,
-                        CONTAINER_SLOT,
-                        captureCheckpoints,
-                    );
+                    const oracle = executeWamr(wamr.path!, artifacts[1][1], operations, CONTAINER_SLOT, captureCheckpoints);
                     for (const [compiler, artifact] of artifacts) {
                         const paths = [
-                            [
-                                `${compiler} Wasm -> QubicSimulator`,
-                                executeContainerScript(artifact, operations, captureCheckpoints),
-                            ],
-                            [
-                                `${compiler} Wasm -> WAMR`,
-                                executeWamr(
-                                    wamr.path!,
-                                    artifact,
-                                    operations,
-                                    CONTAINER_SLOT,
-                                    captureCheckpoints,
-                                ),
-                            ],
+                            [`${compiler} Wasm -> QubicSimulator`, executeContainerScript(artifact, operations, captureCheckpoints)],
+                            [`${compiler} Wasm -> WAMR`, executeWamr(wamr.path!, artifact, operations, CONTAINER_SLOT, captureCheckpoints)],
                         ] as const;
                         for (const [pathName, result] of paths) {
                             const mismatch = compareExecutions(result, oracle);
-                            expect(
-                                mismatch,
-                                `${fixture.family} ${scriptName} ${pathName}: ${mismatch}`,
-                            ).toBeNull();
+                            expect(mismatch, `${fixture.family} ${scriptName} ${pathName}: ${mismatch}`).toBeNull();
                         }
                     }
                 }
@@ -141,9 +111,7 @@ describe.skipIf(!ENABLED)(TEST_TITLE, () => {
         matrix,
         () => {
             const fixture = CONTAINER_FIXTURES[0];
-            expect(() =>
-                executeWamr(wamr.path!, TS.get(fixture.family)!, fixture.boundary, 28),
-            ).toThrow("artifact slot mismatch");
+            expect(() => executeWamr(wamr.path!, TS.get(fixture.family)!, fixture.boundary, 28)).toThrow("artifact slot mismatch");
         },
         120_000,
     );

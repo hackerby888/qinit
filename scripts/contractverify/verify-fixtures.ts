@@ -16,8 +16,7 @@ const CALLEES: Record<string, string[]> = {
 };
 // Fixtures that intentionally exercise non-protocol paths, plus known verifier parser limitations.
 const UNVERIFIABLE: Record<string, string> = {
-    RandomDual:
-        "deliberately exercises the compiler's pointer-form _rdrand intrinsics, which protocol contracts forbid",
+    RandomDual: "deliberately exercises the compiler's pointer-form _rdrand intrinsics, which protocol contracts forbid",
     ShareReceiver: "SET_SHAREHOLDER_PROPOSAL system callback — the verify tool's parser rejects it",
     Trap: "deliberately uses forbidden raw division to exercise Wasm trap isolation",
 };

@@ -68,9 +68,7 @@ test("parseArgs returns undefined and false for absent options", () => {
 });
 
 test("parseArgs rejects unknown options and missing string values", () => {
-    expect(() => parseArgs(["--rpx", "http://x"], { strings: ["rpc"] })).toThrow(
-        "Unknown option '--rpx'",
-    );
+    expect(() => parseArgs(["--rpx", "http://x"], { strings: ["rpc"] })).toThrow("Unknown option '--rpx'");
     expect(() => parseArgs(["--rpc"], { strings: ["rpc"] })).toThrow("argument missing");
 });
 
@@ -127,12 +125,7 @@ test("parseCommandInvocation accepts setup --force", () => {
 });
 
 test("state accepts repeated container indexes", () => {
-    const invocation = parseCommandInvocation("state", [
-        "QUTIL",
-        "--container",
-        "12",
-        "--container=2",
-    ]);
+    const invocation = parseCommandInvocation("state", ["QUTIL", "--container", "12", "--container=2"]);
 
     expect(invocation.commandArgs.positionals).toEqual(["QUTIL"]);
     expect(invocation.commandArgs.getAll("container")).toEqual(["12", "2"]);
@@ -148,14 +141,7 @@ test("parseCommandInvocation resolves and strips a known first subcommand", () =
 });
 
 test("parseCommandInvocation resolves a subcommand after scoped options", () => {
-    const invocation = parseCommandInvocation("node", [
-        "--restart",
-        "--core-dir",
-        "/tmp/core",
-        "--rpc",
-        "http://x",
-        "run",
-    ]);
+    const invocation = parseCommandInvocation("node", ["--restart", "--core-dir", "/tmp/core", "--rpc", "http://x", "run"]);
 
     expect(invocation.subcommand).toBe("run");
     expect(invocation.commandArgs.positionals).toEqual([]);
@@ -175,12 +161,8 @@ test("parseCommandInvocation ignores option values and post-terminator positiona
 });
 
 test("parseCommandInvocation scopes options to the resolved subcommand", () => {
-    expect(() => parseCommandInvocation("node", ["status", "--restart"])).toThrow(
-        "Unknown option '--restart'",
-    );
-    expect(() => parseCommandInvocation("node", ["--restart", "status"])).toThrow(
-        "Unknown option '--restart'",
-    );
+    expect(() => parseCommandInvocation("node", ["status", "--restart"])).toThrow("Unknown option '--restart'");
+    expect(() => parseCommandInvocation("node", ["--restart", "status"])).toThrow("Unknown option '--restart'");
 
     const unknown = parseCommandInvocation("node", ["unknown", "--rpc", "http://x"]);
     expect(unknown.subcommand).toBeUndefined();

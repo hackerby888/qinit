@@ -2,13 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import {
-    dumpContractState,
-    resolveDumpPath,
-    STATE_DUMP_DIR,
-    STATE_READ_CHUNK_BYTES,
-    type StateDumpRpc,
-} from "../../src/contracts/state-dump";
+import { dumpContractState, resolveDumpPath, STATE_DUMP_DIR, STATE_READ_CHUNK_BYTES, type StateDumpRpc } from "../../src/contracts/state-dump";
 
 const workDir = mkdtempSync(join(tmpdir(), "qinit-state-dump-"));
 
@@ -17,11 +11,7 @@ afterAll(() => {
 });
 
 // Simulate an older node that still returns at most 256 KiB per request.
-function stateRpc(
-    state: Uint8Array,
-    reads: number[] = [],
-    requestedLengths: number[] = [],
-): StateDumpRpc {
+function stateRpc(state: Uint8Array, reads: number[] = [], requestedLengths: number[] = []): StateDumpRpc {
     return {
         stateRead: async (_slot: number, off: number, len: number) => {
             reads.push(off);
@@ -45,20 +35,14 @@ test("--out names a file directly and an existing directory by its contents", ()
     const outDir = join(workDir, "dumps");
     mkdirSync(outDir, { recursive: true });
 
-    expect(resolveDumpPath("Counter", 29, join(workDir, "before.bin"))).toBe(
-        join(workDir, "before.bin"),
-    );
+    expect(resolveDumpPath("Counter", 29, join(workDir, "before.bin"))).toBe(join(workDir, "before.bin"));
     expect(resolveDumpPath("Counter", 29, outDir)).toBe(join(outDir, "Counter_dump.bin"));
-    expect(resolveDumpPath("Counter", 29, join(workDir, "missing") + "/")).toBe(
-        join(workDir, "missing", "Counter_dump.bin"),
-    );
+    expect(resolveDumpPath("Counter", 29, join(workDir, "missing") + "/")).toBe(join(workDir, "missing", "Counter_dump.bin"));
 });
 
 // The name arrives from the node's registry, so it must not be able to steer the write.
 test("dump file names are sanitized, and an empty name falls back to the slot", () => {
-    expect(resolveDumpPath("../../etc/passwd", 29)).toBe(
-        resolve(STATE_DUMP_DIR, ".._.._etc_passwd_dump.bin"),
-    );
+    expect(resolveDumpPath("../../etc/passwd", 29)).toBe(resolve(STATE_DUMP_DIR, ".._.._etc_passwd_dump.bin"));
     expect(resolveDumpPath("", 29)).toBe(resolve(STATE_DUMP_DIR, "slot-29_dump.bin"));
 });
 
@@ -71,14 +55,9 @@ test("a dump pages the whole state to disk and reports its size", async () => {
     const reads: number[] = [];
     const requestedLengths: number[] = [];
     const path = join(workDir, "paged.bin");
-    const result = await dumpContractState(
-        stateRpc(state, reads, requestedLengths),
-        29,
-        "Counter",
-        {
-            out: path,
-        },
-    );
+    const result = await dumpContractState(stateRpc(state, reads, requestedLengths), 29, "Counter", {
+        out: path,
+    });
 
     expect(result).toEqual({
         ok: true,
@@ -111,9 +90,7 @@ test("a failed read leaves no truncated dump behind", async () => {
         stateRead: async () => ({ error: "bad slot" }) as any,
     };
 
-    await expect(dumpContractState(rpc, 999, "Ghost", { out: path })).rejects.toThrow(
-        "state read failed for slot 999",
-    );
+    await expect(dumpContractState(rpc, 999, "Ghost", { out: path })).rejects.toThrow("state read failed for slot 999");
     expect(existsSync(path)).toBe(false);
 });
 
@@ -123,9 +100,7 @@ test("a read that returns nothing before the end fails instead of spinning", asy
         stateRead: async (_slot, off) => ({ off, len: 0, stateSize: 64, hex: "" }),
     };
 
-    await expect(dumpContractState(rpc, 29, "Counter", { out: path })).rejects.toThrow(
-        "state read stalled at 0 of 64 bytes",
-    );
+    await expect(dumpContractState(rpc, 29, "Counter", { out: path })).rejects.toThrow("state read stalled at 0 of 64 bytes");
     expect(existsSync(path)).toBe(false);
 });
 
@@ -133,8 +108,6 @@ test("a read that returns nothing before the end fails instead of spinning", asy
 test("an empty state is reported as an undeployed slot, not an empty dump", async () => {
     const path = join(workDir, "empty.bin");
 
-    await expect(
-        dumpContractState(stateRpc(new Uint8Array(0)), 40, "40", { out: path }),
-    ).rejects.toThrow("slot 40 has no state");
+    await expect(dumpContractState(stateRpc(new Uint8Array(0)), 40, "40", { out: path })).rejects.toThrow("slot 40 has no state");
     expect(existsSync(path)).toBe(false);
 });

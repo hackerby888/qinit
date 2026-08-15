@@ -94,9 +94,7 @@ static const ContractDescription contractDescriptions[] = {
 `,
         );
 
-        expect(systemContractDescriptions(core)).toEqual([
-            { index: 1, name: "FIRST", constructionEpoch: 66 },
-        ]);
+        expect(systemContractDescriptions(core)).toEqual([{ index: 1, name: "FIRST", constructionEpoch: 66 }]);
     } finally {
         rmSync(core, { recursive: true, force: true });
     }

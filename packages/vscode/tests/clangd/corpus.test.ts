@@ -19,9 +19,6 @@ test.if(hasCore)("no warn/error linter findings across the deployed core contrac
     expect(offenders).toEqual([]);
 });
 
-test.if(hasCore)(
-    "the deployed corpus is non-trivial (sanity that we actually scanned contracts)",
-    () => {
-        expect(deployedContracts(core!).length).toBeGreaterThan(15);
-    },
-);
+test.if(hasCore)("the deployed corpus is non-trivial (sanity that we actually scanned contracts)", () => {
+    expect(deployedContracts(core!).length).toBeGreaterThan(15);
+});

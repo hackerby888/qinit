@@ -12,8 +12,7 @@ const CORE = CORE_PATH;
 const haveCore = existsSync(`${CORE}/src/contracts/QUtil.h`) && wasiSdkPaths() !== null;
 const haveQx = existsSync(`${CORE}/src/contracts/Qx.h`);
 const id = (b: number) => new Uint8Array(32).fill(b);
-const i64 = (b: Uint8Array, off = 0) =>
-    new DataView(b.buffer, b.byteOffset, b.byteLength).getBigInt64(off, true);
+const i64 = (b: Uint8Array, off = 0) => new DataView(b.buffer, b.byteOffset, b.byteLength).getBigInt64(off, true);
 
 test.skipIf(!haveCore)(
     "wasm shim: QUtil SendToManyV1 credits the exact amounts (locals + transfers + decode)",
@@ -28,10 +27,8 @@ test.skipIf(!haveCore)(
         }).slot;
 
         // functions and procedures have separate id spaces — look them up separately (a combined map would collide).
-        const functionId = (name: string) =>
-            r.idl!.functions.find((entry) => entry.name === name)!.inputType;
-        const pId = (name: string) =>
-            r.idl!.procedures.find((entry) => entry.name === name)!.inputType;
+        const functionId = (name: string) => r.idl!.functions.find((entry) => entry.name === name)!.inputType;
+        const pId = (name: string) => r.idl!.procedures.find((entry) => entry.name === name)!.inputType;
 
         // a read function with output — the contract runs with a _locals frame; the i64 result must decode
         const fee = i64(sim.query(slot, functionId("GetSendToManyV1Fee"), new Uint8Array(0)));
@@ -106,22 +103,14 @@ test.skipIf(!haveQx)(
             sim.sim.setDebug(true);
             const fees = sim.sim.query(29, 11);
             const view = new DataView(fees.buffer, fees.byteOffset, fees.byteLength);
-            expect([
-                view.getUint32(0, true),
-                view.getUint32(4, true),
-                view.getUint32(8, true),
-            ]).toEqual([1_000_000_000, 100, 3_000_000]);
+            expect([view.getUint32(0, true), view.getUint32(4, true), view.getUint32(8, true)]).toEqual([1_000_000_000, 100, 3_000_000]);
             expect(view.getUint8(12)).toBe(0);
 
             const trace = sim.sim.getTrace().entries;
-            expect(
-                trace.find((entry) => entry.index === 1 && entry.kind === 0 && entry.entry === 1)
-                    ?.ok,
-            ).toBe(true);
-            expect(
-                trace.find((entry) => entry.index === 29 && entry.kind === 0 && entry.entry === 11)
-                    ?.hostCalls,
-            ).toEqual([{ name: "callFunction", detail: "→ @1 fn #1" }]);
+            expect(trace.find((entry) => entry.index === 1 && entry.kind === 0 && entry.entry === 1)?.ok).toBe(true);
+            expect(trace.find((entry) => entry.index === 29 && entry.kind === 0 && entry.entry === 11)?.hostCalls).toEqual([
+                { name: "callFunction", detail: "→ @1 fn #1" },
+            ]);
             expect(i64(sim.sim.query(29, 5))).toBe(0n);
         } finally {
             rmSync(outDir, { recursive: true, force: true });

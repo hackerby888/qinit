@@ -2,10 +2,7 @@ import { AstKind } from "../shared/enums";
 import { Lexer } from "../frontend/lexer";
 import { Parser } from "../frontend/parser";
 import { Preprocessor, type MacroDef } from "../frontend/preprocessor";
-import {
-    indexLibraryDeclarations,
-    type LibrarySymbolIndex,
-} from "../backend/wasm/module/library-index";
+import { indexLibraryDeclarations, type LibrarySymbolIndex } from "../backend/wasm/module/library-index";
 import { embeddedWasmAbi, IMPL_BOUNDARY } from "./qpi/snapshot-format";
 import { getQpiPrelude } from "./qpi-macros";
 
@@ -36,33 +33,19 @@ export function getQpiContext(headers: string): QpiContext {
             seedMacros: macros,
         });
         const implHeaderTu = new Parser(new Lexer(implText).tokenize()).parseTranslationUnit();
-        const implLibrary = indexLibraryDeclarations(
-            implHeaderTu.declarations,
-            coreLibrary.namespaceUsings,
-        );
+        const implLibrary = indexLibraryDeclarations(implHeaderTu.declarations, coreLibrary.namespaceUsings);
         const hasSourceBackedHostWrappers = implLibrary.importedFunctions.size > 0;
-        for (const [name, definition] of implLibrary.globalStructs)
-            if (!coreLibrary.globalStructs.has(name))
-                coreLibrary.globalStructs.set(name, definition);
-        for (const [name, definition] of implLibrary.typedefs)
-            if (!coreLibrary.typedefs.has(name)) coreLibrary.typedefs.set(name, definition);
-        for (const [name, expression] of implLibrary.constexprInit)
-            if (!coreLibrary.constexprInit.has(name))
-                coreLibrary.constexprInit.set(name, expression);
-        for (const [name, type] of implLibrary.constexprType)
-            if (!coreLibrary.constexprType.has(name)) coreLibrary.constexprType.set(name, type);
-        for (const [name, value] of implLibrary.enumConst)
-            if (!coreLibrary.enumConst.has(name)) coreLibrary.enumConst.set(name, value);
-        for (const [name, size] of implLibrary.enumSize)
-            if (!coreLibrary.enumSize.has(name)) coreLibrary.enumSize.set(name, size);
-        for (const [name, type] of implLibrary.enumUnderlying)
-            if (!coreLibrary.enumUnderlying.has(name)) coreLibrary.enumUnderlying.set(name, type);
-        for (const [name, type] of implLibrary.enumConstType)
-            if (!coreLibrary.enumConstType.has(name)) coreLibrary.enumConstType.set(name, type);
+        for (const [name, definition] of implLibrary.globalStructs) if (!coreLibrary.globalStructs.has(name)) coreLibrary.globalStructs.set(name, definition);
+        for (const [name, definition] of implLibrary.typedefs) if (!coreLibrary.typedefs.has(name)) coreLibrary.typedefs.set(name, definition);
+        for (const [name, expression] of implLibrary.constexprInit) if (!coreLibrary.constexprInit.has(name)) coreLibrary.constexprInit.set(name, expression);
+        for (const [name, type] of implLibrary.constexprType) if (!coreLibrary.constexprType.has(name)) coreLibrary.constexprType.set(name, type);
+        for (const [name, value] of implLibrary.enumConst) if (!coreLibrary.enumConst.has(name)) coreLibrary.enumConst.set(name, value);
+        for (const [name, size] of implLibrary.enumSize) if (!coreLibrary.enumSize.has(name)) coreLibrary.enumSize.set(name, size);
+        for (const [name, type] of implLibrary.enumUnderlying) if (!coreLibrary.enumUnderlying.has(name)) coreLibrary.enumUnderlying.set(name, type);
+        for (const [name, type] of implLibrary.enumConstType) if (!coreLibrary.enumConstType.has(name)) coreLibrary.enumConstType.set(name, type);
         for (const name of implLibrary.enumNames) coreLibrary.enumNames.add(name);
         for (const [cls, methods] of implLibrary.templateMethods) {
-            if (!coreLibrary.templateMethods.has(cls))
-                coreLibrary.templateMethods.set(cls, new Map());
+            if (!coreLibrary.templateMethods.has(cls)) coreLibrary.templateMethods.set(cls, new Map());
             for (const [name, definition] of methods) {
                 if (hasSourceBackedHostWrappers && cls.startsWith("QpiContext")) {
                     const baseName = name.includes("/") ? name.slice(0, name.indexOf("/")) : name;
@@ -72,30 +55,23 @@ export function getQpiContext(headers: string): QpiContext {
                             (member) =>
                                 member.kind === AstKind.FUNCTION &&
                                 member.name === baseName &&
-                                member.params.length ===
-                                    (definition.functionParameters ?? []).length,
+                                member.params.length === (definition.functionParameters ?? []).length,
                         );
                     const merged =
                         declared?.kind === AstKind.FUNCTION
                             ? {
                                   ...definition,
-                                  functionParameters: (definition.functionParameters ?? []).map(
-                                      (param, index) => ({
-                                          ...param,
-                                          defaultValue:
-                                              param.defaultValue ??
-                                              declared.params[index]?.defaultValue,
-                                      }),
-                                  ),
+                                  functionParameters: (definition.functionParameters ?? []).map((param, index) => ({
+                                      ...param,
+                                      defaultValue: param.defaultValue ?? declared.params[index]?.defaultValue,
+                                  })),
                               }
                             : definition;
                     coreLibrary.templateMethods.get(cls)!.set(name, merged);
-                } else if (!coreLibrary.templateMethods.get(cls)!.has(name))
-                    coreLibrary.templateMethods.get(cls)!.set(name, definition);
+                } else if (!coreLibrary.templateMethods.get(cls)!.has(name)) coreLibrary.templateMethods.get(cls)!.set(name, definition);
             }
         }
-        for (const [name, definition] of implLibrary.libFns)
-            if (!coreLibrary.libFns.has(name)) coreLibrary.libFns.set(name, definition);
+        for (const [name, definition] of implLibrary.libFns) if (!coreLibrary.libFns.has(name)) coreLibrary.libFns.set(name, definition);
         for (const [name, definitions] of implLibrary.libFnOverloads) {
             const current = coreLibrary.libFnOverloads.get(name);
             if (current) current.push(...definitions);
@@ -108,41 +84,28 @@ export function getQpiContext(headers: string): QpiContext {
         }
         for (const [scope, namespaces] of implLibrary.namespaceUsings) {
             const current = coreLibrary.namespaceUsings.get(scope) ?? [];
-            for (const namespace of namespaces)
-                if (!current.includes(namespace)) current.push(namespace);
+            for (const namespace of namespaces) if (!current.includes(namespace)) current.push(namespace);
             coreLibrary.namespaceUsings.set(scope, current);
         }
-        for (const [declaration, context] of implLibrary.namespaceContexts)
-            coreLibrary.namespaceContexts.set(declaration, context);
+        for (const [declaration, context] of implLibrary.namespaceContexts) coreLibrary.namespaceContexts.set(declaration, context);
         for (const [name, definition] of implLibrary.importedFunctions) {
             const previous = coreLibrary.importedFunctions.get(name);
-            if (previous)
-                throw new Error(`duplicate imported function '${name}' in core QPI sources`);
+            if (previous) throw new Error(`duplicate imported function '${name}' in core QPI sources`);
             coreLibrary.importedFunctions.set(name, definition);
         }
     }
 
-    const orderedImports = new Map<
-        string,
-        typeof coreLibrary.importedFunctions extends Map<string, infer V> ? V : never
-    >();
+    const orderedImports = new Map<string, typeof coreLibrary.importedFunctions extends Map<string, infer V> ? V : never>();
     for (const row of wasmAbi.lhost) {
         const symbol = `__lhost_${row.name}`;
         const declaration = coreLibrary.importedFunctions.get(symbol);
-        if (!declaration)
-            throw new Error(`canonical LHOST import '${row.name}' has no LH_IMPORT declaration`);
+        if (!declaration) throw new Error(`canonical LHOST import '${row.name}' has no LH_IMPORT declaration`);
         orderedImports.set(symbol, declaration);
     }
-    const extraImports = [...coreLibrary.importedFunctions.keys()].filter(
-        (name) => !orderedImports.has(name),
-    );
-    if (extraImports.length)
-        throw new Error(
-            `LH_IMPORT declarations missing from canonical metadata: ${extraImports.join(", ")}`,
-        );
+    const extraImports = [...coreLibrary.importedFunctions.keys()].filter((name) => !orderedImports.has(name));
+    if (extraImports.length) throw new Error(`LH_IMPORT declarations missing from canonical metadata: ${extraImports.join(", ")}`);
     coreLibrary.importedFunctions.clear();
-    for (const [name, declaration] of orderedImports)
-        coreLibrary.importedFunctions.set(name, declaration);
+    for (const [name, declaration] of orderedImports) coreLibrary.importedFunctions.set(name, declaration);
 
     const context = { macros, lib: coreLibrary };
     qpiCache.set(headers, context);

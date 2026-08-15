@@ -30,11 +30,7 @@ describe("source-backed QPI context accessors", () => {
             qpiHeader: loadQpiHeader(CORE_PATH),
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            result.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
         const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         const invocator = new Uint8Array(32).map((_, index) => index + 1);
@@ -47,9 +43,7 @@ describe("source-backed QPI context accessors", () => {
                 reward: 123456789n,
             });
 
-        expect(
-            new DataView(output.buffer, output.byteOffset, output.byteLength).getBigInt64(0, true),
-        ).toBe(123456789n);
+        expect(new DataView(output.buffer, output.byteOffset, output.byteLength).getBigInt64(0, true)).toBe(123456789n);
         expect(output.slice(8, 40)).toEqual(invocator);
         expect(output.slice(40, 72)).toEqual(originator);
     });

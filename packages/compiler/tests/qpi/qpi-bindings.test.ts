@@ -28,19 +28,13 @@ describe("typed QPI bindings", () => {
 
     test("import registry and QPI methods come from parsed core source", () => {
         const lib = getQpiContext(HEADER).lib;
-        expect(
-            [...lib.importedFunctions.keys()].map((name) => name.slice("__lhost_".length)),
-        ).toEqual(Object.keys(LHOST_ABI));
+        expect([...lib.importedFunctions.keys()].map((name) => name.slice("__lhost_".length))).toEqual(Object.keys(LHOST_ABI));
         expect(lib.templateMethods.get("QpiContextFunctionCall")?.has("epoch")).toBe(true);
         expect(lib.templateMethods.get("QpiContextFunctionCall")?.has("nextId")).toBe(true);
-        expect(
-            lib.templateMethods.get("QpiContextFunctionCall")?.has("getOcInvocationStatus"),
-        ).toBe(true);
+        expect(lib.templateMethods.get("QpiContextFunctionCall")?.has("getOcInvocationStatus")).toBe(true);
         expect(lib.templateMethods.get("QpiContextProcedureCall")?.has("transfer")).toBe(true);
         expect(lib.templateMethods.get("QpiContextProcedureCall")?.has("__qpiInvokeOC")).toBe(true);
-        expect(lib.templateMethods.get("QpiContextProcedureCall")?.has("setShareholderVotes")).toBe(
-            true,
-        );
+        expect(lib.templateMethods.get("QpiContextProcedureCall")?.has("setShareholderVotes")).toBe(true);
     });
 
     test("qualified QPI context types retain inherited method lookup", () => {
@@ -48,9 +42,7 @@ describe("typed QPI bindings", () => {
         registerLibraryMetadata(programAnalysis, getQpiContext(HEADER).lib);
 
         expect(programAnalysis.globalStructs.has("QPI::QpiContextFunctionCall")).toBe(true);
-        expect(
-            programAnalysis.hasInstanceMethod("QPI::QpiContextFunctionCall", "invocationReward"),
-        ).toBe(true);
+        expect(programAnalysis.hasInstanceMethod("QPI::QpiContextFunctionCall", "invocationReward")).toBe(true);
     });
 
     test("const-reference scalar temporaries use a real sized buffer", async () => {
@@ -61,11 +53,7 @@ describe("typed QPI bindings", () => {
             qpiHeader: HEADER,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            result.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         sim.deploy(27, result.wasm);
         expect(sim.query(27, 1).slice(0, 32)).not.toEqual(new Uint8Array(32));
@@ -88,11 +76,7 @@ describe("typed QPI bindings", () => {
             qpiHeader: HEADER,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            functionResult.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(functionResult.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
         const procedureResult = await compileContract({
             source: wrap(
@@ -108,11 +92,7 @@ describe("typed QPI bindings", () => {
             qpiHeader: HEADER,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            procedureResult.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(procedureResult.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     });
 
     test("signed source-wrapper results preserve negative host failures", async () => {
@@ -128,17 +108,11 @@ describe("typed QPI bindings", () => {
             qpiHeader: HEADER,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            result.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         sim.deploy(27, result.wasm);
         const output = sim.procedure(27, 1);
-        expect(
-            new DataView(output.buffer, output.byteOffset, output.byteLength).getBigInt64(32, true),
-        ).toBe(1n);
+        expect(new DataView(output.buffer, output.byteOffset, output.byteLength).getBigInt64(32, true)).toBe(1n);
     });
 
     test("OC invocation and status use the v5 host bindings", async () => {
@@ -164,11 +138,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             qpiHeader: HEADER,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            result.diagnostics.filter(
-                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-            ),
-        ).toEqual([]);
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         const imports = inspectWasmModule(result.wasm)
             .imports.filter((entry) => entry.module === "lhost")
             .map((entry) => entry.name);
@@ -192,11 +162,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             strict: false,
         });
         expect(context.wasm).toHaveLength(0);
-        expect(
-            context.diagnostics.some((diagnostic) =>
-                /burn|function context|QpiContextProcedureCall/i.test(diagnostic.message),
-            ),
-        ).toBe(true);
+        expect(context.diagnostics.some((diagnostic) => /burn|function context|QpiContextProcedureCall/i.test(diagnostic.message))).toBe(true);
 
         const unknown = await compileContract({
             source: wrap("FUNCTION", "output.result = qpi.notAHostBinding();"),
@@ -206,11 +172,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             strict: false,
         });
         expect(unknown.wasm).toHaveLength(0);
-        expect(
-            unknown.diagnostics.some((diagnostic) =>
-                /notAHostBinding|unknown QPI binding|unknown member/i.test(diagnostic.message),
-            ),
-        ).toBe(true);
+        expect(unknown.diagnostics.some((diagnostic) => /notAHostBinding|unknown QPI binding|unknown member/i.test(diagnostic.message))).toBe(true);
 
         const missing = await compileContract({
             source: wrap("FUNCTION", "output.result = qpi.isAssetIssued(SELF);"),
@@ -220,11 +182,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             strict: false,
         });
         expect(missing.wasm).toHaveLength(0);
-        expect(
-            missing.diagnostics.some((diagnostic) =>
-                /expects 2|missing required argument/i.test(diagnostic.message),
-            ),
-        ).toBe(true);
+        expect(missing.diagnostics.some((diagnostic) => /expects 2|missing required argument/i.test(diagnostic.message))).toBe(true);
 
         const nonAddressable = await compileContract({
             source: wrap("FUNCTION", "output.digest = qpi.nextId(7);"),
@@ -234,10 +192,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             strict: false,
         });
         expect(nonAddressable.wasm).toHaveLength(0);
-        expect(
-            nonAddressable.diagnostics.some((diagnostic) =>
-                /not (?:an )?addressable/i.test(diagnostic.message),
-            ),
-        ).toBe(true);
+        expect(nonAddressable.diagnostics.some((diagnostic) => /not (?:an )?addressable/i.test(diagnostic.message))).toBe(true);
     });
 });

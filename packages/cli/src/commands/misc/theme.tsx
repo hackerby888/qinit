@@ -109,12 +109,7 @@ export function ThemeCmd({ commandArgs }: { commandArgs: CommandArguments }) {
                         <Text dimColor> ▸ theme</Text>
                     </Box>
                     <Text dimColor>↑/↓ select · ↵ save · q cancel</Text>
-                    <Box
-                        borderStyle="round"
-                        borderColor={theme.brand}
-                        paddingX={1}
-                        flexDirection="column"
-                    >
+                    <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
                         {THEME_NAMES.map((name, idx) => {
                             const sel = idx === i;
                             return (

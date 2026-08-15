@@ -1,12 +1,5 @@
 import { WatNodeType, type WatValueType } from "../shared/enums";
-import type {
-    TypeSpec,
-    Expression,
-    Declaration,
-    StructDecl,
-    TemplateParam,
-    FunctionTemplateDecl,
-} from "../ast";
+import type { TypeSpec, Expression, Declaration, StructDecl, TemplateParam, FunctionTemplateDecl } from "../ast";
 
 export interface ClassTemplate {
     params: TemplateParam[];

@@ -51,9 +51,7 @@ test("readResponseBodyWithTimeout reads a full response body", async () => {
 });
 
 test("sha256Hex matches the empty-input vector", () => {
-    expect(sha256Hex(new Uint8Array())).toBe(
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    );
+    expect(sha256Hex(new Uint8Array())).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
 });
 
 test("cacheRoot honors QINIT_CACHE; cacheDir composes under it", () => {
@@ -82,9 +80,7 @@ test("release manifests expand asset filenames and preserve HTTPS URLs", async (
 
     const manifest = await loadManifest("moving-pointer", "new-org/core-lite");
     const base = "https://github.com/new-org/core-lite/releases/download/core-v1.2.3";
-    expect(requests).toEqual([
-        "https://github.com/new-org/core-lite/releases/download/moving-pointer/qinit-manifest.json",
-    ]);
+    expect(requests).toEqual(["https://github.com/new-org/core-lite/releases/download/moving-pointer/qinit-manifest.json"]);
     expect(manifest.node?.url).toBe(`${base}/Qubic-linux-x64`);
     expect(manifest.nodes?.["linux-arm64"]?.url).toBe(`${base}/Qubic-linux-arm64`);
     expect(manifest.nodes?.["darwin-arm64"]?.url).toBe("https://assets.example/Qubic");
@@ -99,9 +95,7 @@ test("release manifests reject unsafe asset references", async () => {
                 node: { url, sha256: "unused" },
             })) as unknown as typeof fetch;
 
-        await expect(loadManifest("latest", "new-org/core-lite")).rejects.toThrow(
-            "core node URL must be an HTTPS URL or asset filename",
-        );
+        await expect(loadManifest("latest", "new-org/core-lite")).rejects.toThrow("core node URL must be an HTTPS URL or asset filename");
     }
 });
 
@@ -112,9 +106,7 @@ test("release manifests reject an unsafe version used as an asset tag", async ()
             node: { url: "Qubic-linux-x64", sha256: "unused" },
         })) as unknown as typeof fetch;
 
-    await expect(loadManifest("latest", "new-org/core-lite")).rejects.toThrow(
-        "core node release tag is invalid: ../core-v1",
-    );
+    await expect(loadManifest("latest", "new-org/core-lite")).rejects.toThrow("core node release tag is invalid: ../core-v1");
 });
 
 test("verifier manifests expand filenames against the moving release", async () => {
@@ -128,10 +120,7 @@ test("verifier manifests expand filenames against the moving release", async () 
         })) as unknown as typeof fetch;
 
     const manifest = await loadVerifyManifest("new-org/qinit");
-    expect(manifest.assets["linux-x64"]?.url).toBe(
-        "https://github.com/new-org/qinit/releases/download/verify-latest/" +
-            "contractverify-linux-x64-deadbeef",
-    );
+    expect(manifest.assets["linux-x64"]?.url).toBe("https://github.com/new-org/qinit/releases/download/verify-latest/" + "contractverify-linux-x64-deadbeef");
     expect(manifest.assets["darwin-arm64"]?.url).toBe("https://assets.example/contractverify");
 });
 
@@ -143,31 +132,20 @@ test("resolveCliTag downloads and trims the stable release pointer", async () =>
     }) as typeof fetch;
 
     expect(await resolveCliTag("owner/repo")).toBe("qinit-cli-v1.2.3");
-    expect(requestedUrl).toBe(
-        "https://github.com/owner/repo/releases/download/qinit-cli-latest/latest.txt",
-    );
+    expect(requestedUrl).toBe("https://github.com/owner/repo/releases/download/qinit-cli-latest/latest.txt");
 });
 
 test("resolveCliTag rejects empty and unsafe pointer contents", async () => {
-    for (const content of [
-        "",
-        "   \n",
-        "qinit-cli-v1.2.3/asset",
-        "qinit-cli-v1.2.3\nqinit-cli-v1.2.4",
-        "QINIT-CLI-v1.2.3",
-        "other-v1.2.3",
-    ]) {
+    for (const content of ["", "   \n", "qinit-cli-v1.2.3/asset", "qinit-cli-v1.2.3\nqinit-cli-v1.2.4", "QINIT-CLI-v1.2.3", "other-v1.2.3"]) {
         globalThis.fetch = (async () => new Response(content)) as unknown as typeof fetch;
         expect(await resolveCliTag("owner/repo")).toBeNull();
     }
 });
 
 test("resolveCliTag reports pointer HTTP failures", async () => {
-    globalThis.fetch = (async () =>
-        new Response("unavailable", { status: 503 })) as unknown as typeof fetch;
+    globalThis.fetch = (async () => new Response("unavailable", { status: 503 })) as unknown as typeof fetch;
 
     await expect(resolveCliTag("owner/repo")).rejects.toThrow(
-        "CLI release pointer fetch failed (HTTP 503) from " +
-            "https://github.com/owner/repo/releases/download/qinit-cli-latest/latest.txt",
+        "CLI release pointer fetch failed (HTTP 503) from " + "https://github.com/owner/repo/releases/download/qinit-cli-latest/latest.txt",
     );
 });

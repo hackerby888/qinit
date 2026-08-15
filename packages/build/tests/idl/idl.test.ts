@@ -50,9 +50,7 @@ test("entry structs retain exact formats, fields, offsets, and sizes", () => {
     if (get.output.kind !== AbiTypeKind.STRUCT) {
         throw new Error("Get_output must be a struct");
     }
-    expect(get.output.fields.map((field) => [field.name, field.offset, field.size])).toEqual([
-        ["value", 0, 8],
-    ]);
+    expect(get.output.fields.map((field) => [field.name, field.offset, field.size])).toEqual([["value", 0, 8]]);
 
     const set = idl.procedures[0];
     expect(set.input.format).toBe("uint64, id");
@@ -95,11 +93,7 @@ test("enums, logs, and system procedure mask come from semantic analysis", () =>
     expect(idl.enums.find((entry) => entry.name === "Color")?.underlying).toBe(AbiScalarKind.UINT8);
     expect(idl.logs).toHaveLength(1);
     expect(idl.logs[0].type.format).toBe("uint32, uint32, uint64");
-    expect(idl.logs[0].type.fields.map((field) => field.name)).toEqual([
-        "_contractIndex",
-        "_type",
-        "amount",
-    ]);
+    expect(idl.logs[0].type.fields.map((field) => field.name)).toEqual(["_contractIndex", "_type", "amount"]);
     expect(idl.sysprocMask).toBe(1);
 });
 

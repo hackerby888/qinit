@@ -9,10 +9,7 @@ export interface StateDigestResult {
 
 export type StateDigestRpc = Pick<LiteRpc, "dynRegistry" | "contractDigest">;
 
-export async function readStateDigest(
-    target: string,
-    rpc: StateDigestRpc,
-): Promise<StateDigestResult> {
+export async function readStateDigest(target: string, rpc: StateDigestRpc): Promise<StateDigestResult> {
     const normalized = target.trim();
     if (!normalized) {
         throw new Error("state digest requires a contract name or numeric slot");
@@ -27,9 +24,7 @@ export async function readStateDigest(
     } else {
         const registry = await rpc.dynRegistry();
         const name = normalized.toLowerCase();
-        const contract = (registry.contracts ?? []).find(
-            (entry) => entry.armed && entry.name.toLowerCase() === name,
-        );
+        const contract = (registry.contracts ?? []).find((entry) => entry.armed && entry.name.toLowerCase() === name);
         if (!contract) {
             throw new Error(`no deployed contract '${normalized}'`);
         }
@@ -37,12 +32,7 @@ export async function readStateDigest(
     }
 
     const result = await rpc.contractDigest(slot);
-    if (
-        !Number.isSafeInteger(result.stateSize) ||
-        result.stateSize < 0 ||
-        typeof result.digest !== "string" ||
-        !result.digest
-    ) {
+    if (!Number.isSafeInteger(result.stateSize) || result.stateSize < 0 || typeof result.digest !== "string" || !result.digest) {
         throw new Error(`invalid contract digest response for slot ${slot}`);
     }
     return {

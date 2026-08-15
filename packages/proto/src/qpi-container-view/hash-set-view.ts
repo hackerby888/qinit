@@ -29,43 +29,27 @@ export class QpiHashSetView {
     }
 
     async entries(): Promise<QpiHashSetEntry[]> {
-        const population = populationOf(
-            await readUint64(this.source, this.geometry.populationOffset),
-            this.capacity,
-        );
+        const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
         if (!population) {
             return [];
         }
 
-        const flags = await readQpiBytes(
-            this.source,
-            this.geometry.flagsOffset,
-            this.geometry.flagsBytes,
-        );
+        const flags = await readQpiBytes(this.source, this.geometry.flagsOffset, this.geometry.flagsBytes);
         const slots = occupiedSlots(flags, this.capacity);
         if (slots.length !== population) {
-            throw new QpiContainerConsistencyError(
-                `HashSet has ${slots.length} occupied slots but population ${population}`,
-            );
+            throw new QpiContainerConsistencyError(`HashSet has ${slots.length} occupied slots but population ${population}`);
         }
 
         const entries: QpiHashSetEntry[] = [];
         for (const range of occupiedRanges(slots)) {
             const count = range.end - range.start + 1;
-            const bytes = await readQpiBytes(
-                this.source,
-                range.start * this.geometry.recordStride,
-                count * this.geometry.recordStride,
-            );
+            const bytes = await readQpiBytes(this.source, range.start * this.geometry.recordStride, count * this.geometry.recordStride);
             for (let index = 0; index < count; index++) {
                 const slot = range.start + index;
                 const offset = index * this.geometry.recordStride;
                 entries.push({
                     slot,
-                    key: await decodeAbiValue(
-                        bytes.slice(offset, offset + this.type.key.size),
-                        this.type.key,
-                    ),
+                    key: await decodeAbiValue(bytes.slice(offset, offset + this.type.key.size), this.type.key),
                 });
             }
         }
@@ -88,9 +72,7 @@ function assertSource(source: QpiByteSource, size: number): void {
         throw new Error("HashSet ABI has an invalid size");
     }
     if (!Number.isSafeInteger(source.byteLength) || source.byteLength < size) {
-        throw new QpiIncompleteReadError(
-            `HashSet needs ${size} bytes, source has ${source.byteLength}`,
-        );
+        throw new QpiIncompleteReadError(`HashSet needs ${size} bytes, source has ${source.byteLength}`);
     }
     if (!Number.isSafeInteger(source.maxReadLength) || source.maxReadLength <= 0) {
         throw new Error("QPI byte source has an invalid maxReadLength");
@@ -99,9 +81,7 @@ function assertSource(source: QpiByteSource, size: number): void {
 
 function populationOf(population: bigint, capacity: number): number {
     if (population > BigInt(capacity)) {
-        throw new QpiContainerConsistencyError(
-            `container population ${population} exceeds capacity ${capacity}`,
-        );
+        throw new QpiContainerConsistencyError(`container population ${population} exceeds capacity ${capacity}`);
     }
     return Number(population);
 }

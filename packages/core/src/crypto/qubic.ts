@@ -1,11 +1,5 @@
 // Identity and hashing through @qubic.org/crypto (pure TypeScript over @noble/hashes).
-import {
-    deriveKeys,
-    identityToPublicKey,
-    k12,
-    publicKeyToIdentity,
-    verify,
-} from "@qubic.org/crypto";
+import { deriveKeys, identityToPublicKey, k12, publicKeyToIdentity, verify } from "@qubic.org/crypto";
 import { bytesToHex } from "./bytes";
 
 export interface IdentityResult {
@@ -41,11 +35,7 @@ export function deriveKeysSync(seed: string): KeyPair {
 
 const isZero = (bytes: Uint8Array): boolean => bytes.every((byte) => byte === 0);
 
-export function verifySync(
-    publicKey: Uint8Array,
-    message: Uint8Array,
-    signature: Uint8Array,
-): boolean {
+export function verifySync(publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): boolean {
     // @qubic.org/crypto verifies an all-zero signature against an all-zero key; core rejects that pair,
     // and the null identity can never be a signer. Caught by the signatureValidity native differential.
     if (isZero(publicKey) || isZero(signature)) {
@@ -107,8 +97,6 @@ export async function cryptoSmoke(): Promise<CryptoSmokeResult> {
         ok,
         identity,
         publicKeyHex,
-        note: ok
-            ? "K12 + FourQ ran and produced a valid identity"
-            : `unexpected identity format: ${identity}`,
+        note: ok ? "K12 + FourQ ran and produced a valid identity" : `unexpected identity format: ${identity}`,
     };
 }

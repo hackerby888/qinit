@@ -45,10 +45,6 @@ export class IdlHover implements vscode.HoverProvider {
 function hoverFor(kind: "function" | "procedure", entry: HoverEntry): vscode.Hover {
     const md = new vscode.MarkdownString();
     md.appendMarkdown(`**QPI ${kind}** \`${entry.name}\` · index **${entry.inputType}**\n\n`);
-    md.appendCodeblock(
-        `input  : ${entry.input.format || "(empty)"}` +
-            (kind === "function" ? `\noutput : ${entry.output.format || "(empty)"}` : ""),
-        "text",
-    );
+    md.appendCodeblock(`input  : ${entry.input.format || "(empty)"}` + (kind === "function" ? `\noutput : ${entry.output.format || "(empty)"}` : ""), "text");
     return new vscode.Hover(md);
 }

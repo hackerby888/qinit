@@ -1,28 +1,14 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import {
-    analyzeContract,
-    DiagnosticSeverity,
-    SourceAnalysisOrigin,
-    type SourceAnalysisDiagnostic,
-} from "@qinit/compiler/analyzer";
+import { analyzeContract, DiagnosticSeverity, SourceAnalysisOrigin, type SourceAnalysisDiagnostic } from "@qinit/compiler/analyzer";
 import { resolveCoreDir } from "@qinit/core/project";
 
-const DENY = new Set([
-    "qpi.h",
-    "Qswap_old.h",
-    "TestExampleA.h",
-    "TestExampleB.h",
-    "TestExampleC.h",
-    "TestExampleD.h",
-]);
+const DENY = new Set(["qpi.h", "Qswap_old.h", "TestExampleA.h", "TestExampleB.h", "TestExampleC.h", "TestExampleD.h"]);
 
 export function deployedContracts(core: string): string[] {
     const def = join(core, "src", "contract_core", "contract_def.h");
     if (!existsSync(def)) return [];
-    return [...readFileSync(def, "utf8").matchAll(/#include\s+"contracts\/([\w.]+\.h)"/g)]
-        .map((match) => match[1])
-        .filter((file) => !DENY.has(file));
+    return [...readFileSync(def, "utf8").matchAll(/#include\s+"contracts\/([\w.]+\.h)"/g)].map((match) => match[1]).filter((file) => !DENY.has(file));
 }
 
 export function lintCorpus(core: string): { file: string; findings: SourceAnalysisDiagnostic[] }[] {
@@ -38,9 +24,7 @@ export function lintCorpus(core: string): { file: string; findings: SourceAnalys
         }
         const source = readFileSync(path, "utf8");
         const findings = analyzeContract({ source }).diagnostics.filter(
-            (finding) =>
-                finding.origin === SourceAnalysisOrigin.QPI &&
-                finding.severity !== DiagnosticSeverity.INFORMATION,
+            (finding) => finding.origin === SourceAnalysisOrigin.QPI && finding.severity !== DiagnosticSeverity.INFORMATION,
         );
         results.push({ file, findings });
     }
@@ -67,14 +51,10 @@ if (import.meta.main) {
         console.log(`FAIL ${result.file}:`);
         for (const finding of result.findings.slice(0, 8)) {
             const line = finding.span.line;
-            const excerpt = source
-                .slice(finding.span.start, finding.span.start + 40)
-                .replace(/\n/g, "\\n");
+            const excerpt = source.slice(finding.span.start, finding.span.start + 40).replace(/\n/g, "\\n");
             console.log(`   L${line} ${finding.code}: ${JSON.stringify(excerpt)}`);
         }
     }
-    console.log(
-        `\nlint-corpus: ${results.length} deployed contracts scanned, ${failures} warning/error findings`,
-    );
+    console.log(`\nlint-corpus: ${results.length} deployed contracts scanned, ${failures} warning/error findings`);
     process.exit(failures === 0 ? 0 : 1);
 }

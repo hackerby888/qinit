@@ -32,9 +32,7 @@ test("a trapped nested callee keeps its write and the caller recovers", async ()
     expect(sim.isFaulted()).toBe(false);
 
     const trace = sim.getTrace().entries;
-    const trapped = trace.find(
-        (entry) => entry.index === 28 && entry.kind === 1 && entry.entry === 2,
-    );
+    const trapped = trace.find((entry) => entry.index === 28 && entry.kind === 1 && entry.entry === 2);
     expect(trapped).toMatchObject({ ok: false });
     expect(trapped?.trap).toMatch(/overflow/i);
     expect(trapped?.stateDiff).toEqual([
@@ -45,17 +43,9 @@ test("a trapped nested callee keeps its write and the caller recovers", async ()
         },
     ]);
 
-    const caller = trace.find(
-        (entry) => entry.index === 29 && entry.kind === 1 && entry.entry === 2,
-    );
+    const caller = trace.find((entry) => entry.index === 29 && entry.kind === 1 && entry.entry === 2);
     expect(caller?.ok).toBe(true);
-    expect(caller?.hostCalls.map((call) => call.name)).toEqual([
-        "callFunction",
-        "invokeProcedure",
-        "callFunction",
-        "invokeProcedure",
-        "callFunction",
-    ]);
+    expect(caller?.hostCalls.map((call) => call.name)).toEqual(["callFunction", "invokeProcedure", "callFunction", "invokeProcedure", "callFunction"]);
     expect(caller?.hostCalls[1]?.detail).not.toContain("err");
 
     expect(words(sim.query(28, 1))).toEqual([15n, 2n, 0x43414c4c45455741n]);
@@ -77,9 +67,7 @@ test("a trapped nested function returns zero output and remains callable", async
     expect(result.error).toBe(0);
     expect(words(result.output)).toEqual([0n]);
 
-    const trapped = sim
-        .getTrace()
-        .entries.find((entry) => entry.index === 28 && entry.kind === 0 && entry.entry === 2);
+    const trapped = sim.getTrace().entries.find((entry) => entry.index === 28 && entry.kind === 0 && entry.entry === 2);
     expect(trapped).toMatchObject({ ok: false });
     expect(trapped?.trap).toMatch(/overflow/i);
     expect(trapped?.stateDiff).toEqual([]);

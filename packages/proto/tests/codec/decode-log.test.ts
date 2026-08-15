@@ -1,11 +1,6 @@
 import { test, expect } from "bun:test";
 import { decodeLog, loggedSizeOf } from "../../src/decode-log";
-import {
-    AbiScalarKind,
-    AbiTypeKind,
-    type AbiScalar,
-    type ContractLog,
-} from "../../src/contract-idl";
+import { AbiScalarKind, AbiTypeKind, type AbiScalar, type ContractLog } from "../../src/contract-idl";
 
 const hexOf = (b: number[]) => b.map((x) => (x & 0xff).toString(16).padStart(2, "0")).join("");
 // little-endian bytes of n (width bytes); BigInt.asUintN handles signed inputs

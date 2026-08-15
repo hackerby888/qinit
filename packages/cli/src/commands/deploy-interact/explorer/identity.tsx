@@ -1,26 +1,8 @@
 import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import type { EntityInfo, IdentityTransfer } from "@qinit/core";
-import {
-    Grad,
-    KV,
-    SectionHeader,
-    Spinner,
-    Table,
-    TextPrompt,
-    theme,
-    type Column,
-} from "../../../ui";
-import {
-    SectionBody,
-    contractLabel,
-    errText,
-    fmtAmount,
-    fmtTime,
-    sectionTableWidth,
-    windowOf,
-    type ViewProps,
-} from "./chrome";
+import { Grad, KV, SectionHeader, Spinner, Table, TextPrompt, theme, type Column } from "../../../ui";
+import { SectionBody, contractLabel, errText, fmtAmount, fmtTime, sectionTableWidth, windowOf, type ViewProps } from "./chrome";
 
 // ---- identity -----------------------------------------------------------------------------------
 
@@ -63,17 +45,12 @@ export function IdentityView({
         // Balance and transfers are fetched independently so a node without the transfers route still
         // renders a balance.
         void (async () => {
-            const [balance, transferList] = await Promise.allSettled([
-                rpc.balance(id),
-                rpc.getTransfersForIdentity(id, 50),
-            ]);
+            const [balance, transferList] = await Promise.allSettled([rpc.balance(id), rpc.getTransfersForIdentity(id, 50)]);
             if (!alive) return;
 
             setEntity(balance.status === "fulfilled" ? balance.value : null);
             setBalanceErr(balance.status === "rejected" ? errText(balance.reason) : "");
-            setTransfers(
-                transferList.status === "fulfilled" ? transferList.value.transactions : [],
-            );
+            setTransfers(transferList.status === "fulfilled" ? transferList.value.transactions : []);
             setTransferErr(transferList.status === "rejected" ? errText(transferList.reason) : "");
             setLoading(false);
         })();
@@ -91,11 +68,7 @@ export function IdentityView({
     if (!id) {
         return (
             <Box marginTop={1} flexDirection="column">
-                <SectionHeader
-                    title="identity lookup"
-                    detail="60-character identity"
-                    width={columns}
-                />
+                <SectionHeader title="identity lookup" detail="60-character identity" width={columns} />
                 <TextPrompt
                     label="identity"
                     onSubmit={(value) => {
@@ -136,14 +109,8 @@ export function IdentityView({
                 <Box marginTop={1}>
                     <KV
                         rows={[
-                            [
-                                "incoming",
-                                `${fmtAmount(entity.incomingAmount)}  (${entity.numberOfIncomingTransfers} transfers)`,
-                            ],
-                            [
-                                "outgoing",
-                                `${fmtAmount(entity.outgoingAmount)}  (${entity.numberOfOutgoingTransfers} transfers)`,
-                            ],
+                            ["incoming", `${fmtAmount(entity.incomingAmount)}  (${entity.numberOfIncomingTransfers} transfers)`],
+                            ["outgoing", `${fmtAmount(entity.outgoingAmount)}  (${entity.numberOfOutgoingTransfers} transfers)`],
                             ["latest in", String(entity.latestIncomingTransferTick)],
                             ["latest out", String(entity.latestOutgoingTransferTick)],
                         ]}
@@ -151,18 +118,11 @@ export function IdentityView({
                 </Box>
             ) : (
                 <Box marginTop={1}>
-                    <Text color={theme.warn}>
-                        no spectrum entry — this address has never been seen on chain
-                    </Text>
+                    <Text color={theme.warn}>no spectrum entry — this address has never been seen on chain</Text>
                 </Box>
             )}
             {balanceErr ? <Text color={theme.err}>{balanceErr}</Text> : null}
-            <SectionHeader
-                title="transfers"
-                detail={`${transfers.length} in the node's recent window`}
-                error={transferErr}
-                width={columns}
-            />
+            <SectionHeader title="transfers" detail={`${transfers.length} in the node's recent window`} error={transferErr} width={columns} />
             <SectionBody>
                 {transfers.length === 0 ? (
                     <Text dimColor>no transfers in the retained window</Text>

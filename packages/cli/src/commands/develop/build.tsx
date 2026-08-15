@@ -3,12 +3,7 @@ import { resolve, join, basename } from "node:path";
 import { writeFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import type { ContractBuildResult } from "@qinit/build";
-import {
-    DEFAULT_RPC_BASE,
-    autoUpdateVerifyTool,
-    LiteRpc,
-    loadCoreWasmSlotLayout,
-} from "@qinit/core";
+import { DEFAULT_RPC_BASE, autoUpdateVerifyTool, LiteRpc, loadCoreWasmSlotLayout } from "@qinit/core";
 import { loadConfig, resolveCoreDir, resolveCompilerBackend } from "../../config";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
@@ -42,27 +37,16 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
             try {
                 const cfg = loadConfig();
                 const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
-                const contractPath = resolve(
-                    commandArgs.get("contract") ??
-                        commandArgs.positionals[0] ??
-                        cfg.contract ??
-                        "fixtures/Counter.h",
-                );
-                const name =
-                    commandArgs.get("contract-name") ??
-                    cfg.contractName ??
-                    basename(contractPath).replace(/\.[^.]+$/, "");
+                const contractPath = resolve(commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract ?? "fixtures/Counter.h");
+                const name = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
                 const outDir = resolve(commandArgs.get("out") ?? "dist/contracts");
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
-                const slot =
-                    requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot);
+                const slot = requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot);
                 const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
                 const rpc = new LiteRpc(rpcBaseUrl);
                 const registry = await Promise.race([
                     rpc.dynRegistry().catch(() => undefined),
-                    new Promise<undefined>((resolveTimeout) =>
-                        setTimeout(() => resolveTimeout(undefined), 2500),
-                    ),
+                    new Promise<undefined>((resolveTimeout) => setTimeout(() => resolveTimeout(undefined), 2500)),
                 ]);
                 const slotLayout = registry ?? loadCoreWasmSlotLayout(core);
                 const plan = resolveProjectPlan({
@@ -94,10 +78,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                       });
                 if (r.ok && r.idl)
                     try {
-                        writeFileSync(
-                            join(outDir, `${name}.idl.json`),
-                            JSON.stringify(r.idl, null, 2),
-                        );
+                        writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2));
                     } catch {}
                 setS({ phase: "done", r });
             } catch (e: any) {
@@ -119,10 +100,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
     if (output.json) return null;
 
     if (s.phase === "run") {
-        const label =
-            compiler === "typescript"
-                ? "compiling contract to wasm (TypeScript compiler)"
-                : "compiling contract to wasm";
+        const label = compiler === "typescript" ? "compiling contract to wasm (TypeScript compiler)" : "compiling contract to wasm";
         return (
             <Box flexDirection="column">
                 <Header cmd="build" />
@@ -146,10 +124,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
     return (
         <Box flexDirection="column">
             <Header cmd="build" />
-            <Panel
-                title={"built ✓" + (compiler === "typescript" ? " (TypeScript)" : "")}
-                color={theme.ok}
-            >
+            <Panel title={"built ✓" + (compiler === "typescript" ? " (TypeScript)" : "")} color={theme.ok}>
                 <KV
                     rows={[
                         ["wasm", String(r.wasmPath)],
@@ -165,12 +140,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
             ) : null}
             {compiler === "typescript" ? null : (
                 <Box marginTop={1}>
-                    <Status
-                        ok={true}
-                        label="protocol rules"
-                        detail="passed — complies with qpi.h restrictions"
-                        pad={16}
-                    />
+                    <Status ok={true} label="protocol rules" detail="passed — complies with qpi.h restrictions" pad={16} />
                 </Box>
             )}
         </Box>

@@ -1,12 +1,7 @@
 // resolveContract is the single target-resolution path for call / ls / state: a name or index must map to
 // the same contract everywhere, with user (dyn-registry) entries shadowing built-in system contracts.
 import { test, expect } from "bun:test";
-import {
-    parseContractSlot,
-    resolveContract,
-    systemAsDyn,
-    type ContractSets,
-} from "../../src/contracts/registry";
+import { parseContractSlot, resolveContract, systemAsDyn, type ContractSets } from "../../src/contracts/registry";
 
 const user = (over: any = {}) => ({
     index: 100,
@@ -44,24 +39,8 @@ test("parseContractSlot accepts contract indices", () => {
 });
 
 test("parseContractSlot rejects invalid contract indices", () => {
-    for (const value of [
-        undefined,
-        "",
-        "   ",
-        null,
-        false,
-        true,
-        0,
-        -1,
-        1.5,
-        1024,
-        "NaN",
-        Number.NaN,
-        Infinity,
-    ]) {
-        expect(() => parseContractSlot(value)).toThrow(
-            "contract slot must be an integer from 1 to 1023",
-        );
+    for (const value of [undefined, "", "   ", null, false, true, 0, -1, 1.5, 1024, "NaN", Number.NaN, Infinity]) {
+        expect(() => parseContractSlot(value)).toThrow("contract slot must be an integer from 1 to 1023");
     }
 });
 
@@ -79,10 +58,7 @@ test("resolveContract: matches by numeric index", () => {
 });
 
 test("resolveContract: user contracts shadow system on an index/name collision", () => {
-    const r = resolveContract(
-        "1",
-        sets({ user: [user({ index: 1, name: "Mine" })] as any, system: [sys()] as any }),
-    );
+    const r = resolveContract("1", sets({ user: [user({ index: 1, name: "Mine" })] as any, system: [sys()] as any }));
 
     expect(r?.kind).toBe("user");
     expect(r?.name).toBe("Mine");
@@ -102,9 +78,7 @@ test("resolveContract: trims surrounding whitespace before matching", () => {
 });
 
 test("resolveContract: an unmatched target resolves to null", () => {
-    expect(
-        resolveContract("ghost", sets({ user: [user()] as any, system: [sys()] as any })),
-    ).toBeNull();
+    expect(resolveContract("ghost", sets({ user: [user()] as any, system: [sys()] as any }))).toBeNull();
 });
 
 test("resolveContract: a non-numeric target never matches an index by accident", () => {

@@ -170,13 +170,7 @@ test("system and inter-contract dispatch use registered input sizes", async () =
     const sim = new QubicSimulator();
     const contract = sim.deploy(28, await inputContract());
 
-    expect([
-        ...contract.invoke(
-            CONTRACT_ENTRY_KIND.SYSPROC,
-            SYSTEM_PROCEDURES.BEGIN_EPOCH,
-            new Uint8Array([3]),
-        ),
-    ]).toEqual([3, 0, 0, 0]);
+    expect([...contract.invoke(CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.BEGIN_EPOCH, new Uint8Array([3]))]).toEqual([3, 0, 0, 0]);
 
     const call = sim.doCallFunction(29, 28, 1, new Uint8Array([4]), new Uint8Array(32));
     expect(call.error).toBe(0);

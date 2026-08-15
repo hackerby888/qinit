@@ -44,8 +44,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 // Native result for a=2, b=5 includes wrapped subtraction, casts, and division.
-const EXPECTED =
-    "fdffffffffffffff00000000000000000a000000000000000000000000000000fdffffffffffffff000000000000000033333333333333330000000000000000";
+const EXPECTED = "fdffffffffffffff00000000000000000a000000000000000000000000000000fdffffffffffffff000000000000000033333333333333330000000000000000";
 const INPUT = [2n, 5n, 0n, 0n];
 
 const runState = (wasm: Uint8Array): string => {
@@ -76,9 +75,7 @@ describe("uint128 casts of scalar expressions", () => {
             qpiHeader: HEADERS,
             arenaSizeBytes: 1 << 20,
         });
-        expect(
-            ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-        ).toHaveLength(0);
+        expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
         expect(runState(ours.wasm)).toBe(EXPECTED);
 
         if (wasiOk) {

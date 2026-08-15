@@ -75,22 +75,13 @@ export class TypeParser {
             return this.parser.types.parseBuiltinType();
         }
         // struct / enum / class / union prefix
-        if (
-            tok.kind === TokenKind.KW_STRUCT ||
-            tok.kind === TokenKind.KW_ENUM ||
-            tok.kind === TokenKind.KW_CLASS ||
-            tok.kind === TokenKind.KW_UNION
-        ) {
+        if (tok.kind === TokenKind.KW_STRUCT || tok.kind === TokenKind.KW_ENUM || tok.kind === TokenKind.KW_CLASS || tok.kind === TokenKind.KW_UNION) {
             this.parser.state.next();
             const name = this.parser.state.next().text;
             return { kind: AstKind.NAME, name, span: tok.span };
         }
         // unsigned / signed prefixes
-        if (
-            tok.kind === TokenKind.KW_UNSIGNED ||
-            tok.kind === TokenKind.KW_SIGNED ||
-            tok.kind === TokenKind.KW_LONG
-        ) {
+        if (tok.kind === TokenKind.KW_UNSIGNED || tok.kind === TokenKind.KW_SIGNED || tok.kind === TokenKind.KW_LONG) {
             return this.parser.types.parseBuiltinType();
         }
         // Parse a name, stopping before dependent template arguments.
@@ -108,10 +99,7 @@ export class TypeParser {
         if (this.parser.state.peek().kind === TokenKind.L_ANGLE) {
             this.parser.state.next(); // <
             const callArguments: TypeSpec[] = [];
-            while (
-                !this.parser.state.eof() &&
-                this.parser.state.peek().kind !== TokenKind.R_ANGLE
-            ) {
+            while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_ANGLE) {
                 const kind = this.parser.state.peek().kind;
                 // Parse value template arguments at shift precedence to preserve the closing `>`.
                 if (
@@ -141,9 +129,7 @@ export class TypeParser {
                 ) {
                     callArguments.push(this.parser.types.parseTypeSpec());
                 } else {
-                    const name =
-                        this.parser.types.parseMaybeQualifiedName() ||
-                        this.parser.state.next().text;
+                    const name = this.parser.types.parseMaybeQualifiedName() || this.parser.state.next().text;
                     callArguments.push({
                         kind: AstKind.NAME,
                         name,
@@ -162,10 +148,7 @@ export class TypeParser {
                 span: tok.span,
             };
             // Dependent member type: `Selector<args>::type` — the nested type of a template instance.
-            if (
-                this.parser.state.peek().kind === TokenKind.D_COLON &&
-                this.parser.state.peek(1).kind === TokenKind.IDENTIFIER
-            ) {
+            if (this.parser.state.peek().kind === TokenKind.D_COLON && this.parser.state.peek(1).kind === TokenKind.IDENTIFIER) {
                 this.parser.state.next(); // ::
                 const member = this.parser.state.next().text;
                 return { kind: AstKind.DEPENDENT_MEMBER, base: inst, member, span: tok.span };
@@ -178,11 +161,7 @@ export class TypeParser {
     templateArgIsExpr(): boolean {
         if (this.parser.state.peek().kind !== TokenKind.IDENTIFIER) return false;
         let index = 1;
-        while (
-            this.parser.state.peek(index).kind === TokenKind.D_COLON &&
-            this.parser.state.peek(index + 1).kind === TokenKind.IDENTIFIER
-        )
-            index += 2;
+        while (this.parser.state.peek(index).kind === TokenKind.D_COLON && this.parser.state.peek(index + 1).kind === TokenKind.IDENTIFIER) index += 2;
         const operator = this.parser.state.peek(index).kind;
         if (
             operator !== TokenKind.STAR &&
@@ -194,11 +173,7 @@ export class TypeParser {
         )
             return false;
         const after = this.parser.state.peek(index + 1).kind;
-        return (
-            after === TokenKind.IDENTIFIER ||
-            after === TokenKind.INT_LITERAL ||
-            after === TokenKind.L_PAREN
-        );
+        return after === TokenKind.IDENTIFIER || after === TokenKind.INT_LITERAL || after === TokenKind.L_PAREN;
     }
 
     parseBuiltinType(): TypeSpec {
@@ -224,11 +199,7 @@ export class TypeParser {
         const parts: string[] = [];
         while (!this.parser.state.eof()) {
             const tok = this.parser.state.peek();
-            if (
-                stopAtAngle &&
-                tok.kind === TokenKind.IDENTIFIER &&
-                this.parser.state.peek(1).kind === TokenKind.L_ANGLE
-            ) {
+            if (stopAtAngle && tok.kind === TokenKind.IDENTIFIER && this.parser.state.peek(1).kind === TokenKind.L_ANGLE) {
                 // Type position: `Sel<args>::type` is a dependent type — stop here and let the caller capture the template instance
                 parts.push(this.parser.state.next().text);
                 break;
@@ -237,25 +208,15 @@ export class TypeParser {
                 // operator overload name: consume `operator` + the operator symbol token(s).
                 this.parser.state.next();
                 const opTok = this.parser.state.peek();
-                if (
-                    opTok.kind === TokenKind.L_PAREN &&
-                    this.parser.state.peek(1).kind === TokenKind.R_PAREN
-                ) {
+                if (opTok.kind === TokenKind.L_PAREN && this.parser.state.peek(1).kind === TokenKind.R_PAREN) {
                     this.parser.state.next();
                     this.parser.state.next();
                     parts.push("operator()");
-                } else if (
-                    opTok.kind === TokenKind.L_BRACKET &&
-                    this.parser.state.peek(1).kind === TokenKind.R_BRACKET
-                ) {
+                } else if (opTok.kind === TokenKind.L_BRACKET && this.parser.state.peek(1).kind === TokenKind.R_BRACKET) {
                     this.parser.state.next();
                     this.parser.state.next();
                     parts.push("operator[]");
-                } else if (
-                    opTok.kind === TokenKind.IDENTIFIER ||
-                    isTypeKeyword(opTok.kind) ||
-                    opTok.kind === TokenKind.KW_BOOL
-                ) {
+                } else if (opTok.kind === TokenKind.IDENTIFIER || isTypeKeyword(opTok.kind) || opTok.kind === TokenKind.KW_BOOL) {
                     // conversion operator: operator bool() / operator T()
                     parts.push("operator " + this.parser.state.next().text);
                 } else {
@@ -266,19 +227,13 @@ export class TypeParser {
                 // ClassTemplate<args>::method — out-of-class definition. Drop the qualifier's template args
                 if (this.parser.state.peek().kind === TokenKind.L_ANGLE) {
                     const save = this.parser.state.position;
-                    if (
-                        this.parser.types.skipAngleArgs() &&
-                        this.parser.state.peek().kind === TokenKind.D_COLON
-                    ) {
+                    if (this.parser.types.skipAngleArgs() && this.parser.state.peek().kind === TokenKind.D_COLON) {
                         // committed — fall through to the d_colon handler below
                     } else {
                         this.parser.state.position = save;
                     }
                 }
-            } else if (
-                tok.kind === TokenKind.TILDE &&
-                this.parser.state.peek(1).kind === TokenKind.IDENTIFIER
-            ) {
+            } else if (tok.kind === TokenKind.TILDE && this.parser.state.peek(1).kind === TokenKind.IDENTIFIER) {
                 // ~ClassName (destructor name)
                 this.parser.state.next();
                 parts.push("~" + this.parser.state.next().text);
@@ -378,28 +333,16 @@ export class TypeParser {
                 token.kind === TokenKind.IDENTIFIER;
             // C-style casts here only target scalar type spellings.
             if (token.kind === TokenKind.L_ANGLE && depth === 0) sawAngle = true;
-            if (
-                (token.kind === TokenKind.R_ANGLE || token.kind === TokenKind.R_SHIFT) &&
-                angleDepth === 0
-            )
-                pureType = false;
+            if ((token.kind === TokenKind.R_ANGLE || token.kind === TokenKind.R_SHIFT) && angleDepth === 0) pureType = false;
             if (token.kind === TokenKind.L_ANGLE) angleDepth++;
             if (token.kind === TokenKind.R_ANGLE) angleDepth = Math.max(0, angleDepth - 1);
             if (token.kind === TokenKind.R_SHIFT) angleDepth = Math.max(0, angleDepth - 2);
             // In type-id context, `*`/`&` act as declarator suffixes inside template-free area.
-            if ((token.kind === TokenKind.STAR || token.kind === TokenKind.AMP) && angleDepth === 0)
-                sawPtrRef = true;
-            if (
-                sawPtrRef &&
-                angleDepth === 0 &&
-                (token.kind === TokenKind.IDENTIFIER ||
-                    token.kind === TokenKind.D_COLON ||
-                    isTypeKeyword(token.kind))
-            ) {
+            if ((token.kind === TokenKind.STAR || token.kind === TokenKind.AMP) && angleDepth === 0) sawPtrRef = true;
+            if (sawPtrRef && angleDepth === 0 && (token.kind === TokenKind.IDENTIFIER || token.kind === TokenKind.D_COLON || isTypeKeyword(token.kind))) {
                 pureType = false;
             }
-            if (isTypeKeyword(token.kind) || token.kind === TokenKind.IDENTIFIER)
-                sawTypeToken = true;
+            if (isTypeKeyword(token.kind) || token.kind === TokenKind.IDENTIFIER) sawTypeToken = true;
             if (!ok) {
                 pureType = false;
             }
@@ -430,10 +373,7 @@ export class TypeParser {
         if (
             loneIdent &&
             !SCALAR_CAST_NAMES.has(loneIdent) &&
-            (after.kind === TokenKind.AMP ||
-                after.kind === TokenKind.STAR ||
-                after.kind === TokenKind.PLUS ||
-                after.kind === TokenKind.MINUS)
+            (after.kind === TokenKind.AMP || after.kind === TokenKind.STAR || after.kind === TokenKind.PLUS || after.kind === TokenKind.MINUS)
         ) {
             return false;
         }

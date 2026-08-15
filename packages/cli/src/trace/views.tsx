@@ -3,31 +3,15 @@
 import { Box, Text } from "ink";
 import { type DebugEntry } from "@qinit/core";
 import { Status, theme, truncEnd, truncMid, termCols } from "../ui";
-import {
-    type DecodedTrace,
-    type DecodedState,
-    type StateContainer,
-    sevColor,
-    formatStateValue,
-    jstr,
-} from "./format";
+import { type DecodedTrace, type DecodedState, type StateContainer, sevColor, formatStateValue, jstr } from "./format";
 import { entryLabel } from "./entry-label";
 import { type StateDiffLine } from "./state-diff";
 
-const execµs = (ns: number) =>
-    ns < 1_000_000 ? `${(ns / 1000) | 0}µs` : `${(ns / 1e6).toFixed(1)}ms`;
+const execµs = (ns: number) => (ns < 1_000_000 ? `${(ns / 1000) | 0}µs` : `${(ns / 1e6).toFixed(1)}ms`);
 
 // indented label -> value row block (the "compact section")
 // `truncate` pins every row to a single line, which is what lets a bounded caller budget rows as lines.
-function Rows({
-    rows,
-    width,
-    truncate,
-}: {
-    rows: { label: string; node: React.ReactNode }[];
-    width?: number;
-    truncate?: boolean;
-}) {
+function Rows({ rows, width, truncate }: { rows: { label: string; node: React.ReactNode }[]; width?: number; truncate?: boolean }) {
     const w = width ?? Math.max(1, ...rows.map((r) => r.label.length));
     return (
         <Box flexDirection="column" marginLeft={2}>
@@ -41,8 +25,7 @@ function Rows({
 }
 
 // Internal bookkeeping is opt-in; payload and population changes stay visible.
-export const shownStateLines = (lines: StateDiffLine[], showInternals: boolean) =>
-    showInternals ? lines : lines.filter((line) => !line.internal);
+export const shownStateLines = (lines: StateDiffLine[], showInternals: boolean) => (showInternals ? lines : lines.filter((line) => !line.internal));
 
 // The call's captured state changes, one resolved element per row. Internal bookkeeping is opt-in.
 //
@@ -94,11 +77,7 @@ function StateDiff({
             </Text>
             <Box flexDirection="column" marginLeft={2}>
                 {shown.map((line, index) => (
-                    <Text
-                        key={index}
-                        wrap={maxRows ? "truncate-end" : "wrap"}
-                        dimColor={!line.filled}
-                    >
+                    <Text key={index} wrap={maxRows ? "truncate-end" : "wrap"} dimColor={!line.filled}>
                         <Text color={line.filled ? theme.accent : undefined} bold={line.filled}>
                             {labelOf(line).padEnd(width)}
                         </Text>{" "}
@@ -145,9 +124,7 @@ export function TraceView({
     const cols = width ?? termCols();
     const label = `${name} ${entry ?? entryLabel(e.kind, e.entry)}`;
     // Status has no wrap of its own, so a bounded pane has to size its two halves to fit on one line.
-    const pad = bounded
-        ? Math.max(1, Math.min(Math.max(14, label.length + 1), cols - 14))
-        : Math.max(14, label.length + 1);
+    const pad = bounded ? Math.max(1, Math.min(Math.max(14, label.length + 1), cols - 14)) : Math.max(14, label.length + 1);
 
     const callRows: { label: string; node: React.ReactNode }[] = [
         { label: "in", node: <Text>{truncEnd(view.inDecoded, cols - 8)}</Text> },
@@ -157,11 +134,7 @@ export function TraceView({
     if (e.kind === 1)
         callRows.push({
             label: "caller",
-            node: bounded ? (
-                <Text>{truncMid(view.caller, Math.max(12, cols - 12))}</Text>
-            ) : (
-                <Text wrap="wrap">{view.caller}</Text>
-            ),
+            node: bounded ? <Text>{truncMid(view.caller, Math.max(12, cols - 12))}</Text> : <Text wrap="wrap">{view.caller}</Text>,
         });
 
     const rows: { label: string; node: React.ReactNode }[] = [];
@@ -176,10 +149,7 @@ export function TraceView({
                     {l.name ? (
                         <Text>
                             {l.name}
-                            {l.typeName ? "·" + l.typeName : ""}{" "}
-                            <Text dimColor>
-                                {l.abi ? formatStateValue(l.values, l.abi, false) : jstr(l.fields)}
-                            </Text>
+                            {l.typeName ? "·" + l.typeName : ""} <Text dimColor>{l.abi ? formatStateValue(l.values, l.abi, false) : jstr(l.fields)}</Text>
                         </Text>
                     ) : (
                         <Text dimColor>{l.size}B</Text>
@@ -214,12 +184,7 @@ export function TraceView({
 
     return (
         <Box flexDirection="column">
-            <Status
-                ok={e.ok}
-                label={bounded ? truncEnd(label, pad) : label}
-                detail={detailMax >= 6 ? detail : undefined}
-                pad={pad}
-            />
+            <Status ok={e.ok} label={bounded ? truncEnd(label, pad) : label} detail={detailMax >= 6 ? detail : undefined} pad={pad} />
             <Rows rows={callRows} width={labelWidth} truncate={bounded} />
             <StateDiff
                 lines={view.stateDiff}
@@ -236,9 +201,7 @@ export function TraceView({
 
 // Arrays and BitArrays count set elements; other containers count occupied slots.
 function containerDetail(container: StateContainer, hidden: boolean, interactive: boolean): string {
-    const selectionHint = interactive
-        ? `press ${container.index}`
-        : `use --container ${container.index}`;
+    const selectionHint = interactive ? `press ${container.index}` : `use --container ${container.index}`;
     if (container.status === "collapsed") {
         return `${container.size.toLocaleString("en-US")} bytes · ${selectionHint} to load`;
     }
@@ -280,11 +243,7 @@ export function StateView({
 }) {
     return (
         <Box flexDirection="column">
-            <Status
-                ok={state.complete ? null : false}
-                label={`${name} state`}
-                detail={state.complete ? undefined : "incomplete"}
-            />
+            <Status ok={state.complete ? null : false} label={`${name} state`} detail={state.complete ? undefined : "incomplete"} />
             {state.fields.length ? (
                 <Rows
                     rows={state.fields.map((field) => ({
@@ -298,16 +257,8 @@ export function StateView({
                 </Box>
             )}
             {state.containers.map((container) => {
-                const hidden =
-                    container.status === "loaded" &&
-                    (hiddenContainerIndexes?.has(container.index) ?? false);
-                const width =
-                    hidden || container.status !== "loaded"
-                        ? 1
-                        : container.lines.reduce(
-                              (maximum, line) => Math.max(maximum, line.label.length),
-                              1,
-                          );
+                const hidden = container.status === "loaded" && (hiddenContainerIndexes?.has(container.index) ?? false);
+                const width = hidden || container.status !== "loaded" ? 1 : container.lines.reduce((maximum, line) => Math.max(maximum, line.label.length), 1);
 
                 return (
                     <Box key={container.index} flexDirection="column" marginTop={1}>
@@ -315,9 +266,7 @@ export function StateView({
                             <Text color={theme.accent} dimColor={container.status === "collapsed"}>
                                 [{container.index}] {container.name}
                             </Text>{" "}
-                            <Text dimColor>
-                                · {containerDetail(container, hidden, interactive)}
-                            </Text>
+                            <Text dimColor>· {containerDetail(container, hidden, interactive)}</Text>
                         </Text>
                         <Box flexDirection="column" marginLeft={2}>
                             {container.status === "error" ? (
@@ -331,10 +280,7 @@ export function StateView({
                             ) : hidden ? null : container.lines.length ? (
                                 container.lines.map((line, index) => (
                                     <Text key={index} wrap="wrap" dimColor={!line.filled}>
-                                        <Text
-                                            color={line.filled ? theme.accent : undefined}
-                                            bold={line.filled}
-                                        >
+                                        <Text color={line.filled ? theme.accent : undefined} bold={line.filled}>
                                             {line.label.padEnd(width)}
                                         </Text>{" "}
                                         {line.text}

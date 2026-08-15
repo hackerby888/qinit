@@ -1,23 +1,12 @@
 import { test, expect } from "bun:test";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import {
-    analyzeContract,
-    SourceAnalysisOrigin,
-    type SourceAnalysisDiagnostic,
-} from "@qinit/compiler/analyzer";
+import { analyzeContract, SourceAnalysisOrigin, type SourceAnalysisDiagnostic } from "@qinit/compiler/analyzer";
 
-const idlCodes = new Set([
-    "qpi/dup-fn-index",
-    "qpi/dup-proc-index",
-    "qpi/unregistered",
-    "qpi/public-complex-type",
-]);
+const idlCodes = new Set(["qpi/dup-fn-index", "qpi/dup-proc-index", "qpi/unregistered", "qpi/public-complex-type"]);
 
 function idlChecks(source: string): SourceAnalysisDiagnostic[] {
-    return analyzeContract({ source }).diagnostics.filter(
-        (item) => item.origin === SourceAnalysisOrigin.QPI && idlCodes.has(item.code),
-    );
+    return analyzeContract({ source }).diagnostics.filter((item) => item.origin === SourceAnalysisOrigin.QPI && idlCodes.has(item.code));
 }
 
 test("duplicate function index is flagged", () => {
@@ -79,11 +68,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 });
 
 test("commented-out macros are ignored", () => {
-    expect(
-        idlChecks(
-            "// PUBLIC_FUNCTION(ghost) {}\n/* REGISTER_USER_FUNCTION(x,1); REGISTER_USER_FUNCTION(y,1); */",
-        ),
-    ).toEqual([]);
+    expect(idlChecks("// PUBLIC_FUNCTION(ghost) {}\n/* REGISTER_USER_FUNCTION(x,1); REGISTER_USER_FUNCTION(y,1); */")).toEqual([]);
 });
 
 test("complex types in the PUBLIC interface are flagged; allowed types are not", () => {
@@ -93,11 +78,7 @@ test("complex types in the PUBLIC interface are flagged; allowed types are not",
     struct getList_output { Collection<id, 1024> items; };
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES { REGISTER_USER_FUNCTION(getList, 1); }
   `;
-    expect(
-        idlChecks(bad).some(
-            (x) => x.code === "qpi/public-complex-type" && x.message.includes("Collection"),
-        ),
-    ).toBe(true);
+    expect(idlChecks(bad).some((x) => x.code === "qpi/public-complex-type" && x.message.includes("Collection"))).toBe(true);
 
     const ok = `
     PUBLIC_FUNCTION(getOk) {}

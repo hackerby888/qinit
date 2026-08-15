@@ -78,7 +78,5 @@ test("state digest rejects invalid slots and malformed RPC results", async () =>
     };
 
     await expect(readStateDigest("-1", rpc)).rejects.toThrow("invalid contract slot");
-    await expect(readStateDigest("29", rpc)).rejects.toThrow(
-        "invalid contract digest response for slot 29",
-    );
+    await expect(readStateDigest("29", rpc)).rejects.toThrow("invalid contract digest response for slot 29");
 });

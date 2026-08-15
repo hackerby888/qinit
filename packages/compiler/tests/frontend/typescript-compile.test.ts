@@ -6,10 +6,7 @@ import { initK12, deriveKeysSync } from "@qinit/core";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
-const COUNTER_SRC = readFileSync(
-    new URL("../../../../fixtures/Counter.h", import.meta.url),
-    "utf8",
-);
+const COUNTER_SRC = readFileSync(new URL("../../../../fixtures/Counter.h", import.meta.url), "utf8");
 const QPI_HEADER = loadQpiHeader(CORE_PATH);
 
 beforeAll(async () => {

@@ -29,11 +29,7 @@ async function readBalance(rpc: SignerRpc, identity: string): Promise<string | u
 }
 
 // A seed the user typed is never swapped: `explicit` reports the empty signer instead of choosing another.
-export async function resolveFundedSigner(
-    rpc: SignerRpc,
-    seed: string,
-    options: { explicit?: boolean } = {},
-): Promise<SignerCheck> {
+export async function resolveFundedSigner(rpc: SignerRpc, seed: string, options: { explicit?: boolean } = {}): Promise<SignerCheck> {
     const { identity } = await deriveIdentity(seed);
     const balance = await readBalance(rpc, identity);
 

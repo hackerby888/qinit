@@ -1,24 +1,6 @@
-import {
-    CONTRACT_ENTRY_POINTS,
-    SYSTEM_PROCEDURES,
-    type DebugTrace,
-    type EngineFaultInfo,
-} from "@qinit/core";
-import {
-    encodeBurningLog,
-    encodeQuTransferLog,
-    MAINNET_COMPUTOR_COUNT,
-    MAX_INPUT_SIZE,
-    QUBIC_LOG_TYPE,
-    TXS_PER_TICK,
-} from "@qinit/proto";
-import {
-    Contract,
-    CONTRACT_ENTRY_KIND,
-    ContractExecutionError,
-    Entity,
-    HostServices,
-} from "./contract/runtime";
+import { CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURES, type DebugTrace, type EngineFaultInfo } from "@qinit/core";
+import { encodeBurningLog, encodeQuTransferLog, MAINNET_COMPUTOR_COUNT, MAX_INPUT_SIZE, QUBIC_LOG_TYPE, TXS_PER_TICK } from "@qinit/proto";
+import { Contract, CONTRACT_ENTRY_KIND, ContractExecutionError, Entity, HostServices } from "./contract/runtime";
 import { toHex, verifySync } from "./support/k12";
 import { TraceRecorder } from "./logging/trace";
 import { Committee, MAX_NUMBER_OF_CONTRACTS, type CommitteeOpts } from "./chain/consensus";
@@ -38,24 +20,12 @@ import {
 import { DEFAULT_TICK_HISTORY, TickConsensus, type TickRecord } from "./chain/ticking";
 import type { TickData } from "./protocol/wire";
 import { first32BytesEqual } from "./support/bytes";
-import {
-    PreManagementRightsTransferInput,
-    PreManagementRightsTransferOutput,
-    PostIncomingTransferInput,
-    ContractId,
-} from "./contract/abi";
+import { PreManagementRightsTransferInput, PreManagementRightsTransferOutput, PostIncomingTransferInput, ContractId } from "./contract/abi";
 import { TxPool, type TxRecord } from "./chain/txs";
 import { ContractRegistry, K12_MAX_LEAF_BYTES } from "./contract/registry";
 import type { LogSink, LogLevel } from "./logging/log";
 import type { QubicLogStore } from "./logging/qubic-log-store";
-import {
-    LOG_SC_BEGIN_EPOCH,
-    LOG_SC_BEGIN_TICK,
-    LOG_SC_END_EPOCH,
-    LOG_SC_END_TICK,
-    LOG_SC_INITIALIZE,
-    LOG_SC_NOTIFICATION,
-} from "./logging/qubic-log-store";
+import { LOG_SC_BEGIN_EPOCH, LOG_SC_BEGIN_TICK, LOG_SC_END_EPOCH, LOG_SC_END_TICK, LOG_SC_INITIALIZE, LOG_SC_NOTIFICATION } from "./logging/qubic-log-store";
 
 export type { AssetSnapshot };
 export type { FeeMode } from "./contract/fees";
@@ -122,8 +92,7 @@ export class QubicSimulator {
     private pitDepth = 0;
     private assets = new AssetLedger({
         contractId: (slot) => this.contractId(slot),
-        logAssetMutation: (type, message) =>
-            this.logStore?.logRaw(type, message, this.currentEpoch),
+        logAssetMutation: (type, message) => this.logStore?.logRaw(type, message, this.currentEpoch),
     });
     private txpool = new TxPool();
     private tickTxCount = 0;
@@ -165,8 +134,7 @@ export class QubicSimulator {
                 spectrumDigest: () => this.spectrumDigest(),
                 universeDigest: () => this.universeDigest(),
                 computerDigest: () => this.computerDigest(),
-                tickTransactionDigests: (tick) =>
-                    this.tickTransactions(tick).map((record) => record.digest),
+                tickTransactionDigests: (tick) => this.tickTransactions(tick).map((record) => record.digest),
                 nowMs: () => this.nowMs(),
                 tick: () => this.currentTick,
                 epoch: () => this.currentEpoch,
@@ -206,182 +174,63 @@ export class QubicSimulator {
             transfer: (slot, dest, amount, type) => this.doTransfer(slot, dest, amount, type),
             burn: (slot, amount, burnedFor) => this.doBurn(slot, amount, burnedFor),
             getEntity: (id) => this.entityOf(id),
-            queryFeeReserve: (callerSlot, contractIndex) =>
-                this.fees.queryFeeReserve(callerSlot, contractIndex),
+            queryFeeReserve: (callerSlot, contractIndex) => this.fees.queryFeeReserve(callerSlot, contractIndex),
             issueAsset: (slot, name, issuer, decimals, shares, unit, invocator) =>
                 this.assets.issueAsset(slot, name, issuer, decimals, shares, unit, invocator),
             isAssetIssued: (issuer, name) => (this.assets.isAssetIssued(issuer, name) ? 1 : 0),
-            numberOfShares: (asset, ownership, possession) =>
-                this.assets.numberOfShares(asset, ownership, possession),
-            numberOfPossessedShares: (
-                name,
-                issuer,
-                owner,
-                possessor,
-                ownershipManager,
-                possessionManager,
-            ) =>
-                this.assets.numberOfPossessedShares(
-                    name,
-                    issuer,
-                    owner,
-                    possessor,
-                    ownershipManager,
-                    possessionManager,
-                ),
-            assetEnumerate: (asset, ownership, possession, kind) =>
-                this.assets.enumerate(asset, ownership, possession, kind),
+            numberOfShares: (asset, ownership, possession) => this.assets.numberOfShares(asset, ownership, possession),
+            numberOfPossessedShares: (name, issuer, owner, possessor, ownershipManager, possessionManager) =>
+                this.assets.numberOfPossessedShares(name, issuer, owner, possessor, ownershipManager, possessionManager),
+            assetEnumerate: (asset, ownership, possession, kind) => this.assets.enumerate(asset, ownership, possession, kind),
             transferShares: (slot, name, issuer, owner, possessor, shares, newOwner) =>
-                this.assets.transferShareOwnershipAndPossession(
-                    slot,
-                    name,
-                    issuer,
-                    owner,
-                    possessor,
-                    shares,
-                    newOwner,
-                ),
-            acquireShares: (
-                slot,
-                name,
-                issuer,
-                owner,
-                possessor,
-                shares,
-                sourceOwnershipManager,
-                sourcePossessionManager,
-                fee,
-            ) =>
-                this.acquireShares(
-                    slot,
-                    name,
-                    issuer,
-                    owner,
-                    possessor,
-                    shares,
-                    sourceOwnershipManager,
-                    sourcePossessionManager,
-                    fee,
-                ),
-            releaseShares: (
-                slot,
-                name,
-                issuer,
-                owner,
-                possessor,
-                shares,
-                destinationOwnershipManager,
-                destinationPossessionManager,
-                fee,
-            ) =>
-                this.releaseShares(
-                    slot,
-                    name,
-                    issuer,
-                    owner,
-                    possessor,
-                    shares,
-                    destinationOwnershipManager,
-                    destinationPossessionManager,
-                    fee,
-                ),
-            dayOfWeek: (year, month, day) =>
-                (new Date(Date.UTC(2000 + year, month - 1, day)).getUTCDay() + 4) % 7,
-            signatureValidity: (entity, digest, signature) =>
-                verifySync(entity, digest, signature) ? 1 : 0,
+                this.assets.transferShareOwnershipAndPossession(slot, name, issuer, owner, possessor, shares, newOwner),
+            acquireShares: (slot, name, issuer, owner, possessor, shares, sourceOwnershipManager, sourcePossessionManager, fee) =>
+                this.acquireShares(slot, name, issuer, owner, possessor, shares, sourceOwnershipManager, sourcePossessionManager, fee),
+            releaseShares: (slot, name, issuer, owner, possessor, shares, destinationOwnershipManager, destinationPossessionManager, fee) =>
+                this.releaseShares(slot, name, issuer, owner, possessor, shares, destinationOwnershipManager, destinationPossessionManager, fee),
+            dayOfWeek: (year, month, day) => (new Date(Date.UTC(2000 + year, month - 1, day)).getUTCDay() + 4) % 7,
+            signatureValidity: (entity, digest, signature) => (verifySync(entity, digest, signature) ? 1 : 0),
             bidInIPO: () => -1n,
             ipoBidId: (_contractIndex, index) =>
-                index >= 0 && index < IPO_SHARE_COUNT
-                    ? this.ticking.getCommittee().computors[index % this.ticking.committeeSize()]
-                          .publicKey
-                    : ZERO32,
-            ipoBidPrice: (_contractIndex, index) =>
-                index >= 0 && index < IPO_SHARE_COUNT ? IPO_SHARE_PRICE : -3n,
+                index >= 0 && index < IPO_SHARE_COUNT ? this.ticking.getCommittee().computors[index % this.ticking.committeeSize()].publicKey : ZERO32,
+            ipoBidPrice: (_contractIndex, index) => (index >= 0 && index < IPO_SHARE_COUNT ? IPO_SHARE_PRICE : -3n),
             computeMiningFunction: () => ZERO32,
             initMiningSeed: () => {},
             getOracleQueryStatus: (queryId) => this.oracle.queryStatus(queryId),
             getOcInvocationStatus: () => 0,
             invokeOc: () => -1n,
-            unsubscribeOracle: (slot, subscriptionId) =>
-                this.oracle.unsubscribe(slot, subscriptionId),
+            unsubscribeOracle: (slot, subscriptionId) => this.oracle.unsubscribe(slot, subscriptionId),
             queryOracle: (slot, interfaceIndex, query, replySize, procedureId, timeout, fee) => {
                 if (!this.isValidOracleCallback(slot, procedureId, replySize)) {
                     return -1n;
                 }
 
-                return this.oracle.query(
-                    slot,
-                    interfaceIndex,
-                    query,
-                    replySize,
-                    procedureId,
-                    timeout,
-                    fee,
-                );
+                return this.oracle.query(slot, interfaceIndex, query, replySize, procedureId, timeout, fee);
             },
-            subscribeOracle: (
-                slot,
-                interfaceIndex,
-                query,
-                replySize,
-                timestampOffset,
-                procedureId,
-                period,
-                notifyPrevious,
-                fee,
-            ) => {
+            subscribeOracle: (slot, interfaceIndex, query, replySize, timestampOffset, procedureId, period, notifyPrevious, fee) => {
                 if (!this.isValidOracleCallback(slot, procedureId, replySize)) {
                     return -1;
                 }
 
-                return this.oracle.subscribe(
-                    slot,
-                    interfaceIndex,
-                    query,
-                    replySize,
-                    timestampOffset,
-                    procedureId,
-                    period,
-                    notifyPrevious,
-                    fee,
-                );
+                return this.oracle.subscribe(slot, interfaceIndex, query, replySize, timestampOffset, procedureId, period, notifyPrevious, fee);
             },
             getOracleQuery: (queryId) => this.oracle.getQuery(queryId),
             getOracleReply: (queryId) => this.oracle.getReply(queryId),
             isContractId: (id) => (this.isContractAddress(id) ? 1 : 0),
             arbitrator: () => this.ticking.getCommittee().arbitrator.publicKey,
             computor: (index) =>
-                this.computorOverride.get(index >>> 0) ??
-                this.ticking.getCommittee().computors[index % this.ticking.committeeSize()]
-                    ?.publicKey ??
-                ZERO32,
-            prevSpectrumDigest: () =>
-                this.prevSpectrumDigestOverride ?? this.ticking.prevSpectrumDigest(),
+                this.computorOverride.get(index >>> 0) ?? this.ticking.getCommittee().computors[index % this.ticking.committeeSize()]?.publicKey ?? ZERO32,
+            prevSpectrumDigest: () => this.prevSpectrumDigestOverride ?? this.ticking.prevSpectrumDigest(),
             prevUniverseDigest: () => this.ticking.prevUniverseDigest(),
             prevComputerDigest: () => this.ticking.prevComputerDigest(),
-            distributeDividends: (slot, amountPerShare) =>
-                this.doDistributeDividends(slot, amountPerShare),
-            callFunction: (callerSlot, calleeIndex, inputType, input, originator) =>
-                this.doCallFunction(callerSlot, calleeIndex, inputType, input, originator),
+            distributeDividends: (slot, amountPerShare) => this.doDistributeDividends(slot, amountPerShare),
+            callFunction: (callerSlot, calleeIndex, inputType, input, originator) => this.doCallFunction(callerSlot, calleeIndex, inputType, input, originator),
             invokeProcedure: (callerSlot, calleeIndex, inputType, input, reward, originator) =>
-                this.doInvokeProcedure(
-                    callerSlot,
-                    calleeIndex,
-                    inputType,
-                    input,
-                    reward,
-                    originator,
-                ),
+                this.doInvokeProcedure(callerSlot, calleeIndex, inputType, input, reward, originator),
             nextId: (id) => this.nextId(id),
             prevId: (id) => this.prevId(id),
             setShareholderProposal: (callerSlot, calleeIndex, proposal, reward, originator) =>
-                this.doSetShareholderProposal(
-                    callerSlot,
-                    calleeIndex,
-                    proposal,
-                    reward,
-                    originator,
-                ),
+                this.doSetShareholderProposal(callerSlot, calleeIndex, proposal, reward, originator),
             setShareholderVotes: (callerSlot, calleeIndex, vote, reward, originator) =>
                 this.doSetShareholderVotes(callerSlot, calleeIndex, vote, reward, originator),
         };
@@ -543,30 +392,16 @@ export class QubicSimulator {
     }
 
     private logQuTransfer(source: Uint8Array, destination: Uint8Array, amount: bigint): void {
-        this.logStore?.logRaw(
-            QUBIC_LOG_TYPE.QU_TRANSFER,
-            encodeQuTransferLog(source, destination, amount),
-            this.currentEpoch,
-        );
+        this.logStore?.logRaw(QUBIC_LOG_TYPE.QU_TRANSFER, encodeQuTransferLog(source, destination, amount), this.currentEpoch);
     }
 
-    private transferBalance(
-        source: Uint8Array,
-        destination: Uint8Array,
-        amount: bigint,
-        tick = this.currentTick,
-    ): void {
+    private transferBalance(source: Uint8Array, destination: Uint8Array, amount: bigint, tick = this.currentTick): void {
         this.debit(source, amount, tick);
         this.credit(destination, amount, tick);
         this.logQuTransfer(source, destination, amount);
     }
 
-    notifyIncomingTransfer(
-        source: Uint8Array,
-        destination: Uint8Array,
-        amount: bigint,
-        type: number,
-    ): void {
+    notifyIncomingTransfer(source: Uint8Array, destination: Uint8Array, amount: bigint, type: number): void {
         this.assertOperational();
         if (this.entityOf(source) === null) {
             return;
@@ -591,8 +426,7 @@ export class QubicSimulator {
         this.spectrum = new SpectrumLedger();
         this.assets = new AssetLedger({
             contractId: (slot) => this.contractId(slot),
-            logAssetMutation: (type, message) =>
-                this.logStore?.logRaw(type, message, this.currentEpoch),
+            logAssetMutation: (type, message) => this.logStore?.logRaw(type, message, this.currentEpoch),
         });
     }
 
@@ -616,20 +450,10 @@ export class QubicSimulator {
 
     isContractAddress(id: Uint8Array): boolean {
         const contractId = ContractId.wrap(id);
-        return (
-            contractId.lane1 === 0n &&
-            contractId.lane2 === 0n &&
-            contractId.lane3 === 0n &&
-            contractId.lane0 < BigInt(MAX_NUMBER_OF_CONTRACTS)
-        );
+        return contractId.lane1 === 0n && contractId.lane2 === 0n && contractId.lane3 === 0n && contractId.lane0 < BigInt(MAX_NUMBER_OF_CONTRACTS);
     }
 
-    private doTransfer(
-        slot: number,
-        destination: Uint8Array,
-        amount: bigint,
-        type: number,
-    ): bigint {
+    private doTransfer(slot: number, destination: Uint8Array, amount: bigint, type: number): bigint {
         if (this.pitDepth > 0 && this.contractSlotOf(destination) >= 0) {
             return INVALID_AMOUNT;
         }
@@ -677,11 +501,7 @@ export class QubicSimulator {
         if (this.fees.metered) {
             this.fees.add(target, amount);
         }
-        this.logStore?.logRaw(
-            QUBIC_LOG_TYPE.BURNING,
-            encodeBurningLog(source, amount, target),
-            this.currentEpoch,
-        );
+        this.logStore?.logRaw(QUBIC_LOG_TYPE.BURNING, encodeBurningLog(source, amount, target), this.currentEpoch);
 
         return remaining;
     }
@@ -696,15 +516,7 @@ export class QubicSimulator {
         shares: bigint,
     ): boolean {
         this.assertOperational();
-        return this.assets.transferShareManagementRights(
-            name,
-            issuer,
-            owner,
-            possessor,
-            srcMgmt,
-            dstMgmt,
-            shares,
-        );
+        return this.assets.transferShareManagementRights(name, issuer, owner, possessor, srcMgmt, dstMgmt, shares);
     }
 
     private runManagementCallback(
@@ -732,15 +544,9 @@ export class QubicSimulator {
         request.offeredFee = fee;
         request.otherContractIndex = otherSlot;
 
-        const output = this.registry.fire(
-            contract,
-            CONTRACT_ENTRY_KIND.SYSPROC,
-            spId,
-            request.bytes,
-            {
-                entryPoint: spId,
-            },
-        );
+        const output = this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, spId, request.bytes, {
+            entryPoint: spId,
+        });
         const reply = PreManagementRightsTransferOutput.wrap(output);
         const allow = output.length >= 1 && reply.allowTransfer !== 0;
         const requestedFee = output.length >= 16 ? reply.requestedFee : 0n;
@@ -760,10 +566,7 @@ export class QubicSimulator {
         offeredFee: bigint,
     ): bigint {
         this.assertOperational();
-        if (
-            !first32BytesEqual(owner, possessor) ||
-            sourceOwnershipManager !== sourcePossessionManager
-        ) {
+        if (!first32BytesEqual(owner, possessor) || sourceOwnershipManager !== sourcePossessionManager) {
             return INVALID_AMOUNT;
         }
 
@@ -777,14 +580,7 @@ export class QubicSimulator {
             return INVALID_AMOUNT;
         }
 
-        const availableShares = this.assets.numberOfPossessedShares(
-            name,
-            issuer,
-            owner,
-            possessor,
-            sourcePossessionManager,
-            sourcePossessionManager,
-        );
+        const availableShares = this.assets.numberOfPossessedShares(name, issuer, owner, possessor, sourcePossessionManager, sourcePossessionManager);
         if (availableShares < shares) {
             return INVALID_AMOUNT;
         }
@@ -810,28 +606,13 @@ export class QubicSimulator {
         }
 
         if (callback.fee > 0n) {
-            const feeResult = this.doTransfer(
-                callerSlot,
-                this.contractId(sourceOwnershipManager),
-                callback.fee,
-                TT_QPI,
-            );
+            const feeResult = this.doTransfer(callerSlot, this.contractId(sourceOwnershipManager), callback.fee, TT_QPI);
             if (feeResult < 0n) {
                 return -callback.fee;
             }
         }
 
-        if (
-            !this.transferShareManagementRights(
-                name,
-                issuer,
-                owner,
-                possessor,
-                sourcePossessionManager,
-                callerSlot,
-                shares,
-            )
-        ) {
+        if (!this.transferShareManagementRights(name, issuer, owner, possessor, sourcePossessionManager, callerSlot, shares)) {
             return INVALID_AMOUNT;
         }
 
@@ -862,10 +643,7 @@ export class QubicSimulator {
         offeredFee: bigint,
     ): bigint {
         this.assertOperational();
-        if (
-            !first32BytesEqual(owner, possessor) ||
-            destinationOwnershipManager !== destinationPossessionManager
-        ) {
+        if (!first32BytesEqual(owner, possessor) || destinationOwnershipManager !== destinationPossessionManager) {
             return INVALID_AMOUNT;
         }
 
@@ -879,14 +657,7 @@ export class QubicSimulator {
             return INVALID_AMOUNT;
         }
 
-        const availableShares = this.assets.numberOfPossessedShares(
-            name,
-            issuer,
-            owner,
-            possessor,
-            callerSlot,
-            callerSlot,
-        );
+        const availableShares = this.assets.numberOfPossessedShares(name, issuer, owner, possessor, callerSlot, callerSlot);
         if (availableShares < shares) {
             return INVALID_AMOUNT;
         }
@@ -912,28 +683,13 @@ export class QubicSimulator {
         }
 
         if (callback.fee > 0n) {
-            const feeResult = this.doTransfer(
-                callerSlot,
-                this.contractId(destinationOwnershipManager),
-                callback.fee,
-                TT_QPI,
-            );
+            const feeResult = this.doTransfer(callerSlot, this.contractId(destinationOwnershipManager), callback.fee, TT_QPI);
             if (feeResult < 0n) {
                 return -callback.fee;
             }
         }
 
-        if (
-            !this.transferShareManagementRights(
-                name,
-                issuer,
-                owner,
-                possessor,
-                callerSlot,
-                destinationPossessionManager,
-                shares,
-            )
-        ) {
+        if (!this.transferShareManagementRights(name, issuer, owner, possessor, callerSlot, destinationPossessionManager, shares)) {
             return INVALID_AMOUNT;
         }
 
@@ -995,16 +751,12 @@ export class QubicSimulator {
 
     setContractAssetName(slot: number, name: bigint | string): void {
         this.assertOperational();
-        this.contractAssetNames.set(
-            slot,
-            typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn,
-        );
+        this.contractAssetNames.set(slot, typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn);
     }
 
     mintDeployShares(slot: number, name: bigint | string, holder: Uint8Array): void {
         this.assertOperational();
-        const packedName =
-            typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn;
+        const packedName = typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn;
         this.setContractAssetName(slot, packedName);
 
         if (this.assets.isAssetIssued(ZERO32, packedName)) {
@@ -1012,27 +764,14 @@ export class QubicSimulator {
         }
 
         this.assets.mintContractShares(1, packedName, BigInt(IPO_SHARE_COUNT));
-        this.assets.transferShareOwnershipAndPossession(
-            1,
-            packedName,
-            ZERO32,
-            ZERO32,
-            ZERO32,
-            BigInt(IPO_SHARE_COUNT),
-            holder,
-        );
+        this.assets.transferShareOwnershipAndPossession(1, packedName, ZERO32, ZERO32, ZERO32, BigInt(IPO_SHARE_COUNT), holder);
     }
 
     assetUniverse(): AssetSnapshot[] {
         return this.assets.assetUniverse();
     }
 
-    private notifyPIT(
-        destination: Uint8Array,
-        source: Uint8Array,
-        amount: bigint,
-        type: number,
-    ): void {
+    private notifyPIT(destination: Uint8Array, source: Uint8Array, amount: bigint, type: number): void {
         if (amount <= 0n) {
             return;
         }
@@ -1055,15 +794,9 @@ export class QubicSimulator {
 
         this.pitDepth++;
         try {
-            this.registry.fire(
-                contract,
-                CONTRACT_ENTRY_KIND.SYSPROC,
-                SYSTEM_PROCEDURES.POST_INCOMING_TRANSFER,
-                input,
-                {
-                    entryPoint: SYSTEM_PROCEDURES.POST_INCOMING_TRANSFER,
-                },
-            );
+            this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.POST_INCOMING_TRANSFER, input, {
+                entryPoint: SYSTEM_PROCEDURES.POST_INCOMING_TRANSFER,
+            });
         } finally {
             this.pitDepth--;
         }
@@ -1082,11 +815,7 @@ export class QubicSimulator {
                     this.logStore?.end();
                 }
 
-                this.emit(
-                    "info",
-                    "deploy",
-                    `slot ${slot} deployed · ${(wasm.length / 1024) | 0}KB wasm`,
-                );
+                this.emit("info", "deploy", `slot ${slot} deployed · ${(wasm.length / 1024) | 0}KB wasm`);
                 if (contract.stateSize > K12_MAX_LEAF_BYTES) {
                     this.emit(
                         "warn",
@@ -1157,9 +886,7 @@ export class QubicSimulator {
                 .get(slot)
                 ?.entries.some(
                     (entry) =>
-                        entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE &&
-                        entry.inputType === (procedureId & 0xffff) &&
-                        entry.inputSizeBytes === 16 + replySize,
+                        entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE && entry.inputType === (procedureId & 0xffff) && entry.inputSizeBytes === 16 + replySize,
                 ) ?? false
         );
     }
@@ -1178,18 +905,12 @@ export class QubicSimulator {
                     continue;
                 }
 
-                this.registry.fire(
-                    contract,
-                    CONTRACT_ENTRY_KIND.PROCEDURE,
-                    notification.procedureId,
-                    notification.input,
-                    {
-                        invocator: ZERO32,
-                        originator: ZERO32,
-                        invocationReward: 0n,
-                        entryPoint: EP_USER_PROCEDURE_NOTIFICATION,
-                    },
-                );
+                this.registry.fire(contract, CONTRACT_ENTRY_KIND.PROCEDURE, notification.procedureId, notification.input, {
+                    invocator: ZERO32,
+                    originator: ZERO32,
+                    invocationReward: 0n,
+                    entryPoint: EP_USER_PROCEDURE_NOTIFICATION,
+                });
             }
         } finally {
             this.logStore?.end();
@@ -1211,15 +932,9 @@ export class QubicSimulator {
             for (const slot of this.registry.slots(true)) {
                 const contract = this.contracts.get(slot)!;
                 if (contract.hasSysproc(SYSTEM_PROCEDURES.BEGIN_EPOCH)) {
-                    this.registry.fire(
-                        contract,
-                        CONTRACT_ENTRY_KIND.SYSPROC,
-                        SYSTEM_PROCEDURES.BEGIN_EPOCH,
-                        new Uint8Array(0),
-                        {
-                            entryPoint: SYSTEM_PROCEDURES.BEGIN_EPOCH,
-                        },
-                    );
+                    this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.BEGIN_EPOCH, new Uint8Array(0), {
+                        entryPoint: SYSTEM_PROCEDURES.BEGIN_EPOCH,
+                    });
                 }
             }
         } finally {
@@ -1238,15 +953,9 @@ export class QubicSimulator {
             for (const slot of this.registry.slots(false)) {
                 const contract = this.contracts.get(slot)!;
                 if (contract.hasSysproc(SYSTEM_PROCEDURES.END_EPOCH)) {
-                    this.registry.fire(
-                        contract,
-                        CONTRACT_ENTRY_KIND.SYSPROC,
-                        SYSTEM_PROCEDURES.END_EPOCH,
-                        new Uint8Array(0),
-                        {
-                            entryPoint: SYSTEM_PROCEDURES.END_EPOCH,
-                        },
-                    );
+                    this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.END_EPOCH, new Uint8Array(0), {
+                        entryPoint: SYSTEM_PROCEDURES.END_EPOCH,
+                    });
                 }
             }
         } finally {
@@ -1267,19 +976,10 @@ export class QubicSimulator {
         try {
             for (const slot of this.registry.slots(true)) {
                 const contract = this.contracts.get(slot)!;
-                if (
-                    contract.hasSysproc(SYSTEM_PROCEDURES.BEGIN_TICK) &&
-                    this.fees.reserveOk(slot)
-                ) {
-                    this.registry.fire(
-                        contract,
-                        CONTRACT_ENTRY_KIND.SYSPROC,
-                        SYSTEM_PROCEDURES.BEGIN_TICK,
-                        new Uint8Array(0),
-                        {
-                            entryPoint: SYSTEM_PROCEDURES.BEGIN_TICK,
-                        },
-                    );
+                if (contract.hasSysproc(SYSTEM_PROCEDURES.BEGIN_TICK) && this.fees.reserveOk(slot)) {
+                    this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.BEGIN_TICK, new Uint8Array(0), {
+                        entryPoint: SYSTEM_PROCEDURES.BEGIN_TICK,
+                    });
                 }
             }
         } finally {
@@ -1298,15 +998,9 @@ export class QubicSimulator {
             for (const slot of this.registry.slots(false)) {
                 const contract = this.contracts.get(slot)!;
                 if (contract.hasSysproc(SYSTEM_PROCEDURES.END_TICK) && this.fees.reserveOk(slot)) {
-                    this.registry.fire(
-                        contract,
-                        CONTRACT_ENTRY_KIND.SYSPROC,
-                        SYSTEM_PROCEDURES.END_TICK,
-                        new Uint8Array(0),
-                        {
-                            entryPoint: SYSTEM_PROCEDURES.END_TICK,
-                        },
-                    );
+                    this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.END_TICK, new Uint8Array(0), {
+                        entryPoint: SYSTEM_PROCEDURES.END_TICK,
+                    });
                 }
             }
         } finally {
@@ -1340,28 +1034,18 @@ export class QubicSimulator {
         this.logStore?.finalizeTick(this.currentTick);
         this.lastFinalizedTick = this.currentTick;
         this.lastFinalizedEpoch = this.currentEpoch;
-        this.prunedTransactionIds.push(
-            ...this.txpool.pruneFinalized(this.currentTick, this.historyTicks),
-        );
+        this.prunedTransactionIds.push(...this.txpool.pruneFinalized(this.currentTick, this.historyTicks));
     }
 
     query(slot: number, inputType: number, input?: Uint8Array): Uint8Array {
         this.assertOperational();
         const contract = this.contracts.get(slot);
-        const entry = contract?.entries.find(
-            (candidate) =>
-                candidate.kind === CONTRACT_ENTRY_KIND.FUNCTION &&
-                candidate.inputType === inputType,
-        );
+        const entry = contract?.entries.find((candidate) => candidate.kind === CONTRACT_ENTRY_KIND.FUNCTION && candidate.inputType === inputType);
         if (!contract || !entry) {
             throw new Error(`unknown contract function ${slot}:${inputType}`);
         }
 
-        return this.runOperation(
-            "contract-function",
-            () => contract.invoke(CONTRACT_ENTRY_KIND.FUNCTION, inputType, input),
-            { contractErrorsOnly: true },
-        );
+        return this.runOperation("contract-function", () => contract.invoke(CONTRACT_ENTRY_KIND.FUNCTION, inputType, input), { contractErrorsOnly: true });
     }
 
     private runProcedure(
@@ -1390,10 +1074,7 @@ export class QubicSimulator {
     resolveOracle(queryId: bigint, reply: Uint8Array, status?: number): boolean {
         return this.runOperation(
             "oracle-notification",
-            () =>
-                status === undefined
-                    ? this.oracle.resolve(queryId, reply)
-                    : this.oracle.resolve(queryId, reply, status),
+            () => (status === undefined ? this.oracle.resolve(queryId, reply) : this.oracle.resolve(queryId, reply, status)),
             { contractErrorsOnly: true },
         );
     }
@@ -1407,9 +1088,7 @@ export class QubicSimulator {
         return this.oracle.pending();
     }
 
-    setOracleProvider(
-        provider: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null,
-    ): void {
+    setOracleProvider(provider: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null): void {
         this.assertOperational();
         this.oracle.setProvider(provider);
     }
@@ -1477,16 +1156,7 @@ export class QubicSimulator {
 
         try {
             const invocator = this.contractId(callerSlot);
-            const output = this.runProcedure(
-                calleeIndex,
-                inputType,
-                input,
-                invocator,
-                originator,
-                transferredReward,
-                TT_PROCEDURE_BY_OTHER_CONTRACT,
-                false,
-            );
+            const output = this.runProcedure(calleeIndex, inputType, input, invocator, originator, transferredReward, TT_PROCEDURE_BY_OTHER_CONTRACT, false);
             return { error: CALL_ERR_NONE, output };
         } catch (error) {
             return this.nestedTrapResult(callee, CONTRACT_ENTRY_KIND.PROCEDURE, inputType, error);
@@ -1495,39 +1165,22 @@ export class QubicSimulator {
         }
     }
 
-    private nestedTrapResult(
-        callee: Contract,
-        kind: number,
-        inputType: number,
-        error: unknown,
-    ): { error: number; output: Uint8Array } {
+    private nestedTrapResult(callee: Contract, kind: number, inputType: number, error: unknown): { error: number; output: Uint8Array } {
         if (!(error instanceof ContractExecutionError)) {
             throw error;
         }
 
         // Core records a nested Wasm trap but returns NoCallError to the caller.
-        const outputSize = callee.entries.find(
-            (entry) => entry.kind === kind && entry.inputType === inputType,
-        )?.outputSizeBytes;
+        const outputSize = callee.entries.find((entry) => entry.kind === kind && entry.inputType === inputType)?.outputSizeBytes;
         return {
             error: CALL_ERR_NONE,
             output: new Uint8Array(outputSize ?? 0),
         };
     }
 
-    private transferInvocationReward(
-        callerSlot: number,
-        calleeIndex: number,
-        reward: bigint,
-    ): bigint {
+    private transferInvocationReward(callerSlot: number, calleeIndex: number, reward: bigint): bigint {
         const callerId = this.contractId(callerSlot);
-        if (
-            this.pitDepth > 0 ||
-            reward < 0n ||
-            reward > MAX_AMOUNT ||
-            this.entityOf(callerId) === null ||
-            this.balance(callerId) < reward
-        ) {
+        if (this.pitDepth > 0 || reward < 0n || reward > MAX_AMOUNT || this.entityOf(callerId) === null || this.balance(callerId) < reward) {
             return 0n;
         }
 
@@ -1539,20 +1192,9 @@ export class QubicSimulator {
         return reward;
     }
 
-    doSetShareholderProposal(
-        callerSlot: number,
-        calleeIndex: number,
-        proposal: Uint8Array,
-        reward: bigint,
-        originator: Uint8Array,
-    ): number {
+    doSetShareholderProposal(callerSlot: number, calleeIndex: number, proposal: Uint8Array, reward: bigint, originator: Uint8Array): number {
         this.assertOperational();
-        if (
-            calleeIndex === callerSlot ||
-            calleeIndex === 0 ||
-            !this.contracts.has(calleeIndex) ||
-            reward < 0n
-        ) {
+        if (calleeIndex === callerSlot || calleeIndex === 0 || !this.contracts.has(calleeIndex) || reward < 0n) {
             return INVALID_PROPOSAL_INDEX;
         }
         if (this.callDepth >= MAX_CALL_DEPTH) {
@@ -1560,10 +1202,7 @@ export class QubicSimulator {
         }
 
         const callee = this.contracts.get(calleeIndex)!;
-        if (
-            !callee.hasSysproc(SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL) ||
-            !this.fees.reserveOk(calleeIndex)
-        ) {
+        if (!callee.hasSysproc(SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL) || !this.fees.reserveOk(calleeIndex)) {
             return INVALID_PROPOSAL_INDEX;
         }
 
@@ -1572,44 +1211,22 @@ export class QubicSimulator {
         this.callDepth++;
 
         try {
-            const output = this.registry.fire(
-                callee,
-                CONTRACT_ENTRY_KIND.SYSPROC,
-                SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL,
-                proposal,
-                {
-                    invocator: this.contractId(callerSlot),
-                    originator,
-                    invocationReward,
-                    entryPoint: SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL,
-                },
-            );
+            const output = this.registry.fire(callee, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL, proposal, {
+                invocator: this.contractId(callerSlot),
+                originator,
+                invocationReward,
+                entryPoint: SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL,
+            });
 
-            return output.length >= 2
-                ? new DataView(output.buffer, output.byteOffset, output.byteLength).getUint16(
-                      0,
-                      true,
-                  )
-                : 0;
+            return output.length >= 2 ? new DataView(output.buffer, output.byteOffset, output.byteLength).getUint16(0, true) : 0;
         } finally {
             this.callDepth--;
         }
     }
 
-    doSetShareholderVotes(
-        callerSlot: number,
-        calleeIndex: number,
-        vote: Uint8Array,
-        reward: bigint,
-        originator: Uint8Array,
-    ): number {
+    doSetShareholderVotes(callerSlot: number, calleeIndex: number, vote: Uint8Array, reward: bigint, originator: Uint8Array): number {
         this.assertOperational();
-        if (
-            calleeIndex === callerSlot ||
-            calleeIndex === 0 ||
-            !this.contracts.has(calleeIndex) ||
-            reward < 0n
-        ) {
+        if (calleeIndex === callerSlot || calleeIndex === 0 || !this.contracts.has(calleeIndex) || reward < 0n) {
             return 0;
         }
         if (this.callDepth >= MAX_CALL_DEPTH) {
@@ -1617,10 +1234,7 @@ export class QubicSimulator {
         }
 
         const callee = this.contracts.get(calleeIndex)!;
-        if (
-            !callee.hasSysproc(SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES) ||
-            !this.fees.reserveOk(calleeIndex)
-        ) {
+        if (!callee.hasSysproc(SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES) || !this.fees.reserveOk(calleeIndex)) {
             return 0;
         }
 
@@ -1629,18 +1243,12 @@ export class QubicSimulator {
         this.callDepth++;
 
         try {
-            const output = this.registry.fire(
-                callee,
-                CONTRACT_ENTRY_KIND.SYSPROC,
-                SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES,
-                vote,
-                {
-                    invocator: this.contractId(callerSlot),
-                    originator,
-                    invocationReward,
-                    entryPoint: SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES,
-                },
-            );
+            const output = this.registry.fire(callee, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES, vote, {
+                invocator: this.contractId(callerSlot),
+                originator,
+                invocationReward,
+                entryPoint: SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES,
+            });
 
             return output.length >= 1 ? output[0] : 0;
         } finally {
@@ -1648,19 +1256,10 @@ export class QubicSimulator {
         }
     }
 
-    procedure(
-        slot: number,
-        inputType: number,
-        input?: Uint8Array,
-        options: ProcedureCallOptions = {},
-    ): Uint8Array {
+    procedure(slot: number, inputType: number, input?: Uint8Array, options: ProcedureCallOptions = {}): Uint8Array {
         this.assertOperational();
         const contract = this.contracts.get(slot);
-        const entry = contract?.entries.find(
-            (candidate) =>
-                candidate.kind === CONTRACT_ENTRY_KIND.PROCEDURE &&
-                candidate.inputType === inputType,
-        );
+        const entry = contract?.entries.find((candidate) => candidate.kind === CONTRACT_ENTRY_KIND.PROCEDURE && candidate.inputType === inputType);
         if (!contract || !entry) {
             throw new Error(`unknown contract procedure ${slot}:${inputType}`);
         }
@@ -1680,14 +1279,7 @@ export class QubicSimulator {
                     this.credit(this.contractId(slot), reward);
                 }
 
-                return this.runProcedure(
-                    slot,
-                    inputType,
-                    input ?? new Uint8Array(0),
-                    invocator,
-                    originator,
-                    reward,
-                );
+                return this.runProcedure(slot, inputType, input ?? new Uint8Array(0), invocator, originator, reward);
             },
             { contractErrorsOnly: true },
         );
@@ -1741,11 +1333,7 @@ export class QubicSimulator {
 
                         if (slot >= 0) {
                             const contract = this.contracts.get(slot)!;
-                            const isProcedure = contract.entries.some(
-                                (entry) =>
-                                    entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE &&
-                                    entry.inputType === inputType,
-                            );
+                            const isProcedure = contract.entries.some((entry) => entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE && entry.inputType === inputType);
 
                             if (isProcedure && !this.fees.reserveOk(slot)) {
                                 if (amount > 0n) {
@@ -1767,11 +1355,7 @@ export class QubicSimulator {
                         }
                     }
 
-                    this.emit(
-                        "info",
-                        "tx",
-                        `tx → ${slot >= 0 ? `slot ${slot}` : "user"} it=${inputType} amount=${amount} moneyFlew=${moneyFlew}`,
-                    );
+                    this.emit("info", "tx", `tx → ${slot >= 0 ? `slot ${slot}` : "user"} it=${inputType} amount=${amount} moneyFlew=${moneyFlew}`);
                     this.txpool.record({
                         txId,
                         tick,
@@ -1808,23 +1392,13 @@ export class QubicSimulator {
         }
 
         if (!this.mempoolMode || scheduledTick <= this.currentTick) {
-            const result = this.applyTx(
-                source,
-                destination,
-                amount,
-                inputType,
-                payload,
-                txId,
-                digest,
-            );
+            const result = this.applyTx(source, destination, amount, inputType, payload, txId, digest);
 
             return { moneyFlew: result.moneyFlew, queued: false };
         }
 
         if (this.txpool.dueCount(scheduledTick) >= TXS_PER_TICK) {
-            throw new Error(
-                `tick ${scheduledTick} already has ${TXS_PER_TICK} queued transactions`,
-            );
+            throw new Error(`tick ${scheduledTick} already has ${TXS_PER_TICK} queued transactions`);
         }
 
         this.txpool.queue(scheduledTick, {

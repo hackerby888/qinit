@@ -3,14 +3,7 @@ import { test, expect, afterEach } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-    cacheRoot,
-    cacheDir,
-    cacheHeaders,
-    currentPath,
-    toolsDir,
-    releasePlatformKey,
-} from "../../src/cache/paths";
+import { cacheRoot, cacheDir, cacheHeaders, currentPath, toolsDir, releasePlatformKey } from "../../src/cache/paths";
 import { cachedVerifyToolPath } from "../../src/cache/verify-tool";
 import { wasiSdkDir, wasiSdkPaths, haveWasiSdkCache } from "../../src/cache/wasi-sdk";
 import { CLI_REPO, cliAssetName, cliReleaseUrls } from "../../src/cache/cli-release";
@@ -57,11 +50,7 @@ test("cache paths compose under QINIT_CACHE", () => {
 
 test("cachedVerifyToolPath: .exe on windows, bare elsewhere; under tools/", () => {
     const x = isolate();
-    const want = join(
-        x,
-        "tools",
-        process.platform === "win32" ? "contractverify.exe" : "contractverify",
-    );
+    const want = join(x, "tools", process.platform === "win32" ? "contractverify.exe" : "contractverify");
     expect(cachedVerifyToolPath()).toBe(want);
 });
 
@@ -101,12 +90,7 @@ test("explicit toolchain overrides do not masquerade as a fetched SDK cache", ()
 });
 
 test("releasePlatformKey is <os>-<arch> for this host", () => {
-    const os =
-        process.platform === "darwin"
-            ? "darwin"
-            : process.platform === "win32"
-              ? "windows"
-              : "linux";
+    const os = process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "windows" : "linux";
     const arch = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : process.arch;
     expect(releasePlatformKey()).toBe(`${os}-${arch}`);
 });

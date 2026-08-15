@@ -18,18 +18,13 @@ export function atomicWrite(file: string, data: Uint8Array | string): void {
 
 // Download an asset and verify its sha256 (mismatch => throw, never cache a bad blob).
 // onProgress(received, total) streams download bytes for a live progress bar.
-export async function downloadVerifiedAsset(
-    asset: AssetRef,
-    onProgress?: (recv: number, total: number) => void,
-): Promise<Uint8Array> {
+export async function downloadVerifiedAsset(asset: AssetRef, onProgress?: (recv: number, total: number) => void): Promise<Uint8Array> {
     let response: Response;
     try {
         response = await fetchWithTimeout(asset.url, undefined, 30000);
     } catch (e: any) {
         // 30s connect/TTFB guard; the body then streams untimed
-        throw new Error(
-            `network error downloading ${asset.url} — check your connection  [${e?.message ?? e}]`,
-        );
+        throw new Error(`network error downloading ${asset.url} — check your connection  [${e?.message ?? e}]`);
     }
     if (!response.ok) {
         throw new Error(`download failed (HTTP ${response.status}): ${asset.url}`);
@@ -38,9 +33,7 @@ export async function downloadVerifiedAsset(
     if (asset.sha256) {
         const actualSha = sha256Hex(buffer);
         if (actualSha !== asset.sha256) {
-            throw new Error(
-                `sha256 mismatch for ${asset.url}\n  want ${asset.sha256}\n  got  ${actualSha}`,
-            );
+            throw new Error(`sha256 mismatch for ${asset.url}\n  want ${asset.sha256}\n  got  ${actualSha}`);
         }
     }
     return buffer;

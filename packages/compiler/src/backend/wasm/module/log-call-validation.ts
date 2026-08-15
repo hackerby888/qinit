@@ -12,12 +12,7 @@ const MIGRATION_IMPLEMENTATION = "__impl_migrate";
 // Entries taking this context are functions; procedures take QpiContextProcedureCall.
 const QPI_FUNCTION_CONTEXT = "QpiContextFunctionCall";
 
-const LOG_INTRINSICS: ReadonlySet<string> = new Set([
-    "__qinit_log_error",
-    "__qinit_log_warning",
-    "__qinit_log_info",
-    "__qinit_log_debug",
-]);
+const LOG_INTRINSICS: ReadonlySet<string> = new Set(["__qinit_log_error", "__qinit_log_warning", "__qinit_log_info", "__qinit_log_debug"]);
 
 // The magic names a payload can be rooted at, bound the way function emission binds them.
 interface PayloadRoots {
@@ -67,14 +62,8 @@ export function validateLogCalls(prepared: PreparedContractModule): void {
 
 // A log is recorded against the current transaction, which a function is never invoked by.
 // Lifecycle hooks share the function context type but do run inside tick processing.
-function logsCannotReachTheChain(
-    prepared: PreparedContractModule,
-    declaration: FunctionDecl,
-): boolean {
-    if (
-        declaration.name === MIGRATION_IMPLEMENTATION ||
-        prepared.systemProcedureIndex.idsByImplementation.has(declaration.name)
-    ) {
+function logsCannotReachTheChain(prepared: PreparedContractModule, declaration: FunctionDecl): boolean {
+    if (declaration.name === MIGRATION_IMPLEMENTATION || prepared.systemProcedureIndex.idsByImplementation.has(declaration.name)) {
         return false;
     }
 
@@ -139,12 +128,7 @@ function collectPayloadRoots(prepared: PreparedContractModule): Map<string, Payl
     return rootsByFunction;
 }
 
-function checkLogStatement(
-    programAnalysis: ProgramAnalysis,
-    roots: PayloadRoots,
-    unreachable: boolean,
-    statement: Statement,
-): void {
+function checkLogStatement(programAnalysis: ProgramAnalysis, roots: PayloadRoots, unreachable: boolean, statement: Statement): void {
     if (statement.kind !== AstKind.EXPRESSION) {
         return;
     }
@@ -166,10 +150,7 @@ function checkLogStatement(
     }
 
     if (unreachable) {
-        programAnalysis.error(
-            `${call.callee.name} is not available in a function; logs are paired with a transaction`,
-            argument.span ?? statement.span,
-        );
+        programAnalysis.error(`${call.callee.name} is not available in a function; logs are paired with a transaction`, argument.span ?? statement.span);
         return;
     }
 
@@ -179,28 +160,19 @@ function checkLogStatement(
         return;
     }
 
-    const defect = payload.layout
-        ? logPayloadDefect(payload.layout)
-        : scalarPayloadDefect(payload.type);
+    const defect = payload.layout ? logPayloadDefect(payload.layout) : scalarPayloadDefect(payload.type);
 
     if (!defect) {
         return;
     }
 
     // The argument span survives the preprocessed-to-source remap; the callee's column does not.
-    programAnalysis.error(
-        logPayloadMessage(call.callee.name, defect),
-        argument.span ?? statement.span,
-    );
+    programAnalysis.error(logPayloadMessage(call.callee.name, defect), argument.span ?? statement.span);
 }
 
 // ponytail: depth-1 payloads only (locals.x / state.get().x); deeper chains need codegen's typedef
 // and template member-type resolution, so they fall through to the codegen check.
-function resolvePayload(
-    programAnalysis: ProgramAnalysis,
-    roots: PayloadRoots,
-    expression: Expression,
-): ResolvedPayload | null {
+function resolvePayload(programAnalysis: ProgramAnalysis, roots: PayloadRoots, expression: Expression): ResolvedPayload | null {
     const direct = rootLayout(roots, expression);
 
     if (direct) {

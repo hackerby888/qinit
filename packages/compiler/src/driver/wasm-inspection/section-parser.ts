@@ -1,15 +1,7 @@
 import { WasmExternalKind, WasmLimitKind, WasmMemorySource } from "../../shared/enums";
 import { Reader, WasmParseError, error } from "./binary-reader";
 import type { ParsedModule } from "./parsed-module";
-import {
-    readConstExpression,
-    readGlobalType,
-    readInstruction,
-    readLimits,
-    readTableType,
-    readValueType,
-    readValueTypeVector,
-} from "./instruction-parser";
+import { readConstExpression, readGlobalType, readInstruction, readLimits, readTableType, readValueType, readValueTypeVector } from "./instruction-parser";
 import type { WasmFunctionSignature } from "./inspection-types";
 import { signature } from "./inspection-types";
 
@@ -17,8 +9,7 @@ export function parseTypeSection(reader: Reader, parsed: ParsedModule): void {
     const count = reader.u32("type count");
     for (let index = 0; index < count; index++) {
         const at = reader.pos;
-        if (reader.byte("function type form") !== 0x60)
-            throw new WasmParseError("type is not a function type", at);
+        if (reader.byte("function type form") !== 0x60) throw new WasmParseError("type is not a function type", at);
         const params = readValueTypeVector(reader, parsed, "parameter");
         const results = readValueTypeVector(reader, parsed, "result");
         if (results.length > 1) parsed.features.add("multi-value-results");
@@ -26,12 +17,7 @@ export function parseTypeSection(reader: Reader, parsed: ParsedModule): void {
     }
 }
 
-export function typeAt(
-    parsed: ParsedModule,
-    index: number,
-    context: string,
-    offset: number,
-): WasmFunctionSignature {
+export function typeAt(parsed: ParsedModule, index: number, context: string, offset: number): WasmFunctionSignature {
     const type = parsed.types[index];
     if (!type) throw new WasmParseError(`${context} refers to missing type ${index}`, offset);
     return type;
@@ -167,19 +153,14 @@ export function parseElementSection(reader: Reader, parsed: ParsedModule): void 
         }
         readConstExpression(reader, parsed);
         const fnCount = reader.u32("element function count");
-        for (let nestedIndex = 0; nestedIndex < fnCount; nestedIndex++)
-            reader.u32("element function index");
+        for (let nestedIndex = 0; nestedIndex < fnCount; nestedIndex++) reader.u32("element function index");
     }
 }
 
 export function parseCodeSection(reader: Reader, parsed: ParsedModule): void {
     const count = reader.u32("code body count");
     if (count !== parsed.definedFunctionCount) {
-        error(
-            parsed.diagnostics,
-            "malformed-module",
-            `function section declares ${parsed.definedFunctionCount} bodies but code section has ${count}`,
-        );
+        error(parsed.diagnostics, "malformed-module", `function section declares ${parsed.definedFunctionCount} bodies but code section has ${count}`);
     }
     for (let index = 0; index < count; index++) {
         const size = reader.u32("function body size");
@@ -199,12 +180,7 @@ export function parseCodeSection(reader: Reader, parsed: ParsedModule): void {
             }
         }
         if (!opaque && lastOpcode !== 0x0b) {
-            error(
-                parsed.diagnostics,
-                "malformed-module",
-                `function body ${index} does not end with end`,
-                body.end - 1,
-            );
+            error(parsed.diagnostics, "malformed-module", `function body ${index} does not end with end`, body.end - 1);
         }
     }
 }

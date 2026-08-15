@@ -26,19 +26,11 @@ export function Clean({ commandArgs }: { commandArgs: CommandArguments }) {
             try {
                 if (dry) {
                     const info = cacheInfo();
-                    setS(
-                        info.exists
-                            ? { phase: "done", items: info.items, total: info.total, killed: false }
-                            : { phase: "empty" },
-                    );
+                    setS(info.exists ? { phase: "done", items: info.items, total: info.total, killed: false } : { phase: "empty" });
                     return;
                 }
                 const w = await wipeCache();
-                setS(
-                    w.exists
-                        ? { phase: "done", items: w.items, total: w.total, killed: w.killed }
-                        : { phase: "empty" },
-                );
+                setS(w.exists ? { phase: "done", items: w.items, total: w.total, killed: w.killed } : { phase: "empty" });
             } catch (e: any) {
                 setS({ phase: "err", err: String(e?.message ?? e) });
             }
@@ -61,10 +53,7 @@ export function Clean({ commandArgs }: { commandArgs: CommandArguments }) {
             {s.phase === "err" && <Text color={theme.err}>ERROR: {s.err}</Text>}
             {s.phase === "done" && (
                 <Box flexDirection="column">
-                    <Status
-                        ok={dry ? null : true}
-                        label={dry ? `would free ${human(s.total!)}` : `freed ${human(s.total!)}`}
-                    />
+                    <Status ok={dry ? null : true} label={dry ? `would free ${human(s.total!)}` : `freed ${human(s.total!)}`} />
                     {s.items!.length ? (
                         <Box marginLeft={2}>
                             <KV rows={s.items!.map((i) => [i.name, human(i.sz)])} />

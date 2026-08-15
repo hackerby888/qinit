@@ -117,9 +117,7 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
                 qpiHeader: HEADERS,
                 arenaSizeBytes: 4 * 1024 * 1024,
             });
-            expect(
-                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-            ).toHaveLength(0);
+            expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
             // Mock reply for query value 42: echoedValue=42, doubledValue=84 (16 bytes LE).
             const reply = new Uint8Array(16);
@@ -156,9 +154,7 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
                 const b = ours[phase];
                 const firstDiff = a.findIndex((v, i) => b[i] !== v);
                 if (firstDiff >= 0) {
-                    console.log(
-                        `  ${phase} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`,
-                    );
+                    console.log(`  ${phase} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`);
                 }
                 expect(firstDiff).toBe(-1);
             }

@@ -6,16 +6,7 @@ import { Box, Text, useInput } from "ink";
 import { deriveIdentity, identityToBytes } from "@qinit/core";
 import { TX_TICK_OFFSET, sendTransfer, type SubmittedTx } from "@qinit/proto";
 import { resolveSeed } from "../../../config";
-import {
-    KV,
-    SectionHeader,
-    Spinner,
-    Status,
-    TextPrompt,
-    theme,
-    truncEnd,
-    truncMid,
-} from "../../../ui";
+import { KV, SectionHeader, Spinner, Status, TextPrompt, theme, truncEnd, truncMid } from "../../../ui";
 import { SectionBody, errText, fmtAmount, type ViewProps } from "./chrome";
 
 // Ask for more than either backend holds so the whole pool always arrives. Never 0: core reads that as
@@ -70,15 +61,9 @@ export interface FundedPool {
 // An identity as sender carries no private key, so its seed has to come out of the node's funded pool.
 // A node without the route and a genuine miss are different failures and must never share a message —
 // the routes are compile-gated on core, so "unavailable" is a real and common case.
-export function poolSeedForIdentity(
-    identity: string,
-    pool: FundedPool | null,
-    poolError: string,
-): string {
+export function poolSeedForIdentity(identity: string, pool: FundedPool | null, poolError: string): string {
     if (poolError) {
-        throw new Error(
-            `funded-seed route unavailable — the node is not a TESTNET build (${poolError})`,
-        );
+        throw new Error(`funded-seed route unavailable — the node is not a TESTNET build (${poolError})`);
     }
     if (!pool) {
         throw new Error("funded-seed pool has not loaded yet");
@@ -87,9 +72,7 @@ export function poolSeedForIdentity(
     const seed = pool.seedByIdentity.get(identity);
     if (!seed) {
         const scope =
-            pool.received < pool.total
-                ? `the node returned only ${pool.received} of ${pool.total} pool seeds`
-                : `the pool holds ${pool.total} seed(s)`;
+            pool.received < pool.total ? `the node returned only ${pool.received} of ${pool.total} pool seeds` : `the pool holds ${pool.total} seed(s)`;
         throw new Error(`not in the node's funded-seed pool — ${scope}`);
     }
 
@@ -140,15 +123,7 @@ function shapeHint(kind: WalletInputKind, value: string): string {
 // Every hint must stay on one row: the shell budgets body rows by counting them, so a line that wraps
 // pushes the control bar off-screen. A 60-character identity plus a balance overflows 80 columns, and the
 // balance is the part worth keeping, so the identity is what gives.
-function HintLine({
-    state,
-    extra,
-    columns,
-}: {
-    state: PartyState;
-    extra?: string;
-    columns: number;
-}) {
+function HintLine({ state, extra, columns }: { state: PartyState; extra?: string; columns: number }) {
     const budget = Math.max(20, columns - 4);
 
     if (state.status === "idle") {
@@ -229,21 +204,14 @@ export function WalletView({
         let alive = true;
 
         void (async () => {
-            const [poolResult, seedResult] = await Promise.allSettled([
-                rpc.fundedSeeds(FUNDED_POOL_LIMIT),
-                resolveSeed(rpc),
-            ]);
+            const [poolResult, seedResult] = await Promise.allSettled([rpc.fundedSeeds(FUNDED_POOL_LIMIT), resolveSeed(rpc)]);
             if (!alive) {
                 return;
             }
 
             if (poolResult.status === "fulfilled") {
                 const seeds = poolResult.value.seeds ?? [];
-                const entries = await Promise.all(
-                    seeds.map(
-                        async (seed) => [(await deriveIdentity(seed)).identity, seed] as const,
-                    ),
-                );
+                const entries = await Promise.all(seeds.map(async (seed) => [(await deriveIdentity(seed)).identity, seed] as const));
                 if (!alive) {
                     return;
                 }
@@ -288,8 +256,7 @@ export function WalletView({
         void (async () => {
             try {
                 const identity = kind === "seed" ? (await deriveIdentity(value)).identity : value;
-                const seed =
-                    kind === "seed" ? value : poolSeedForIdentity(identity, pool, poolError);
+                const seed = kind === "seed" ? value : poolSeedForIdentity(identity, pool, poolError);
                 const entity = await rpc.balance(identity);
                 if (!alive) {
                     return;
@@ -341,10 +308,7 @@ export function WalletView({
                 if (alive) {
                     setTo({
                         status: "error",
-                        message:
-                            kind === "identity"
-                                ? "checksum does not match — one character is mistyped"
-                                : errText(error),
+                        message: kind === "identity" ? "checksum does not match — one character is mistyped" : errText(error),
                     });
                 }
             }
@@ -495,8 +459,7 @@ export function WalletView({
     }
 
     const balanceHint = balance != null ? `${fmtAmount(balance.toString())} qu` : undefined;
-    const remaining =
-        balance != null && amount.status === "ok" ? balance - BigInt(amount.qu as number) : null;
+    const remaining = balance != null && amount.status === "ok" ? balance - BigInt(amount.qu as number) : null;
     const editing = stage === "edit";
 
     if (stage === "sending" || stage === "result") {
@@ -515,13 +478,7 @@ export function WalletView({
                     {stage === "sending" ? (
                         <Box marginTop={1}>
                             <Text color={theme.brand}>
-                                <Spinner
-                                    label={
-                                        progress
-                                            ? `settling — tick ${progress.tick} of ${progress.target}`
-                                            : "broadcasting"
-                                    }
-                                />
+                                <Spinner label={progress ? `settling — tick ${progress.tick} of ${progress.target}` : "broadcasting"} />
                             </Text>
                         </Box>
                     ) : (
@@ -537,11 +494,7 @@ export function WalletView({
             <SectionHeader
                 title="wallet"
                 detail="seed or identity · amounts in whole qu"
-                error={
-                    poolError
-                        ? "funded-seed pool unavailable — identities cannot be resolved to seeds"
-                        : ""
-                }
+                error={poolError ? "funded-seed pool unavailable — identities cannot be resolved to seeds" : ""}
                 width={columns}
             />
             <SectionBody>
@@ -557,14 +510,7 @@ export function WalletView({
                         <HintLine
                             state={from}
                             columns={columns}
-                            extra={
-                                from.status === "ok"
-                                    ? balanceHint
-                                    : shapeHint(
-                                          classifyWalletInput(fromInput.trim()),
-                                          fromInput.trim(),
-                                      )
-                            }
+                            extra={from.status === "ok" ? balanceHint : shapeHint(classifyWalletInput(fromInput.trim()), fromInput.trim())}
                         />
                     }
                 />
@@ -574,13 +520,7 @@ export function WalletView({
                     isActive={editing && focus === 1}
                     onChange={setToInput}
                     onSubmit={() => advance(1)}
-                    hint={
-                        <HintLine
-                            state={to}
-                            columns={columns}
-                            extra={shapeHint(classifyWalletInput(toInput.trim()), toInput.trim())}
-                        />
-                    }
+                    hint={<HintLine state={to} columns={columns} extra={shapeHint(classifyWalletInput(toInput.trim()), toInput.trim())} />}
                 />
                 <TextPrompt
                     label="amount — whole qu, or `max`"
@@ -617,12 +557,7 @@ export function WalletView({
                                 ["from", from.identity ?? "—"],
                                 ["to", to.identity ?? "—"],
                                 ["amount", `${fmtAmount(String(amount.qu ?? 0))} qu`],
-                                [
-                                    "leaves",
-                                    remaining != null
-                                        ? `${fmtAmount(remaining.toString())} qu`
-                                        : "—",
-                                ],
+                                ["leaves", remaining != null ? `${fmtAmount(remaining.toString())} qu` : "—"],
                                 ["tick", targetTick != null ? String(targetTick) : "next tick + 3"],
                             ]}
                         />
@@ -656,9 +591,7 @@ function AmountHint({ amount, remaining }: { amount: AmountState; remaining: big
     return (
         <Text>
             <Text color={theme.ok}>{`${fmtAmount(String(amount.qu))} qu`}</Text>
-            {remaining != null ? (
-                <Text dimColor>{`  ·  leaves ${fmtAmount(remaining.toString())}`}</Text>
-            ) : null}
+            {remaining != null ? <Text dimColor>{`  ·  leaves ${fmtAmount(remaining.toString())}`}</Text> : null}
         </Text>
     );
 }
@@ -689,9 +622,7 @@ function ResultBlock({ result, error }: { result: SubmittedTx | null; error: str
     return (
         <Box flexDirection="column" marginTop={1}>
             <Status ok={ok} label={detail} />
-            {result.moneyFlew != null ? (
-                <Text dimColor>{`money moved: ${result.moneyFlew ? "yes" : "no"}`}</Text>
-            ) : null}
+            {result.moneyFlew != null ? <Text dimColor>{`money moved: ${result.moneyFlew ? "yes" : "no"}`}</Text> : null}
             <Text dimColor>{result.txId ?? "—"}</Text>
             <Text>
                 {result.txId ? (

@@ -41,9 +41,7 @@ export function parseContractDefinitions(definitionSource: string): ParsedContra
     };
 }
 
-function descriptionsFromDefinitions(
-    definitions: ParsedContractDefinitions,
-): SystemContractDescription[] {
+function descriptionsFromDefinitions(definitions: ParsedContractDefinitions): SystemContractDescription[] {
     return [...definitions.names]
         .sort((left, right) => left[0] - right[0])
         .flatMap(([index, name]) => {
@@ -170,15 +168,11 @@ export function systemContractClosure(coreRoot: string, name: string): SystemCon
 
     const target = contractsByIdentifier.get(name.toLowerCase());
     if (!target) {
-        throw new Error(
-            `unknown system contract '${name}' — have: ${catalog.map((contract) => contract.name).join(", ")}`,
-        );
+        throw new Error(`unknown system contract '${name}' — have: ${catalog.map((contract) => contract.name).join(", ")}`);
     }
 
     const qpiHeader = loadQpiHeader(coreRoot);
-    const knownCallees = new Set(
-        catalog.flatMap((contract) => [contract.name, contract.stateType]),
-    );
+    const knownCallees = new Set(catalog.flatMap((contract) => [contract.name, contract.stateType]));
     const visited = new Set<number>();
     const visiting: SystemContract[] = [];
     const ordered: SystemContract[] = [];
@@ -190,9 +184,7 @@ export function systemContractClosure(coreRoot: string, name: string): SystemCon
 
         const cycleIndex = visiting.findIndex((candidate) => candidate.index === contract.index);
         if (cycleIndex >= 0) {
-            const cycle = [...visiting.slice(cycleIndex), contract]
-                .map((candidate) => candidate.name)
-                .join(" -> ");
+            const cycle = [...visiting.slice(cycleIndex), contract].map((candidate) => candidate.name).join(" -> ");
             throw new Error(`system contract dependency cycle: ${cycle}`);
         }
 
@@ -209,9 +201,7 @@ export function systemContractClosure(coreRoot: string, name: string): SystemCon
         for (const reference of references) {
             const dependency = contractsByIdentifier.get(reference.toLowerCase());
             if (!dependency) {
-                throw new Error(
-                    `system contract ${contract.name} references unknown contract '${reference}'`,
-                );
+                throw new Error(`system contract ${contract.name} references unknown contract '${reference}'`);
             }
             if (dependency.index === contract.index) {
                 continue;

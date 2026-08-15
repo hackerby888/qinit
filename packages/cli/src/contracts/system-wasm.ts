@@ -3,12 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { cacheRoot, readCurrent } from "@qinit/core";
-import {
-    buildSystemContract,
-    systemContracts,
-    type SystemContract,
-    type SystemContractCompiler,
-} from "@qinit/build";
+import { buildSystemContract, systemContracts, type SystemContract, type SystemContractCompiler } from "@qinit/build";
 import { resolveCoreDir } from "../config";
 
 export function systemCatalog(core?: string): SystemContract[] {
@@ -28,21 +23,14 @@ export async function systemWasm(
     const corePath = core ?? resolveCoreDir();
     const current = readCurrent();
     const cacheable =
-        core === undefined &&
-        current?.coreHeaders !== undefined &&
-        current.headersVersion !== undefined &&
-        resolve(current.coreHeaders) === resolve(corePath);
+        core === undefined && current?.coreHeaders !== undefined && current.headersVersion !== undefined && resolve(current.coreHeaders) === resolve(corePath);
     const catalog = systemContracts(corePath);
     const c = catalog.find((x) => x.name.toLowerCase() === name.toLowerCase());
     if (!c) {
-        throw new Error(
-            `unknown system contract '${name}' — have: ${catalog.map((x) => x.name).join(", ")}`,
-        );
+        throw new Error(`unknown system contract '${name}' — have: ${catalog.map((x) => x.name).join(", ")}`);
     }
 
-    const dir = cacheable
-        ? cacheDir(compiler, current.headersVersion!)
-        : mkdtempSync(join(tmpdir(), "qinit-system-wasm-"));
+    const dir = cacheable ? cacheDir(compiler, current.headersVersion!) : mkdtempSync(join(tmpdir(), "qinit-system-wasm-"));
     const file = join(dir, `${c.index}_${c.name}.wasm`);
     if (cacheable && existsSync(file)) {
         return { index: c.index, name: c.name, wasm: new Uint8Array(readFileSync(file)) };

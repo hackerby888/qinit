@@ -27,9 +27,7 @@ export function resolveCoreDir(cliCoreDir?: string, configCoreDir?: string): str
     if (explicit) return resolve(explicit);
     const cur = readCurrent();
     if (cur?.coreHeaders && existsSync(cur.coreHeaders)) return cur.coreHeaders;
-    throw new Error(
-        "no core headers: run `qinit setup` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>",
-    );
+    throw new Error("no core headers: run `qinit setup` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>");
 }
 
 // Lean, Bun-free re-exports of the toolchain readers, so a consumer can import everything

@@ -148,12 +148,7 @@ export function validateContractIndexSignature(bytes: Uint8Array): void {
 
     const functionTypes = [...importedFunctionTypes, ...definedFunctionTypes];
     const type = types[functionTypes[contractIndexExport.index]];
-    if (
-        !type ||
-        type.params.length !== 0 ||
-        type.results.length !== 1 ||
-        type.results[0] !== 0x7f
-    ) {
+    if (!type || type.params.length !== 0 || type.results.length !== 1 || type.results[0] !== 0x7f) {
         throw new Error("contract_index export must have signature () -> i32");
     }
 }

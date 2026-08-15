@@ -7,12 +7,8 @@ export function evalIfCondition(preprocessor: Preprocessor): boolean {
 
 export function evalConstCondition(preprocessor: Preprocessor, expression: string): bigint {
     // Replace defined(X) / defined X → 1/0
-    let text = expression.replace(/defined\s*\(\s*(\w+)\s*\)/g, (_m, exprItemIndex) =>
-        preprocessor.defines.has(exprItemIndex) ? "1" : "0",
-    );
-    text = text.replace(/defined\s+(\w+)/g, (_m, sItemIndex) =>
-        preprocessor.defines.has(sItemIndex) ? "1" : "0",
-    );
+    let text = expression.replace(/defined\s*\(\s*(\w+)\s*\)/g, (_m, exprItemIndex) => (preprocessor.defines.has(exprItemIndex) ? "1" : "0"));
+    text = text.replace(/defined\s+(\w+)/g, (_m, sItemIndex) => (preprocessor.defines.has(sItemIndex) ? "1" : "0"));
     // Expand remaining identifiers: a defined macro's body if numeric, else 0.
     text = text.replace(/\b([A-Za-z_]\w*)\b/g, (_m, id) => {
         if (id === "true") return "1";
@@ -65,11 +61,7 @@ export function evalArith(text: string): bigint {
         "/": 10,
         "%": 10,
     };
-    const apply = (
-        numericValue: bigint,
-        operator: string,
-        numericValueCandidate: bigint,
-    ): bigint => {
+    const apply = (numericValue: bigint, operator: string, numericValueCandidate: bigint): bigint => {
         switch (operator) {
             case "||":
                 return numericValue !== 0n || numericValueCandidate !== 0n ? 1n : 0n;

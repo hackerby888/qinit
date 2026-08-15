@@ -10,28 +10,13 @@ import type { QpiByteSource } from "./source";
 type AbiContainerType = Extract<
     AbiType,
     {
-        kind:
-            | AbiTypeKind.ARRAY
-            | AbiTypeKind.BIT_ARRAY
-            | AbiTypeKind.HASH_MAP
-            | AbiTypeKind.HASH_SET
-            | AbiTypeKind.COLLECTION
-            | AbiTypeKind.LINKED_LIST;
+        kind: AbiTypeKind.ARRAY | AbiTypeKind.BIT_ARRAY | AbiTypeKind.HASH_MAP | AbiTypeKind.HASH_SET | AbiTypeKind.COLLECTION | AbiTypeKind.LINKED_LIST;
     }
 >;
 
-export type QpiContainerView =
-    | QpiArrayView
-    | QpiBitArrayView
-    | QpiCollectionView
-    | QpiHashMapView
-    | QpiHashSetView
-    | QpiLinkedListView;
+export type QpiContainerView = QpiArrayView | QpiBitArrayView | QpiCollectionView | QpiHashMapView | QpiHashSetView | QpiLinkedListView;
 
-export function createQpiContainerView(
-    type: AbiContainerType,
-    source: QpiByteSource,
-): QpiContainerView {
+export function createQpiContainerView(type: AbiContainerType, source: QpiByteSource): QpiContainerView {
     switch (type.kind) {
         case AbiTypeKind.ARRAY:
             return new QpiArrayView(type, source);

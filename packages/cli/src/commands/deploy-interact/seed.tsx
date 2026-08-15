@@ -55,9 +55,7 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
 
                     const id = (await deriveIdentity(s)).identity;
                     const balance = await rpc.balance(id);
-                    add(
-                        `saved seed: ${s}\n  identity: ${id}\n  balance: ${formatSeedBalance(balance.balance)}`,
-                    );
+                    add(`saved seed: ${s}\n  identity: ${id}\n  balance: ${formatSeedBalance(balance.balance)}`);
                     setPhase("done");
                     return;
                 }
@@ -71,16 +69,11 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
                     return;
                 }
                 if (!process.stdin.isTTY) {
-                    throw new Error(
-                        "no terminal to pick in — pass the seed instead: qinit seed <seed>",
-                    );
+                    throw new Error("no terminal to pick in — pass the seed instead: qinit seed <seed>");
                 }
 
                 const r = await rpc.fundedSeeds(32);
-                if (!r.seeds?.length)
-                    throw new Error(
-                        "node returned no funded seeds (needs a testnet node with broadcastedComputorSeeds)",
-                    );
+                if (!r.seeds?.length) throw new Error("node returned no funded seeds (needs a testnet node with broadcastedComputorSeeds)");
                 setItems(
                     await Promise.all(
                         r.seeds.map(async (seed) => {
@@ -159,12 +152,7 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
                             current: <Text color={theme.ok}>{cur}</Text>
                         </Text>
                     ) : null}
-                    <Box
-                        borderStyle="round"
-                        borderColor={theme.brand}
-                        paddingX={1}
-                        flexDirection="column"
-                    >
+                    <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
                         {items.slice(Math.max(0, start), Math.max(0, start) + WIN).map((it, k) => {
                             const idx = start + k,
                                 sel = idx === i;
@@ -183,9 +171,7 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
                                     <Text dimColor>
                                         {"  "}
                                         {it.seed}
-                                        {it.seed === cur ? (
-                                            <Text color={theme.ok}> ✓ current</Text>
-                                        ) : null}
+                                        {it.seed === cur ? <Text color={theme.ok}> ✓ current</Text> : null}
                                     </Text>
                                 </Box>
                             );

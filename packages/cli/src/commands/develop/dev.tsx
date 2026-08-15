@@ -3,12 +3,7 @@ import { Box, Text, useApp, useInput } from "ink";
 import { resolve, basename } from "node:path";
 import { readdirSync, statSync } from "node:fs";
 import { loadConfig, resolveCoreDir, resolveCompilerBackend } from "../../config";
-import {
-    STEPS,
-    updateDeploymentSteps,
-    type DeploymentEvent,
-    type DeploymentStepState,
-} from "../../ops/deploy";
+import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentStepState } from "../../ops/deploy";
 import { deployProjectContracts, type ProjectDeployResult } from "../../ops/project-deploy";
 import { nodeContracts } from "../../ops/node";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
@@ -21,16 +16,8 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
     const cfg = loadConfig();
     const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
-    const contractPath = resolve(
-        commandArgs.get("contract") ??
-            commandArgs.positionals[0] ??
-            cfg.contract ??
-            "fixtures/Counter.h",
-    );
-    const contractName =
-        commandArgs.get("contract-name") ??
-        cfg.contractName ??
-        basename(contractPath).replace(/\.[^.]+$/, "");
+    const contractPath = resolve(commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract ?? "fixtures/Counter.h");
+    const contractName = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
     const dynCallees = parseCallees(commandArgs.getAll("callee"));
     const seed = commandArgs.get("seed");
     const skipVerify = commandArgs.has("skip-verify");
@@ -124,11 +111,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
             }
         };
         const watchedFiles = () => [
-            ...new Set([
-                contractPath,
-                ...contractHeaders(resolve("contracts")),
-                ...Object.values(dynCallees).map((callee) => callee.header),
-            ]),
+            ...new Set([contractPath, ...contractHeaders(resolve("contracts")), ...Object.values(dynCallees).map((callee) => callee.header)]),
         ];
         const mtime = (f: string) => {
             try {
@@ -141,9 +124,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
         let t: ReturnType<typeof setTimeout>;
         const iv = setInterval(() => {
             const current = new Map(watchedFiles().map((file) => [file, mtime(file)]));
-            const changed =
-                current.size !== seen.size ||
-                [...current].some(([file, modifiedAt]) => seen.get(file) !== modifiedAt);
+            const changed = current.size !== seen.size || [...current].some(([file, modifiedAt]) => seen.get(file) !== modifiedAt);
             if (changed) {
                 seen.clear();
                 for (const [file, modifiedAt] of current) {
@@ -196,13 +177,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
 
     const ok = result?.ok;
     const runNo = busy ? runs + 1 : runs;
-    const lastText = result
-        ? ok
-            ? "armed ✓"
-            : `failed: ${result.reason ?? result.error ?? "?"}`
-        : busy
-          ? "deploying…"
-          : "idle";
+    const lastText = result ? (ok ? "armed ✓" : `failed: ${result.reason ?? result.error ?? "?"}`) : busy ? "deploying…" : "idle";
     const lastColor = ok ? theme.ok : result ? theme.err : busy ? theme.info : theme.mute;
     const live = tick != null;
     const pipeColor = busy ? theme.info : ok ? theme.ok : result ? theme.err : theme.info;
@@ -246,16 +221,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
                 <Panel title={busy ? `run #${runNo}  …` : "pipeline"} color={pipeColor}>
                     {STEPS.map(({ key, label }) => {
                         const s = steps[key] ?? { state: "pending" as StepState };
-                        return (
-                            <StepRow
-                                key={key}
-                                state={s.state}
-                                label={label}
-                                detail={s.detail}
-                                pct={s.pct}
-                                elapsedMs={s.elapsedMs}
-                            />
-                        );
+                        return <StepRow key={key} state={s.state} label={label} detail={s.detail} pct={s.pct} elapsedMs={s.elapsedMs} />;
                     })}
                 </Panel>
             </Box>
@@ -264,11 +230,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
                 <Box marginTop={1}>
                     <Panel title="notes" color={theme.warn}>
                         {notes.slice(-4).map((n, i) => (
-                            <Text
-                                key={i}
-                                color={isErr(n) ? theme.err : undefined}
-                                dimColor={!isErr(n)}
-                            >
+                            <Text key={i} color={isErr(n) ? theme.err : undefined} dimColor={!isErr(n)}>
                                 {n}
                             </Text>
                         ))}

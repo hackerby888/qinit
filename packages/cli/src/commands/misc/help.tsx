@@ -2,27 +2,10 @@ import { useEffect } from "react";
 import { Box, Text, useApp } from "ink";
 import { VERSION } from "../../version";
 import { Banner, Header, theme } from "../../ui";
-import {
-    META,
-    GROUP_ORDER,
-    COMMANDS,
-    commandOptions,
-    optionSyntax,
-    type OptionMeta,
-    type CommandMeta,
-    type CommandName,
-} from "../../meta";
+import { META, GROUP_ORDER, COMMANDS, commandOptions, optionSyntax, type OptionMeta, type CommandMeta, type CommandName } from "../../meta";
 
 // Global help — grouped by workflow stage (from meta.ts) so it reads top-to-bottom as you'd use qinit.
-export function Help({
-    unknown,
-    command,
-    suggestion,
-}: {
-    unknown?: boolean;
-    command?: string;
-    suggestion?: string;
-}) {
+export function Help({ unknown, command, suggestion }: { unknown?: boolean; command?: string; suggestion?: string }) {
     const { exit } = useApp();
     useEffect(() => {
         // An invocation qinit could not resolve has to fail, so a typo in a script is not a success.
@@ -41,8 +24,7 @@ export function Help({
             {unknown && !command?.startsWith("-") && (
                 <Box marginBottom={1} flexDirection="column">
                     <Text>
-                        <Text color={theme.warn}>✗ unknown command:</Text>{" "}
-                        <Text bold>{command}</Text>
+                        <Text color={theme.warn}>✗ unknown command:</Text> <Text bold>{command}</Text>
                     </Text>
                     {suggestion && (
                         <Text>
@@ -58,8 +40,8 @@ export function Help({
             )}
             <Banner version={VERSION} tagline="Framework for Qubic dynamic contracts" />
             <Text dimColor>
-                usage: <Text color={theme.info}>qinit</Text> &lt;command&gt; [args] ·{" "}
-                <Text color={theme.info}>qinit &lt;command&gt; --help</Text> for a command's flags
+                usage: <Text color={theme.info}>qinit</Text> &lt;command&gt; [args] · <Text color={theme.info}>qinit &lt;command&gt; --help</Text> for a
+                command's flags
             </Text>
             {groups.map((g) => (
                 <Box key={g.title} marginTop={1} flexDirection="column">
@@ -80,11 +62,7 @@ export function Help({
                                 {m.examples?.map((line, i) => (
                                     <Text key={i}>
                                         {pad}
-                                        {line.startsWith("qinit ") ? (
-                                            <Text color={theme.info}>{line}</Text>
-                                        ) : (
-                                            <Text dimColor>{line}</Text>
-                                        )}
+                                        {line.startsWith("qinit ") ? <Text color={theme.info}>{line}</Text> : <Text dimColor>{line}</Text>}
                                     </Text>
                                 ))}
                             </Box>
@@ -103,9 +81,7 @@ export function Usage({ command, subcommand }: { command: CommandName; subcomman
         exit();
     }, [exit]);
     const m: CommandMeta = META[command];
-    const options: OptionMeta[] = commandOptions(command, subcommand).filter(
-        (option) => !option.hidden,
-    );
+    const options: OptionMeta[] = commandOptions(command, subcommand).filter((option) => !option.hidden);
     if (m.json) {
         options.push({
             name: "json",
@@ -113,9 +89,7 @@ export function Usage({ command, subcommand }: { command: CommandName; subcomman
             description: "emit a machine-readable result (implies --plain)",
         });
     }
-    const width = options.length
-        ? Math.max(...options.map((option) => optionSyntax(option).length)) + 2
-        : 0;
+    const width = options.length ? Math.max(...options.map((option) => optionSyntax(option).length)) + 2 : 0;
     return (
         <Box flexDirection="column">
             <Header cmd={subcommand ? `${command} ${subcommand}` : command} />
@@ -152,11 +126,7 @@ export function Usage({ command, subcommand }: { command: CommandName; subcomman
                     {m.examples.map((line, i) => (
                         <Text key={i}>
                             {"  "}
-                            {line.startsWith("qinit ") ? (
-                                <Text color={theme.info}>{line}</Text>
-                            ) : (
-                                <Text dimColor>{line}</Text>
-                            )}
+                            {line.startsWith("qinit ") ? <Text color={theme.info}>{line}</Text> : <Text dimColor>{line}</Text>}
                         </Text>
                     ))}
                 </Box>

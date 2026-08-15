@@ -9,11 +9,7 @@ export class ContractLayoutResolver {
     constructor(private readonly programAnalysis: ProgramAnalysis) {}
 
     hasType(name: string): boolean {
-        return (
-            this.programAnalysis["nested"].has(name) ||
-            this.programAnalysis.typedefs.has(name) ||
-            this.programAnalysis.globalStructs.has(name)
-        );
+        return this.programAnalysis["nested"].has(name) || this.programAnalysis.typedefs.has(name) || this.programAnalysis.globalStructs.has(name);
     }
 
     resolve(name: string): StructLayout {

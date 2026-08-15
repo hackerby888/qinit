@@ -13,10 +13,7 @@ import {
     type CoreIntegrationStep,
 } from "../../ops/core-integration";
 
-type Metadata = Pick<
-    CoreIntegrationOptions,
-    "assetName" | "constructionEpoch" | "destructionEpoch"
->;
+type Metadata = Pick<CoreIntegrationOptions, "assetName" | "constructionEpoch" | "destructionEpoch">;
 
 type PromptField = keyof Metadata;
 
@@ -83,11 +80,7 @@ function parseEpoch(value: string, label: string): number {
 }
 
 function validateEpochOrder(metadata: Metadata): void {
-    if (
-        metadata.constructionEpoch !== undefined &&
-        metadata.destructionEpoch !== undefined &&
-        metadata.destructionEpoch <= metadata.constructionEpoch
-    ) {
+    if (metadata.constructionEpoch !== undefined && metadata.destructionEpoch !== undefined && metadata.destructionEpoch <= metadata.constructionEpoch) {
         throw new Error("destruction epoch must be later than construction epoch");
     }
 }
@@ -95,9 +88,7 @@ function validateEpochOrder(metadata: Metadata): void {
 export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
     const [state, setState] = useState<State>({ phase: "prepare" });
-    const [steps, setSteps] = useState<Record<CoreIntegrationStep, IntegrationStepView> | null>(
-        null,
-    );
+    const [steps, setSteps] = useState<Record<CoreIntegrationStep, IntegrationStepView> | null>(null);
 
     const finishWithError = (error: unknown) => {
         process.exitCode = 1;
@@ -129,11 +120,7 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
         });
     };
 
-    const execute = async (
-        context: CoreIntegrationContext,
-        metadata: Metadata,
-        promptWhenMetadataIsRequired = false,
-    ): Promise<void> => {
+    const execute = async (context: CoreIntegrationContext, metadata: Metadata, promptWhenMetadataIsRequired = false): Promise<void> => {
         try {
             validateEpochOrder(metadata);
             setSteps(initialSteps());
@@ -171,9 +158,7 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
                             },
                         };
                     });
-                    finishWithError(
-                        "new integration requires --asset and --construction-epoch without a terminal",
-                    );
+                    finishWithError("new integration requires --asset and --construction-epoch without a terminal");
                 }
                 return;
             }
@@ -190,21 +175,14 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
 
                 const projectRoot = process.cwd();
                 const config = loadConfig();
-                const selectedContract =
-                    commandArgs.get("contract") ?? commandArgs.positionals[0] ?? config.contract;
+                const selectedContract = commandArgs.get("contract") ?? commandArgs.positionals[0] ?? config.contract;
                 if (!selectedContract) {
                     throw new Error("pass a contract header: qinit integrate <file.h>");
                 }
 
                 const contractPath = resolve(projectRoot, selectedContract);
-                const contractName =
-                    commandArgs.get("contract-name") ??
-                    config.contractName ??
-                    basename(contractPath).replace(/\.[^.]+$/, "");
-                const outputPath = resolve(
-                    projectRoot,
-                    commandArgs.get("out") ?? `../${contractName}-core`,
-                );
+                const contractName = commandArgs.get("contract-name") ?? config.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
+                const outputPath = resolve(projectRoot, commandArgs.get("out") ?? `../${contractName}-core`);
                 const context: CoreIntegrationContext = {
                     projectRoot,
                     contractPath,
@@ -212,27 +190,17 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
                     outputPath,
                 };
                 const metadata: Metadata = {
-                    assetName: commandArgs.has("asset")
-                        ? parseAssetName(commandArgs.get("asset") ?? "")
-                        : undefined,
+                    assetName: commandArgs.has("asset") ? parseAssetName(commandArgs.get("asset") ?? "") : undefined,
                     constructionEpoch: commandArgs.has("construction-epoch")
-                        ? parseEpoch(
-                              commandArgs.get("construction-epoch") ?? "",
-                              "construction epoch",
-                          )
+                        ? parseEpoch(commandArgs.get("construction-epoch") ?? "", "construction epoch")
                         : undefined,
                     destructionEpoch: commandArgs.has("destruction-epoch")
-                        ? parseEpoch(
-                              commandArgs.get("destruction-epoch") ?? "",
-                              "destruction epoch",
-                          )
+                        ? parseEpoch(commandArgs.get("destruction-epoch") ?? "", "destruction epoch")
                         : undefined,
                 };
                 validateEpochOrder(metadata);
 
-                const interactive = Boolean(
-                    process.stdin.isTTY && process.stdout.isTTY && !output.json,
-                );
+                const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY && !output.json);
                 await execute(context, metadata, interactive);
             } catch (error) {
                 finishWithError(error);
@@ -269,12 +237,7 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
                 [field]:
                     field === "assetName"
                         ? parseAssetName(value)
-                        : parseEpoch(
-                              value,
-                              field === "constructionEpoch"
-                                  ? "construction epoch"
-                                  : "destruction epoch",
-                          ),
+                        : parseEpoch(value, field === "constructionEpoch" ? "construction epoch" : "destruction epoch"),
             };
             const nextIndex = state.index + 1;
             if (nextIndex === state.fields.length) {
@@ -311,25 +274,14 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
             {state.phase === "prepare" ? <Spinner label="checking Qubic Core target" /> : null}
             {state.phase === "prompt" && promptField ? (
                 <Box flexDirection="column">
-                    <TextPrompt
-                        key={promptField}
-                        label={promptLabel}
-                        initial={promptField === "destructionEpoch" ? "10000" : ""}
-                        onSubmit={submitPrompt}
-                    />
+                    <TextPrompt key={promptField} label={promptLabel} initial={promptField === "destructionEpoch" ? "10000" : ""} onSubmit={submitPrompt} />
                     {state.error ? <Text color={theme.err}>✗ {state.error}</Text> : null}
                 </Box>
             ) : null}
             {steps && state.phase !== "prompt" ? (
                 <Box flexDirection="column">
                     {INTEGRATION_STEPS.map(({ key, label }) => (
-                        <StepRow
-                            key={key}
-                            state={steps[key].state}
-                            label={label}
-                            detail={steps[key].detail}
-                            elapsedMs={steps[key].elapsedMs}
-                        />
+                        <StepRow key={key} state={steps[key].state} label={label} detail={steps[key].detail} elapsedMs={steps[key].elapsedMs} />
                     ))}
                 </Box>
             ) : null}
@@ -362,18 +314,11 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
                     <Text dimColor>next (Windows):</Text>
                     <Text color={theme.accent}>cd "{state.result.corePath}"</Text>
                     <Text color={theme.accent}>nuget restore Qubic.sln</Text>
-                    <Text color={theme.accent}>
-                        msbuild /m /p:Configuration=Release Qubic.sln /t:Qubic:Rebuild /warnaserror
-                    </Text>
+                    <Text color={theme.accent}>msbuild /m /p:Configuration=Release Qubic.sln /t:Qubic:Rebuild /warnaserror</Text>
                     {state.result.testPath ? (
                         <>
-                            <Text color={theme.accent}>
-                                msbuild /m /p:Configuration=Release Qubic.sln /t:test:Rebuild
-                                /warnaserror
-                            </Text>
-                            <Text color={theme.accent}>
-                                .\x64\Release\test.exe --gtest_filter={state.contractName}.*
-                            </Text>
+                            <Text color={theme.accent}>msbuild /m /p:Configuration=Release Qubic.sln /t:test:Rebuild /warnaserror</Text>
+                            <Text color={theme.accent}>.\x64\Release\test.exe --gtest_filter={state.contractName}.*</Text>
                         </>
                     ) : null}
                 </Box>

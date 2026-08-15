@@ -1,17 +1,7 @@
 // Locks bridge protocol sizes to core's fixed Qubic mainnet layouts.
 import { test, expect } from "bun:test";
-import {
-    MAX_NUMBER_OF_CONTRACTS,
-    TICKDATA_SIZE,
-    TXS_PER_TICK,
-    TICK_SIZE,
-} from "../../src/chain/consensus";
-import {
-    ASSETS_DEPTH,
-    TXS_PER_TICK as CODEC_TXS_PER_TICK,
-    CLI_NUMBER_OF_COMPUTORS,
-    SPECTRUM_DEPTH,
-} from "../../src/protocol/peer-codec";
+import { MAX_NUMBER_OF_CONTRACTS, TICKDATA_SIZE, TXS_PER_TICK, TICK_SIZE } from "../../src/chain/consensus";
+import { ASSETS_DEPTH, TXS_PER_TICK as CODEC_TXS_PER_TICK, CLI_NUMBER_OF_COMPUTORS, SPECTRUM_DEPTH } from "../../src/protocol/peer-codec";
 import {
     ASSETS_DEPTH as PROTOCOL_ASSETS_DEPTH,
     MAINNET_COMPUTOR_COUNT,
@@ -32,8 +22,7 @@ test("NUMBER_OF_TRANSACTIONS_PER_TICK is 4096 across consensus + codec", () => {
 });
 
 test("TickData is exactly 139376 bytes (the client's sizeof(TickData))", () => {
-    const computed =
-        TICKDATA_HEADER + TXS_PER_TICK * DIGEST_SIZE + CONTRACT_FEES_COUNT * 8 + SIG_SIZE;
+    const computed = TICKDATA_HEADER + TXS_PER_TICK * DIGEST_SIZE + CONTRACT_FEES_COUNT * 8 + SIG_SIZE;
     expect(computed).toBe(139376);
     expect(TICKDATA_SIZE).toBe(139376);
     expect(TICKDATA_SIZE).toBe(computed);

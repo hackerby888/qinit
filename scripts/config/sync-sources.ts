@@ -60,9 +60,7 @@ function readJson(path: string): unknown {
 }
 
 function record(value: unknown): Record<string, unknown> {
-    return value !== null && typeof value === "object" && !Array.isArray(value)
-        ? (value as Record<string, unknown>)
-        : {};
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function requireValue(value: unknown, name: string, pattern: RegExp): string {
@@ -92,28 +90,13 @@ export function loadSourceConfig(root: string): {
     if (branch.includes("..") || branch.includes("//") || branch.endsWith("/")) {
         throw new Error(`invalid qinit.defaultBranch: ${branch}`);
     }
-    const coreRepository = requireValue(
-        coreLite.repository,
-        "coreLite.repository",
-        repositoryPattern,
-    );
-    const developmentRef = requireValue(
-        coreLite.developmentRef,
-        "coreLite.developmentRef",
-        branchPattern,
-    );
-    if (
-        developmentRef.includes("..") ||
-        developmentRef.includes("//") ||
-        developmentRef.endsWith("/")
-    ) {
+    const coreRepository = requireValue(coreLite.repository, "coreLite.repository", repositoryPattern);
+    const developmentRef = requireValue(coreLite.developmentRef, "coreLite.developmentRef", branchPattern);
+    if (developmentRef.includes("..") || developmentRef.includes("//") || developmentRef.endsWith("/")) {
         throw new Error(`invalid coreLite.developmentRef: ${developmentRef}`);
     }
     const pinnedCommit = coreLite.pinnedCommit;
-    if (
-        typeof pinnedCommit !== "string" ||
-        (pinnedCommit !== "" && !commitPattern.test(pinnedCommit))
-    ) {
+    if (typeof pinnedCommit !== "string" || (pinnedCommit !== "" && !commitPattern.test(pinnedCommit))) {
         throw new Error("coreLite.pinnedCommit must be empty or a full lowercase commit SHA");
     }
 
@@ -129,11 +112,7 @@ export function loadSourceConfig(root: string): {
             version: requireValue(clangd.version, "clangd.version", valuePattern),
         },
         contractVerifier: {
-            repository: requireValue(
-                contractVerifier.repository,
-                "contractVerifier.repository",
-                repositoryPattern,
-            ),
+            repository: requireValue(contractVerifier.repository, "contractVerifier.repository", repositoryPattern),
         },
         qubicCli: {
             repository: requireValue(qubicCli.repository, "qubicCli.repository", repositoryPattern),
@@ -162,24 +141,16 @@ export function replaceExactly(source: string, edit: Edit, label: string): strin
     const matches = [...source.matchAll(pattern)];
     const expected = edit.count ?? 1;
     if (matches.length !== expected) {
-        throw new Error(
-            `${label}: expected ${expected} match(es) for ${edit.pattern}, found ${matches.length}`,
-        );
+        throw new Error(`${label}: expected ${expected} match(es) for ${edit.pattern}, found ${matches.length}`);
     }
 
     // Replacements are written with LF. A checkout with CRLF endings (git's Windows default) would
     // otherwise be rewritten to LF at every match, so --check reports drift that syncing can never settle.
-    const replacement = source.includes("\r\n")
-        ? edit.replacement.replace(/\r?\n/g, "\r\n")
-        : edit.replacement;
+    const replacement = source.includes("\r\n") ? edit.replacement.replace(/\r?\n/g, "\r\n") : edit.replacement;
     return source.replace(pattern, () => replacement);
 }
 
-function editsFor(
-    path: (typeof synchronizedSourceFiles)[number],
-    repositories: RepositoriesConfig,
-    toolchains: ToolchainsConfig,
-): Edit[] {
+function editsFor(path: (typeof synchronizedSourceFiles)[number], repositories: RepositoriesConfig, toolchains: ToolchainsConfig): Edit[] {
     const qinit = repositories.qinit;
     const rawBase = `https://raw.githubusercontent.com/${qinit.repository}/${qinit.defaultBranch}`;
     const workflowValues: Record<string, string> = {
@@ -202,13 +173,11 @@ function editsFor(
         case "README.md":
             return [
                 {
-                    pattern:
-                        /curl -fsSL https:\/\/raw\.githubusercontent\.com\/[^\s]+\/install\.sh \| sh/g,
+                    pattern: /curl -fsSL https:\/\/raw\.githubusercontent\.com\/[^\s]+\/install\.sh \| sh/g,
                     replacement: `curl -fsSL ${rawBase}/install.sh | sh`,
                 },
                 {
-                    pattern:
-                        /irm https:\/\/raw\.githubusercontent\.com\/[^\s]+\/install\.ps1 \| iex/g,
+                    pattern: /irm https:\/\/raw\.githubusercontent\.com\/[^\s]+\/install\.ps1 \| iex/g,
                     replacement: `irm ${rawBase}/install.ps1 | iex`,
                 },
                 {
@@ -233,8 +202,7 @@ function editsFor(
         case "install.sh":
             return [
                 {
-                    pattern:
-                        /curl -fsSL https:\/\/raw\.githubusercontent\.com\/[^\s]+\/install\.sh \| sh/g,
+                    pattern: /curl -fsSL https:\/\/raw\.githubusercontent\.com\/[^\s]+\/install\.sh \| sh/g,
                     replacement: `curl -fsSL ${rawBase}/install.sh | sh`,
                 },
                 {
@@ -245,8 +213,7 @@ function editsFor(
         case "install.ps1":
             return [
                 {
-                    pattern:
-                        /\$Repo = if \(\$env:QINIT_REPOSITORY\) \{ \$env:QINIT_REPOSITORY \} else \{ "[^"]+" \}/g,
+                    pattern: /\$Repo = if \(\$env:QINIT_REPOSITORY\) \{ \$env:QINIT_REPOSITORY \} else \{ "[^"]+" \}/g,
                     replacement: `$Repo = if ($env:QINIT_REPOSITORY) { $env:QINIT_REPOSITORY } else { "${qinit.repository}" }`,
                 },
             ];
@@ -286,12 +253,7 @@ function editsFor(
         case ".github/workflows/release.yml":
             return workflowEdits("BUN_VERSION");
         case ".github/workflows/release-vscode.yml":
-            return workflowEdits(
-                "BUN_VERSION",
-                "WASI_SDK_REPOSITORY",
-                "WASI_SDK_RELEASE_TAG",
-                "WASI_SDK_ASSET_VERSION",
-            );
+            return workflowEdits("BUN_VERSION", "WASI_SDK_REPOSITORY", "WASI_SDK_RELEASE_TAG", "WASI_SDK_ASSET_VERSION");
         case ".github/workflows/verify-tool.yml":
             return [
                 {
@@ -313,19 +275,14 @@ export function syncSources(root: string, check = false): string[] {
     for (const relativePath of synchronizedSourceFiles) {
         const path = resolve(root, relativePath);
         const source = readFileSync(path, "utf8");
-        const generated = editsFor(relativePath, repositories, toolchains).reduce(
-            (text, edit) => replaceExactly(text, edit, relativePath),
-            source,
-        );
+        const generated = editsFor(relativePath, repositories, toolchains).reduce((text, edit) => replaceExactly(text, edit, relativePath), source);
         if (generated === source) continue;
         changed.push(relativePath);
         if (!check) writeFileSync(path, generated);
     }
 
     if (check && changed.length > 0) {
-        throw new Error(
-            `source configuration is out of date: ${changed.join(", ")}\nRun bun run sources:sync`,
-        );
+        throw new Error(`source configuration is out of date: ${changed.join(", ")}\nRun bun run sources:sync`);
     }
     if (check) {
         const lock = readFileSync(resolve(root, "bun.lock"), "utf8");
@@ -344,11 +301,7 @@ if (import.meta.main) {
     const root = resolve(import.meta.dir, "../..");
     try {
         const changed = syncSources(root, check);
-        console.log(
-            changed.length > 0
-                ? `updated ${changed.join(", ")}`
-                : "source configuration is current",
-        );
+        console.log(changed.length > 0 ? `updated ${changed.join(", ")}` : "source configuration is current");
     } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
