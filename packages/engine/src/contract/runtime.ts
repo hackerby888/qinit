@@ -1,4 +1,4 @@
-import { ASSET_ENUMERATION_RECORD, LHOST_ABI } from "@qinit/core";
+import { ASSET_ENUMERATION_RECORD, LHOST_ABI, type LhostImportName } from "@qinit/core";
 import { k12Bytes, toHex } from "../support/k12";
 import { bytesEqual } from "../support/bytes";
 import { type TraceRecorder } from "../logging/trace";
@@ -231,6 +231,31 @@ export interface ContractCallContext {
     invocationReward?: bigint;
     entryPoint?: number;
 }
+
+// Host imports that mutate chain state, so a contract *function* must not reach them. Typed against the
+// generated ABI: a renamed or dropped import fails to compile rather than silently losing its guard.
+export const MUTATING_LHOST_IMPORTS: readonly LhostImportName[] = [
+    "markDirty",
+    "pauseLog",
+    "resumeLog",
+    "logBytes",
+    "transfer",
+    "transferTyped",
+    "burn",
+    "issueAsset",
+    "transferShareOwnershipAndPossession",
+    "acquireShares",
+    "releaseShares",
+    "bidInIPO",
+    "invokeOc",
+    "unsubscribeOracle",
+    "queryOracle",
+    "subscribeOracle",
+    "distributeDividends",
+    "liteInvokeProcedure",
+    "liteSetShareholderProposal",
+    "liteSetShareholderVotes",
+];
 
 export class ContractAbort extends Error {
     constructor(public code: number) {
@@ -702,10 +727,9 @@ export class Contract {
         }
     }
 
-    private imports(wasmModule?: WebAssembly.Module): WebAssembly.Imports {
-        const u8 = () => this.u8();
-        const contextView = () => QpiContext.wrap(u8(), this.ctxAddr);
-        const lhost: Record<string, Function> = {
+    // lhost: frame markers, dirty tracking, logging control, and the scratch arena.
+    private coreImports(u8: () => Uint8Array): Record<string, Function> {
+        return {
             beginFn: (_id: number) => {},
             endFn: (_id: number) => {},
             markDirty: (_ci: number) => this.host.markDirty(this.slot),
@@ -739,6 +763,12 @@ export class Contract {
             abort: (code: number) => {
                 throw new ContractAbort(code);
             },
+        };
+    }
+
+    // lhost: tick, epoch, and calendar reads, plus the previous tick's committed digests.
+    private timeImports(u8: () => Uint8Array): Record<string, Function> {
+        return {
             // time / tick (read-only)
             epoch: () => this.host.epoch() & 0xffff,
             tick: () => this.host.tick() >>> 0,
@@ -758,6 +788,12 @@ export class Contract {
             prevSpectrumDigest: (out: number) => u8().set(this.host.prevSpectrumDigest().subarray(0, 32), out),
             prevUniverseDigest: (out: number) => u8().set(this.host.prevUniverseDigest().subarray(0, 32), out),
             prevComputerDigest: (out: number) => u8().set(this.host.prevComputerDigest().subarray(0, 32), out),
+        };
+    }
+
+    // lhost: identity derivation and spectrum lookups.
+    private identityImports(u8: () => Uint8Array): Record<string, Function> {
+        return {
             // identity / spectrum
             getEntity: (idOff: number, entityOff: number) => {
                 const id = u8().slice(idOff, idOff + 32);
@@ -782,6 +818,12 @@ export class Contract {
             isContractId: (idOff: number) => this.host.isContractId(u8().slice(idOff, idOff + 32)),
             arbitrator: (out: number) => u8().set(this.host.arbitrator().subarray(0, 32), out),
             computor: (i: number, out: number) => u8().set(this.host.computor(i >>> 0).subarray(0, 32), out),
+        };
+    }
+
+    // lhost: value transfer and balance reads, delegated to Layer 2.
+    private ledgerImports(u8: () => Uint8Array): Record<string, Function> {
+        return {
             // value / ledger (delegated to Layer 2; return the contract's new balance per qpi_spectrum_impl.h)
             transfer: (destOff: number, amount: bigint) => {
                 const dest = u8().slice(destOff, destOff + 32);
@@ -800,6 +842,12 @@ export class Contract {
                 this.recHost("burn", () => `${amount}${r < 0n ? " ✗" : ""}`);
                 return r;
             },
+        };
+    }
+
+    // lhost: asset issuance, ownership, possession, and record enumeration.
+    private assetImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
+        return {
             // assets / shares
             isAssetIssued: (issOff: number, name: bigint) => this.host.isAssetIssued(u8().slice(issOff, issOff + 32), name),
             issueAsset: (name: bigint, issOff: number, dec: number, shares: bigint, unit: bigint) => {
@@ -861,6 +909,12 @@ export class Contract {
                 }
                 return r;
             },
+        };
+    }
+
+    // lhost: share management rights — qpi acquireShares / releaseShares.
+    private shareRightsImports(u8: () => Uint8Array): Record<string, Function> {
+        return {
             // share management rights — qpi acquireShares / releaseShares (qpi_asset_impl.h). The lhost imports are
             // provided here; a wasm contract reaches them once the qpi wasm binding declares the imports.
             acquireShares: (
@@ -911,6 +965,12 @@ export class Contract {
                 this.recHost("releaseShares", () => `${assetName(name)} ${shares} → mgmt ${dstPosMgmt & 0xffff}`);
                 return r;
             },
+        };
+    }
+
+    // lhost: date, signature, IPO, mining, and oracle status.
+    private platformImports(u8: () => Uint8Array): Record<string, Function> {
+        return {
             // date / signature / IPO / mining / oracle-status — see HostServices (the dev engine stubs IPO/mining/oracle)
             dayOfWeek: (year: number, month: number, day: number) => this.host.dayOfWeek(year & 0xff, month & 0xff, day & 0xff),
             signatureValidity: (entOff: number, digOff: number, sigOff: number) =>
@@ -932,6 +992,12 @@ export class Contract {
             invokeOc: (interfaceIndex: number, requestOffset: number, requestSize: number) =>
                 this.host.invokeOc(this.slot, interfaceIndex >>> 0, u8().slice(requestOffset, requestOffset + requestSize)),
             unsubscribeOracle: (sub: number) => this.host.unsubscribeOracle(this.slot, sub | 0),
+        };
+    }
+
+    // lhost: oracle query, subscribe, and reply reads over opaque sized buffers.
+    private oracleImports(u8: () => Uint8Array): Record<string, Function> {
+        return {
             // oracle query/subscribe/read — the query/reply are opaque sized buffers (the contract owns the typing)
             queryOracle: (ifaceIdx: number, queryOff: number, querySize: number, replySize: number, procId: number, timeout: number, fee: bigint) =>
                 this.host.queryOracle(this.slot, ifaceIdx >>> 0, u8().slice(queryOff, queryOff + querySize), replySize >>> 0, procId >>> 0, timeout >>> 0, fee),
@@ -978,6 +1044,12 @@ export class Contract {
                 this.recHost("distributeDividends", () => `${amountPerShare}/share`);
                 return r;
             },
+        };
+    }
+
+    // lhost: nested contract calls, which keep the original originator.
+    private nestedCallImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
+        return {
             // Nested calls keep the original originator.
             liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number) => {
                 const input = u8().slice(inOff, inOff + inSize);
@@ -1013,31 +1085,24 @@ export class Contract {
                 return this.host.setShareholderVotes(this.slot, calleeIdx >>> 0, vote, reward, originator);
             },
         };
+    }
 
-        const mutatingImports = [
-            "markDirty",
-            "pauseLog",
-            "resumeLog",
-            "logBytes",
-            "transfer",
-            "transferTyped",
-            "burn",
-            "issueAsset",
-            "transferShareOwnershipAndPossession",
-            "acquireShares",
-            "releaseShares",
-            "bidInIPO",
-            "invokeOc",
-            "unsubscribeOracle",
-            "queryOracle",
-            "subscribeOracle",
-            "distributeDividends",
-            "liteInvokeProcedure",
-            "liteSetShareholderProposal",
-            "liteSetShareholderVotes",
-        ];
+    private imports(wasmModule?: WebAssembly.Module): WebAssembly.Imports {
+        const u8 = () => this.u8();
+        const contextView = () => QpiContext.wrap(u8(), this.ctxAddr);
+        const lhost: Record<string, Function> = {
+            ...this.coreImports(u8),
+            ...this.timeImports(u8),
+            ...this.identityImports(u8),
+            ...this.ledgerImports(u8),
+            ...this.assetImports(u8, contextView),
+            ...this.shareRightsImports(u8),
+            ...this.platformImports(u8),
+            ...this.oracleImports(u8),
+            ...this.nestedCallImports(u8, contextView),
+        };
 
-        for (const name of mutatingImports) {
+        for (const name of MUTATING_LHOST_IMPORTS) {
             const hostFunction = lhost[name];
             lhost[name] = (...args: unknown[]) => {
                 if (this.executionKinds.at(-1) === CONTRACT_ENTRY_KIND.FUNCTION) {
