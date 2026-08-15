@@ -1,10 +1,8 @@
 // Build standalone Qinit binaries for all shipping targets.
-export {}; // module marker so top-level await is allowed (file uses Bun globals, no imports)
-const targets = ["bun-linux-x64", "bun-linux-arm64", "bun-darwin-arm64", "bun-darwin-x64", "bun-windows-x64"];
+import { RELEASE_TARGETS, releaseBinaryPath } from "./targets";
 
-for (const target of targets) {
-    const suffix = target.replace("bun-", "");
-    const output = `dist/qinit-${suffix}${target.includes("windows") ? ".exe" : ""}`;
+for (const target of RELEASE_TARGETS) {
+    const output = releaseBinaryPath(target);
     console.log(`building ${output} …`);
     const child = Bun.spawn(["bun", "build", "packages/cli/src/index.tsx", "--compile", "--minify", `--target=${target}`, "--outfile", output], {
         stdout: "inherit",

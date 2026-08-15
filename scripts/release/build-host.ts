@@ -1,7 +1,8 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { hostBinaryName } from "./targets";
 
-const output = resolve("dist", process.platform === "win32" ? "qinit.exe" : "qinit");
+const output = resolve("dist", hostBinaryName(process.platform));
 mkdirSync(resolve("dist"), { recursive: true });
 
 const build = Bun.spawnSync([process.execPath, "build", "packages/cli/src/index.tsx", "--compile", "--minify", "--outfile", output], {
