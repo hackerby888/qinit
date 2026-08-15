@@ -5,6 +5,7 @@ import type { GeneratedContractMetadata } from "../backend/wasm/module/library-i
 import { collectCalleeContext } from "./callees";
 import { CompilationPhaseTracker } from "./compilation-phase-tracker";
 import { parseContractSource, preprocessContractSource, remapAnalysisDiagnostics, validateContractSource } from "./contract-frontend";
+import type { PreprocessedContractSource } from "./contract-frontend";
 import { scanUnterminatedSource } from "./diagnostics";
 import { validateCompileOptions } from "./options";
 import { getQpiContext } from "./qpi-context";
@@ -62,7 +63,7 @@ export async function compileContract(options: CompileOptions): Promise<CompileR
     try {
         wat = generateContractWat(options, translationUnit, semanticAnalysis, qpiContext, calleeContext, metadata);
     } catch (error: any) {
-        appendCompilerError(diagnostics, "Codegen failed", error);
+        appendCompilerError(diagnostics, "Codegen failed", error, preprocessed);
         return emptyResult(options, diagnostics);
     }
 
@@ -82,7 +83,7 @@ export async function compileContract(options: CompileOptions): Promise<CompileR
     try {
         wasm = await encodeAndInspectWat(wat, options, metadata);
     } catch (error: any) {
-        appendCompilerError(diagnostics, "WAT→WASM encode failed", error);
+        appendCompilerError(diagnostics, "WAT→WASM encode failed", error, preprocessed);
         return emptyResult(options, diagnostics);
     }
 
@@ -158,15 +159,16 @@ function hasErrors(diagnostics: ParserDiagnostic[]): boolean {
     return diagnostics.some((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
 }
 
-function appendCompilerError(diagnostics: ParserDiagnostic[], stage: string, error: any): void {
-    diagnostics.push({
+const UNKNOWN_SPAN = { start: 0, end: 0, line: 0, column: 0 };
+
+// A tagged span addresses the preprocessed source, so it needs the same remap as analysis diagnostics —
+// untagged errors keep the unknown location.
+function appendCompilerError(diagnostics: ParserDiagnostic[], stage: string, error: any, preprocessed?: PreprocessedContractSource): void {
+    const diagnostic: ParserDiagnostic = {
         severity: DiagnosticSeverity.ERROR,
         message: `${stage}: ${error.message}`,
-        span: {
-            start: 0,
-            end: 0,
-            line: 0,
-            column: 0,
-        },
-    });
+        span: error?.span ?? UNKNOWN_SPAN,
+    };
+
+    diagnostics.push(preprocessed && error?.span ? remapAnalysisDiagnostics([diagnostic], preprocessed)[0] : diagnostic);
 }

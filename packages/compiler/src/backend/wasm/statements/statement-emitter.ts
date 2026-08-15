@@ -4,7 +4,20 @@ import { isUint128 } from "../memory/address-resolution";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { Expression, Statement, FunctionDecl, VariableDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
+// Tags backend errors with the statement being emitted, so the driver can report a real line.
+// Nested statements tag first, leaving the innermost span.
 export function emitStatement(context: FunctionEmissionContext, statement: Statement): void {
+    try {
+        emitStatementByKind(context, statement);
+    } catch (error) {
+        if (error instanceof Error && !("span" in error)) {
+            Object.assign(error, { span: statement.span });
+        }
+        throw error;
+    }
+}
+
+function emitStatementByKind(context: FunctionEmissionContext, statement: Statement): void {
     switch (statement.kind) {
         case AstKind.COMPOUND:
             context.lowering.emitCompound(context, statement.body);
