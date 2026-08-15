@@ -5,6 +5,7 @@ import { EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { FunctionEmissionContext } from "../types";
 import type { Expression, FunctionDecl, Statement, VariableDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
+import { isProxyAliasLocal } from "../qpi-names";
 
 type DeclarationStatement = Extract<Statement, { kind: AstKind.DECLARATION }>;
 
@@ -70,7 +71,7 @@ export function emitDeclarationStatement(context: FunctionEmissionContext, state
         // reference/pointer local: bind to the ADDRESS of its lvalue initializer; member access on it resolves through that address.
         if (declared.kind === AstKind.REFERENCE || declared.kind === AstKind.POINTER) {
             // proxy `pv`/`qpi` aliases are already bound as parameters — drop the alias declaration.
-            if (context.proxyClass && (variableDeclaration.name === "pv" || variableDeclaration.name === "qpi")) return;
+            if (context.proxyClass && isProxyAliasLocal(variableDeclaration.name)) return;
             if (variableDeclaration.initializer) {
                 const node = context.lowering.resolveExpressionAddress(context, variableDeclaration.initializer);
                 // Materialize address-yielding initializers that are not plain lvalues.

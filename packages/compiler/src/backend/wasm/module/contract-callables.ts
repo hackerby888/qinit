@@ -2,6 +2,7 @@ import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { FunctionDecl, StructDecl } from "../../../ast";
 import type { CompiledHelperMetadata } from "../types";
+import { isQpiContextParam } from "../qpi-names";
 
 export interface HelperFunctionDescriptor {
     declaration: FunctionDecl;
@@ -33,7 +34,7 @@ export function registerContractCallables(
             continue;
         }
 
-        if (declaration.params[0]?.name === "qpi") {
+        if (isQpiContextParam(declaration.params[0])) {
             registerPrivateFunction(programAnalysis, declaration, privateFunctions);
             continue;
         }

@@ -4,6 +4,7 @@ import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { FunctionEmissionContext, StructLayout, CompiledHelperMetadata, TemplateBindings, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, Statement, FunctionDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
+import { isQpiContextParam } from "../qpi-names";
 export function emitArrayInitializer(
     context: FunctionEmissionContext,
     base: watIr.WatNode,
@@ -66,7 +67,7 @@ export function emitFunction(
               ? QpiContextKind.FUNCTION
               : undefined;
     const params = new Map(paramAliases ?? []);
-    if (fn?.params[0]?.name === "qpi" && contextType && qpiContext) {
+    if (isQpiContextParam(fn?.params[0]) && contextType && qpiContext) {
         params.set("qpi", {
             wasmType: WatNodeType.I32,
             isAddr: true,

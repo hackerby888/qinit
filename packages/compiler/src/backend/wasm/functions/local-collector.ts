@@ -4,6 +4,7 @@ import { isAutoType, resolveAliasType } from "../expressions/conversions";
 import { castInfo } from "../memory/address-resolution";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Statement, StructDecl, FunctionDecl, VariableDecl } from "../../../ast";
+import { isProxyAliasLocal } from "../qpi-names";
 export function collectFunctionLocals(statement: Statement, context: FunctionEmissionContext): void {
     switch (statement.kind) {
         case AstKind.COMPOUND:
@@ -105,7 +106,7 @@ export function collectFunctionLocals(statement: Statement, context: FunctionEmi
                     !holdsAddr && dType.kind !== AstKind.REFERENCE && dType.kind !== AstKind.POINTER && context.programAnalysis.isAggregateType(concrete);
                 const isRef = dType.kind === AstKind.REFERENCE || dType.kind === AstKind.POINTER || holdsAddr || isAgg;
                 // Skip proxy aliases already bound as function parameters.
-                if (context.proxyClass && isRef && (variableDeclaration.name === "pv" || variableDeclaration.name === "qpi")) break;
+                if (context.proxyClass && isRef && isProxyAliasLocal(variableDeclaration.name)) break;
                 const wasmType: WatValueType = isRef ? WatNodeType.I32 : WatNodeType.I64;
                 if (!context.localVars.has(variableDeclaration.name)) {
                     context.localVars.set(variableDeclaration.name, {
