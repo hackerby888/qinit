@@ -183,7 +183,7 @@ export class EngineServer {
             };
 
             return json({
-                transactions: await engine.explorerTickTransactions(Number(body.tickNumber ?? body.tick ?? 0)),
+                transactions: await engine.explorer.tickTransactions(Number(body.tickNumber ?? body.tick ?? 0)),
             });
         }
 
@@ -191,19 +191,19 @@ export class EngineServer {
 
         if (path === "/explorer/data") {
             engine.sim.assertOperational();
-            return json(await engine.explorerData());
+            return json(await engine.explorer.data());
         }
 
         if (path === "/query/v1/getTickData" && request.method === "POST") {
             const body = (await request.json()) as { tickNumber?: number };
-            const tickData = await engine.explorerTickData(Number(body.tickNumber ?? 0));
+            const tickData = await engine.explorer.tickData(Number(body.tickNumber ?? 0));
 
             return tickData ? json(tickData) : json({ code: 404, message: "Tick data not found" }, 404);
         }
 
         if (path === "/query/v1/getTransactionByHash" && request.method === "POST") {
             const body = (await request.json()) as { hash?: string };
-            const transaction = await engine.explorerTxByHash(body.hash ?? "");
+            const transaction = await engine.explorer.txByHash(body.hash ?? "");
 
             return transaction ? json(transaction) : json({ code: 404, message: "Transaction not found" }, 404);
         }
@@ -215,7 +215,7 @@ export class EngineServer {
                 limit?: number;
             };
 
-            return json(await engine.explorerTransfersForIdentity(body.identity ?? "", body.direction ?? "both", Number(body.limit ?? 50)));
+            return json(await engine.explorer.transfersForIdentity(body.identity ?? "", body.direction ?? "both", Number(body.limit ?? 50)));
         }
 
         if (path === "/query/v1/getContractCalls" && request.method === "POST") {
@@ -228,7 +228,7 @@ export class EngineServer {
             };
 
             return json(
-                await engine.explorerContractCalls({
+                await engine.explorer.contractCalls({
                     fromTick: Number(body.fromTick ?? 0),
                     toTick: Number(body.toTick ?? engine.sim.currentTick),
                     contractIndex: body.contractIndex,
@@ -239,7 +239,7 @@ export class EngineServer {
         }
 
         if (path === "/query/v1/getContracts") {
-            return json(await engine.explorerContracts());
+            return json(await engine.explorer.contracts());
         }
 
         return null;
