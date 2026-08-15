@@ -7,6 +7,7 @@ import * as codec from "./protocol/peer-codec";
 import { MSG } from "./protocol/peer-codec";
 import { concatBytes } from "./support/bytes";
 import { unpackAssetName } from "./ledger/assets";
+import { NodeTicker } from "./support/node-ticker";
 
 interface PeerConnectionState {
     buf: Uint8Array;
@@ -21,29 +22,11 @@ export interface PeerServerHandle {
 export class PeerServer {
     readonly engine: VirtualNode;
     private server: { stop(closeActiveConnections?: boolean): void; readonly port: number } | null = null;
-    private ticker: ReturnType<typeof setInterval> | null = null;
+    private readonly ticker: NodeTicker;
 
     constructor(engine: VirtualNode = new VirtualNode()) {
         this.engine = engine;
-    }
-
-    private stopTicker(): void {
-        if (this.ticker) {
-            clearInterval(this.ticker);
-            this.ticker = null;
-        }
-    }
-
-    private advanceTick(count = 1): void {
-        try {
-            this.engine.advanceTick(count);
-        } catch (error) {
-            this.stopTicker();
-
-            if (!this.engine.sim.isFaulted()) {
-                console.error("peer ticker stopped:", error);
-            }
-        }
+        this.ticker = new NodeTicker(engine, "peer");
     }
 
     async start(port = DEFAULT_PEER_PORT, tickMs = 50, autoTick = true): Promise<PeerServerHandle> {
@@ -72,9 +55,9 @@ export class PeerServer {
         this.server = server;
 
         if (autoTick) {
-            this.advanceTick(5);
+            this.ticker.advance(5);
             if (!this.engine.sim.isFaulted()) {
-                this.ticker = setInterval(() => this.advanceTick(), tickMs);
+                this.ticker.start(tickMs);
             }
         }
 
@@ -82,7 +65,7 @@ export class PeerServer {
     }
 
     stop(): void {
-        this.stopTicker();
+        this.ticker.stop();
         if (this.server) {
             this.server.stop(true);
             this.server = null;

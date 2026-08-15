@@ -1,13 +1,9 @@
-import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
 // Pins valid expression forms that must compile under the strict gate.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { edgeRunner } from "../support/edge-compile";
 
-const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const compileAndRun = edgeRunner("ExpressionEdge");
 
 const wrap = (members: string, body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -18,26 +14,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   PUBLIC_PROCEDURE(Go) { ${body} }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
-
-async function compileAndRun(source: string): Promise<bigint> {
-    const result = await compileContract({
-        source,
-        contractName: "ExpressionEdge",
-        slot: 27,
-        qpiHeader: HEADERS,
-        arenaSizeBytes: 1 << 20,
-    });
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    expect(WebAssembly.validate(result.wasm)).toBe(true);
-
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(7);
-    sim.fund(user, 1_000_000n);
-    sim.deploy(27, result.wasm);
-    sim.procedure(27, 1, undefined, { invocator: user });
-    const state = sim.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
-}
 
 describe("edge audit — valid expression lowering", () => {
     beforeAll(async () => {

@@ -12,7 +12,7 @@ import {
 import { k12Hex, type DynamicContractRegistry } from "@qinit/core";
 import type { DynCallees } from "@qinit/build/intercontract";
 import type { CompilerBackend } from "../config";
-import { planProjectSlots, type PlannedProjectSlotNode } from "../contracts/project-slots";
+import { planProjectSlots, type PlannedProjectSlotNode } from "@qinit/build/project-slots";
 
 export type PlannedProjectContract = ProjectContractNode & PlannedProjectSlotNode;
 

@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 import { contractIndexFromIdentity, type ExplorerTickData, type ExplorerTx } from "@qinit/core";
 import { Badge, Grad, KV, SectionHeader, Spinner, Table, theme, truncMid, type Column } from "../../../ui";
 import { decodeTxInput, entryFor, type ContractIdls, type DecodedInput } from "../../../contracts/idl-lookup";
-import { SectionBody, contractLabel, entryLabel, errText, fmtAmount, fmtTime, sectionTableWidth, windowOf, type ViewProps } from "./chrome";
+import { SectionBody, contractLabel, inputTypeLabel, errText, fmtAmount, fmtTime, sectionTableWidth, windowOf, type ViewProps } from "./chrome";
 
 // ---- tick ---------------------------------------------------------------------------------------
 
@@ -23,7 +23,7 @@ const txRow = (tx: ExplorerTx, names: Map<number, string>, idls: ContractIdls): 
         tx.source,
         label ? `${truncMid(tx.destination, 10)} ${label}` : tx.destination,
         fmtAmount(tx.amount),
-        entryLabel(contractIndexFromIdentity(tx.destination), tx.inputType, idls),
+        inputTypeLabel(contractIndexFromIdentity(tx.destination), tx.inputType, idls),
         String(tx.inputSize),
     ];
 };

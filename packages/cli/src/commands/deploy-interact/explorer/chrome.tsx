@@ -58,7 +58,7 @@ export const contractLabel = (identity: string, names: Map<number, string>): str
 
 // A call's inputType, named when the slot's IDL is known. A plain transfer misses the lookup and keeps
 // its bare number, which is also what an unparsed contract falls back to.
-export const entryLabel = (slot: number | null | undefined, inputType: number, idls: ContractIdls): string => {
+export const inputTypeLabel = (slot: number | null | undefined, inputType: number, idls: ContractIdls): string => {
     const entry = entryFor(slot, inputType, idls);
     return entry ? `${inputType} ${entry.name}` : String(inputType);
 };

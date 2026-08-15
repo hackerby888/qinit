@@ -1,12 +1,11 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
 // Covers direct, braced, and parenthesized initialization in helper bodies.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { edgeCompiler } from "../support/edge-compile";
 
-const HEADERS = loadQpiHeader(CORE_PATH);
+const compile = edgeCompiler("InitEdge");
 
 const wrap = (members: string, body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -17,16 +16,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   PUBLIC_PROCEDURE(Go) { ${body} }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
-
-async function compile(source: string) {
-    return compileContract({
-        source,
-        contractName: "InitEdge",
-        slot: 27,
-        qpiHeader: HEADERS,
-        arenaSizeBytes: 1 << 20,
-    });
-}
 
 async function run(source: string): Promise<bigint> {
     const result = await compile(source);

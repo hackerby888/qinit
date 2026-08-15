@@ -2,6 +2,7 @@ import { LOOPBACK_HOST, initK12, type DirectDeploymentKind } from "@qinit/core";
 import { VirtualNode } from "./transport";
 import { PeerServer } from "./peer-server";
 import { EngineFaultedError } from "./qubic-simulator";
+import { NodeTicker } from "./support/node-ticker";
 
 export interface EngineServerHandle {
     rpcBaseUrl: string;
@@ -12,39 +13,20 @@ export interface EngineServerHandle {
 export class EngineServer {
     readonly engine: VirtualNode;
     private server: ReturnType<typeof Bun.serve> | null = null;
-    private ticker: ReturnType<typeof setInterval> | null = null;
+    private readonly ticker: NodeTicker;
     private peer: PeerServer | null = null;
     private tickMs = 50;
 
     constructor(engine: VirtualNode = new VirtualNode()) {
         this.engine = engine;
-    }
-
-    private stopTicker(): void {
-        if (this.ticker) {
-            clearInterval(this.ticker);
-            this.ticker = null;
-        }
-    }
-
-    private advanceTick(): void {
-        try {
-            this.engine.advanceTick(1);
-        } catch (error) {
-            this.stopTicker();
-
-            if (!this.engine.sim.isFaulted()) {
-                console.error("engine ticker stopped:", error);
-            }
-        }
+        this.ticker = new NodeTicker(engine, "engine");
     }
 
     private applyTickMs(ms: number): number {
         this.engine.sim.assertOperational();
         this.tickMs = Math.max(0, Number.isFinite(ms) ? ms : this.tickMs);
         this.engine.sim.tickDuration = this.tickMs;
-        this.stopTicker();
-        this.ticker = setInterval(() => this.advanceTick(), this.tickMs);
+        this.ticker.start(this.tickMs);
         return this.tickMs;
     }
 
@@ -378,7 +360,7 @@ export class EngineServer {
                     const status = error instanceof EngineFaultedError ? 503 : 500;
 
                     if (status === 503) {
-                        this.stopTicker();
+                        this.ticker.stop();
                     }
 
                     return json({ code: status, message }, status);
@@ -409,7 +391,7 @@ export class EngineServer {
             this.peer = null;
         }
 
-        this.stopTicker();
+        this.ticker.stop();
 
         if (this.server) {
             this.server.stop(true);

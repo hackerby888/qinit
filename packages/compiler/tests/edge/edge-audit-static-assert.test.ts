@@ -1,10 +1,9 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks static_assert evaluation as a compile-time safety boundary.
 import { describe, expect, test } from "bun:test";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { edgeCompiler } from "../support/edge-compile";
 
-const HEADERS = loadQpiHeader(CORE_PATH);
+const compile = edgeCompiler("StaticAssertEdge");
 
 const wrap = (classMember: string, body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -15,16 +14,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   PUBLIC_PROCEDURE(Go) { ${body} }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
-
-async function compile(source: string) {
-    return compileContract({
-        source,
-        contractName: "StaticAssertEdge",
-        slot: 27,
-        qpiHeader: HEADERS,
-        arenaSizeBytes: 1 << 20,
-    });
-}
 
 async function expectFalseAssertionRejected(source: string) {
     const result = await compile(source);

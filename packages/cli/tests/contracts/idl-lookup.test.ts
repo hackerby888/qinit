@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import { encodeInput } from "@qinit/proto";
 import { decodeTxInput, entryFor } from "../../src/contracts/idl-lookup";
-import { entryLabel } from "../../src/commands/deploy-interact/explorer/chrome";
+import { inputTypeLabel } from "../../src/commands/deploy-interact/explorer/chrome";
 
 const SOURCE = `
 using namespace QPI;
@@ -51,9 +51,9 @@ test("an entry is resolved by slot and inputType, and named", () => {
     expect(entryFor(9, 1, idls)).toBeUndefined();
     expect(entryFor(null, 1, idls)).toBeUndefined();
 
-    expect(entryLabel(4, 1, idls)).toBe("1 IssueAsset");
-    expect(entryLabel(4, 0, idls)).toBe("0");
-    expect(entryLabel(null, 3, idls)).toBe("3");
+    expect(inputTypeLabel(4, 1, idls)).toBe("1 IssueAsset");
+    expect(inputTypeLabel(4, 0, idls)).toBe("0");
+    expect(inputTypeLabel(null, 3, idls)).toBe("3");
 });
 
 test("input bytes decode to named fields and back to the --in format", async () => {

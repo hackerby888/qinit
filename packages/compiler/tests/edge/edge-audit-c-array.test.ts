@@ -1,12 +1,11 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
 // Covers fixed-array bounds, initialization, and ABI/state layouts.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { edgeCompiler } from "../support/edge-compile";
 
-const HEADERS = loadQpiHeader(CORE_PATH);
+const compile = edgeCompiler("CArrayEdge");
 
 const wrap = (stateFields: string, body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -16,16 +15,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   PUBLIC_PROCEDURE(Go) { ${body} }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
-
-async function compile(source: string) {
-    return compileContract({
-        source,
-        contractName: "CArrayEdge",
-        slot: 27,
-        qpiHeader: HEADERS,
-        arenaSizeBytes: 1 << 20,
-    });
-}
 
 async function run(stateFields: string, body: string): Promise<bigint> {
     const result = await compile(wrap(stateFields, body));

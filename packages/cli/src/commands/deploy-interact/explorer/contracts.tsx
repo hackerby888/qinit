@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import type { ContractCall, ContractListEntry } from "@qinit/core";
 import { Grad, KV, SectionHeader, Spinner, Table, theme, type Column } from "../../../ui";
-import { SectionBody, entryLabel, errText, fmtAmount, fmtTime, sectionTableWidth, windowOf, type ViewProps } from "./chrome";
+import { SectionBody, inputTypeLabel, errText, fmtAmount, fmtTime, sectionTableWidth, windowOf, type ViewProps } from "./chrome";
 
 // The web explorer scans the last 500 ticks for contract calls; the same window keeps a page cheap here.
 const CONTRACT_CALL_WINDOW = 500;
@@ -187,7 +187,7 @@ export function ContractView({ rpc, refreshToken, selected, contractIdls, push, 
                             call.hash,
                             call.source,
                             fmtAmount(call.amount),
-                            entryLabel(call.contractIndex, call.inputType, contractIdls),
+                            inputTypeLabel(call.contractIndex, call.inputType, contractIdls),
                             fmtTime(call.timestamp),
                         ])}
                         selected={selected - offset}
