@@ -106,6 +106,8 @@ type Entry = {
     notification?: boolean;
 };
 
+const entryLabel = (entry: Entry) => entry.name ?? entry.kind + "#" + entry.inputType;
+
 export function zeroSample(entry: Entry): string | null {
     try {
         if (!entry.input || (entry.input.kind === AbiTypeKind.STRUCT && entry.input.fields.length === 0)) {
@@ -118,7 +120,23 @@ export function zeroSample(entry: Entry): string | null {
     }
 }
 
-type Stage = "loading" | "contract" | "entry" | "input" | "output" | "amount" | "running" | "done";
+type Contract = DynamicContractRegistryEntry;
+
+// What the user has typed for the chosen entry; every field is still open until its prompt is answered.
+type Draft = { input?: string; out?: string; amount?: string };
+
+// The wizard carries its data with its stage, so a stage can only be entered with what it needs to render.
+type Wizard =
+    | { stage: "loading" }
+    | { stage: "contract" }
+    | { stage: "entry"; contract: Contract }
+    | { stage: "input"; contract: Contract; entry: Entry; draft: Draft }
+    | { stage: "output"; contract: Contract; entry: Entry; draft: Draft }
+    | { stage: "amount"; contract: Contract; entry: Entry; draft: Draft }
+    | { stage: "running"; contract: Contract; entry: Entry; draft: Draft }
+    | { stage: "done" };
+
+type Call = { contract: Contract; entry: Entry; draft: Draft };
 
 export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed?: string }) {
     const { exit } = useApp();
@@ -130,18 +148,10 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
             return undefined;
         }
     });
-    const [stage, setStage] = useState<Stage>("loading");
-    const [contracts, setContracts] = useState<DynamicContractRegistryEntry[]>([]);
+    const [wizard, setWizard] = useState<Wizard>({ stage: "loading" });
+    const [contracts, setContracts] = useState<Contract[]>([]);
     const [userCount, setUserCount] = useState(0);
     const [idlFile, setIdlFile] = useState<ContractIdlFile>(emptyContractIdlFile());
-    const [selection, setSelection] = useState<{
-        c?: DynamicContractRegistryEntry;
-        e?: Entry;
-        input?: string;
-        out?: string;
-        amount?: string;
-        seed?: string;
-    }>({});
     const [results, setResults] = useState<string[]>([]);
     const [status, setStatus] = useState("");
     const addResult = (result: string) => {
@@ -156,36 +166,36 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
 
                 if (!combined.length) {
                     addResult("no contracts — deploy one, or run `qinit node run` to load system contracts");
-                    setStage("done");
+                    setWizard({ stage: "done" });
                     return;
                 }
 
                 setContracts(combined);
                 setUserCount(deployed);
-                setStage("contract");
+                setWizard({ stage: "contract" });
             } catch (error: any) {
                 addResult("ERROR: " + String(error?.message ?? error));
-                setStage("done");
+                setWizard({ stage: "done" });
             }
         })();
     }, []);
 
     useEffect(() => {
-        if (stage === "done") {
+        if (wizard.stage === "done") {
             const timer = setTimeout(() => exit(), 50);
             return () => clearTimeout(timer);
         }
-    }, [stage]);
+    }, [wizard.stage]);
 
     const back = () => {
         setStatus("");
-        if (stage === "entry") {
-            setStage("contract");
-        } else if (stage === "input") {
-            setStage("entry");
-        } else if (stage === "output" || stage === "amount") {
-            setStage(selection.e && !noInput(selection.e) ? "input" : "entry");
-        } else if (stage === "contract") {
+        if (wizard.stage === "entry") {
+            setWizard({ stage: "contract" });
+        } else if (wizard.stage === "input") {
+            setWizard({ stage: "entry", contract: wizard.contract });
+        } else if (wizard.stage === "output" || wizard.stage === "amount") {
+            setWizard(noInput(wizard.entry) ? { stage: "entry", contract: wizard.contract } : { ...wizard, stage: "input" });
+        } else if (wizard.stage === "contract") {
             exit();
         }
     };
@@ -196,30 +206,28 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
         }
     });
 
-    const runCall = async (selected: typeof selection) => {
-        setStage("running");
+    const runCall = async ({ contract, entry, draft }: Call) => {
+        setWizard({ stage: "running", contract, entry, draft });
 
         try {
             try {
-                await encodeInput(selected.input ?? "");
+                await encodeInput(draft.input ?? "");
             } catch (error: any) {
                 addResult("✗ bad input: " + String(error?.message ?? error));
-                const sample = zeroSample(selected.e!);
+                const sample = zeroSample(entry);
                 if (sample) {
                     addResult("all-zero sample: " + sample);
                 }
-                setStage("done");
+                setWizard({ stage: "done" });
                 return;
             }
 
             const rpc = new LiteRpc(rpcBaseUrl);
-            const contract = selected.c!;
-            const entry = selected.e!;
             const contractIndex = contract.index;
-            addResult("≡ " + equivCmd(contract, entry, selected));
+            addResult("≡ " + equivCmd(contract, entry, draft));
 
             if (entry.kind === "fn") {
-                const output = await callFunction(rpc, contractIndex, entry.inputType, selected.input ?? "", entry.output ?? selected.out ?? "");
+                const output = await callFunction(rpc, contractIndex, entry.inputType, draft.input ?? "", entry.output ?? draft.out ?? "");
                 // The IDL type wins over a typed-in format above, and it is the one that names the fields.
                 const shown = entry.output ? formatStateValue(output, entry.output, false, true) : fmtVal(output);
                 addResult(`${labelFor(contract, entry)} -> ${shown}`);
@@ -227,12 +235,12 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
                 const tickInfo = await rpc.tickInfo();
                 const tick = tickInfo.tick + TX_TICK_OFFSET;
                 const procedure = await invokeProcedure({
-                    seed: await resolveSeed(rpc, selected.seed || seed),
+                    seed: await resolveSeed(rpc, seed),
                     rpcBaseUrl: rpcBaseUrl,
                     contractIndex,
                     procedureId: entry.inputType,
-                    amount: Number(selected.amount ?? 0),
-                    inputFormat: selected.input ?? "",
+                    amount: Number(draft.amount ?? 0),
+                    inputFormat: draft.input ?? "",
                     tick,
                     confirm: true,
                     rpc,
@@ -265,68 +273,57 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
             addResult("ERROR: " + String(error?.message ?? error));
         }
 
-        setStage("done");
+        setWizard({ stage: "done" });
     };
 
     const noInput = (entry: Entry) => entry.input?.kind === AbiTypeKind.STRUCT && entry.input.fields.length === 0;
 
-    const startEntry = (entry: Entry) => {
-        const next = { ...selection, e: entry, input: "" };
-        setSelection(next);
-
+    const startEntry = (contract: Contract, entry: Entry) => {
+        const next: Call = { contract, entry, draft: { input: "" } };
         if (!noInput(entry)) {
-            setStage("input");
+            setWizard({ ...next, stage: "input" });
             return;
         }
+        afterInput(next);
+    };
 
-        if (entry.kind === "fn") {
-            if (entry.output !== undefined) {
-                runCall(next);
-            } else {
-                setStage("output");
-            }
+    // A function with a known output type can run straight away; anything else needs one more prompt.
+    const afterInput = (next: Call) => {
+        if (next.entry.kind !== "fn") {
+            setWizard({ ...next, stage: "amount" });
+        } else if (next.entry.output !== undefined) {
+            runCall(next);
         } else {
-            setStage("amount");
+            setWizard({ ...next, stage: "output" });
         }
     };
 
-    const afterInput = (next: typeof selection) => {
-        if (next.e!.kind === "fn") {
-            if (next.e!.output !== undefined) {
-                runCall(next);
-            } else {
-                setStage("output");
-            }
-        } else {
-            setStage("amount");
-        }
-    };
+    const labelFor = (contract: Contract, entry: Entry) => `${nameOf(contract)}.${entry.name ?? entry.kind + "#" + entry.inputType}`;
 
-    const labelFor = (contract: DynamicContractRegistryEntry, entry: Entry) => `${nameOf(contract)}.${entry.name ?? entry.kind + "#" + entry.inputType}`;
-
-    const equivCmd = (contract: DynamicContractRegistryEntry, entry: Entry, selected: typeof selection) => {
+    const equivCmd = (contract: Contract, entry: Entry, draft: Draft) => {
         const entryName = entry.name ?? entry.inputType;
         const parts = ["qinit call", entry.kind === "fn" ? "--fn" : "--proc", String(nameOf(contract)), String(entryName)];
 
-        if ((selected.input ?? "").trim()) {
-            parts.push(`--in "${selected.input!.trim()}"`);
+        const input = (draft.input ?? "").trim();
+        if (input) {
+            parts.push(`--in "${input}"`);
         }
 
-        const outputFormat = entry.output?.format ?? selected.out ?? "";
+        const outputFormat = entry.output?.format ?? draft.out ?? "";
         if (entry.kind === "fn" && outputFormat.trim()) {
             parts.push(`--out "${outputFormat.trim()}"`);
         }
-        if (entry.kind === "proc" && Number(selected.amount ?? 0) > 0) {
-            parts.push(`--amount ${selected.amount}`);
+        if (entry.kind === "proc" && Number(draft.amount ?? 0) > 0) {
+            parts.push(`--amount ${draft.amount}`);
         }
 
         return parts.join(" ");
     };
 
-    const nameOf = (contract: DynamicContractRegistryEntry) =>
+    const nameOf = (contract: Contract) =>
         contract.name || contractIdlForSlot(idlFile, contract.index, contract.codeHash)?.name || `contract ${contract.index}`;
 
-    const entriesFor = (contract: DynamicContractRegistryEntry): Entry[] => {
+    const entriesFor = (contract: Contract): Entry[] => {
         const localIdl = contractIdlForSlot(idlFile, contract.index, contract.codeHash);
         let sourceIdl: ContractIdl | undefined;
 
@@ -380,19 +377,19 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
     const wrap = (content: React.ReactNode) => (
         <Box flexDirection="column">
             <Header cmd="call" />
-            <Box key={stage} flexDirection="column">
+            <Box key={wizard.stage} flexDirection="column">
                 {content}
             </Box>
         </Box>
     );
 
-    if (stage === "loading") {
+    if (wizard.stage === "loading") {
         return wrap(<Spinner label="loading registry" />);
     }
-    if (stage === "running") {
+    if (wizard.stage === "running") {
         return wrap(<Spinner label={status || "calling"} />);
     }
-    if (stage === "done") {
+    if (wizard.stage === "done") {
         return wrap(
             <Panel title="result" color={theme.ok}>
                 {results.map((line, index) => (
@@ -413,7 +410,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
         );
     }
 
-    if (stage === "contract") {
+    if (wizard.stage === "contract") {
         const labels = formatContractPickerRows(
             contracts.map((contract) => ({
                 name: nameOf(contract),
@@ -433,20 +430,12 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
             ...(system.length ? [{ label: "system", header: true }, ...system] : []),
         ];
 
-        return wrap(
-            <Select
-                label="Pick a contract:"
-                items={items}
-                onSelect={(contract) => {
-                    setSelection({ c: contract });
-                    setStage("entry");
-                }}
-            />,
-        );
+        return wrap(<Select label="Pick a contract:" items={items} onSelect={(contract) => setWizard({ stage: "entry", contract })} />);
     }
 
-    if (stage === "entry") {
-        const items = entriesFor(selection.c!).map((entry) => {
+    if (wizard.stage === "entry") {
+        const { contract } = wizard;
+        const items = entriesFor(contract).map((entry) => {
             const kind = entry.kind === "fn" ? "fn  " : "proc";
             const name = entry.name ?? "#" + entry.inputType;
             const input = noInput(entry) ? "no input" : `in ${entry.inputSize}B`;
@@ -458,68 +447,50 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
             };
         });
 
-        return wrap(<Select label={`${nameOf(selection.c!)} — pick a function/procedure:`} items={items} onSelect={startEntry} />);
+        return wrap(<Select label={`${nameOf(contract)} — pick a function/procedure:`} items={items} onSelect={(entry) => startEntry(contract, entry)} />);
     }
 
-    if (stage === "input") {
+    if (wizard.stage === "input") {
+        const { entry, draft } = wizard;
+        const structFields = entry.input?.kind === AbiTypeKind.STRUCT ? entry.input.fields : undefined;
+
         return wrap(
             <Box flexDirection="column">
-                <SchemaBox kind="input" name={`${selection.e!.name ?? selection.e!.kind + "#" + selection.e!.inputType}_input`} type={selection.e!.input} />
+                <SchemaBox kind="input" name={`${entryLabel(entry)}_input`} type={entry.input} />
                 <TextPrompt
-                    label={`value format, e.g. 5uint64 · [N; v…] arrays · ×N repeats${selection.e!.kind === "fn" ? "  (empty = none)" : ""}`}
-                    initial={selection.input ?? ""}
-                    placeholder={
-                        selection.e!.input && hasOverlappingAbiType(selection.e!.input)
-                            ? (zeroSample(selection.e!) ?? undefined)
-                            : selection.e!.input?.kind === AbiTypeKind.STRUCT
-                              ? tmplOf(selection.e!.input.fields)
-                              : (zeroSample(selection.e!) ?? undefined)
-                    }
-                    complete={completerFor(selection.e!.input?.kind === AbiTypeKind.STRUCT ? selection.e!.input.fields : undefined, true)}
-                    onSubmit={(input) => {
-                        const next = { ...selection, input };
-                        setSelection(next);
-                        afterInput(next);
-                    }}
+                    label={`value format, e.g. 5uint64 · [N; v…] arrays · ×N repeats${entry.kind === "fn" ? "  (empty = none)" : ""}`}
+                    initial={draft.input ?? ""}
+                    placeholder={structFields && !(entry.input && hasOverlappingAbiType(entry.input)) ? tmplOf(structFields) : (zeroSample(entry) ?? undefined)}
+                    complete={completerFor(structFields, true)}
+                    onSubmit={(input) => afterInput({ ...wizard, draft: { ...draft, input } })}
                 />
             </Box>,
         );
     }
 
-    if (stage === "output") {
+    if (wizard.stage === "output") {
+        const { entry, draft } = wizard;
+        const structFields = entry.output?.kind === AbiTypeKind.STRUCT ? entry.output.fields : undefined;
+
         return wrap(
             <Box flexDirection="column">
-                <SchemaBox kind="output" name={`${selection.e!.name ?? selection.e!.kind + "#" + selection.e!.inputType}_output`} type={selection.e!.output} />
+                <SchemaBox kind="output" name={`${entryLabel(entry)}_output`} type={entry.output} />
                 <TextPrompt
                     label="output types only, e.g. uint64 or { id, uint16 }"
-                    initial={selection.e!.output?.format ?? ""}
-                    placeholder={
-                        selection.e!.output?.kind === AbiTypeKind.STRUCT && selection.e!.output.fields.length
-                            ? selection.e!.output.fields.map((field) => field.type.format).join(", ")
-                            : selection.e!.output?.format
-                    }
-                    complete={completerFor(selection.e!.output?.kind === AbiTypeKind.STRUCT ? selection.e!.output.fields : undefined)}
-                    onSubmit={(out) => {
-                        const next = { ...selection, out };
-                        setSelection(next);
-                        runCall(next);
-                    }}
+                    initial={entry.output?.format ?? ""}
+                    placeholder={structFields?.length ? structFields.map((field) => field.type.format).join(", ") : entry.output?.format}
+                    complete={completerFor(structFields)}
+                    onSubmit={(out) => runCall({ ...wizard, draft: { ...draft, out } })}
                 />
             </Box>,
         );
     }
 
-    if (stage === "amount") {
+    if (wizard.stage === "amount") {
+        const { draft } = wizard;
+
         return wrap(
-            <TextPrompt
-                label="amount (qus)"
-                initial={selection.amount ?? "0"}
-                onSubmit={(amount) => {
-                    const next = { ...selection, amount };
-                    setSelection(next);
-                    runCall(next);
-                }}
-            />,
+            <TextPrompt label="amount (qus)" initial={draft.amount ?? "0"} onSubmit={(amount) => runCall({ ...wizard, draft: { ...draft, amount } })} />,
         );
     }
 
