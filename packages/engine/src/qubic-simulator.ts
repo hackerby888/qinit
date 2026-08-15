@@ -559,40 +559,50 @@ export class QubicSimulator {
         return { allow, fee: requestedFee };
     }
 
-    acquireShares(
-        callerSlot: number,
-        name: bigint,
-        issuer: Uint8Array,
-        owner: Uint8Array,
-        possessor: Uint8Array,
-        shares: bigint,
-        sourceOwnershipManager: number,
-        sourcePossessionManager: number,
-        offeredFee: bigint,
-    ): bigint {
+    // acquireShares and releaseShares are the same protocol run in opposite directions: one side asks the
+    // other's management contract for permission, pays the fee it names, then the rights move.
+    private moveManagementRights(request: {
+        callerSlot: number;
+        name: bigint;
+        issuer: Uint8Array;
+        owner: Uint8Array;
+        possessor: Uint8Array;
+        shares: bigint;
+        offeredFee: bigint;
+        counterpartyOwnershipManager: number;
+        counterpartyPossessionManager: number;
+        preSysproc: number;
+        postSysproc: number;
+        // Release moves rights away from the caller; acquire pulls them in from the counterparty.
+        heldByCaller: boolean;
+    }): bigint {
+        const { callerSlot, name, issuer, owner, possessor, shares, offeredFee } = request;
+        const { counterpartyOwnershipManager, counterpartyPossessionManager, heldByCaller } = request;
+
         this.assertOperational();
-        if (!first32BytesEqual(owner, possessor) || sourceOwnershipManager !== sourcePossessionManager) {
+        if (!first32BytesEqual(owner, possessor) || counterpartyOwnershipManager !== counterpartyPossessionManager) {
             return INVALID_AMOUNT;
         }
 
         if (
-            sourcePossessionManager === callerSlot ||
-            sourcePossessionManager < 1 ||
-            sourcePossessionManager >= MAX_NUMBER_OF_CONTRACTS ||
+            counterpartyPossessionManager === callerSlot ||
+            counterpartyPossessionManager < 1 ||
+            counterpartyPossessionManager >= MAX_NUMBER_OF_CONTRACTS ||
             shares <= 0n ||
             offeredFee < 0n
         ) {
             return INVALID_AMOUNT;
         }
 
-        const availableShares = this.assets.numberOfPossessedShares(name, issuer, owner, possessor, sourcePossessionManager, sourcePossessionManager);
+        const holder = heldByCaller ? callerSlot : counterpartyPossessionManager;
+        const availableShares = this.assets.numberOfPossessedShares(name, issuer, owner, possessor, holder, holder);
         if (availableShares < shares) {
             return INVALID_AMOUNT;
         }
 
         const callback = this.runManagementCallback(
-            sourceOwnershipManager,
-            SYSTEM_PROCEDURES.PRE_RELEASE_SHARES,
+            counterpartyOwnershipManager,
+            request.preSysproc,
             name,
             issuer,
             owner,
@@ -611,29 +621,48 @@ export class QubicSimulator {
         }
 
         if (callback.fee > 0n) {
-            const feeResult = this.doTransfer(callerSlot, this.contractId(sourceOwnershipManager), callback.fee, TT_QPI);
+            const feeResult = this.doTransfer(callerSlot, this.contractId(counterpartyOwnershipManager), callback.fee, TT_QPI);
             if (feeResult < 0n) {
                 return -callback.fee;
             }
         }
 
-        if (!this.transferShareManagementRights(name, issuer, owner, possessor, sourcePossessionManager, callerSlot, shares)) {
+        const from = heldByCaller ? callerSlot : counterpartyPossessionManager;
+        const to = heldByCaller ? counterpartyPossessionManager : callerSlot;
+        if (!this.transferShareManagementRights(name, issuer, owner, possessor, from, to, shares)) {
             return INVALID_AMOUNT;
         }
 
-        this.runManagementCallback(
-            sourceOwnershipManager,
-            SYSTEM_PROCEDURES.POST_RELEASE_SHARES,
+        this.runManagementCallback(counterpartyOwnershipManager, request.postSysproc, name, issuer, owner, possessor, shares, callback.fee, callerSlot);
+
+        return callback.fee;
+    }
+
+    acquireShares(
+        callerSlot: number,
+        name: bigint,
+        issuer: Uint8Array,
+        owner: Uint8Array,
+        possessor: Uint8Array,
+        shares: bigint,
+        sourceOwnershipManager: number,
+        sourcePossessionManager: number,
+        offeredFee: bigint,
+    ): bigint {
+        return this.moveManagementRights({
+            callerSlot,
             name,
             issuer,
             owner,
             possessor,
             shares,
-            callback.fee,
-            callerSlot,
-        );
-
-        return callback.fee;
+            offeredFee,
+            counterpartyOwnershipManager: sourceOwnershipManager,
+            counterpartyPossessionManager: sourcePossessionManager,
+            preSysproc: SYSTEM_PROCEDURES.PRE_RELEASE_SHARES,
+            postSysproc: SYSTEM_PROCEDURES.POST_RELEASE_SHARES,
+            heldByCaller: false,
+        });
     }
 
     releaseShares(
@@ -647,70 +676,20 @@ export class QubicSimulator {
         destinationPossessionManager: number,
         offeredFee: bigint,
     ): bigint {
-        this.assertOperational();
-        if (!first32BytesEqual(owner, possessor) || destinationOwnershipManager !== destinationPossessionManager) {
-            return INVALID_AMOUNT;
-        }
-
-        if (
-            destinationPossessionManager === callerSlot ||
-            destinationPossessionManager < 1 ||
-            destinationPossessionManager >= MAX_NUMBER_OF_CONTRACTS ||
-            shares <= 0n ||
-            offeredFee < 0n
-        ) {
-            return INVALID_AMOUNT;
-        }
-
-        const availableShares = this.assets.numberOfPossessedShares(name, issuer, owner, possessor, callerSlot, callerSlot);
-        if (availableShares < shares) {
-            return INVALID_AMOUNT;
-        }
-
-        const callback = this.runManagementCallback(
-            destinationOwnershipManager,
-            SYSTEM_PROCEDURES.PRE_ACQUIRE_SHARES,
+        return this.moveManagementRights({
+            callerSlot,
             name,
             issuer,
             owner,
             possessor,
             shares,
             offeredFee,
-            callerSlot,
-        );
-
-        if (!callback.allow || callback.fee < 0n || callback.fee > MAX_AMOUNT) {
-            return INVALID_AMOUNT;
-        }
-
-        if (callback.fee > offeredFee) {
-            return -callback.fee;
-        }
-
-        if (callback.fee > 0n) {
-            const feeResult = this.doTransfer(callerSlot, this.contractId(destinationOwnershipManager), callback.fee, TT_QPI);
-            if (feeResult < 0n) {
-                return -callback.fee;
-            }
-        }
-
-        if (!this.transferShareManagementRights(name, issuer, owner, possessor, callerSlot, destinationPossessionManager, shares)) {
-            return INVALID_AMOUNT;
-        }
-
-        this.runManagementCallback(
-            destinationOwnershipManager,
-            SYSTEM_PROCEDURES.POST_ACQUIRE_SHARES,
-            name,
-            issuer,
-            owner,
-            possessor,
-            shares,
-            callback.fee,
-            callerSlot,
-        );
-
-        return callback.fee;
+            counterpartyOwnershipManager: destinationOwnershipManager,
+            counterpartyPossessionManager: destinationPossessionManager,
+            preSysproc: SYSTEM_PROCEDURES.PRE_ACQUIRE_SHARES,
+            postSysproc: SYSTEM_PROCEDURES.POST_ACQUIRE_SHARES,
+            heldByCaller: true,
+        });
     }
 
     private doDistributeDividends(slot: number, amountPerShare: bigint): number {
@@ -922,6 +901,22 @@ export class QubicSimulator {
         }
     }
 
+    // Fires one system procedure across every registered contract that implements it. Begin-phases walk the
+    // slots ascending and end-phases descending; the tick phases additionally skip a contract out of fees.
+    private sweepSysproc(sysproc: number, ascendingSlots: boolean, requireFeeReserve: boolean): void {
+        for (const slot of this.registry.slots(ascendingSlots)) {
+            const contract = this.contracts.get(slot)!;
+            if (!contract.hasSysproc(sysproc)) {
+                continue;
+            }
+            if (requireFeeReserve && !this.fees.reserveOk(slot)) {
+                continue;
+            }
+
+            this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, sysproc, new Uint8Array(0), { entryPoint: sysproc });
+        }
+    }
+
     beginEpoch(): void {
         this.runOperation("begin-epoch", () => this.runBeginEpoch());
     }
@@ -934,14 +929,7 @@ export class QubicSimulator {
         this.logStore?.begin(logTick, LOG_SC_BEGIN_EPOCH);
 
         try {
-            for (const slot of this.registry.slots(true)) {
-                const contract = this.contracts.get(slot)!;
-                if (contract.hasSysproc(SYSTEM_PROCEDURES.BEGIN_EPOCH)) {
-                    this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.BEGIN_EPOCH, new Uint8Array(0), {
-                        entryPoint: SYSTEM_PROCEDURES.BEGIN_EPOCH,
-                    });
-                }
-            }
+            this.sweepSysproc(SYSTEM_PROCEDURES.BEGIN_EPOCH, true, false);
         } finally {
             this.logStore?.end();
         }
@@ -955,14 +943,7 @@ export class QubicSimulator {
         this.logStore?.begin(this.nextLogTick(), LOG_SC_END_EPOCH);
 
         try {
-            for (const slot of this.registry.slots(false)) {
-                const contract = this.contracts.get(slot)!;
-                if (contract.hasSysproc(SYSTEM_PROCEDURES.END_EPOCH)) {
-                    this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.END_EPOCH, new Uint8Array(0), {
-                        entryPoint: SYSTEM_PROCEDURES.END_EPOCH,
-                    });
-                }
-            }
+            this.sweepSysproc(SYSTEM_PROCEDURES.END_EPOCH, false, false);
         } finally {
             this.logStore?.end();
         }
@@ -979,14 +960,7 @@ export class QubicSimulator {
 
         this.logStore?.begin(this.currentTick, LOG_SC_BEGIN_TICK);
         try {
-            for (const slot of this.registry.slots(true)) {
-                const contract = this.contracts.get(slot)!;
-                if (contract.hasSysproc(SYSTEM_PROCEDURES.BEGIN_TICK) && this.fees.reserveOk(slot)) {
-                    this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.BEGIN_TICK, new Uint8Array(0), {
-                        entryPoint: SYSTEM_PROCEDURES.BEGIN_TICK,
-                    });
-                }
-            }
+            this.sweepSysproc(SYSTEM_PROCEDURES.BEGIN_TICK, true, true);
         } finally {
             this.logStore?.end();
         }
@@ -1000,14 +974,7 @@ export class QubicSimulator {
         this.logStore?.begin(this.currentTick, LOG_SC_END_TICK);
 
         try {
-            for (const slot of this.registry.slots(false)) {
-                const contract = this.contracts.get(slot)!;
-                if (contract.hasSysproc(SYSTEM_PROCEDURES.END_TICK) && this.fees.reserveOk(slot)) {
-                    this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.END_TICK, new Uint8Array(0), {
-                        entryPoint: SYSTEM_PROCEDURES.END_TICK,
-                    });
-                }
-            }
+            this.sweepSysproc(SYSTEM_PROCEDURES.END_TICK, false, true);
         } finally {
             this.logStore?.end();
         }

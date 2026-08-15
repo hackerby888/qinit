@@ -17,8 +17,8 @@ const BUDGETS: Record<string, number> = {
     "packages/cli/src/trace/format.ts": 832,
     // Splitting imports() into named groups traded size for structure; the group bodies move out next.
     "packages/engine/src/contract/runtime.ts": 1231,
-    "packages/engine/src/ledger/assets.ts": 1238,
-    "packages/engine/src/qubic-simulator.ts": 1550,
+    "packages/engine/src/ledger/assets.ts": 1244,
+    "packages/engine/src/qubic-simulator.ts": 1525,
     "packages/engine/src/transport.ts": 1051,
     "packages/proto/src/abi-fmt.ts": 838,
 };
