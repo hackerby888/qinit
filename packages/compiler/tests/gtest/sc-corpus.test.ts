@@ -1,6 +1,6 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 // Dual-backend corpus verification: clang and TypeScript.
-import { describe, test, expect, beforeAll } from "bun:test";
+import { describe, expect, beforeAll } from "bun:test";
 import {
     readFileSync,
     writeFileSync,
@@ -20,7 +20,30 @@ import {
     type CompileResult,
     type ContractIdl,
 } from "../../src/index";
-import { CORE, wasiAvailable } from "../support/qutil-bridge";
+import { CORE } from "../support/qutil-bridge";
+import {
+    toolchainTest,
+    wasiToolchain,
+    type ToolchainStatus,
+} from "../support/container-toolchains";
+
+// The parity and sweep cells need the wasi toolchain plus their env selector, so both gate the skip.
+function cellStatus(when: boolean, detail: string): ToolchainStatus {
+    return when ? wasiToolchain() : { available: false, detail };
+}
+
+// The single-cell child entry drives an already-built runner, so it needs no toolchain of its own.
+const singleCell: ToolchainStatus = process.env.SC_SINGLE
+    ? { available: true, detail: "SC_SINGLE" }
+    : { available: false, detail: "set SC_SINGLE=1 to run one cell" };
+const parity = cellStatus(
+    !process.env.SC_SINGLE && !process.env.SC_TYPESCRIPT_ONLY,
+    "SC_SINGLE / SC_TYPESCRIPT_ONLY selects a different cell",
+);
+const sweep = cellStatus(
+    Boolean(process.env.SC_SWEEP) && !process.env.SC_SINGLE,
+    "set SC_SWEEP=1 (without SC_SINGLE) to run the sweep",
+);
 
 interface CalleeSpec {
     name: string;
@@ -419,131 +442,123 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
         await initK12();
     });
 
-    test("__single-cell child entry", async () => {
-        if (!process.env.SC_SINGLE) {
-            return;
-        }
+    toolchainTest(
+        "__single-cell child entry",
+        singleCell,
+        async () => {
+            await runSingleCell();
+        },
+        600000,
+    );
 
-        await runSingleCell();
-    }, 600000);
+    toolchainTest(
+        "QUTIL parity: clang >= 51 AND typescript >= 51 via qinit harness",
+        parity,
+        async () => {
+            const spec = SPECS.find((s) => s.name === "QUTIL")!;
+            const dir = mkdtempSync(join(tmpdir(), "qinit-parity-qutil-"));
 
-    test("QUTIL parity: clang >= 51 AND typescript >= 51 via qinit harness", async () => {
-        if (process.env.SC_SINGLE || process.env.SC_TYPESCRIPT_ONLY) {
-            return;
-        }
-        if (!wasiAvailable()) {
-            console.log("  (wasi-sdk clang not found — skipping)");
-            return;
-        }
+            try {
+                const runner = await buildRunnerFor(spec, dir);
+                const clang = await buildWithClang(spec, dir);
+                const typescript = await buildWithTypeScript(spec);
 
-        const spec = SPECS.find((s) => s.name === "QUTIL")!;
-        const dir = mkdtempSync(join(tmpdir(), "qinit-parity-qutil-"));
+                const clangResults = await runContractTesting(runner, clang);
+                const typescriptResults = await runContractTesting(runner, typescript);
 
-        try {
-            const runner = await buildRunnerFor(spec, dir);
-            const clang = await buildWithClang(spec, dir);
-            const typescript = await buildWithTypeScript(spec);
+                const clangPassed = clangResults.filter((r) => r.passed).length;
+                const typescriptPassed = typescriptResults.filter((r) => r.passed).length;
 
-            const clangResults = await runContractTesting(runner, clang);
-            const typescriptResults = await runContractTesting(runner, typescript);
+                console.log(`\n  [clang] QUTIL: ${clangPassed}/${clangResults.length} PASS`);
+                const tsTotal = typescriptResults.length;
+                console.log(`  [typescript] QUTIL: ${typescriptPassed}/${tsTotal} PASS`);
 
-            const clangPassed = clangResults.filter((r) => r.passed).length;
-            const typescriptPassed = typescriptResults.filter((r) => r.passed).length;
+                for (const r of clangResults.filter((r) => !r.passed).slice(0, 6)) {
+                    const detail = r.message.replace(/\n/g, " ").slice(0, 100);
+                    console.log(`  FAIL clang ${r.name} — ${detail}`);
+                }
+                for (const r of typescriptResults.filter((r) => !r.passed).slice(0, 6)) {
+                    const detail = r.message.replace(/\n/g, " ").slice(0, 100);
+                    console.log(`  FAIL typescript ${r.name} — ${detail}`);
+                }
 
-            console.log(`\n  [clang] QUTIL: ${clangPassed}/${clangResults.length} PASS`);
-            console.log(
-                `  [typescript] QUTIL: ${typescriptPassed}/${typescriptResults.length} PASS`,
+                expect(clangPassed).toBeGreaterThanOrEqual(51);
+                expect(typescriptPassed).toBeGreaterThanOrEqual(51);
+            } finally {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        },
+        600000,
+    );
+
+    toolchainTest(
+        "EASY-tier scoreboard (SC_SWEEP=1)",
+        sweep,
+        async () => {
+            interface Row {
+                name: string;
+                runner: string;
+                clang: string;
+                typescript: string;
+            }
+
+            const CELL_TIMEOUT = 120000;
+            const rows: Row[] = [];
+
+            const selectedNames = new Set(
+                (process.env.SC_SWEEP_FILTER ?? "").split(",").filter(Boolean),
             );
+            const selected = selectedNames.size
+                ? SPECS.filter((spec) => selectedNames.has(spec.name))
+                : SPECS;
+            const typescriptOnly = !!process.env.SC_TYPESCRIPT_ONLY;
 
-            for (const r of clangResults.filter((r) => !r.passed).slice(0, 6)) {
+            for (const spec of selected) {
+                const clang = typescriptOnly
+                    ? { runner: "-", score: "skip" }
+                    : await spawnCell(spec.name, "clang", CELL_TIMEOUT);
+                const typescript = await spawnCell(spec.name, "typescript", CELL_TIMEOUT);
+
+                const runner = clang.runner === "ok" || typescript.runner === "ok" ? "ok" : "err";
+                rows.push({
+                    name: spec.name,
+                    runner,
+                    clang: clang.score,
+                    typescript: typescript.score,
+                });
                 console.log(
-                    `  FAIL clang ${r.name} — ${r.message.replace(/\n/g, " ").slice(0, 100)}`,
+                    `  [${spec.name}] runner:${runner}  clang:${clang.score}  typescript:${typescript.score}`,
                 );
             }
-            for (const r of typescriptResults.filter((r) => !r.passed).slice(0, 6)) {
-                console.log(
-                    `  FAIL typescript ${r.name} — ${r.message.replace(/\n/g, " ").slice(0, 100)}`,
+
+            const column = (s: string, w: number) => s.padEnd(w);
+            const header = [
+                column("CONTRACT", 16),
+                column("RUNNER", 8),
+                column("CLANG", 10),
+                column("TYPESCRIPT", 10),
+            ].join(" ");
+            const sep = "-".repeat(header.length);
+
+            const tableLines = [sep, header, sep];
+            for (const row of rows) {
+                tableLines.push(
+                    `${column(row.name, 16)} ${column(row.runner, 8)} ${column(row.clang, 10)} ${column(row.typescript, 10)}`,
                 );
             }
+            tableLines.push(sep);
 
-            expect(clangPassed).toBeGreaterThanOrEqual(51);
-            expect(typescriptPassed).toBeGreaterThanOrEqual(51);
-        } finally {
-            rmSync(dir, { recursive: true, force: true });
-        }
-    }, 600000);
-
-    test("EASY-tier scoreboard (SC_SWEEP=1)", async () => {
-        if (!process.env.SC_SWEEP || process.env.SC_SINGLE) {
-            return;
-        }
-        if (!wasiAvailable()) {
-            console.log("  (wasi-sdk clang not found — skipping sweep)");
-            return;
-        }
-
-        interface Row {
-            name: string;
-            runner: string;
-            clang: string;
-            typescript: string;
-        }
-
-        const CELL_TIMEOUT = 120000;
-        const rows: Row[] = [];
-
-        const selectedNames = new Set(
-            (process.env.SC_SWEEP_FILTER ?? "").split(",").filter(Boolean),
-        );
-        const selected = selectedNames.size
-            ? SPECS.filter((spec) => selectedNames.has(spec.name))
-            : SPECS;
-        const typescriptOnly = !!process.env.SC_TYPESCRIPT_ONLY;
-
-        for (const spec of selected) {
-            const clang = typescriptOnly
-                ? { runner: "-", score: "skip" }
-                : await spawnCell(spec.name, "clang", CELL_TIMEOUT);
-            const typescript = await spawnCell(spec.name, "typescript", CELL_TIMEOUT);
-
-            const runner = clang.runner === "ok" || typescript.runner === "ok" ? "ok" : "err";
-            rows.push({
-                name: spec.name,
-                runner,
-                clang: clang.score,
-                typescript: typescript.score,
-            });
-            console.log(
-                `  [${spec.name}] runner:${runner}  clang:${clang.score}  typescript:${typescript.score}`,
-            );
-        }
-
-        const column = (s: string, w: number) => s.padEnd(w);
-        const header = [
-            column("CONTRACT", 16),
-            column("RUNNER", 8),
-            column("CLANG", 10),
-            column("TYPESCRIPT", 10),
-        ].join(" ");
-        const sep = "-".repeat(header.length);
-
-        const tableLines = [sep, header, sep];
-        for (const row of rows) {
+            const scored = (v: string) => /^\d+\/\d+$/.test(v);
+            const clangScored = rows.filter((r) => scored(r.clang)).length;
+            const typescriptScored = rows.filter((r) => scored(r.typescript)).length;
             tableLines.push(
-                `${column(row.name, 16)} ${column(row.runner, 8)} ${column(row.clang, 10)} ${column(row.typescript, 10)}`,
+                `  ${rows.length} specs · clang scored ${clangScored}/${rows.length} · typescript scored ${typescriptScored}/${rows.length}`,
             );
-        }
-        tableLines.push(sep);
 
-        const scored = (v: string) => /^\d+\/\d+$/.test(v);
-        const clangScored = rows.filter((r) => scored(r.clang)).length;
-        const typescriptScored = rows.filter((r) => scored(r.typescript)).length;
-        tableLines.push(
-            `  ${rows.length} specs · clang scored ${clangScored}/${rows.length} · typescript scored ${typescriptScored}/${rows.length}`,
-        );
+            console.log("\n" + tableLines.join("\n"));
 
-        console.log("\n" + tableLines.join("\n"));
-
-        expect(rows.length).toBe(selected.length);
-    }, 1800000);
+            expect(rows.length).toBe(selected.length);
+        },
+        1800000,
+    );
 });

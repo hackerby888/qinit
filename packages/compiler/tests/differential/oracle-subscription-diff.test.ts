@@ -1,6 +1,6 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { wasiToolchain } from "../support/container-toolchains";
-import { beforeAll, expect, test } from "bun:test";
+import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
+import { beforeAll, expect } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,46 +67,47 @@ beforeAll(async () => {
     await initK12();
 });
 
-test("Price subscription matches across TS and Clang artifacts in VirtualNode", async () => {
-    if (!wasi.available) {
-        console.log("  (wasi-sdk clang not found — skipping)");
-        return;
-    }
+toolchainTest(
+    "Price subscription matches across TS and Clang artifacts in VirtualNode",
+    wasi,
+    async () => {
+        const directory = mkdtempSync(join(tmpdir(), "oracle-subscription-diff-"));
+        const contractPath = join(directory, "OracleProbe.h");
+        writeFileSync(contractPath, ORACLE_PROBE_SOURCE);
+        const clang = await buildContractWithWasiClang({
+            contractPath,
+            name: "OracleProbe",
+            slot: SLOT,
+            corePath: CORE_PATH,
+            outDir: join(directory, "clang"),
+            skipVerify: true,
+        });
+        expect(clang.ok).toBe(true);
 
-    const directory = mkdtempSync(join(tmpdir(), "oracle-subscription-diff-"));
-    const contractPath = join(directory, "OracleProbe.h");
-    writeFileSync(contractPath, ORACLE_PROBE_SOURCE);
-    const clang = await buildContractWithWasiClang({
-        contractPath,
-        name: "OracleProbe",
-        slot: SLOT,
-        corePath: CORE_PATH,
-        outDir: join(directory, "clang"),
-        skipVerify: true,
-    });
-    expect(clang.ok).toBe(true);
+        const typescript = await compileContract({
+            source: ORACLE_PROBE_SOURCE,
+            contractName: "OracleProbe",
+            slot: SLOT,
+            qpiHeader: loadQpiHeader(CORE_PATH),
+            arenaSizeBytes: 4 * 1024 * 1024,
+        });
+        expect(
+            typescript.diagnostics.filter(
+                (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
+            ),
+        ).toEqual([]);
+        if (!typescript.idl) {
+            throw new Error("successful TypeScript compile returned no IDL");
+        }
+        expect(typescript.idl.procedures.find((entry) => entry.name === "Subscribe")?.inSize).toBe(
+            112,
+        );
 
-    const typescript = await compileContract({
-        source: ORACLE_PROBE_SOURCE,
-        contractName: "OracleProbe",
-        slot: SLOT,
-        qpiHeader: loadQpiHeader(CORE_PATH),
-        arenaSizeBytes: 4 * 1024 * 1024,
-    });
-    expect(
-        typescript.diagnostics.filter(
-            (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
-        ),
-    ).toEqual([]);
-    if (!typescript.idl) {
-        throw new Error("successful TypeScript compile returned no IDL");
-    }
-    expect(typescript.idl.procedures.find((entry) => entry.name === "Subscribe")?.inSize).toBe(112);
-
-    const nativeResult = run(new Uint8Array(readFileSync(clang.wasmPath!)));
-    const typescriptResult = run(typescript.wasm);
-    expect(nativeResult.subscriptionId).toBe(0);
-    expect(typescriptResult).toEqual(nativeResult);
-    expect(nativeResult.pendingInterface).toBe(0);
-    expect(nativeResult.balance).toBe(990_000n);
-});
+        const nativeResult = run(new Uint8Array(readFileSync(clang.wasmPath!)));
+        const typescriptResult = run(typescript.wasm);
+        expect(nativeResult.subscriptionId).toBe(0);
+        expect(typescriptResult).toEqual(nativeResult);
+        expect(nativeResult.pendingInterface).toBe(0);
+        expect(nativeResult.balance).toBe(990_000n);
+    },
+);

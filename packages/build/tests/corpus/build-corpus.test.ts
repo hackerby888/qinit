@@ -17,27 +17,27 @@ function wasiAvailable(): boolean {
     }
 }
 
-test("QUTIL corpus compiles verbatim against the qinit harness header", async () => {
-    if (!wasiAvailable()) {
-        console.log("  (wasi-sdk clang not found — skipping)");
-        return;
-    }
+// Skipped rather than silently passed when the wasi toolchain is absent.
+test.skipIf(!wasiAvailable())(
+    "QUTIL corpus compiles verbatim against the qinit harness header",
+    async () => {
+        const outDir = mkdtempSync(join(tmpdir(), "qutil-corpus-"));
 
-    const outDir = mkdtempSync(join(tmpdir(), "qutil-corpus-"));
+        const built = await buildCorpusRunner({
+            corpusPath: join(CORE, "test", "contract_qutil.cpp"),
+            contractPath: join(CORE, "src", "contracts", "QUtil.h"),
+            name: "QUTIL",
+            stateType: "QUTIL",
+            slot: 4,
+            corePath: CORE,
+            outDir,
+        });
 
-    const built = await buildCorpusRunner({
-        corpusPath: join(CORE, "test", "contract_qutil.cpp"),
-        contractPath: join(CORE, "src", "contracts", "QUtil.h"),
-        name: "QUTIL",
-        stateType: "QUTIL",
-        slot: 4,
-        corePath: CORE,
-        outDir,
-    });
+        if (!built.ok) {
+            console.error("Build stderr:\n" + built.stderr);
+        }
 
-    if (!built.ok) {
-        console.error("Build stderr:\n" + built.stderr);
-    }
-
-    expect(built.ok).toBe(true);
-}, 300000);
+        expect(built.ok).toBe(true);
+    },
+    300000,
+);

@@ -1,8 +1,8 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks shareholder proposal/vote sysproc payloads and return values.
-import { wasiToolchain } from "../support/container-toolchains";
-import { describe, test, expect, beforeAll } from "bun:test";
+import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
+import { describe, expect, beforeAll } from "bun:test";
 import { buildContractWithWasiClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -82,85 +82,86 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
         await initK12();
     });
 
-    test("caller + callee state bytes match native after proposal + votes", async () => {
-        if (!wasi.available) {
-            console.log("  (wasi-sdk clang not found — skipping)");
-            return;
-        }
-        const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-        const { tmpdir } = await import("node:os");
-        const { join } = await import("node:path");
-        const dir = mkdtempSync(join(tmpdir(), "shprop-"));
+    toolchainTest(
+        "caller + callee state bytes match native after proposal + votes",
+        wasi,
+        async () => {
+            const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
+            const { tmpdir } = await import("node:os");
+            const { join } = await import("node:path");
+            const dir = mkdtempSync(join(tmpdir(), "shprop-"));
 
-        const buildNative = async (name: string, src: string, slot: number) => {
-            const contractPath = join(dir, `${name}.h`);
-            writeFileSync(contractPath, src);
-            const built = await buildContractWithWasiClang({
-                contractPath,
-                name,
-                slot,
-                corePath: CORE,
-                outDir: dir,
-                skipVerify: true,
-            });
-            expect(built.ok).toBe(true);
-            return new Uint8Array(readFileSync(built.wasmPath!));
-        };
-        const buildOurs = async (name: string, src: string, slot: number) => {
-            const mine = await compileContract({
-                source: src,
-                contractName: name,
-                slot,
-                qpiHeader: HEADERS,
-                arenaSizeBytes: 4 * 1024 * 1024,
-            });
-            expect(
-                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-            ).toHaveLength(0);
-            return mine.wasm;
-        };
-
-        const nativeCallee = await buildNative("ShCallee", CALLEE_SRC, 3);
-        const nativeCaller = await buildNative("ShCaller", CALLER_SRC, 27);
-        const oursCallee = await buildOurs("ShCallee", CALLEE_SRC, 3);
-        const oursCaller = await buildOurs("ShCaller", CALLER_SRC, 27);
-
-        const run = (callee: Uint8Array, caller: Uint8Array) => {
-            const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-            const user = new Uint8Array(32).fill(4);
-            sim.fund(user, 1_000_000n);
-            sim.deploy(3, callee);
-            sim.deploy(27, caller);
-            sim.procedure(27, 1, undefined, { invocator: user });
-            return {
-                caller: sim.contracts.get(27)!.state().slice(),
-                callee: sim.contracts.get(3)!.state().slice(),
+            const buildNative = async (name: string, src: string, slot: number) => {
+                const contractPath = join(dir, `${name}.h`);
+                writeFileSync(contractPath, src);
+                const built = await buildContractWithWasiClang({
+                    contractPath,
+                    name,
+                    slot,
+                    corePath: CORE,
+                    outDir: dir,
+                    skipVerify: true,
+                });
+                expect(built.ok).toBe(true);
+                return new Uint8Array(readFileSync(built.wasmPath!));
             };
-        };
+            const buildOurs = async (name: string, src: string, slot: number) => {
+                const mine = await compileContract({
+                    source: src,
+                    contractName: name,
+                    slot,
+                    qpiHeader: HEADERS,
+                    arenaSizeBytes: 4 * 1024 * 1024,
+                });
+                expect(
+                    mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+                ).toHaveLength(0);
+                return mine.wasm;
+            };
 
-        const nat = run(nativeCallee, nativeCaller);
-        const ours = run(oursCallee, oursCaller);
+            const nativeCallee = await buildNative("ShCallee", CALLEE_SRC, 3);
+            const nativeCaller = await buildNative("ShCaller", CALLER_SRC, 27);
+            const oursCallee = await buildOurs("ShCallee", CALLEE_SRC, 3);
+            const oursCaller = await buildOurs("ShCaller", CALLER_SRC, 27);
 
-        for (const side of ["caller", "callee"] as const) {
-            const a = nat[side];
-            const b = ours[side];
-            const firstDiff = a.findIndex((v, i) => b[i] !== v);
-            if (firstDiff >= 0) {
-                console.log(
-                    `  ${side} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`,
-                );
+            const run = (callee: Uint8Array, caller: Uint8Array) => {
+                const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+                const user = new Uint8Array(32).fill(4);
+                sim.fund(user, 1_000_000n);
+                sim.deploy(3, callee);
+                sim.deploy(27, caller);
+                sim.procedure(27, 1, undefined, { invocator: user });
+                return {
+                    caller: sim.contracts.get(27)!.state().slice(),
+                    callee: sim.contracts.get(3)!.state().slice(),
+                };
+            };
+
+            const nat = run(nativeCallee, nativeCaller);
+            const ours = run(oursCallee, oursCaller);
+
+            for (const side of ["caller", "callee"] as const) {
+                const a = nat[side];
+                const b = ours[side];
+                const firstDiff = a.findIndex((v, i) => b[i] !== v);
+                if (firstDiff >= 0) {
+                    console.log(
+                        `  ${side} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`,
+                    );
+                }
+                expect(firstDiff).toBe(-1);
             }
-            expect(firstDiff).toBe(-1);
-        }
 
-        // Anchor payloads and the returned proposal index and vote-success bit.
-        const callee = new DataView(nat.callee.buffer, nat.callee.byteOffset);
-        expect(callee.getBigUint64(0, true)).toBe(1n); // gotProposal
-        expect(callee.getBigUint64(8, true)).toBe(42n); // firstByte
-        expect(callee.getBigUint64(16, true)).toBe(1n); // gotVotes
-        expect(callee.getBigUint64(24, true)).toBe(5n); // votedIndex
-        const caller = new DataView(nat.caller.buffer, nat.caller.byteOffset);
-        expect(caller.getBigUint64(0, true)).toBe(7n); // propIdx
-        expect(caller.getBigUint64(8, true)).toBe(1n); // voteOk
-    }, 180000);
+            // Anchor payloads and the returned proposal index and vote-success bit.
+            const callee = new DataView(nat.callee.buffer, nat.callee.byteOffset);
+            expect(callee.getBigUint64(0, true)).toBe(1n); // gotProposal
+            expect(callee.getBigUint64(8, true)).toBe(42n); // firstByte
+            expect(callee.getBigUint64(16, true)).toBe(1n); // gotVotes
+            expect(callee.getBigUint64(24, true)).toBe(5n); // votedIndex
+            const caller = new DataView(nat.caller.buffer, nat.caller.byteOffset);
+            expect(caller.getBigUint64(0, true)).toBe(7n); // propIdx
+            expect(caller.getBigUint64(8, true)).toBe(1n); // voteOk
+        },
+        180000,
+    );
 });

@@ -3,8 +3,8 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks chained Array<Struct> writes and field reads used by QEARN.
 import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
-import { wasiToolchain } from "../support/container-toolchains";
-import { describe, test, expect, beforeAll } from "bun:test";
+import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
+import { describe, expect, beforeAll } from "bun:test";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -67,37 +67,38 @@ describe("differential gtest — Rounds (chain through Array element)", () => {
         await initK12();
     });
 
-    test("my Rounds.wasm passes the native Rounds gtest", async () => {
-        if (!wasi.available) {
-            console.log("  (wasi-sdk clang not found — skipping)");
-            return;
-        }
-        const runnerWasm = await buildDifferentialRunner({
-            corePath: CORE,
-            source: ROUNDS,
-            testSource: ROUNDS_GTEST,
-            name: "Rounds",
-            tempPrefix: "rounds-diff-",
-        });
+    toolchainTest(
+        "my Rounds.wasm passes the native Rounds gtest",
+        wasi,
+        async () => {
+            const runnerWasm = await buildDifferentialRunner({
+                corePath: CORE,
+                source: ROUNDS,
+                testSource: ROUNDS_GTEST,
+                name: "Rounds",
+                tempPrefix: "rounds-diff-",
+            });
 
-        const mine = await compileContract({
-            source: ROUNDS,
-            contractName: "Rounds",
-            slot: 28,
-            qpiHeader: HEADERS,
-            arenaSizeBytes: 256 * 1024,
-        });
-        expect(
-            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-        ).toHaveLength(0);
+            const mine = await compileContract({
+                source: ROUNDS,
+                contractName: "Rounds",
+                slot: 28,
+                qpiHeader: HEADERS,
+                arenaSizeBytes: 256 * 1024,
+            });
+            expect(
+                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+            ).toHaveLength(0);
 
-        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-        for (const r of results) {
-            console.log(
-                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
-            );
-        }
-        expect(results.length).toBeGreaterThan(0);
-        expect(results.every((r) => r.passed)).toBe(true);
-    }, 120000);
+            const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+            for (const r of results) {
+                console.log(
+                    `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+                );
+            }
+            expect(results.length).toBeGreaterThan(0);
+            expect(results.every((r) => r.passed)).toBe(true);
+        },
+        120000,
+    );
 });

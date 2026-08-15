@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Semantic validation coverage for invalid constructs.
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
+import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { buildContractWithWasiClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -249,51 +249,44 @@ describe("semantic validation — invalid source must fail loudly", () => {
         });
     }
 
-    test("default arguments follow native semantics", async () => {
-        const wasiOk = (() => {
-            try {
-                const { wasiSdkPaths } = require("@qinit/core/project");
-                return existsSync(wasiSdkPaths().clang);
-            } catch {
-                return false;
-            }
-        })();
-        if (!wasiOk) {
-            console.log("  (wasi-sdk clang not found — skipping)");
-            return;
-        }
-        const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-        const { tmpdir } = await import("node:os");
-        const { join } = await import("node:path");
+    toolchainTest(
+        "default arguments follow native semantics",
+        wasiToolchain(),
+        async () => {
+            const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
+            const { tmpdir } = await import("node:os");
+            const { join } = await import("node:path");
 
-        const src = ACCEPTS["default argument call"];
-        const dir = mkdtempSync(join(tmpdir(), "defarg-"));
-        writeFileSync(join(dir, "DefArg.h"), src);
-        const built = await buildContractWithWasiClang({
-            contractPath: join(dir, "DefArg.h"),
-            name: "DefArg",
-            slot: 27,
-            corePath: CORE,
-            outDir: dir,
-            skipVerify: true,
-        });
-        expect(built.ok).toBe(true);
-        const ours = await compile(src);
-        expect(ours.errors).toHaveLength(0);
+            const src = ACCEPTS["default argument call"];
+            const dir = mkdtempSync(join(tmpdir(), "defarg-"));
+            writeFileSync(join(dir, "DefArg.h"), src);
+            const built = await buildContractWithWasiClang({
+                contractPath: join(dir, "DefArg.h"),
+                name: "DefArg",
+                slot: 27,
+                corePath: CORE,
+                outDir: dir,
+                skipVerify: true,
+            });
+            expect(built.ok).toBe(true);
+            const ours = await compile(src);
+            expect(ours.errors).toHaveLength(0);
 
-        const run = (wasm: Uint8Array) => {
-            const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-            const user = new Uint8Array(32).fill(7);
-            sim.fund(user, 1_000_000n);
-            sim.deploy(27, wasm);
-            sim.procedure(27, 1, undefined, { invocator: user });
-            const st = sim.contracts.get(27)!.state();
-            return new DataView(st.buffer, st.byteOffset).getBigUint64(0, true);
-        };
+            const run = (wasm: Uint8Array) => {
+                const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+                const user = new Uint8Array(32).fill(7);
+                sim.fund(user, 1_000_000n);
+                sim.deploy(27, wasm);
+                sim.procedure(27, 1, undefined, { invocator: user });
+                const st = sim.contracts.get(27)!.state();
+                return new DataView(st.buffer, st.byteOffset).getBigUint64(0, true);
+            };
 
-        const nat = run(new Uint8Array(readFileSync(built.wasmPath!)));
-        const mine = run(ours.wasm);
-        expect(nat).toBe(7n);
-        expect(mine).toBe(nat);
-    }, 180000);
+            const nat = run(new Uint8Array(readFileSync(built.wasmPath!)));
+            const mine = run(ours.wasm);
+            expect(nat).toBe(7n);
+            expect(mine).toBe(nat);
+        },
+        180000,
+    );
 });

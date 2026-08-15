@@ -3,7 +3,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // u128/safe-math semantics lock-down for divergence-sensitive cases.
 import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
-import { wasiToolchain } from "../support/container-toolchains";
+import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { QubicSimulator, runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -421,37 +421,38 @@ describe("differential gtest — safe-math saturation + uint128 boundaries", () 
         await initK12();
     });
 
-    test("my contract matches native clang on the boundary vectors", async () => {
-        if (!wasi.available) {
-            console.log("  (wasi-sdk clang not found — skipping)");
-            return;
-        }
-        const runnerWasm = await buildDifferentialRunner({
-            corePath: CORE,
-            source: SRC,
-            testSource: GTEST,
-            name: "M128",
-            tempPrefix: "math-u128-",
-        });
+    toolchainTest(
+        "my contract matches native clang on the boundary vectors",
+        wasi,
+        async () => {
+            const runnerWasm = await buildDifferentialRunner({
+                corePath: CORE,
+                source: SRC,
+                testSource: GTEST,
+                name: "M128",
+                tempPrefix: "math-u128-",
+            });
 
-        const mine = await compileContract({
-            source: SRC,
-            contractName: "M128",
-            slot: 28,
-            qpiHeader: HEADERS,
-            arenaSizeBytes: 1024 * 1024,
-        });
-        expect(
-            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-        ).toHaveLength(0);
+            const mine = await compileContract({
+                source: SRC,
+                contractName: "M128",
+                slot: 28,
+                qpiHeader: HEADERS,
+                arenaSizeBytes: 1024 * 1024,
+            });
+            expect(
+                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+            ).toHaveLength(0);
 
-        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-        for (const r of results) {
-            console.log(
-                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
-            );
-        }
-        expect(results.length).toBeGreaterThan(0);
-        expect(results.every((r) => r.passed)).toBe(true);
-    }, 120000);
+            const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+            for (const r of results) {
+                console.log(
+                    `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+                );
+            }
+            expect(results.length).toBeGreaterThan(0);
+            expect(results.every((r) => r.passed)).toBe(true);
+        },
+        120000,
+    );
 });

@@ -3,8 +3,8 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Differential gtest for arithmetic body codegen: QPI safe-math (div/mod/sadd/min/max), a for-loop with break/continue, member-lvalue increment, and named constants
 import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
-import { wasiToolchain } from "../support/container-toolchains";
-import { describe, test, expect, beforeAll } from "bun:test";
+import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
+import { describe, expect, beforeAll } from "bun:test";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -69,37 +69,38 @@ describe("differential gtest — Calc (safe math, loops, break, constants)", () 
         await initK12();
     });
 
-    test("my Calc.wasm passes the native Calc gtest", async () => {
-        if (!wasi.available) {
-            console.log("  (wasi-sdk clang not found — skipping)");
-            return;
-        }
-        const runnerWasm = await buildDifferentialRunner({
-            corePath: CORE,
-            source: CALC,
-            testSource: CALC_GTEST,
-            name: "Calc",
-            tempPrefix: "calc-diff-",
-        });
+    toolchainTest(
+        "my Calc.wasm passes the native Calc gtest",
+        wasi,
+        async () => {
+            const runnerWasm = await buildDifferentialRunner({
+                corePath: CORE,
+                source: CALC,
+                testSource: CALC_GTEST,
+                name: "Calc",
+                tempPrefix: "calc-diff-",
+            });
 
-        const mine = await compileContract({
-            source: CALC,
-            contractName: "Calc",
-            slot: 28,
-            qpiHeader: HEADERS,
-            arenaSizeBytes: 64 * 1024,
-        });
-        expect(
-            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-        ).toHaveLength(0);
+            const mine = await compileContract({
+                source: CALC,
+                contractName: "Calc",
+                slot: 28,
+                qpiHeader: HEADERS,
+                arenaSizeBytes: 64 * 1024,
+            });
+            expect(
+                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+            ).toHaveLength(0);
 
-        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-        for (const r of results) {
-            console.log(
-                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
-            );
-        }
-        expect(results.length).toBeGreaterThan(0);
-        expect(results.every((r) => r.passed)).toBe(true);
-    }, 120000);
+            const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+            for (const r of results) {
+                console.log(
+                    `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+                );
+            }
+            expect(results.length).toBeGreaterThan(0);
+            expect(results.every((r) => r.passed)).toBe(true);
+        },
+        120000,
+    );
 });

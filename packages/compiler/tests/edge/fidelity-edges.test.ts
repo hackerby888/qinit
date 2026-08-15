@@ -2,8 +2,8 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Fidelity probe for i64/value-model divergence edges.
 import { coreGtest } from "../support/core-gtest";
-import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
+import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
+import { describe, expect, beforeAll } from "bun:test";
 import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -86,64 +86,58 @@ TEST(Fidelity, TernaryIsLazy) {
 `,
 );
 
-function wasiAvailable(): boolean {
-    try {
-        const { wasiSdkPaths } = require("@qinit/core/project");
-        return existsSync(wasiSdkPaths().clang);
-    } catch {
-        return false;
-    }
-}
+const wasi = wasiToolchain();
 
 describe("differential gtest — semantic fidelity edges", () => {
     beforeAll(async () => {
         await initK12();
     });
 
-    test("my contract matches native C++ semantics on the edge vectors", async () => {
-        if (!wasiAvailable()) {
-            console.log("  (wasi-sdk clang not found — skipping)");
-            return;
-        }
-        const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-        const { tmpdir } = await import("node:os");
-        const { join } = await import("node:path");
-        const dir = mkdtempSync(join(tmpdir(), "fidelity-edges-"));
-        const contractPath = join(dir, "Edge.h");
-        writeFileSync(contractPath, SRC);
+    toolchainTest(
+        "my contract matches native C++ semantics on the edge vectors",
+        wasi,
+        async () => {
+            const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
+            const { tmpdir } = await import("node:os");
+            const { join } = await import("node:path");
+            const dir = mkdtempSync(join(tmpdir(), "fidelity-edges-"));
+            const contractPath = join(dir, "Edge.h");
+            writeFileSync(contractPath, SRC);
 
-        const testPath = join(dir, "Edge.test.cpp");
-        writeFileSync(testPath, GTEST);
-        const built = await buildCorpusRunner({
-            corpusPath: testPath,
-            contractPath,
-            name: "Edge",
-            stateType: "Edge",
-            slot: 28,
-            corePath: CORE,
-            outDir: dir,
-        });
-        expect(built.ok).toBe(true);
-        const runnerWasm = new Uint8Array(readFileSync(built.wasmPath!));
+            const testPath = join(dir, "Edge.test.cpp");
+            writeFileSync(testPath, GTEST);
+            const built = await buildCorpusRunner({
+                corpusPath: testPath,
+                contractPath,
+                name: "Edge",
+                stateType: "Edge",
+                slot: 28,
+                corePath: CORE,
+                outDir: dir,
+            });
+            expect(built.ok).toBe(true);
+            const runnerWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
-        const mine = await compileContract({
-            source: SRC,
-            contractName: "Edge",
-            slot: 28,
-            qpiHeader: HEADERS,
-            arenaSizeBytes: 1024 * 1024,
-        });
-        expect(
-            mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
-        ).toHaveLength(0);
+            const mine = await compileContract({
+                source: SRC,
+                contractName: "Edge",
+                slot: 28,
+                qpiHeader: HEADERS,
+                arenaSizeBytes: 1024 * 1024,
+            });
+            expect(
+                mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR),
+            ).toHaveLength(0);
 
-        const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-        for (const r of results) {
-            console.log(
-                `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`,
-            );
-        }
-        expect(results.length).toBeGreaterThan(0);
-        expect(results.every((r) => r.passed)).toBe(true);
-    }, 120000);
+            const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+            for (const r of results) {
+                console.log(
+                    `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`,
+                );
+            }
+            expect(results.length).toBeGreaterThan(0);
+            expect(results.every((r) => r.passed)).toBe(true);
+        },
+        120000,
+    );
 });
