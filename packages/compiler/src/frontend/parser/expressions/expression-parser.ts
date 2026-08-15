@@ -2,6 +2,45 @@ import { AssignOp, AstKind, BinaryOp, DiagnosticSeverity, TokenKind, UnaryOp, Up
 import type { Expression, TypeSpec } from "../../../ast";
 import type { Parser } from "../parser";
 
+// Binary precedence tiers, loosest first: each maps the tokens accepted at that tier to the operator they
+// produce. parseBinaryTier walks these in order, so the array order *is* the precedence.
+const enum BinaryTier {
+    LOGICAL_OR,
+    LOGICAL_AND,
+    BITWISE_OR,
+    BITWISE_XOR,
+    BITWISE_AND,
+    EQUALITY,
+    COMPARISON,
+    SHIFT,
+    ADDITIVE,
+    MULTIPLICATIVE,
+}
+
+const BINARY_TIERS: ReadonlyArray<Record<string, BinaryOp>> = [
+    { [TokenKind.PIPE_PIPE]: BinaryOp.LOGICAL_OR },
+    { [TokenKind.AMP_AMP]: BinaryOp.LOGICAL_AND },
+    { [TokenKind.PIPE]: BinaryOp.BITWISE_OR },
+    { [TokenKind.CARET]: BinaryOp.BITWISE_XOR },
+    { [TokenKind.AMP]: BinaryOp.BITWISE_AND },
+    { [TokenKind.EQ_EQ]: BinaryOp.EQUAL, [TokenKind.NOT_EQ]: BinaryOp.NOT_EQUAL },
+    {
+        [TokenKind.L_ANGLE]: BinaryOp.LESS_THAN,
+        [TokenKind.R_ANGLE]: BinaryOp.GREATER_THAN,
+        [TokenKind.LT_EQ]: BinaryOp.LESS_THAN_OR_EQUAL,
+        [TokenKind.GT_EQ]: BinaryOp.GREATER_THAN_OR_EQUAL,
+        // `<=>` has no dedicated node; it parses at comparison precedence.
+        [TokenKind.SPACESHIP]: BinaryOp.LESS_THAN,
+    },
+    { [TokenKind.L_SHIFT]: BinaryOp.SHIFT_LEFT, [TokenKind.R_SHIFT]: BinaryOp.SHIFT_RIGHT },
+    { [TokenKind.PLUS]: BinaryOp.ADD, [TokenKind.MINUS]: BinaryOp.SUBTRACT },
+    { [TokenKind.STAR]: BinaryOp.MULTIPLY, [TokenKind.SLASH]: BinaryOp.DIVIDE, [TokenKind.PERCENT]: BinaryOp.MODULO },
+];
+
+// `>`, `>=` and `>>` end a template list rather than continuing an expression. They are operators only in
+// the comparison and shift tiers, so one shared guard covers both.
+const TEMPLATE_LIST_CLOSERS = new Set<string>([TokenKind.R_ANGLE, TokenKind.GT_EQ, TokenKind.R_SHIFT]);
+
 export class ExpressionParser {
     constructor(private readonly parser: Parser) {}
 
@@ -46,237 +85,77 @@ export class ExpressionParser {
     }
 
     parseLogicalOr(): Expression {
-        let left = this.parser.expressions.parseLogicalAnd();
-        while (this.parser.state.tryConsume(TokenKind.PIPE_PIPE)) {
-            const right = this.parser.expressions.parseLogicalAnd();
-            left = {
-                kind: AstKind.BINARY_OP,
-                operator: BinaryOp.LOGICAL_OR,
-                left,
-                right,
-                span: left.span,
-            };
-        }
-        return left;
+        return this.parseBinaryTier(BinaryTier.LOGICAL_OR);
     }
 
     parseLogicalAnd(): Expression {
-        let left = this.parser.expressions.parseBitwiseOr();
-        while (this.parser.state.tryConsume(TokenKind.AMP_AMP)) {
-            const right = this.parser.expressions.parseBitwiseOr();
-            left = {
-                kind: AstKind.BINARY_OP,
-                operator: BinaryOp.LOGICAL_AND,
-                left,
-                right,
-                span: left.span,
-            };
-        }
-        return left;
+        return this.parseBinaryTier(BinaryTier.LOGICAL_AND);
     }
 
     parseBitwiseOr(): Expression {
-        let left = this.parser.expressions.parseBitwiseXor();
-        while (this.parser.state.tryConsume(TokenKind.PIPE)) {
-            const right = this.parser.expressions.parseBitwiseXor();
-            left = {
-                kind: AstKind.BINARY_OP,
-                operator: BinaryOp.BITWISE_OR,
-                left,
-                right,
-                span: left.span,
-            };
-        }
-        return left;
+        return this.parseBinaryTier(BinaryTier.BITWISE_OR);
     }
 
     parseBitwiseXor(): Expression {
-        let left = this.parser.expressions.parseBitwiseAnd();
-        while (this.parser.state.tryConsume(TokenKind.CARET)) {
-            const right = this.parser.expressions.parseBitwiseAnd();
-            left = {
-                kind: AstKind.BINARY_OP,
-                operator: BinaryOp.BITWISE_XOR,
-                left,
-                right,
-                span: left.span,
-            };
-        }
-        return left;
+        return this.parseBinaryTier(BinaryTier.BITWISE_XOR);
     }
 
     parseBitwiseAnd(): Expression {
-        let left = this.parser.expressions.parseEquality();
-        while (this.parser.state.tryConsume(TokenKind.AMP)) {
-            const right = this.parser.expressions.parseEquality();
-            left = {
-                kind: AstKind.BINARY_OP,
-                operator: BinaryOp.BITWISE_AND,
-                left,
-                right,
-                span: left.span,
-            };
-        }
-        return left;
+        return this.parseBinaryTier(BinaryTier.BITWISE_AND);
     }
 
     parseEquality(): Expression {
-        let left = this.parser.expressions.parseComparison();
-        while (!this.parser.state.eof()) {
-            const tok = this.parser.state.peek();
-            if (tok.kind === TokenKind.EQ_EQ) {
-                this.parser.state.next();
-                left = {
-                    kind: AstKind.BINARY_OP,
-                    operator: BinaryOp.EQUAL,
-                    left,
-                    right: this.parser.expressions.parseComparison(),
-                    span: left.span,
-                };
-            } else if (tok.kind === TokenKind.NOT_EQ) {
-                this.parser.state.next();
-                left = {
-                    kind: AstKind.BINARY_OP,
-                    operator: BinaryOp.NOT_EQUAL,
-                    left,
-                    right: this.parser.expressions.parseComparison(),
-                    span: left.span,
-                };
-            } else {
-                break;
-            }
-        }
-        return left;
+        return this.parseBinaryTier(BinaryTier.EQUALITY);
     }
 
     parseComparison(): Expression {
-        let left = this.parser.expressions.parseShift();
-        while (!this.parser.state.eof()) {
-            const tok = this.parser.state.peek();
-            // At comparison precedence, angle-bracket tokens are relational operators.
-            const ops: Record<string, BinaryOp> = {
-                l_angle: BinaryOp.LESS_THAN,
-                r_angle: BinaryOp.GREATER_THAN,
-                lt_eq: BinaryOp.LESS_THAN_OR_EQUAL,
-                gt_eq: BinaryOp.GREATER_THAN_OR_EQUAL,
-            };
-            // Inside a template arg/param list a top-level `>` / `>=` closes the list, not a comparison.
-            if (this.parser.state.templateAngleDepth > 0 && (tok.kind === TokenKind.R_ANGLE || tok.kind === TokenKind.GT_EQ)) {
-                break;
-            }
-            const operator = ops[tok.kind];
-            if (operator) {
-                this.parser.state.next();
-                left = {
-                    kind: AstKind.BINARY_OP,
-                    operator,
-                    left,
-                    right: this.parser.expressions.parseShift(),
-                    span: left.span,
-                };
-            } else if (tok.kind === TokenKind.SPACESHIP) {
-                // <=> — treat as comparison
-                this.parser.state.next();
-                left = {
-                    kind: AstKind.BINARY_OP,
-                    operator: BinaryOp.LESS_THAN,
-                    left,
-                    right: this.parser.expressions.parseShift(),
-                    span: left.span,
-                };
-            } else {
-                break;
-            }
-        }
-        return left;
+        return this.parseBinaryTier(BinaryTier.COMPARISON);
     }
 
     parseShift(): Expression {
-        let left = this.parser.expressions.parseAdditive();
-        while (!this.parser.state.eof()) {
-            if (this.parser.state.templateAngleDepth > 0 && this.parser.state.peek().kind === TokenKind.R_SHIFT) {
-                break; // `>>` closes two nested template lists here, not a shift operator
-            }
-            if (this.parser.state.tryConsume(TokenKind.L_SHIFT)) {
-                left = {
-                    kind: AstKind.BINARY_OP,
-                    operator: BinaryOp.SHIFT_LEFT,
-                    left,
-                    right: this.parser.expressions.parseAdditive(),
-                    span: left.span,
-                };
-            } else if (this.parser.state.tryConsume(TokenKind.R_SHIFT)) {
-                left = {
-                    kind: AstKind.BINARY_OP,
-                    operator: BinaryOp.SHIFT_RIGHT,
-                    left,
-                    right: this.parser.expressions.parseAdditive(),
-                    span: left.span,
-                };
-            } else {
-                break;
-            }
-        }
-        return left;
+        return this.parseBinaryTier(BinaryTier.SHIFT);
     }
 
     parseAdditive(): Expression {
-        let left = this.parser.expressions.parseMultiplicative();
-        while (!this.parser.state.eof()) {
-            if (this.parser.state.tryConsume(TokenKind.PLUS)) {
-                left = {
-                    kind: AstKind.BINARY_OP,
-                    operator: BinaryOp.ADD,
-                    left,
-                    right: this.parser.expressions.parseMultiplicative(),
-                    span: left.span,
-                };
-            } else if (this.parser.state.tryConsume(TokenKind.MINUS)) {
-                left = {
-                    kind: AstKind.BINARY_OP,
-                    operator: BinaryOp.SUBTRACT,
-                    left,
-                    right: this.parser.expressions.parseMultiplicative(),
-                    span: left.span,
-                };
-            } else {
-                break;
-            }
-        }
-        return left;
+        return this.parseBinaryTier(BinaryTier.ADDITIVE);
     }
 
     parseMultiplicative(): Expression {
-        let left = this.parser.expressions.parseUnary();
+        return this.parseBinaryTier(BinaryTier.MULTIPLICATIVE);
+    }
+
+    // Left-associative binary parsing for one precedence tier; the tier below it supplies the operands.
+    private parseBinaryTier(tier: BinaryTier): Expression {
+        const operators = BINARY_TIERS[tier];
+        if (!operators) {
+            return this.parser.expressions.parseUnary();
+        }
+
+        let left = this.parseBinaryTier(tier + 1);
+
         while (!this.parser.state.eof()) {
-            if (this.parser.state.tryConsume(TokenKind.STAR)) {
-                left = {
-                    kind: AstKind.BINARY_OP,
-                    operator: BinaryOp.MULTIPLY,
-                    left,
-                    right: this.parser.expressions.parseUnary(),
-                    span: left.span,
-                };
-            } else if (this.parser.state.tryConsume(TokenKind.SLASH)) {
-                left = {
-                    kind: AstKind.BINARY_OP,
-                    operator: BinaryOp.DIVIDE,
-                    left,
-                    right: this.parser.expressions.parseUnary(),
-                    span: left.span,
-                };
-            } else if (this.parser.state.tryConsume(TokenKind.PERCENT)) {
-                left = {
-                    kind: AstKind.BINARY_OP,
-                    operator: BinaryOp.MODULO,
-                    left,
-                    right: this.parser.expressions.parseUnary(),
-                    span: left.span,
-                };
-            } else {
+            const token = this.parser.state.peek();
+
+            // Inside a template argument list these close the list instead of acting as operators.
+            if (this.parser.state.templateAngleDepth > 0 && TEMPLATE_LIST_CLOSERS.has(token.kind)) {
                 break;
             }
+
+            const operator = operators[token.kind];
+            if (operator === undefined) {
+                break;
+            }
+
+            this.parser.state.next();
+            left = {
+                kind: AstKind.BINARY_OP,
+                operator,
+                left,
+                right: this.parseBinaryTier(tier + 1),
+                span: left.span,
+            };
         }
+
         return left;
     }
 
