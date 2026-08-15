@@ -188,6 +188,12 @@ export class AssetLedger {
     }
 
     private setRecord(index: number, record: LedgerRecord): void {
+        // The index probes walk until they find a hole, so a full table would spin forever. Refuse the
+        // insert that would fill it and report the limit instead.
+        if (this.table.size >= ASSET_CAPACITY && !this.table.has(index)) {
+            throw new Error(`asset universe full (${ASSET_CAPACITY} records)`);
+        }
+
         this.table.set(index, record);
         this.dirty.add(index);
     }

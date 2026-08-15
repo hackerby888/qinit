@@ -80,6 +80,9 @@ export class EngineFaultedError extends Error {
     }
 }
 
+// Bounds the undrained pruned-transaction backlog; the transport drains far below this every tick.
+const MAX_PRUNED_TRANSACTION_IDS = 100_000;
+
 export class QubicSimulator {
     currentTick = 0;
     currentEpoch = 0;
@@ -107,6 +110,8 @@ export class QubicSimulator {
     private computorOverride = new Map<number, Uint8Array>();
     prevSpectrumDigestOverride?: Uint8Array;
     private readonly historyTicks: number;
+    // Drained by the transport each tick. A caller that advances the simulator directly never drains it, so
+    // the backlog is capped rather than growing for the life of the process.
     private prunedTransactionIds: string[] = [];
     private terminalFault: EngineFaultInfo | null = null;
     private lastFinalizedTick = 0;
@@ -1035,6 +1040,9 @@ export class QubicSimulator {
         this.lastFinalizedTick = this.currentTick;
         this.lastFinalizedEpoch = this.currentEpoch;
         this.prunedTransactionIds.push(...this.txpool.pruneFinalized(this.currentTick, this.historyTicks));
+        if (this.prunedTransactionIds.length > MAX_PRUNED_TRANSACTION_IDS) {
+            this.prunedTransactionIds = this.prunedTransactionIds.slice(-MAX_PRUNED_TRANSACTION_IDS);
+        }
     }
 
     query(slot: number, inputType: number, input?: Uint8Array): Uint8Array {
