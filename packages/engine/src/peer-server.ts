@@ -9,6 +9,12 @@ import { concatBytes } from "./support/bytes";
 import { unpackAssetName } from "./ledger/assets";
 import { NodeTicker } from "./support/node-ticker";
 
+interface PeerRoute {
+    respond: (payload: Uint8Array, dejavu: number) => Promise<Uint8Array | null> | Uint8Array | null;
+    // How the route behaves once the engine has faulted: keep serving, stay silent, or end the response.
+    whenFaulted: "serve" | "silent" | "refuse";
+}
+
 interface PeerConnectionState {
     buf: Uint8Array;
 }
@@ -23,10 +29,12 @@ export class PeerServer {
     readonly engine: VirtualNode;
     private server: { stop(closeActiveConnections?: boolean): void; readonly port: number } | null = null;
     private readonly ticker: NodeTicker;
+    private readonly routeTable: Map<number, PeerRoute>;
 
     constructor(engine: VirtualNode = new VirtualNode()) {
         this.engine = engine;
         this.ticker = new NodeTicker(engine, "peer");
+        this.routeTable = this.routes();
     }
 
     async start(port = DEFAULT_PEER_PORT, tickMs = 50, autoTick = true): Promise<PeerServerHandle> {
@@ -124,74 +132,60 @@ export class PeerServer {
         socket.data.buf = buf.slice();
     }
 
+    // One route per message type, so the faulted-mode policy and the handler are declared together. A node
+    // that has faulted still answers reads; anything that would touch state is refused with an end-response.
+    private routes(): Map<number, PeerRoute> {
+        const serveWhenFaulted = (respond: PeerRoute["respond"]): PeerRoute => ({ respond, whenFaulted: "serve" });
+        const refuseWhenFaulted = (respond: PeerRoute["respond"]): PeerRoute => ({ respond, whenFaulted: "refuse" });
+
+        return new Map<number, PeerRoute>([
+            [MSG.REQUEST_CURRENT_TICK_INFO, serveWhenFaulted((_payload, dejavu) => this.respondTickInfo(dejavu))],
+            [MSG.REQUEST_LOG, serveWhenFaulted((payload, dejavu) => this.respondLog(payload, dejavu))],
+            [MSG.REQUEST_LOG_ID_RANGE_FROM_TX, serveWhenFaulted((payload, dejavu) => this.respondLogRange(payload, dejavu))],
+            [MSG.REQUEST_ALL_LOG_ID_RANGES_FROM_TX, serveWhenFaulted((payload, dejavu) => this.respondAllLogRanges(payload, dejavu))],
+            [MSG.REQUEST_LOG_STATE_DIGEST, serveWhenFaulted((payload, dejavu) => this.respondLogDigest(payload, dejavu))],
+            [MSG.REQUEST_TX_STATUS, serveWhenFaulted((payload, dejavu) => this.respondTxStatus(payload, dejavu))],
+            [MSG.REQUEST_TICK_TRANSACTIONS, serveWhenFaulted((payload, dejavu) => this.respondTickTransactions(payload, dejavu))],
+            [MSG.REQUEST_TICK_DATA, serveWhenFaulted((payload, dejavu) => this.respondTickData(payload, dejavu))],
+            [MSG.REQUEST_TRANSACTION_INFO, serveWhenFaulted((payload, dejavu) => this.respondTxInfo(payload, dejavu))],
+            [MSG.REQUEST_QUORUM_TICK, serveWhenFaulted((payload, dejavu) => this.respondQuorumTick(payload, dejavu))],
+            // A broadcast expects no reply, faulted or not, so it stays silent rather than end-responding.
+            [
+                MSG.BROADCAST_TRANSACTION,
+                {
+                    respond: async (payload) => {
+                        await this.engine.broadcastTx(payload);
+                        return null;
+                    },
+                    whenFaulted: "silent",
+                },
+            ],
+            [MSG.REQUEST_ENTITY, refuseWhenFaulted((payload, dejavu) => this.respondEntity(payload, dejavu))],
+            [MSG.REQUEST_CONTRACT_FUNCTION, refuseWhenFaulted((payload, dejavu) => this.respondContractFunction(payload, dejavu))],
+            [MSG.REQUEST_SYSTEM_INFO, refuseWhenFaulted((_payload, dejavu) => this.respondSystemInfo(dejavu))],
+            [MSG.REQUEST_PRUNING_LOG, refuseWhenFaulted((payload, dejavu) => this.respondPruneLog(payload, dejavu))],
+            [MSG.REQUEST_COMPUTORS, refuseWhenFaulted((_payload, dejavu) => this.respondComputors(dejavu))],
+            [MSG.REQUEST_OWNED_ASSETS, refuseWhenFaulted((payload, dejavu) => this.respondOwnedAssets(payload, dejavu))],
+            [MSG.REQUEST_POSSESSED_ASSETS, refuseWhenFaulted((payload, dejavu) => this.respondPossessedAssets(payload, dejavu))],
+            [MSG.REQUEST_ISSUED_ASSETS, refuseWhenFaulted((payload, dejavu) => this.respondIssuedAssets(payload, dejavu))],
+            [MSG.REQUEST_ASSETS, refuseWhenFaulted((payload, dejavu) => this.respondAssets(payload, dejavu))],
+            // ack: echo the command struct
+            [MSG.PROCESS_SPECIAL_COMMAND, refuseWhenFaulted((payload, dejavu) => codec.frame(MSG.PROCESS_SPECIAL_COMMAND, payload, dejavu))],
+        ]);
+    }
+
     private async dispatch(type: number, payload: Uint8Array, dejavu: number): Promise<Uint8Array | null> {
-        if (this.engine.sim.isFaulted()) {
-            switch (type) {
-                case MSG.REQUEST_CURRENT_TICK_INFO:
-                case MSG.REQUEST_LOG:
-                case MSG.REQUEST_LOG_ID_RANGE_FROM_TX:
-                case MSG.REQUEST_ALL_LOG_ID_RANGES_FROM_TX:
-                case MSG.REQUEST_LOG_STATE_DIGEST:
-                case MSG.REQUEST_TX_STATUS:
-                case MSG.REQUEST_TICK_TRANSACTIONS:
-                case MSG.REQUEST_TICK_DATA:
-                case MSG.REQUEST_TRANSACTION_INFO:
-                case MSG.REQUEST_QUORUM_TICK:
-                    break;
-                case MSG.BROADCAST_TRANSACTION:
-                    return null;
-                default:
-                    return codec.endResponse(dejavu);
-            }
+        const route = this.routeTable.get(type);
+        if (!route) {
+            // An unknown type is ignored while healthy; a faulted node answers so the peer stops waiting.
+            return this.engine.sim.isFaulted() ? codec.endResponse(dejavu) : null;
         }
 
-        switch (type) {
-            case MSG.REQUEST_CURRENT_TICK_INFO:
-                return this.respondTickInfo(dejavu);
-            case MSG.REQUEST_ENTITY:
-                return this.respondEntity(payload, dejavu);
-            case MSG.REQUEST_CONTRACT_FUNCTION:
-                return this.respondContractFunction(payload, dejavu);
-            case MSG.BROADCAST_TRANSACTION:
-                await this.engine.broadcastTx(payload); // broadcast — no response
-                return null;
-            case MSG.REQUEST_SYSTEM_INFO:
-                return this.respondSystemInfo(dejavu);
-            case MSG.REQUEST_LOG:
-                return this.respondLog(payload, dejavu);
-            case MSG.REQUEST_LOG_ID_RANGE_FROM_TX:
-                return this.respondLogRange(payload, dejavu);
-            case MSG.REQUEST_ALL_LOG_ID_RANGES_FROM_TX:
-                return this.respondAllLogRanges(payload, dejavu);
-            case MSG.REQUEST_PRUNING_LOG:
-                return this.respondPruneLog(payload, dejavu);
-            case MSG.REQUEST_LOG_STATE_DIGEST:
-                return this.respondLogDigest(payload, dejavu);
-            case MSG.REQUEST_TX_STATUS:
-                return this.respondTxStatus(payload, dejavu);
-            case MSG.REQUEST_TICK_TRANSACTIONS:
-                return this.respondTickTransactions(payload, dejavu);
-            case MSG.REQUEST_TICK_DATA:
-                return this.respondTickData(payload, dejavu);
-            case MSG.REQUEST_TRANSACTION_INFO:
-                return this.respondTxInfo(payload, dejavu);
-            case MSG.REQUEST_COMPUTORS:
-                return this.respondComputors(dejavu);
-            case MSG.REQUEST_QUORUM_TICK:
-                return this.respondQuorumTick(payload, dejavu);
-            case MSG.REQUEST_OWNED_ASSETS:
-                return this.respondOwnedAssets(payload, dejavu);
-            case MSG.REQUEST_POSSESSED_ASSETS:
-                return this.respondPossessedAssets(payload, dejavu);
-            case MSG.REQUEST_ISSUED_ASSETS:
-                return this.respondIssuedAssets(payload, dejavu);
-            case MSG.REQUEST_ASSETS:
-                return this.respondAssets(payload, dejavu);
-            case MSG.PROCESS_SPECIAL_COMMAND:
-                return codec.frame(MSG.PROCESS_SPECIAL_COMMAND, payload, dejavu); // ack: echo the command struct
-            default:
-                return null;
+        if (this.engine.sim.isFaulted() && route.whenFaulted !== "serve") {
+            return route.whenFaulted === "silent" ? null : codec.endResponse(dejavu);
         }
+
+        return route.respond(payload, dejavu);
     }
 
     private respondTickInfo(dejavu: number): Uint8Array {
