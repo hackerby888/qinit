@@ -19,12 +19,7 @@ export type {
     ContractMigration,
 } from "@qinit/proto/contract-idl";
 
-import type { AbiField, ContractEntry, ContractEnum, ContractIdl, ContractLog } from "@qinit/proto/contract-idl";
-
-export type Field = AbiField;
-export type IdlEntry = ContractEntry;
-export type EnumDef = ContractEnum;
-export type LogStruct = ContractLog;
+import type { ContractIdl } from "@qinit/proto/contract-idl";
 
 export interface ExtractIdlOptions {
     slot?: number;

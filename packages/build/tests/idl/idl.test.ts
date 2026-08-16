@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { AbiScalarKind, AbiTypeKind, QINIT_IDL_VERSION, extractIdl } from "../../src/idl";
+import { AbiScalarKind, AbiTypeKind, QINIT_IDL_VERSION, extractIdl } from "../../src/compile/idl";
 
 const SOURCE = `
 using namespace QPI;

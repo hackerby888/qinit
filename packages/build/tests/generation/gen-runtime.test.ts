@@ -4,7 +4,7 @@
 // production uses, and a nested in-process build cannot resolve the bundled crypto packages.
 import { test, expect } from "bun:test";
 import { generateRuntimeMacro } from "../../scripts/gen-runtime";
-import { testRuntimeSource } from "../../src/gen-test";
+import { testRuntimeSource } from "../../src/generate/test-scaffold";
 
 test("the embedded test runtime is generated from the canonical source", () => {
     expect(testRuntimeSource).toBe(generateRuntimeMacro());

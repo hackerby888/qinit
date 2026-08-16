@@ -1,7 +1,7 @@
 // gen-test scaffolds the starter `bun:test` spec a new project ships with. The generated source must name
 // the contract type consistently (import, declaration, title) or the scaffold won't compile for the user.
 import { test, expect } from "bun:test";
-import { sampleTest, testRuntimeSource } from "../../src/gen-test";
+import { sampleTest, testRuntimeSource } from "../../src/generate/test-scaffold";
 
 test("sampleTest: weaves the contract name through import, declaration, and title", () => {
     const src = sampleTest("MyToken");

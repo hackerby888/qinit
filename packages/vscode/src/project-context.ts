@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { resolveProjectDependencies, type ProjectContractNode } from "@qinit/build/project-dependencies";
-import { planProjectSlots } from "@qinit/build/project-slots";
-import { systemContracts, type SystemContract } from "@qinit/build/system-contracts";
-import type { ContractIdl } from "@qinit/build/idl";
-import type { DynCallees } from "@qinit/build/intercontract";
+import { resolveProjectDependencies, type ProjectContractNode } from "@qinit/build/contracts/project-dependencies";
+import { planProjectSlots } from "@qinit/build/contracts/project-slots";
+import { systemContracts, type SystemContract } from "@qinit/build/contracts/system-contracts";
+import type { ContractIdl } from "@qinit/build/compile/idl";
+import type { DynCallees } from "@qinit/build/contracts/intercontract";
 import { loadQpiHeader } from "@qinit/compiler";
 import { analyzeContract, DiagnosticSeverity, type AnalyzeContractOptions } from "@qinit/compiler/analyzer";
 import { loadConfig } from "@qinit/core/project";

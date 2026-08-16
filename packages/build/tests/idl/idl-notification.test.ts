@@ -2,7 +2,7 @@
 // __LINE__ is the raw-source line of the procedure's macro. Preprocessing shifts spans, so this pins the
 // value the node's registry actually reports — a mismatch silently unnames the entry everywhere.
 import { expect, test } from "bun:test";
-import { extractIdl } from "../../src/idl";
+import { extractIdl } from "../../src/compile/idl";
 
 const HEAD = `
 using namespace QPI;

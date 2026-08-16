@@ -8,7 +8,7 @@ import {
     generateWasmWrapperSource,
     WASM_CONTRACT_CLANG_FLAGS,
     WASM_CONTRACT_TESTING_HEADER,
-} from "../../src/recipe";
+} from "../../src/compile/clang";
 
 const opts = (over: Partial<Parameters<typeof generateWasmWrapperSource>[0]> = {}) => ({
     contractPath: "/abs/Counter.h",

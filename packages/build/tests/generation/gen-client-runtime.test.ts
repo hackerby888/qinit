@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { extractIdl } from "../../src/idl";
-import { generateClient } from "../../src/gen-client";
+import { extractIdl } from "../../src/compile/idl";
+import { generateClient } from "../../src/generate/client";
 
 const SOURCE = `
 struct Demo : public ContractBase {

@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { compileContractWithTypeScript, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { analyzeContract, type SourceAnalysisResult } from "@qinit/compiler/analyzer";
 import { k12Hex } from "@qinit/core";
-import type { ContractBuildResult } from "./index";
-import { resolveContractSource } from "./contract-source";
+import type { ContractBuildResult } from "./types";
+import { resolveContractSource } from "./source";
 
 export interface TypeScriptCalleeBuildOptions {
     header: string;

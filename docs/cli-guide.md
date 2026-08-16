@@ -741,8 +741,8 @@ buildContractWithClang()
        -> extract source IDL
 ```
 
-The build recipe lives in [`packages/build/src/index.ts`](../packages/build/src/index.ts)
-and [`packages/build/src/recipe.ts`](../packages/build/src/recipe.ts).
+The build recipe lives in [`packages/build/src/compile/pipeline.ts`](../packages/build/src/compile/pipeline.ts)
+and [`packages/build/src/compile/clang.ts`](../packages/build/src/compile/clang.ts).
 
 #### TypeScript path
 
@@ -756,7 +756,7 @@ buildContractWithTypeScript()
 ```
 
 The shared implementation is
-[`packages/build/src/typescript.ts`](../packages/build/src/typescript.ts); the
+[`packages/build/src/compile/typescript.ts`](../packages/build/src/compile/typescript.ts); the
 CLI compatibility export remains in `ops/typescript-build.ts`.
 
 Successful build artifacts normally include:
@@ -1611,7 +1611,7 @@ therefore appear up but not ticking.
 [`contracts/system-wasm.ts`](../packages/cli/src/contracts/system-wasm.ts) caches
 snapshot builds beneath the current header version and compiler. Explicit Core
 checkouts build in a temporary directory so different source trees cannot share
-stale artifacts. [`packages/build/src/system-contracts.ts`](../packages/build/src/system-contracts.ts)
+stale artifacts. [`packages/build/src/contracts/system-contracts.ts`](../packages/build/src/contracts/system-contracts.ts)
 parses Core contract definitions, dependency closures, source, state types, and IDLs.
 
 `qinit ls` combines live dynamic-registry entries with this local system

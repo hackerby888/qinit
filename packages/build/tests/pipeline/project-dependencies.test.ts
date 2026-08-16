@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { resolveProjectDependencies } from "../../src/project-dependencies";
+import { resolveProjectDependencies } from "../../src/contracts/project-dependencies";
 
 const CORE = process.env.QINIT_CORE ?? resolve(import.meta.dir, "../../../vscode/resources/core-headers");
 

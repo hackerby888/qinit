@@ -6,13 +6,7 @@
     "module": "src/index.ts",
     "exports": {
         ".": "./src/index.ts",
-        "./recipe": "./src/recipe.ts",
-        "./system-contracts": "./src/system-contracts.ts",
-        "./intercontract": "./src/intercontract.ts",
-        "./project-dependencies": "./src/project-dependencies.ts",
-        "./project-slots": "./src/project-slots.ts",
-        "./idl": "./src/idl.ts",
-        "./templates": "./src/templates.ts"
+        "./*": "./src/*.ts"
     },
     "dependencies": {
         "@qinit/compiler": "workspace:*",

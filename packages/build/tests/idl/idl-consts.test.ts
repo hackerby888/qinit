@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { AbiTypeKind, extractIdl } from "../../src/idl";
+import { AbiTypeKind, extractIdl } from "../../src/compile/idl";
 
 test("constexpr QPI math resolves array lengths in the v3 type tree", () => {
     const source = `

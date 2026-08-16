@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseContractDefinitionSource } from "../../src/contract-definitions";
-import { parseContractDefinitions, systemContractDescriptions } from "../../src/system-contracts";
+import { parseContractDefinitionSource } from "../../src/contracts/contract-def";
+import { parseContractDefinitions, systemContractDescriptions } from "../../src/contracts/system-contracts";
 
 test("shared parser keeps numeric indexes and contract state blocks", () => {
     const parsed = parseContractDefinitionSource(`

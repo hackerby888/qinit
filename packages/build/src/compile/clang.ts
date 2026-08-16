@@ -1,4 +1,4 @@
-/// <reference path="./text-assets.d.ts" />
+/// <reference path="../text-assets.d.ts" />
 // Compile a qpi.h-constrained contract .h into a wasm contract module (run by the node's WAMR engine).
 import { mkdir, writeFile, copyFile } from "node:fs/promises";
 import { mkdirSync, existsSync, writeFileSync } from "node:fs";
@@ -7,10 +7,10 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { wasiSdkPaths } from "@qinit/core/project";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
-import { writeLineMap } from "./linemap";
-import WASM_GTEST_H from "./assets/wasm_gtest.h" with { type: "text" };
-import WASM_CONTRACT_TESTING_H_TEMPLATE from "./assets/wasm_contract_testing.h" with { type: "text" };
-import TEST_UTIL_H from "./assets/test_util.h" with { type: "text" };
+import { writeLineMap } from "./line-map";
+import WASM_GTEST_H from "../assets/wasm_gtest.h" with { type: "text" };
+import WASM_CONTRACT_TESTING_H_TEMPLATE from "../assets/wasm_contract_testing.h" with { type: "text" };
+import TEST_UTIL_H from "../assets/test_util.h" with { type: "text" };
 
 const WASM_CONTRACT_TESTING_H = WASM_CONTRACT_TESTING_H_TEMPLATE.replace("__QINIT_CORE_WASM_ABI_METADATA__", CORE_WASM_HEADERS.shared.abiMetadata);
 

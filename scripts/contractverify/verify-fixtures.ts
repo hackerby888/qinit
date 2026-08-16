@@ -1,7 +1,7 @@
 // Run contractverify over every fixture and fail on real protocol violations.
 import { readdirSync } from "node:fs";
 import { join, basename } from "node:path";
-import { verifyContract } from "@qinit/build/verify";
+import { verifyContract } from "@qinit/build/compile/verify";
 import { autoUpdateVerifyTool } from "@qinit/core";
 
 // Best effort: fetch contractverify on a clean runner.

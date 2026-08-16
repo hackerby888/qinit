@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { qpiSnapshot } from "@qinit/compiler/browser";
-import { AbiTypeKind, extractIdl } from "../../src/idl";
+import { AbiTypeKind, extractIdl } from "../../src/compile/idl";
 
 test("qpiHeader supplies ambient namespace-qualified ABI types", () => {
     const qpiHeader = `${qpiSnapshot}

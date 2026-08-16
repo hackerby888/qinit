@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { genStdGtest } from "../../src/gen-std-gtest";
-import { extractIdl } from "../../src/idl";
+import { genStdGtest } from "../../src/generate/std-gtest";
+import { extractIdl } from "../../src/compile/idl";
 
 const source = `
 using namespace QPI;

@@ -2,8 +2,8 @@
 import { test, expect } from "bun:test";
 import { AbiScalarKind, AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import { Transpiler } from "bun";
-import { extractIdl } from "../../src/idl";
-import { generateClient } from "../../src/gen-client";
+import { extractIdl } from "../../src/compile/idl";
+import { generateClient } from "../../src/generate/client";
 
 const SRC = `
 struct CONTRACT_STATE_TYPE : public ContractBase {

@@ -1,4 +1,4 @@
-// Bundle the test-SDK (src/sdk-entry.ts) into one self-contained string from the real @qinit source. Bun calls
+// Bundle the test-SDK (src/generate/sdk-entry.ts) into one self-contained string from the real @qinit source. Bun calls
 // generateRuntimeMacro at Qinit bundle time and inlines the result, so there is no generated source artifact.
 import { join } from "node:path";
 
@@ -16,7 +16,7 @@ const HEADER =
 // Build the bundled runtime text. Throws if the bundle fails or leaks any external / node-only ref.
 export async function generateRuntime(): Promise<string> {
     const r = await Bun.build({
-        entrypoints: [join(BUILD, "src", "sdk-entry.ts")],
+        entrypoints: [join(BUILD, "src", "generate", "sdk-entry.ts")],
         target: "bun",
         minify: false,
         external: [],

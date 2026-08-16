@@ -6,7 +6,7 @@ import { Header, theme } from "../../ui";
 import { loadSystem } from "../../contracts/registry";
 import { extractIdl, genStdGtest } from "@qinit/build";
 import { DEFAULT_RPC_BASE } from "@qinit/core";
-import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, type TemplateKind } from "@qinit/build/templates";
+import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, type TemplateKind } from "@qinit/build/generate/templates";
 import { loadConfiguredQpiHeader } from "../../config";
 import type { CommandArguments } from "../../args";
 

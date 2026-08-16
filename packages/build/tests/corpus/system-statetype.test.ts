@@ -6,8 +6,8 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSystemContract, systemContractClosure } from "../../src/index";
-import { generateWasmWrapperSource } from "../../src/recipe";
-import { systemContracts } from "../../src/system-contracts";
+import { generateWasmWrapperSource } from "../../src/compile/clang";
+import { systemContracts } from "../../src/contracts/system-contracts";
 
 const base = { contractPath: "/x/Quottery.h", slot: 2, corePath: "/core", outDir: "/out" };
 

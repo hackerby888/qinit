@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { scanCallees, type DynCallees } from "@qinit/build/intercontract";
+import { scanCallees, type DynCallees } from "@qinit/build/contracts/intercontract";
 import { generateClangdConfig } from "../src/clangd-config";
 import { clangdErrorLines } from "../src/clangd-diag";
 

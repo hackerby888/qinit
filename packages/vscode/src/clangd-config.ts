@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { generateWasmWrapperSource, WASM_CONTRACT_CLANG_FLAGS, WASM_TEST_UTIL_HEADER, type ClangBuildOptions } from "@qinit/build/recipe";
-import { generateWasmContractTestingHeaderForCore } from "@qinit/build/system-contracts";
-import { buildCalleePrelude, type DynCallees } from "@qinit/build/intercontract";
+import { generateWasmWrapperSource, WASM_CONTRACT_CLANG_FLAGS, WASM_TEST_UTIL_HEADER, type ClangBuildOptions } from "@qinit/build/compile/clang";
+import { generateWasmContractTestingHeaderForCore } from "@qinit/build/contracts/system-contracts";
+import { buildCalleePrelude, type DynCallees } from "@qinit/build/contracts/intercontract";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm/slot-layout";
 import { contractStateType } from "./project-util";

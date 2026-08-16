@@ -1,10 +1,10 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadQpiHeader } from "@qinit/compiler";
-import { parseContractDefinitionSource } from "./contract-definitions";
-import { extractIdl, type ContractIdl } from "./idl";
+import { parseContractDefinitionSource } from "./contract-def";
+import { extractIdl, type ContractIdl } from "../compile/idl";
 import { scanCallees } from "./intercontract";
-import { generateWasmContractTestingHeader } from "./recipe";
+import { generateWasmContractTestingHeader } from "../compile/clang";
 
 export interface SystemContract {
     index: number;

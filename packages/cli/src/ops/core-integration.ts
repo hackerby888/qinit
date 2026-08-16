@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { parseContractDef } from "@qinit/build/intercontract";
+import { parseContractDef } from "@qinit/build/contracts/intercontract";
 import {
     coreFilePaths,
     descriptions,

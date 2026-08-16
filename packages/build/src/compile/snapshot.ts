@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
-import { generateWasmWrapperSource, WASM_CONTRACT_CLANG_FLAGS } from "./recipe";
-import WASM_CONTRACT_TESTING_H from "./assets/wasm_contract_testing.h" with { type: "text" };
+import { generateWasmWrapperSource, WASM_CONTRACT_CLANG_FLAGS } from "./clang";
+import WASM_CONTRACT_TESTING_H from "../assets/wasm_contract_testing.h" with { type: "text" };
 import { CORE_WASM_HEADERS, loadCoreWasmSlotLayout, wasiSdkPaths } from "@qinit/core";
 import { snapshotInputFiles } from "@qinit/compiler";
 

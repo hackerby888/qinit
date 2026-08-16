@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { DynamicContractRegistry } from "@qinit/core";
-import { planProjectSlots, type ProjectSlotNode } from "@qinit/build/project-slots";
+import { planProjectSlots, type ProjectSlotNode } from "@qinit/build/contracts/project-slots";
 
 const layout = { slotBase: 29, slotCount: 4 };
 

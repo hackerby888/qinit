@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { analyzeContract, DiagnosticSeverity, Lexer, TokenKind, type AnalyzeContractOptions } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
-import { parseContractDefinitionSource, type ParsedContractDefinitionSource } from "./contract-definitions";
+import { parseContractDefinitionSource, type ParsedContractDefinitionSource } from "./contract-def";
 
 export interface CalleeDef {
     type: string;

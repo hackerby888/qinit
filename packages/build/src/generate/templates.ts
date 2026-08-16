@@ -1,11 +1,11 @@
-/// <reference path="./text-assets.d.ts" />
+/// <reference path="../text-assets.d.ts" />
 // Starter contracts for `qinit new --template`. Name-agnostic (use the CONTRACT_STATE_TYPE macro);
 // each is a proven, qpi.h-constrained contract. Header line prepended at scaffold time.
 // Embedded as text by `bun build --compile` (import.meta.dir asset files aren't bundled into the binary).
-import COUNTER_H from "./assets/templates/counter.h" with { type: "text" };
-import HASHMAP_H from "./assets/templates/hashmap.h" with { type: "text" };
-import ASSET_H from "./assets/templates/asset.h" with { type: "text" };
-import INTERCONTRACT_H from "./assets/templates/intercontract.h" with { type: "text" };
+import COUNTER_H from "../assets/templates/counter.h" with { type: "text" };
+import HASHMAP_H from "../assets/templates/hashmap.h" with { type: "text" };
+import ASSET_H from "../assets/templates/asset.h" with { type: "text" };
+import INTERCONTRACT_H from "../assets/templates/intercontract.h" with { type: "text" };
 
 export type TemplateKind = "counter" | "hashmap" | "asset" | "intercontract";
 export const TEMPLATE_KINDS: TemplateKind[] = ["counter", "hashmap", "asset", "intercontract"];

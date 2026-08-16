@@ -13,7 +13,7 @@ import { runCorpus, runStdGtest } from "../../ops/corpus-run";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import type { CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
-import { planProjectSlots } from "@qinit/build/project-slots";
+import { planProjectSlots } from "@qinit/build/contracts/project-slots";
 import { parseContractSlot } from "../../contracts/registry";
 
 export function resolveGtestSlot(core: string, requestedSlot?: unknown): number {

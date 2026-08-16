@@ -10,9 +10,9 @@ import {
     type TypeScriptCalleeBuildOptions,
 } from "@qinit/build";
 import { k12Hex, type DynamicContractRegistry } from "@qinit/core";
-import type { DynCallees } from "@qinit/build/intercontract";
+import type { DynCallees } from "@qinit/build/contracts/intercontract";
 import type { CompilerBackend } from "../config";
-import { planProjectSlots, type PlannedProjectSlotNode } from "@qinit/build/project-slots";
+import { planProjectSlots, type PlannedProjectSlotNode } from "@qinit/build/contracts/project-slots";
 
 export type PlannedProjectContract = ProjectContractNode & PlannedProjectSlotNode;
 

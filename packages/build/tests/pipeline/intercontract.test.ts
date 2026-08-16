@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildCalleePrelude, contractIndexDefines, parseContractDef, scanCallees } from "../../src/intercontract";
+import { buildCalleePrelude, contractIndexDefines, parseContractDef, scanCallees } from "../../src/contracts/intercontract";
 
 test("contract_def wrappers keep the existing static contract rules", () => {
     const root = mkdtempSync(join(tmpdir(), "contract-def-"));

@@ -3,8 +3,8 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { test, expect, afterAll } from "bun:test";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { Transpiler } from "bun";
-import { extractIdl } from "../../src/idl";
-import { generateClient } from "../../src/gen-client";
+import { extractIdl } from "../../src/compile/idl";
+import { generateClient } from "../../src/generate/client";
 
 const CORE = CORE_PATH + "/src/contracts";
 const have = (c: string) => existsSync(`${CORE}/${c}.h`);

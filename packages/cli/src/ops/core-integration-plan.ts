@@ -1,7 +1,7 @@
 // The pure half of Core integration: given the Core text files and the checkout facts read for it,
 // decide which files change and how. No disk reads of its own, so it is testable without a checkout.
 import { basename, join } from "node:path";
-import { scanCallees, type parseContractDef } from "@qinit/build/intercontract";
+import { scanCallees, type parseContractDef } from "@qinit/build/contracts/intercontract";
 
 const CONTRACT_MARKER = "// new contracts should be added above this line";
 

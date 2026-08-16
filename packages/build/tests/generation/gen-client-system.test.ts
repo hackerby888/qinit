@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ts from "typescript";
 import { QINIT_ROOT } from "../../../../test-utils/paths";
-import { generateClient } from "../../src/gen-client";
-import { testRuntimeSource } from "../../src/gen-test";
-import { systemContracts } from "../../src/system-contracts";
+import { generateClient } from "../../src/generate/client";
+import { testRuntimeSource } from "../../src/generate/test-scaffold";
+import { systemContracts } from "../../src/contracts/system-contracts";
 
 test.skipIf(!process.env.QINIT_CORE)(
     "standalone clients for every live contract typecheck",
