@@ -1,9 +1,14 @@
 // planMutations decides the whole Core wiring from in-memory text, so these cases need no checkout,
 // no clone and no git — the disk facts it used to read are the three injected inputs.
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { planMutations, type ContractDefinitions, type CoreFiles, type PlanMutationsOptions, type TextFile } from "../../src/ops/core-integration-plan";
 
 const CRLF = "\r\n";
+
+// The plan joins its paths with node:path, so expectations have to be built the same way or they all
+// fail on Windows.
+const coreFile = (...segments: string[]) => join("/core", ...segments);
 
 function textFile(lines: string[], bom = false): TextFile {
     return { bom, eol: CRLF, text: `${lines.join(CRLF)}${CRLF}` };
@@ -78,26 +83,26 @@ describe("a new contract", () => {
         expect(plan.contractIndex).toBe(2);
         expect(plan.warnings).toEqual([]);
         expect(plan.mutations.map((mutation) => mutation.path)).toEqual([
-            "/core/src/contracts/Token.h",
-            "/core/src/contract_core/contract_def.h",
-            "/core/src/Qubic.vcxproj",
-            "/core/src/Qubic.vcxproj.filters",
+            coreFile("src", "contracts", "Token.h"),
+            coreFile("src", "contract_core", "contract_def.h"),
+            coreFile("src", "Qubic.vcxproj"),
+            coreFile("src", "Qubic.vcxproj.filters"),
         ]);
 
-        const definition = mutationText(plan, "/core/src/contract_core/contract_def.h")!;
+        const definition = mutationText(plan, coreFile("src", "contract_core", "contract_def.h"))!;
         expect(definition).toContain("#define Token_CONTRACT_INDEX 2");
         expect(definition).toContain('#include "contracts/Token.h"');
         expect(definition).toContain('{"TOK", 200, 10000, sizeof(Token::StateData) < sizeof(IPO) ? sizeof(IPO) : sizeof(Token::StateData)},');
         expect(definition).toContain("REGISTER_CONTRACT_FUNCTIONS_AND_PROCEDURES(Token);");
-        expect(mutationText(plan, "/core/src/Qubic.vcxproj")).toContain('<ClInclude Include="contracts\\Token.h" />');
-        expect(mutationText(plan, "/core/src/Qubic.vcxproj.filters")).toContain("<Filter>contracts</Filter>");
+        expect(mutationText(plan, coreFile("src", "Qubic.vcxproj"))).toContain('<ClInclude Include="contracts\\Token.h" />');
+        expect(mutationText(plan, coreFile("src", "Qubic.vcxproj.filters"))).toContain("<Filter>contracts</Filter>");
     });
 
     test("keeps the line ending and the BOM of every file it rewrites", () => {
         const files = coreFiles();
         files.contractDefinition = { ...files.contractDefinition, bom: true };
         const plan = planMutations(planOptions({ files }));
-        const definition = mutationText(plan, "/core/src/contract_core/contract_def.h")!;
+        const definition = mutationText(plan, coreFile("src", "contract_core", "contract_def.h"))!;
 
         expect(definition.startsWith("﻿")).toBe(true);
         expect(definition).toContain(`#define CONTRACT_STATE_TYPE Token${CRLF}`);
@@ -106,9 +111,9 @@ describe("a new contract", () => {
     test("wires the test file when the project has one", () => {
         const plan = planMutations(planOptions({ testSource: "TEST(Token, Works) {}\n" }));
 
-        expect(plan.testPath).toBe("/core/test/contract_token.cpp");
-        expect(mutationText(plan, "/core/test/contract_token.cpp")).toContain("TEST(Token, Works)");
-        expect(mutationText(plan, "/core/test/test.vcxproj")).toContain('<ClCompile Include="contract_token.cpp" />');
+        expect(plan.testPath).toBe(coreFile("test", "contract_token.cpp"));
+        expect(mutationText(plan, coreFile("test", "contract_token.cpp"))).toContain("TEST(Token, Works)");
+        expect(mutationText(plan, coreFile("test", "test.vcxproj"))).toContain('<ClCompile Include="contract_token.cpp" />');
     });
 
     test("warns when the test calls a dependency it never initializes", () => {
@@ -157,7 +162,7 @@ describe("a rejected contract", () => {
     });
 
     test("refuses a header path that already exists", () => {
-        expect(() => planMutations(planOptions({ fileExists: (path) => path === "/core/src/contracts/Token.h" }))).toThrow(
+        expect(() => planMutations(planOptions({ fileExists: (path) => path === coreFile("src", "contracts", "Token.h") }))).toThrow(
             /Core contract header 'contracts\/Token.h' already exists/,
         );
     });
@@ -191,8 +196,8 @@ describe("an existing contract", () => {
         );
 
         expect(plan.contractIndex).toBe(1);
-        expect(plan.mutations.map((mutation) => mutation.path)).toEqual(["/core/src/contracts/Base.h"]);
-        expect(mutationText(plan, "/core/src/contracts/Base.h")).toContain("int updated;");
+        expect(plan.mutations.map((mutation) => mutation.path)).toEqual([coreFile("src", "contracts", "Base.h")]);
+        expect(mutationText(plan, coreFile("src", "contracts", "Base.h"))).toContain("int updated;");
     });
 
     test("reports the test path a checkout already holds", () => {
@@ -202,10 +207,10 @@ describe("an existing contract", () => {
                 contractPath: "/project/contracts/Base.h",
                 existing,
                 metadata: { assetName: "BASE", constructionEpoch: 1, destructionEpoch: 10_000 },
-                fileExists: (path) => path === "/core/test/contract_base.cpp",
+                fileExists: (path) => path === coreFile("test", "contract_base.cpp"),
             }),
         );
 
-        expect(plan.testPath).toBe("/core/test/contract_base.cpp");
+        expect(plan.testPath).toBe(coreFile("test", "contract_base.cpp"));
     });
 });
