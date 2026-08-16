@@ -1,6 +1,7 @@
 // Records VirtualNode debug traces for CLI and IDE inspection.
 import { toHex } from "../support/k12";
 import type { DebugEntry, DebugTrace, DebugStateRegion } from "@qinit/core";
+import type { Id } from "../support/bytes";
 
 export const TRACE_ENTRY_CAP = 8192; // ring-buffer the entries so a long session can't grow unbounded
 // Changed bytes alone rarely spell a whole value — writing 3870 into a zeroed uint64 dirties two bytes.
@@ -41,7 +42,7 @@ export interface TraceBeginMetadata {
     index: number;
     entry: number;
     kind: number;
-    invocator: Uint8Array | undefined;
+    invocator: Id | undefined;
     invocationReward: bigint;
     input: Uint8Array;
     stateSize: number;

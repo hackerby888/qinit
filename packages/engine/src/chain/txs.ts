@@ -1,4 +1,5 @@
 // Stores per-tick transaction history, transaction IDs, and the scheduled mempool.
+import type { Id } from "../support/bytes";
 
 export interface TxRecord {
     txId: string;
@@ -11,10 +12,10 @@ export interface TxRecord {
     digest: Uint8Array; // K12(full signed tx) — the tick's TickData transactionDigests entry
 }
 
-// A broadcast tx awaiting its scheduled tick (mempool mode). Holds the decoded applyTx arguments.
+// A broadcast tx awaiting its scheduled tick (mempool mode). Holds the decoded processTickTransaction arguments.
 export interface QueuedTx {
-    source: Uint8Array;
-    dest: Uint8Array;
+    source: Id;
+    dest: Id;
     amount: bigint;
     inputType: number;
     payload: Uint8Array;

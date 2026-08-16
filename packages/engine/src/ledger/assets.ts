@@ -2,7 +2,7 @@ import { toHex, k12Bytes } from "../support/k12";
 import { SparseMerkle } from "./merkle";
 import { AssetRecord, ASSET_RECORD_SIZE, ASSETS_DEPTH } from "../protocol/wire";
 import { Asset, AssetSelect } from "../contract/abi";
-import { first32BytesEqual, isZeroId } from "../support/bytes";
+import { first32BytesEqual, isZeroId, type Id } from "../support/bytes";
 import {
     encodeAssetIssuanceLog,
     encodeAssetOwnershipChangeLog,
@@ -25,7 +25,7 @@ const POSSESSION = 3;
 
 interface LedgerRecord {
     type: number;
-    publicKey: Uint8Array;
+    publicKey: Id;
     name: bigint;
     decimals: number;
     unit: bigint;
@@ -35,8 +35,8 @@ interface LedgerRecord {
 }
 
 export interface AssetEntry {
-    owner: Uint8Array;
-    possessor: Uint8Array;
+    owner: Id;
+    possessor: Id;
     shares: bigint;
     ownMgmt: number;
     posMgmt: number;
@@ -64,14 +64,14 @@ export interface AssetRecordProof {
 }
 
 export interface IssuedProof extends AssetRecordProof {
-    issuer: Uint8Array;
+    issuer: Id;
     name: bigint;
     decimals: number;
 }
 
 export interface OwnedProof extends AssetRecordProof {
     issuanceRecord: Uint8Array;
-    issuer: Uint8Array;
+    issuer: Id;
     name: bigint;
     decimals: number;
     managingContractIndex: number;
@@ -81,7 +81,7 @@ export interface OwnedProof extends AssetRecordProof {
 }
 
 export interface PossessedProof extends OwnedProof {
-    owner: Uint8Array;
+    owner: Id;
     ownershipRecord: Uint8Array;
     ownershipManagingContractIndex: number;
     possessionManagingContractIndex: number;
@@ -90,19 +90,19 @@ export interface PossessedProof extends OwnedProof {
 }
 
 export interface AssetIssuanceFilter {
-    issuer?: Uint8Array;
+    issuer?: Id;
     name?: bigint;
 }
 
 export interface AssetOwnershipFilter {
-    issuer: Uint8Array;
+    issuer: Id;
     name: bigint;
-    owner?: Uint8Array;
+    owner?: Id;
     ownershipManagingContractIndex?: number;
 }
 
 export interface AssetPossessionFilter extends AssetOwnershipFilter {
-    possessor?: Uint8Array;
+    possessor?: Id;
     possessionManagingContractIndex?: number;
 }
 
@@ -140,7 +140,7 @@ export function unpackAssetName(name: bigint): string {
 }
 
 interface AssetSelection {
-    id: Uint8Array;
+    id: Id;
     mgmt: number;
     anyId: boolean;
     anyMgmt: boolean;
@@ -177,7 +177,7 @@ export class AssetLedger {
         this.host = host;
     }
 
-    private startOf(publicKey: Uint8Array): number {
+    private startOf(publicKey: Id): number {
         const firstWord = publicKey[0] | (publicKey[1] << 8) | (publicKey[2] << 16) | (publicKey[3] << 24);
 
         return (firstWord >>> 0) & ASSET_INDEX_MASK;
@@ -217,7 +217,7 @@ export class AssetLedger {
         this.firstChildIndex.set(ownershipIndex, possessionIndex);
     }
 
-    private issuanceIndex(issuer: Uint8Array, name: bigint): number {
+    private issuanceIndex(issuer: Id, name: bigint): number {
         let index = this.startOf(issuer);
 
         for (;;) {
@@ -234,7 +234,7 @@ export class AssetLedger {
         }
     }
 
-    isAssetIssued(issuer: Uint8Array, name: bigint): boolean {
+    isAssetIssued(issuer: Id, name: bigint): boolean {
         return this.issuanceIndex(issuer, name & 0xffffffffffffffn) !== NO_ASSET_INDEX;
     }
 
@@ -320,7 +320,7 @@ export class AssetLedger {
         return indexes;
     }
 
-    issueAssetRaw(issuer: Uint8Array, name: bigint, decimals: number, unit: bigint, shares: bigint, managingContractIndex: number): bigint {
+    issueAssetRaw(issuer: Id, name: bigint, decimals: number, unit: bigint, shares: bigint, managingContractIndex: number): bigint {
         let issuanceIndex = this.startOf(issuer);
 
         for (;;) {
@@ -388,7 +388,7 @@ export class AssetLedger {
         return shares;
     }
 
-    issueAsset(slot: number, name: bigint, issuer: Uint8Array, decimals: number, shares: bigint, unit: bigint, invocator: Uint8Array): bigint {
+    issueAsset(slot: number, name: bigint, issuer: Id, decimals: number, shares: bigint, unit: bigint, invocator: Id): bigint {
         const firstCharacter = Number(name & 0xffn);
         if (firstCharacter < 0x41 || firstCharacter > 0x5a || name > 0xffffffffffffffn) {
             return 0n;
@@ -450,7 +450,7 @@ export class AssetLedger {
         return this.numberOfSharesSel(asset.issuer, asset.assetName & 0xffffffffffffffn, ownership, possession);
     }
 
-    private numberOfSharesSel(issuer: Uint8Array, name: bigint, ownership: AssetSelection, possession: AssetSelection): bigint {
+    private numberOfSharesSel(issuer: Id, name: bigint, ownership: AssetSelection, possession: AssetSelection): bigint {
         const issuanceIndex = this.issuanceIndex(issuer, name);
         if (issuanceIndex === NO_ASSET_INDEX) {
             return 0n;
@@ -514,7 +514,7 @@ export class AssetLedger {
         return entries;
     }
 
-    possessionsOf(issuer: Uint8Array, name: bigint): AssetEntry[] {
+    possessionsOf(issuer: Id, name: bigint): AssetEntry[] {
         const issuanceIndex = this.issuanceIndex(issuer, name & 0xffffffffffffffn);
         if (issuanceIndex === NO_ASSET_INDEX) {
             return [];
@@ -540,14 +540,7 @@ export class AssetLedger {
         return entries;
     }
 
-    numberOfPossessedShares(
-        name: bigint,
-        issuer: Uint8Array,
-        owner: Uint8Array,
-        possessor: Uint8Array,
-        ownershipManager: number,
-        possessionManager: number,
-    ): bigint {
+    numberOfPossessedShares(name: bigint, issuer: Id, owner: Id, possessor: Id, ownershipManager: number, possessionManager: number): bigint {
         const issuanceIndex = this.issuanceIndex(issuer, name & 0xffffffffffffffn);
         if (issuanceIndex === NO_ASSET_INDEX) {
             return 0n;
@@ -597,7 +590,7 @@ export class AssetLedger {
     private logOwnershipAndPossessionChange(
         sourceOwnership: LedgerRecord,
         sourcePossession: LedgerRecord,
-        destination: Uint8Array,
+        destination: Id,
         issuance: LedgerRecord,
         shares: bigint,
     ): void {
@@ -629,7 +622,7 @@ export class AssetLedger {
         );
     }
 
-    private transferOwnershipAndPossessionIdx(sourceOwnershipIndex: number, sourcePossessionIndex: number, destination: Uint8Array, shares: bigint): boolean {
+    private transferShareOwnershipAndPossessionByIndex(sourceOwnershipIndex: number, sourcePossessionIndex: number, destination: Id, shares: bigint): boolean {
         if (shares <= 0n) {
             return false;
         }
@@ -744,15 +737,7 @@ export class AssetLedger {
         return true;
     }
 
-    transferShareOwnershipAndPossession(
-        slot: number,
-        name: bigint,
-        issuer: Uint8Array,
-        owner: Uint8Array,
-        possessor: Uint8Array,
-        shares: bigint,
-        newOwner: Uint8Array,
-    ): bigint {
+    transferShareOwnershipAndPossession(slot: number, name: bigint, issuer: Id, owner: Id, possessor: Id, shares: bigint, newOwner: Id): bigint {
         if (shares <= 0n || shares > MAX_AMOUNT) {
             return -(MAX_AMOUNT + 1n);
         }
@@ -792,7 +777,7 @@ export class AssetLedger {
                 if (possession.shares < shares) {
                     return possession.shares - shares;
                 }
-                const transferred = this.transferOwnershipAndPossessionIdx(ownershipIndex, possessionIndex, newOwner, shares);
+                const transferred = this.transferShareOwnershipAndPossessionByIndex(ownershipIndex, possessionIndex, newOwner, shares);
                 if (!transferred) {
                     return INVALID_AMOUNT;
                 }
@@ -804,7 +789,7 @@ export class AssetLedger {
         }
     }
 
-    private transferManagementRightsIdx(
+    private transferShareManagementRightsByIndex(
         sourceOwnershipIndex: number,
         sourcePossessionIndex: number,
         destinationOwnershipManager: number,
@@ -930,9 +915,9 @@ export class AssetLedger {
 
     transferShareManagementRights(
         name: bigint,
-        issuer: Uint8Array,
-        owner: Uint8Array,
-        possessor: Uint8Array,
+        issuer: Id,
+        owner: Id,
+        possessor: Id,
         sourceManager: number,
         destinationManager: number,
         shares: bigint,
@@ -960,7 +945,7 @@ export class AssetLedger {
             };
 
             for (const possessionIndex of this.possessionIndices(ownershipIndex, possessionSelection)) {
-                return this.transferManagementRightsIdx(ownershipIndex, possessionIndex, destinationManager, destinationManager, shares);
+                return this.transferShareManagementRightsByIndex(ownershipIndex, possessionIndex, destinationManager, destinationManager, shares);
             }
         }
 
@@ -1109,7 +1094,7 @@ export class AssetLedger {
         return proofs;
     }
 
-    universeProofIssued(issuer: Uint8Array): IssuedProof[] {
+    universeProofIssued(issuer: Id): IssuedProof[] {
         return this.universeProofIssuances({ issuer });
     }
 
@@ -1160,7 +1145,7 @@ export class AssetLedger {
         return proofs;
     }
 
-    universeProofOwned(ownerId: Uint8Array): OwnedProof[] {
+    universeProofOwned(ownerId: Id): OwnedProof[] {
         this.getUniverseDigest();
         const proofs: OwnedProof[] = [];
 
@@ -1196,7 +1181,7 @@ export class AssetLedger {
         return proofs;
     }
 
-    universeProofPossessed(possessorId: Uint8Array): PossessedProof[] {
+    universeProofPossessed(possessorId: Id): PossessedProof[] {
         this.getUniverseDigest();
         const proofs: PossessedProof[] = [];
 

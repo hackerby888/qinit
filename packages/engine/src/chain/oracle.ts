@@ -47,8 +47,8 @@ interface OracleChannel {
 }
 
 export interface OracleHost {
-    contractBalance(slot: number): bigint;
-    debitContract(slot: number, amount: bigint): void;
+    energyOf(slot: number): bigint;
+    decreaseEnergyOf(slot: number, amount: bigint): void;
     notify(slot: number, procId: number, input: Uint8Array): void;
     nowMs(): number;
 }
@@ -79,7 +79,7 @@ export class OracleManager {
         this.host = host;
     }
 
-    query(
+    startContractQuery(
         slot: number,
         interfaceIndex: number,
         query: Uint8Array,
@@ -106,10 +106,10 @@ export class OracleManager {
             return -1n;
         }
 
-        return this.createQuery(interfaceIndex, query, replySize, -1, timeoutMillisec, [{ slot, notificationProcId }]);
+        return this.enqueueOracleQuery(interfaceIndex, query, replySize, -1, timeoutMillisec, [{ slot, notificationProcId }]);
     }
 
-    subscribe(
+    startContractSubscription(
         slot: number,
         interfaceIndex: number,
         query: Uint8Array,
@@ -172,7 +172,7 @@ export class OracleManager {
         return channel.id;
     }
 
-    unsubscribe(slot: number, subscriptionId: number): number {
+    stopContractSubscription(slot: number, subscriptionId: number): number {
         const channel = this.channels.get(subscriptionId);
         return channel?.subscribers.delete(slot) ? 1 : 0;
     }
@@ -202,7 +202,7 @@ export class OracleManager {
         return channel;
     }
 
-    private createQuery(
+    private enqueueOracleQuery(
         interfaceIndex: number,
         query: Uint8Array,
         replySize: number,
@@ -227,8 +227,8 @@ export class OracleManager {
     }
 
     private chargeFee(slot: number, fee: bigint): boolean {
-        if (fee < 0n || this.host.contractBalance(slot) < fee) return false;
-        if (fee) this.host.debitContract(slot, fee);
+        if (fee < 0n || this.host.energyOf(slot) < fee) return false;
+        if (fee) this.host.decreaseEnergyOf(slot, fee);
         return true;
     }
 
@@ -245,7 +245,7 @@ export class OracleManager {
 
             const query = channel.initialQuery.slice();
             new DataView(query.buffer, query.byteOffset, query.byteLength).setBigUint64(channel.timestampOffset, packDateAndTime(queryTimestamp), true);
-            this.createQuery(channel.interfaceIndex, query, channel.replySize, channel.id, SUBSCRIPTION_TIMEOUT_MS, due, queryTimestamp);
+            this.enqueueOracleQuery(channel.interfaceIndex, query, channel.replySize, channel.id, SUBSCRIPTION_TIMEOUT_MS, due, queryTimestamp);
         }
     }
 
@@ -316,15 +316,15 @@ export class OracleManager {
         }
     }
 
-    queryStatus(queryId: bigint): number {
+    getOracleQueryStatus(queryId: bigint): number {
         return this.queries.get(queryId)?.status ?? ORACLE_STATUS.UNKNOWN;
     }
 
-    getQuery(queryId: bigint): Uint8Array | null {
+    getOracleQuery(queryId: bigint): Uint8Array | null {
         return this.queries.get(queryId)?.query ?? null;
     }
 
-    getReply(queryId: bigint): Uint8Array | null {
+    getOracleReply(queryId: bigint): Uint8Array | null {
         const query = this.queries.get(queryId);
         return query?.status === ORACLE_STATUS.SUCCESS ? query.reply : null;
     }

@@ -63,7 +63,7 @@ export async function runCompiledGtest(
             invoke: (slot: number, inputType: number, inputPtr: number, inputSize: number, outputPtr: number, amount: bigint, originPtr: number): number => {
                 const origin = read(originPtr, 32);
                 const reward = BigInt(amount);
-                if (reward > 0n) sim.debit(origin, reward);
+                if (reward > 0n) sim.decreaseEnergy(sim.spectrumIndex(origin), reward);
                 const output = sim.procedure(slot >>> 0, inputType >>> 0, read(inputPtr, inputSize), {
                     originator: origin,
                     invocator: origin,

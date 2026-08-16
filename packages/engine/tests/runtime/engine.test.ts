@@ -44,13 +44,13 @@ test("a contract trap permanently faults the simulator without recording the tra
     const BUMP = 1,
         DIV = 2; // Trap: REGISTER_USER_PROCEDURE(Bump,1) / (Div,2)
 
-    sim.applyTx(src, dest, 0n, BUMP, new Uint8Array(0), "t1"); // n -> 1
+    sim.processTickTransaction(src, dest, 0n, BUMP, new Uint8Array(0), "t1"); // n -> 1
     expect(readUint64LE(sim.query(28, GET))).toBe(1n);
 
     const divIn = new Uint8Array(16); // Div_input { a, b }: a=7, b=0 -> wasm i64.div traps
     new DataView(divIn.buffer).setBigUint64(0, 7n, true);
     new DataView(divIn.buffer).setBigUint64(8, 0n, true);
-    expect(() => sim.applyTx(src, dest, 0n, DIV, divIn, "t2")).toThrow(EngineFaultedError);
+    expect(() => sim.processTickTransaction(src, dest, 0n, DIV, divIn, "t2")).toThrow(EngineFaultedError);
 
     expect(sim.faultInfo()).toMatchObject({
         phase: "transaction",
@@ -63,7 +63,7 @@ test("a contract trap permanently faults the simulator without recording the tra
     expect(() => sim.query(28, GET)).toThrow(EngineFaultedError);
     expect(() => sim.query(999, GET)).toThrow(EngineFaultedError);
     expect(() => sim.procedure(999, BUMP)).toThrow(EngineFaultedError);
-    expect(() => sim.applyTx(src, dest, 0n, BUMP, new Uint8Array(0), "t3")).toThrow(EngineFaultedError);
+    expect(() => sim.processTickTransaction(src, dest, 0n, BUMP, new Uint8Array(0), "t3")).toThrow(EngineFaultedError);
 });
 
 test("a finalization fault does not expose its quorum record", async () => {

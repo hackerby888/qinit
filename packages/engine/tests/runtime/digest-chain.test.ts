@@ -66,7 +66,7 @@ test("the spectrum root: proof reconstruction == spectrumDigest == a quorum of s
 
     const proof = sim.spectrumProof(A);
     const root = rootFromSiblings(proof.record, proof.index, proof.siblings);
-    expect(toHex(root)).toBe(toHex(sim.spectrumDigest()));
+    expect(toHex(root)).toBe(toHex(sim.getSpectrumDigest()));
     expect(signedVotesCommitting(rec.votes, committee, "prevSpectrumDigest", root)).toBeGreaterThanOrEqual(committee.quorum);
 });
 
@@ -79,7 +79,7 @@ test("the universe root: an asset holding proof == universeDigest == a quorum of
     expect(owned.length).toBe(1);
     const proof = owned[0];
     const root = rootFromSiblings(proof.record, proof.index, proof.siblings);
-    expect(toHex(root)).toBe(toHex(sim.universeDigest()));
+    expect(toHex(root)).toBe(toHex(sim.getUniverseDigest()));
     expect(signedVotesCommitting(rec.votes, committee, "prevUniverseDigest", root)).toBeGreaterThanOrEqual(committee.quorum);
 });
 
@@ -88,7 +88,7 @@ test("the computer root: computerDigest is committed by a quorum of signed votes
     const committee = sim.getCommittee();
     const rec = sim.tickRecord(sim.currentTick)!;
 
-    const root = sim.computerDigest();
+    const root = sim.getComputerDigest();
     expect(signedVotesCommitting(rec.votes, committee, "prevComputerDigest", root)).toBeGreaterThanOrEqual(committee.quorum);
 });
 
@@ -102,6 +102,6 @@ test("a tampered asset record fails the universe digest chain (no votes commit t
     forged[40] ^= 0xff; // corrupt a share-count byte
     const root = rootFromSiblings(forged, proof.index, proof.siblings);
 
-    expect(toHex(root)).not.toBe(toHex(sim.universeDigest()));
+    expect(toHex(root)).not.toBe(toHex(sim.getUniverseDigest()));
     expect(signedVotesCommitting(rec.votes, committee, "prevUniverseDigest", root)).toBe(0);
 });

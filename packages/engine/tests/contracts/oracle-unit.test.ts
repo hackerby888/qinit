@@ -25,8 +25,8 @@ function fakeHost(): OracleHost & {
         balances,
         notifications,
         clock: Date.UTC(2026, 0, 1),
-        contractBalance: (slot: number) => balances.get(slot) ?? 0n,
-        debitContract: (slot: number, amount: bigint) => balances.set(slot, (balances.get(slot) ?? 0n) - amount),
+        energyOf: (slot: number) => balances.get(slot) ?? 0n,
+        decreaseEnergyOf: (slot: number, amount: bigint) => balances.set(slot, (balances.get(slot) ?? 0n) - amount),
         notify: (slot: number, procId: number, input: Uint8Array) => notifications.push({ slot, procId, input: input.slice() }),
         nowMs: () => host.clock,
     };
@@ -44,10 +44,10 @@ test("one-time query charges once and delivers the typed reply", () => {
     host.balances.set(7, 100n);
     const oracle = new OracleManager(host);
 
-    const queryId = oracle.query(7, 0, priceQuery(), PriceOracleReply.SIZE, 99, 1_000, 0n);
+    const queryId = oracle.startContractQuery(7, 0, priceQuery(), PriceOracleReply.SIZE, 99, 1_000, 0n);
     expect(queryId).toBe(1n);
     expect(host.balances.get(7)).toBe(90n);
-    expect(oracle.queryStatus(queryId)).toBe(ORACLE_STATUS.PENDING);
+    expect(oracle.getOracleQueryStatus(queryId)).toBe(ORACLE_STATUS.PENDING);
     expect(oracle.resolve(queryId, new Uint8Array(PriceOracleReply.SIZE).fill(9))).toBe(true);
 
     const notification = host.notifications[0];
@@ -65,13 +65,15 @@ test("query validates Core interface metadata before charging", () => {
     host.balances.set(7, 2_000n);
     const oracle = new OracleManager(host);
 
-    expect(oracle.query(7, 3, priceQuery(), PriceOracleReply.SIZE, 1, 1_000, 10n)).toBe(-1n);
-    expect(oracle.query(7, 0, new Uint8Array(PriceOracleQuery.SIZE - 1), PriceOracleReply.SIZE, 1, 1_000, 10n)).toBe(-1n);
-    expect(oracle.query(7, 0, priceQuery(), PriceOracleReply.SIZE - 1, 1, 1_000, 10n)).toBe(-1n);
+    expect(oracle.startContractQuery(7, 3, priceQuery(), PriceOracleReply.SIZE, 1, 1_000, 10n)).toBe(-1n);
+    expect(oracle.startContractQuery(7, 0, new Uint8Array(PriceOracleQuery.SIZE - 1), PriceOracleReply.SIZE, 1, 1_000, 10n)).toBe(-1n);
+    expect(oracle.startContractQuery(7, 0, priceQuery(), PriceOracleReply.SIZE - 1, 1, 1_000, 10n)).toBe(-1n);
     expect(host.balances.get(7)).toBe(2_000n);
 
-    expect(oracle.query(7, 1, new Uint8Array(MockOracleQuery.SIZE), MockOracleReply.SIZE, 1, 1_000, 0n)).toBe(1n);
-    expect(oracle.query(7, 2, new Uint8Array(DogeShareValidationOracleQuery.SIZE), DogeShareValidationOracleReply.SIZE, 1, 1_000, 99_999n)).toBe(2n);
+    expect(oracle.startContractQuery(7, 1, new Uint8Array(MockOracleQuery.SIZE), MockOracleReply.SIZE, 1, 1_000, 0n)).toBe(1n);
+    expect(oracle.startContractQuery(7, 2, new Uint8Array(DogeShareValidationOracleQuery.SIZE), DogeShareValidationOracleReply.SIZE, 1, 1_000, 99_999n)).toBe(
+        2n,
+    );
     expect(host.balances.get(7)).toBe(990n);
 });
 
@@ -81,14 +83,24 @@ test("subscription requires whole minutes and charges only the SUBSCRIBE call", 
     const oracle = new OracleManager(host);
     const query = priceQuery();
 
-    expect(oracle.subscribe(5, 3, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 7, 60_000, false, 10_000n)).toBe(-1);
+    expect(oracle.startContractSubscription(5, 3, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 7, 60_000, false, 10_000n)).toBe(-1);
     expect(
-        oracle.subscribe(5, 0, new Uint8Array(PriceOracleQuery.SIZE - 1), PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 7, 60_000, false, 10_000n),
+        oracle.startContractSubscription(
+            5,
+            0,
+            new Uint8Array(PriceOracleQuery.SIZE - 1),
+            PriceOracleReply.SIZE,
+            PriceOracleQuery.OFFSETS.timestamp,
+            7,
+            60_000,
+            false,
+            10_000n,
+        ),
     ).toBe(-1);
-    expect(oracle.subscribe(5, 0, query, PriceOracleReply.SIZE - 1, PriceOracleQuery.OFFSETS.timestamp, 7, 60_000, false, 10_000n)).toBe(-1);
+    expect(oracle.startContractSubscription(5, 0, query, PriceOracleReply.SIZE - 1, PriceOracleQuery.OFFSETS.timestamp, 7, 60_000, false, 10_000n)).toBe(-1);
     expect(host.balances.get(5)).toBe(20_000n);
 
-    const subscriptionId = oracle.subscribe(5, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 7, 60_000, false, 10_000n);
+    const subscriptionId = oracle.startContractSubscription(5, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 7, 60_000, false, 10_000n);
     expect(subscriptionId).toBe(0);
     expect(host.balances.get(5)).toBe(10_000n);
     expect(oracle.pending()).toHaveLength(1);
@@ -101,10 +113,10 @@ test("subscription requires whole minutes and charges only the SUBSCRIBE call", 
     oracle.pump();
     expect(host.balances.get(5)).toBe(10_000n);
 
-    expect(oracle.subscribe(5, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 8, 59_000, false, 10_000n)).toBe(-1);
-    expect(oracle.subscribe(5, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 8, 60_001, false, 10_000n)).toBe(-1);
+    expect(oracle.startContractSubscription(5, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 8, 59_000, false, 10_000n)).toBe(-1);
+    expect(oracle.startContractSubscription(5, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 8, 60_001, false, 10_000n)).toBe(-1);
     expect(host.balances.get(5)).toBe(10_000n);
-    expect(oracle.unsubscribe(5, subscriptionId)).toBe(1);
+    expect(oracle.stopContractSubscription(5, subscriptionId)).toBe(1);
 });
 
 test("subscribers share a channel, can receive its previous reply, and expire at epoch change", () => {
@@ -114,9 +126,9 @@ test("subscribers share a channel, can receive its previous reply, and expire at
     const oracle = new OracleManager(host);
     const query = priceQuery(3);
 
-    const first = oracle.subscribe(5, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 11, 60_000, false, 100n);
+    const first = oracle.startContractSubscription(5, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 11, 60_000, false, 100n);
     expect(oracle.resolve(1n, new Uint8Array(PriceOracleReply.SIZE).fill(7))).toBe(true);
-    const second = oracle.subscribe(6, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 12, 120_000, true, 100n);
+    const second = oracle.startContractSubscription(6, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 12, 120_000, true, 100n);
 
     expect(second).toBe(first);
     expect(host.balances.get(5)).toBe(900n);
@@ -125,22 +137,22 @@ test("subscribers share a channel, can receive its previous reply, and expire at
     expect(previous.slot).toBe(6);
     expect(previous.input[12]).toBe(ORACLE_STATUS.SUCCESS);
     expect(previous.input.subarray(16)).toEqual(new Uint8Array(PriceOracleReply.SIZE).fill(7));
-    expect(oracle.subscribe(6, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 12, 120_000, false, 100n)).toBe(-1);
+    expect(oracle.startContractSubscription(6, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 12, 120_000, false, 100n)).toBe(-1);
     expect(host.balances.get(6)).toBe(900n);
 
     oracle.beginEpoch();
-    expect(oracle.queryStatus(1n)).toBe(ORACLE_STATUS.UNKNOWN);
-    expect(oracle.unsubscribe(5, first)).toBe(0);
+    expect(oracle.getOracleQueryStatus(1n)).toBe(ORACLE_STATUS.UNKNOWN);
+    expect(oracle.stopContractSubscription(5, first)).toBe(0);
 });
 
 test("expired queries notify TIMEOUT", () => {
     const host = fakeHost();
     host.balances.set(2, 10n);
     const oracle = new OracleManager(host);
-    const queryId = oracle.query(2, 0, priceQuery(), PriceOracleReply.SIZE, 3, 1_000, 10n);
+    const queryId = oracle.startContractQuery(2, 0, priceQuery(), PriceOracleReply.SIZE, 3, 1_000, 10n);
 
     host.clock += 1_000;
     oracle.pump();
-    expect(oracle.queryStatus(queryId)).toBe(ORACLE_STATUS.TIMEOUT);
+    expect(oracle.getOracleQueryStatus(queryId)).toBe(ORACLE_STATUS.TIMEOUT);
     expect(host.notifications[0].input[12]).toBe(ORACLE_STATUS.TIMEOUT);
 });

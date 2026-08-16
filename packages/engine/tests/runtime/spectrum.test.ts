@@ -9,6 +9,13 @@ beforeAll(async () => {
     await initK12(); // the digest/proof hash through K12
 });
 
+// The host stands in for core's `system.tick`; tests move it to check what the entity records.
+function ledger(): { spectrum: SpectrumLedger; setTick: (tick: number) => void } {
+    let tick = 0;
+    const spectrum = new SpectrumLedger({ tick: () => tick });
+    return { spectrum, setTick: (value) => (tick = value) };
+}
+
 function id(firstByte: number): Uint8Array {
     const a = new Uint8Array(32);
     a[0] = firstByte;
@@ -23,108 +30,135 @@ function slottedId(firstWord: number, marker: number): Uint8Array {
 }
 
 test("energy = incomingAmount - outgoingAmount; records are created on first touch", () => {
-    const s = new SpectrumLedger();
+    const { spectrum, setTick } = ledger();
     const a = id(1);
-    expect(s.energy(a)).toBe(0n);
-    expect(s.entityOf(a)).toBeNull();
+    expect(spectrum.spectrumIndex(a)).toBe(-1);
+    expect(spectrum.getEntity(a)).toBeNull();
 
-    s.increaseEnergy(a, 1000n, 5);
-    s.decreaseEnergy(a, 250n, 6);
-    expect(s.energy(a)).toBe(750n);
+    setTick(5);
+    spectrum.increaseEnergy(a, 1000n);
+    setTick(6);
+    expect(spectrum.decreaseEnergy(spectrum.spectrumIndex(a), 250n)).toBe(true);
+    expect(spectrum.energy(spectrum.spectrumIndex(a))).toBe(750n);
 
-    const e = s.entityOf(a)!;
+    const e = spectrum.getEntity(a)!;
     expect(e.incomingAmount).toBe(1000n);
     expect(e.outgoingAmount).toBe(250n);
     expect(e.numberOfIncomingTransfers).toBe(1);
     expect(e.numberOfOutgoingTransfers).toBe(1);
     expect(e.latestIncomingTransferTick).toBe(5);
     expect(e.latestOutgoingTransferTick).toBe(6);
-    expect(s.size).toBe(1);
+    expect(spectrum.numberOfEntities).toBe(1);
+});
+
+test("decreaseEnergy refuses to overdraw and leaves the record untouched", () => {
+    const { spectrum } = ledger();
+    const a = id(1);
+    spectrum.increaseEnergy(a, 100n);
+    const index = spectrum.spectrumIndex(a);
+
+    expect(spectrum.decreaseEnergy(index, 101n)).toBe(false);
+    expect(spectrum.energy(index)).toBe(100n);
+    expect(spectrum.getEntity(a)!.numberOfOutgoingTransfers).toBe(0);
+
+    expect(spectrum.decreaseEnergy(index, 100n)).toBe(true); // the whole balance is spendable
+    expect(spectrum.energy(index)).toBe(0n);
+});
+
+test("decreaseEnergy never creates a record, and a negative amount is refused", () => {
+    const { spectrum } = ledger();
+    expect(spectrum.decreaseEnergy(spectrum.spectrumIndex(id(1)), 5n)).toBe(false);
+    expect(spectrum.numberOfEntities).toBe(0);
+
+    spectrum.increaseEnergy(id(1), 100n);
+    expect(spectrum.decreaseEnergy(spectrum.spectrumIndex(id(1)), -1n)).toBe(false);
+    expect(spectrum.energy(spectrum.spectrumIndex(id(1)))).toBe(100n);
 });
 
 test("zero identity is not inserted into the spectrum", () => {
-    const empty = new SpectrumLedger();
-    const expectedDigest = toHex(empty.getSpectrumDigest());
-    const spectrum = new SpectrumLedger();
+    const expectedDigest = toHex(ledger().spectrum.getSpectrumDigest());
+    const { spectrum } = ledger();
     const zero = new Uint8Array(32);
 
-    spectrum.increaseEnergy(zero, 100n, 5);
-    spectrum.decreaseEnergy(zero, 50n, 6);
+    spectrum.increaseEnergy(zero, 100n);
+    expect(spectrum.decreaseEnergy(spectrum.spectrumIndex(zero), 50n)).toBe(false);
 
-    expect(spectrum.size).toBe(0);
-    expect(spectrum.entityOf(zero)).toBeNull();
-    expect(spectrum.energy(zero)).toBe(0n);
+    expect(spectrum.numberOfEntities).toBe(0);
+    expect(spectrum.getEntity(zero)).toBeNull();
+    expect(spectrum.spectrumIndex(zero)).toBe(-1);
     expect(toHex(spectrum.getSpectrumDigest())).toBe(expectedDigest);
 });
 
 test("collisions use Core's first-u32 slot and linear probing", () => {
-    const spectrum = new SpectrumLedger();
+    const { spectrum } = ledger();
     const first = slottedId(0xab123456, 1);
     const second = slottedId(0xab123456, 2);
     const third = slottedId(0xab123456, 3);
     const end = slottedId(0xffffffff, 4);
     const wrapped = slottedId(0xffffffff, 5);
 
-    spectrum.increaseEnergy(first, 10n, 1);
-    spectrum.increaseEnergy(second, 20n, 1);
-    spectrum.increaseEnergy(third, 30n, 1);
-    spectrum.increaseEnergy(end, 40n, 1);
-    spectrum.increaseEnergy(wrapped, 50n, 1);
+    spectrum.increaseEnergy(first, 10n);
+    spectrum.increaseEnergy(second, 20n);
+    spectrum.increaseEnergy(third, 30n);
+    spectrum.increaseEnergy(end, 40n);
+    spectrum.increaseEnergy(wrapped, 50n);
 
-    expect(spectrum.spectrumProof(first).index).toBe(0x123456);
+    expect(spectrum.spectrumIndex(first)).toBe(0x123456);
+    expect(spectrum.spectrumIndex(second)).toBe(0x123457);
+    expect(spectrum.spectrumIndex(third)).toBe(0x123458);
+    expect(spectrum.spectrumIndex(end)).toBe(0xffffff);
+    expect(spectrum.spectrumIndex(wrapped)).toBe(0);
+
     const secondProof = spectrum.spectrumProof(second);
     expect(secondProof.index).toBe(0x123457);
-    expect(spectrum.spectrumProof(third).index).toBe(0x123458);
-    expect(spectrum.spectrumProof(end).index).toBe(0xffffff);
-    expect(spectrum.spectrumProof(wrapped).index).toBe(0);
     expect(toHex(rootFromSiblings(secondProof.record, secondProof.index, secondProof.siblings))).toBe(toHex(spectrum.getSpectrumDigest()));
 });
 
 test("nextId / prevId walk occupied spectrum slots", () => {
-    const s = new SpectrumLedger();
+    const { spectrum } = ledger();
     const first = slottedId(0x10, 1);
     const middle = slottedId(0x200, 2);
     const last = slottedId(0x300, 3);
     for (const entityId of [last, first, middle]) {
-        s.increaseEnergy(entityId, 1n, 0);
+        spectrum.increaseEnergy(entityId, 1n);
     }
 
-    expect(toHex(s.nextId(new Uint8Array(32)))).toBe(toHex(first));
-    expect(toHex(s.nextId(first))).toBe(toHex(middle));
-    expect(toHex(s.nextId(middle))).toBe(toHex(last));
-    expect(toHex(s.prevId(last))).toBe(toHex(middle));
-    expect(s.nextId(last).every((x) => x === 0)).toBe(true);
-    expect(s.prevId(first).every((x) => x === 0)).toBe(true);
+    expect(toHex(spectrum.nextId(new Uint8Array(32)))).toBe(toHex(first));
+    expect(toHex(spectrum.nextId(first))).toBe(toHex(middle));
+    expect(toHex(spectrum.nextId(middle))).toBe(toHex(last));
+    expect(toHex(spectrum.prevId(last))).toBe(toHex(middle));
+    expect(spectrum.nextId(last).every((x) => x === 0)).toBe(true);
+    expect(spectrum.prevId(first).every((x) => x === 0)).toBe(true);
 });
 
 test("getSpectrumDigest is deterministic and changes with balance", () => {
     const build = () => {
-        const s = new SpectrumLedger();
-        s.increaseEnergy(id(1), 100n, 0);
-        s.increaseEnergy(id(2), 200n, 0);
-        return s;
+        const { spectrum } = ledger();
+        spectrum.increaseEnergy(id(1), 100n);
+        spectrum.increaseEnergy(id(2), 200n);
+        return spectrum;
     };
     const a = build();
     const b = build();
     expect(toHex(a.getSpectrumDigest())).toBe(toHex(b.getSpectrumDigest())); // same ops -> same root
 
     const before = toHex(a.getSpectrumDigest());
-    a.increaseEnergy(id(1), 1n, 1);
+    a.increaseEnergy(id(1), 1n);
     expect(toHex(a.getSpectrumDigest())).not.toBe(before); // a balance change moves the root
 });
 
 test("spectrumProof: 24 siblings for a known entity, index -1 for an unknown one", () => {
-    const s = new SpectrumLedger();
-    s.increaseEnergy(id(1), 100n, 0);
-    s.increaseEnergy(id(2), 200n, 0);
+    const { spectrum } = ledger();
+    spectrum.increaseEnergy(id(1), 100n);
+    spectrum.increaseEnergy(id(2), 200n);
 
-    const p = s.spectrumProof(id(1));
+    const p = spectrum.spectrumProof(id(1));
     expect(p.index).toBeGreaterThanOrEqual(0);
     expect(p.siblings.length).toBe(24); // SPECTRUM_DEPTH
     expect(p.record.length).toBe(64); // EntityRecord
-    expect(toHex(rootFromSiblings(p.record, p.index, p.siblings))).toBe(toHex(s.getSpectrumDigest()));
+    expect(toHex(rootFromSiblings(p.record, p.index, p.siblings))).toBe(toHex(spectrum.getSpectrumDigest()));
 
-    const miss = s.spectrumProof(id(9));
+    const miss = spectrum.spectrumProof(id(9));
     expect(miss.index).toBe(-1);
     expect(miss.siblings.length).toBe(0);
 });

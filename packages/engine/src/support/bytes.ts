@@ -1,3 +1,6 @@
+// A 32-byte entity identity — qpi.h's `typedef m256i id`. An alias, like the typedef it ports.
+export type Id = Uint8Array;
+
 const ZERO_ID = new Uint8Array(32);
 
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
@@ -36,6 +39,6 @@ export function first32BytesEqual(left: Uint8Array, right: Uint8Array): boolean 
     return true;
 }
 
-export function isZeroId(id: Uint8Array): boolean {
+export function isZeroId(id: Id): boolean {
     return first32BytesEqual(id, ZERO_ID);
 }

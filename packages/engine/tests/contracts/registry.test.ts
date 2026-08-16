@@ -26,8 +26,8 @@ test("empty registry: no contracts, empty slot list, empty dirty set", () => {
 });
 
 test("computerDigest over an empty registry is deterministic", () => {
-    const a = registry().computerDigest();
-    const b = registry().computerDigest();
+    const a = registry().getComputerDigest();
+    const b = registry().getComputerDigest();
     expect(toHex(a)).toBe(toHex(b)); // the merkle root of zero contract-state leaves
     expect(a.length).toBe(32);
 });

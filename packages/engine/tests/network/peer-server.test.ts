@@ -191,7 +191,7 @@ test("entity request serves a merkle proof that recomputes the spectrum root", a
         }
 
         // record + index + siblings -> the committed spectrum root (the check a client / the cli performs)
-        expect(toHex(rootFromSiblings(record, index, siblings))).toBe(toHex(engine.sim.spectrumDigest()));
+        expect(toHex(rootFromSiblings(record, index, siblings))).toBe(toHex(engine.sim.getSpectrumDigest()));
     } finally {
         stop();
     }
@@ -225,7 +225,7 @@ test("owned-assets request serves a merkle proof that recomputes the universe ro
             siblings.push(f.payload.subarray(104 + i * 32, 104 + i * 32 + 32));
         }
 
-        expect(toHex(rootFromSiblings(record, index, siblings))).toBe(toHex(engine.sim.universeDigest()));
+        expect(toHex(rootFromSiblings(record, index, siblings))).toBe(toHex(engine.sim.getUniverseDigest()));
         expect(f.payload[80]).toBe(1); // linked issuance record
 
         const issuedFrames = await exchange(port, codec.frame(MSG.REQUEST_ISSUED_ASSETS, id28, 60));

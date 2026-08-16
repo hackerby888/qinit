@@ -70,6 +70,6 @@ test("governance guards: callee lacks the sysproc + self-call -> INVALID_PROPOSA
     const ORIG = new Uint8Array(32);
     const PROP = new Uint8Array(1024);
 
-    expect(sim.doSetShareholderProposal(29, 28, PROP, 0n, ORIG)).toBe(0xffff); // callee lacks the sysproc
-    expect(sim.doSetShareholderProposal(28, 28, PROP, 0n, ORIG)).toBe(0xffff); // self-call
+    expect(sim.setShareholderProposal(29, 28, PROP, 0n, ORIG)).toBe(0xffff); // callee lacks the sysproc
+    expect(sim.setShareholderProposal(28, 28, PROP, 0n, ORIG)).toBe(0xffff); // self-call
 });

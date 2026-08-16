@@ -22,7 +22,7 @@ import { Contract, CONTRACT_ENTRY_KIND } from "./contract/runtime";
 import { k12Bytes, toHex, verifySync, deriveKeysSync, initK12 } from "./support/k12";
 import { Transaction } from "./protocol/wire";
 import { QubicLogStore } from "./logging/qubic-log-store";
-import { bytesEqual } from "./support/bytes";
+import { bytesEqual, type Id } from "./support/bytes";
 import { MAX_AMOUNT } from "./ledger/assets";
 import { ExplorerReadModel } from "./explorer";
 
@@ -108,11 +108,11 @@ export class VirtualNode implements NodeTransport {
     }
 
     feeReserve(slot: number): bigint {
-        return this.sim.feeReserveOf(slot);
+        return this.sim.getContractFeeReserve(slot);
     }
 
-    setFeeReserve(slot: number, amount: bigint): void {
-        this.sim.setFeeReserve(slot, amount);
+    setContractFeeReserve(slot: number, amount: bigint): void {
+        this.sim.setContractFeeReserve(slot, amount);
     }
 
     ipo(slot: number, finalPrice: bigint): void {
@@ -464,16 +464,16 @@ export class VirtualNode implements NodeTransport {
         return this.sim.query(slot, inputType, input);
     }
 
-    computerDigest(): Uint8Array {
-        return this.sim.computerDigest();
+    getComputerDigest(): Uint8Array {
+        return this.sim.getComputerDigest();
     }
 
-    spectrumDigest(): Uint8Array {
-        return this.sim.spectrumDigest();
+    getSpectrumDigest(): Uint8Array {
+        return this.sim.getSpectrumDigest();
     }
 
-    universeDigest(): Uint8Array {
-        return this.sim.universeDigest();
+    getUniverseDigest(): Uint8Array {
+        return this.sim.getUniverseDigest();
     }
 
     async broadcastTx(txBytes: Uint8Array): Promise<BroadcastResult> {
@@ -581,7 +581,7 @@ export class VirtualNode implements NodeTransport {
         return (await bytesToIdentity(k12Bytes(txBytes))).toLowerCase();
     }
 
-    private handleDeployTx(inputType: number, payload: Uint8Array, source?: Uint8Array): void {
+    private handleDeployTx(inputType: number, payload: Uint8Array, source?: Id): void {
         if (inputType === LITE_TX.UPLOAD_BEGIN) {
             if (payload.length < UploadBegin.SIZE) {
                 throw new Error("upload begin payload is too short");
@@ -775,7 +775,7 @@ export class VirtualNode implements NodeTransport {
 
     async balance(id: string | Uint8Array): Promise<EntityInfo> {
         const bytes = this.idToBytes(id);
-        const entity = this.sim.entityOf(bytes);
+        const entity = this.sim.getEntity(bytes);
 
         return {
             id: typeof id === "string" ? id : await bytesToIdentity(bytes),

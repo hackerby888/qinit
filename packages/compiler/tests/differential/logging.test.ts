@@ -77,7 +77,7 @@ describe("QPI LOG_* lowering", () => {
         node.deploy(28, result.wasm, "Logging");
         const source = new Uint8Array(32).fill(1);
         node.fund(source, 1n);
-        node.sim.applyTx(source, node.sim.contractId(28), 0n, 1, Uint8Array.of(42, 0, 0, 0, 0, 0, 0, 0), "tx");
+        node.sim.processTickTransaction(source, node.sim.contractId(28), 0n, 1, Uint8Array.of(42, 0, 0, 0, 0, 0, 0, 0), "tx");
         node.advanceTick(1);
         const range = node.logger.range(node.sim.currentTick, 0);
         expect(range).toEqual({ fromLogId: 0n, length: 5n });

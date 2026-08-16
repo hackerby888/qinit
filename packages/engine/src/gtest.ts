@@ -194,7 +194,7 @@ export async function runContractTesting(
             flushState();
             const input = read(inPtr, inLen);
             const origin = id32(originPtr);
-            if (amount > 0n) sim.debit(origin, BigInt(amount));
+            if (amount > 0n) sim.decreaseEnergy(sim.spectrumIndex(origin), BigInt(amount));
             let out: Uint8Array;
             try {
                 out = traceDisp(`invoke[${idx >>> 0}:${it >>> 0}]`, () =>
@@ -284,7 +284,7 @@ export async function runContractTesting(
             const b = sim.balance(id32(idPtr));
             return typeof b === "bigint" ? b : 0n;
         },
-        // notifyContractOfIncomingTransfer(source, dest, amount, type): credit dest + fire its POST_INCOMING_TRANSFER.
+        // Move the amount to dest and fire its POST_INCOMING_TRANSFER.
         q_notify_pit: (srcPtr: number, dstPtr: number, amount: bigint, type: number) => {
             sim.notifyIncomingTransfer(id32(srcPtr), id32(dstPtr), BigInt(amount), type >>> 0);
         },
@@ -337,7 +337,7 @@ export async function runContractTesting(
         // Native spectrumIndex: -1 when the identity has NO spectrum record (never funded) — corpora gate
         // invocations on that (an unknown user can't invoke even with amount 0).
         q_spectrum: (idPtr: number): number => {
-            if (!sim.entityOf(id32(idPtr))) return -1;
+            if (!sim.getEntity(id32(idPtr))) return -1;
             const h = hex(id32(idPtr));
             let i = spectrumIds.indexOf(h);
             if (i < 0) {
@@ -350,7 +350,7 @@ export async function runContractTesting(
 
         q_decrease: (idx: number, amount: bigint) => {
             const b = spectrumBytes[idx >>> 0];
-            if (b) sim.debit(b, BigInt(amount));
+            if (b) sim.decreaseEnergy(sim.spectrumIndex(b), BigInt(amount));
         },
 
         q_shares: (issuerPtr: number, assetName: bigint): bigint => {
@@ -541,7 +541,7 @@ export async function runContractTesting(
         },
         getEntity: (idOff: number, entityOff: number): number => {
             const id = id32(idOff);
-            const e = sim.entityOf(id);
+            const e = sim.getEntity(id);
             const rec = EntityRecord.wrap(mem(), entityOff >>> 0);
             rec.publicKey = M256i.wrap(id);
             rec.incomingAmount = e ? e.incomingAmount : 0n;

@@ -1,6 +1,6 @@
 import { ASSET_ENUMERATION_RECORD, LHOST_ABI, type LhostImportName } from "@qinit/core";
 import { k12Bytes, toHex } from "../support/k12";
-import { bytesEqual } from "../support/bytes";
+import { bytesEqual, type Id } from "../support/bytes";
 import { type TraceRecorder } from "../logging/trace";
 import { QpiContext } from "./abi";
 import { EntityRecord, M256i } from "../protocol/wire";
@@ -127,39 +127,39 @@ export interface HostServices {
     log(slot: number, level: number, msg: Uint8Array): void;
     pauseLog(): void;
     resumeLog(): void;
-    transfer(slot: number, dest: Uint8Array, amount: bigint, transferType: number): bigint;
+    transfer(slot: number, dest: Id, amount: bigint, transferType: number): bigint;
     burn(slot: number, amount: bigint, burnedFor: number): bigint;
-    getEntity(id: Uint8Array): Entity | null;
-    isContractId(id: Uint8Array): number;
+    getEntity(id: Id): Entity | null;
+    isContractId(id: Id): number;
     arbitrator(): Uint8Array;
     computor(index: number): Uint8Array;
-    prevSpectrumDigest(): Uint8Array;
-    prevUniverseDigest(): Uint8Array;
-    prevComputerDigest(): Uint8Array;
+    getPrevSpectrumDigest(): Uint8Array;
+    getPrevUniverseDigest(): Uint8Array;
+    getPrevComputerDigest(): Uint8Array;
     queryFeeReserve(callerSlot: number, contractIndex: number): bigint;
-    issueAsset(slot: number, name: bigint, issuer: Uint8Array, decimals: number, shares: bigint, unit: bigint, invocator: Uint8Array): bigint;
-    isAssetIssued(issuer: Uint8Array, name: bigint): number;
+    issueAsset(slot: number, name: bigint, issuer: Id, decimals: number, shares: bigint, unit: bigint, invocator: Id): bigint;
+    isAssetIssued(issuer: Id, name: bigint): number;
     numberOfShares(asset: Uint8Array, ownSel: Uint8Array, posSel: Uint8Array): bigint;
-    numberOfPossessedShares(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, ownMgmt: number, posMgmt: number): bigint;
+    numberOfPossessedShares(name: bigint, issuer: Id, owner: Id, possessor: Id, ownMgmt: number, posMgmt: number): bigint;
     assetEnumerate(
         asset: Uint8Array,
         ownSel: Uint8Array,
         posSel: Uint8Array,
         kind: number,
     ): {
-        owner: Uint8Array;
-        possessor: Uint8Array;
+        owner: Id;
+        possessor: Id;
         shares: bigint;
         ownMgmt: number;
         posMgmt: number;
     }[];
-    transferShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, newOwner: Uint8Array): bigint;
+    transferShareOwnershipAndPossession(slot: number, name: bigint, issuer: Id, owner: Id, possessor: Id, shares: bigint, newOwner: Id): bigint;
     acquireShares(
         slot: number,
         name: bigint,
-        issuer: Uint8Array,
-        owner: Uint8Array,
-        possessor: Uint8Array,
+        issuer: Id,
+        owner: Id,
+        possessor: Id,
         shares: bigint,
         srcOwnMgmt: number,
         srcPosMgmt: number,
@@ -168,9 +168,9 @@ export interface HostServices {
     releaseShares(
         slot: number,
         name: bigint,
-        issuer: Uint8Array,
-        owner: Uint8Array,
-        possessor: Uint8Array,
+        issuer: Id,
+        owner: Id,
+        possessor: Id,
         shares: bigint,
         dstOwnMgmt: number,
         dstPosMgmt: number,
@@ -181,7 +181,7 @@ export interface HostServices {
     bidInIPO(slot: number, ipoContractIndex: number, price: bigint, quantity: number): bigint;
     ipoBidId(ipoContractIndex: number, ipoBidIndex: number): Uint8Array;
     ipoBidPrice(ipoContractIndex: number, ipoBidIndex: number): bigint;
-    computeMiningFunction(miningSeed: Uint8Array, publicKey: Uint8Array, nonce: Uint8Array): Uint8Array;
+    computeMiningFunction(miningSeed: Uint8Array, publicKey: Id, nonce: Uint8Array): Uint8Array;
     initMiningSeed(miningSeed: Uint8Array): void;
     getOracleQueryStatus(queryId: bigint): number;
     getOcInvocationStatus(invocationId: bigint): number;
@@ -210,24 +210,24 @@ export interface HostServices {
     getOracleQuery(queryId: bigint): Uint8Array | null;
     getOracleReply(queryId: bigint): Uint8Array | null;
     distributeDividends(slot: number, amountPerShare: bigint): number;
-    callFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Uint8Array): { error: number; output: Uint8Array };
+    callFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Id): { error: number; output: Uint8Array };
     invokeProcedure(
         callerSlot: number,
         calleeIdx: number,
         inputType: number,
         input: Uint8Array,
         reward: bigint,
-        originator: Uint8Array,
+        originator: Id,
     ): { error: number; output: Uint8Array };
-    nextId(id: Uint8Array): Uint8Array;
-    prevId(id: Uint8Array): Uint8Array;
-    setShareholderProposal(callerSlot: number, calleeIdx: number, proposal: Uint8Array, reward: bigint, originator: Uint8Array): number;
-    setShareholderVotes(callerSlot: number, calleeIdx: number, vote: Uint8Array, reward: bigint, originator: Uint8Array): number;
+    nextId(id: Id): Uint8Array;
+    prevId(id: Id): Uint8Array;
+    setShareholderProposal(callerSlot: number, calleeIdx: number, proposal: Uint8Array, reward: bigint, originator: Id): number;
+    setShareholderVotes(callerSlot: number, calleeIdx: number, vote: Uint8Array, reward: bigint, originator: Id): number;
 }
 
 export interface ContractCallContext {
-    invocator?: Uint8Array;
-    originator?: Uint8Array;
+    invocator?: Id;
+    originator?: Id;
     invocationReward?: bigint;
     entryPoint?: number;
 }
@@ -785,9 +785,9 @@ export class Contract {
                 new DataView(this.mem.buffer).setBigUint64(out, packDateAndTime(this.host.nowMs()), true);
             },
             // etalon-tick digests — the previous tick's committed state roots
-            prevSpectrumDigest: (out: number) => u8().set(this.host.prevSpectrumDigest().subarray(0, 32), out),
-            prevUniverseDigest: (out: number) => u8().set(this.host.prevUniverseDigest().subarray(0, 32), out),
-            prevComputerDigest: (out: number) => u8().set(this.host.prevComputerDigest().subarray(0, 32), out),
+            prevSpectrumDigest: (out: number) => u8().set(this.host.getPrevSpectrumDigest().subarray(0, 32), out),
+            prevUniverseDigest: (out: number) => u8().set(this.host.getPrevUniverseDigest().subarray(0, 32), out),
+            prevComputerDigest: (out: number) => u8().set(this.host.getPrevComputerDigest().subarray(0, 32), out),
         };
     }
 
@@ -892,7 +892,7 @@ export class Contract {
             },
             transferShareOwnershipAndPossession: (name: bigint, issOff: number, ownOff: number, posOff: number, shares: bigint, newOwnerOff: number) => {
                 const newOwner = u8().slice(newOwnerOff, newOwnerOff + 32);
-                const r = this.host.transferShares(
+                const r = this.host.transferShareOwnershipAndPossession(
                     this.slot,
                     name,
                     u8().slice(issOff, issOff + 32),
@@ -1166,7 +1166,7 @@ export class Contract {
     }
 }
 
-function shortId(id: Uint8Array): string {
+function shortId(id: Id): string {
     const hasHighBytes = id.subarray(8, 32).some((byte) => byte !== 0);
     if (!hasHighBytes) {
         const contractIndex = new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(0, true);
@@ -1177,7 +1177,7 @@ function shortId(id: Uint8Array): string {
 }
 
 // Encode the first identity-body chunk without computing the checksum.
-function idPrefix(id: Uint8Array, length: number): string {
+function idPrefix(id: Id, length: number): string {
     let value = new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(0, true);
     let prefix = "";
 
@@ -1189,7 +1189,7 @@ function idPrefix(id: Uint8Array, length: number): string {
     return prefix;
 }
 
-function idSuffix(id: Uint8Array): string {
+function idSuffix(id: Id): string {
     let fragment = new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(24, true);
     let suffix = "";
 

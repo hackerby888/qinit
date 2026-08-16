@@ -1,5 +1,5 @@
 import { k12Bytes } from "../support/k12";
-import { concatBytes } from "../support/bytes";
+import { concatBytes, type Id } from "../support/bytes";
 import { QUBIC_LOG_TYPE, TXS_PER_TICK } from "@qinit/proto";
 
 export const LOG_HEADER_SIZE = 26;
@@ -94,15 +94,15 @@ export class QubicLogStore {
         this.paused = false;
     }
 
-    log(contractIndex: number, type: number, source: Uint8Array, epoch: number): void {
+    log(contractIndex: number, type: number, source: Id, epoch: number): void {
         this.append(type, source, epoch, contractIndex);
     }
 
-    logRaw(type: number, source: Uint8Array, epoch: number): void {
+    logMessage(type: number, source: Id, epoch: number): void {
         this.append(type, source, epoch);
     }
 
-    private append(type: number, source: Uint8Array, epoch: number, contractIndex?: number): void {
+    private append(type: number, source: Id, epoch: number, contractIndex?: number): void {
         if (this.paused || !this.current) return;
         if (this.current.tick <= this.lastUpdatedTick) {
             throw new Error(`cannot write logs for finalized tick ${this.current.tick}`);

@@ -62,7 +62,7 @@ test("a trapped nested function returns zero output and remains callable", async
 
     const input = new Uint8Array(8);
     new DataView(input.buffer).setBigInt64(0, -1n, true);
-    const result = sim.doCallFunction(29, 28, 2, input, new Uint8Array(32));
+    const result = sim.callFunction(29, 28, 2, input, new Uint8Array(32));
 
     expect(result.error).toBe(0);
     expect(words(result.output)).toEqual([0n]);

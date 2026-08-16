@@ -207,7 +207,7 @@ export class PeerServer {
     private respondEntity(payload: Uint8Array, dejavu: number): Uint8Array {
         const sim = this.engine.sim;
         const id = payload.subarray(0, 32);
-        const e = sim.entityOf(id);
+        const e = sim.getEntity(id);
         const fields = e ?? {
             incomingAmount: 0n,
             outgoingAmount: 0n,
@@ -243,7 +243,7 @@ export class PeerServer {
             tick,
             initialTick: epoch * sim.epochLength,
             latestCreatedTick: tick,
-            numberOfEntities: sim.entityCount(),
+            numberOfEntities: sim.numberOfEntities(),
             numberOfTransactions: sim.txCount(),
         });
         return codec.frame(MSG.RESPOND_SYSTEM_INFO, payload, dejavu);

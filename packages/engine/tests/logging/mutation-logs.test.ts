@@ -145,16 +145,16 @@ test("transactions log refunds and successful zero transfers", async () => {
     const amount = 20n;
 
     sim.deploy(28, await wasm("Counter"));
-    sim.setFeeReserve(28, 0n);
+    sim.setContractFeeReserve(28, 0n);
     sim.fund(source, 50n);
 
-    expect(sim.applyTx(source, destination, amount, 1, new Uint8Array(0), "refund")).toEqual({
+    expect(sim.processTickTransaction(source, destination, amount, 1, new Uint8Array(0), "refund")).toEqual({
         moneyFlew: false,
     });
-    expect(sim.applyTx(source, zeroDestination, 0n, 0, new Uint8Array(0), "zero-existing")).toEqual({
+    expect(sim.processTickTransaction(source, zeroDestination, 0n, 0, new Uint8Array(0), "zero-existing")).toEqual({
         moneyFlew: false,
     });
-    expect(sim.applyTx(missingSource, zeroDestination, 0n, 0, new Uint8Array(0), "zero-missing")).toEqual({ moneyFlew: false });
+    expect(sim.processTickTransaction(missingSource, zeroDestination, 0n, 0, new Uint8Array(0), "zero-missing")).toEqual({ moneyFlew: false });
     sim.advance();
 
     const expectedMessages = [
@@ -182,7 +182,7 @@ test("QPI transfers and burns use the Core payload layouts", () => {
     logger.begin(1, 0);
     expect(sim.host.transfer(27, destination, 0n, 2)).toBe(0n);
     expect(sim.host.burn(27, 0n, 29)).toBe(0n);
-    expect(sim.entityOf(missingSource)).toBeNull();
+    expect(sim.getEntity(missingSource)).toBeNull();
     sim.fund(source, 100n);
     expect(sim.host.transfer(28, destination, 25n, 2)).toBe(75n);
     expect(sim.host.burn(28, 10n, 29)).toBe(65n);
@@ -208,7 +208,7 @@ test("QPI transfers and burns use the Core payload layouts", () => {
         QUBIC_LOG_TYPE.QU_TRANSFER,
     ]);
     expect(logs.map((log) => log.message)).toEqual(expectedMessages);
-    expect(sim.entityOf(shareholder)?.numberOfIncomingTransfers).toBe(1);
+    expect(sim.getEntity(shareholder)?.numberOfIncomingTransfers).toBe(1);
     expect(logger.digest(1)).toEqual(k12Bytes(concatBytes([ZERO32, ...expectedMessages])));
 });
 
@@ -245,12 +245,12 @@ test("asset mutations emit exact native records only after success", () => {
 
     logger.begin(1, 0);
     expect(sim.host.issueAsset(28, name, issuer, 2, 1000n, unit, issuer)).toBe(1000n);
-    expect(sim.host.transferShares(28, name, issuer, issuer, issuer, 300n, holder)).toBe(700n);
+    expect(sim.host.transferShareOwnershipAndPossession(28, name, issuer, issuer, issuer, 300n, holder)).toBe(700n);
     expect(sim.transferShareManagementRights(name, issuer, holder, holder, 28, 29, 100n)).toBe(true);
 
     expect(sim.host.issueAsset(28, name, issuer, 2, 1000n, unit, issuer)).toBe(0n);
-    expect(sim.host.transferShares(28, name, issuer, issuer, issuer, 0n, holder)).toBeLessThan(0n);
-    expect(sim.host.transferShares(28, name, issuer, holder, holder, 10n, holder)).toBe(200n);
+    expect(sim.host.transferShareOwnershipAndPossession(28, name, issuer, issuer, issuer, 0n, holder)).toBeLessThan(0n);
+    expect(sim.host.transferShareOwnershipAndPossession(28, name, issuer, holder, holder, 10n, holder)).toBe(200n);
     expect(sim.transferShareManagementRights(name, issuer, holder, holder, 28, 29, 9999n)).toBe(false);
     expect(sim.transferShareManagementRights(name, issuer, holder, holder, 29, 29, 100n)).toBe(true);
     logger.end();

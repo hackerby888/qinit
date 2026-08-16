@@ -95,12 +95,12 @@ test("computerDigest is the faithful K12 merkle over the 1024 contract leaves", 
     const leaves = new Map<number, Uint8Array>();
     leaves.set(28, k12Bytes(sim.contracts.get(28)!.state()));
     leaves.set(29, k12Bytes(sim.contracts.get(29)!.state()));
-    expect(toHex(sim.computerDigest())).toBe(toHex(merkleRoot(leaves, 1024)));
+    expect(toHex(sim.getComputerDigest())).toBe(toHex(merkleRoot(leaves, 1024)));
 
     // the digest must change when a contract's state changes
-    const before = toHex(sim.computerDigest());
+    const before = toHex(sim.getComputerDigest());
     sim.procedure(29, INC);
-    expect(toHex(sim.computerDigest())).not.toBe(before);
+    expect(toHex(sim.getComputerDigest())).not.toBe(before);
 });
 
 test("consensus is additive — it does not change a contract's StateData digest", async () => {
@@ -149,9 +149,9 @@ test("spectrum digest changes when balances move, universe digest when assets ch
         consensus: { computorSeeds: SEEDS4 },
     });
 
-    const before = toHex(sim.spectrumDigest());
+    const before = toHex(sim.getSpectrumDigest());
     sim.fund(new Uint8Array(32).fill(0x11), 1000n);
-    expect(toHex(sim.spectrumDigest())).not.toBe(before);
+    expect(toHex(sim.getSpectrumDigest())).not.toBe(before);
 });
 
 test("a tampered Tick vote fails signature verification and misaligns", async () => {

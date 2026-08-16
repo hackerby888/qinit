@@ -4,16 +4,17 @@ import { Contract, type HostServices, CONTRACT_ENTRY_KIND } from "./runtime";
 import { k12Bytes } from "../support/k12";
 
 // The wasm K12 mallocs its whole input; ~8 MB is the safe ceiling before it overflows. Contract states above
-// this (the mainnet-sized order books of QX/QSWAP) get a zero computer-digest leaf instead — see computerDigest.
+// this (the mainnet-sized order books of QX/QSWAP) get a zero computer-digest leaf instead — see getComputerDigest.
 export const K12_MAX_LEAF_BYTES = 8 * 1024 * 1024;
 import { merkleRoot, MAX_NUMBER_OF_CONTRACTS } from "../chain/consensus";
 import { TraceRecorder } from "../logging/trace";
 import { FeeManager } from "./fees";
+import type { Id } from "../support/bytes";
 
 // The invocation context threaded into a contract entry (the qpi caller/reward + the entry point being run).
 export interface FireContext {
-    invocator?: Uint8Array;
-    originator?: Uint8Array;
+    invocator?: Id;
+    originator?: Id;
     invocationReward?: bigint;
     entryPoint?: number;
 }
@@ -80,12 +81,12 @@ export class ContractRegistry {
         return this.contracts.delete(slot);
     }
 
-    // Run a mutating entry and debit its measured cost when metering is enabled.
+    // Run a mutating entry and charge its measured cost against the fee reserve when metering is enabled.
     // Read-only queries bypass this path.
     fire(c: Contract, kind: number, it: number, input: Uint8Array, ctx: FireContext): Uint8Array {
         const out = c.invoke(kind, it, input, ctx);
         if (this.fees.metered) {
-            this.fees.sub(c.slot, c.lastCost);
+            this.fees.subtractFromContractFeeReserve(c.slot, c.lastCost);
         }
         return out;
     }
@@ -95,9 +96,9 @@ export class ContractRegistry {
         return this.contracts.get(slot)!.digest();
     }
 
-    // computerDigest — the faithful K12 merkle over MAX_NUMBER_OF_CONTRACTS contract-state leaves (leaf =
+    // The faithful K12 merkle over MAX_NUMBER_OF_CONTRACTS contract-state leaves (leaf =
     // K12(StateData); an empty slot is zero). The one system digest the sim reproduces exactly vs core-lite.
-    computerDigest(): Uint8Array {
+    getComputerDigest(): Uint8Array {
         const leaves = new Map<number, Uint8Array>();
         for (const [slot, c] of this.contracts) {
             // States above the one-shot Wasm K12 limit use a zero digest leaf.

@@ -14,8 +14,8 @@ const MAX_FILE_LINES = 700;
 
 const BUDGETS: Record<string, number> = {
     "packages/engine/src/contract/runtime.ts": 1231,
-    "packages/engine/src/ledger/assets.ts": 1244,
-    "packages/engine/src/qubic-simulator.ts": 1525,
+    "packages/engine/src/ledger/assets.ts": 1229,
+    "packages/engine/src/qubic-simulator.ts": 1529,
     "packages/engine/src/transport.ts": 844,
     "packages/proto/src/abi-fmt.ts": 838,
 };

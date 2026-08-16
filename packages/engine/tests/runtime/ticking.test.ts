@@ -19,9 +19,9 @@ function fakeHost(): ConsensusHost & { t: number; e: number } {
     const h = {
         t: 0,
         e: 0,
-        spectrumDigest: () => fill(0x11),
-        universeDigest: () => fill(0x22),
-        computerDigest: () => fill(0x33),
+        getSpectrumDigest: () => fill(0x11),
+        getUniverseDigest: () => fill(0x22),
+        getComputerDigest: () => fill(0x33),
         tickTransactionDigests: (_tick: number) => [fill(0xaa)],
         nowMs: () => 1700000000000 + h.t * 50,
         tick: () => h.t,
@@ -40,13 +40,13 @@ test("committee + quorum derive from the configured seeds", () => {
 test("prev*Digest are zero until the first finalize, then the committed roots", () => {
     const h = fakeHost();
     const tc = new TickConsensus(h, { computorSeeds: SEEDS });
-    expect(tc.prevSpectrumDigest().every((x) => x === 0)).toBe(true);
+    expect(tc.getPrevSpectrumDigest().every((x) => x === 0)).toBe(true);
 
     h.t = 1;
     tc.finalizeTick();
-    expect(toHex(tc.prevSpectrumDigest())).toBe("11".repeat(32));
-    expect(toHex(tc.prevUniverseDigest())).toBe("22".repeat(32));
-    expect(toHex(tc.prevComputerDigest())).toBe("33".repeat(32));
+    expect(toHex(tc.getPrevSpectrumDigest())).toBe("11".repeat(32));
+    expect(toHex(tc.getPrevUniverseDigest())).toBe("22".repeat(32));
+    expect(toHex(tc.getPrevComputerDigest())).toBe("33".repeat(32));
 });
 
 test("finalizeTick records the quorum votes + signed TickData for the tick", () => {
@@ -77,9 +77,9 @@ function fakeHostTx(): ConsensusHost & { t: number; e: number; txs: Uint8Array[]
         t: 0,
         e: 0,
         txs: [] as Uint8Array[],
-        spectrumDigest: () => fill(0x11),
-        universeDigest: () => fill(0x22),
-        computerDigest: () => fill(0x33),
+        getSpectrumDigest: () => fill(0x11),
+        getUniverseDigest: () => fill(0x22),
+        getComputerDigest: () => fill(0x33),
         tickTransactionDigests: (_tick: number) => h.txs,
         nowMs: () => 1700000000000 + h.t * 50,
         tick: () => h.t,
@@ -99,8 +99,8 @@ test("lite ticking: an EMPTY tick skips the quorum record but still advances the
     expect(tc.tickRecord(5)).toBeUndefined(); // no quorum record built (the costly FourQ votes are skipped)
     expect(tc.alignedVotes(5)).toBe(0);
     expect(tc.tickData(5)).toBeUndefined();
-    expect(toHex(tc.prevSpectrumDigest())).toBe("11".repeat(32)); // digest chain still advanced
-    expect(toHex(tc.prevComputerDigest())).toBe("33".repeat(32));
+    expect(toHex(tc.getPrevSpectrumDigest())).toBe("11".repeat(32)); // digest chain still advanced
+    expect(toHex(tc.getPrevComputerDigest())).toBe("33".repeat(32));
 });
 
 test("lite ticking: a tick WITH transactions still builds the full quorum record", () => {

@@ -53,9 +53,9 @@ test("inter-contract guards: missing callee + lower-index rule -> CallErrorContr
     const ORIG = new Uint8Array(32);
 
     // callee 28 not deployed
-    expect(sim.doCallFunction(29, 28, 1, new Uint8Array(0), ORIG).error).toBe(4);
+    expect(sim.callFunction(29, 28, 1, new Uint8Array(0), ORIG).error).toBe(4);
 
     // lower-index rule: callee index >= caller index is rejected
     sim.deploy(28, await wasm("Counter"));
-    expect(sim.doCallFunction(28, 29, 1, new Uint8Array(0), ORIG).error).toBe(4);
+    expect(sim.callFunction(28, 29, 1, new Uint8Array(0), ORIG).error).toBe(4);
 });

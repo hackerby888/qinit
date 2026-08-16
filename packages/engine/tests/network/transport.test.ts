@@ -284,9 +284,9 @@ test("VirtualNode exposes the simulator's direct procedure, query, and digest op
 
     // they delegate to the same engine -> byte-identical to reaching into eng.sim
     expect(eng.query(28, 1)).toEqual(eng.sim.query(28, 1));
-    expect(eng.computerDigest()).toEqual(eng.sim.computerDigest());
-    expect(eng.spectrumDigest()).toEqual(eng.sim.spectrumDigest());
-    expect(eng.universeDigest()).toEqual(eng.sim.universeDigest());
+    expect(eng.getComputerDigest()).toEqual(eng.sim.getComputerDigest());
+    expect(eng.getSpectrumDigest()).toEqual(eng.sim.getSpectrumDigest());
+    expect(eng.getUniverseDigest()).toEqual(eng.sim.getUniverseDigest());
 });
 
 test("stateRead avoids copying the full contract state", async () => {

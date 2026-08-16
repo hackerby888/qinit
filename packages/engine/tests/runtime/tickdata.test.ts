@@ -133,9 +133,9 @@ test("TickData layout: timelock = K12(state roots), contractFees + padding diges
 
     // timelock @16..48 = K12(spectrumDigest ‖ universeDigest ‖ computerDigest) (no state change after finalize)
     const roots = new Uint8Array(96);
-    roots.set(sim.spectrumDigest(), 0);
-    roots.set(sim.universeDigest(), 32);
-    roots.set(sim.computerDigest(), 64);
+    roots.set(sim.getSpectrumDigest(), 0);
+    roots.set(sim.getUniverseDigest(), 32);
+    roots.set(sim.getComputerDigest(), 64);
     expect(toHex(td.subarray(16, 48))).toBe(toHex(k12Bytes(roots)));
 
     // the one tx occupies slot 0; every later digest slot is zero

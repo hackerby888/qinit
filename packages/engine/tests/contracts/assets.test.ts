@@ -296,11 +296,11 @@ test("qpi host wiring: isContractId, arbitrator/computor, prevDigests, IPO bid q
     expect(toHex(sim.host.computor(0))).toBe(toHex(committee.computors[0].publicKey));
 
     // prev*Digest: zero before any tick, the committed roots after
-    expect(toHex(sim.host.prevSpectrumDigest())).toBe(toHex(new Uint8Array(32)));
+    expect(toHex(sim.host.getPrevSpectrumDigest())).toBe(toHex(new Uint8Array(32)));
     sim.fund(new Uint8Array(32).fill(0x11), 100n);
     sim.advance();
-    expect(toHex(sim.host.prevSpectrumDigest())).toBe(toHex(sim.spectrumDigest()));
-    expect(toHex(sim.host.prevComputerDigest())).toBe(toHex(sim.computerDigest()));
+    expect(toHex(sim.host.getPrevSpectrumDigest())).toBe(toHex(sim.getSpectrumDigest()));
+    expect(toHex(sim.host.getPrevComputerDigest())).toBe(toHex(sim.getComputerDigest()));
 
     // IPO default: 676 shares, owned by the computors, 1,000,000 each
     expect(sim.host.ipoBidPrice(28, 0)).toBe(1000000n);

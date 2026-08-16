@@ -18,6 +18,7 @@ import {
     RespondTxStatusHeader,
 } from "./wire";
 import { MAINNET_COMPUTOR_COUNT } from "@qinit/proto";
+import type { Id } from "../support/bytes";
 
 export { SPECTRUM_DEPTH, ASSETS_DEPTH, TXS_PER_TICK };
 export const HEADER_SIZE = RequestResponseHeader.SIZE; // 8 — network_messages/header.h
@@ -147,24 +148,24 @@ export type AssetsRequest =
     | {
           kind: "issuance";
           includeSiblings: boolean;
-          issuer?: Uint8Array;
+          issuer?: Id;
           name?: bigint;
       }
     | {
           kind: "ownership";
           includeSiblings: boolean;
-          issuer: Uint8Array;
+          issuer: Id;
           name: bigint;
-          owner?: Uint8Array;
+          owner?: Id;
           ownershipManagingContractIndex?: number;
       }
     | {
           kind: "possession";
           includeSiblings: boolean;
-          issuer: Uint8Array;
+          issuer: Id;
           name: bigint;
-          owner?: Uint8Array;
-          possessor?: Uint8Array;
+          owner?: Id;
+          possessor?: Id;
           ownershipManagingContractIndex?: number;
           possessionManagingContractIndex?: number;
       }
@@ -341,7 +342,7 @@ export interface EntityFields {
 
 // RespondEntity (entity.h): EntityRecord(64) + tick(4) + spectrumIndex(4) + siblings[SPECTRUM_DEPTH*32]. The
 // siblings are the merkle proof; a client recomputes the spectrum root from EntityRecord and spectrumIndex.
-export function encodeRespondEntity(id: Uint8Array, e: EntityFields, tick: number, spectrumIndex: number, siblings: Uint8Array[] = []): Uint8Array {
+export function encodeRespondEntity(id: Id, e: EntityFields, tick: number, spectrumIndex: number, siblings: Uint8Array[] = []): Uint8Array {
     const r = RespondEntity.alloc();
 
     const rec = r.entity;
@@ -431,8 +432,8 @@ export function encodeTxStatus(currentTick: number, tick: number, txDigests: Uin
 }
 
 export interface OwnedAssetView {
-    owner: Uint8Array; // 32 — the queried account
-    issuer: Uint8Array; // 32
+    owner: Id; // 32 — the queried account
+    issuer: Id; // 32
     name: string; // up to 7 ASCII (A-Z, digits)
     decimals: number;
     shares: bigint;
@@ -475,9 +476,9 @@ export function encodeRespondOwnedAssets(v: OwnedAssetView, universeIndex = 0, s
 }
 
 export interface PossessedAssetView {
-    possessor: Uint8Array; // 32 — the queried account
-    owner: Uint8Array; // 32
-    issuer: Uint8Array; // 32
+    possessor: Id; // 32 — the queried account
+    owner: Id; // 32
+    issuer: Id; // 32
     name: string; // up to 7 ASCII
     decimals: number;
     shares: bigint;

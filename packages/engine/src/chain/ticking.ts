@@ -21,9 +21,9 @@ export interface TickRecord {
 // The seams TickConsensus needs from the rest of the engine: the three merkle roots (computed by the ledgers +
 // the contract states), the tick's transaction digests, and the chain clock / tick / epoch.
 export interface ConsensusHost {
-    spectrumDigest(): Uint8Array;
-    universeDigest(): Uint8Array;
-    computerDigest(): Uint8Array;
+    getSpectrumDigest(): Uint8Array;
+    getUniverseDigest(): Uint8Array;
+    getComputerDigest(): Uint8Array;
     tickTransactionDigests(tick: number): Uint8Array[];
     nowMs(): number;
     tick(): number;
@@ -69,15 +69,15 @@ export class TickConsensus {
     }
 
     // The previous tick's committed roots, read by this tick's contracts as qpi prev*Digest.
-    prevSpectrumDigest(): Uint8Array {
+    getPrevSpectrumDigest(): Uint8Array {
         return this.lastDigests.spectrum;
     }
 
-    prevUniverseDigest(): Uint8Array {
+    getPrevUniverseDigest(): Uint8Array {
         return this.lastDigests.universe;
     }
 
-    prevComputerDigest(): Uint8Array {
+    getPrevComputerDigest(): Uint8Array {
         return this.lastDigests.computer;
     }
 
@@ -86,9 +86,9 @@ export class TickConsensus {
     finalizeTick(): void {
         const tick = this.host.tick();
         const epoch = this.host.epoch();
-        const spectrum = this.host.spectrumDigest();
-        const universe = this.host.universeDigest();
-        const computer = this.host.computerDigest();
+        const spectrum = this.host.getSpectrumDigest();
+        const universe = this.host.getUniverseDigest();
+        const computer = this.host.getComputerDigest();
         this.lastDigests = { spectrum, universe, computer }; // the next tick's contracts read these as prev*Digest
 
         const txDigests = this.host.tickTransactionDigests(tick);

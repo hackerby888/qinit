@@ -22,7 +22,7 @@ test("fees off: contracts run with no reserve (default behaviour preserved)", as
     const sim = new QubicSimulator(); // default — fees off
     sim.deploy(28, await wasm("Hooks"));
 
-    expect(sim.feeReserveOf(28)).toBe(0n); // no reserve tracked at all
+    expect(sim.getContractFeeReserve(28)).toBe(0n); // no reserve tracked at all
     for (let i = 0; i < 5; i++) {
         sim.advance();
     }
@@ -35,14 +35,14 @@ test("metered: BEGIN_TICK / END_TICK are skipped when the reserve is depleted, r
     await initK12();
     const sim = new QubicSimulator({ fees: "metered" });
     sim.deploy(28, await wasm("Hooks"));
-    sim.setFeeReserve(28, 0n); // dormant
+    sim.setContractFeeReserve(28, 0n); // dormant
 
     for (let i = 0; i < 5; i++) {
         sim.advance();
     }
     expect(hookCounters(sim)).toEqual([0n, 0n, 0n, 0n]); // all tick hooks gated out
 
-    sim.setFeeReserve(28, 1_000_000_000n); // refill -> back in service
+    sim.setContractFeeReserve(28, 1_000_000_000n); // refill -> back in service
     for (let i = 0; i < 3; i++) {
         sim.advance();
     }
@@ -56,7 +56,7 @@ test("metered: BEGIN_EPOCH / END_EPOCH run even on a dormant contract (exempt fr
     const sim = new QubicSimulator({ fees: "metered" });
     sim.epochLength = 10; // cross a boundary at tick 10
     sim.deploy(28, await wasm("Hooks"));
-    sim.setFeeReserve(28, 0n); // dormant for the whole run
+    sim.setContractFeeReserve(28, 0n); // dormant for the whole run
 
     for (let i = 0; i < 10; i++) {
         sim.advance();
@@ -77,16 +77,16 @@ test("metered: a user procedure to a dormant contract is skipped and its amount 
     sim.fund(source, 1_000_000n);
 
     // Dormant: the Inc procedure must not run and the 500 must come back to the sender.
-    sim.setFeeReserve(28, 0n);
-    const gated = sim.applyTx(source, dest, 500n, INC, EMPTY, "tx-gated");
+    sim.setContractFeeReserve(28, 0n);
+    const gated = sim.processTickTransaction(source, dest, 500n, INC, EMPTY, "tx-gated");
     expect(gated.moneyFlew).toBe(false);
     expect(readUint64LE(sim.query(28, GET))).toBe(0n); // Inc did not run
     expect(sim.balance(source)).toBe(1_000_000n); // fully refunded
     expect(sim.balanceOf(28)).toBe(0n);
 
     // Funded: the same tx now runs and the amount sticks as the invocation reward.
-    sim.setFeeReserve(28, 1_000_000_000n);
-    const ok = sim.applyTx(source, dest, 500n, INC, EMPTY, "tx-ok");
+    sim.setContractFeeReserve(28, 1_000_000_000n);
+    const ok = sim.processTickTransaction(source, dest, 500n, INC, EMPTY, "tx-ok");
     expect(ok.moneyFlew).toBe(true);
     expect(readUint64LE(sim.query(28, GET))).toBe(1n); // Inc ran
     expect(sim.balance(source)).toBe(999_500n);
@@ -98,9 +98,9 @@ test("metered: running a procedure debits the contract's reserve by a sane meter
     const sim = new QubicSimulator({ fees: "metered" });
     sim.deploy(28, await wasm("Counter")); // seeded with the default reserve
 
-    const before = sim.feeReserveOf(28);
+    const before = sim.getContractFeeReserve(28);
     sim.procedure(28, INC); // mutates the 8-byte state -> base cost + digest recompute
-    const after = sim.feeReserveOf(28);
+    const after = sim.getContractFeeReserve(28);
 
     const charged = before - after;
     expect(charged).toBeGreaterThanOrEqual(18n); // BASE_CALL_COST(10) + 8 state bytes, at minimum
@@ -128,18 +128,18 @@ test("metered: qpi.burn refills a contract's reserve from its balance", async ()
     await initK12();
     const sim = new QubicSimulator({ fees: "metered" });
     sim.deploy(28, await wasm("Counter"));
-    sim.setFeeReserve(28, 0n);
+    sim.setContractFeeReserve(28, 0n);
     sim.fund(contractId(28), 1000n);
 
     // burn(amount) with an invalid target index -> burns to the caller's own reserve.
     const remaining = sim.host.burn(28, 400n, 0);
     expect(remaining).toBe(600n); // returns the contract's remaining balance
-    expect(sim.feeReserveOf(28)).toBe(400n);
+    expect(sim.getContractFeeReserve(28)).toBe(400n);
     expect(sim.balanceOf(28)).toBe(600n);
 
     // burn(amount, target) refills another contract's reserve.
     sim.host.burn(28, 100n, 29);
-    expect(sim.feeReserveOf(29)).toBe(100n);
+    expect(sim.getContractFeeReserve(29)).toBe(100n);
     expect(sim.balanceOf(28)).toBe(500n);
 });
 
@@ -149,15 +149,15 @@ test("metered: IPO seeds the reserve; a failed IPO (finalPrice 0) can never be r
     sim.deploy(28, await wasm("Counter"));
 
     sim.ipo(28, 1000n);
-    expect(sim.feeReserveOf(28)).toBe(676_000n); // finalPrice * NUMBER_OF_COMPUTORS(676)
+    expect(sim.getContractFeeReserve(28)).toBe(676_000n); // finalPrice * NUMBER_OF_COMPUTORS(676)
 
     // A failed IPO marks the contract unusable — burning to it does nothing and reports failure.
     sim.ipo(29, 0n);
-    expect(sim.feeReserveOf(29)).toBe(0n);
+    expect(sim.getContractFeeReserve(29)).toBe(0n);
     sim.fund(contractId(28), 1000n);
     const r = sim.host.burn(28, 200n, 29);
     expect(r).toBe(-200n); // burn rejected (target IPO-failed)
-    expect(sim.feeReserveOf(29)).toBe(0n);
+    expect(sim.getContractFeeReserve(29)).toBe(0n);
     expect(sim.balanceOf(28)).toBe(1000n); // balance untouched
 });
 
@@ -167,13 +167,13 @@ test("metered: contract-to-contract procedure call fails when the callee has no 
     sim.deploy(28, await wasm("Counter")); // callee
     sim.deploy(29, await wasm("Proxy")); // caller
 
-    sim.setFeeReserve(28, 0n); // dormant callee
-    const denied = sim.doInvokeProcedure(29, 28, INC, EMPTY, 0n, ORIG);
+    sim.setContractFeeReserve(28, 0n); // dormant callee
+    const denied = sim.invokeProcedure(29, 28, INC, EMPTY, 0n, ORIG);
     expect(denied.error).toBe(2); // CallErrorInsufficientFees
     expect(readUint64LE(sim.query(28, GET))).toBe(0n); // callee did not run
 
-    sim.setFeeReserve(28, 1_000_000_000n);
-    const ok = sim.doInvokeProcedure(29, 28, INC, EMPTY, 0n, ORIG);
+    sim.setContractFeeReserve(28, 1_000_000_000n);
+    const ok = sim.invokeProcedure(29, 28, INC, EMPTY, 0n, ORIG);
     expect(ok.error).toBe(0);
     expect(readUint64LE(sim.query(28, GET))).toBe(1n);
 });
@@ -184,11 +184,11 @@ test("metered: contract-to-contract function call fails when the callee has no r
     sim.deploy(28, await wasm("Counter"));
     sim.deploy(29, await wasm("Proxy"));
 
-    sim.setFeeReserve(28, 0n);
-    expect(sim.doCallFunction(29, 28, GET, EMPTY, ORIG).error).toBe(2); // CallErrorInsufficientFees
+    sim.setContractFeeReserve(28, 0n);
+    expect(sim.callFunction(29, 28, GET, EMPTY, ORIG).error).toBe(2); // CallErrorInsufficientFees
 
-    sim.setFeeReserve(28, 1_000_000_000n);
-    const ok = sim.doCallFunction(29, 28, GET, EMPTY, ORIG);
+    sim.setContractFeeReserve(28, 1_000_000_000n);
+    const ok = sim.callFunction(29, 28, GET, EMPTY, ORIG);
     expect(ok.error).toBe(0);
     expect(readUint64LE(ok.output)).toBe(0n); // reads Counter == 0
 });

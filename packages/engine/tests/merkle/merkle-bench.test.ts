@@ -23,6 +23,10 @@ function rng(seed: number): () => number {
     };
 }
 
+function newSpectrumLedger(): SpectrumLedger {
+    return new SpectrumLedger({ tick: () => 1 });
+}
+
 function entityId(n: number): Uint8Array {
     const a = new Uint8Array(32);
     new DataView(a.buffer).setUint32(0, n, true);
@@ -71,22 +75,22 @@ test("SpectrumLedger: a digest taken after every op equals the one-shot batch di
         });
     }
 
-    const incremental = new SpectrumLedger();
+    const incremental = newSpectrumLedger();
     for (const op of ops) {
         if (op.credit) {
-            incremental.increaseEnergy(op.id, op.amount, op.tick);
+            incremental.increaseEnergy(op.id, op.amount);
         } else {
-            incremental.decreaseEnergy(op.id, op.amount, op.tick);
+            incremental.decreaseEnergy(incremental.spectrumIndex(op.id), op.amount);
         }
         incremental.getSpectrumDigest(); // flush this op's dirty leaf through the incremental path
     }
 
-    const batch = new SpectrumLedger();
+    const batch = newSpectrumLedger();
     for (const op of ops) {
         if (op.credit) {
-            batch.increaseEnergy(op.id, op.amount, op.tick);
+            batch.increaseEnergy(op.id, op.amount);
         } else {
-            batch.decreaseEnergy(op.id, op.amount, op.tick);
+            batch.decreaseEnergy(batch.spectrumIndex(op.id), op.amount);
         }
     }
 
@@ -94,27 +98,27 @@ test("SpectrumLedger: a digest taken after every op equals the one-shot batch di
 });
 
 test("SpectrumLedger: re-reading the digest with no new changes returns the same root", () => {
-    const led = new SpectrumLedger();
-    led.increaseEnergy(entityId(1), 100n, 1);
-    led.increaseEnergy(entityId(2), 200n, 1);
+    const led = newSpectrumLedger();
+    led.increaseEnergy(entityId(1), 100n);
+    led.increaseEnergy(entityId(2), 200n);
 
     const first = led.getSpectrumDigest();
     expect(toHex(led.getSpectrumDigest())).toBe(toHex(first)); // dirty cleared — idempotent
 
     const before = toHex(first);
-    led.increaseEnergy(entityId(3), 1n, 2);
+    led.increaseEnergy(entityId(3), 1n);
     expect(toHex(led.getSpectrumDigest())).not.toBe(before); // one new leaf moves the root
 });
 
 test("SpectrumLedger: one leaf update on a large spectrum is bounded work, not a full rebuild", () => {
-    const led = new SpectrumLedger();
+    const led = newSpectrumLedger();
     for (let i = 0; i < 4000; i++) {
-        led.increaseEnergy(entityId(i), 1000n, 1);
+        led.increaseEnergy(entityId(i), 1000n);
     }
     led.getSpectrumDigest(); // warm the tree
 
     const t0 = performance.now();
-    led.increaseEnergy(entityId(999999), 1n, 2);
+    led.increaseEnergy(entityId(999999), 1n);
     led.getSpectrumDigest();
     const dt = performance.now() - t0;
 

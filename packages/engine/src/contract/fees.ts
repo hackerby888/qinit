@@ -24,13 +24,13 @@ export class FeeManager {
         return this.mode === "metered";
     }
 
-    // getContractFeeReserve — the current reserve of a contract; 0 if never funded.
-    getReserve(slot: number): bigint {
+    // 0 when the contract was never funded.
+    getContractFeeReserve(slot: number): bigint {
         return this.reserve.get(slot) ?? 0n;
     }
 
     // Set a contract's reserve directly (tests / IDE faucet). A positive value clears any prior IPO-failed mark.
-    setReserve(slot: number, amount: bigint): void {
+    setContractFeeReserve(slot: number, amount: bigint): void {
         this.reserve.set(slot, amount);
         if (amount > 0n) {
             this.failed.delete(slot);
@@ -52,24 +52,23 @@ export class FeeManager {
     // The gate the spec checks before fee-bearing entry points: a metered contract must hold a positive reserve.
     // Always true when fees are off.
     reserveOk(slot: number): boolean {
-        return this.mode === "off" || this.getReserve(slot) > 0n;
+        return this.mode === "off" || this.getContractFeeReserve(slot) > 0n;
     }
 
-    // addToContractFeeReserve — credit fees (e.g. a burn that funds a contract's reserve).
-    add(slot: number, amount: bigint): void {
+    addToContractFeeReserve(slot: number, amount: bigint): void {
         if (amount <= 0n) {
             return;
         }
-        this.reserve.set(slot, this.getReserve(slot) + amount);
+        this.reserve.set(slot, this.getContractFeeReserve(slot) + amount);
     }
 
-    // subtractFromContractFeeReserve — debit a completed call's metered cost. The reserve is a sint64 and may go
-    // non-positive; that leaves the contract dormant until refilled (the next reserveOk check fails), per the spec.
-    sub(slot: number, cost: bigint): void {
+    // The reserve is a sint64 and may go non-positive; that leaves the contract dormant until refilled (the
+    // next reserveOk check fails), per the spec.
+    subtractFromContractFeeReserve(slot: number, cost: bigint): void {
         if (cost <= 0n) {
             return;
         }
-        this.reserve.set(slot, this.getReserve(slot) - cost);
+        this.reserve.set(slot, this.getContractFeeReserve(slot) - cost);
     }
 
     // True for a contract whose IPO failed (finalPrice 0) — a burn must not refill it.
@@ -78,7 +77,7 @@ export class FeeManager {
     }
 
     // A metered deploy is seeded with the default reserve (a faked successful IPO) unless it was already funded
-    // (tests override beforehand with setReserve/ipo). Construction (INITIALIZE) is exempt from the reserve gate.
+    // (tests override beforehand with setContractFeeReserve/ipo). Construction (INITIALIZE) is exempt from the reserve gate.
     seedOnDeploy(slot: number): void {
         if (this.metered && !this.reserve.has(slot)) {
             this.reserve.set(slot, this.defaultReserve);
@@ -92,6 +91,6 @@ export class FeeManager {
             return OFF_MODE_RESERVE;
         }
         const idx = ci < 1 || ci >= MAX_NUMBER_OF_CONTRACTS ? callerSlot : ci;
-        return this.getReserve(idx);
+        return this.getContractFeeReserve(idx);
     }
 }

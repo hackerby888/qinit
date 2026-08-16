@@ -38,7 +38,7 @@ test("regular transfer moves spectrum balance + lands in the tick", async () => 
     const B = new Uint8Array(32).fill(0x22);
     sim.fund(A, 1000n);
 
-    const r = sim.applyTx(A, B, 100n, 0, new Uint8Array(0), "tx-1");
+    const r = sim.processTickTransaction(A, B, 100n, 0, new Uint8Array(0), "tx-1");
     expect(r.moneyFlew).toBe(true);
     expect(sim.balance(A)).toBe(900n);
     expect(sim.balance(B)).toBe(100n);
@@ -57,7 +57,7 @@ test("insufficient source: moneyFlew false, no balance change (tx still recorded
     const B = new Uint8Array(32).fill(0x22);
     sim.fund(A, 50n);
 
-    const r = sim.applyTx(A, B, 100n, 0, new Uint8Array(0), "tx-2");
+    const r = sim.processTickTransaction(A, B, 100n, 0, new Uint8Array(0), "tx-2");
     expect(r.moneyFlew).toBe(false);
     expect(sim.balance(A)).toBe(50n);
     expect(sim.balance(B)).toBe(0n);
@@ -70,7 +70,7 @@ test("contract addresses cannot be transaction signers", async () => {
     const source = contractAddress(28);
     sim.fund(source, 100n);
 
-    expect(() => sim.applyTx(source, new Uint8Array(32).fill(0x22), 1n, 0, new Uint8Array(0), "contract-source")).toThrow(
+    expect(() => sim.processTickTransaction(source, new Uint8Array(32).fill(0x22), 1n, 0, new Uint8Array(0), "contract-source")).toThrow(
         "contract addresses cannot sign transactions",
     );
     expect(sim.txByHash("contract-source")).toBeUndefined();
@@ -81,7 +81,7 @@ test("a zero-amount transaction from a missing entity does not invoke a contract
     const sim = new QubicSimulator();
     sim.deploy(28, await wasm("Counter"));
 
-    const result = sim.applyTx(new Uint8Array(32).fill(0x11), contractAddress(28), 0n, 1, new Uint8Array(0), "missing-source");
+    const result = sim.processTickTransaction(new Uint8Array(32).fill(0x11), contractAddress(28), 0n, 1, new Uint8Array(0), "missing-source");
 
     expect(result.moneyFlew).toBe(false);
     expect(new DataView(sim.query(28, 1).buffer).getBigUint64(0, true)).toBe(0n);
@@ -144,7 +144,7 @@ test("plain contract transfers report moneyFlew even when PIT returns the amount
     const source = new Uint8Array(32).fill(0x11);
     sim.fund(source, 100n);
 
-    const result = sim.applyTx(source, contractAddress(28), 25n, 0, new Uint8Array(0), "returned-transfer");
+    const result = sim.processTickTransaction(source, contractAddress(28), 25n, 0, new Uint8Array(0), "returned-transfer");
 
     expect(result.moneyFlew).toBe(true);
     expect(sim.balance(source)).toBe(100n);

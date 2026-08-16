@@ -5,6 +5,7 @@ import { dateFields } from "../contract/runtime";
 import { rootFromSiblings } from "../ledger/merkle";
 import { M256i, Tick, TickData, DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, TICKDATA_SIZE } from "../protocol/wire";
 import { MAX_NUMBER_OF_CONTRACTS } from "@qinit/proto";
+import type { Id } from "../support/bytes";
 
 export { MAX_NUMBER_OF_CONTRACTS, TXS_PER_TICK, TICKDATA_SIZE };
 export const DEFAULT_ARBITRATOR_SEED = "a".repeat(55); // arbitrator identity = derive("aaa…a")
@@ -112,7 +113,7 @@ export function merkleRoot(leaves: Map<number, Uint8Array>, capacity: number): U
 }
 
 // salted digest = K12(publicKey(32) ‖ prevDigest(32)) — the per-computor salt (qubic.cpp:5707).
-function saltedDigest(publicKey: Uint8Array, prev: Uint8Array): Uint8Array {
+function saltedDigest(publicKey: Id, prev: Uint8Array): Uint8Array {
     const buf = new Uint8Array(2 * DIGEST_SIZE);
     buf.set(publicKey.subarray(0, DIGEST_SIZE), 0);
     buf.set(prev.subarray(0, DIGEST_SIZE), DIGEST_SIZE);
