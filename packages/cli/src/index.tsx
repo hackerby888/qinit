@@ -26,11 +26,14 @@ const [, , command = "help", ...args] = process.argv;
 if (command === "__serve") {
     const { serveEngine } = await import("./ops/serve");
     const commandArgs = parseArgs(args, {
-        strings: ["rpc", "tick-ms", "system", "peer-port", "slot-base", "slot-count", "compiler"],
+        strings: ["rpc", "tick-ms", "system", "peer-port", "slot-base", "slot-count", "compiler", "history-ticks"],
+        booleans: ["full-tick"],
     });
     const rpc = commandArgs.get("rpc") || DEFAULT_RPC_BASE;
     const system = commandArgs.get("system")?.split(",").filter(Boolean) ?? [];
     const tickMs = commandArgs.get("tick-ms");
+    const historyTicks = commandArgs.get("history-ticks");
+    const liteTicking = commandArgs.has("full-tick") ? false : undefined;
     const peerPort = commandArgs.get("peer-port");
     const slotBase = commandArgs.get("slot-base");
     const slotCount = commandArgs.get("slot-count");
@@ -47,6 +50,8 @@ if (command === "__serve") {
               }
             : undefined,
         compiler === "typescript" ? "typescript" : "clang",
+        historyTicks !== undefined ? Number(historyTicks) : undefined,
+        liteTicking,
     );
 }
 

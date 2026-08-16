@@ -96,3 +96,24 @@ test("a finalization fault does not expose its quorum record", async () => {
     expect(sim.tickTransactions(1)).toEqual([]);
     expect(sim.txByHash("unfinalized")).toBeUndefined();
 });
+
+test("defaults: lite ticking skips empty-tick quorum records, history is unlimited", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ mempool: true });
+
+    const src = new Uint8Array(32).fill(0x11);
+    const dst = new Uint8Array(32).fill(0x22);
+    sim.fund(src, 1000n);
+    const target = sim.currentTick + 1;
+    sim.enqueueTx(target, src, dst, 100n, 0, new Uint8Array(0), "t1");
+
+    sim.advance(); // finalize target (non-empty -> a quorum record is built even in lite mode)
+    expect(sim.tickRecord(target)).toBeDefined();
+
+    for (let i = 0; i < 200; i++) {
+        sim.advance(); // empty ticks — lite mode skips their quorum records
+    }
+    expect(sim.tickRecord(sim.currentTick)).toBeUndefined();
+
+    expect(sim.tickRecord(target)).toBeDefined(); // survives far past the former 128-tick window
+});

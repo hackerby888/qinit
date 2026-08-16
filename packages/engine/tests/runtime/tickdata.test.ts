@@ -17,6 +17,7 @@ test("leader rotates as computor[tick % N] and signs the tick's TickData", async
     await initK12();
     const sim = new QubicSimulator({
         consensus: { computorSeeds: SEEDS4 },
+        liteTicking: false,
     });
     const committee = sim.getCommittee();
 
@@ -40,6 +41,7 @@ test("the quorum votes commit transaction = K12(TickData)", async () => {
     await initK12();
     const sim = new QubicSimulator({
         consensus: { computorSeeds: SEEDS4 },
+        liteTicking: false,
     });
     sim.advance();
 
@@ -80,6 +82,7 @@ test("an empty tick still produces a signed TickData with zero tx digests", asyn
     await initK12();
     const sim = new QubicSimulator({
         consensus: { computorSeeds: SEEDS4 },
+        liteTicking: false,
     });
     sim.advance();
 
@@ -151,6 +154,7 @@ test("old TickData is pruned past the history window, recent ticks retained", as
     const sim = new QubicSimulator({
         consensus: { computorSeeds: ["b".repeat(55)] },
         historyTicks: 3,
+        liteTicking: false,
     });
     for (let i = 0; i < 5; i++) {
         sim.advance();

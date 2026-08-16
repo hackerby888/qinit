@@ -4,7 +4,7 @@ import { Committee, type CommitteeOpts, type TickStateDigests, buildTickVote, bu
 import { k12Bytes } from "../support/k12";
 import type { Tick, TickData } from "../protocol/wire";
 
-export const DEFAULT_TICK_HISTORY = 128;
+export const DEFAULT_TICK_HISTORY = Infinity; // unlimited: retain all finalized ticks; pass a finite number to cap
 const ZERO32 = new Uint8Array(32);
 
 // A finalized tick's consensus record: the N computor votes, the aligned-vote count, and the etalon digests they

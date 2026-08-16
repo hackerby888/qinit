@@ -41,9 +41,11 @@ export async function serveEngine(
     peerPort = DEFAULT_PEER_PORT,
     slotLayout?: WasmSlotLayout,
     compiler: SystemContractCompiler = "clang",
+    historyTicks?: number,
+    liteTicking?: boolean,
 ): Promise<never> {
     const ms = Number.isFinite(tickMs) ? Math.max(0, tickMs as number) : DEFAULT_TICK_MS;
-    const srv = new EngineServer(new VirtualNode(slotLayout));
+    const srv = new EngineServer(new VirtualNode({ ...slotLayout, historyTicks, liteTicking }));
     await srv.start(portFromRpc(rpcBaseUrl), ms, peerPort);
     process.stdout.write(`qinit simulator: rpc ${rpcBaseUrl} · peer ${LOOPBACK_HOST}:${peerPort}\n`);
     await seedSystemContracts(srv, system, compiler);

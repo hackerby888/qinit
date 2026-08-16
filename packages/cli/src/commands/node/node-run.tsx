@@ -177,6 +177,8 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                               peerPort,
                               preserveScratchContents: commandArgs.has("keep"),
                               tickMs: commandArgs.has("tick-ms") ? Number(commandArgs.get("tick-ms")) : undefined,
+                              historyTicks: commandArgs.has("history-ticks") ? Number(commandArgs.get("history-ticks")) : undefined,
+                              liteTicking: commandArgs.has("full-tick") ? false : undefined,
                               system: projectConfig.system,
                               compiler,
                               coreDirectory: currentHeaders,

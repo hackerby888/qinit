@@ -45,6 +45,7 @@ function signedVotesCommitting(
 async function loadedTick(): Promise<QubicSimulator> {
     const sim = new QubicSimulator({
         consensus: { computorSeeds: SEEDS4 },
+        liteTicking: false,
     });
     sim.fund(A, 5000n);
     sim.fund(B, 100n); // a second entity so A's spectrum path carries real siblings

@@ -145,7 +145,7 @@ export class QubicSimulator {
                 epoch: () => this.currentEpoch,
             },
             options.consensus ?? {},
-            options.liteTicking ?? false,
+            options.liteTicking ?? true,
             this.historyTicks,
         );
 

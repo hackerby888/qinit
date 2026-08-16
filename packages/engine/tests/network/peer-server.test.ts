@@ -83,7 +83,7 @@ function tickTransactionsRequest(tick: number, knownTransactionIndices: number[]
 
 test("handshake + current-tick-info returns the live tick with aligned votes", async () => {
     await initK12();
-    const engine = new VirtualNode();
+    const engine = new VirtualNode({ liteTicking: false });
     const server = new PeerServer(engine);
     const { port, stop } = await server.start(0);
 
@@ -290,7 +290,7 @@ test("computor-list request returns the arbitrator-signed 676-slot list", async 
 
 test("tick-data request returns the signed TickData and its leader signature verifies", async () => {
     await initK12();
-    const engine = new VirtualNode();
+    const engine = new VirtualNode({ liteTicking: false });
     const server = new PeerServer(engine);
     const { port, stop } = await server.start(0);
 
@@ -337,7 +337,7 @@ test("missing tick-data and transaction-info requests return END_RESPONSE", asyn
 
 test("quorum-tick request honors vote flags and streams verifiable votes", async () => {
     await initK12();
-    const engine = new VirtualNode();
+    const engine = new VirtualNode({ liteTicking: false });
     const server = new PeerServer(engine);
     const { port, stop } = await server.start(0);
 
@@ -496,7 +496,7 @@ test("possessed-assets request streams the possession records the account holds"
 
 test("a contract fault stops peer ticking and leaves finalized diagnostics available", async () => {
     await initK12();
-    const engine = new VirtualNode();
+    const engine = new VirtualNode({ liteTicking: false });
     const server = new PeerServer(engine);
     const { port, stop } = await server.start(0, 20);
 

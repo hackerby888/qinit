@@ -27,7 +27,7 @@ async function runCli(port: number, args: string[]): Promise<string> {
 // Start a PeerServer on an ephemeral port over a configured engine; returns the port + a stop fn.
 async function serve(setup?: (e: VirtualNode) => void | Promise<void>): Promise<{ port: number; stop: () => void }> {
     await initK12();
-    const engine = new VirtualNode({ mempool: true, verifySigs: true });
+    const engine = new VirtualNode({ mempool: true, verifySigs: true, liteTicking: false });
     engine.sim.bootstrapEpoch(1);
     if (setup) {
         await setup(engine);

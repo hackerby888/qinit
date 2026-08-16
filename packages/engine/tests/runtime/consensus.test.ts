@@ -51,6 +51,7 @@ test("every advanced tick reaches quorum with N FourQ-verifiable votes", async (
     await initK12();
     const sim = new QubicSimulator({
         consensus: { computorSeeds: SEEDS4 },
+        liteTicking: false,
     });
     sim.deploy(28, await wasm("Counter"));
 
@@ -76,6 +77,7 @@ test("configurable committee size drives quorum + vote count", async () => {
     await initK12();
     const sim = new QubicSimulator({
         consensus: { numberOfComputors: 7 },
+        liteTicking: false,
     });
     sim.advance();
 
@@ -127,6 +129,7 @@ test("chain clock advances with ticks and stamps the tick-vote timestamp", async
     await initK12();
     const sim = new QubicSimulator({
         consensus: { computorSeeds: SEEDS4 },
+        liteTicking: false,
     });
 
     const t0 = sim.nowMs();

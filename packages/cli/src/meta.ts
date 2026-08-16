@@ -88,6 +88,8 @@ const commandMeta = {
                     stringOption("core-dir", "<path>", "Core checkout (Core runtime also requires --node-bin)"),
                     stringOption("node-bin", "<path>", "Core node binary (skip download)"),
                     stringOption("tick-ms", "<n>", "simulator tick interval in ms (0 = fastest)"),
+                    stringOption("history-ticks", "<n>", "retained finalized-tick window (default: unlimited)"),
+                    booleanOption("full-tick", "record quorum/votes for empty ticks too (disable lite ticking)"),
                     stringOption("peer-port", "<n>", `simulator peer port (default: ${DEFAULT_PEER_PORT})`),
                     stringOption("wait", "<s>", "node start timeout in seconds"),
                     stringOption("scratch-dir", "<path>", "node data and log directory"),

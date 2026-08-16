@@ -236,6 +236,8 @@ export function launchSimulatorNode(options: {
     peerPort?: number;
     preserveScratchContents?: boolean;
     tickMs?: number;
+    historyTicks?: number;
+    liteTicking?: boolean;
     system?: string[];
     slotBase?: number;
     slotCount?: number;
@@ -263,6 +265,8 @@ export function launchSimulatorNode(options: {
         ...(options.slotBase !== undefined ? ["--slot-base", String(options.slotBase)] : []),
         ...(options.slotCount !== undefined ? ["--slot-count", String(options.slotCount)] : []),
         ...(options.tickMs !== undefined ? ["--tick-ms", String(options.tickMs)] : []),
+        ...(options.historyTicks !== undefined ? ["--history-ticks", String(options.historyTicks)] : []),
+        ...(options.liteTicking === false ? ["--full-tick"] : []),
         ...(options.system?.length ? ["--system", options.system.join(",")] : []),
         ...(options.compiler ? ["--compiler", options.compiler] : []),
     ];
