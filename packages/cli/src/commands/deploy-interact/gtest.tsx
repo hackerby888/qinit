@@ -37,6 +37,16 @@ function fmtTimings(t?: Record<string, number>): string | undefined {
     return `${parts.join(" · ")} · total ${total}ms`;
 }
 
+// Name the three slowest tests when any of them is worth noticing; a suite of uniformly fast tests says nothing.
+function fmtSlowest(results: readonly TestResult[]): string | undefined {
+    const timed = results.filter((t) => (t.ms ?? 0) >= 250).sort((a, b) => (b.ms ?? 0) - (a.ms ?? 0));
+    if (!timed.length) return undefined;
+    return timed
+        .slice(0, 3)
+        .map((t) => `${t.name} ${(t.ms! / 1000).toFixed(1)}s`)
+        .join(" · ");
+}
+
 interface Line {
     label: string;
     ok?: boolean | null;
@@ -50,6 +60,11 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
     const cfg = loadConfig();
     const filter = commandArgs.get("filter");
+    // Filtering happens in the engine, so an excluded test is never executed rather than merely hidden.
+    const filterTests = (filter ?? "")
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean);
     const firstPositional = commandArgs.positionals[0];
     const explicitCallees = parseCallees(commandArgs.getAll("callee"));
     const [items, setItems] = useState<Item[]>([{ kind: "header" }]);
@@ -61,12 +76,12 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
         const spin = (t: string) => setS({ phase: "work", spin: t });
         const done = (ok: boolean, rows: [string, string][]) => setS({ phase: "done", ok, rows });
 
-        const matches = (name: string) => !filter || name.toLowerCase().includes(filter.toLowerCase());
+        // An empty result set after filtering is a typo, not a suite with no tests.
+        const noMatch = () => (filterTests.length ? `no test matched --filter ${filter}` : "no tests ran");
         let ran = 0;
         // Stream each finished test the moment the engine reports it (engine yields a macrotask per test so
-        // this paints). Filtered-out tests still execute engine-side; we just don't surface them.
+        // this paints).
         const onResult = (t: TestResult) => {
-            if (!matches(t.name)) return;
             ran++;
             setItems((it) => [...it, { kind: "test", t }]);
             setS({ phase: "work", spin: `running tests… ${ran} done` });
@@ -90,6 +105,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                         core,
                         backend,
                         scratch: join(tmpdir(), "qinit-corpus"),
+                        filterTests,
                         onResult,
                         onPhase: backend === "typescript" ? (label) => spin(label) : undefined,
                     });
@@ -105,12 +121,14 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                         add("build", false, "test-wasm build failed");
                         return done(false, [["stderr", (run.buildError ?? "").slice(0, 400)]]);
                     }
-                    const results = run.results.filter((t) => matches(t.name));
+                    const results = run.results;
                     const pass = results.filter((t) => t.passed).length;
                     const ok = results.length > 0 && pass === results.length;
-                    add("tests", ok, `${pass}/${results.length} passed`);
+                    add("tests", ok, results.length ? `${pass}/${results.length} passed` : noMatch());
                     const ctiming = fmtTimings(run.timings);
                     if (ctiming) note(`  compile   ${ctiming}`);
+                    const cslow = fmtSlowest(results);
+                    if (cslow) note(`  slowest   ${cslow}`);
                     return done(ok, [
                         ["contract", `${run.name} @ ${run.slot}${run.heavy ? " (heavy/shared-mem)" : ""}`],
                         ["backend", backend === "typescript" ? "TypeScript compiler" : "clang"],
@@ -194,6 +212,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     dynCallees,
                     shared: commandArgs.has("shared-mem"),
                     scratch: join(tmpdir(), "qinit-corpus"),
+                    filterTests,
                     onResult,
                     onPhase: backend === "typescript" ? (label) => spin(label) : undefined,
                 });
@@ -203,10 +222,12 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
                 const ctiming = fmtTimings(run.timings);
                 if (ctiming) note(`  compile   ${ctiming}`);
-                const rr = run.results.filter((t) => matches(t.name));
+                const rr = run.results;
                 const pass = rr.filter((t) => t.passed).length;
                 const ok = rr.length > 0 && pass === rr.length;
-                add("tests", ok, `${pass}/${rr.length} passed`);
+                add("tests", ok, rr.length ? `${pass}/${rr.length} passed` : noMatch());
+                const slow = fmtSlowest(rr);
+                if (slow) note(`  slowest   ${slow}`);
                 return done(ok, [
                     ["contract", `${name} @ ${slot}${run.heavy ? " (shared-mem)" : ""}`],
                     ["backend", backend === "typescript" ? "TypeScript compiler" : "clang"],

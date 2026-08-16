@@ -25,11 +25,16 @@ struct Ctx {
     char         msg[2048];
     unsigned int msgLen;
     bool         failed;
+    bool         truncated;
 };
 static Ctx g_ctx;
 
 inline void appendBytes(const char* s, unsigned int n) {
-    for (unsigned int i = 0; i < n && g_ctx.msgLen < sizeof(g_ctx.msg) - 1; ++i) {
+    for (unsigned int i = 0; i < n; ++i) {
+        if (g_ctx.msgLen >= sizeof(g_ctx.msg) - 1) {
+            g_ctx.truncated = true;
+            return;
+        }
         g_ctx.msg[g_ctx.msgLen++] = s[i];
     }
 }
@@ -73,7 +78,17 @@ inline void appendU64(unsigned long long u) {
     }
 }
 
-// Render a compared value into the failure message: bool -> true/false, integral -> decimal, else -> "(value)".
+inline void appendHex(const void* p, unsigned int n) {
+    const unsigned char* b = (const unsigned char*)p;
+    for (unsigned int i = 0; i < n; ++i) {
+        const char* digits = "0123456789abcdef";
+        char        pair[2] = {digits[b[i] >> 4], digits[b[i] & 0xf]};
+        appendBytes(pair, 2);
+    }
+}
+
+// Render a compared value into the failure message: bool -> true/false, integral -> decimal, any 32-byte
+// value -> hex (that is QPI::id, which the corpora compare constantly), else -> "(value)".
 template <typename T>
 inline void appendVal(const T& v) {
     if constexpr (std::is_same_v<T, bool>) {
@@ -84,6 +99,8 @@ inline void appendVal(const T& v) {
         } else {
             appendU64((unsigned long long)v);
         }
+    } else if constexpr (sizeof(T) == 32) {
+        appendHex(&v, 32);
     } else {
         appendStr("(value)");
     }
@@ -100,14 +117,17 @@ struct Entry {
 #endif
 static Entry        g_tests[QINIT_GTEST_MAX];
 static unsigned int g_testCount = 0;
+static unsigned int g_droppedTests = 0;
 
 struct Registrar {
     Registrar(const char* name, TestFn fn) {
-        if (g_testCount < QINIT_GTEST_MAX) {
-            g_tests[g_testCount].name = name;
-            g_tests[g_testCount].fn = fn;
-            ++g_testCount;
+        if (g_testCount >= QINIT_GTEST_MAX) {
+            ++g_droppedTests;
+            return;
         }
+        g_tests[g_testCount].name = name;
+        g_tests[g_testCount].fn = fn;
+        ++g_testCount;
     }
 };
 
@@ -206,6 +226,12 @@ unsigned int test_name(unsigned int i, void* out, unsigned int cap) {
     return n;
 }
 
+// Registrations past QINIT_GTEST_MAX are counted rather than silently dropped; the host warns.
+__attribute__((export_name("tests_dropped")))
+unsigned int tests_dropped() {
+    return ::qinit_gtest::g_droppedTests;
+}
+
 __attribute__((export_name("run_test")))
 unsigned int run_test(unsigned int i) {
     if (i >= ::qinit_gtest::g_testCount) {
@@ -213,7 +239,16 @@ unsigned int run_test(unsigned int i) {
     }
     ::qinit_gtest::g_ctx.failed = false;
     ::qinit_gtest::g_ctx.msgLen = 0;
+    ::qinit_gtest::g_ctx.truncated = false;
     ::qinit_gtest::g_tests[i].fn();
+    // A message that hit the buffer cap ends in a marker, so a clipped failure never reads as complete.
+    if (::qinit_gtest::g_ctx.truncated) {
+        const char*        mark = " ...[truncated]";
+        const unsigned int markLen = ::qinit_gtest::slen(mark);
+        if (::qinit_gtest::g_ctx.msgLen >= markLen) {
+            copyMem(::qinit_gtest::g_ctx.msg + (::qinit_gtest::g_ctx.msgLen - markLen), mark, markLen);
+        }
+    }
     const char* nm = ::qinit_gtest::g_tests[i].name;
     const unsigned int passed = ::qinit_gtest::g_ctx.failed ? 0u : 1u;
     th_report(nm, ::qinit_gtest::slen(nm), passed, ::qinit_gtest::g_ctx.msg, ::qinit_gtest::g_ctx.msgLen);

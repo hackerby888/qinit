@@ -329,7 +329,7 @@ const commandMeta = {
             stringOption("callee", "<Name>=<header>[@<index>]", "callee header and optional slot", {
                 multiple: true,
             }),
-            stringOption("filter", "<pat>", "test name filter"),
+            stringOption("filter", "<pat>", "run only tests whose name contains one of these (comma-separated)"),
             stringOption("core-dir", "<path>", "Core checkout"),
             stringOption("corpus", "<NAME>", "system contract test name"),
             booleanOption("new", "create or replace tests/<Name>.test.cpp"),

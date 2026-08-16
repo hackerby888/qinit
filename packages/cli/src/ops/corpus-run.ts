@@ -292,6 +292,7 @@ export async function runStdGtest(opts: {
     projectDependencies?: readonly StdGtestContractSpec[];
     dynCallees?: DynCallees;
     excludeTests?: readonly string[];
+    filterTests?: readonly string[];
     onResult?: (r: TestResult) => void | Promise<void>;
     onPhase?: (label: string) => void;
 }): Promise<StdGtestRun> {
@@ -365,6 +366,7 @@ export async function runStdGtest(opts: {
         mainSlot: main.slot,
         assetNames,
         excludeTests: opts.excludeTests,
+        filterTests: opts.filterTests,
         onResult: opts.onResult,
     });
     return { ...ret, runnerOk: true, results, timings };
@@ -377,6 +379,7 @@ export async function runCorpus(opts: {
     backend: CompilerBackend;
     scratch: string;
     excludeTests?: readonly string[];
+    filterTests?: readonly string[];
     onResult?: (r: TestResult) => void | Promise<void>;
     onPhase?: (label: string) => void;
 }): Promise<CorpusRun> {
@@ -408,6 +411,7 @@ export async function runCorpus(opts: {
         scratch: opts.scratch,
         shared: systemGtestTier(c.name) === "heavy",
         excludeTests: opts.excludeTests,
+        filterTests: opts.filterTests,
         onResult: opts.onResult,
         onPhase: opts.onPhase,
     });

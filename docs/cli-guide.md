@@ -1706,8 +1706,11 @@ how the harness is compiled.
 Known memory/pointer-heavy suites automatically use shared-memory mode. User
 suites can request it with `--shared-mem`.
 
-`--filter` currently filters reported and counted results after execution; tests
-outside the filter still run in the engine.
+`--filter` takes comma-separated case-insensitive substrings and skips
+non-matching tests in the engine, so they are never executed. The same list can
+come from the `QINIT_GTEST_FILTER` environment variable. Skipping is not free of
+ordering effects: tick, epoch, timebase, and digests survive the per-test reset,
+so a filtered run can differ from a full one for an order-dependent test.
 
 ## 15. RPC boundary map
 

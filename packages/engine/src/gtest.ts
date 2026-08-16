@@ -8,6 +8,7 @@ export interface TestResult {
     name: string; // "Suite.Name"
     passed: boolean;
     message: string; // failure detail (empty when passed)
+    ms?: number; // wall time of the test body
 }
 
 // Run a core-lite gtest Wasm module against contracts mapped by slot.
@@ -19,6 +20,7 @@ export async function runContractTesting(
         onResult?: (r: TestResult) => void | Promise<void>;
         assetNames?: Record<number, string | bigint>;
         excludeTests?: readonly string[];
+        filterTests?: readonly string[]; // run only tests whose name contains one of these (case-insensitive)
     } = {},
 ): Promise<TestResult[]> {
     await initK12();
@@ -27,6 +29,13 @@ export async function runContractTesting(
     const mainSlot = opts.mainSlot ?? Math.max(...Object.keys(contracts).map(Number));
     const dec = new TextDecoder();
     const results: TestResult[] = [];
+    // Traps caught inside a dispatch, cleared before each test so they attribute to the test that caused them.
+    const trapNotes: string[] = [];
+    const trap = (what: string, e: unknown): void => {
+        const note = `${what} trapped: ${String((e as any)?.message ?? e).slice(0, 120)}`;
+        trapNotes.push(note);
+        (globalThis as any).process?.stderr?.write?.(`[gtest] ${note}\n`);
+    };
 
     let sim: QubicSimulator;
     let handles: Record<number, Contract> = {};
@@ -184,7 +193,7 @@ export async function runContractTesting(
         },
 
         // A contract trap (OOB, unreachable) inside a dispatch fails the CURRENT TEST, not the whole corpus run
-        // — the native harness likewise contains a contract fault per test. The trap is surfaced on stderr once;
+        // — the native harness likewise contains a contract fault per test. `trap()` records it for t_report.
         q_invoke: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number => {
             if (env_.QINIT_GTEST_PROGRESS && ++dispatchCount % 500 === 0) {
                 (globalThis as any).process?.stderr?.write?.(
@@ -205,7 +214,7 @@ export async function runContractTesting(
                     }),
                 );
             } catch (e: any) {
-                (globalThis as any).process?.stderr?.write?.(`[gtest] invoke[${idx >>> 0}:${it >>> 0}] trapped: ${String(e?.message ?? e).slice(0, 120)}\n`);
+                trap(`invoke[${idx >>> 0}:${it >>> 0}]`, e);
                 out = new Uint8Array(0);
             }
             const n = Math.min(out.length, outCap >>> 0);
@@ -250,7 +259,7 @@ export async function runContractTesting(
             try {
                 out = traceDisp(`query[${idx >>> 0}:${it >>> 0}]`, () => sim.query(idx >>> 0, it >>> 0, read(inPtr, inLen)));
             } catch (e: any) {
-                (globalThis as any).process?.stderr?.write?.(`[gtest] query[${idx >>> 0}:${it >>> 0}] trapped: ${String(e?.message ?? e).slice(0, 120)}\n`);
+                trap(`query[${idx >>> 0}:${it >>> 0}]`, e);
                 out = new Uint8Array(0);
             }
             const n = Math.min(out.length, outCap >>> 0);
@@ -269,7 +278,7 @@ export async function runContractTesting(
                         }),
                     );
             } catch (e: any) {
-                (globalThis as any).process?.stderr?.write?.(`[gtest] sysproc[${idx >>> 0}:${sp >>> 0}] trapped: ${String(e?.message ?? e).slice(0, 120)}\n`);
+                trap(`sysproc[${idx >>> 0}:${sp >>> 0}]`, e);
             }
             markEngineMoved();
             if (env_.QINIT_GTEST_DUMP_ASSETS) {
@@ -465,11 +474,12 @@ export async function runContractTesting(
             sim.setComputorKey(i >>> 0, id32(idPtr));
         },
 
+        // A trap the test never asserted on would otherwise report as a pass, so it fails the test here.
         t_report: (namePtr: number, nameLen: number, passed: number, msgPtr: number, msgLen: number) => {
             results.push({
                 name: dec.decode(read(namePtr, nameLen)),
-                passed: passed >>> 0 !== 0,
-                message: dec.decode(read(msgPtr, msgLen)),
+                passed: passed >>> 0 !== 0 && trapNotes.length === 0,
+                message: [dec.decode(read(msgPtr, msgLen)), ...trapNotes.map((n) => `\n  ${n}`)].join(""),
             });
         },
     };
@@ -589,7 +599,17 @@ export async function runContractTesting(
         const entry = imp.module === "lhost" ? lhost : imp.module === "env" ? envObj : imp.module === "wasi_snapshot_preview1" ? wasiObj : null;
         if (entry && !(imp.name in entry)) {
             const results: string[] = ((imp as any).type?.results ?? []) as string[];
-            (entry as any)[imp.name] = results.includes("i64") ? noopBig : noopVal;
+            const zero = results.includes("i64") ? noopBig : noopVal;
+            // A stub is indistinguishable from a host function that legitimately returns zero, so say so on
+            // first call — a declared-but-never-called import is normal and stays quiet.
+            let warned = false;
+            (entry as any)[imp.name] = (...args: unknown[]) => {
+                if (!warned) {
+                    warned = true;
+                    (globalThis as any).process?.stderr?.write?.(`[gtest] unwired import ${imp.module}.${imp.name} — stubbed to zero\n`);
+                }
+                return zero(...args);
+            };
         }
     }
 
@@ -604,20 +624,22 @@ export async function runContractTesting(
     (runner.exports._initialize as Function)?.();
 
     const count = (runner.exports.test_count as Function)() >>> 0;
+    // The registry is a fixed array; registrations past its cap would otherwise vanish without a trace.
+    const dropped = ((runner.exports.tests_dropped as Function)?.() ?? 0) >>> 0;
+    if (dropped) {
+        (globalThis as any).process?.stderr?.write?.(`[gtest] ${dropped} test(s) past the QINIT_GTEST_MAX registry cap were not registered\n`);
+    }
 
     // Name each traced test before execution so a hanging corpus test is identifiable.
     const trace = !!(globalThis as any).process?.env?.QINIT_GTEST_TRACE;
-    // QINIT_GTEST_FILTER: comma-separated substrings — run only tests whose name contains one (skip the rest).
-    // Iterating on a known-failing subset avoids paying for the already-green bulk of a heavy corpus.
+    // Run only tests whose name contains one of the filters, from opts.filterTests or the comma-separated
+    // QINIT_GTEST_FILTER. Iterating on a known-failing subset skips the already-green bulk of a heavy corpus.
     const filterRaw = ((globalThis as any).process?.env?.QINIT_GTEST_FILTER ?? "") as string;
-    const filters = filterRaw
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+    const filters = [...(opts.filterTests ?? []), ...filterRaw.split(",")].map((s) => s.trim().toLowerCase()).filter(Boolean);
     const excludedTests = opts.excludeTests ?? [];
-    // Name lookups write into the runner's io scratch; resolve a real io_base whenever we'll print names
-    // (trace or prof) or match the filter. Writing to a bogus base (0) would corrupt the runner's memory.
-    const ioBase = trace || prof || filters.length || excludedTests.length ? ((runner.exports.io_base as Function)?.() ?? 0) >>> 0 : 0;
+    // Name lookups write into the runner's io scratch, so they need a real io_base; writing to a bogus base
+    // (0) would corrupt the runner's memory. Names are also how a trapped test gets identified, so always resolve.
+    const ioBase = ((runner.exports.io_base as Function)?.() ?? 0) >>> 0;
     const traceName = (i: number): string => {
         if (!ioBase) return `#${i}`;
         const cap = 256;
@@ -629,15 +651,27 @@ export async function runContractTesting(
     for (let i = 0; i < count; i++) {
         if (filters.length || excludedTests.length) {
             const nm = traceName(i);
-            if (excludedTests.includes(nm) || (filters.length && !filters.some((f) => nm.includes(f)))) {
+            if (excludedTests.includes(nm) || (filters.length && !filters.some((f) => nm.toLowerCase().includes(f)))) {
                 continue;
             }
         }
         if (trace) (globalThis as any).process.stderr.write(`[gtest] #${i} ${traceName(i)}\n`);
         const before = results.length;
-        const tt = prof ? now() : 0;
-        (runner.exports.run_test as Function)(i);
-        if (prof) (globalThis as any).process.stderr.write(`[gtest] #${i} ${traceName(i)} wall=${Math.round(now() - tt)}ms\n`);
+        const tt = now();
+        trapNotes.length = 0;
+        // A trap that escapes the harness rather than a dispatch would reject the whole run, losing this
+        // test's row and every later one. Report it as this test's failure and keep going.
+        try {
+            (runner.exports.run_test as Function)(i);
+        } catch (e: any) {
+            const why = [`test body trapped: ${String(e?.message ?? e).slice(0, 200)}`, ...trapNotes];
+            results.push({ name: traceName(i), passed: false, message: why.join("\n  ") });
+        }
+        const ms = Math.round(now() - tt);
+        for (let k = before; k < results.length; k++) {
+            results[k].ms = ms;
+        }
+        if (prof) (globalThis as any).process.stderr.write(`[gtest] #${i} ${traceName(i)} wall=${ms}ms\n`);
         if (opts.onResult) {
             for (let k = before; k < results.length; k++) {
                 await opts.onResult(results[k]);

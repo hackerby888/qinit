@@ -602,21 +602,30 @@ static inline bool transferShareOwnershipAndPossession(int sourceOwnershipIndex,
     return ok;
 }
 
-// Support stream suffixes such as `EXPECT_EQ(a, b) << "note"`.
+// Support stream suffixes such as `EXPECT_EQ(a, b) << "note"`. Only the failing branch reaches the chain,
+// so the streamed operands land in that assertion's message.
 namespace qinit_gtest {
-    struct Sink { template <class T> Sink& operator<<(const T&) { return *this; } };
+    struct Sink {
+        bool started = false;
+        void sep() { if (!started) { started = true; appendStr("\n    "); } }
+        Sink& operator<<(const char* s) { sep(); appendStr(s); return *this; }
+        template <class T> Sink& operator<<(const T& v) { sep(); appendVal(v); return *this; }
+    };
+    // Swallows a Sink chain and yields void, so ASSERT_* can `return` it out of a void test body.
+    struct FatalSink { void operator=(const Sink&) const {} };
 }
 #define QBCT_REC_CMP(suffix, op)                                                                             \
     namespace qinit_gtest {                                                                                 \
         template <class A, class B>                                                                          \
         static inline bool recCmp##suffix(const char* f, int l, const char* w, const A& a, const B& b) {     \
-            if (!(a op b)) { failAt(f, l, w); appendStr(" ("); appendVal(a); appendStr(" vs "); appendVal(b); appendStr(")"); } \
-            return true;                                                                                      \
+            if (a op b) { return true; }                                                                     \
+            failAt(f, l, w); appendStr(" ("); appendVal(a); appendStr(" vs "); appendVal(b); appendStr(")");  \
+            return false;                                                                                     \
         }                                                                                                    \
     }
 QBCT_REC_CMP(Eq, ==) QBCT_REC_CMP(Ne, !=) QBCT_REC_CMP(Lt, <) QBCT_REC_CMP(Le, <=) QBCT_REC_CMP(Gt, >) QBCT_REC_CMP(Ge, >=)
 namespace qinit_gtest {
-    static inline bool recBool(const char* f, int l, const char* w, bool cond) { if (!cond) failAt(f, l, w); return true; }
+    static inline bool recBool(const char* f, int l, const char* w, bool cond) { if (!cond) failAt(f, l, w); return cond; }
 
     // Refresh engine-dirty state shadows before an assertion evaluates its operands: a corpus commonly caches
     // `auto state = getState()` and asserts through that pointer after dispatches. For a very large state
@@ -644,8 +653,12 @@ namespace qinit_gtest {
 #define EXPECT_GE(a, b) QBCT_EXPECT(Ge, a, b, "EXPECT_GE(" #a ", " #b ")")
 #define EXPECT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "EXPECT_TRUE(" #x ")", (bool)(x))) ; else ::qinit_gtest::Sink()
 #define EXPECT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "EXPECT_FALSE(" #x ")", !(bool)(x))) ; else ::qinit_gtest::Sink()
-// ASSERT_* likewise — streamable so `ASSERT_*(...) << "msg"` (RANDOM) compiles. These record the failure but do
-// NOT early-return (an expression can't). A failed ASSERT continues; the test still ends up failed (recorded).
+// ASSERT_* is fatal, the way googletest's own macros are: a statement-position `return` in front of an
+// expression that ends in void, so `ASSERT_*(...) << "msg"` still compiles. Test bodies return void, and
+// upstream builds these same corpora against real googletest, so every site already allows the return.
+#define QBCT_ASSERT(suffix, a, b, label)                                                                     \
+    switch (0) case 0: default:                                                                              \
+        if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recCmp##suffix(__FILE__, __LINE__, label, (a), (b))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 #undef ASSERT_EQ
 #undef ASSERT_NE
 #undef ASSERT_LT
@@ -654,14 +667,14 @@ namespace qinit_gtest {
 #undef ASSERT_GE
 #undef ASSERT_TRUE
 #undef ASSERT_FALSE
-#define ASSERT_EQ(a, b) QBCT_EXPECT(Eq, a, b, "ASSERT_EQ(" #a ", " #b ")")
-#define ASSERT_NE(a, b) QBCT_EXPECT(Ne, a, b, "ASSERT_NE(" #a ", " #b ")")
-#define ASSERT_LT(a, b) QBCT_EXPECT(Lt, a, b, "ASSERT_LT(" #a ", " #b ")")
-#define ASSERT_LE(a, b) QBCT_EXPECT(Le, a, b, "ASSERT_LE(" #a ", " #b ")")
-#define ASSERT_GT(a, b) QBCT_EXPECT(Gt, a, b, "ASSERT_GT(" #a ", " #b ")")
-#define ASSERT_GE(a, b) QBCT_EXPECT(Ge, a, b, "ASSERT_GE(" #a ", " #b ")")
-#define ASSERT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_TRUE(" #x ")", (bool)(x))) ; else ::qinit_gtest::Sink()
-#define ASSERT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_FALSE(" #x ")", !(bool)(x))) ; else ::qinit_gtest::Sink()
+#define ASSERT_EQ(a, b) QBCT_ASSERT(Eq, a, b, "ASSERT_EQ(" #a ", " #b ")")
+#define ASSERT_NE(a, b) QBCT_ASSERT(Ne, a, b, "ASSERT_NE(" #a ", " #b ")")
+#define ASSERT_LT(a, b) QBCT_ASSERT(Lt, a, b, "ASSERT_LT(" #a ", " #b ")")
+#define ASSERT_LE(a, b) QBCT_ASSERT(Le, a, b, "ASSERT_LE(" #a ", " #b ")")
+#define ASSERT_GT(a, b) QBCT_ASSERT(Gt, a, b, "ASSERT_GT(" #a ", " #b ")")
+#define ASSERT_GE(a, b) QBCT_ASSERT(Ge, a, b, "ASSERT_GE(" #a ", " #b ")")
+#define ASSERT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_TRUE(" #x ")", (bool)(x))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
+#define ASSERT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_FALSE(" #x ")", !(bool)(x))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 
 static inline long long numberOfPossessedShares(unsigned long long name, const QPI::id& issuer, const QPI::id& owner, const QPI::id& possessor, unsigned int om, unsigned int pm) {
     return bq_possessed(name, &issuer, &owner, &possessor, om, pm);
