@@ -10,11 +10,13 @@ export function evalConstCondition(preprocessor: Preprocessor, expression: strin
     let text = expression.replace(/defined\s*\(\s*(\w+)\s*\)/g, (_m, exprItemIndex) => (preprocessor.defines.has(exprItemIndex) ? "1" : "0"));
     text = text.replace(/defined\s+(\w+)/g, (_m, sItemIndex) => (preprocessor.defines.has(sItemIndex) ? "1" : "0"));
     // Expand remaining identifiers: a defined macro's body if numeric, else 0.
-    text = text.replace(/\b([A-Za-z_]\w*)\b/g, (_m, id) => {
+    // Numeric literals are matched first so a hex literal is never mistaken for an identifier.
+    text = text.replace(/0[xX][0-9a-fA-F]+|\b\d\w*|\b([A-Za-z_]\w*)\b/g, (match, id) => {
+        if (id === undefined) return match;
         if (id === "true") return "1";
         if (id === "false") return "0";
         const def = preprocessor.defines.get(id);
-        if (def && def.params === null && /^-?\d+$/.test(def.body.trim())) return def.body.trim();
+        if (def && def.params === null && /^-?(0[xX][0-9a-fA-F]+|\d+)$/.test(def.body.trim())) return def.body.trim();
         return "0";
     });
     try {
@@ -25,10 +27,12 @@ export function evalConstCondition(preprocessor: Preprocessor, expression: strin
 }
 
 export function evalArith(text: string): bigint {
-    const toks = text.match(/\d+|&&|\|\||==|!=|<=|>=|<<|>>|[()+\-*/%<>!&|^]/g) ?? [];
+    const toks = text.match(/0[xX][0-9a-fA-F]+|\d+|&&|\|\||==|!=|<=|>=|<<|>>|[()+\-*/%<>!&|^?:]/g) ?? [];
     let index = 0;
     const peek = () => toks[index];
     const next = () => toks[index++];
+    // A leading zero means base eight in C, but BigInt("010") reads it as ten.
+    const literalValue = (literal: string): bigint => (/^0[0-7]+$/.test(literal) ? BigInt(`0o${literal.slice(1)}`) : BigInt(literal));
     const parsePrimary = (): bigint => {
         const text = next();
         if (text === "(") {
@@ -39,7 +43,7 @@ export function evalArith(text: string): bigint {
         if (text === "!") return parsePrimary() === 0n ? 1n : 0n;
         if (text === "-") return -parsePrimary();
         if (text === "+") return parsePrimary();
-        return BigInt(text ?? "0");
+        return literalValue(text ?? "0");
     };
     const prec: Record<string, number> = {
         "||": 1,
@@ -109,6 +113,14 @@ export function evalArith(text: string): bigint {
             const operator = next();
             const right = parseExpr(prec[operator] + 1);
             left = apply(left, operator, right);
+        }
+        // The conditional operator binds looser than every binary operator and is right-associative.
+        if (minPrec <= 0 && peek() === "?") {
+            next();
+            const thenValue = parseExpr(0);
+            if (peek() === ":") next();
+            const elseValue = parseExpr(0);
+            return left !== 0n ? thenValue : elseValue;
         }
         return left;
     };

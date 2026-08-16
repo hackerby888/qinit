@@ -186,6 +186,14 @@ export function evalIntegralConst(expression: Expression, resolve?: (name: strin
                 const size = SCALAR_SIZE[type.name];
                 return size === undefined ? null : BigInt(size);
             }
+            case AstKind.SIZEOF_EXPR: {
+                // A scalar typedef name parses as an expression; record names stay unresolvable here.
+                if (expression.expression.kind !== AstKind.IDENTIFIER) {
+                    return null;
+                }
+                const size = SCALAR_SIZE[expression.expression.name];
+                return size === undefined ? null : BigInt(size);
+            }
             default:
                 return null;
         }

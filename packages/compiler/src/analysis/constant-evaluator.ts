@@ -150,6 +150,10 @@ export function evalConstBig(programAnalysis: ProgramAnalysis, expression: Expre
                     return constantValue === constantValueCandidate ? 1n : 0n;
                 case BinaryOp.NOT_EQUAL:
                     return constantValue !== constantValueCandidate ? 1n : 0n;
+                case BinaryOp.LOGICAL_AND:
+                    return constantValue !== 0n && constantValueCandidate !== 0n ? 1n : 0n;
+                case BinaryOp.LOGICAL_OR:
+                    return constantValue !== 0n || constantValueCandidate !== 0n ? 1n : 0n;
                 default:
                     return 0n;
             }
@@ -160,6 +164,12 @@ export function evalConstBig(programAnalysis: ProgramAnalysis, expression: Expre
                 : programAnalysis.evalConstBig(expression.else_, templateBindings);
         case AstKind.SIZEOF_TYPE:
             return BigInt(programAnalysis.sizeOfType(expression.type, templateBindings));
+        case AstKind.SIZEOF_EXPR: {
+            // A struct or typedef name parses as an expression, so size it the way the backend does.
+            if (expression.expression.kind !== AstKind.IDENTIFIER) return 0n;
+            const byteSize = programAnalysis.sizeOfType({ kind: AstKind.NAME, name: expression.expression.name }, templateBindings);
+            return BigInt(byteSize);
+        }
         case AstKind.C_CAST:
         case AstKind.STATIC_CAST:
             return programAnalysis.normalizeConst(programAnalysis.evalConstBig(expression.expression, templateBindings), expression.type);
