@@ -3,7 +3,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "../../src";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src";
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -23,7 +23,7 @@ describe("source-backed QPI context accessors", () => {
     beforeAll(initK12);
 
     test("reads reward, invocator, and originator from the entry context", async () => {
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: SOURCE,
             contractName: "ContextAccessors",
             slot: 27,

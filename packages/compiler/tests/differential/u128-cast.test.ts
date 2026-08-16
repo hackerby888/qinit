@@ -6,10 +6,10 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -68,7 +68,7 @@ describe("uint128 casts of scalar expressions", () => {
     });
 
     test("scalar-domain evaluation and computed decl-inits", async () => {
-        const ours = await compileContract({
+        const ours = await compileContractWithTypeScript({
             source: SOURCE,
             contractName: "UC",
             slot: 27,
@@ -82,9 +82,9 @@ describe("uint128 casts of scalar expressions", () => {
             const dir = mkdtempSync(join(tmpdir(), "u128cast-"));
             try {
                 writeFileSync(join(dir, "UC.h"), SOURCE);
-                const built = await buildContractWithWasiClang({
+                const built = await buildContractWithClang({
                     contractPath: join(dir, "UC.h"),
-                    name: "UC",
+                    contractName: "UC",
                     slot: 27,
                     corePath: CORE,
                     outDir: dir,

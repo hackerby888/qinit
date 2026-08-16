@@ -31,7 +31,11 @@ export function diagnostic(
 
 export function compareDiagnostics(left: SourceAnalysisDiagnostic, right: SourceAnalysisDiagnostic): number {
     return (
-        left.span.start - right.span.start || left.span.end - right.span.end || left.code.localeCompare(right.code) || left.message.localeCompare(right.message)
+        left.span.start - right.span.start ||
+        left.span.end - right.span.end ||
+        left.origin.localeCompare(right.origin) ||
+        left.code.localeCompare(right.code) ||
+        left.message.localeCompare(right.message)
     );
 }
 

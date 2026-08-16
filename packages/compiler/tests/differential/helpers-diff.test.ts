@@ -7,7 +7,7 @@ import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, expect, beforeAll } from "bun:test";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -106,7 +106,7 @@ describe("differential gtest — Helpers (value helpers + PRIVATE_ via CALL)", (
                 tempPrefix: "helpers-diff-",
             });
 
-            const mine = await compileContract({
+            const mine = await compileContractWithTypeScript({
                 source: HELPERS,
                 contractName: "Helpers",
                 slot: 28,

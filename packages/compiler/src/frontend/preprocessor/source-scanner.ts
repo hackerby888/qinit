@@ -27,7 +27,7 @@ export function isIdContinue(preprocessor: Preprocessor, ch: string): boolean {
     return preprocessor.isIdStart(ch) || (ch >= "0" && ch <= "9");
 }
 
-export function peek(preprocessor: Preprocessor, offset: number): string {
+export function peekChar(preprocessor: Preprocessor, offset: number): string {
     const index = preprocessor.pos + offset;
     if (index >= preprocessor.input.length) {
         return "\0";
@@ -61,7 +61,7 @@ export function readToNewline(preprocessor: Preprocessor): string {
     let text = "";
     while (preprocessor.pos < preprocessor.input.length && preprocessor.input[preprocessor.pos] !== "\n") {
         // Handle backslash-newline continuation
-        if (preprocessor.input[preprocessor.pos] === "\\" && preprocessor.peek(1) === "\n") {
+        if (preprocessor.input[preprocessor.pos] === "\\" && preprocessor.peekChar(1) === "\n") {
             preprocessor.pos += 2;
             preprocessor.line++;
             continue;
@@ -108,7 +108,7 @@ export function skipBlockComment(preprocessor: Preprocessor): void {
             preprocessor.result += "\n";
             preprocessor.line++;
             preprocessor.pos++;
-        } else if (preprocessor.input[preprocessor.pos] === "*" && preprocessor.peek(1) === "/") {
+        } else if (preprocessor.input[preprocessor.pos] === "*" && preprocessor.peekChar(1) === "/") {
             preprocessor.pos += 2; // skip */
             return;
         } else {

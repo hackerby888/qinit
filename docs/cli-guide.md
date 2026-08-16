@@ -729,7 +729,7 @@ The selected backend is used for every custom contract in the graph.
 #### Clang path
 
 ```text
-buildContractWithWasiClang()
+buildContractWithClang()
        -> analyze source calls
        -> protocol verification
        -> generate inter-contract prelude
@@ -750,7 +750,7 @@ and [`packages/build/src/recipe.ts`](../packages/build/src/recipe.ts).
 buildContractWithTypeScript()
        -> load resolved qpi.h
        -> analyze transitive custom and system callee sources
-       -> compileContract()
+       -> compileContractWithTypeScript()
        -> write returned Wasm
        -> compute K12 hash
 ```

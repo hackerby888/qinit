@@ -3,7 +3,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator, initK12, toHex } from "@qinit/engine";
 
 const CORE = CORE_PATH;
@@ -95,9 +95,9 @@ for (const c of CASES) {
         `cross-host: ${c.name} (${c.covers}) state byte-identical on the node WAMR and qinit`,
         async () => {
             await initK12();
-            const r = await buildContractWithWasiClang({
+            const r = await buildContractWithClang({
                 contractPath: `${FIX}/${c.name}.h`,
-                name: c.name,
+                contractName: c.name,
                 slot: c.slot,
                 corePath: CORE,
                 outDir: "/tmp/qinit-xhost",

@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Regression test: switch/case fallthrough compiles to correct WASM with proper fallthrough semantics (stacked labels, intentional non-break fallthrough).
 import { test, expect } from "bun:test";
-import { compileContract, loadQpiHeader } from "@qinit/compiler";
+import { compileContractWithTypeScript, loadQpiHeader } from "@qinit/compiler";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -46,7 +46,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 `;
 
 test("compile succeeds with switch fallthrough", async () => {
-    const result = await compileContract({
+    const result = await compileContractWithTypeScript({
         source: SRC,
         contractName: "SwitchBug",
         slot: 50,
@@ -66,7 +66,7 @@ test("WAT uses nested dispatch+bodies pattern (no unconditional break between ca
     const watPath = join(dir, "out.wat");
 
     process.env.QINIT_DUMP_WAT = watPath;
-    await compileContract({
+    await compileContractWithTypeScript({
         source: SRC,
         contractName: "SwitchBug",
         slot: 50,

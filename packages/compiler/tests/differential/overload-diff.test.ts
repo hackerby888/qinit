@@ -6,10 +6,10 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -90,7 +90,7 @@ const runState = (wasm: Uint8Array): string => {
 const wasiOk = wasiToolchain().available;
 
 const checkBothSides = async (source: string, name: string, expected: string): Promise<void> => {
-    const ours = await compileContract({
+    const ours = await compileContractWithTypeScript({
         source,
         contractName: name,
         slot: 27,
@@ -104,9 +104,9 @@ const checkBothSides = async (source: string, name: string, expected: string): P
         const dir = mkdtempSync(join(tmpdir(), `${name}-`));
         try {
             writeFileSync(join(dir, `${name}.h`), source);
-            const built = await buildContractWithWasiClang({
+            const built = await buildContractWithClang({
                 contractPath: join(dir, `${name}.h`),
-                name,
+                contractName: name,
                 slot: 27,
                 corePath: CORE,
                 outDir: dir,

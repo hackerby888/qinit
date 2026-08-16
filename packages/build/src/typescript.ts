@@ -1,16 +1,28 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { compileContract, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
+import { compileContractWithTypeScript, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { analyzeContract, type SourceAnalysisResult } from "@qinit/compiler/analyzer";
 import { k12Hex } from "@qinit/core";
 import type { ContractBuildResult } from "./index";
-
-export type TypeScriptContractBuildResult = ContractBuildResult;
+import { resolveContractSource } from "./contract-source";
 
 export interface TypeScriptCalleeBuildOptions {
     header: string;
     index: number;
     stateType?: string;
+}
+
+// Every field here is spelled as in ClangBuildOptions, so one options object drives either backend.
+// Clang-only knobs (skipVerify, wasmClang, extraCompileFlags) have no meaning for this backend.
+export interface TypeScriptBuildOptions {
+    contractPath?: string; // supply this or `source`
+    source?: string;
+    contractName: string;
+    stateType?: string;
+    slot: number;
+    corePath: string;
+    outDir: string;
+    dynCallees?: Record<string, TypeScriptCalleeBuildOptions>;
 }
 
 interface DynamicCalleeSource {
@@ -51,23 +63,20 @@ function requireCalleeIdl(callee: DynamicCalleeSource, result: SourceAnalysisRes
     };
 }
 
-export async function buildContractWithTypeScript(o: {
-    contractPath: string;
-    name: string;
-    stateType?: string;
-    slot: number;
-    core: string;
-    outDir: string;
-    dynCallees?: Record<string, TypeScriptCalleeBuildOptions>;
-}): Promise<TypeScriptContractBuildResult> {
-    const qpiHeader = loadQpiHeader(o.core);
+export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Promise<ContractBuildResult> {
+    const qpiHeader = loadQpiHeader(o.corePath);
     if (!qpiHeader) {
         return {
             ok: false,
             stderr: "cannot load qpi.h — set QINIT_CORE or pass --core-dir <core-lite checkout>",
         };
     }
-    const source = readFileSync(o.contractPath, "utf8");
+    let source: string;
+    try {
+        source = resolveContractSource(o).source;
+    } catch (error: any) {
+        return { ok: false, stderr: String(error?.message ?? error) };
+    }
 
     const dynamicCallees = Object.entries(o.dynCallees ?? {}).map(([name, { header, index, stateType }]) => ({
         name,
@@ -91,8 +100,8 @@ export async function buildContractWithTypeScript(o: {
         slot,
         source: calleeSource,
     }));
-    const contractStateType = o.stateType ?? o.name;
-    const result = await compileContract({
+    const contractStateType = o.stateType ?? o.contractName;
+    const result = await compileContractWithTypeScript({
         source,
         contractName: contractStateType,
         slot: o.slot,
@@ -113,15 +122,15 @@ export async function buildContractWithTypeScript(o: {
 
     const warnings = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.WARNING);
     const idl =
-        contractStateType === o.name
+        contractStateType === o.contractName
             ? result.idl
             : {
                   ...result.idl,
-                  name: o.name,
+                  name: o.contractName,
               };
 
     mkdirSync(o.outDir, { recursive: true });
-    const wasmPath = join(o.outDir, `${o.name}.wasm`);
+    const wasmPath = join(o.outDir, `${o.contractName}.wasm`);
     writeFileSync(wasmPath, Buffer.from(result.wasm));
     return {
         ok: true,

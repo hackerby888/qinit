@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Ensures nested aliases from state.get() cannot mutate contract state.
 import { describe, expect, test } from "bun:test";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
 
@@ -18,7 +18,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function expectReadonlyRejection(source: string) {
-    const result = await compileContract({
+    const result = await compileContractWithTypeScript({
         source,
         contractName: "ReadonlyAliasEdge",
         slot: 27,

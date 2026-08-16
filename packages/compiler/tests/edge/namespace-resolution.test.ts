@@ -2,11 +2,11 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Namespace-aware free-helper resolution: using-directives, qualified forms, no accidental QPI fallback.
 import { describe, expect, test } from "bun:test";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
 
-const compile = (source: string, strict = true) => compileContract({ source, contractName: "NsProbe", slot: 28, qpiHeader: HEADERS, strict });
+const compile = (source: string, strict = true) => compileContractWithTypeScript({ source, contractName: "NsProbe", slot: 28, qpiHeader: HEADERS, strict });
 
 const contractShell = (prelude: string, body: string, members = "") => `${prelude}
 struct CONTRACT_STATE2_TYPE {};
@@ -111,7 +111,7 @@ struct HelperCallee : public ContractBase {
   static void mix(const uint64& value, uint64& result) { result = value + 1ull; }
 };`;
         const source = contractShell(`using namespace QPI;`, `HelperCallee::derive(input.v, output.r);`);
-        const callee = await compileContract({
+        const callee = await compileContractWithTypeScript({
             source: calleeSource,
             contractName: "HelperCallee",
             slot: 27,
@@ -121,7 +121,7 @@ struct HelperCallee : public ContractBase {
         if (!callee.idl) {
             throw new Error("successful callee compile returned no IDL");
         }
-        const r = await compileContract({
+        const r = await compileContractWithTypeScript({
             source,
             contractName: "NsProbe",
             slot: 28,
@@ -171,7 +171,7 @@ namespace Wrap {
   inline uint64 wrapped(uint64 v) { return plusSeven(v); }
 }`;
         const source = contractShell(`using namespace QPI;`, `output.r = Wrap::wrapped(input.v);`);
-        const r = await compileContract({ source, contractName: "NsProbe", slot: 28, qpiHeader });
+        const r = await compileContractWithTypeScript({ source, contractName: "NsProbe", slot: 28, qpiHeader });
         expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
         expect(r.diagnostics.some((d) => /plusSeven|unsupported call/i.test(d.message))).toBe(false);
         expect(r.wasm.byteLength).toBeGreaterThan(100);

@@ -3,7 +3,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "../../src";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src";
 import { readSourceTree } from "../support/source-tree";
 
 const CORE = CORE_PATH;
@@ -45,7 +45,7 @@ describe("source-method lowering ratchet", () => {
     beforeAll(initK12);
 
     test("Array and selector behavior comes from authoritative method bodies", async () => {
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: SOURCE,
             contractName: "SourceMethods",
             slot: 27,

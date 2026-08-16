@@ -1,2 +1,2 @@
-export { emitCallStatement, emitCallStatement as emitCall } from "./statement-call";
+export { emitCallStatement } from "./statement-call";
 export type { CallExpression } from "./call-expression";

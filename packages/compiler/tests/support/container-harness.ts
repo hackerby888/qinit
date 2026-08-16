@@ -2,9 +2,9 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract } from "../../src/index";
+import { compileContractWithTypeScript } from "../../src/index";
 
 export const CONTAINER_SLOT = 27;
 export const CONTAINER_ARENA_SIZE = 4 * 1024 * 1024;
@@ -92,7 +92,7 @@ export function executeContainerScript(wasm: Uint8Array, operations: readonly Co
 }
 
 export async function compileTsFixture(fixture: ContainerFixture, qpiHeader: string): Promise<Uint8Array> {
-    const result = await compileContract({
+    const result = await compileContractWithTypeScript({
         source: fixture.source,
         contractName: fixture.name,
         slot: CONTAINER_SLOT,
@@ -110,9 +110,9 @@ export async function compileClangFixture(fixture: ContainerFixture, corePath: s
     const dir = mkdtempSync(join(tmpdir(), `qinit-container-${fixture.family.toLowerCase()}-`));
     const contractPath = join(dir, `${fixture.name}.h`);
     writeFileSync(contractPath, fixture.source);
-    const result = await buildContractWithWasiClang({
+    const result = await buildContractWithClang({
         contractPath,
-        name: fixture.name,
+        contractName: fixture.name,
         slot: CONTAINER_SLOT,
         corePath,
         outDir: dir,

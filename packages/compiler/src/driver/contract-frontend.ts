@@ -1,6 +1,6 @@
 import type { TranslationUnit } from "../ast";
 import { Lexer } from "../frontend/lexer";
-import { Parser, type Diagnostic as ParserDiagnostic } from "../frontend/parser";
+import { Parser, type ParserDiagnostic } from "../frontend/parser";
 import { Preprocessor } from "../frontend/preprocessor";
 import { validateAndDesugar } from "../frontend/validation";
 import { SCAFFOLD_MACROS } from "./qpi/scaffold";
@@ -45,7 +45,11 @@ export function parseContractSource(preprocessed: PreprocessedContractSource, di
     return translationUnit;
 }
 
-export function validateContractSource(translationUnit: TranslationUnit, preprocessed: PreprocessedContractSource, diagnostics: ParserDiagnostic[]): void {
+export function validateAndDesugarContractSource(
+    translationUnit: TranslationUnit,
+    preprocessed: PreprocessedContractSource,
+    diagnostics: ParserDiagnostic[],
+): void {
     diagnostics.push(...userSourceDiagnostics(validateAndDesugar(translationUnit), preprocessed));
 }
 

@@ -4,7 +4,8 @@ import { statSync, readFileSync } from "node:fs";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
-import { compileWasmContract, type ContractBuildOptions } from "./recipe";
+import { compileWasmContract, type ClangBuildOptions } from "./recipe";
+import { resolveContractSource } from "./contract-source";
 // Embedded as text by `bun build --compile` (import.meta.dir asset files aren't bundled into the binary).
 import TEST_UTIL_H from "./assets/test_util.h" with { type: "text" };
 import { extractIdl, type ContractIdl } from "./idl";
@@ -17,9 +18,9 @@ import { k12Hex } from "@qinit/core";
 import { analyzeContract } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
 
-export type { ContractBuildOptions } from "./recipe";
+export type { ClangBuildOptions } from "./recipe";
 export { generateWasmWrapperSource } from "./recipe";
-export { buildContractWithTypeScript, type TypeScriptCalleeBuildOptions, type TypeScriptContractBuildResult } from "./typescript";
+export { buildContractWithTypeScript, type TypeScriptBuildOptions, type TypeScriptCalleeBuildOptions } from "./typescript";
 export { buildCalleePrelude, parseRegisters, scanCallees, parseContractDef } from "./intercontract";
 export type { DynCallees, CalleeDef } from "./intercontract";
 export { resolveProjectDependencies } from "./project-dependencies";
@@ -60,8 +61,16 @@ export interface ContractBuildResult {
 
 export type SystemContractCompiler = "clang" | "typescript";
 
-export async function buildContractWithWasiClang(o: ContractBuildOptions): Promise<ContractBuildResult> {
-    const source = readFileSync(o.contractPath, "utf8");
+export async function buildContractWithClang(input: ClangBuildOptions): Promise<ContractBuildResult> {
+    let source: string;
+    let o: ClangBuildOptions & { contractPath: string };
+    try {
+        const resolved = resolveContractSource(input);
+        source = resolved.source;
+        o = { ...input, contractPath: resolved.contractPath };
+    } catch (error: any) {
+        return { ok: false, stderr: String(error?.message ?? error) };
+    }
     let qpiHeader: string | undefined;
     let qpiHeaderError: string | undefined;
     try {
@@ -74,7 +83,7 @@ export async function buildContractWithWasiClang(o: ContractBuildOptions): Promi
     // LinkedList has no safe public wire representation; reject it even when verification is skipped.
     const analysis = analyzeContract({
         source,
-        contractName: o.stateType ?? o.name,
+        contractName: o.stateType ?? o.contractName,
         slot: o.slot,
         qpiHeader,
     });
@@ -93,7 +102,7 @@ export async function buildContractWithWasiClang(o: ContractBuildOptions): Promi
     const calleeNames = [...new Set([...Object.keys(o.dynCallees ?? {}), ...calls.map((call) => call.callee)])];
     const verify = o.skipVerify
         ? { available: false, ok: true, oracle: false, errors: [] as string[] }
-        : await verifyContract(o.contractPath, o.name, { allowedPrefixes: calleeNames });
+        : await verifyContract(o.contractPath, o.contractName, { allowedPrefixes: calleeNames });
     if (verify.available && !verify.ok) {
         return {
             ok: false,
@@ -107,7 +116,7 @@ export async function buildContractWithWasiClang(o: ContractBuildOptions): Promi
     let calleePrelude = o.calleePrelude;
     if (calleePrelude === undefined) {
         try {
-            calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, o.stateType ?? o.name);
+            calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, o.stateType ?? o.contractName);
         } catch (e: any) {
             return {
                 ok: false,
@@ -138,7 +147,7 @@ export async function buildContractWithWasiClang(o: ContractBuildOptions): Promi
         if (qpiHeaderError) {
             throw new Error(qpiHeaderError);
         }
-        idl = extractIdl(source, o.name, {
+        idl = extractIdl(source, o.contractName, {
             slot: o.slot,
             qpiHeader,
             stateType: o.stateType,
@@ -164,7 +173,7 @@ export async function buildContractWithWasiClang(o: ContractBuildOptions): Promi
 export async function buildCorpusRunner(o: {
     corpusPath: string;
     contractPath: string;
-    name: string;
+    contractName: string;
     stateType: string;
     slot: number;
     corePath: string;
@@ -206,12 +215,12 @@ export async function buildCorpusRunner(o: {
         const contractSrc = readFileSync(o.contractPath, "utf8");
         calleePrelude = buildCalleePrelude(o.corePath, `${contractSrc}\n${testSource}`, o.dynCallees ?? {}, o.stateType);
     } catch {
-        // Fall back to buildContractWithWasiClang's contract-only derivation.
+        // Fall back to buildContractWithClang's contract-only derivation.
     }
 
-    return buildContractWithWasiClang({
+    return buildContractWithClang({
         contractPath: o.contractPath,
-        name: o.name,
+        contractName: o.contractName,
         stateType: o.stateType,
         slot: o.slot,
         corePath: o.corePath,
@@ -249,9 +258,9 @@ export async function buildSystemContract(
     const compiler = opts.compiler ?? "clang";
     const outDir = opts.outDir ?? join(tmpdir(), "qinit-system");
     if (compiler === "clang") {
-        const result = await buildContractWithWasiClang({
+        const result = await buildContractWithClang({
             contractPath: join(corePath, "src", "contracts", contract.file),
-            name: contract.name,
+            contractName: contract.name,
             stateType: contract.stateType,
             slot: contract.index,
             corePath,
@@ -277,10 +286,10 @@ export async function buildSystemContract(
     );
     const result = await buildContractWithTypeScript({
         contractPath: join(corePath, "src", "contracts", contract.file),
-        name: contract.name,
+        contractName: contract.name,
         stateType: contract.stateType,
         slot: contract.index,
-        core: corePath,
+        corePath,
         outDir,
         dynCallees: dependencies,
     });

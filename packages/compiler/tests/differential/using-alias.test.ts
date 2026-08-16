@@ -4,7 +4,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -55,7 +55,7 @@ describe("using type aliases", () => {
     });
 
     test("struct-scope and function-scope aliases compile and resolve", async () => {
-        const r = await compileContract({
+        const r = await compileContractWithTypeScript({
             source: SRC,
             contractName: "Alias",
             slot: 28,

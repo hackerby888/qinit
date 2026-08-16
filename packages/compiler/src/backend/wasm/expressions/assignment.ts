@@ -30,9 +30,3 @@ export function emitAssignment(context: FunctionEmissionContext, expression: Ass
 
     context.programAnalysis.warn(`unsupported assignment target [${describeShape(expression.left)}]`, expression.span.line);
 }
-
-// Compatibility export for callers that still expect discarded-expression text.
-export function emitAssign(context: FunctionEmissionContext, expression: AssignmentExpression): string {
-    emitAssignment(context, expression);
-    return "";
-}

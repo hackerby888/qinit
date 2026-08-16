@@ -3,7 +3,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 
@@ -79,7 +79,7 @@ describe("scratchpad RAII and pointer lowering", () => {
 
     beforeAll(async () => {
         await initK12();
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: SOURCE,
             contractName: "ScratchRaii",
             slot: 27,

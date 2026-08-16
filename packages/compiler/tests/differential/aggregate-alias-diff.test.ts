@@ -5,10 +5,10 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const SLOT = 27;
@@ -82,7 +82,7 @@ function words(state: Uint8Array): bigint[] {
 
 beforeAll(async () => {
     await initK12();
-    const ours = await compileContract({
+    const ours = await compileContractWithTypeScript({
         source: SOURCE,
         contractName: "AggregateAlias",
         slot: SLOT,
@@ -99,9 +99,9 @@ beforeAll(async () => {
         nativeDir = mkdtempSync(join(tmpdir(), "qinit-aggregate-alias-"));
         const contractPath = join(nativeDir, "AggregateAlias.h");
         writeFileSync(contractPath, SOURCE);
-        const built = await buildContractWithWasiClang({
+        const built = await buildContractWithClang({
             contractPath,
-            name: "AggregateAlias",
+            contractName: "AggregateAlias",
             slot: SLOT,
             corePath: CORE,
             outDir: nativeDir,

@@ -1,7 +1,7 @@
 // The structural Wasm parser throws in 26 places and the suite only ever fed it one truncated header, so
 // a wrong or missing parse error was invisible. Each case here pins the message and the byte offset.
 import { describe, expect, test } from "bun:test";
-import { inspectWasmModule } from "../../src/driver/wasm-inspect";
+import { inspectWasmModule } from "../../src/driver/wasm-inspection";
 
 const HEADER = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
 

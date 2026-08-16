@@ -3,7 +3,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { runCompiledGtest } from "@qinit/engine";
-import { compileContract, compileGtest, loadQpiHeader } from "../../src";
+import { compileContractWithTypeScript, compileGtestWithTypeScript, loadQpiHeader } from "../../src";
 
 const CORE = CORE_PATH;
 const QPI = loadQpiHeader(CORE);
@@ -78,7 +78,7 @@ describe("core-lite-style gtest compiler", () => {
     beforeAll(async () => initK12());
 
     test("compiles and executes a standard ContractTesting test without clang", async () => {
-        const compiled = await compileGtest({
+        const compiled = await compileGtestWithTypeScript({
             source: CONTRACT,
             testSource: STANDARD_GTEST,
             contractName: "Counter",
@@ -88,7 +88,7 @@ describe("core-lite-style gtest compiler", () => {
         expect(compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         expect(compiled.program?.tests.map((item) => item.name)).toEqual(["Counter.Increment"]);
 
-        const contract = await compileContract({
+        const contract = await compileContractWithTypeScript({
             source: CONTRACT,
             contractName: "Counter",
             slot: 28,
@@ -103,7 +103,7 @@ describe("core-lite-style gtest compiler", () => {
     }, 120000);
 
     test("rejects the removed ContractTest style", async () => {
-        const compiled = await compileGtest({
+        const compiled = await compileGtestWithTypeScript({
             source: CONTRACT,
             testSource: `TEST(Counter, Old) { ContractTest t; }`,
             contractName: "Counter",
@@ -115,7 +115,7 @@ describe("core-lite-style gtest compiler", () => {
     });
 
     test("compiles loops through the normal frontend", async () => {
-        const compiled = await compileGtest({
+        const compiled = await compileGtestWithTypeScript({
             source: CONTRACT,
             testSource: STANDARD_GTEST.replace("Counter::Inc_output out = t.inc(user);", "for (int i = 0; i < 3; ++i) { t.inc(user); }"),
             contractName: "Counter",
@@ -127,14 +127,14 @@ describe("core-lite-style gtest compiler", () => {
     });
 
     test("reports a failed compiler-backed assertion", async () => {
-        const compiled = await compileGtest({
+        const compiled = await compileGtestWithTypeScript({
             source: CONTRACT,
             testSource: STANDARD_GTEST.replace("EXPECT_EQ(t.get().value, 7ull);", "EXPECT_EQ(t.get().value, 8ull);"),
             contractName: "Counter",
             slot: 28,
             qpiHeader: QPI,
         });
-        const contract = await compileContract({
+        const contract = await compileContractWithTypeScript({
             source: CONTRACT,
             contractName: "Counter",
             slot: 28,

@@ -7,7 +7,7 @@ import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { QubicSimulator, runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -193,7 +193,7 @@ describe("safe-math + uint128 semantics vs BigInt reference", () => {
 
     beforeAll(async () => {
         await initK12();
-        const mine = await compileContract({
+        const mine = await compileContractWithTypeScript({
             source: SRC,
             contractName: "M128",
             slot: 6,
@@ -393,7 +393,7 @@ describe("differential gtest — safe-math saturation + uint128 boundaries", () 
                 tempPrefix: "math-u128-",
             });
 
-            const mine = await compileContract({
+            const mine = await compileContractWithTypeScript({
                 source: SRC,
                 contractName: "M128",
                 slot: 28,

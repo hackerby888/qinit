@@ -129,8 +129,8 @@ export class Preprocessor {
     isIdContinue(ch: string): boolean {
         return sourceScanner.isIdContinue(this, ch);
     }
-    peek(offset: number): string {
-        return sourceScanner.peek(this, offset);
+    peekChar(offset: number): string {
+        return sourceScanner.peekChar(this, offset);
     }
     skipWhitespace(): void {
         return sourceScanner.skipWhitespace(this);

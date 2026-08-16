@@ -1,6 +1,6 @@
 import { AstKind, QpiContextKind, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { getFunctionLoweringServices } from "./function-lowering-registry";
-import { ProgramAnalysis } from "../../../analysis/program-analysis";
+import { ProgramAnalysis } from "../../../semantics/program-analysis";
 import { FunctionEmissionContext, StructLayout, CompiledHelperMetadata, TemplateBindings, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, Statement, FunctionDecl } from "../../../ast";
 import * as watIr from "../wat-ir";

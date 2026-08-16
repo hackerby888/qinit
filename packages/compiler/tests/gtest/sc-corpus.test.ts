@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initK12 } from "@qinit/core";
 import { runContractTesting } from "@qinit/engine";
-import { buildContractWithWasiClang, buildCorpusRunner } from "@qinit/build";
-import { compileContract, loadQpiHeader, type CompileResult, type ContractIdl } from "../../src/index";
+import { buildContractWithClang, buildCorpusRunner } from "@qinit/build";
+import { compileContractWithTypeScript, loadQpiHeader, type CompileResult, type ContractIdl } from "../../src/index";
 import { CORE } from "../support/qutil-bridge";
 import { toolchainTest, wasiToolchain, type ToolchainStatus } from "../support/container-toolchains";
 
@@ -189,7 +189,7 @@ async function buildRunnerFor(spec: Spec, outDir: string): Promise<Uint8Array> {
     const r = await buildCorpusRunner({
         corpusPath: `${CORE}/test/${spec.corpus}`,
         contractPath: `${CORE}/src/contracts/${spec.header}`,
-        name: spec.name,
+        contractName: spec.name,
         stateType: spec.stateType,
         slot: spec.slot,
         corePath: CORE,
@@ -218,7 +218,7 @@ async function buildWithTypeScript(spec: Spec): Promise<Record<number, Uint8Arra
             name: item.name,
             source: readFileSync(`${CORE}/src/contracts/${item.header}`, "utf8"),
         }));
-        const r = await compileContract({
+        const r = await compileContractWithTypeScript({
             source: src,
             contractName: callee.name,
             slot: callee.slot,
@@ -242,7 +242,7 @@ async function buildWithTypeScript(spec: Spec): Promise<Record<number, Uint8Arra
         source: readFileSync(`${CORE}/src/contracts/${c.header}`, "utf8"),
     }));
 
-    const mainR = await compileContract({
+    const mainR = await compileContractWithTypeScript({
         source: mainSrc,
         contractName: spec.name,
         slot: spec.slot,
@@ -264,9 +264,9 @@ async function buildWithClang(spec: Spec, outDir: string): Promise<Record<number
     const out: Record<number, Uint8Array> = {};
 
     for (const callee of spec.callees) {
-        const r = await buildContractWithWasiClang({
+        const r = await buildContractWithClang({
             contractPath: `${CORE}/src/contracts/${callee.header}`,
-            name: callee.name,
+            contractName: callee.name,
             stateType: callee.stateType,
             slot: callee.slot,
             corePath: CORE,
@@ -280,9 +280,9 @@ async function buildWithClang(spec: Spec, outDir: string): Promise<Record<number
         out[callee.slot] = new Uint8Array(readFileSync(r.wasmPath));
     }
 
-    const mainR = await buildContractWithWasiClang({
+    const mainR = await buildContractWithClang({
         contractPath: `${CORE}/src/contracts/${spec.header}`,
-        name: spec.name,
+        contractName: spec.name,
         stateType: spec.stateType,
         slot: spec.slot,
         corePath: CORE,

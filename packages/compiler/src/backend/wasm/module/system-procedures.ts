@@ -1,6 +1,6 @@
 import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
-import type { ProgramAnalysis } from "../../../analysis/program-analysis";
-import type { StructLayout } from "../../../analysis/types";
+import type { ProgramAnalysis } from "../../../semantics/program-analysis";
+import type { StructLayout } from "../../../semantics/types";
 import type { FunctionDecl, StructDecl, TypeSpec } from "../../../ast";
 import type { ModuleSpecification, SystemProcedureInfo } from "../framework";
 import { SYSPROC_IO } from "../abi/tables";

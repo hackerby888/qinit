@@ -1,7 +1,7 @@
 import { InspectedMemoryMode, WasmMemorySource, WasmModuleMemoryMode, WasmValueType } from "../../src/shared/enums";
 import { describe, expect, test } from "bun:test";
 import { emitModule, type ModuleSpecification } from "../../src/backend/wasm/framework";
-import { inspectWasmModule, LHOST_ABI, WASM_MODULE_EXPORT_ABI } from "../../src/driver/wasm-inspect";
+import { inspectWasmModule, LHOST_ABI, WASM_MODULE_EXPORT_ABI } from "../../src/driver/wasm-inspection";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const SPEC: ModuleSpecification = {

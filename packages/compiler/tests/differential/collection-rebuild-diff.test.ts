@@ -3,10 +3,10 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Collection rebalancing parity for BST in PoV state.
 import { describe, expect, beforeAll } from "bun:test";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -64,9 +64,9 @@ describe("differential — Collection BST rebuild state parity", () => {
             const contractPath = join(dir, "CollP.h");
             writeFileSync(contractPath, SRC);
 
-            const built = await buildContractWithWasiClang({
+            const built = await buildContractWithClang({
                 contractPath,
-                name: "CollP",
+                contractName: "CollP",
                 slot: 28,
                 corePath: CORE,
                 outDir: dir,
@@ -75,7 +75,7 @@ describe("differential — Collection BST rebuild state parity", () => {
             expect(built.ok).toBe(true);
             const nativeWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
-            const mine = await compileContract({
+            const mine = await compileContractWithTypeScript({
                 source: SRC,
                 contractName: "CollP",
                 slot: 28,

@@ -1,15 +1,15 @@
 import { DiagnosticCategory, DiagnosticSeverity } from "../shared/enums";
-import { SemanticAnalyzer } from "../analysis/semantic-analysis";
+import { SemanticAnalyzer } from "../semantics/semantic-analysis";
 import { generateWasmModule, type ModuleGenerationRequest } from "../backend/wasm/module/module-generator";
 import type { GeneratedContractMetadata } from "../backend/wasm/module/library-index";
 import { collectCalleeContext } from "./callees";
 import { CompilationPhaseTracker } from "./compilation-phase-tracker";
-import { parseContractSource, preprocessContractSource, remapAnalysisDiagnostics, validateContractSource } from "./contract-frontend";
+import { parseContractSource, preprocessContractSource, remapAnalysisDiagnostics, validateAndDesugarContractSource } from "./contract-frontend";
 import type { PreprocessedContractSource } from "./contract-frontend";
 import { scanUnterminatedSource } from "./diagnostics";
 import { validateCompileOptions } from "./options";
 import { getQpiContext } from "./qpi-context";
-import type { Diagnostic as ParserDiagnostic } from "../frontend/parser";
+import type { ParserDiagnostic } from "../frontend/parser";
 import type { CompileOptions, CompileResult } from "./types";
 import { emptyResult } from "./compile-result";
 import { dumpWatIfRequested, encodeAndInspectWat } from "./wasm-encoder";
@@ -39,7 +39,7 @@ export async function compileContract(options: CompileOptions): Promise<CompileR
     }
 
     await phases.enter("validating");
-    validateContractSource(translationUnit, preprocessed, diagnostics);
+    validateAndDesugarContractSource(translationUnit, preprocessed, diagnostics);
 
     if (hasErrors(diagnostics)) {
         return emptyResult(options, diagnostics);

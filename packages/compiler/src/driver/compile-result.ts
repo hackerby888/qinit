@@ -1,4 +1,4 @@
-import { type Diagnostic as ParserDiagnostic } from "../frontend/parser";
+import { type ParserDiagnostic } from "../frontend/parser";
 import type { CompileOptions, CompileResult } from "./types";
 
 export function emptyResult(_options: CompileOptions, diagnostics: ParserDiagnostic[], timings?: Record<string, number>): CompileResult {

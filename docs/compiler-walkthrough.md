@@ -98,7 +98,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 With:
 
 ```ts
-compileContract({
+compileContractWithTypeScript({
     source,
     contractName: "IdlEdge",
     slot: 27,
@@ -155,13 +155,16 @@ clients with the current Qinit before using them.
 The public function in [`index.ts`](../packages/compiler/src/index.ts) is:
 
 ```ts
-export async function compileContract(opts: CompileOptions): Promise<CompileResult> {
-    return compileContractWithHeader({
-        ...opts,
-        qpiHeader: opts.qpiHeader ?? loadQpiHeader(),
-    });
+export async function compileContractWithTypeScript(options: TypeScriptCompileOptions): Promise<CompileResult> {
+    return compileContract(resolveOptions(options));
 }
 ```
+
+It is the TypeScript half of the backend pair; `buildContractWithClang()` in `@qinit/build` is the other.
+`resolveOptions` reads `contractPath` when no `source` is given and derives `qpiHeader` from `corePath`, so one
+options object drives either backend. `compileContract` in
+[`driver/compile-contract.ts`](../packages/compiler/src/driver/compile-contract.ts) is the strict form beneath
+it, requiring source text and a QPI header outright.
 
 The caller supplies source, contract name, contract slot, optional callees, and compiler options.
 
@@ -176,7 +179,7 @@ interface CompileResult {
 }
 ```
 
-`compileContract()` does not return WAT. WAT exists temporarily inside the pipeline. `generateWasmModule()` returns WAT, then the pipeline assembles it into Wasm.
+`compileContractWithTypeScript()` does not return WAT. WAT exists temporarily inside the pipeline. `generateWasmModule()` returns WAT, then the pipeline assembles it into Wasm.
 
 ## 2. Loading core-lite's QPI definitions
 

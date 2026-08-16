@@ -3,7 +3,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "../../src";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src";
 import { PLATFORM_PRIMITIVES, platformPrimitive } from "../../src/backend/wasm/calls/platform-primitives";
 import { readSourceTree } from "../support/source-tree";
 
@@ -55,7 +55,7 @@ describe("typed platform primitive registry", () => {
     });
 
     test("zero, overloaded constructors, conversion helpers, and isZero compile from core source", async () => {
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: SOURCE,
             contractName: "PlatformSource",
             slot: 27,

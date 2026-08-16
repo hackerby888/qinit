@@ -12,7 +12,7 @@ import {
 
 const opts = (over: Partial<Parameters<typeof generateWasmWrapperSource>[0]> = {}) => ({
     contractPath: "/abs/Counter.h",
-    name: "Counter",
+    contractName: "Counter",
     slot: 7,
     corePath: "/core",
     outDir: "/out",
@@ -144,7 +144,7 @@ test("generateWasmWrapperSource: slot/name interpolation for a system contract",
     const w = generateWasmWrapperSource({
         ...opts(),
         slot: 28,
-        name: "QX",
+        contractName: "QX",
         contractPath: "contracts/QX.h",
     });
 

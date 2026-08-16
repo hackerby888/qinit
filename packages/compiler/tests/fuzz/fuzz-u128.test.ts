@@ -5,10 +5,10 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 import { generate, encodeInput } from "../../tools/fuzz-gen-u128";
 
 const CORE = CORE_PATH;
@@ -67,7 +67,7 @@ describe("fuzz pinned uint128 seeds", () => {
         const seed = Number(seedStr);
         test(`seed ${seed}`, async () => {
             const c = generate(seed);
-            const ours = await compileContract({
+            const ours = await compileContractWithTypeScript({
                 source: c.source,
                 contractName: `U${seed}`,
                 slot: 27,
@@ -81,9 +81,9 @@ describe("fuzz pinned uint128 seeds", () => {
                 const dir = mkdtempSync(join(tmpdir(), `fuzzpin128-${seed}-`));
                 try {
                     writeFileSync(join(dir, "U.h"), c.source);
-                    const built = await buildContractWithWasiClang({
+                    const built = await buildContractWithClang({
                         contractPath: join(dir, "U.h"),
-                        name: "U",
+                        contractName: "U",
                         slot: 27,
                         corePath: CORE,
                         outDir: dir,

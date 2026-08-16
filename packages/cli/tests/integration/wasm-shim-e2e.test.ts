@@ -76,9 +76,9 @@ test.skipIf(!haveQx)(
             });
             const gauntlet = await buildContractWithTypeScript({
                 contractPath: join(import.meta.dir, "../../../../fixtures/Gauntlet.h"),
-                name: "Gauntlet",
+                contractName: "Gauntlet",
                 slot: 29,
-                core: CORE,
+                corePath: CORE,
                 outDir,
                 dynCallees: {
                     QX: {

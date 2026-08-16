@@ -6,10 +6,10 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { writeFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -105,7 +105,7 @@ describe("32-bit width fidelity vs native", () => {
             name,
             async () => {
                 const src = wrap(c.body);
-                const ours = await compileContract({
+                const ours = await compileContractWithTypeScript({
                     source: src,
                     contractName: "W32",
                     slot: 27,
@@ -118,9 +118,9 @@ describe("32-bit width fidelity vs native", () => {
                 if (wasiOk) {
                     const dir = mkdtempSync(join(tmpdir(), "w32-"));
                     writeFileSync(join(dir, "W32.h"), src);
-                    const built = await buildContractWithWasiClang({
+                    const built = await buildContractWithClang({
                         contractPath: join(dir, "W32.h"),
-                        name: "W32",
+                        contractName: "W32",
                         slot: 27,
                         corePath: CORE,
                         outDir: dir,

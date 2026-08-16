@@ -1,6 +1,6 @@
 import { AstKind, LogPayloadDefect } from "../../../shared/enums";
 import { SCALAR_SIZE } from "../../../shared/scalar-sizes";
-import type { StructLayout } from "../../../analysis/types";
+import type { StructLayout } from "../../../semantics/types";
 import type { TypeSpec } from "../../../ast";
 
 // The host logs the payload bytes preceding _terminator, so a log struct must carry one past the

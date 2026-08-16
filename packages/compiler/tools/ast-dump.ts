@@ -3,7 +3,7 @@ import { CORE_PATH } from "../../../test-utils/paths";
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
-import { parseToAst, formatAst, loadQpiHeader } from "../src/index";
+import { parseToAstWithTypeScript, formatAst, loadQpiHeader } from "../src/index";
 
 const CORE = CORE_PATH;
 
@@ -16,7 +16,7 @@ if (!input) {
 const source = readFileSync(input, "utf8");
 const name = basename(input).replace(/\.[^.]+$/, "");
 
-const { ast, diagnostics } = parseToAst({
+const { ast, diagnostics } = parseToAstWithTypeScript({
     source,
     qpiHeader: loadQpiHeader(CORE),
     contractName: name,

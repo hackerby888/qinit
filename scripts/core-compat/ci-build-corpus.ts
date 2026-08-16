@@ -1,6 +1,6 @@
 // Compile the fixture corpus and QX/QEARN against core-lite to catch ABI drift.
 import { resolve } from "node:path";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 
 const core = process.env.QINIT_CORE;
 if (!core) {
@@ -37,9 +37,9 @@ const corpus: { name: string; path: string; dynCallees?: Callees; skipVerify?: b
 let failed = 0;
 for (const contract of corpus) {
     // Proxy (slot 29) calls Counter (slot 28): caller index must be > callee.
-    const result = await buildContractWithWasiClang({
+    const result = await buildContractWithClang({
         contractPath: contract.path,
-        name: contract.name,
+        contractName: contract.name,
         slot: 29,
         corePath: core,
         outDir: "/tmp/corpus",

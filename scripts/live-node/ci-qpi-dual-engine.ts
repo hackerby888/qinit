@@ -3,9 +3,9 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { deployContract } from "@qinit/cli/ops/deploy";
-import { compileContract, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, inspectWasmModule, loadQpiHeader } from "@qinit/compiler";
+import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, inspectWasmModule, loadQpiHeader } from "@qinit/compiler";
 import { DEFAULT_RPC_BASE, hexToBytes, initK12, k12Hex, LiteRpc } from "@qinit/core";
 import { VirtualNode } from "@qinit/engine";
 import { EngineServer } from "@qinit/engine/server";
@@ -83,7 +83,7 @@ async function artifact(compiler: CompilerBackendLabel, role: Role, slot: number
 }
 
 async function compileTsPair(calleeSlot: number, driverSlot: number, qpiHeader: string): Promise<Artifact[]> {
-    const callee = await compileContract({
+    const callee = await compileContractWithTypeScript({
         source: calleeSource,
         contractName: "QpiDualCallee",
         slot: calleeSlot,
@@ -97,7 +97,7 @@ async function compileTsPair(calleeSlot: number, driverSlot: number, qpiHeader: 
     if (!callee.idl) {
         fail("successful TS callee compile returned no IDL");
     }
-    const driver = await compileContract({
+    const driver = await compileContractWithTypeScript({
         source: driverSource,
         contractName: "QpiDual",
         slot: driverSlot,
@@ -126,9 +126,9 @@ async function compileTsPair(calleeSlot: number, driverSlot: number, qpiHeader: 
 }
 
 async function compileClangPair(calleeSlot: number, driverSlot: number): Promise<Artifact[]> {
-    const callee = await buildContractWithWasiClang({
+    const callee = await buildContractWithClang({
         contractPath: calleePath,
-        name: "QpiDualCallee",
+        contractName: "QpiDualCallee",
         slot: calleeSlot,
         corePath: core!,
         outDir: join(scratch, "clang-callee"),
@@ -137,9 +137,9 @@ async function compileClangPair(calleeSlot: number, driverSlot: number): Promise
     if (!callee.ok || !callee.wasmPath || !callee.idl) {
         fail(`Clang callee compile: ${callee.stderr ?? "no artifact"}`);
     }
-    const driver = await buildContractWithWasiClang({
+    const driver = await buildContractWithClang({
         contractPath: driverPath,
-        name: "QpiDual",
+        contractName: "QpiDual",
         slot: driverSlot,
         corePath: core!,
         outDir: join(scratch, "clang-driver"),

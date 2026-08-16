@@ -2,9 +2,9 @@
 // buildCorpusRunner replaces contract_testing.h with the engine-backed test harness.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildContractWithWasiClang, buildCorpusRunner, systemContracts, type DynCallees } from "@qinit/build";
+import { buildContractWithClang, buildCorpusRunner, systemContracts, type DynCallees } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
-import { compileContract, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
+import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { initK12 } from "@qinit/core";
 import type { CompilerBackend } from "../config";
 
@@ -146,14 +146,14 @@ async function clangWasms(
     const build = async (s: StdGtestContractSpec, arenaSizeBytes: number, isMain: boolean, useShared: boolean): Promise<Uint8Array | null> => {
         const common = {
             contractPath: s.contractPath,
-            name: s.name,
+            contractName: s.name,
             stateType: s.stateType,
             slot: s.slot,
             corePath: core,
             skipVerify: true,
             dynCallees,
         };
-        const p1 = await buildContractWithWasiClang({
+        const p1 = await buildContractWithClang({
             ...common,
             outDir: join(scratch, "n_" + s.name),
             ...(useShared ? { arenaSizeBytes } : {}),
@@ -165,7 +165,7 @@ async function clangWasms(
         if (!useShared) return new Uint8Array(readFileSync(p1.wasmPath));
         const base = nextBase;
         nextBase = align64k(base + stateSizeOf(new Uint8Array(readFileSync(p1.wasmPath))) + arenaSizeBytes + SLACK);
-        const p2 = await buildContractWithWasiClang({
+        const p2 = await buildContractWithClang({
             ...common,
             outDir: join(scratch, "ns_" + s.name),
             arenaSizeBytes,
@@ -198,14 +198,14 @@ async function typescriptWasms(
     let nextBase = SHARED_START;
     const emitAt = async (o: any, arenaSizeBytes: number): Promise<{ wasm: Uint8Array; timings?: Record<string, number> }> => {
         const oph = onPhase ? (p: string) => onPhase(`compiling ${o.contractName} (TypeScript) — ${p}`) : undefined;
-        const requireWasm = (r: Awaited<ReturnType<typeof compileContract>>, stage: string) => {
+        const requireWasm = (r: Awaited<ReturnType<typeof compileContractWithTypeScript>>, stage: string) => {
             if (r.wasm.byteLength) return r;
             const errors = r.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR).map((diagnostic) => diagnostic.message);
             throw new Error(`${o.contractName} ${stage}: ${errors.join("; ") || "compiler returned empty wasm"}`);
         };
         if (!shared) {
             const r = requireWasm(
-                await compileContract({
+                await compileContractWithTypeScript({
                     ...o,
                     arenaSizeBytes: ARENA,
                     onPhase: oph,
@@ -214,11 +214,11 @@ async function typescriptWasms(
             );
             return { wasm: r.wasm, timings: r.timings };
         }
-        const p1 = requireWasm(await compileContract({ ...o, arenaSizeBytes: ARENA }), "state-size probe").wasm; // silent — arena-independent
+        const p1 = requireWasm(await compileContractWithTypeScript({ ...o, arenaSizeBytes: ARENA }), "state-size probe").wasm; // silent — arena-independent
         const base = nextBase;
         nextBase = align64k(base + stateSizeOf(p1) + arenaSizeBytes + SLACK);
         const r = requireWasm(
-            await compileContract({
+            await compileContractWithTypeScript({
                 ...o,
                 arenaSizeBytes,
                 sharedMemoryBaseOffsetBytes: base,
@@ -239,7 +239,7 @@ async function typescriptWasms(
             callees: callees.length ? callees : undefined,
             calleeSources: calleeSources.length ? calleeSources : undefined,
         };
-        const dr = await compileContract({
+        const dr = await compileContractWithTypeScript({
             ...depOpts,
             arenaSizeBytes: ARENA,
         });
@@ -331,7 +331,7 @@ export async function runStdGtest(opts: {
     const runner = await buildCorpusRunner({
         corpusPath: opts.testPath,
         contractPath: opts.contractPath,
-        name: opts.name,
+        contractName: opts.name,
         stateType: opts.stateType,
         slot: opts.slot,
         corePath: opts.core,

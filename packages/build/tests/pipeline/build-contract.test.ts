@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithWasiClang } from "../../src";
+import { buildContractWithClang } from "../../src";
 
 test("skipVerify still rejects public LinkedList before Clang", async () => {
     const directory = mkdtempSync(join(tmpdir(), "qinit-linked-list-gate-"));
@@ -23,9 +23,9 @@ struct Unsafe : public ContractBase {
     );
 
     try {
-        const result = await buildContractWithWasiClang({
+        const result = await buildContractWithClang({
             contractPath,
-            name: "Unsafe",
+            contractName: "Unsafe",
             slot: 28,
             corePath: join(directory, "missing-core"),
             outDir: directory,

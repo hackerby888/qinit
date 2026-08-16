@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12, deriveKeysSync } from "@qinit/core";
 import { CORE_PATH } from "../../../../test-utils/paths";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const COUNTER_SRC = readFileSync(new URL("../../../../fixtures/Counter.h", import.meta.url), "utf8");
 const QPI_HEADER = loadQpiHeader(CORE_PATH);
@@ -15,7 +15,7 @@ beforeAll(async () => {
 
 describe("TypeScript Counter compilation", () => {
     test("compiles Counter.h with zero errors", async () => {
-        const r = await compileContract({
+        const r = await compileContractWithTypeScript({
             source: COUNTER_SRC,
             contractName: "Counter",
             slot: 28,
@@ -26,7 +26,7 @@ describe("TypeScript Counter compilation", () => {
     });
 
     test("compiled Counter loads in engine with correct state_size", async () => {
-        const r = await compileContract({
+        const r = await compileContractWithTypeScript({
             source: COUNTER_SRC,
             contractName: "Counter",
             slot: 28,
@@ -39,7 +39,7 @@ describe("TypeScript Counter compilation", () => {
     });
 
     test("Get returns 0 initially", async () => {
-        const r = await compileContract({
+        const r = await compileContractWithTypeScript({
             source: COUNTER_SRC,
             contractName: "Counter",
             slot: 28,
@@ -53,7 +53,7 @@ describe("TypeScript Counter compilation", () => {
     });
 
     test("Inc increments then Get returns 1", async () => {
-        const r = await compileContract({
+        const r = await compileContractWithTypeScript({
             source: COUNTER_SRC,
             contractName: "Counter",
             slot: 28,

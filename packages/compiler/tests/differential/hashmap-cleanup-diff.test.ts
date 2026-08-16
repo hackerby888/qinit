@@ -3,10 +3,10 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks HashMap/HashSet removal-slot reuse and state layout against native behavior.
 import { describe, expect, beforeAll } from "bun:test";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -87,9 +87,9 @@ describe("differential — HashMap set-reuse + cleanup state parity", () => {
             const contractPath = join(dir, "HmP.h");
             writeFileSync(contractPath, SRC);
 
-            const built = await buildContractWithWasiClang({
+            const built = await buildContractWithClang({
                 contractPath,
-                name: "HmP",
+                contractName: "HmP",
                 slot: 28,
                 corePath: CORE,
                 outDir: dir,
@@ -98,7 +98,7 @@ describe("differential — HashMap set-reuse + cleanup state parity", () => {
             expect(built.ok).toBe(true);
             const nativeWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
-            const mine = await compileContract({
+            const mine = await compileContractWithTypeScript({
                 source: SRC,
                 contractName: "HmP",
                 slot: 28,

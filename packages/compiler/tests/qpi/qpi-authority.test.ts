@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, inspectWasmModule, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, inspectWasmModule, loadQpiHeader } from "../../src/index";
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
 
 const CORE = CORE_PATH;
@@ -141,7 +141,7 @@ describe("authoritative QPI capability matrix", () => {
 
     for (const [label, header] of variants) {
         test(`compiles every supported family from ${label}`, async () => {
-            const result = await compileContract({
+            const result = await compileContractWithTypeScript({
                 source: CAPABILITY_SOURCE,
                 contractName: "QpiAuthority",
                 slot: 27,
@@ -173,7 +173,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   PUBLIC_FUNCTION(Read) { output.first = state.get().first; output.second = state.get().second; }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Fill, 1); REGISTER_USER_FUNCTION(Read, 1); }
 };`;
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source,
             contractName: "CustomHash",
             slot: 27,

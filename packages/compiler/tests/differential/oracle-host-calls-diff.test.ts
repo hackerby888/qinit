@@ -3,10 +3,10 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks oracle host-call payloads and reply decoding against native behavior.
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, expect, beforeAll } from "bun:test";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -99,9 +99,9 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
             const contractPath = join(dir, "OrcP.h");
             writeFileSync(contractPath, SRC);
 
-            const built = await buildContractWithWasiClang({
+            const built = await buildContractWithClang({
                 contractPath,
-                name: "OrcP",
+                contractName: "OrcP",
                 slot: 27,
                 corePath: CORE,
                 outDir: dir,
@@ -110,7 +110,7 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
             expect(built.ok).toBe(true);
             const nativeWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
-            const mine = await compileContract({
+            const mine = await compileContractWithTypeScript({
                 source: SRC,
                 contractName: "OrcP",
                 slot: 27,

@@ -11,16 +11,18 @@
 Browser applications import:
 
 ```ts
-import { compileContract, compilerInfo, qpiSnapshot } from "@qinit/compiler/browser";
+import { compileContractWithTypeScript, compilerInfo, qpiSnapshot } from "@qinit/compiler/browser";
 ```
 
 The entry embeds `packages/compiler/src/generated/qpi-snapshot.ts`; it does not
 read files, spawn a compiler, or require a core-lite checkout at runtime.
-`compileContract()` accepts an optional `qpiHeader` only for compatibility tests
-and compiler development.
+`compileContractWithTypeScript()` accepts an optional `qpiHeader` only for compatibility tests
+and compiler development. It exports the same names as the root entry, minus the
+`contractPath` and `corePath` options, which need a filesystem.
 
 `compilerInfo` identifies the Qinit version, core commit, snapshot hash,
-generator version, and compiler protocol version used by the bundle.
+generator version, and compiler protocol version used by the bundle. The protocol
+version is 3; it was 2 while the entry point was named `compileContract`.
 
 ## Snapshot ownership
 

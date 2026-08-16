@@ -7,7 +7,7 @@ import { describe, expect, beforeAll } from "bun:test";
 import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -109,7 +109,7 @@ describe("differential gtest — semantic fidelity edges", () => {
             const built = await buildCorpusRunner({
                 corpusPath: testPath,
                 contractPath,
-                name: "Edge",
+                contractName: "Edge",
                 stateType: "Edge",
                 slot: 28,
                 corePath: CORE,
@@ -118,7 +118,7 @@ describe("differential gtest — semantic fidelity edges", () => {
             expect(built.ok).toBe(true);
             const runnerWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
-            const mine = await compileContract({
+            const mine = await compileContractWithTypeScript({
                 source: SRC,
                 contractName: "Edge",
                 slot: 28,

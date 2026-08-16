@@ -1,11 +1,11 @@
 import { DiagnosticCategory } from "../../../shared/enums";
-import type { ProgramAnalysis } from "../../../analysis/program-analysis";
-import type { SemanticAnalyzer } from "../../../analysis/semantic-analysis";
+import type { ProgramAnalysis } from "../../../semantics/program-analysis";
+import type { SemanticAnalyzer } from "../../../semantics/semantic-analysis";
 import type { SystemProcedureInfo, UserEntry } from "../framework";
 import type { GeneratedContractMetadata } from "./library-index";
 import type { ContractRegistration } from "./registrations";
 
-export function writeGeneratedContractMetadata(
+export function applyGeneratedContractMetadata(
     output: GeneratedContractMetadata | undefined,
     stateSize: number,
     registrations: ContractRegistration[],
@@ -31,7 +31,7 @@ export function writeGeneratedContractMetadata(
     output.lhostAbi = lhostAbi;
 }
 
-export function publishProgramDiagnostics(programAnalysis: ProgramAnalysis, semanticAnalysis: SemanticAnalyzer): void {
+export function copyProgramDiagnostics(programAnalysis: ProgramAnalysis, semanticAnalysis: SemanticAnalyzer): void {
     for (const warning of programAnalysis.warnings) {
         semanticAnalysis.warn(
             warning.message,

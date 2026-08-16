@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { systemContracts } from "@qinit/build";
 import { initK12 } from "@qinit/core";
 import { runCompiledGtest } from "@qinit/engine";
-import { compileContract, compileGtest, loadQpiHeader } from "../../src";
+import { compileContractWithTypeScript, compileGtestWithTypeScript, loadQpiHeader } from "../../src";
 
 const CORE = CORE_PATH;
 const QPI = loadQpiHeader(CORE);
@@ -83,7 +83,7 @@ describe("core-lite system gtest corpus", () => {
             expect(contract!.constructionEpoch).toBe(entry.constructionEpoch);
             const testSource = isolatedTestSource(readFileSync(join(CORE, "test", entry.file), "utf8"), entry.test);
 
-            const runner = await compileGtest({
+            const runner = await compileGtestWithTypeScript({
                 source: contract!.source,
                 testSource,
                 contractName: contract!.stateType,
@@ -94,7 +94,7 @@ describe("core-lite system gtest corpus", () => {
             expect(runner.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
             expect(runner.program?.tests.map((item) => item.name)).toEqual([entry.test]);
 
-            const compiledContract = await compileContract({
+            const compiledContract = await compileContractWithTypeScript({
                 source: contract!.source,
                 contractName: contract!.stateType,
                 slot: contract!.index,

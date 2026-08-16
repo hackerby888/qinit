@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ASSET_ENUMERATION_RECORD, CORE_WASM_HEADERS, LHOST_ABI, loadWasmAbiSource } from "@qinit/core";
 import { emitModule } from "../../src/backend/wasm/framework";
-import { inspectWasmModule, toWasmFunctionSignatures } from "../../src/driver/wasm-inspect";
+import { inspectWasmModule, toWasmFunctionSignatures } from "../../src/driver/wasm-inspection";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const CORE = CORE_PATH;

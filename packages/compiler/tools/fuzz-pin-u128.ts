@@ -3,10 +3,10 @@ import { CORE_PATH } from "../../../test-utils/paths";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { bytesToHex, initK12 } from "@qinit/core";
-import { compileContract, DiagnosticSeverity, loadQpiHeader } from "../src/index";
+import { compileContractWithTypeScript, DiagnosticSeverity, loadQpiHeader } from "../src/index";
 import { generate, encodeInput } from "./fuzz-gen-u128";
 
 const CORE = CORE_PATH;
@@ -27,7 +27,7 @@ function runState(wasm: Uint8Array, inputs: bigint[][]): string {
 
 for (const seed of process.argv.slice(2).map(Number)) {
     const c = generate(seed);
-    const ours = await compileContract({
+    const ours = await compileContractWithTypeScript({
         source: c.source,
         contractName: `U${seed}`,
         slot: 27,
@@ -43,9 +43,9 @@ for (const seed of process.argv.slice(2).map(Number)) {
     const dir = mkdtempSync(join(tmpdir(), `pin128-${seed}-`));
     try {
         writeFileSync(join(dir, "U.h"), c.source);
-        const built = await buildContractWithWasiClang({
+        const built = await buildContractWithClang({
             contractPath: join(dir, "U.h"),
-            name: "U",
+            contractName: "U",
             slot: 27,
             corePath: CORE,
             outDir: dir,

@@ -24,7 +24,7 @@ export async function buildDifferentialRunner(options: DifferentialRunnerOptions
     const built = await buildCorpusRunner({
         corpusPath: testPath,
         contractPath,
-        name: options.name,
+        contractName: options.name,
         stateType: options.name,
         slot,
         corePath: options.corePath,

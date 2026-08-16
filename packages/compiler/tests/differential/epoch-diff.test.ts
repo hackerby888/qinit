@@ -7,7 +7,7 @@ import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, expect, beforeAll } from "bun:test";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -65,7 +65,7 @@ describe("differential gtest — Epoch (END_EPOCH sysproc locals)", () => {
                 tempPrefix: "epoch-diff-",
             });
 
-            const mine = await compileContract({
+            const mine = await compileContractWithTypeScript({
                 source: EPOCHER,
                 contractName: "Epoch",
                 slot: 28,

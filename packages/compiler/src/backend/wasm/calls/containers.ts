@@ -2,7 +2,7 @@ import { AstKind, ContainerEmissionMode, WatNodeType, type WatValueType } from "
 import { getFunctionLoweringServices } from "../functions/function-lowering-registry";
 import { emitScalarLoad, addrIr, isSignedScalarType } from "../memory/memory-operations";
 import { TemplateBindings, CompiledMethod, FieldLayout, FunctionEmissionContext } from "../types";
-import { ProgramAnalysis } from "../../../analysis/program-analysis";
+import { ProgramAnalysis } from "../../../semantics/program-analysis";
 import type { TypeSpec, Expression, FunctionTemplateDecl, ParamDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
 // ---- compiling instantiated container methods from the real qpi.h bodies ----

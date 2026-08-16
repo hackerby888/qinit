@@ -10,7 +10,7 @@ const SOURCE_ROOT = fileURLToPath(new URL("../../src/", import.meta.url));
 const ROOT_ENTRIES = new Set(["index.ts", "browser.ts"]);
 
 // Lowest first. `generated` holds committed build artefacts and depends on nothing.
-const LAYERS = ["generated", "shared", "ast", "frontend", "analysis", "backend", "driver", "analyzer"];
+const LAYERS = ["generated", "shared", "ast", "frontend", "semantics", "backend", "driver", "analyzer"];
 
 const FORBIDDEN_LAYER_IMPORTS: Record<string, Set<string>> = Object.fromEntries(LAYERS.map((layer, index) => [layer, new Set(LAYERS.slice(index + 1))]));
 

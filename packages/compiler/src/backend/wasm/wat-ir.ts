@@ -1,8 +1,8 @@
-import { WatExpectedType, WatNodeKind, WatNodeType, type ExpectedWatType, type WatValueType } from "../../shared/enums";
+import { WatExpectedType, WatNodeKind, WatNodeType, type WatNodeOrExpectedType, type WatValueType } from "../../shared/enums";
 import { LHOST_CALL_SIG } from "./lhost";
 
 export { WatExpectedType, WatNodeKind, WatNodeType };
-export type { ExpectedWatType, WatValueType };
+export type { WatNodeOrExpectedType, WatValueType };
 
 // Typed WAT IR nodes: `i32/i64/void` with constructor-time type assertions.
 
@@ -56,7 +56,7 @@ export function serializeWatNode(node: WatNode): string {
 
 // "val" accepts either value type (used by drop and by value-position checks).
 
-export function assertWatType(node: WatNode, want: ExpectedWatType, context?: string): WatNode {
+export function assertWatType(node: WatNode, want: WatNodeOrExpectedType, context?: string): WatNode {
     const ok = want === WatExpectedType.VALUE ? node.ty !== WatNodeType.VOID : node.ty === want;
     if (!ok) {
         const where = context ? ` in ${context}` : "";
@@ -67,7 +67,7 @@ export function assertWatType(node: WatNode, want: ExpectedWatType, context?: st
 
 interface WatOperationSignature {
     res: WatNodeType;
-    ops: readonly ExpectedWatType[];
+    ops: readonly WatNodeOrExpectedType[];
 }
 
 function binops(prefix: WatValueType): Record<string, WatOperationSignature> {

@@ -44,7 +44,7 @@ export async function buildSnapshot(corePath: string, outRoot: string, options: 
         wrapperPath,
         generateWasmWrapperSource({
             contractPath: stubHeader,
-            name: "Stub",
+            contractName: "Stub",
             slot,
             corePath,
             outDir: snapshotScratchDir,

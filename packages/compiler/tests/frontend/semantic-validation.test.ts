@@ -3,10 +3,10 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Semantic validation coverage for invalid constructs.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -22,7 +22,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 const compile = async (source: string) => {
-    const r = await compileContract({
+    const r = await compileContractWithTypeScript({
         source,
         contractName: "T",
         slot: 27,
@@ -245,9 +245,9 @@ describe("semantic validation — invalid source must fail loudly", () => {
             const src = ACCEPTS["default argument call"];
             const dir = mkdtempSync(join(tmpdir(), "defarg-"));
             writeFileSync(join(dir, "DefArg.h"), src);
-            const built = await buildContractWithWasiClang({
+            const built = await buildContractWithClang({
                 contractPath: join(dir, "DefArg.h"),
-                name: "DefArg",
+                contractName: "DefArg",
                 slot: 27,
                 corePath: CORE,
                 outDir: dir,

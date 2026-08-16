@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
     buildContractWithTypeScript,
-    buildContractWithWasiClang,
+    buildContractWithClang,
     resolveProjectDependencies,
     type ContractBuildResult,
     type ProjectCalleeInput,
@@ -127,16 +127,16 @@ export async function buildProjectContracts(options: {
             options.compiler === "typescript"
                 ? await buildContractWithTypeScript({
                       contractPath: contract.sourcePath,
-                      name: contract.name,
+                      contractName: contract.name,
                       stateType: contract.stateType,
                       slot: contract.index,
-                      core: options.core,
+                      corePath: options.core,
                       outDir: options.outDir,
                       dynCallees: typescriptCallees(dependencies),
                   })
-                : await buildContractWithWasiClang({
+                : await buildContractWithClang({
                       contractPath: contract.sourcePath,
-                      name: contract.name,
+                      contractName: contract.name,
                       stateType: contract.stateType,
                       slot: contract.index,
                       corePath: options.core,

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { buildContractWithWasiClang, type ContractBuildResult, type ContractIdl } from "@qinit/build";
+import { buildContractWithClang, type ContractBuildResult, type ContractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import { LiteRpc, k12Hex, type NodeBackendIdentity } from "@qinit/core";
 import { encodeDeploy, LITE_TX, resolveDeploymentSlot, TX_TICK_OFFSET } from "@qinit/proto";
@@ -112,15 +112,15 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
         : compiler === "typescript"
           ? await buildContractWithTypeScript({
                 contractPath: options.contractPath,
-                name: options.name,
+                contractName: options.name,
                 slot,
-                core: options.core,
+                corePath: options.core,
                 outDir,
                 dynCallees,
             })
-          : await buildContractWithWasiClang({
+          : await buildContractWithClang({
                 contractPath: options.contractPath,
-                name: options.name,
+                contractName: options.name,
                 slot,
                 corePath: options.core,
                 outDir,

@@ -12,8 +12,6 @@ import { ParserState } from "./parser-state";
 import { StatementParser } from "./statement-parser";
 import { TypeParser } from "./types/type-parser";
 
-export type { ParserDiagnostic as Diagnostic } from "./parser-context";
-
 export class Parser {
     readonly state: ParserState;
     readonly declarations: DeclarationParser;

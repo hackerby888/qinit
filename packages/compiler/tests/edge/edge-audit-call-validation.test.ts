@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Calls to compiler-known QPI/container APIs need the same arity/reference checks as native C++.
 import { describe, expect, test } from "bun:test";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
 
@@ -55,7 +55,7 @@ const CASES: Record<string, RejectCase> = {
 describe("edge audit — call validation", () => {
     for (const [name, c] of Object.entries(CASES)) {
         test(name, async () => {
-            const result = await compileContract({
+            const result = await compileContractWithTypeScript({
                 source: c.source,
                 contractName: "CallRejectEdge",
                 slot: 27,

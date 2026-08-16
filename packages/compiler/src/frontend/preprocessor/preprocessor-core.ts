@@ -96,7 +96,7 @@ export function process(preprocessor: Preprocessor, src: string): string {
             continue;
         }
         // Comment stripping
-        if (ch === "/" && preprocessor.peek(1) === "/") {
+        if (ch === "/" && preprocessor.peekChar(1) === "/") {
             const start = preprocessor.pos;
             preprocessor.skipLineComment();
             if (preprocessor.preserveSourceOffsets) {
@@ -104,7 +104,7 @@ export function process(preprocessor: Preprocessor, src: string): string {
             }
             continue;
         }
-        if (ch === "/" && preprocessor.peek(1) === "*") {
+        if (ch === "/" && preprocessor.peekChar(1) === "*") {
             const start = preprocessor.pos;
             const resultLength = preprocessor.result.length;
             preprocessor.skipBlockComment();

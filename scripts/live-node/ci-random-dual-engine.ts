@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEFAULT_RPC_BASE, hexToBytes, initK12, k12Hex, LiteRpc } from "@qinit/core";
-import { compileContract, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, inspectWasmModule, loadQpiHeader } from "@qinit/compiler";
+import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, inspectWasmModule, loadQpiHeader } from "@qinit/compiler";
 import { QubicSimulator } from "@qinit/engine";
 import { deployContract } from "@qinit/cli/ops/deploy";
 import { invokeProcedure, resolveDeploymentSlot } from "@qinit/proto";
@@ -37,7 +37,7 @@ assertCoreBuildProfile(core, ["build-node"], {
 const { slot } = await resolveDeploymentSlot(rpc, "RandomDual");
 const qpiHeader = loadQpiHeader(core);
 assertPinnedQpiHeader(qpiHeader);
-const compiled = await compileContract({
+const compiled = await compileContractWithTypeScript({
     source,
     contractName: "RandomDual",
     slot,

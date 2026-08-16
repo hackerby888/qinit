@@ -1,5 +1,5 @@
 import type { CompileResult, ContractIdl } from "@qinit/compiler/browser";
-import { compileContract } from "@qinit/compiler/browser";
+import { compileContractWithTypeScript } from "@qinit/compiler/browser";
 import API_PROBE_SOURCE from "../fixtures/ApiProbe.h" with { type: "text" };
 import BIG_STATE_SOURCE from "../fixtures/BigState.h" with { type: "text" };
 import COUNTER_SOURCE from "../fixtures/Counter.h" with { type: "text" };
@@ -136,7 +136,7 @@ async function compileFixtureUncached(name: WasmFixtureName): Promise<CompileRes
             source: wasmFixtureManifest[dependencyName].source,
         }));
 
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: definition.source,
             contractName: definition.contractName,
             slot: definition.slot,

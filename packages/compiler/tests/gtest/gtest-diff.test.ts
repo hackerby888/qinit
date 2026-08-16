@@ -7,7 +7,7 @@ import { describe, expect, beforeAll } from "bun:test";
 import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -76,7 +76,7 @@ describe("differential gtest — my contract vs native test logic", () => {
             const built = await buildCorpusRunner({
                 corpusPath: testPath,
                 contractPath,
-                name: "Counter",
+                contractName: "Counter",
                 stateType: "Counter",
                 slot: 28,
                 corePath: CORE,
@@ -86,7 +86,7 @@ describe("differential gtest — my contract vs native test logic", () => {
             const runnerWasm = new Uint8Array(await (await import("node:fs/promises")).readFile(built.wasmPath!));
 
             // 2. My TS compiler builds the contract under test.
-            const mine = await compileContract({
+            const mine = await compileContractWithTypeScript({
                 source: COUNTER,
                 contractName: "Counter",
                 slot: 28,

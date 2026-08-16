@@ -1,10 +1,10 @@
 import { AstKind } from "../../../shared/enums";
-import type { ProgramAnalysis } from "../../../analysis/program-analysis";
-import type { StructLayout } from "../../../analysis/types";
+import type { ProgramAnalysis } from "../../../semantics/program-analysis";
+import type { StructLayout } from "../../../semantics/types";
 import type { TypeSpec } from "../../../ast";
 
 export class ContractLayoutResolver {
-    readonly emptyLayout: StructLayout = createEmptyLayout();
+    readonly emptyLayout: StructLayout = emptyNamedLayout();
 
     constructor(private readonly programAnalysis: ProgramAnalysis) {}
 
@@ -19,7 +19,7 @@ export class ContractLayoutResolver {
             return this.programAnalysis.layoutOf(nestedDeclaration);
         }
 
-        return this.resolveNamedType(name, createEmptyLayout());
+        return this.resolveNamedType(name, emptyNamedLayout());
     }
 
     resolveOptional(name: string | undefined): StructLayout {
@@ -52,7 +52,7 @@ export class ContractLayoutResolver {
     }
 }
 
-function createEmptyLayout(): StructLayout {
+function emptyNamedLayout(): StructLayout {
     return {
         size: 0,
         align: 1,

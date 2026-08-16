@@ -1,6 +1,6 @@
 import { AstKind, WatNodeType } from "../../../shared/enums";
 import { SCALAR_SIZE } from "../abi/tables";
-import { ProgramAnalysis } from "../../../analysis/program-analysis";
+import { ProgramAnalysis } from "../../../semantics/program-analysis";
 import { FunctionEmissionContext } from "../types";
 import type { TypeSpec, Expression } from "../../../ast";
 import * as watIr from "../wat-ir";

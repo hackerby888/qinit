@@ -7,7 +7,7 @@ import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, expect, beforeAll } from "bun:test";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -70,7 +70,7 @@ describe("differential gtest — BitArray (bit_4096 set/get/setAll)", () => {
                 tempPrefix: "bitarray-diff-",
             });
 
-            const mine = await compileContract({
+            const mine = await compileContractWithTypeScript({
                 source: BITS,
                 contractName: "Bits",
                 slot: 28,

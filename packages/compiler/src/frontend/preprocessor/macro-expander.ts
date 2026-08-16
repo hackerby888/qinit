@@ -23,7 +23,7 @@ export function tryExpandMacro(preprocessor: Preprocessor, name: string): string
     const saveLine = preprocessor.line;
     // Expect opening paren
     preprocessor.skipWhitespaceAndNewlines();
-    if (preprocessor.peek(0) !== "(") {
+    if (preprocessor.peekChar(0) !== "(") {
         preprocessor.pos = savePos;
         preprocessor.line = saveLine;
         return null; // not invoked as function-like macro

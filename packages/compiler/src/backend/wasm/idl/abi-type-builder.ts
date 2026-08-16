@@ -17,8 +17,8 @@ import {
 import { bitWordCount, collectionFmt, hashMapFmt, hashSetFmt, linkedListFmt } from "@qinit/proto/qpi-layout";
 import { AstKind } from "../../../shared/enums";
 import type { StructDecl, TypeSpec } from "../../../ast";
-import { EMPTY_TEMPLATE_BINDINGS, type StructLayout, type TemplateBindings } from "../../../analysis/types";
-import type { ProgramAnalysis } from "../../../analysis/program-analysis";
+import { EMPTY_TEMPLATE_BINDINGS, type StructLayout, type TemplateBindings } from "../../../semantics/types";
+import type { ProgramAnalysis } from "../../../semantics/program-analysis";
 import { evalIntegralConst } from "../../../frontend/validation/validation-helpers";
 import { scalarKindForName, scalarKindForSize } from "./scalars";
 

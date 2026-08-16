@@ -73,7 +73,7 @@ export function systemContractDescriptions(coreRoot: string): SystemContractDesc
 
 export function generateWasmContractTestingHeaderForCore(o: {
     corePath: string;
-    name: string;
+    contractName: string;
     slot: number;
     additionalContracts?: readonly { index: number; name: string }[];
 }): string {
@@ -88,7 +88,7 @@ export function generateWasmContractTestingHeaderForCore(o: {
         }));
     descriptions.push({
         index: o.slot,
-        assetName: o.name,
+        assetName: o.contractName,
         constructionEpoch: mainContract?.constructionEpoch ?? 0,
     });
     for (const contract of o.additionalContracts ?? []) {

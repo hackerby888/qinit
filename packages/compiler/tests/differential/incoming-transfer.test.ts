@@ -4,7 +4,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -41,7 +41,7 @@ describe("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () =
     });
 
     test("a reward-bearing procedure fires PIT with the right amount + type", async () => {
-        const sink = await compileContract({
+        const sink = await compileContractWithTypeScript({
             source: SINK,
             contractName: "Sink",
             slot: 28,

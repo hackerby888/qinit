@@ -1,5 +1,5 @@
 import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
-import type { ProgramAnalysis } from "../../../analysis/program-analysis";
+import type { ProgramAnalysis } from "../../../semantics/program-analysis";
 import type { FunctionDecl, StructDecl } from "../../../ast";
 import type { CompiledHelperMetadata } from "../types";
 import { isQpiContextParam } from "../qpi-names";

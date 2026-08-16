@@ -4,7 +4,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
 
@@ -19,7 +19,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function run(source: string): Promise<{ value: bigint; stateSize: number }> {
-    const result = await compileContract({
+    const result = await compileContractWithTypeScript({
         source,
         contractName: "EnumEdge",
         slot: 27,

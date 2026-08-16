@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { bytesToHex, initK12 } from "@qinit/core";
 import { wasiSdkPaths } from "@qinit/core/project";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, DiagnosticSeverity, loadQpiHeader } from "../src/index";
+import { compileContractWithTypeScript, DiagnosticSeverity, loadQpiHeader } from "../src/index";
 
 interface FuzzContract {
     seed: number;
@@ -83,7 +83,7 @@ async function checkSeed(contract: FuzzContract, headers: string, wasiAvailable:
 
     let oursHex: string;
     try {
-        const ours = await compileContract({
+        const ours = await compileContractWithTypeScript({
             source: contract.source,
             contractName: `${options.contractPrefix}${contract.seed}`,
             slot: 27,
@@ -118,9 +118,9 @@ async function checkSeed(contract: FuzzContract, headers: string, wasiAvailable:
 
     try {
         writeFileSync(contractPath, contract.source);
-        const built = await buildContractWithWasiClang({
+        const built = await buildContractWithClang({
             contractPath,
-            name: options.contractPrefix,
+            contractName: options.contractPrefix,
             slot: 27,
             corePath: options.corePath,
             outDir: directory,

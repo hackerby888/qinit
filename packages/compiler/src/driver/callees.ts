@@ -1,5 +1,5 @@
 import { AstKind, DiagnosticSeverity } from "../shared/enums";
-import type { Diagnostic as ParserDiagnostic } from "../frontend/parser";
+import type { ParserDiagnostic } from "../frontend/parser";
 import type { Declaration, StructDecl } from "../ast";
 import type { CompileOptions } from "./types";
 import type { QpiContext } from "./qpi-context";

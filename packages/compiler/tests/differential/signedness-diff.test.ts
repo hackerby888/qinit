@@ -7,10 +7,10 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { writeFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -90,7 +90,7 @@ describe("differential — mixed signed/unsigned state parity", () => {
             name,
             async () => {
                 const source = wrap(testCase.body);
-                const ours = await compileContract({
+                const ours = await compileContractWithTypeScript({
                     source,
                     contractName: "Signedness",
                     slot: 27,
@@ -103,9 +103,9 @@ describe("differential — mixed signed/unsigned state parity", () => {
                 if (wasiOk) {
                     const dir = mkdtempSync(join(tmpdir(), "signedness-"));
                     writeFileSync(join(dir, "Signedness.h"), source);
-                    const built = await buildContractWithWasiClang({
+                    const built = await buildContractWithClang({
                         contractPath: join(dir, "Signedness.h"),
-                        name: "Signedness",
+                        contractName: "Signedness",
                         slot: 27,
                         corePath: CORE,
                         outDir: dir,

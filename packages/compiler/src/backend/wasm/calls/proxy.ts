@@ -1,7 +1,7 @@
 import { AstKind, WatNodeType } from "../../../shared/enums";
 import { getFunctionLoweringServices } from "../functions/function-lowering-registry";
 import { classifyMethodParam } from "./containers";
-import { ProgramAnalysis } from "../../../analysis/program-analysis";
+import { ProgramAnalysis } from "../../../semantics/program-analysis";
 import { qpiWrapperMethod } from "./call-shape";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS, CompiledMethod, TemplateBindings, FieldLayout } from "../types";
 import type { TypeSpec, Expression, FunctionTemplateDecl } from "../../../ast";

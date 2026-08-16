@@ -3,7 +3,7 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { describe, expect, test } from "bun:test";
-import { compileContract, loadQpiHeader } from "../../src";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src";
 
 const HEADER = loadQpiHeader(CORE_PATH);
 
@@ -22,7 +22,7 @@ ${body}
 };`;
 
 async function codegenErrors(body: string) {
-    const result = await compileContract({
+    const result = await compileContractWithTypeScript({
         source: wrap(body),
         contractName: "Probe",
         slot: 27,

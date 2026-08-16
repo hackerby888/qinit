@@ -392,7 +392,7 @@ export enum WatExpectedType {
 
 export type WatValueType = WatNodeType.I32 | WatNodeType.I64;
 
-export type ExpectedWatType = WatNodeType | WatExpectedType;
+export type WatNodeOrExpectedType = WatNodeType | WatExpectedType;
 
 export enum SourceScannerState {
     NORMAL = "normal",

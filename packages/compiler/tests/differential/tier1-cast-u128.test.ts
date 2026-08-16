@@ -4,7 +4,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -73,7 +73,7 @@ describe("tier-1: uint128 bitwise & narrowing casts", () => {
     });
 
     test("compiles clean under the strict fidelity gate", async () => {
-        const r = await compileContract({
+        const r = await compileContractWithTypeScript({
             source: SRC,
             contractName: "T1",
             slot: 6,
@@ -84,7 +84,7 @@ describe("tier-1: uint128 bitwise & narrowing casts", () => {
     });
 
     test("engine output matches the C++-semantics reference", async () => {
-        const mine = await compileContract({
+        const mine = await compileContractWithTypeScript({
             source: SRC,
             contractName: "T1",
             slot: 6,

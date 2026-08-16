@@ -1,9 +1,9 @@
 import type { FunctionLoweringServices } from "./functions/function-lowering-contract";
-import type { ProgramAnalysis } from "../../analysis/program-analysis";
+import type { ProgramAnalysis } from "../../semantics/program-analysis";
 import type { TypeSpec } from "../../ast";
-import type { StructLayout, TemplateBindings } from "../../analysis/types";
+import type { StructLayout, TemplateBindings } from "../../semantics/types";
 import type { QpiContextKind, WatValueType } from "../../shared/enums";
-export * from "../../analysis/types";
+export * from "../../semantics/types";
 
 export interface FunctionEmissionContext {
     programAnalysis: ProgramAnalysis;

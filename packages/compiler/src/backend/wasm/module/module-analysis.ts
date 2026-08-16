@@ -1,11 +1,11 @@
 import { AstKind } from "../../../shared/enums";
-import { ProgramAnalysis } from "../../../analysis/program-analysis";
-import type { StructLayout } from "../../../analysis/types";
+import { ProgramAnalysis } from "../../../semantics/program-analysis";
+import type { StructLayout } from "../../../semantics/types";
 import type { Declaration, FunctionDecl, StructDecl } from "../../../ast";
 import type { QpiContextLayout } from "../framework";
-import type { SemanticAnalyzer } from "../../../analysis/semantic-analysis";
+import type { SemanticAnalyzer } from "../../../semantics/semantic-analysis";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
-import type { ResolvedCalleeIdl } from "../../../analysis/types";
+import type { ResolvedCalleeIdl } from "../../../semantics/types";
 import { registerContractCallables, type ContractCallableCatalog } from "./contract-callables";
 import { findContractStruct } from "./contract-discovery";
 import { contextLayoutFromCodegen, type LibrarySymbolIndex, registerLibraryMetadata } from "./library-index";
@@ -61,7 +61,7 @@ export function prepareContractModule(request: PrepareContractModuleRequest): Pr
         return {
             programAnalysis,
             declarations: request.translationUnit.declarations,
-            stateLayout: createEmptyLayout(),
+            stateLayout: emptyStateLayout(),
             layouts,
             registrations: [],
             callables: {
@@ -175,7 +175,7 @@ export function prepareContractState(
     recordMemberFunctionLines(programAnalysis, contract);
 
     const stateDeclaration = programAnalysis["nested"].get("StateData");
-    const stateLayout = stateDeclaration ? programAnalysis.layoutOf(stateDeclaration) : createEmptyLayout();
+    const stateLayout = stateDeclaration ? programAnalysis.layoutOf(stateDeclaration) : emptyStateLayout();
 
     programAnalysis.contractStateLayout = stateLayout;
     return stateLayout;
@@ -196,7 +196,7 @@ function recordMemberFunctionLines(programAnalysis: ProgramAnalysis, contract: S
     }
 }
 
-function createEmptyLayout(): StructLayout {
+function emptyStateLayout(): StructLayout {
     return {
         size: 1,
         align: 1,

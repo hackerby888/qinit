@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks that diagnostics retain original-source spans after preprocessing.
 import { describe, expect, test } from "bun:test";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
 
@@ -24,7 +24,7 @@ const ERROR_COLUMN = UNKNOWN_SOURCE.split("\n")[ERROR_LINE - 1]!.indexOf("missin
 
 describe("edge audit — user-facing diagnostic spans", () => {
     test("an unknown identifier reports its original source line", async () => {
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: UNKNOWN_SOURCE,
             contractName: "DiagnosticEdge",
             slot: 27,
@@ -37,7 +37,7 @@ describe("edge audit — user-facing diagnostic spans", () => {
     });
 
     test("an unknown identifier reports its original source column", async () => {
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: UNKNOWN_SOURCE,
             contractName: "DiagnosticEdge",
             slot: 27,
@@ -52,7 +52,7 @@ describe("edge audit — user-facing diagnostic spans", () => {
     test("a parse error also reports a line within the original source", async () => {
         const source = UNKNOWN_SOURCE.replace(`missingValue + 1`, `1 + ;`);
         const sourceLineCount = source.split("\n").length;
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source,
             contractName: "DiagnosticEdge",
             slot: 27,

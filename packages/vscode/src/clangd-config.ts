@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { generateWasmWrapperSource, WASM_CONTRACT_CLANG_FLAGS, WASM_TEST_UTIL_HEADER, type ContractBuildOptions } from "@qinit/build/recipe";
+import { generateWasmWrapperSource, WASM_CONTRACT_CLANG_FLAGS, WASM_TEST_UTIL_HEADER, type ClangBuildOptions } from "@qinit/build/recipe";
 import { generateWasmContractTestingHeaderForCore } from "@qinit/build/system-contracts";
 import { buildCalleePrelude, type DynCallees } from "@qinit/build/intercontract";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
@@ -104,7 +104,7 @@ function sourceDetails(o: ClangdInputs): {
     name: string;
     slot: number;
     dir: string;
-    options: ContractBuildOptions;
+    options: ClangBuildOptions;
 } {
     const contractPath = resolve(o.contractPath);
     const contractFile = forwardSlashes(contractPath);
@@ -121,9 +121,9 @@ function sourceDetails(o: ClangdInputs): {
 
     const calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, name);
 
-    const options: ContractBuildOptions = {
+    const options: ClangBuildOptions = {
         contractPath: contractFile,
-        name,
+        contractName: name,
         slot,
         corePath: o.corePath,
         outDir: dir,
@@ -212,7 +212,7 @@ export function generateTestClangdConfig(o: ClangdInputs & { testPath: string })
         join(details.dir, "contract_testing.h"),
         generateWasmContractTestingHeaderForCore({
             corePath: o.corePath,
-            name: details.name,
+            contractName: details.name,
             slot: details.slot,
         }),
     );

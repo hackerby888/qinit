@@ -40,11 +40,12 @@ export const WASM_TEST_UTIL_HEADER = TEST_UTIL_H;
 
 export const WASM_CONTRACT_CLANG_FLAGS = ["--target=wasm32-wasi", "-std=c++20", "-fno-rtti", "-fno-exceptions", "-DLITEDYN_CONTRACT_TU"] as const;
 
-export interface ContractBuildOptions {
-    contractPath: string; // absolute path to the contract .h
-    name: string; // contract name (artifact filenames + IDL); also the C++ struct type unless stateType is set
-    stateType?: string; // the C++ contract struct type for the wrapper #defines — differs from `name` when the
-    // on-chain ticker isn't the struct name (e.g. system contract QTRY -> struct QUOTTERY)
+export interface ClangBuildOptions {
+    contractPath?: string; // absolute path to the contract .h; supply this or `source`
+    source?: string; // contract source text; staged into outDir as <contractName>.h, since clang needs a real file
+    contractName: string; // contract name (artifact filenames + IDL); also the C++ struct type unless stateType is set
+    stateType?: string; // the C++ contract struct type for the wrapper #defines — differs from `contractName` when
+    // the on-chain ticker isn't the struct name (e.g. system contract QTRY -> struct QUOTTERY)
     slot: number; // CONTRACT_INDEX
     corePath: string; // qubic-core-lite root
     outDir: string;
@@ -92,8 +93,8 @@ export function buildPreamble(): string {
 }
 
 // --- wasm contract target (contract compiled TO wasm, run by the node's WAMR engine) ---
-export function generateWasmWrapperSource(o: ContractBuildOptions): string {
-    const contractType = o.stateType ?? o.name;
+export function generateWasmWrapperSource(o: ClangBuildOptions): string {
+    const contractType = o.stateType ?? o.contractName;
     const wrapper = `${buildPreamble()}${o.calleePrelude ?? ""}
 #define CONTRACT_INDEX ${o.slot}
 #define ${contractType}_CONTRACT_INDEX ${o.slot}
@@ -123,7 +124,7 @@ export function generateWasmWrapperSource(o: ContractBuildOptions): string {
         return wrapper;
     }
     // Inject Qinit's private TEST/EXPECT registry before the core-lite-style test source.
-    const testPath = (o.testPath ?? `${o.name}.test.cpp`).replace(/\\/g, "/").replace(/"/g, "");
+    const testPath = (o.testPath ?? `${o.contractName}.test.cpp`).replace(/\\/g, "/").replace(/"/g, "");
     return `${wrapper}#define QINIT_WASM_GTEST
 ${WASM_GTEST_H}
 #line 1 "${testPath}"
@@ -203,12 +204,12 @@ async function ensureWasmPch(clang: string, pchFlags: string[]): Promise<string 
 
 // clang must target wasm32-wasi (the bundled clang.wasm multitool has the WebAssembly backend; a native
 // wasi-sdk clang++ also works). wasmSysroot = the wasi-sysroot with libc++ headers.
-export async function compileWasmContract(o: ContractBuildOptions & { wasmClang?: string; wasmSysroot?: string }): Promise<WasmCompileResult> {
+export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: string; wasmSysroot?: string }): Promise<WasmCompileResult> {
     const src = join(o.corePath, "src");
     await mkdir(o.outDir, { recursive: true });
-    const wrapper = join(o.outDir, `${o.name}.wasm.wrapper.cpp`);
+    const wrapper = join(o.outDir, `${o.contractName}.wasm.wrapper.cpp`);
     await writeFile(wrapper, generateWasmWrapperSource(o));
-    const wasm = join(o.outDir, `${o.name}.wasm`);
+    const wasm = join(o.outDir, `${o.contractName}.wasm`);
     const sdk = wasiSdkPaths();
     const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang ?? "clang++";
     const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT ?? sdk?.sysroot;
@@ -263,9 +264,9 @@ export async function compileWasmContract(o: ContractBuildOptions & { wasmClang?
             const dir = cut >= 0 ? clang.slice(0, cut + 1) : "";
             const exe = process.platform === "win32" ? ".exe" : "";
             const tool = (name: string) => dir + name + exe;
-            const dbg = join(o.outDir, `${o.name}.debug.wasm`);
+            const dbg = join(o.outDir, `${o.contractName}.debug.wasm`);
             await copyFile(wasm, dbg);
-            const lj = join(o.outDir, `${o.name}.lines.json`);
+            const lj = join(o.outDir, `${o.contractName}.lines.json`);
             if (
                 writeLineMap(dbg, lj, {
                     objdump: tool("llvm-objdump"),

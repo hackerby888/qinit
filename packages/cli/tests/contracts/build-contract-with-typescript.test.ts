@@ -98,9 +98,9 @@ test("buildContractWithTypeScript analyzes transitive cyclic callees before one 
 
     const result = await buildContractWithTypeScript({
         contractPath: mainPath,
-        name: "Main",
+        contractName: "Main",
         slot: 31,
-        core: CORE_PATH,
+        corePath: CORE_PATH,
         outDir,
         dynCallees: {
             Mirror: { header: mirrorPath, index: 30 },
@@ -128,10 +128,10 @@ test("buildContractWithTypeScript supports a state type distinct from the artifa
 
     const result = await buildContractWithTypeScript({
         contractPath,
-        name: "ALIAS",
+        contractName: "ALIAS",
         stateType: "ActualState",
         slot: 31,
-        core: CORE_PATH,
+        corePath: CORE_PATH,
         outDir,
     });
 

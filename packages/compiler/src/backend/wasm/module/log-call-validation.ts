@@ -1,6 +1,6 @@
 import { AstKind, LogPayloadDefect } from "../../../shared/enums";
-import type { ProgramAnalysis } from "../../../analysis/program-analysis";
-import type { StructLayout } from "../../../analysis/types";
+import type { ProgramAnalysis } from "../../../semantics/program-analysis";
+import type { StructLayout } from "../../../semantics/types";
 import type { Expression, FunctionDecl, Statement, TypeSpec } from "../../../ast";
 import { isKnownScalarType, logPayloadDefect, logPayloadMessage } from "../abi/log-payload";
 import { SYSPROC_IO } from "../abi/tables";

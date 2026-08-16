@@ -1,5 +1,5 @@
 import type { TranslationUnit } from "../ast";
-import type { Diagnostic as ParserDiagnostic } from "../frontend/parser";
+import type { ParserDiagnostic } from "../frontend/parser";
 import { scanUnterminatedSource, USER_BOUNDARY } from "./diagnostics";
 import { parseContractSource, preprocessContractSource } from "./contract-frontend";
 import { getQpiMacros } from "./qpi-macros";

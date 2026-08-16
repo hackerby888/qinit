@@ -1,6 +1,4 @@
-import { DiagnosticCategory, DiagnosticSeverity } from "../shared/enums";
-import type { Span } from "../ast";
-import type { Diagnostic as ParserDiagnostic } from "../frontend/parser";
+import type { ParserDiagnostic } from "../frontend/parser";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 
 export type { ContractIdl } from "@qinit/proto/contract-idl";
@@ -41,6 +39,8 @@ export interface GtestProgram {
     tests: Array<{ name: string; inputType: number }>;
 }
 
+// The element type of CompileResult.diagnostics — the single name both entry points publish.
+export type CompileDiagnostic = ParserDiagnostic;
 export type GtestDiagnostic = ParserDiagnostic;
 
 export interface GtestCompileResult {
@@ -48,12 +48,4 @@ export interface GtestCompileResult {
     program?: GtestProgram;
     diagnostics: GtestDiagnostic[];
     idl?: ContractIdl;
-}
-
-export interface Diagnostic {
-    severity: DiagnosticSeverity.ERROR | DiagnosticSeverity.WARNING;
-    message: string;
-    file?: string;
-    span: Span;
-    category?: DiagnosticCategory.FIDELITY;
 }

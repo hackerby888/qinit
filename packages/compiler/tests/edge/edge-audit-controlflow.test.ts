@@ -4,7 +4,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -103,7 +103,7 @@ function run(inputType: number): bigint {
 describe("edge audit — control-flow semantics", () => {
     beforeAll(async () => {
         await initK12();
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: SOURCE,
             contractName: "ControlEdge",
             slot: 27,

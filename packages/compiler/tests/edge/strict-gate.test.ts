@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Ensures placeholder lowerings fail strict builds instead of silently diverging.
 import { describe, expect, test } from "bun:test";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
 
@@ -35,7 +35,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 describe("strict fidelity gate", () => {
     test("default (strict) aborts with an error and empty wasm", async () => {
-        const r = await compileContract({
+        const r = await compileContractWithTypeScript({
             source: SRC,
             contractName: "StrictProbe",
             slot: 28,
@@ -49,7 +49,7 @@ describe("strict fidelity gate", () => {
     });
 
     test("strict: false keeps the legacy placeholder build, warning only", async () => {
-        const r = await compileContract({
+        const r = await compileContractWithTypeScript({
             source: SRC,
             contractName: "StrictProbe",
             slot: 28,
@@ -64,7 +64,7 @@ describe("strict fidelity gate", () => {
 
     test("a clean contract passes strict untouched", async () => {
         const clean = SRC.replace("UNKNOWN_FIDELITY_CONST", "input.v + 1").replace("struct Probe_input {};", "struct Probe_input { uint64 v; };");
-        const r = await compileContract({
+        const r = await compileContractWithTypeScript({
             source: clean,
             contractName: "StrictProbe",
             slot: 28,

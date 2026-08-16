@@ -1,6 +1,6 @@
 import { AstKind, QpiContextKind } from "../../../shared/enums";
-import { ProgramAnalysis } from "../../../analysis/program-analysis";
-import type { StructLayout } from "../../../analysis/types";
+import { ProgramAnalysis } from "../../../semantics/program-analysis";
+import type { StructLayout } from "../../../semantics/types";
 import type { Expression, StructDecl, FunctionDecl } from "../../../ast";
 import { evalIntegralConst } from "../../../frontend/validation/validation-helpers";
 import type { UserEntry } from "../framework/framework-types";

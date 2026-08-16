@@ -21,7 +21,7 @@ const bundle = "../dist/browser.js";
 const browser = await import(bundle);
 console.log("compilerInfo:", browser.compilerInfo);
 
-const res = await browser.compileContract({
+const res = await browser.compileContractWithTypeScript({
     source: SOURCE,
     contractName: "SMOKE",
     slot: 27,

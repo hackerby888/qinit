@@ -3,7 +3,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, inspectWasmModule, loadQpiHeader } from "../../src";
+import { compileContractWithTypeScript, inspectWasmModule, loadQpiHeader } from "../../src";
 import { readSourceTree } from "../support/source-tree";
 
 const CORE = CORE_PATH;
@@ -63,7 +63,7 @@ function same(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 async function compile(source = SOURCE) {
-    const result = await compileContract({
+    const result = await compileContractWithTypeScript({
         source,
         contractName: "RandomProbe",
         slot: SLOT,
@@ -159,14 +159,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Run, 1); }
 };`;
-        const plain = await compileContract({
+        const plain = await compileContractWithTypeScript({
             source: source(false),
             contractName: "NestedRandom",
             slot: SLOT,
             qpiHeader: HEADERS,
             arenaSizeBytes: 1 << 20,
         });
-        const reentrant = await compileContract({
+        const reentrant = await compileContractWithTypeScript({
             source: source(true),
             contractName: "NestedRandom",
             slot: SLOT,

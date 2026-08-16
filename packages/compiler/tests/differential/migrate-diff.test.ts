@@ -3,10 +3,10 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // MIGRATE() parity for redeploy flow.
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, expect, beforeAll } from "bun:test";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -87,9 +87,9 @@ describe("differential — MIGRATE() redeploy state parity", () => {
             const buildNative = async (name: string, src: string) => {
                 const contractPath = join(dir, `${name}.h`);
                 writeFileSync(contractPath, src);
-                const built = await buildContractWithWasiClang({
+                const built = await buildContractWithClang({
                     contractPath,
-                    name,
+                    contractName: name,
                     slot: 26,
                     corePath: CORE,
                     outDir: dir,
@@ -99,7 +99,7 @@ describe("differential — MIGRATE() redeploy state parity", () => {
                 return new Uint8Array(readFileSync(built.wasmPath!));
             };
             const buildOurs = async (name: string, src: string) => {
-                const mine = await compileContract({
+                const mine = await compileContractWithTypeScript({
                     source: src,
                     contractName: name,
                     slot: 26,

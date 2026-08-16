@@ -4,7 +4,7 @@ import { generateWasmModule } from "../backend/wasm/module/module-generator";
 import type { GeneratedContractMetadata } from "../backend/wasm/module/library-index";
 import { findContractStruct } from "../backend/wasm/module/contract-discovery";
 import type { StructDecl } from "../ast";
-import { SemanticAnalyzer } from "../analysis/semantic-analysis";
+import { SemanticAnalyzer } from "../semantics/semantic-analysis";
 import { getQpiContext } from "./qpi-context";
 import { parseToAst } from "./parse-ast";
 import type { CompileOptions, GtestCompileResult, GtestDiagnostic, GtestProgram } from "./types";

@@ -1,21 +1,22 @@
 import type { Span } from "../ast";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
-import type { Diagnostic as CompilerDiagnostic } from "../frontend/parser";
+import type { ParserDiagnostic } from "../frontend/parser";
 import { AnalysisPhase, DiagnosticCategory, DiagnosticSeverity, QpiContextKind, SourceAnalysisOrigin } from "../shared/enums";
 import { QPI_SNAPSHOT } from "../generated/qpi-snapshot";
-import { parseContractSource, preprocessContractSource, remapAnalysisDiagnostics, validateContractSource } from "../driver/contract-frontend";
+import { parseContractSource, preprocessContractSource, remapAnalysisDiagnostics, validateAndDesugarContractSource } from "../driver/contract-frontend";
 import { scanUnterminatedSource } from "../driver/diagnostics";
 import { getQpiMacros } from "../driver/qpi-macros";
 import type { CompileOptions } from "../driver/types";
 import { collectCalleeContext } from "../driver/callees";
 import { collectProcedureDeclLines, collectSourceContractCalls, type SourceContractCall } from "../driver/semantic-calls";
 import { getQpiContext } from "../driver/qpi-context";
-import { SemanticAnalyzer } from "../analysis/semantic-analysis";
+import { SemanticAnalyzer } from "../semantics/semantic-analysis";
 import { prepareContractModule } from "../backend/wasm/module/module-analysis";
 import type { ContractRegistration } from "../backend/wasm/module/registrations";
-import { publishProgramDiagnostics } from "../backend/wasm/module/module-output";
+import { copyProgramDiagnostics } from "../backend/wasm/module/module-output";
 import { buildContractIdl } from "../backend/wasm/idl";
 import { analyzeQpiPolicy, detectQpiContractName } from "./source-policy";
+import { compareDiagnostics } from "./rules/fixes";
 
 export { QPI_BANNED_KEYWORDS } from "./source-policy";
 export { Lexer, TokenKind } from "../frontend/lexer";
@@ -135,7 +136,7 @@ function analyzeCompiler(
         };
         const qpiContext = getQpiContext(options.qpiHeader);
         const preprocessed = preprocessContractSource(compileOptions, getQpiMacros(options.qpiHeader));
-        const parserDiagnostics: CompilerDiagnostic[] = [];
+        const parserDiagnostics: ParserDiagnostic[] = [];
         const translationUnit = parseContractSource(preprocessed, parserDiagnostics);
         const diagnostics = parserDiagnostics.map((item) => compilerDiagnostic(item, AnalysisPhase.SYNTAX));
 
@@ -143,8 +144,8 @@ function analyzeCompiler(
             return { diagnostics };
         }
 
-        const validationDiagnostics: CompilerDiagnostic[] = [];
-        validateContractSource(translationUnit, preprocessed, validationDiagnostics);
+        const validationDiagnostics: ParserDiagnostic[] = [];
+        validateAndDesugarContractSource(translationUnit, preprocessed, validationDiagnostics);
         diagnostics.push(...validationDiagnostics.map((item) => compilerDiagnostic(item, AnalysisPhase.SEMANTIC)));
 
         if (hasErrors(validationDiagnostics)) {
@@ -175,7 +176,7 @@ function analyzeCompiler(
             slot: compileOptions.slot,
             dependencies: calls.map((call) => call.callee),
         });
-        publishProgramDiagnostics(prepared.programAnalysis, semanticAnalysis);
+        copyProgramDiagnostics(prepared.programAnalysis, semanticAnalysis);
         diagnostics.push(
             ...remapAnalysisDiagnostics(semanticAnalysis.getDiagnostics(), preprocessed).map((item) => compilerDiagnostic(item, AnalysisPhase.SEMANTIC)),
         );
@@ -199,7 +200,7 @@ function analyzeCompiler(
     }
 }
 
-function compilerDiagnostic(item: CompilerDiagnostic, phase: AnalysisPhase): SourceAnalysisDiagnostic {
+function compilerDiagnostic(item: ParserDiagnostic, phase: AnalysisPhase): SourceAnalysisDiagnostic {
     return {
         origin: SourceAnalysisOrigin.COMPILER,
         code: item.category === DiagnosticCategory.FIDELITY ? "compiler/fidelity" : `compiler/${phase}`,
@@ -224,16 +225,6 @@ function internalDiagnostic(error: any): SourceAnalysisDiagnostic {
     };
 }
 
-function hasErrors(diagnostics: CompilerDiagnostic[]): boolean {
+function hasErrors(diagnostics: ParserDiagnostic[]): boolean {
     return diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR);
-}
-
-function compareDiagnostics(left: SourceAnalysisDiagnostic, right: SourceAnalysisDiagnostic): number {
-    return (
-        left.span.start - right.span.start ||
-        left.span.end - right.span.end ||
-        left.origin.localeCompare(right.origin) ||
-        left.code.localeCompare(right.code) ||
-        left.message.localeCompare(right.message)
-    );
 }

@@ -4,7 +4,7 @@ import { beforeAll, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import { CORE_PATH } from "../../../../test-utils/paths";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const PREFIX = "/* edge-audit unique cache-key prefix */".padEnd(63, " ") + "\n";
 const CORE_HEADER = loadQpiHeader(CORE_PATH);
@@ -17,7 +17,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function stateSize(name: string, qpiHeader: string): Promise<number> {
-    const result = await compileContract({
+    const result = await compileContractWithTypeScript({
         source: SOURCE,
         contractName: name,
         slot: 27,

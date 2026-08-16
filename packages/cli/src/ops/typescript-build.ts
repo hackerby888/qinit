@@ -1,1 +1,1 @@
-export { buildContractWithTypeScript, type TypeScriptCalleeBuildOptions, type TypeScriptContractBuildResult } from "@qinit/build";
+export { buildContractWithTypeScript, type TypeScriptBuildOptions, type TypeScriptCalleeBuildOptions } from "@qinit/build";

@@ -1,8 +1,8 @@
 import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
-import { ProgramAnalysis } from "../../../analysis/program-analysis";
+import { ProgramAnalysis } from "../../../semantics/program-analysis";
 import { ClassTemplate, CompiledHelperMetadata, NamespaceLookupContext } from "../types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl } from "../../../ast";
-import type { SemanticAnalyzer } from "../../../analysis/semantic-analysis";
+import type { SemanticAnalyzer } from "../../../semantics/semantic-analysis";
 import { type QpiContextLayout } from "../framework";
 import type { LhostAbiSpec } from "../lhost";
 import { registerCallSig } from "../wat-ir";

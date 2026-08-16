@@ -2,7 +2,7 @@ import { AstKind, BinaryOp, UnaryOp } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, Expression } from "../ast";
-import { parseIntLiteral as lexParseIntLiteral } from "../frontend/lexer";
+import { parseIntLiteral } from "../frontend/lexer";
 import type { ProgramAnalysis } from "./program-analysis";
 
 export function typeOfConstant(programAnalysis: ProgramAnalysis, name: string): TypeSpec | null {
@@ -82,9 +82,9 @@ export function evalConst(programAnalysis: ProgramAnalysis, expression: Expressi
     return Number(programAnalysis.evalConstBig(expression, templateBindings));
 }
 
-export function parseIntLiteral(value: string): bigint {
+export function tryParseIntLiteral(value: string): bigint {
     try {
-        return lexParseIntLiteral(value);
+        return parseIntLiteral(value);
     } catch {
         return 0n;
     }
@@ -93,7 +93,7 @@ export function parseIntLiteral(value: string): bigint {
 export function evalConstBig(programAnalysis: ProgramAnalysis, expression: Expression, templateBindings: TemplateBindings): bigint {
     switch (expression.kind) {
         case AstKind.INT_LITERAL:
-            return programAnalysis.parseIntLiteral(expression.value);
+            return programAnalysis.tryParseIntLiteral(expression.value);
         case AstKind.BOOL_LITERAL:
             return expression.value ? 1n : 0n;
         case AstKind.CHAR_LITERAL:

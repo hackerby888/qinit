@@ -6,7 +6,7 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync } from "node:fs";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -79,7 +79,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
     });
 
     test("my approver's PRE_RELEASE_SHARES lets the generated acquirer take rights (allowTransfer read back)", async () => {
-        const approver = await compileContract({
+        const approver = await compileContractWithTypeScript({
             source: APPROVER_SRC,
             contractName: "ShareApprover",
             slot: 28,
@@ -105,7 +105,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
     });
 
     test("PRE_RELEASE_SHARES.requestedFee (output struct) is honoured: approver charges, acquirer pays", async () => {
-        const approver = await compileContract({
+        const approver = await compileContractWithTypeScript({
             source: APPROVER_SRC,
             contractName: "ShareApprover",
             slot: 28,
@@ -133,7 +133,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
     });
 
     test("my approver's PRE_ACQUIRE_SHARES lets the acquirer release rights back", async () => {
-        const approver = await compileContract({
+        const approver = await compileContractWithTypeScript({
             source: APPROVER_SRC,
             contractName: "ShareApprover",
             slot: 28,
@@ -157,7 +157,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
     });
 
     test("POST_RELEASE_SHARES (sysproc 7) fires with the right numberOfShares + receivedFee", async () => {
-        const rec = await compileContract({
+        const rec = await compileContractWithTypeScript({
             source: POST_REC,
             contractName: "PostRec",
             slot: 28,

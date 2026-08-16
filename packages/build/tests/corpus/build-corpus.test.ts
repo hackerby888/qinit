@@ -26,7 +26,7 @@ test.skipIf(!wasiAvailable())(
         const built = await buildCorpusRunner({
             corpusPath: join(CORE, "test", "contract_qutil.cpp"),
             contractPath: join(CORE, "src", "contracts", "QUtil.h"),
-            name: "QUTIL",
+            contractName: "QUTIL",
             stateType: "QUTIL",
             slot: 4,
             corePath: CORE,

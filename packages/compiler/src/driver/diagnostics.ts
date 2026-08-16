@@ -1,4 +1,4 @@
-import type { Diagnostic as ParserDiagnostic } from "../frontend/parser";
+import type { ParserDiagnostic } from "../frontend/parser";
 import { DiagnosticSeverity, SourceScannerState } from "../shared/enums";
 
 export const USER_BOUNDARY = "__QINIT_USER_BOUNDARY__";

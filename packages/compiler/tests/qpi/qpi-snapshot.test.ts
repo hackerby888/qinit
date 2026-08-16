@@ -125,7 +125,7 @@ describe("tracked snapshot + browser entry", () => {
 
     test("browser entry compiles without a caller-provided qpiHeader", async () => {
         const browser = await import(browserModule);
-        const res = await browser.compileContract({
+        const res = await browser.compileContractWithTypeScript({
             source: SOURCE,
             contractName: "SNAP",
             slot: 27,

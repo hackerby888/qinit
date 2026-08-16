@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Regression inventory: invalid QPI/C++ that the compiler currently accepts silently.
 import { describe, expect, test } from "bun:test";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -100,7 +100,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 describe("edge audit — semantic rejection gaps", () => {
     for (const [name, c] of Object.entries(CASES)) {
         test(name, async () => {
-            const result = await compileContract({
+            const result = await compileContractWithTypeScript({
                 source: c.source,
                 contractName: "RejectEdge",
                 slot: 27,

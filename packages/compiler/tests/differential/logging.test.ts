@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator, VirtualNode } from "@qinit/engine";
 import { QUBIC_LOG_TYPE } from "@qinit/proto";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -36,7 +36,7 @@ describe("QPI LOG_* lowering", () => {
     beforeAll(initK12);
 
     test("emits all native severity imports with bytes before _terminator", async () => {
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: SOURCE,
             contractName: "Logging",
             slot: 28,
@@ -66,7 +66,7 @@ describe("QPI LOG_* lowering", () => {
     });
 
     test("the same import persists native records on VirtualNode", async () => {
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: SOURCE,
             contractName: "Logging",
             slot: 28,
@@ -87,7 +87,7 @@ describe("QPI LOG_* lowering", () => {
 
     test("rejects malformed payload structs", async () => {
         const source = SOURCE.replace("uint32 _contractIndex; uint32 _type; uint64 value; uint8 pad; sint8 _terminator;", "uint32 value; sint8 _terminator;");
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source,
             contractName: "BadLogging",
             slot: 28,
@@ -97,7 +97,7 @@ describe("QPI LOG_* lowering", () => {
         expect(result.diagnostics.some((d) => d.severity === DiagnosticSeverity.ERROR && d.message.includes("at least 8 bytes"))).toBe(true);
 
         const missing = SOURCE.replace("sint8 _terminator;", "sint8 end;");
-        const missingResult = await compileContract({
+        const missingResult = await compileContractWithTypeScript({
             source: missing,
             contractName: "MissingTerminator",
             slot: 28,
@@ -107,7 +107,7 @@ describe("QPI LOG_* lowering", () => {
         expect(missingResult.diagnostics.some((d) => d.severity === DiagnosticSeverity.ERROR && d.message.includes("must contain _terminator"))).toBe(true);
 
         const scalar = SOURCE.replace("LOG_ERROR(locals.message);", "LOG_ERROR(input.value);");
-        const scalarResult = await compileContract({
+        const scalarResult = await compileContractWithTypeScript({
             source: scalar,
             contractName: "ScalarLog",
             slot: 28,

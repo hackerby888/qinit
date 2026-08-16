@@ -1,6 +1,6 @@
 import { PlatformCapability } from "../../../shared/enums";
 import { resetLhostCallSigs } from "../wat-ir";
-import type { FrameworkOptions, ModuleSpecification } from "./framework-types";
+import type { ModuleSpecification } from "./framework-types";
 import { computeLayout } from "./framework-types";
 import { emitExportList, emitGlobals, emitImports } from "./imports-and-globals";
 import { emitAllocators, emitMemOps } from "./memory-runtime";
@@ -34,16 +34,4 @@ export function emitModule(spec: ModuleSpecification): string {
         emitInitialize(),
         ")",
     ].join("\n");
-}
-
-export function emitFramework(options: FrameworkOptions): string {
-    return emitModule({
-        contractSlot: options.contractSlot,
-        stateSize: options.stateSize,
-        arenaSize: options.arenaSize,
-        contextLayout: options.contextLayout,
-        entries: [],
-        sysprocs: [],
-        userFunctionsWat: "  ;; ---- USER CODE (spliced by codegen.ts) ----",
-    });
 }

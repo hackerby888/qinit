@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { CORE_WASM_HEADERS, parseWasmAbiSource } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "../../src";
-import { inspectWasmModule } from "../../src/driver/wasm-inspect";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src";
+import { inspectWasmModule } from "../../src/driver/wasm-inspection";
 import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "../../src/driver/qpi/snapshot";
 
 const HEADER = loadQpiHeader(CORE_PATH);
@@ -51,7 +51,7 @@ describe("source-backed ABI mutations", () => {
         const header = mutateEmbeddedAbi(declared, (abi) => {
             abi.lhost.unshift({ name: "newScalar", params: [], results: ["i32"] });
         });
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: contract("output.value = qpi.newScalar();"),
             contractName: "ScalarWrapperMutation",
             slot: 27,
@@ -70,7 +70,7 @@ describe("source-backed ABI mutations", () => {
         const header =
             addFunctionContextDeclaration(HEADER, "inline id nextAlias(const id& value) const;") +
             `\n${IMPL_BOUNDARY}\nQPI::id QPI::QpiContextFunctionCall::nextAlias(const QPI::id& value) const { QPI::id out; __lhost_nextId(&value, &out); return out; }\n`;
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: contract("output.value = qpi.nextAlias(SELF);", "id value;"),
             contractName: "AggregateWrapperMutation",
             slot: 27,
@@ -106,7 +106,7 @@ describe("source-backed ABI mutations", () => {
       iterator.begin(asset);
       output.value = iterator.numberOfOwnedShares();
     `);
-        const baseline = await compileContract({
+        const baseline = await compileContractWithTypeScript({
             source: iteratorContract,
             contractName: "AssetRecordBaseline",
             slot: 27,
@@ -116,7 +116,7 @@ describe("source-backed ABI mutations", () => {
         const changedHeader = mutateEmbeddedAbi(HEADER, (abi) => {
             abi.records.AssetEntry = record;
         });
-        const changed = await compileContract({
+        const changed = await compileContractWithTypeScript({
             source: iteratorContract,
             contractName: "AssetRecordMutation",
             slot: 27,
@@ -155,7 +155,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   INITIALIZE() {}
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {}
 };`;
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source,
             contractName: "SystemProcedureMutation",
             slot: 27,

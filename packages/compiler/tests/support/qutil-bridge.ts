@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { wasiToolchain } from "./container-toolchains";
 import { runContractTesting } from "@qinit/engine";
-import { compileContract, loadQpiHeader, type CompileResult, type ContractIdl } from "../../src/index";
-import { buildContractWithWasiClang, buildCorpusRunner } from "@qinit/build";
+import { compileContractWithTypeScript, loadQpiHeader, type CompileResult, type ContractIdl } from "../../src/index";
+import { buildContractWithClang, buildCorpusRunner } from "@qinit/build";
 
 export const CORE = CORE_PATH;
 export const QUTIL_IDX = 4;
@@ -41,7 +41,7 @@ export async function buildRunner(core: string): Promise<Uint8Array> {
         const built = await buildCorpusRunner({
             corpusPath: `${core}/test/contract_qutil.cpp`,
             contractPath: `${core}/src/contracts/QUtil.h`,
-            name: "QUTIL",
+            contractName: "QUTIL",
             stateType: "QUTIL",
             slot: QUTIL_IDX,
             corePath: core,
@@ -63,7 +63,7 @@ export async function buildContractsWithTypeScript(core: string): Promise<Record
     const qutilSrc = readFileSync(`${core}/src/contracts/QUtil.h`, "utf8");
     const qxSrc = readFileSync(`${core}/src/contracts/Qx.h`, "utf8");
 
-    const mineQx = await compileContract({
+    const mineQx = await compileContractWithTypeScript({
         source: qxSrc,
         contractName: "QX",
         slot: QX_IDX,
@@ -72,7 +72,7 @@ export async function buildContractsWithTypeScript(core: string): Promise<Record
     });
     const callees = [calleeIdlFrom("QX", QX_IDX, mineQx)];
     const calleeSources = [{ name: "QX", source: qxSrc }];
-    const mineQutil = await compileContract({
+    const mineQutil = await compileContractWithTypeScript({
         source: qutilSrc,
         contractName: "QUTIL",
         slot: QUTIL_IDX,
@@ -96,9 +96,9 @@ export async function buildContractsWithClang(core: string): Promise<Record<numb
     const dir = mkdtempSync(join(tmpdir(), "qutil-clang-"));
 
     try {
-        const qx = await buildContractWithWasiClang({
+        const qx = await buildContractWithClang({
             contractPath: `${core}/src/contracts/Qx.h`,
-            name: "QX",
+            contractName: "QX",
             stateType: "QX",
             slot: QX_IDX,
             corePath: core,
@@ -110,9 +110,9 @@ export async function buildContractsWithClang(core: string): Promise<Record<numb
             throw new Error("Clang QX build failed:\n" + (qx.stderr ?? "").split("\n").slice(-15).join("\n"));
         }
 
-        const qutil = await buildContractWithWasiClang({
+        const qutil = await buildContractWithClang({
             contractPath: `${core}/src/contracts/QUtil.h`,
-            name: "QUTIL",
+            contractName: "QUTIL",
             stateType: "QUTIL",
             slot: QUTIL_IDX,
             corePath: core,

@@ -4,7 +4,7 @@ import { test, expect } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithWasiClang, buildCorpusRunner } from "@qinit/build";
+import { buildContractWithClang, buildCorpusRunner } from "@qinit/build";
 import { wasiSdkPaths } from "@qinit/core/project";
 import { runContractTesting } from "@qinit/engine";
 import { runStdGtest, type StdGtestContractSpec } from "../../src/ops/corpus-run";
@@ -124,7 +124,7 @@ test.skipIf(!have)(
         const runner = await buildCorpusRunner({
             corpusPath: testPath,
             contractPath: CONTRACT,
-            name: "Counter",
+            contractName: "Counter",
             stateType: "Counter",
             slot: SLOT,
             corePath: CORE,
@@ -133,9 +133,9 @@ test.skipIf(!have)(
         });
         expect(runner.ok, runner.stderr).toBe(true);
 
-        const contract = await buildContractWithWasiClang({
+        const contract = await buildContractWithClang({
             contractPath: CONTRACT,
-            name: "Counter",
+            contractName: "Counter",
             slot: SLOT,
             corePath: CORE,
             outDir: `${outDir}/contract`,

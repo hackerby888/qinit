@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../shared/enums";
-import type { Diagnostic as ParserDiagnostic } from "../frontend/parser";
+import type { ParserDiagnostic } from "../frontend/parser";
 import type { CompileOptions } from "./types";
 import { DEFAULT_COMPILE_ARENA_SIZE_BYTES } from "./defaults";
 import { MAX_USER_INPUT_TYPE, MIN_USER_INPUT_TYPE } from "../shared/entry-abi";

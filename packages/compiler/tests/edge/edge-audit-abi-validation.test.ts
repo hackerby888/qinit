@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // QPI registration rules enforced by the native macros must also be enforced by the local compiler.
 import { describe, expect, test } from "bun:test";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
 
@@ -69,7 +69,7 @@ const CASES: Record<string, RejectCase> = {
 describe("edge audit — QPI ABI validation", () => {
     for (const [name, c] of Object.entries(CASES)) {
         test(name, async () => {
-            const result = await compileContract({
+            const result = await compileContractWithTypeScript({
                 source: c.source,
                 contractName: "AbiRejectEdge",
                 slot: 27,

@@ -4,7 +4,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader, type CompileResult, type ContractIdl } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader, type CompileResult, type ContractIdl } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -58,7 +58,7 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
     });
 
     test("CALL_OTHER reads the callee, INVOKE_OTHER mutates it across the boundary", async () => {
-        const counter = await compileContract({
+        const counter = await compileContractWithTypeScript({
             source: COUNTER,
             contractName: "Counter",
             slot: 28,
@@ -68,7 +68,7 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
         expect(counter.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
         const callees = [requireIdl(counter)];
-        const caller = await compileContract({
+        const caller = await compileContractWithTypeScript({
             source: CALLER,
             contractName: "Caller",
             slot: 29,

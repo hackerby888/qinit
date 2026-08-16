@@ -7,7 +7,7 @@ import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, expect, beforeAll } from "bun:test";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -185,7 +185,7 @@ describe("differential gtest — LinkedList (add/insert/traverse/remove/reset)",
                 tempPrefix: "linkedlist-diff-",
             });
 
-            const mine = await compileContract({
+            const mine = await compileContractWithTypeScript({
                 source: QUEUE,
                 contractName: "Queue",
                 slot: 28,

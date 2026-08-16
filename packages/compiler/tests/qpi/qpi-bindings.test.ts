@@ -4,11 +4,11 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { LHOST_ABI } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, inspectWasmModule, loadQpiHeader } from "../../src";
-import { ProgramAnalysis } from "../../src/analysis/program-analysis";
+import { compileContractWithTypeScript, inspectWasmModule, loadQpiHeader } from "../../src";
+import { ProgramAnalysis } from "../../src/semantics/program-analysis";
 import { registerLibraryMetadata } from "../../src/backend/wasm/module/library-index";
 import { getQpiContext } from "../../src/driver/qpi-context";
-import { SemanticAnalyzer } from "../../src/analysis/semantic-analysis";
+import { SemanticAnalyzer } from "../../src/semantics/semantic-analysis";
 
 const CORE = CORE_PATH;
 const HEADER = loadQpiHeader(CORE);
@@ -46,7 +46,7 @@ describe("typed QPI bindings", () => {
     });
 
     test("const-reference scalar temporaries use a real sized buffer", async () => {
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: wrap("FUNCTION", "output.digest = qpi.K12((uint32)7);"),
             contractName: "QpiTemp",
             slot: 27,
@@ -60,7 +60,7 @@ describe("typed QPI bindings", () => {
     });
 
     test("aggregate, selector-default, narrow-scalar, contract-index, and output recipes compile", async () => {
-        const functionResult = await compileContract({
+        const functionResult = await compileContractWithTypeScript({
             source: wrap(
                 "FUNCTION",
                 `
@@ -78,7 +78,7 @@ describe("typed QPI bindings", () => {
         });
         expect(functionResult.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
-        const procedureResult = await compileContract({
+        const procedureResult = await compileContractWithTypeScript({
             source: wrap(
                 "PROCEDURE",
                 `
@@ -96,7 +96,7 @@ describe("typed QPI bindings", () => {
     });
 
     test("signed source-wrapper results preserve negative host failures", async () => {
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: wrap(
                 "PROCEDURE",
                 `
@@ -116,7 +116,7 @@ describe("typed QPI bindings", () => {
     });
 
     test("OC invocation and status use the v5 host bindings", async () => {
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -154,7 +154,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     });
 
     test("context violations and unknown bindings fail closed even with strict false", async () => {
-        const context = await compileContract({
+        const context = await compileContractWithTypeScript({
             source: wrap("FUNCTION", "output.result = qpi.burn(1);"),
             contractName: "QpiContextReject",
             slot: 27,
@@ -164,7 +164,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(context.wasm).toHaveLength(0);
         expect(context.diagnostics.some((diagnostic) => /burn|function context|QpiContextProcedureCall/i.test(diagnostic.message))).toBe(true);
 
-        const unknown = await compileContract({
+        const unknown = await compileContractWithTypeScript({
             source: wrap("FUNCTION", "output.result = qpi.notAHostBinding();"),
             contractName: "QpiUnknownReject",
             slot: 27,
@@ -174,7 +174,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(unknown.wasm).toHaveLength(0);
         expect(unknown.diagnostics.some((diagnostic) => /notAHostBinding|unknown QPI binding|unknown member/i.test(diagnostic.message))).toBe(true);
 
-        const missing = await compileContract({
+        const missing = await compileContractWithTypeScript({
             source: wrap("FUNCTION", "output.result = qpi.isAssetIssued(SELF);"),
             contractName: "QpiMissingReject",
             slot: 27,
@@ -184,7 +184,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(missing.wasm).toHaveLength(0);
         expect(missing.diagnostics.some((diagnostic) => /expects 2|missing required argument/i.test(diagnostic.message))).toBe(true);
 
-        const nonAddressable = await compileContract({
+        const nonAddressable = await compileContractWithTypeScript({
             source: wrap("FUNCTION", "output.digest = qpi.nextId(7);"),
             contractName: "QpiAddressReject",
             slot: 27,

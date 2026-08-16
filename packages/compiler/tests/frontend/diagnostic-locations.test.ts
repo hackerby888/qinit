@@ -1,9 +1,9 @@
 import { DiagnosticCategory, DiagnosticSeverity } from "../../src/shared/enums";
 import { describe, expect, test } from "bun:test";
-import { compileContract, parseToAst } from "../../src/index";
+import { compileContractWithTypeScript, parseToAstWithTypeScript } from "../../src/index";
 
 function errorsFor(source: string, qpiHeader?: string) {
-    return parseToAst({
+    return parseToAstWithTypeScript({
         source,
         qpiHeader,
         contractName: "DiagProbe",
@@ -78,7 +78,7 @@ describe("compiler diagnostics - source locations", () => {
 
     test("still requires embedded ABI metadata for full compilation", async () => {
         await expect(
-            compileContract({
+            compileContractWithTypeScript({
                 source: "struct UserSource {};",
                 contractName: "DiagProbe",
                 slot: 27,
@@ -113,13 +113,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Size, 1); }
 };`;
-        const lax = await compileContract({
+        const lax = await compileContractWithTypeScript({
             source,
             contractName: "DiagSize",
             slot: 27,
             strict: false,
         });
-        const strict = await compileContract({
+        const strict = await compileContractWithTypeScript({
             source,
             contractName: "DiagSize",
             slot: 27,

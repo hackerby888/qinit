@@ -59,16 +59,6 @@ export interface ModuleSpecification {
     };
 }
 
-// Back-compat shape used by older callers / tests.
-export interface FrameworkOptions {
-    contractSlot: number;
-    stateSize: number;
-    arenaSize: number;
-    userEntryCount: number;
-    sysprocMask: number;
-    contextLayout: QpiContextLayout;
-}
-
 export interface Layout {
     stateBase: number;
     stateSize: number;

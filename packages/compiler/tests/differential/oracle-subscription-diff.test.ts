@@ -4,12 +4,12 @@ import { beforeAll, expect } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithWasiClang } from "@qinit/build";
+import { buildContractWithClang } from "@qinit/build";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import ORACLE_PROBE_SOURCE from "../../../../fixtures/OracleProbe.h" with { type: "text" };
 import { CORE_PATH } from "../../../../test-utils/paths";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const SLOT = 29;
 
@@ -67,9 +67,9 @@ toolchainTest("Price subscription matches across TS and Clang artifacts in Virtu
     const directory = mkdtempSync(join(tmpdir(), "oracle-subscription-diff-"));
     const contractPath = join(directory, "OracleProbe.h");
     writeFileSync(contractPath, ORACLE_PROBE_SOURCE);
-    const clang = await buildContractWithWasiClang({
+    const clang = await buildContractWithClang({
         contractPath,
-        name: "OracleProbe",
+        contractName: "OracleProbe",
         slot: SLOT,
         corePath: CORE_PATH,
         outDir: join(directory, "clang"),
@@ -77,7 +77,7 @@ toolchainTest("Price subscription matches across TS and Clang artifacts in Virtu
     });
     expect(clang.ok).toBe(true);
 
-    const typescript = await compileContract({
+    const typescript = await compileContractWithTypeScript({
         source: ORACLE_PROBE_SOURCE,
         contractName: "OracleProbe",
         slot: SLOT,

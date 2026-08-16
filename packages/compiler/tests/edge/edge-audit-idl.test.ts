@@ -1,8 +1,8 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
-// compileContract's ContractIdl must describe the same ABI that is embedded in the generated WASM.
+// compileContractWithTypeScript's ContractIdl must describe the same ABI that is embedded in the generated WASM.
 import { beforeAll, describe, expect, test } from "bun:test";
-import { compileContract, loadQpiHeader, type ContractIdl } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader, type ContractIdl } from "../../src/index";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
 
@@ -31,7 +31,7 @@ let idl: ContractIdl;
 
 describe("edge audit — compile result IDL fidelity", () => {
     beforeAll(async () => {
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             source: SOURCE,
             contractName: "IdlEdge",
             slot: 27,

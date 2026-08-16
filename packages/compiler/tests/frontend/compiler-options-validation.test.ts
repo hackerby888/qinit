@@ -1,7 +1,7 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { describe, expect, test } from "bun:test";
 import { analyzeContract } from "../../src/analyzer";
-import { compileContract, type CompileOptions } from "../../src/index";
+import { compileContractWithTypeScript, type CompileOptions } from "../../src/index";
 
 const VALID_SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -30,7 +30,7 @@ if (!CALLEE) {
 }
 
 async function expectRejected(overrides: Partial<CompileOptions>): Promise<void> {
-    const result = await compileContract({ ...BASE, ...overrides });
+    const result = await compileContractWithTypeScript({ ...BASE, ...overrides });
     const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
 
     expect(errors.length).toBeGreaterThan(0);
@@ -40,7 +40,7 @@ async function expectRejected(overrides: Partial<CompileOptions>): Promise<void>
 
 describe("compiler option validation", () => {
     test("accepts a valid boundary-control request", async () => {
-        const result = await compileContract(BASE);
+        const result = await compileContractWithTypeScript(BASE);
 
         expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         expect(result.wasm.byteLength).toBeGreaterThan(0);
@@ -142,7 +142,7 @@ describe("compiler option validation", () => {
     }
 
     test("preprocesses callee source at its IDL slot", async () => {
-        const result = await compileContract({
+        const result = await compileContractWithTypeScript({
             ...BASE,
             callees: [CALLEE],
             calleeSources: [

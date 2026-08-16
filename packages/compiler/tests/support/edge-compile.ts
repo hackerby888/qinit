@@ -3,7 +3,7 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { expect } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader, type CompileResult } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader, type CompileResult } from "../../src/index";
 import { DiagnosticSeverity } from "../../src/shared/enums";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
@@ -12,7 +12,7 @@ const PROBE_ARENA_BYTES = 1 << 20;
 
 export function edgeCompiler(contractName: string): (source: string) => Promise<CompileResult> {
     return (source: string) =>
-        compileContract({
+        compileContractWithTypeScript({
             source,
             contractName,
             slot: PROBE_SLOT,

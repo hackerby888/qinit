@@ -139,7 +139,7 @@ export function handleDefine(preprocessor: Preprocessor): void {
     // Check for function-like macro: NAME(...)
     let params: string[] | null = null;
     let isVarArgs = false;
-    if (preprocessor.peek(0) === "(") {
+    if (preprocessor.peekChar(0) === "(") {
         preprocessor.pos++; // skip (
         preprocessor.skipWhitespace();
         const paramStr = preprocessor.readUntil(")");

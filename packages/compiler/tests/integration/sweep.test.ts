@@ -8,7 +8,7 @@ import { systemContracts } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { parseContractIdl } from "@qinit/proto/contract-idl";
-import { compileContract, loadQpiHeader, type ContractIdl, type CompileResult } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader, type ContractIdl, type CompileResult } from "../../src/index";
 
 const QPI = loadQpiHeader(CORE_PATH);
 
@@ -114,7 +114,7 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
                 const prior = DEPENDENCIES[priorName];
                 return { name: prior.name, source: readFileSync(prior.path, "utf8") };
             });
-            const dependencyResult = await compileContract({
+            const dependencyResult = await compileContractWithTypeScript({
                 source: readFileSync(dependency.path, "utf8"),
                 contractName: dependency.name,
                 slot: dependency.slot,
@@ -137,7 +137,7 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
             const dependency = DEPENDENCIES[dependencyName];
             return { name: dependency.name, source: readFileSync(dependency.path, "utf8") };
         });
-        r = await compileContract({
+        r = await compileContractWithTypeScript({
             source: src,
             contractName: name,
             slot: 28,

@@ -8,7 +8,7 @@ import { describe, expect, beforeAll } from "bun:test";
 import { readFileSync } from "node:fs";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../../src/index";
+import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -88,7 +88,7 @@ describe("differential gtest — Bank (HashMap + Array)", () => {
                 tempPrefix: "bank-diff-",
             });
 
-            const mine = await compileContract({
+            const mine = await compileContractWithTypeScript({
                 source: BANK,
                 contractName: "Bank",
                 slot: 28,
