@@ -15,3 +15,5 @@ packages/core/tests/__fixtures__/
 packages/compiler/core-snapshot.json
 # `sources:sync` substitutes layout-sensitive blocks here, so reformatting breaks its drift check.
 .github/workflows/
+# CI checks core-lite out here; it is another repo's source and formats to its own rules.
+/core/
