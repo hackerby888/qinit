@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
@@ -74,7 +74,7 @@ afterScratch:
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Exercise, 1); }
 };`;
 
-describe("scratchpad RAII and pointer lowering", () => {
+describe.skipIf(!HAS_CORE)("scratchpad RAII and pointer lowering", () => {
     let state: BigUint64Array;
 
     beforeAll(async () => {

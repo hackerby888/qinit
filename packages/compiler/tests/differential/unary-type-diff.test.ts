@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Checks unary width propagation and mixed signed/unsigned comparisons.
 import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
@@ -10,7 +10,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -64,7 +64,7 @@ const GTEST = coreGtest(
 
 const wasi = wasiToolchain();
 
-describe("differential gtest — unary type propagation", () => {
+describe.skipIf(!HAS_CORE)("differential gtest — unary type propagation", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -85,7 +85,7 @@ describe("differential gtest — unary type propagation", () => {
                 source: SRC,
                 contractName: "UnaryP",
                 slot: 28,
-                qpiHeader: HEADERS,
+                qpiHeader: HEADERS(),
                 arenaSizeBytes: 1024 * 1024,
             });
             expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

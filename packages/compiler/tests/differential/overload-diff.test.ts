@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Overload-resolution parity for static helpers.
 import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -12,7 +12,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -94,7 +94,7 @@ const checkBothSides = async (source: string, name: string, expected: string): P
         source,
         contractName: name,
         slot: 27,
-        qpiHeader: HEADERS,
+        qpiHeader: HEADERS(),
         arenaSizeBytes: 1 << 20,
     });
     expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
@@ -120,7 +120,7 @@ const checkBothSides = async (source: string, name: string, expected: string): P
     }
 };
 
-describe("helper overload resolution", () => {
+describe.skipIf(!HAS_CORE)("helper overload resolution", () => {
     beforeAll(async () => {
         await initK12();
     });

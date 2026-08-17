@@ -1,4 +1,5 @@
 import { DiagnosticCategory, DiagnosticSeverity } from "../../src/shared/enums";
+import { HAS_CORE } from "../../../../test-utils/paths";
 import { describe, expect, test } from "bun:test";
 import { compileContractWithTypeScript, parseToAstWithTypeScript } from "../../src/index";
 
@@ -17,7 +18,7 @@ function diagnosticOnLine(source: string, line: number) {
     return diagnostic!;
 }
 
-describe("compiler diagnostics - source locations", () => {
+describe.skipIf(!HAS_CORE)("compiler diagnostics - source locations", () => {
     test("maps a first-line parse error into user source coordinates", () => {
         const source = "struct Broken { uint64 value = ; };";
         const diagnostic = diagnosticOnLine(source, 1);

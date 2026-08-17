@@ -1,4 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
+import { HAS_CORE } from "../../../../test-utils/paths";
 // Constexpr folding versus runtime evaluation over pinned seeds from `tools/fuzz-gen-constexpr.ts`. The two
 // evaluators are independent implementations, so neither needs a hand-written reference to check against.
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -23,7 +24,7 @@ const foldedAndRuntime = (wasm: Uint8Array): { folded: bigint; runtime: bigint }
     return { folded: view.getBigUint64(0, true), runtime: view.getBigUint64(8, true) };
 };
 
-describe("fuzz — constexpr fold versus runtime parity", () => {
+describe.skipIf(!HAS_CORE)("fuzz — constexpr fold versus runtime parity", () => {
     beforeAll(async () => {
         await initK12();
     });

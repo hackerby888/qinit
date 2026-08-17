@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import { runCompiledGtest } from "@qinit/engine";
 import { compileContractWithTypeScript, compileGtestWithTypeScript, loadQpiHeader } from "../../src";
 
 const CORE = CORE_PATH;
-const QPI = loadQpiHeader(CORE);
+const QPI = () => loadQpiHeader(CORE);
 
 const SUPPORTED_SYSTEM_GTESTS = [
     {
@@ -73,7 +73,7 @@ function isolatedTestSource(source: string, name: string): string {
     return `${source.slice(0, blocks[0].start)}\n${source.slice(selected.start, selected.end)}`;
 }
 
-describe("core-lite system gtest corpus", () => {
+describe.skipIf(!HAS_CORE)("core-lite system gtest corpus", () => {
     beforeAll(async () => initK12());
 
     for (const entry of SUPPORTED_SYSTEM_GTESTS) {
@@ -89,7 +89,7 @@ describe("core-lite system gtest corpus", () => {
                 contractName: contract!.stateType,
                 slot: contract!.index,
                 constructionEpoch: contract!.constructionEpoch,
-                qpiHeader: QPI,
+                qpiHeader: QPI(),
             });
             expect(runner.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
             expect(runner.program?.tests.map((item) => item.name)).toEqual([entry.test]);
@@ -98,7 +98,7 @@ describe("core-lite system gtest corpus", () => {
                 source: contract!.source,
                 contractName: contract!.stateType,
                 slot: contract!.index,
-                qpiHeader: QPI,
+                qpiHeader: QPI(),
                 arenaSizeBytes: 16 * 1024 * 1024,
             });
             expect(compiledContract.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);

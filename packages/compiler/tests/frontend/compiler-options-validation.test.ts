@@ -2,6 +2,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { describe, expect, test } from "bun:test";
 import { analyzeContract } from "../../src/analyzer";
 import { compileContractWithTypeScript, type CompileOptions } from "../../src/index";
+import { HAS_CORE } from "../../../../test-utils/paths";
 
 const VALID_SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -20,15 +21,6 @@ const BASE: CompileOptions = {
     arenaSizeBytes: 1 << 20,
 };
 
-const CALLEE = analyzeContract({
-    source: VALID_SOURCE,
-    contractName: "Other",
-    slot: 28,
-}).idl;
-if (!CALLEE) {
-    throw new Error("valid callee analysis returned no IDL");
-}
-
 async function expectRejected(overrides: Partial<CompileOptions>): Promise<void> {
     const result = await compileContractWithTypeScript({ ...BASE, ...overrides });
     const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
@@ -38,7 +30,16 @@ async function expectRejected(overrides: Partial<CompileOptions>): Promise<void>
     expect(result.idl).toBeUndefined();
 }
 
-describe("compiler option validation", () => {
+describe.skipIf(!HAS_CORE)("compiler option validation", () => {
+    const CALLEE = analyzeContract({
+        source: VALID_SOURCE,
+        contractName: "Other",
+        slot: 28,
+    }).idl;
+    if (!CALLEE) {
+        throw new Error("valid callee analysis returned no IDL");
+    }
+
     test("accepts a valid boundary-control request", async () => {
         const result = await compileContractWithTypeScript(BASE);
 

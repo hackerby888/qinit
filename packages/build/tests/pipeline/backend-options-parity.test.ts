@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContractWithClang, buildContractWithTypeScript, type ClangBuildOptions, type TypeScriptBuildOptions } from "../../src";
-import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE, QINIT_ROOT } from "../../../../test-utils/paths";
 
 const SOURCE = readFileSync(join(QINIT_ROOT, "fixtures", "Counter.h"), "utf8");
 
@@ -19,7 +19,7 @@ test("one options object satisfies both backends", () => {
     expect(asClang.corePath).toBe(asTypeScript.corePath);
 });
 
-test("each backend accepts source text with no contractPath", async () => {
+test.skipIf(!HAS_CORE)("each backend accepts source text with no contractPath", async () => {
     const corePath = CORE_PATH;
     const directory = mkdtempSync(join(tmpdir(), "qinit-backend-parity-"));
 

@@ -2,6 +2,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { edgeRunner } from "../support/edge-compile";
+import { HAS_CORE } from "../../../../test-utils/paths";
 
 const compileAndRun = edgeRunner("ExpressionEdge");
 
@@ -15,7 +16,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-describe("edge audit — valid expression lowering", () => {
+describe.skipIf(!HAS_CORE)("edge audit — valid expression lowering", () => {
     beforeAll(async () => {
         await initK12();
     });

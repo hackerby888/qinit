@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { loadQpiHeader } from "../../src/index";
 import { CONTAINER_FIXTURES } from "../support/container-fixtures";
 import { compileTsFixture, decodeWords, executeContainerScript } from "../support/container-harness";
@@ -8,6 +8,9 @@ import { compileTsFixture, decodeWords, executeContainerScript } from "../suppor
 const compiled = new Map<string, Uint8Array>();
 
 beforeAll(async () => {
+    if (!HAS_CORE) {
+        return;
+    }
     await initK12();
     const header = loadQpiHeader(CORE_PATH);
     for (const fixture of CONTAINER_FIXTURES) compiled.set(fixture.family, await compileTsFixture(fixture, header));
@@ -15,7 +18,7 @@ beforeAll(async () => {
 
 const U64_NEGATIVE_ONE = 0xffff_ffff_ffff_ffffn;
 
-describe("deterministic QPI container boundary matrix", () => {
+describe.skipIf(!HAS_CORE)("deterministic QPI container boundary matrix", () => {
     for (const fixture of CONTAINER_FIXTURES) {
         test(`${fixture.family} compiles once and executes its complete boundary script`, () => {
             const wasm = compiled.get(fixture.family)!;

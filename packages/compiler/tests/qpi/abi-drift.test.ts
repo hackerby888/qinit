@@ -1,4 +1,4 @@
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { test, expect } from "bun:test";
 import { deriveQpiContextLayout } from "../../src/backend/wasm/module/library-index";
 import { getQpiContext } from "../../src/driver/qpi-context";
@@ -8,7 +8,7 @@ import { scalarKindForSize } from "../../src/backend/wasm/idl/scalars";
 import { AbiScalarKind } from "@qinit/proto/contract-idl";
 import { QpiContext } from "@qinit/engine/contract/abi";
 
-test("live qpi.h context layout matches the engine ABI", () => {
+test.skipIf(!HAS_CORE)("live qpi.h context layout matches the engine ABI", () => {
     const layout = deriveQpiContextLayout(getQpiContext(loadQpiHeader(CORE_PATH)).lib);
     const O = (QpiContext as unknown as { OFFSETS: Record<string, number> }).OFFSETS;
     expect(layout.size).toBe((QpiContext as unknown as { SIZE: number }).SIZE);
@@ -20,7 +20,7 @@ test("live qpi.h context layout matches the engine ABI", () => {
 
 // The last-resort mapping for an unresolvable named type in a public struct — an unexpected width silently
 // becomes UINT32 on the wire, so the fallback is pinned alongside the sizes it does recognise.
-test("scalar widths map to their wire kinds", () => {
+test.skipIf(!HAS_CORE)("scalar widths map to their wire kinds", () => {
     const kinds: Record<number, AbiScalarKind> = {
         1: AbiScalarKind.UINT8,
         2: AbiScalarKind.UINT16,

@@ -3,11 +3,12 @@ import { describe, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { runContractTesting } from "@qinit/engine";
 import { CORE, buildRunner, buildContractsWithTypeScript } from "../support/qutil-bridge";
+import { HAS_CORE } from "../../../../test-utils/paths";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 
 const wasi = wasiToolchain();
 
-describe("runContractTesting — generic engine binding (QUTIL regression)", () => {
+describe.skipIf(!HAS_CORE)("runContractTesting — generic engine binding (QUTIL regression)", () => {
     beforeAll(async () => {
         await initK12();
     });

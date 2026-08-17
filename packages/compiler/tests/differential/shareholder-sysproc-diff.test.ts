@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Checks shareholder proposal/vote sysproc payloads and return values.
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, expect, beforeAll } from "bun:test";
@@ -9,7 +9,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const CALLEE_SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -77,7 +77,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 const wasi = wasiToolchain();
 
-describe("differential — shareholder sysproc 10/11 state parity", () => {
+describe.skipIf(!HAS_CORE)("differential — shareholder sysproc 10/11 state parity", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -110,7 +110,7 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
                     source: src,
                     contractName: name,
                     slot,
-                    qpiHeader: HEADERS,
+                    qpiHeader: HEADERS(),
                     arenaSizeBytes: 4 * 1024 * 1024,
                 });
                 expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

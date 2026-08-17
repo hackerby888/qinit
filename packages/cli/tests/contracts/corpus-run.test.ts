@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { systemGtestCorpora, systemGtestTier } from "../../src/ops/corpus-run";
 
-test("system gtest corpora are discovered from core and split into light and heavy tiers", () => {
+test.skipIf(!HAS_CORE)("system gtest corpora are discovered from core and split into light and heavy tiers", () => {
     const corpora = systemGtestCorpora(CORE_PATH);
     expect(corpora.length).toBeGreaterThan(0);
     expect(corpora.some((entry) => entry.tier === "light")).toBe(true);

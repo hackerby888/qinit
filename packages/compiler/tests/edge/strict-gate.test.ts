@@ -1,10 +1,10 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Ensures placeholder lowerings fail strict builds instead of silently diverging.
 import { describe, expect, test } from "bun:test";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
-const HEADERS = loadQpiHeader(CORE_PATH);
+const HEADERS = () => loadQpiHeader(CORE_PATH);
 
 // An unresolved constant exercises the placeholder fallback guarded by strict mode.
 const SRC = `
@@ -33,13 +33,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-describe("strict fidelity gate", () => {
+describe.skipIf(!HAS_CORE)("strict fidelity gate", () => {
     test("default (strict) aborts with an error and empty wasm", async () => {
         const r = await compileContractWithTypeScript({
             source: SRC,
             contractName: "StrictProbe",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
         });
 
         expect(r.wasm.length).toBe(0);
@@ -53,7 +53,7 @@ describe("strict fidelity gate", () => {
             source: SRC,
             contractName: "StrictProbe",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             strict: false,
         });
 
@@ -68,7 +68,7 @@ describe("strict fidelity gate", () => {
             source: clean,
             contractName: "StrictProbe",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
         });
 
         expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR).length).toBe(0);

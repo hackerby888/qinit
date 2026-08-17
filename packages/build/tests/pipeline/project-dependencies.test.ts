@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { resolveProjectDependencies } from "../../src/contracts/project-dependencies";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 
-const CORE = process.env.QINIT_CORE ?? resolve(import.meta.dir, "../../../vscode/resources/core-headers");
+const CORE = CORE_PATH;
 
 function calls(...names: string[]): string {
     return names.map((name) => `CALL_OTHER_CONTRACT_FUNCTION(${name}, Get, input, output);`).join("\n");
@@ -24,7 +25,7 @@ function project(files: Record<string, string>, run: (root: string) => void): vo
     }
 }
 
-test("resolves recursive workspace callees in dependency-first order", () => {
+test.skipIf(!HAS_CORE)("resolves recursive workspace callees in dependency-first order", () => {
     project(
         {
             "contracts/Main.h": calls("Middle", "Shared"),
@@ -46,7 +47,7 @@ test("resolves recursive workspace callees in dependency-first order", () => {
     );
 });
 
-test("resolves custom callees referenced through ABI types", () => {
+test.skipIf(!HAS_CORE)("resolves custom callees referenced through ABI types", () => {
     project(
         {
             "contracts/Main.h": "Counter::Get_input input{};",
@@ -65,7 +66,7 @@ test("resolves custom callees referenced through ABI types", () => {
     );
 });
 
-test("resolves custom callees referenced only by additional root source", () => {
+test.skipIf(!HAS_CORE)("resolves custom callees referenced only by additional root source", () => {
     project(
         {
             "contracts/Main.h": "",
@@ -87,7 +88,7 @@ test("resolves custom callees referenced only by additional root source", () => 
     );
 });
 
-test("explicit callees override workspace discovery and may omit an index", () => {
+test.skipIf(!HAS_CORE)("explicit callees override workspace discovery and may omit an index", () => {
     project(
         {
             "contracts/Main.h": calls("Counter"),
@@ -122,7 +123,7 @@ test("explicit callees override workspace discovery and may omit an index", () =
     );
 });
 
-test("system contracts take precedence over workspace headers", () => {
+test.skipIf(!HAS_CORE)("system contracts take precedence over workspace headers", () => {
     project(
         {
             "contracts/Main.h": calls("QUTIL"),
@@ -145,7 +146,7 @@ test("system contracts take precedence over workspace headers", () => {
     );
 });
 
-test("rejects missing and ambiguous workspace callees deterministically", () => {
+test.skipIf(!HAS_CORE)("rejects missing and ambiguous workspace callees deterministically", () => {
     project(
         {
             "contracts/Main.h": calls("Missing"),
@@ -181,7 +182,7 @@ test("rejects missing and ambiguous workspace callees deterministically", () => 
     );
 });
 
-test("rejects dependency cycles and ignores self-calls", () => {
+test.skipIf(!HAS_CORE)("rejects dependency cycles and ignores self-calls", () => {
     project(
         {
             "contracts/Main.h": calls("First"),
@@ -218,7 +219,7 @@ test("rejects dependency cycles and ignores self-calls", () => {
     );
 });
 
-test("rejects explicit and main contract system-name overrides", () => {
+test.skipIf(!HAS_CORE)("rejects explicit and main contract system-name overrides", () => {
     project(
         {
             "contracts/Main.h": "",

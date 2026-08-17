@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Differential coverage for Collection mutation and per-PoV traversal.
 import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
@@ -10,7 +10,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const ORDERS = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -77,7 +77,7 @@ const ORDERS_GTEST = coreGtest(
 
 const wasi = wasiToolchain();
 
-describe("differential gtest — Collection (BST add/iterate/remove)", () => {
+describe.skipIf(!HAS_CORE)("differential gtest — Collection (BST add/iterate/remove)", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -98,7 +98,7 @@ describe("differential gtest — Collection (BST add/iterate/remove)", () => {
                 source: ORDERS,
                 contractName: "Orders",
                 slot: 28,
-                qpiHeader: HEADERS,
+                qpiHeader: HEADERS(),
                 arenaSizeBytes: 1024 * 1024,
             });
             expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

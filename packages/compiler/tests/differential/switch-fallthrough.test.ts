@@ -1,11 +1,11 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Regression test: switch/case fallthrough compiles to correct WASM with proper fallthrough semantics (stacked labels, intentional non-break fallthrough).
 import { test, expect } from "bun:test";
 import { compileContractWithTypeScript, loadQpiHeader } from "@qinit/compiler";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -45,12 +45,12 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-test("compile succeeds with switch fallthrough", async () => {
+test.skipIf(!HAS_CORE)("compile succeeds with switch fallthrough", async () => {
     const result = await compileContractWithTypeScript({
         source: SRC,
         contractName: "SwitchBug",
         slot: 50,
-        qpiHeader: HEADERS,
+        qpiHeader: HEADERS(),
         arenaSizeBytes: 1024 * 1024,
     });
     const errs = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
@@ -58,7 +58,7 @@ test("compile succeeds with switch fallthrough", async () => {
     expect(errs).toHaveLength(0);
 });
 
-test("WAT uses nested dispatch+bodies pattern (no unconditional break between cases)", async () => {
+test.skipIf(!HAS_CORE)("WAT uses nested dispatch+bodies pattern (no unconditional break between cases)", async () => {
     const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
@@ -70,7 +70,7 @@ test("WAT uses nested dispatch+bodies pattern (no unconditional break between ca
         source: SRC,
         contractName: "SwitchBug",
         slot: 50,
-        qpiHeader: HEADERS,
+        qpiHeader: HEADERS(),
         arenaSizeBytes: 1024 * 1024,
     });
     delete process.env.QINIT_DUMP_WAT;

@@ -1,4 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
+import { HAS_CORE } from "../../../../test-utils/paths";
 // Checks static_assert evaluation as a compile-time safety boundary.
 import { describe, expect, test } from "bun:test";
 import { edgeCompiler } from "../support/edge-compile";
@@ -22,7 +23,7 @@ async function expectFalseAssertionRejected(source: string) {
     expect(result.wasm).toHaveLength(0);
 }
 
-describe("edge audit — static_assert", () => {
+describe.skipIf(!HAS_CORE)("edge audit — static_assert", () => {
     test("a false class-scope static_assert rejects the contract", async () => {
         await expectFalseAssertionRejected(wrap(`static_assert(1 == 2, "edge assertion failed");`, ""));
     });

@@ -1,4 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
+import { HAS_CORE } from "../../../../test-utils/paths";
 // Covers fixed-array bounds, initialization, and ABI/state layouts.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -29,7 +30,7 @@ async function run(stateFields: string, body: string): Promise<bigint> {
     return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
 }
 
-describe("edge audit — fixed C arrays", () => {
+describe.skipIf(!HAS_CORE)("edge audit — fixed C arrays", () => {
     beforeAll(async () => {
         await initK12();
     });

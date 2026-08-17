@@ -6,7 +6,7 @@ import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader, type CompileResult } from "../../src/index";
 import { DiagnosticSeverity } from "../../src/shared/enums";
 
-const HEADERS = loadQpiHeader(CORE_PATH);
+const HEADERS = () => loadQpiHeader(CORE_PATH);
 const PROBE_SLOT = 27;
 const PROBE_ARENA_BYTES = 1 << 20;
 
@@ -16,7 +16,7 @@ export function edgeCompiler(contractName: string): (source: string) => Promise<
             source,
             contractName,
             slot: PROBE_SLOT,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: PROBE_ARENA_BYTES,
         });
 }

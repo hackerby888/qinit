@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // MIGRATE() parity for redeploy flow.
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, expect, beforeAll } from "bun:test";
@@ -9,7 +9,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const SRC_V1 = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -70,7 +70,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 const wasi = wasiToolchain();
 
-describe("differential — MIGRATE() redeploy state parity", () => {
+describe.skipIf(!HAS_CORE)("differential — MIGRATE() redeploy state parity", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -103,7 +103,7 @@ describe("differential — MIGRATE() redeploy state parity", () => {
                     source: src,
                     contractName: name,
                     slot: 26,
-                    qpiHeader: HEADERS,
+                    qpiHeader: HEADERS(),
                     arenaSizeBytes: 4 * 1024 * 1024,
                 });
                 expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

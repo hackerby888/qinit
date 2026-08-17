@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Checks allowed C++11 type aliases in struct and function scope.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
@@ -7,7 +7,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -49,7 +49,7 @@ function i64(b: Uint8Array, off = 0): bigint {
     return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigInt64(off, true);
 }
 
-describe("using type aliases", () => {
+describe.skipIf(!HAS_CORE)("using type aliases", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -59,7 +59,7 @@ describe("using type aliases", () => {
             source: SRC,
             contractName: "Alias",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1024 * 1024,
         });
         const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);

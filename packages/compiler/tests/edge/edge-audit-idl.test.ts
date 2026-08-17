@@ -1,10 +1,10 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // compileContractWithTypeScript's ContractIdl must describe the same ABI that is embedded in the generated WASM.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { compileContractWithTypeScript, loadQpiHeader, type ContractIdl } from "../../src/index";
 
-const HEADERS = loadQpiHeader(CORE_PATH);
+const HEADERS = () => loadQpiHeader(CORE_PATH);
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -29,13 +29,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 let idl: ContractIdl;
 
-describe("edge audit — compile result IDL fidelity", () => {
+describe.skipIf(!HAS_CORE)("edge audit — compile result IDL fidelity", () => {
     beforeAll(async () => {
         const result = await compileContractWithTypeScript({
             source: SOURCE,
             contractName: "IdlEdge",
             slot: 27,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1 << 20,
         });
         expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

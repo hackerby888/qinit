@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 
 type CoverageManifest = Record<string, Record<string, string>>;
 
@@ -175,11 +175,11 @@ export function publicMethodSurface(header: string, family: string): string[] {
     return [...methods].sort();
 }
 
-describe("QPI container public API coverage manifest", () => {
-    const liveHeader = readFileSync(join(CORE_PATH, "src", "qpi", "qpi_containers.h"), "utf8");
+describe.skipIf(!HAS_CORE)("QPI container public API coverage manifest", () => {
+    const liveHeader = () => readFileSync(join(CORE_PATH, "src", "qpi", "qpi_containers.h"), "utf8");
     for (const family of Object.keys(CONTAINER_COVERAGE)) {
         test(`${family} manifest exactly matches live qpi.h`, () => {
-            expect(Object.keys(CONTAINER_COVERAGE[family]).sort()).toEqual(publicMethodSurface(liveHeader, family));
+            expect(Object.keys(CONTAINER_COVERAGE[family]).sort()).toEqual(publicMethodSurface(liveHeader(), family));
             expect(Object.values(CONTAINER_COVERAGE[family]).every((description) => description.length > 0)).toBe(true);
         });
     }

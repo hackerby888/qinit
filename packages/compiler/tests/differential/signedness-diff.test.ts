@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Mixed signed/unsigned conversions. width32-diff covers same-signedness width; nothing pinned the branch
 // of usualConversion that picks div_s over div_u, where a mistake is a 2^64-scale answer with no diagnostic.
 import { wasiToolchain } from "../support/container-toolchains";
@@ -13,7 +13,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const wrap = (body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -80,7 +80,7 @@ const run = (wasm: Uint8Array): bigint => {
 
 const wasiOk = wasiToolchain().available;
 
-describe("differential — mixed signed/unsigned state parity", () => {
+describe.skipIf(!HAS_CORE)("differential — mixed signed/unsigned state parity", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -94,7 +94,7 @@ describe("differential — mixed signed/unsigned state parity", () => {
                     source,
                     contractName: "Signedness",
                     slot: 27,
-                    qpiHeader: HEADERS,
+                    qpiHeader: HEADERS(),
                     arenaSizeBytes: 1 << 20,
                 });
                 expect(ours.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
@@ -7,7 +7,7 @@ import { compileContractWithTypeScript, inspectWasmModule, loadQpiHeader } from 
 import { readSourceTree } from "../support/source-tree";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 const SLOT = 27;
 const USER = new Uint8Array(32).fill(0x4d);
 
@@ -67,7 +67,7 @@ async function compile(source = SOURCE) {
         source,
         contractName: "RandomProbe",
         slot: SLOT,
-        qpiHeader: HEADERS,
+        qpiHeader: HEADERS(),
         arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
@@ -90,14 +90,14 @@ function run(wasm: Uint8Array, tick: number, nonce: bigint, initialSeed?: bigint
     return sim.contracts.get(SLOT)!.state();
 }
 
-describe("chain-seeded source-compiled random values", () => {
+describe.skipIf(!HAS_CORE)("chain-seeded source-compiled random values", () => {
     beforeAll(initK12);
 
     test("snapshot carries the authoritative random bodies", () => {
-        expect(HEADERS).toContain("void setRandomValue()");
-        expect(HEADERS).toContain("static m256i randomValue()");
-        expect(HEADERS).toContain("_rdrand32_step");
-        expect(HEADERS).toContain("_rdrand64_step");
+        expect(HEADERS()).toContain("void setRandomValue()");
+        expect(HEADERS()).toContain("static m256i randomValue()");
+        expect(HEADERS()).toContain("_rdrand32_step");
+        expect(HEADERS()).toContain("_rdrand64_step");
     });
 
     test("all rdrand widths write through wasm32 pointers, return success, and advance", async () => {
@@ -163,14 +163,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             source: source(false),
             contractName: "NestedRandom",
             slot: SLOT,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1 << 20,
         });
         const reentrant = await compileContractWithTypeScript({
             source: source(true),
             contractName: "NestedRandom",
             slot: SLOT,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1 << 20,
         });
         expect(plain.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);

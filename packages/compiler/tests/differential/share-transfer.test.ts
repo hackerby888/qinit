@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE, QINIT_ROOT } from "../../../../test-utils/paths";
 import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
 // Share custody sysproc parity (PRE_*_SHARES).
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -9,7 +9,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 const APPROVER_SRC = readFileSync(QINIT_ROOT + "/fixtures/ShareApprover.h", "utf8");
 
 const TOKEN = 0x4e454b4f54n; // "TOKEN"
@@ -73,7 +73,7 @@ function sharesByMgmt(sim: QubicSimulator, mgmt: number): bigint {
     return sum;
 }
 
-describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management-rights transfer", () => {
+describe.skipIf(!HAS_CORE)("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management-rights transfer", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -83,7 +83,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
             source: APPROVER_SRC,
             contractName: "ShareApprover",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1024 * 1024,
         });
         expect(approver.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
@@ -109,7 +109,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
             source: APPROVER_SRC,
             contractName: "ShareApprover",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1024 * 1024,
         });
         const sim = new QubicSimulator();
@@ -137,7 +137,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
             source: APPROVER_SRC,
             contractName: "ShareApprover",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1024 * 1024,
         });
         const sim = new QubicSimulator();
@@ -161,7 +161,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
             source: POST_REC,
             contractName: "PostRec",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1024 * 1024,
         });
         expect(rec.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

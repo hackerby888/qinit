@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { buildContractWithClang } from "@qinit/build";
@@ -8,7 +8,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const wrap = (body: string, members = "") => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -25,7 +25,7 @@ const compile = async (source: string) => {
         source,
         contractName: "T",
         slot: 27,
-        qpiHeader: HEADERS,
+        qpiHeader: HEADERS(),
         arenaSizeBytes: 1 << 20,
     });
     return {
@@ -205,7 +205,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     "default argument call": wrap(`state.mut().a = add(5);`, `static uint64 add(uint64 x, uint64 y = 2) { return x + y; }`),
 };
 
-describe("semantic validation — invalid source must fail loudly", () => {
+describe.skipIf(!HAS_CORE)("semantic validation — invalid source must fail loudly", () => {
     beforeAll(async () => {
         await initK12();
     });

@@ -2,13 +2,16 @@ import { InspectedMemoryMode, WasmMemorySource, WasmModuleMemoryMode, WasmValueT
 import { describe, expect, test } from "bun:test";
 import { emitModule, type ModuleSpecification } from "../../src/backend/wasm/framework";
 import { inspectWasmModule, LHOST_ABI, WASM_MODULE_EXPORT_ABI } from "../../src/driver/wasm-inspection";
-import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
+import { qpiContextLayout } from "../support/qpi-context-layout";
+import { HAS_CORE } from "../../../../test-utils/paths";
 
 const SPEC: ModuleSpecification = {
     contractSlot: 29,
     stateSize: 8,
     arenaSize: 64 * 1024,
-    contextLayout: QPI_CONTEXT_LAYOUT,
+    get contextLayout() {
+        return qpiContextLayout();
+    },
     entries: [],
     sysprocs: [],
     userFunctionsWat: "  ;; no user functions",
@@ -45,7 +48,7 @@ function codes(result: ReturnType<typeof inspectWasmModule>): string[] {
     return result.diagnostics.map((diagnostic) => diagnostic.code);
 }
 
-describe("Wasm module inspection", () => {
+describe.skipIf(!HAS_CORE)("Wasm module inspection", () => {
     test("accepts and describes the production generated ABI", async () => {
         const wat = emitModule(SPEC);
         const result = inspectWasmModule(await assemble(wat));

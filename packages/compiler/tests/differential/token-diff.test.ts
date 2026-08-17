@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE, QINIT_ROOT } from "../../../../test-utils/paths";
 // Covers token host calls and id construction against native behavior.
 import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
@@ -11,7 +11,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 const TOKEN = readFileSync(QINIT_ROOT + "/fixtures/Token.h", "utf8");
 
 // Issue = procedure it=1, Issued = func it=2, NextId = func it=4, Last = func it=5.
@@ -45,7 +45,7 @@ TEST(Token, NextIdIsDeterministic) {
 
 const wasi = wasiToolchain();
 
-describe("differential gtest — Token (qpi host calls)", () => {
+describe.skipIf(!HAS_CORE)("differential gtest — Token (qpi host calls)", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -66,7 +66,7 @@ describe("differential gtest — Token (qpi host calls)", () => {
                 source: TOKEN,
                 contractName: "Token",
                 slot: 28,
-                qpiHeader: HEADERS,
+                qpiHeader: HEADERS(),
                 arenaSizeBytes: 1024 * 1024,
             });
             // numberOfShares (Select args) is a known gap — only errors should block; warnings are fine.

@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
@@ -19,7 +19,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Read, 1); }
 };`;
 
-describe("source-backed QPI context accessors", () => {
+describe.skipIf(!HAS_CORE)("source-backed QPI context accessors", () => {
     beforeAll(initK12);
 
     test("reads reward, invocator, and originator from the entry context", async () => {

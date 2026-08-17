@@ -1,4 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
+import { HAS_CORE } from "../../../../test-utils/paths";
 // Covers direct, braced, and parenthesized initialization in helper bodies.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -29,7 +30,7 @@ async function run(source: string): Promise<bigint> {
     return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
 }
 
-describe("edge audit — direct and aggregate initialization", () => {
+describe.skipIf(!HAS_CORE)("edge audit — direct and aggregate initialization", () => {
     beforeAll(async () => {
         await initK12();
     });

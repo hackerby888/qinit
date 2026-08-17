@@ -1,12 +1,12 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Pins inclusive registration bounds and rejects values outside them.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
-const HEADERS = loadQpiHeader(CORE_PATH);
+const HEADERS = () => loadQpiHeader(CORE_PATH);
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -42,14 +42,14 @@ let entries: Array<{
 let stateSize: number;
 let oldStateSize: number;
 
-describe("edge audit — inclusive QPI ABI boundaries", () => {
+describe.skipIf(!HAS_CORE)("edge audit — inclusive QPI ABI boundaries", () => {
     beforeAll(async () => {
         await initK12();
         const result = await compileContractWithTypeScript({
             source: SOURCE,
             contractName: "AbiBoundaryEdge",
             slot: 27,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1 << 20,
         });
         expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

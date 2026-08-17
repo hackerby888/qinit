@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { wasiToolchain } from "../support/container-toolchains";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -81,6 +81,9 @@ function words(state: Uint8Array): bigint[] {
 }
 
 beforeAll(async () => {
+    if (!HAS_CORE) {
+        return;
+    }
     await initK12();
     const ours = await compileContractWithTypeScript({
         source: SOURCE,
@@ -118,7 +121,7 @@ afterAll(() => {
     if (nativeDir) rmSync(nativeDir, { recursive: true, force: true });
 });
 
-describe("aggregate initialization and aliasing", () => {
+describe.skipIf(!HAS_CORE)("aggregate initialization and aliasing", () => {
     const vectors = [
         [5n, 9n, 3n, 11n],
         [0n, 0n, 0n, 0n],

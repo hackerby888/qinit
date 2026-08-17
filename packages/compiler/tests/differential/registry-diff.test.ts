@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Differential coverage for HashSet/HashMap removal and iteration methods.
 import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
@@ -10,7 +10,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const REGISTRY = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -113,7 +113,7 @@ TEST(Registry, HashMapReuseRemovedSlot) {
 
 const wasi = wasiToolchain();
 
-describe("differential gtest — Registry (HashSet + HashMap iteration/remove)", () => {
+describe.skipIf(!HAS_CORE)("differential gtest — Registry (HashSet + HashMap iteration/remove)", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -134,7 +134,7 @@ describe("differential gtest — Registry (HashSet + HashMap iteration/remove)",
                 source: REGISTRY,
                 contractName: "Registry",
                 slot: 28,
-                qpiHeader: HEADERS,
+                qpiHeader: HEADERS(),
                 arenaSizeBytes: 1024 * 1024,
             });
             expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

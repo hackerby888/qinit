@@ -1,12 +1,12 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { runCompiledGtest } from "@qinit/engine";
 import { compileContractWithTypeScript, compileGtestWithTypeScript, loadQpiHeader } from "../../src";
 
 const CORE = CORE_PATH;
-const QPI = loadQpiHeader(CORE);
+const QPI = () => loadQpiHeader(CORE);
 
 const CONTRACT = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -74,7 +74,7 @@ TEST(Counter, Increment) {
   EXPECT_EQ(t.get().value, 7ull);
 }`;
 
-describe("core-lite-style gtest compiler", () => {
+describe.skipIf(!HAS_CORE)("core-lite-style gtest compiler", () => {
     beforeAll(async () => initK12());
 
     test("compiles and executes a standard ContractTesting test without clang", async () => {
@@ -83,7 +83,7 @@ describe("core-lite-style gtest compiler", () => {
             testSource: STANDARD_GTEST,
             contractName: "Counter",
             slot: 28,
-            qpiHeader: QPI,
+            qpiHeader: QPI(),
         });
         expect(compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         expect(compiled.program?.tests.map((item) => item.name)).toEqual(["Counter.Increment"]);
@@ -92,7 +92,7 @@ describe("core-lite-style gtest compiler", () => {
             source: CONTRACT,
             contractName: "Counter",
             slot: 28,
-            qpiHeader: QPI,
+            qpiHeader: QPI(),
             arenaSizeBytes: 64 * 1024,
         });
         expect(contract.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
@@ -108,7 +108,7 @@ describe("core-lite-style gtest compiler", () => {
             testSource: `TEST(Counter, Old) { ContractTest t; }`,
             contractName: "Counter",
             slot: 28,
-            qpiHeader: QPI,
+            qpiHeader: QPI(),
         });
         expect(compiled.program).toBeUndefined();
         expect(compiled.diagnostics[0]?.message).toContain("legacy ContractTest");
@@ -120,7 +120,7 @@ describe("core-lite-style gtest compiler", () => {
             testSource: STANDARD_GTEST.replace("Counter::Inc_output out = t.inc(user);", "for (int i = 0; i < 3; ++i) { t.inc(user); }"),
             contractName: "Counter",
             slot: 28,
-            qpiHeader: QPI,
+            qpiHeader: QPI(),
         });
         expect(compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
         expect(compiled.program).toBeDefined();
@@ -132,13 +132,13 @@ describe("core-lite-style gtest compiler", () => {
             testSource: STANDARD_GTEST.replace("EXPECT_EQ(t.get().value, 7ull);", "EXPECT_EQ(t.get().value, 8ull);"),
             contractName: "Counter",
             slot: 28,
-            qpiHeader: QPI,
+            qpiHeader: QPI(),
         });
         const contract = await compileContractWithTypeScript({
             source: CONTRACT,
             contractName: "Counter",
             slot: 28,
-            qpiHeader: QPI,
+            qpiHeader: QPI(),
             arenaSizeBytes: 64 * 1024,
         });
         const [result] = await runCompiledGtest(compiled.program!, compiled.wasm!, {

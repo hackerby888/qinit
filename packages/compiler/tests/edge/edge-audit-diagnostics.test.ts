@@ -1,10 +1,10 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Checks that diagnostics retain original-source spans after preprocessing.
 import { describe, expect, test } from "bun:test";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
-const HEADERS = loadQpiHeader(CORE_PATH);
+const HEADERS = () => loadQpiHeader(CORE_PATH);
 
 const UNKNOWN_SOURCE = [
     `using namespace QPI;`,
@@ -22,13 +22,13 @@ const UNKNOWN_SOURCE = [
 const ERROR_LINE = UNKNOWN_SOURCE.slice(0, UNKNOWN_SOURCE.indexOf("missingValue")).split("\n").length;
 const ERROR_COLUMN = UNKNOWN_SOURCE.split("\n")[ERROR_LINE - 1]!.indexOf("missingValue") + 1;
 
-describe("edge audit — user-facing diagnostic spans", () => {
+describe.skipIf(!HAS_CORE)("edge audit — user-facing diagnostic spans", () => {
     test("an unknown identifier reports its original source line", async () => {
         const result = await compileContractWithTypeScript({
             source: UNKNOWN_SOURCE,
             contractName: "DiagnosticEdge",
             slot: 27,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1 << 20,
         });
         const diagnostic = result.diagnostics.find((d) => /missingValue|unknown.*identifier/i.test(d.message));
@@ -41,7 +41,7 @@ describe("edge audit — user-facing diagnostic spans", () => {
             source: UNKNOWN_SOURCE,
             contractName: "DiagnosticEdge",
             slot: 27,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1 << 20,
         });
         const diagnostic = result.diagnostics.find((d) => /missingValue|unknown.*identifier/i.test(d.message));
@@ -56,7 +56,7 @@ describe("edge audit — user-facing diagnostic spans", () => {
             source,
             contractName: "DiagnosticEdge",
             slot: 27,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1 << 20,
         });
         const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
