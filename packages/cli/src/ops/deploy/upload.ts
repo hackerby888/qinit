@@ -1,14 +1,11 @@
-// The on-chain chunked upload protocol: claim the node's single upload slot with UPLOAD_BEGIN, broadcast
-// every UPLOAD_CHUNK, then wait for the node to report the session assembled. Broadcasting a chunk is not
-// the same as it landing in a tick, so every phase re-reads the node's upload status and resends what is
-// still missing rather than trusting the broadcast result.
+// Broadcasting a chunk is not the same as it landing in a tick, so every phase re-reads the node's upload
+// status and resends what is still missing rather than trusting the broadcast result.
 import { LiteRpc, buildSignedTx } from "@qinit/core";
 import { LITE_TX, TX_TICK_OFFSET, createUploadSessionId, encodeUploadBegin, encodeUploadChunk, splitUploadChunks } from "@qinit/proto";
 import type { DeploymentEvent } from "./steps";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// A signed transaction for one lite-protocol input type, ready to broadcast.
 export async function buildUploadTx(seed: string, inputType: number, payload: Uint8Array, tick: number): Promise<Uint8Array> {
     return (await buildSignedTx(seed, { tick, inputType, payload })).bytes;
 }
@@ -159,7 +156,6 @@ export async function uploadContract({ rpc, seed, wasm, hash, emit, readTick, wa
         pct: 1,
     });
 
-    // A successful broadcast does not guarantee that the chunk landed in a tick.
     let assembled = false;
     await waitForTick(chunkTick + 1);
 

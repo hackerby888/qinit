@@ -8,13 +8,13 @@ import { MAX_NUMBER_OF_CONTRACTS } from "@qinit/proto";
 import type { Id } from "../support/bytes";
 
 export { MAX_NUMBER_OF_CONTRACTS, TXS_PER_TICK, TICKDATA_SIZE };
-export const DEFAULT_ARBITRATOR_SEED = "a".repeat(55); // arbitrator identity = derive("aaa…a")
+export const DEFAULT_ARBITRATOR_SEED = "a".repeat(55);
 export const DEFAULT_NUMBER_OF_COMPUTORS = 8; // core-lite LITE testnet committee (common_def.h)
 export const TICK_SIZE = Tick.SIZE; // network_messages/tick.h (352), including the 64-byte signature
 const TICK_TYPE = 3; // BROADCAST_TICK — XORed into computorIndex for vote-signature domain separation (qubic.cpp)
 const SEED_ALPHABET = "abcdefghijklmnopqrstuvwxyz";
 
-// QUORUM = floor(N*2/3)+1 (core-lite common_def.h:17).
+// QUORUM = floor(N*2/3)+1.
 export function quorumOf(n: number): number {
     return Math.floor((n * 2) / 3) + 1;
 }
@@ -36,11 +36,10 @@ export interface Computor extends KeyPair {
 export interface CommitteeOpts {
     numberOfComputors?: number; // default 8 (ignored when computorSeeds is given)
     computorSeeds?: string[]; // explicit seeds (reproducible); else N random seeds
-    arbitratorSeed?: string; // default "a".repeat(55)
+    arbitratorSeed?: string;
 }
 
-// The committee that signs ticks + the arbitrator that signs the committee list. Derives every key
-// synchronously (deriveKeysSync), so it must be constructed after initK12().
+// Derives every key synchronously — construct after initK12().
 export class Committee {
     readonly computors: Computor[];
     readonly arbitrator: KeyPair & { seed: string };
@@ -60,8 +59,6 @@ export class Committee {
         return this.computors.length;
     }
 
-    // Build signed Computors wire data: epoch, keys, and arbitrator signature.
-    // slotCount defaults to the committee size.
     signedComputorList(epoch: number, slotCount = this.computors.length): Uint8Array {
         const size = 2 + slotCount * DIGEST_SIZE + SIG_SIZE;
         const buf = new Uint8Array(size);
@@ -80,8 +77,7 @@ export class Committee {
     }
 }
 
-// State and transaction digests committed by each tick vote.
-// Spectrum and universe are incremental depth-24 Merkle roots.
+// Spectrum and universe are incremental depth-24 Merkle roots committed by each tick vote.
 export interface TickStateDigests {
     spectrum: Uint8Array;
     universe: Uint8Array;
@@ -112,7 +108,7 @@ export function merkleRoot(leaves: Map<number, Uint8Array>, capacity: number): U
     return level[0];
 }
 
-// salted digest = K12(publicKey(32) ‖ prevDigest(32)) — the per-computor salt (qubic.cpp:5707).
+// salted digest = K12(publicKey(32) ‖ prevDigest(32)) — the per-computor salt.
 function saltedDigest(publicKey: Id, prev: Uint8Array): Uint8Array {
     const buf = new Uint8Array(2 * DIGEST_SIZE);
     buf.set(publicKey.subarray(0, DIGEST_SIZE), 0);
@@ -120,15 +116,14 @@ function saltedDigest(publicKey: Id, prev: Uint8Array): Uint8Array {
     return k12Bytes(buf);
 }
 
-// Build and sign one 352-byte Tick vote.
-// State roots use prev*Digest and K12(publicKey ‖ digest) salted fields.
+// State roots are the prev*Digest plus K12(publicKey ‖ digest) salted fields.
 export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickStateDigests, timeMs: number): Tick {
     const v = Tick.alloc();
     v.computorIndex = c.index;
     v.epoch = epoch;
     v.tick = tick;
 
-    // timestamp; the resource-testing / tx-body u32 digests stay zero (deterministic, not modeled in the dev sim).
+    // tx-body u32 digests stay zero — not modeled in the dev sim.
     const t = dateFields(timeMs);
     v.millisecond = t.milli;
     v.second = t.second;
@@ -169,7 +164,6 @@ export function tickVoteSignature(vote: Uint8Array): Uint8Array {
     return vote.subarray(TICK_SIZE - SIG_SIZE, TICK_SIZE);
 }
 
-// Leader-proposed transaction set in the TickData wire format.
 const TICKDATA_TYPE = 8; // BROADCAST_FUTURE_TICK_DATA — XORed into computorIndex for the signature domain
 
 // timelock = K12(spectrumDigest ‖ universeDigest ‖ computerDigest) — the tick's committed state roots.
@@ -181,8 +175,7 @@ function tickDataTimelock(spectrum: Uint8Array, universe: Uint8Array, computer: 
     return k12Bytes(buf);
 }
 
-// Build + sign the tick's TickData. The leader (computor[tick % N]) commits the tick's per-tx digests (each =
-// K12(full signed tx), in order, zero-padded to the capacity) and the state roots; contractFees stay zero.
+// Per-tx digests are K12(full signed tx), zero-padded to the capacity; contractFees stay zero.
 export function buildTickData(
     committee: Committee,
     epoch: number,
@@ -238,7 +231,7 @@ export function tickDataMessage(td: Uint8Array): Uint8Array {
     return k12Bytes(body);
 }
 
-// Does a vote commit to the etalon (canonical) state digests? The aligned-vote count for quorum.
+// An aligned vote (commits to the etalon digests) counts toward quorum.
 export function voteIsAligned(vote: Tick, d: TickStateDigests): boolean {
     return (
         vote.prevSpectrumDigest.equals(d.spectrum) &&
@@ -248,7 +241,6 @@ export function voteIsAligned(vote: Tick, d: TickStateDigests): boolean {
     );
 }
 
-// Verify an entity Merkle proof against a quorum of valid computor votes.
 export function verifyEntityProof(record: Uint8Array, index: number, siblings: Uint8Array[], votes: Tick[], committee: Committee): boolean {
     if (index < 0) {
         return false;

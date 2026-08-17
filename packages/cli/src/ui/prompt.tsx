@@ -73,10 +73,8 @@ export function Select<T>({ label, items, onSelect }: { label: string; items: Se
     );
 }
 
-// A single-line editor with a caret, an optional inline completion (⇥ accepts), and an optional
-// placeholder that → fills into the field.
-// `isActive: false` parks the field: it still renders, dimmed, but takes no keys — which is how a form
-// can mount several at once and still honour the one-keyboard-owner rule above.
+// `isActive: false` parks the field: still renders dimmed but takes no keys — which is how a form can
+// mount several at once and still honour the one-keyboard-owner rule above.
 export function TextPrompt({
     label,
     initial,

@@ -1,9 +1,5 @@
-// A file-size ratchet for every package. packages/compiler enforces its own cap in its architecture test;
-// the files that actually run long live outside it, so this gate covers the whole workspace.
-//
-// New files must come in under MAX_FILE_LINES. The oversized files that predate this gate are listed in
-// BUDGETS at the size they had when it landed, so they can shrink but never grow. Lower a budget whenever
-// a split lands; delete the entry once the file is under the cap.
+// A file-size ratchet for every package: files that predate the gate are listed in BUDGETS at their size
+// when it landed — they can shrink but never grow; lower a budget on a split, delete it once under the cap.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

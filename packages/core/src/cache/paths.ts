@@ -32,9 +32,9 @@ export interface CurrentPointer {
     nodeVersion?: string;
     node?: string;
     verify?: string; // path to the cached contractverify tool
-    verifySha?: string; // sha256 of the cached tool (drives auto-update)
+    verifySha?: string; // drives auto-update
     verifyVersion?: string; // upstream image digest / version it was built from
-    verifyCheckedAt?: string; // last time we checked the manifest (daily-cached gate)
+    verifyCheckedAt?: string; // daily-cached gate
     syncedAt?: string;
 }
 export function currentPath(): string {

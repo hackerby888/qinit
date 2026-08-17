@@ -219,7 +219,6 @@ try {
         failures++;
     }
 
-    // What the VS Code extension's completion middleware hands the editor.
     const allowed = qpiAllowedIdentifiers(config.prefixPath, core);
     const documentNames = documentIdentifiers(PROBE);
     const filtered = valueScope.filter((item) => keepCompletionLabel(item, allowed, documentNames));

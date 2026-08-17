@@ -1,6 +1,4 @@
-// The explorer's send form: a sender, a recipient, an amount, a confirmation, then the tx settling.
-// FROM always ends as a seed because it has to sign; TO always ends as an identity because that is what
-// the transaction carries. Either field accepts either form and resolves it.
+// FROM always ends as a seed (it must sign); TO ends as an identity (what the tx carries).
 import { useEffect, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { deriveIdentity, identityToBytes } from "@qinit/core";
@@ -17,8 +15,6 @@ const FIELD_COUNT = 3;
 
 export type WalletInputKind = "empty" | "seed" | "identity" | "partial" | "invalid";
 
-// Seeds are 55 lowercase letters, identities 60 uppercase. The shapes cannot overlap, so one field takes
-// either without a mode switch, and a half-typed value is "partial" rather than an error.
 export function classifyWalletInput(value: string): WalletInputKind {
     const trimmed = value.trim();
 
@@ -58,9 +54,8 @@ export interface FundedPool {
     total: number;
 }
 
-// An identity as sender carries no private key, so its seed has to come out of the node's funded pool.
 // A node without the route and a genuine miss are different failures and must never share a message —
-// the routes are compile-gated on core, so "unavailable" is a real and common case.
+// the route is compile-gated on core, so "unavailable" is a real and common case.
 export function poolSeedForIdentity(identity: string, pool: FundedPool | null, poolError: string): string {
     if (poolError) {
         throw new Error(`funded-seed route unavailable — the node is not a TESTNET build (${poolError})`);
@@ -120,9 +115,8 @@ function shapeHint(kind: WalletInputKind, value: string): string {
     return "";
 }
 
-// Every hint must stay on one row: the shell budgets body rows by counting them, so a line that wraps
-// pushes the control bar off-screen. A 60-character identity plus a balance overflows 80 columns, and the
-// balance is the part worth keeping, so the identity is what gives.
+// Hints must stay on one row — the shell budgets body rows by counting them. A 60-char identity plus a
+// balance overflows 80 columns, and the balance is the part worth keeping, so the identity gives.
 function HintLine({ state, extra, columns }: { state: PartyState; extra?: string; columns: number }) {
     const budget = Math.max(20, columns - 4);
 
@@ -224,8 +218,6 @@ export function WalletView({
                 setPoolError(errText(poolResult.reason));
             }
 
-            // Set before `ready` so the fields mount with the default already in place — TextPrompt captures
-            // its initial value once.
             setFromInput(seedResult.status === "fulfilled" ? seedResult.value : "");
             setReady(true);
         })();
@@ -392,8 +384,7 @@ export function WalletView({
         setStage("edit");
     };
 
-    // ↵ walks the fields and, from the last one, opens the review — or drops focus on whatever still needs
-    // fixing, which is more useful than refusing silently.
+    // ↵ drops focus on the field that still needs fixing rather than refusing silently.
     const advance = (index: number) => {
         if (index < FIELD_COUNT - 1) {
             setFocus(index + 1);

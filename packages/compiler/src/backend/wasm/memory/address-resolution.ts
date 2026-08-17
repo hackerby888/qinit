@@ -4,7 +4,6 @@ import { StructLayout, FieldLayout, FunctionEmissionContext, ResolvedAddress, EM
 import type { TypeSpec, Expression, StructDecl } from "../../../ast";
 import { addressAtOffset } from "./memory-operations";
 // ---- lvalue addressing ----
-// True if `state.get()` / `state.mut()`.
 export function isStateAccessor(expression: Expression): boolean {
     return (
         expression.kind === AstKind.CALL &&
@@ -56,7 +55,6 @@ export function isUint128(programAnalysis: ProgramAnalysis, type: TypeSpec | nul
     const name = separator >= 0 ? dereferencedType.name.slice(separator + 2) : dereferencedType.name;
     return name === "uint128" || name === "uint128_t";
 }
-// Resolve the address of an lvalue expression (member-access chains rooted at input/output/locals/state).
 export function castInfo(expression: Expression): {
     type: TypeSpec;
     operand: Expression;

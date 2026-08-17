@@ -28,7 +28,7 @@ export function tryExpandMacro(preprocessor: Preprocessor, name: string): string
         preprocessor.line = saveLine;
         return null; // not invoked as function-like macro
     }
-    preprocessor.pos++; // skip (
+    preprocessor.pos++;
     // Read arguments
     const callArguments: string[] = [];
     let argument = "";
@@ -43,7 +43,7 @@ export function tryExpandMacro(preprocessor: Preprocessor, name: string): string
             depth--;
             if (depth === 0) {
                 callArguments.push(argument.trim());
-                preprocessor.pos++; // skip )
+                preprocessor.pos++;
                 break;
             }
             argument += ch;

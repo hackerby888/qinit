@@ -7,7 +7,7 @@ export class TemplateParser {
     constructor(private readonly parser: Parser) {}
 
     parseTemplateDeclaration(): Declaration {
-        this.parser.state.next(); // template
+        this.parser.state.next();
         this.parser.state.expect(TokenKind.L_ANGLE, "template params");
         const params = this.parser.templates.parseTemplateParams();
         this.parser.state.consumeTemplateAngleClose();
@@ -51,7 +51,7 @@ export class TemplateParser {
                 if (!nameTok) break;
                 const name = nameTok.text;
                 if (this.parser.state.tryConsume(TokenKind.EQ)) {
-                    // The default value runs up to the closing `>` of the template list — don't let a top-level
+                    // The default value runs up to the template list's closing `>` — bump depth so a top-level `>` inside doesn't close early.
                     this.parser.state.templateAngleDepth++;
                     const defVal = this.parser.expressions.parseExpression();
                     this.parser.state.templateAngleDepth--;

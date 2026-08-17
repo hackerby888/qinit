@@ -168,7 +168,7 @@ export function TxView({
     }, [hash, tick, refreshToken]);
 
     // The payload is decoded off the render path: the IDL map arrives after the transaction does, and
-    // container fields make the decode async. Until it lands the view shows what it shows today.
+    // container fields make the decode async.
     const entry = tx ? entryFor(contractIndexFromIdentity(tx.destination), tx.inputType, contractIdls) : undefined;
     useEffect(() => {
         if (!tx || !entry) {
@@ -229,9 +229,8 @@ export function TxView({
     const formatRow = decoded?.format ? truncMid(`--in "${decoded.format}"`, width) : "";
     const decodedRows = fieldRows.length + (hiddenFields > 0 ? 1 : 0) + (formatRow ? 2 : 0);
 
-    // 15 rows are fixed here: the title block with its from/to band (5), the 7-row KV with its margin (8),
-    // and the trailing hint (2). The dump then costs its own margin + section header + an overflow line, so
-    // it only appears once everything else fits — a short terminal drops dump rows, never the control bar.
+    // 15 fixed rows (title/from-to band 5, 7-row KV + margin 8, trailing hint 2); the dump costs its own
+    // margin + section header + overflow line, so a short terminal drops dump rows, never the control bar.
     const hexBudget = Math.max(0, Math.min(8, bodyRows - 19 - decodedRows - (decodedRows > 0 ? 1 : 0)));
     const hexRows: string[] = [];
     for (let offset = 0; offset < inputBytes.length && hexRows.length < hexBudget; offset += 32) {

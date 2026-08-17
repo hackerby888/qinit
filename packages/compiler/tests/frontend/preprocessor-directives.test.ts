@@ -1,5 +1,4 @@
-// Covers the directives that run on every compile but had no test — #include and #pragma once come from
-// qpi.h itself — plus the #if expression evaluator, which used to drop hex, octal and ternary syntax.
+// Covers the directives that run on every compile (#include and #pragma once come from qpi.h) plus the #if evaluator's hex/octal/ternary coverage.
 import { describe, expect, test } from "bun:test";
 import { Preprocessor } from "../../src/frontend/preprocessor";
 
@@ -17,7 +16,6 @@ const lines = (source: string): string[] =>
         .map((line) => line.trim())
         .filter((line) => line.length > 0);
 
-// Reduces an #if expression to the branch it selects.
 const IF = (expression: string): string => `#if ${expression}\nT\n#else\nF\n#endif`;
 
 describe("#include, #pragma and #error", () => {

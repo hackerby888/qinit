@@ -1,7 +1,7 @@
 // C preprocessor for QPI subset. Operates on text, not tokens.
 export interface PreprocessOptions {
-    source: string; // contract source
-    qpiHeader: string; // preprocessed qpi.h content (all #includes resolved)
+    source: string;
+    qpiHeader: string;
     contractName: string;
     contractIndex: number;
     calleePrelude?: string; // inter-contract callee type headers

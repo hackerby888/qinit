@@ -92,7 +92,6 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
                 const backend = resolveCompilerBackend(commandArgs.get("compiler"));
 
-                // Run a core-lite contract_testing.h suite on an isolated engine.
                 if (commandArgs.has("corpus")) {
                     const scName = commandArgs.get("corpus") || firstPositional;
                     if (!scName) {
@@ -187,7 +186,6 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                             },
                         ]),
                 );
-                // Scaffold the test when missing (or --new).
                 if (!existsSync(testPath) || commandArgs.has("new")) {
                     const idl = extractIdl(contractSrc, name, {
                         slot,

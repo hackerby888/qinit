@@ -32,7 +32,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 test("parser: native, uint128, enum, Asset, nested + scoped struct, multi-var, constexpr/div size, methods", () => {
     const sf = stateFieldsOf(extractIdl(SRC, "T"));
     const by = Object.fromEntries(sf.map((f) => [f.name, f]));
-    expect(sf.some((f) => f.bad)).toBe(false); // everything resolves
+    expect(sf.some((f) => f.bad)).toBe(false);
     expect(by.nativeU.size).toBe(4); // unsigned int -> uint32
     expect(by.nativeI.size).toBe(4); // int -> sint32
     expect(by.big.size).toBe(16); // uint128

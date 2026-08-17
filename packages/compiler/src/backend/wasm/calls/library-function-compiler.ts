@@ -112,7 +112,7 @@ export function deduceLibraryFunctionBindings(
             return { kind: AstKind.NAME, name };
         }
         type = context.programAnalysis.derefType(type);
-        // Resolve through the caller's template bindings so the deduced type is concrete (ProposalDataType → ProposalDataV1<false>), not a symbolic
+        // Resolve through the caller's template bindings so the deduced type is concrete (ProposalDataType → ProposalDataV1<false>).
         if (context.thisBind) type = context.programAnalysis.derefType(context.programAnalysis.substInBindings(type, context.thisBind));
         for (let index = 0; index < 8 && type.kind === AstKind.NAME; index++) {
             const td = context.programAnalysis.typedefs.get(type.name);

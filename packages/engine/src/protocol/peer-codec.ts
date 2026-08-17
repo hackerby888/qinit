@@ -82,7 +82,6 @@ export interface PeerMessageHeader {
     dejavu: number;
 }
 
-// Read the 8-byte header at `off`. Returns null if fewer than 8 bytes are buffered.
 export function readHeader(buf: Uint8Array, off = 0): PeerMessageHeader | null {
     if (buf.length - off < HEADER_SIZE) {
         return null;
@@ -92,7 +91,6 @@ export function readHeader(buf: Uint8Array, off = 0): PeerMessageHeader | null {
     return { size: h.size === 0 ? 0x7fffffff : h.size, type: h.type, dejavu: h.dejavu };
 }
 
-// Frame a response: 8-byte header (size = 8 + payload, the response `type`, echoed dejavu) + payload.
 export function frame(type: number, payload: Uint8Array, dejavu: number): Uint8Array {
     const size = HEADER_SIZE + payload.length;
     const out = new Uint8Array(size);
@@ -432,8 +430,8 @@ export function encodeTxStatus(currentTick: number, tick: number, txDigests: Uin
 }
 
 export interface OwnedAssetView {
-    owner: Id; // 32 — the queried account
-    issuer: Id; // 32
+    owner: Id;
+    issuer: Id;
     name: string; // up to 7 ASCII (A-Z, digits)
     decimals: number;
     shares: bigint;
@@ -442,7 +440,6 @@ export interface OwnedAssetView {
     issuanceRecord?: Uint8Array;
 }
 
-// Encode ownership and issuance records with their universe Merkle proof.
 export function encodeRespondOwnedAssets(v: OwnedAssetView, universeIndex = 0, siblings: Uint8Array[] = [], record?: Uint8Array): Uint8Array {
     const r = RespondOwnedAssets.alloc();
 
@@ -476,9 +473,9 @@ export function encodeRespondOwnedAssets(v: OwnedAssetView, universeIndex = 0, s
 }
 
 export interface PossessedAssetView {
-    possessor: Id; // 32 — the queried account
-    owner: Id; // 32
-    issuer: Id; // 32
+    possessor: Id;
+    owner: Id;
+    issuer: Id;
     name: string; // up to 7 ASCII
     decimals: number;
     shares: bigint;
@@ -489,7 +486,6 @@ export interface PossessedAssetView {
     issuanceRecord?: Uint8Array;
 }
 
-// Encode possession, ownership, and issuance records with their universe Merkle proof.
 export function encodeRespondPossessedAssets(v: PossessedAssetView, universeIndex = 0, siblings: Uint8Array[] = [], record?: Uint8Array): Uint8Array {
     const r = RespondPossessedAssets.alloc();
 

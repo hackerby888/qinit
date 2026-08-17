@@ -8,8 +8,7 @@ export interface ContractSourceInput {
     outDir: string;
 }
 
-// Both backends accept either a path or source text, so one options object drives either. Clang needs a real
-// file for #include resolution, #line mapping and the protocol verifier, so text is staged into outDir.
+// Clang needs a real file for #include resolution, #line mapping and the protocol verifier, so text is staged into outDir.
 export function resolveContractSource(o: ContractSourceInput): { source: string; contractPath: string } {
     if (o.contractPath) {
         return { source: readFileSync(o.contractPath, "utf8"), contractPath: o.contractPath };

@@ -36,9 +36,9 @@ test("killNode stops ONLY the tracked PID, not an unrelated process", async () =
     try {
         writeFileSync(pidFile(dir), String(mine));
         await killNode(dir);
-        expect(alive(mine)).toBe(false); // tracked one killed
-        expect(alive(other)).toBe(true); // bystander untouched (no broad kill)
-        expect(existsSync(pidFile(dir))).toBe(false); // pidfile cleared on success
+        expect(alive(mine)).toBe(false);
+        expect(alive(other)).toBe(true);
+        expect(existsSync(pidFile(dir))).toBe(false);
     } finally {
         try {
             process.kill(other, "SIGKILL");
@@ -54,7 +54,7 @@ test("killNode is a no-op (no throw, no broad kill) when there is no pidfile", a
     const dir = scratch();
     const bystander = sleeper();
     try {
-        await killNode(dir); // nothing tracked -> must not touch anything
+        await killNode(dir);
         expect(alive(bystander)).toBe(true);
     } finally {
         try {

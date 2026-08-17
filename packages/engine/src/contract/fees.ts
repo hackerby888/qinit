@@ -24,7 +24,6 @@ export class FeeManager {
         return this.mode === "metered";
     }
 
-    // 0 when the contract was never funded.
     getContractFeeReserve(slot: number): bigint {
         return this.reserve.get(slot) ?? 0n;
     }
@@ -37,8 +36,7 @@ export class FeeManager {
         }
     }
 
-    // Model the IPO outcome that seeds the reserve: finalPrice > 0 funds it to finalPrice * 676; finalPrice 0 is a
-    // failed IPO — the contract is marked failed, its reserve stays 0, and burning can no longer refill it.
+    // Model the IPO outcome: a 0 finalPrice is a failed IPO that burns can never refill.
     ipo(slot: number, finalPrice: bigint): void {
         if (finalPrice > 0n) {
             this.reserve.set(slot, finalPrice * IPO_COMPUTORS);
@@ -49,8 +47,7 @@ export class FeeManager {
         }
     }
 
-    // The gate the spec checks before fee-bearing entry points: a metered contract must hold a positive reserve.
-    // Always true when fees are off.
+    // Spec gate before fee-bearing entries: metered contracts need a positive reserve (always true when fees are off).
     reserveOk(slot: number): boolean {
         return this.mode === "off" || this.getContractFeeReserve(slot) > 0n;
     }
@@ -62,8 +59,7 @@ export class FeeManager {
         this.reserve.set(slot, this.getContractFeeReserve(slot) + amount);
     }
 
-    // The reserve is a sint64 and may go non-positive; that leaves the contract dormant until refilled (the
-    // next reserveOk check fails), per the spec.
+    // The reserve is a sint64 and may go non-positive, leaving the contract dormant until refilled (per the spec).
     subtractFromContractFeeReserve(slot: number, cost: bigint): void {
         if (cost <= 0n) {
             return;
@@ -76,8 +72,7 @@ export class FeeManager {
         return this.failed.has(slot);
     }
 
-    // A metered deploy is seeded with the default reserve (a faked successful IPO) unless it was already funded
-    // (tests override beforehand with setContractFeeReserve/ipo). Construction (INITIALIZE) is exempt from the reserve gate.
+    // Metered deploys seed the default reserve (a faked successful IPO) unless already funded; INITIALIZE is exempt from the gate.
     seedOnDeploy(slot: number): void {
         if (this.metered && !this.reserve.has(slot)) {
             this.reserve.set(slot, this.defaultReserve);

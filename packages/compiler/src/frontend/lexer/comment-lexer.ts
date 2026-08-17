@@ -7,11 +7,11 @@ export function skipLineComment(lexer: Lexer): void {
 }
 
 export function skipBlockComment(lexer: Lexer): void {
-    lexer.advance(); // *
+    lexer.advance();
     while (!lexer.eof()) {
         if (lexer.peekChar() === "*" && lexer.peekChar(1) === "/") {
-            lexer.advance(); // *
-            lexer.advance(); // /
+            lexer.advance();
+            lexer.advance();
             return;
         }
         lexer.advance();

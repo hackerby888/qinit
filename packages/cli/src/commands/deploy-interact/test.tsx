@@ -186,7 +186,6 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                 writeFileSync(join(sdkDir, "runtime.ts"), testRuntimeSource);
                 writeFileSync(join(sdkDir, `${contractName}.ts`), generateClient(idl, dep.slot, { runtimeImport: "./runtime" }));
                 writeFileSync(join(sdkDir, "index.ts"), `export * from "./runtime";\nexport { ${contractName} } from "./${contractName}";\n`);
-                // scaffold a sample test if the project has none
                 const testsDir = join(root, "tests");
                 const hasTest = readdirSync(testsDir).some((f) => f.endsWith(".test.ts"));
                 if (!hasTest) {

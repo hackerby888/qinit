@@ -7,7 +7,7 @@ export class ParserRecovery {
 
     skipBalanced(open: TokenKind, close: TokenKind): void {
         if (this.parser.state.peek().kind !== open) return;
-        this.parser.state.next(); // consume the opener
+        this.parser.state.next();
         let depth = 1;
         while (!this.parser.state.eof() && depth > 0) {
             const kind = this.parser.state.peek().kind;
@@ -22,7 +22,7 @@ export class ParserRecovery {
         const noProgress = idx === beforeIndex;
         const newError = this.parser.state.diagnostics.length > errsBefore;
         if (!noProgress && !newError) return;
-        // A declaration that consumed its full balanced body ends on `}` or `;`. Its inner errors are already
+        // A declaration that ended its balanced body on `}` or `;` already reported its inner errors.
         if (!noProgress && (this.parser.state.lastToken?.kind === TokenKind.R_BRACE || this.parser.state.lastToken?.kind === TokenKind.SEMICOLON)) {
             return;
         }
@@ -53,7 +53,6 @@ export class ParserRecovery {
     }
 
     parseCharValue(text: string): number {
-        // Parse C++ character literal value
         const inner = text.replace(/^'|'$/g, "");
         if (inner.startsWith("\\")) {
             switch (inner[1]) {

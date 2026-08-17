@@ -1,6 +1,5 @@
-// The release matrix and the installers agree on file names by convention only — the installers build an
-// asset name from uname output, and the matrix builds one from a bun target triple. A mismatch is invisible
-// until a user's download 404s, so the two are compared here rather than at release time.
+// The matrix and installers agree on file names by convention only (bun target triple vs uname output), so
+// a mismatch 404s on a user's download — compared here rather than at release time.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

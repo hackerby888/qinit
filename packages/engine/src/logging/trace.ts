@@ -8,7 +8,6 @@ export const TRACE_ENTRY_CAP = 8192; // ring-buffer the entries so a long sessio
 // Reporting the window around them lets the reader decode the element those bytes belong to.
 export const DIFF_WINDOW = 256;
 
-// Aligned windows covering every changed byte between two state snapshots -> DebugStateRegion[].
 export function diffRegions(before: Uint8Array, after: Uint8Array): DebugStateRegion[] {
     const length = Math.min(before.length, after.length);
     const windows: { start: number; end: number }[] = [];

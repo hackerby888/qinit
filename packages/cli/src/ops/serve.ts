@@ -12,7 +12,6 @@ export function portFromRpc(rpcBaseUrl: string): number {
     return Number(new URL(rpcBaseUrl).port || DEFAULT_RPC_PORT);
 }
 
-// Seed configured system contracts after startup without blocking RPC or ticking.
 async function seedSystemContracts(srv: EngineServer, names: string[], compiler: SystemContractCompiler): Promise<void> {
     const core = resolveCoreDir();
     const contracts = new Map<number, SystemContract>();
@@ -31,7 +30,7 @@ async function seedSystemContracts(srv: EngineServer, names: string[], compiler:
     }
 }
 
-// The simulator ticks once per second by default. A zero interval runs as fast as the event loop allows.
+// A zero interval runs the simulator as fast as the event loop allows.
 export const DEFAULT_TICK_MS = 1000;
 
 export async function serveEngine(

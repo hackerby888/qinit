@@ -1,6 +1,5 @@
-// Workspace packages are imported by `@qinit/*` alias, never by relative path. Relative cross-package
-// imports break on file moves and hide package boundaries, and they had drifted into 17 files before this
-// gate existed — including one that mixed both styles for the same package in a single import block.
+// Workspace packages are imported by `@qinit/*` alias, never by relative path: relative cross-package
+// imports break on file moves and hide package boundaries.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -9,9 +8,8 @@ import { resolve } from "node:path";
 // on a bare checkout.
 const root = resolve(import.meta.dir, "..");
 
-// Both drifted shapes: `../../packages/core/src/x` (scripts, test-utils) and `../../../proto/src/x`
-// (package-internal tests). Requiring a package name followed by `/src/` keeps within-package imports
-// (`../../src/x`) and non-package targets (`../../../../test-utils/paths`) from matching.
+// Requiring a package name followed by /src/ matches both drifted shapes (../../packages/core/src/x,
+// ../../../proto/src/x) without catching within-package or non-package targets.
 const RELATIVE_PACKAGE_IMPORT = /from\s+"(?:\.\.\/)+(?:packages\/)?(?:build|cli|compiler|core|engine|proto)\/src\/[^"]*"/;
 
 test("workspace packages are imported by @qinit alias, not relative path", () => {

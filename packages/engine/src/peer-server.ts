@@ -80,8 +80,7 @@ export class PeerServer {
         }
     }
 
-    // Reassemble the TCP stream into complete [header|payload] frames and dispatch each. Leftover bytes (a partial
-    // frame) are retained for the next chunk.
+    // A partial frame's leftover bytes are retained for the next chunk.
     private async onData(
         socket: {
             data: PeerConnectionState;
@@ -119,9 +118,7 @@ export class PeerServer {
                     socket.write(resp);
                 }
             } catch (e) {
-                // A malformed request must not kill the connection — drop it and keep serving. The
-                // failure is still reported, because this also catches bugs in the respond* handlers,
-                // and swallowing those silently leaves the peer waiting for a response that never comes.
+                // A malformed request must not kill the connection — log it and keep serving, so the peer isn't left waiting.
                 const reason = String((e as Error)?.message ?? e);
                 console.error(`peer request type=${header.type} failed: ${reason}`);
             }
@@ -132,8 +129,7 @@ export class PeerServer {
         socket.data.buf = buf.slice();
     }
 
-    // One route per message type, so the faulted-mode policy and the handler are declared together. A node
-    // that has faulted still answers reads; anything that would touch state is refused with an end-response.
+    // One route per message type keeps the faulted-mode policy and its handler together.
     private routes(): Map<number, PeerRoute> {
         const serveWhenFaulted = (respond: PeerRoute["respond"]): PeerRoute => ({ respond, whenFaulted: "serve" });
         const refuseWhenFaulted = (respond: PeerRoute["respond"]): PeerRoute => ({ respond, whenFaulted: "refuse" });

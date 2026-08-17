@@ -1,6 +1,5 @@
-// The self-contained phases of a deploy: the checks that run before any build or network work, the wait
-// for a ticking node, the signing seed, and the pre-upload chain-speed probe. Each answers with either its
-// product or the DeployResult the caller should return, so deployContract stays a sequence of awaits.
+// Self-contained deploy phases, each answering with its product or the DeployResult the caller should
+// return — so deployContract stays a sequence of awaits.
 import { readFileSync } from "node:fs";
 import { LiteRpc, readCurrent, autoUpdateVerifyTool } from "@qinit/core";
 import { systemNames } from "@qinit/build";
@@ -18,7 +17,6 @@ export interface PreflightOptions {
     artifact?: unknown;
 }
 
-// Answers with the failure to report, or null when the deploy may proceed.
 export async function runPreflightChecks(rpc: LiteRpc, options: PreflightOptions, emit: Emit): Promise<{ error: string } | null> {
     // Reject a competing upload before doing build or network work.
     try {
@@ -98,7 +96,6 @@ export async function waitForTickReadiness(rpc: LiteRpc, rpcBaseUrl: string, emi
     return { ok: true, tick: currentTick };
 }
 
-// Prefers the caller's seed, then the saved one, then whatever the node reports funded.
 export async function resolveSigningSeed(rpc: LiteRpc, explicitSeed: string | undefined, emit: Emit): Promise<string> {
     if (explicitSeed) {
         return explicitSeed;
@@ -119,8 +116,8 @@ export async function resolveSigningSeed(rpc: LiteRpc, explicitSeed: string | un
     return "a".repeat(55);
 }
 
-// Upload spends a transaction per tick, so a crawling chain fails slowly. Only worth measuring on a node we
-// cannot drive ourselves. Answers with the failure to report, or null when the chain is fast enough.
+// Upload spends a transaction per tick, so a crawling chain fails slowly — only worth measuring on a node we
+// cannot drive ourselves.
 export async function assertChainFastEnough(
     rpc: LiteRpc,
     currentTick: number,

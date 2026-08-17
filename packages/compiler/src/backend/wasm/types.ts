@@ -41,7 +41,7 @@ export interface FunctionEmissionContext {
     retTypeName?: string; // declared scalar return type name: `return e` narrows to it (C++ conversion)
     retType?: TypeSpec; // concrete aggregate return type (initializer-list construction into retAddr)
     retAddr?: string; // helper returns an aggregate (id/struct) by value: `return e` copies e here
-    retAggSize?: number; // size of that aggregate return
+    retAggSize?: number;
     thisLayout?: StructLayout; // when compiling a container method: layout of *this
     thisType?: TypeSpec; // the container template_instance (HashMap<id,uint64,1024>)
     thisBind?: TemplateBindings; // template-param bindings (KeyT→id, L→1024, ...) for the body
@@ -70,11 +70,10 @@ export interface FunctionEmissionContext {
 
 export interface ResolvedLvalue {
     addr: string; // WAT producing the i32 byte address
-    size: number; // field size in bytes
+    size: number;
     type?: TypeSpec | null; // pointee type when known — drives signed sub-64-bit load extension
 }
 
-// A resolved memory location with its address, pointee metadata, and layout.
 export interface ResolvedAddress {
     addr: string;
     type: TypeSpec | null;

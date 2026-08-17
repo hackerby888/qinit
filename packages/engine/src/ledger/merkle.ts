@@ -25,7 +25,6 @@ export class SparseMerkle {
         return this.nodes.get(level + ":" + index) ?? this.empty[level];
     }
 
-    // Set a leaf and rehash its path to the root.
     setLeaf(index: number, leafHash: Uint8Array): void {
         this.nodes.set("0:" + index, leafHash.slice(0, DIGEST_SIZE));
 
@@ -42,7 +41,6 @@ export class SparseMerkle {
         return this.nodeAt(this.depth, 0);
     }
 
-    // The sibling hashes from the leaf up to the root.
     siblings(index: number): Uint8Array[] {
         const out: Uint8Array[] = [];
         let idx = index;
@@ -62,8 +60,7 @@ function hashPair(left: Uint8Array, right: Uint8Array): Uint8Array {
     return k12Bytes(pair);
 }
 
-// Recompute the root from a leaf record + its index + siblings — mirrors getDigestFromSiblings. For verifying
-// that a proof reproduces the tree's root (the check an external client performs).
+// The proof check an external client performs — mirrors core-lite's getDigestFromSiblings.
 export function rootFromSiblings(record: Uint8Array, index: number, siblings: Uint8Array[]): Uint8Array {
     let digest = k12Bytes(record);
     let idx = index;

@@ -37,6 +37,6 @@ test("plain redeploy (no MIGRATE) preserves overlapping state — parity with co
     sim.procedure(28, INC);
     expect(readUint64LE(sim.query(28, GET))).toBe(2n);
 
-    sim.deploy(28, await wasm("CounterV1")); // same module: no migrate -> preserve overlap (was zeroed before the fix)
+    sim.deploy(28, await wasm("CounterV1")); // same module: no migrate -> preserve overlap
     expect(readUint64LE(sim.query(28, GET))).toBe(2n); // counter survives the redeploy; INITIALIZE did not re-run
 });

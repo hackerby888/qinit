@@ -238,7 +238,6 @@ test("conformance sweep — fixtures + system contracts", async () => {
         rows.push(await sweepOne(join(SYSTEM, contract.file), contract.file.replace(".h", "")));
     }
 
-    // Print the table
     const pad = (s: string, n: number) => s.padEnd(n);
     console.log("\n" + pad("CONTRACT", 22) + pad("PARSE", 10) + pad("WASM", 10) + pad("LOAD", 8) + "STATE");
     console.log("-".repeat(62));

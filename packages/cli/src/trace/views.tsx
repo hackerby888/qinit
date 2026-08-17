@@ -1,5 +1,5 @@
-// Shared compact views over trace-format's decoded data — rendered identically by `qinit debug` (detail pane),
-// `qinit call --trace`, and `qinit state`. Style: a Status header line + indented label->value rows.
+// Compact views over trace-format's decoded data, rendered identically by `qinit debug`, `qinit call
+// --trace`, and `qinit state`.
 import { Box, Text } from "ink";
 import { type DebugEntry } from "@qinit/core";
 import { Status, theme, truncEnd, truncMid, termCols } from "../ui";
@@ -12,7 +12,6 @@ import { type StateDiffLine } from "./state-diff";
 
 const execµs = (ns: number) => (ns < 1_000_000 ? `${(ns / 1000) | 0}µs` : `${(ns / 1e6).toFixed(1)}ms`);
 
-// indented label -> value row block (the "compact section")
 // `truncate` pins every row to a single line, which is what lets a bounded caller budget rows as lines.
 function Rows({ rows, width, truncate }: { rows: { label: string; node: React.ReactNode }[]; width?: number; truncate?: boolean }) {
     const w = width ?? Math.max(1, ...rows.map((r) => r.label.length));
@@ -30,11 +29,8 @@ function Rows({ rows, width, truncate }: { rows: { label: string; node: React.Re
 // Internal bookkeeping is opt-in; payload and population changes stay visible.
 export const shownStateLines = (lines: StateDiffLine[], showInternals: boolean) => (showInternals ? lines : lines.filter((line) => !line.internal));
 
-// The call's captured state changes, one resolved element per row. Internal bookkeeping is opt-in.
-//
-// `maxRows` bounds the block to a window starting at `offset`, one line per row. A long-running view has
-// to stay inside the terminal: Ink cannot erase a frame taller than the screen, so an overflowing block
-// leaves its own stale rows behind on the next render.
+// `maxRows` bounds the block to a window — Ink cannot erase a frame taller than the screen, so an
+// overflowing block leaves its own stale rows behind on the next render.
 function StateDiff({
     lines,
     truncated,
@@ -97,10 +93,8 @@ function StateDiff({
     );
 }
 
-// One decoded contract-call trace. `showInternals` reveals captured container bookkeeping.
-//
 // `width` is the pane this renders into, not the terminal — passing it also pins every row to one line,
-// so a caller that budgets rows against the screen height gets the height it counted on.
+// so a caller budgeting rows against the screen height gets the height it counted on.
 export function TraceView({
     e,
     name,
@@ -232,7 +226,6 @@ function containerDetail(container: StateContainer, hidden: boolean, interactive
     return `${count} · ${free}/${container.capacity} ${slotLabel} unoccupied`;
 }
 
-// A contract's decoded current state (scalars + containers), compact.
 export function StateView({
     name,
     state,

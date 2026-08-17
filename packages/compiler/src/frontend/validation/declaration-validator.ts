@@ -181,7 +181,7 @@ export function checkStruct(validator: Validator, structDeclaration: StructDecl)
                 maxArgs: member.params.length,
             };
             if (member.body) {
-                // Two definitions with the same parameter signature are a redefinition. Overloads
+                // A second definition with the same parameter signature is a redefinition; overloads differ in signature.
                 const prev = fnBodies.get(member.name);
                 if (prev && paramSignature(prev) === paramSignature(member)) {
                     validator.error(`'${member.name}' is already defined in struct '${structDeclaration.name}' with the same signature`, member.span);

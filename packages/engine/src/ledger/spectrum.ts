@@ -64,8 +64,7 @@ export class SpectrumLedger {
         return -1;
     }
 
-    // spectrumIndex(publicKey) — the occupied slot holding this entity, or -1. Never creates; core claims
-    // a free slot inside increaseEnergy instead.
+    // Never creates; core claims a free slot inside increaseEnergy instead.
     spectrumIndex(publicKey: Id): number {
         return this.probe(publicKey, this.key(publicKey), false);
     }
@@ -90,8 +89,7 @@ export class SpectrumLedger {
         return this.entities.get(this.key(id)) ?? null;
     }
 
-    // Sum of every entity's balance — the explorer's circulating supply. Walks the whole map, which
-    // stays small at development scale.
+    // The explorer's circulating supply — walks the whole map, which stays small at development scale.
     totalAmount(): bigint {
         let total = 0n;
         for (const e of this.entities.values()) {
@@ -100,7 +98,6 @@ export class SpectrumLedger {
         return total;
     }
 
-    // energy(index) — the spendable balance of an occupied slot.
     energy(index: number): bigint {
         const e = this.entityAt(index);
         return e ? e.incomingAmount - e.outgoingAmount : 0n;
@@ -129,7 +126,6 @@ export class SpectrumLedger {
         this.dirtySlots.add(index);
     }
 
-    // Decrease the balance of an occupied slot if it is high enough. Does not validate the index.
     decreaseEnergy(index: number, amount: bigint): boolean {
         if (amount < 0n) {
             return false;

@@ -1,6 +1,5 @@
-// Interactive chain explorer — a TUI port of core-lite's web explorer. Drills overview → tick → transaction,
-// plus identity lookup and the contract catalog, against either a core node or the simulator.
-// This file is the shell: navigation stack, key handling, and which view the top frame renders.
+// Interactive chain explorer — a TUI port of core-lite's web explorer; this file is the navigation/
+// key-handling shell around the views.
 import { useEffect, useRef, useState } from "react";
 import { Box, useApp, useInput } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
@@ -113,16 +112,14 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
 
     useInput(
         (input, key) => {
-            // The wallet is a multi-field form with its own stages and its own esc, so the shell binds nothing
-            // there. It also protects the seed fields: q and r are legal seed characters and must not quit or
-            // refresh mid-typing.
+            // The wallet is a multi-field form with its own esc, so the shell binds nothing there — and q/r are
+            // legal seed characters that must not quit or refresh mid-typing.
             if (view.kind === "wallet") {
                 return;
             }
 
-            // While a prompt owns the keyboard, esc still has to mean "back" — it is the only way out of the
-            // search. Every other key belongs to the prompt so it can be typed into the field.
-            // ink blanks `input` for escape, so the prompt never sees this keypress itself.
+            // esc is the only way out of the search; ink blanks `input` for escape, so the prompt never sees
+            // this keypress.
             if (searching) {
                 if (key.escape) {
                     pop();

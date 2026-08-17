@@ -66,10 +66,8 @@ export function identityToBytes(identity: string): Uint8Array {
     return identityToPublicKey(identity as never);
 }
 
-// Identity encoding packs the 32-byte public key as four 8-byte chunks, 14 chars each
-// (char = byte % 26 + 'A'), plus a 4-char checksum. A contract's public key is
-// m256i(index, 0, 0, 0), so chunks 1-3 are zero — chars 14..55 are all 'A' — and chunk 0
-// decodes back to the contract index. The all-zero key (60 'A's) is the null/burn address.
+// Identity packs the public key as four 14-char chunks (char = byte % 26 + 'A') plus a 4-char checksum.
+// A contract key is m256i(index, 0, 0, 0), so only chunk 0 decodes to the index; 60 'A's is the null address.
 export function contractIndexFromIdentity(identity: string): number | null {
     if (identity.length !== 60) return null;
     const upper = identity.toUpperCase();

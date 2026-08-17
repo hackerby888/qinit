@@ -198,7 +198,7 @@ export class FunctionParser {
             // Array dimensions: name[E][E2]... — innermost dimension binds tightest, so collect then nest.
             const dims: Expression[] = [];
             while (this.parser.state.peek().kind === TokenKind.L_BRACKET) {
-                this.parser.state.next(); // [
+                this.parser.state.next();
                 if (this.parser.state.peek().kind === TokenKind.R_BRACKET) {
                     dims.push({
                         kind: AstKind.INT_LITERAL,
@@ -262,7 +262,7 @@ export class FunctionParser {
             return params;
         }
         if (this.parser.state.peek().kind === TokenKind.KW_VOID && this.parser.state.peek(1).kind === TokenKind.R_PAREN) {
-            this.parser.state.next(); // void
+            this.parser.state.next();
             return params;
         }
         while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_PAREN) {

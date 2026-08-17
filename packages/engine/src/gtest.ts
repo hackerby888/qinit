@@ -24,8 +24,7 @@ export async function runContractTesting(
     } = {},
 ): Promise<TestResult[]> {
     await initK12();
-    // In-runner qpi mutations (a corpus drives contract procedures through its own QpiContext objects) act on
-    // behalf of the contract under test; the lhost transfer ABI carries no index, so it must be told.
+    // The lhost transfer ABI carries no slot index, so mainSlot must be told.
     const mainSlot = opts.mainSlot ?? Math.max(...Object.keys(contracts).map(Number));
     const dec = new TextDecoder();
     const results: TestResult[] = [];
@@ -140,7 +139,7 @@ export async function runContractTesting(
     };
 
     // Refresh materialized shadows after mutation so cached getState() pointers stay current.
-    const EAGER_SYNC_MAX = 4 << 20; // 4 MiB
+    const EAGER_SYNC_MAX = 4 << 20;
     const markEngineMoved = () => {
         for (const [i, m] of materialized) {
             const c = handles[i];
@@ -493,9 +492,8 @@ export async function runContractTesting(
         },
     };
 
-    // Bun 1.3.14 has a Proxy + wasm i64-marshalling bug ("Invalid argument type in ToBigInt") when a Proxy
-    // serves as the import object for a module with i64-param imports (WASI clock_time_get, lhost helpers).
-    // The browser's DOM lib excludes SharedArrayBuffer-backed views from `BufferSource`; runner bytes never are.
+    // Bun 1.3.14 cannot Proxy an import object for i64-param imports ("Invalid argument type in ToBigInt").
+    // Cast is safe: runner bytes are a plain ArrayBuffer; the DOM lib's BufferSource omits SharedArrayBuffer views.
     const mod = await WebAssembly.compile(runnerWasm as Uint8Array<ArrayBuffer>);
     const noopVal = (..._args: unknown[]): number => 0;
     const noopBig = (..._args: unknown[]): bigint => 0n;
@@ -528,10 +526,8 @@ export async function runContractTesting(
         millisecond: () => dateFields(sim.nowMs()).milli,
         now: (out: number) => new DataView(mem().buffer).setBigUint64(out >>> 0, packDateAndTime(sim.nowMs()), true),
         prevSpectrumDigest: (out: number) => mem().set((sim.prevSpectrumDigestOverride ?? new Uint8Array(32)).subarray(0, 32), out >>> 0),
-        // Live spectrum entity record (a corpus runs contract functions in-runner: QTF's CheckContractBalance
-        // reads qpi.getEntity(SELF).incoming - outgoing; a noop stub made every such balance check fail).
-        // Delegated to the same host services the deployed runtime uses, so a gtest cannot pass on
-        // semantics production does not have (PIT guards, amount bounds, transfer logging).
+        // Real host transfer, not a noop: QTF's CheckContractBalance reads qpi.getEntity(SELF) balances,
+        // and delegating keeps the deployed runtime's semantics (PIT guards, amount bounds, transfer logging).
         transfer: (destOff: number, amount: bigint): bigint => sim.host.transfer(mainSlot, id32(destOff), amount, 2 /*qpiTransfer*/),
         burn: (amount: bigint, ciBurnedFor: number): bigint => sim.host.burn(mainSlot, amount, ciBurnedFor >>> 0),
         // In-runner inter-contract calls (QTF's ProcessTierPayout invokes QRP's top-up procedure through the
@@ -632,8 +628,7 @@ export async function runContractTesting(
 
     // Name each traced test before execution so a hanging corpus test is identifiable.
     const trace = !!(globalThis as any).process?.env?.QINIT_GTEST_TRACE;
-    // Run only tests whose name contains one of the filters, from opts.filterTests or the comma-separated
-    // QINIT_GTEST_FILTER. Iterating on a known-failing subset skips the already-green bulk of a heavy corpus.
+    // Run only matching tests (opts.filterTests or comma-separated QINIT_GTEST_FILTER) to skip the green bulk of a heavy corpus.
     const filterRaw = ((globalThis as any).process?.env?.QINIT_GTEST_FILTER ?? "") as string;
     const filters = [...(opts.filterTests ?? []), ...filterRaw.split(",")].map((s) => s.trim().toLowerCase()).filter(Boolean);
     const excludedTests = opts.excludeTests ?? [];

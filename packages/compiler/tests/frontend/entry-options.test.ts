@@ -7,8 +7,7 @@ import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
 
 const SOURCE = readFileSync(join(QINIT_ROOT, "fixtures", "Counter.h"), "utf8");
 
-// The exported diagnostic name has to be the element type of the field it describes; it used to be
-// a separate interface that nothing produced.
+// The exported diagnostic name must be the element type of the field it describes.
 test("CompileDiagnostic is what CompileResult.diagnostics holds", () => {
     const sample: CompileDiagnostic = { severity: DiagnosticSeverity.WARNING, message: "x", span: { start: 0, end: 0, line: 1, column: 1 } };
     const asFieldElement: CompileResult["diagnostics"][number] = sample;

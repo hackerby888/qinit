@@ -56,7 +56,7 @@ export class Validator {
     checkStruct(structDeclaration: StructDecl): void {
         return declarationValidator.checkStruct(this, structDeclaration);
     }
-    // Qubic contracts must have statically bounded stacks: any call cycle among a struct's member functions (direct or mutual)
+    // Qubic contracts must have statically bounded stacks: a call cycle among a struct's member functions (direct or mutual) is an error.
     checkRecursion(structDeclaration: StructDecl, fnBodies: Map<string, FunctionDecl>): void {
         return functionValidator.checkRecursion(this, structDeclaration, fnBodies);
     }

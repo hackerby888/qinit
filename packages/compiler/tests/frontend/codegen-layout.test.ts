@@ -1,5 +1,4 @@
 import { AccessSpec, AstKind } from "../../src/shared/enums";
-// Unit coverage for scalar, aggregate, template, and inherited layouts.
 import { describe, test, expect } from "bun:test";
 import { ProgramAnalysis } from "../../src/semantics";
 import { SemanticAnalyzer } from "../../src/semantics/semantic-analysis";
@@ -410,7 +409,7 @@ describe("Codegen — template layout", () => {
         );
         const a1 = codeGenerationContext.layoutOfType(tinst("Array", [n("uint64"), exprVal(4)]));
         const a2 = codeGenerationContext.layoutOfType(tinst("Array", [n("uint64"), exprVal(4)]));
-        expect(a1).toBe(a2); // same object reference = cache hit
+        expect(a1).toBe(a2);
     });
 
     test("missing Array template fails instead of using an approximate formula", () => {

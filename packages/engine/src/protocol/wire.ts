@@ -239,8 +239,7 @@ export class Transaction {
     }
 }
 
-// AssetRecord is a 48-byte issuance, ownership, or possession union.
-// Variant offsets share the standard alignment cursor.
+// AssetRecord: a 48-byte issuance, ownership, or possession union.
 const assetIssuance = layout([
     ["publicKey", DIGEST_SIZE, 8],
     ["type", 1, 1],
@@ -342,8 +341,7 @@ export class AssetRecord extends View {
     }
 }
 
-// Derive a variant's field offsets + size from [name, size, align] triples, emulating the C compiler's
-// natural-alignment placement (the same rule defineStruct uses, for the union variants that can't be a struct).
+// Emulates the C compiler's natural-alignment placement — the same rule defineStruct uses, for union variants that can't be a struct.
 function layout(fields: [string, number, number][]): { off: Record<string, number>; size: number } {
     const off: Record<string, number> = {};
 

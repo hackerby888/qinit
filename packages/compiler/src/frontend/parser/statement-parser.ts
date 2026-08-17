@@ -57,7 +57,7 @@ export class StatementParser {
         // Label: identifier :
         if (tok.kind === TokenKind.IDENTIFIER && this.parser.state.peek(1).kind === TokenKind.COLON) {
             this.parser.state.next();
-            this.parser.state.next(); // :
+            this.parser.state.next();
             return { kind: AstKind.LABEL, name: tok.text, span: tok.span };
         }
         // static_assert
@@ -131,7 +131,7 @@ export class StatementParser {
         const expression = this.parser.expressions.parseExpression();
         // Label after expression: expr : (unlikely but possible for case-like constructs)
         if (this.parser.state.peek().kind === TokenKind.COLON && expression.kind === AstKind.IDENTIFIER) {
-            this.parser.state.next(); // :
+            this.parser.state.next();
             return { kind: AstKind.LABEL, name: (expression as any).name, span: expression.span };
         }
         this.parser.state.expect(TokenKind.SEMICOLON, "expression statement");
@@ -152,7 +152,7 @@ export class StatementParser {
     }
 
     parseIf(): Statement {
-        const start = this.parser.state.next().span; // if
+        const start = this.parser.state.next().span;
         this.parser.state.expect(TokenKind.L_PAREN, "if cond");
         const condition = this.parser.expressions.parseExpression();
         this.parser.state.expect(TokenKind.R_PAREN, "if cond close");
@@ -171,7 +171,7 @@ export class StatementParser {
     }
 
     parseFor(): Statement {
-        const start = this.parser.state.next().span; // for
+        const start = this.parser.state.next().span;
         this.parser.state.expect(TokenKind.L_PAREN, "for");
         let initializer: Statement | undefined;
         let condition: Expression | undefined;
@@ -216,7 +216,7 @@ export class StatementParser {
     }
 
     parseWhile(): Statement {
-        const start = this.parser.state.next().span; // while
+        const start = this.parser.state.next().span;
         this.parser.state.expect(TokenKind.L_PAREN, "while cond");
         const condition = this.parser.expressions.parseExpression();
         this.parser.state.expect(TokenKind.R_PAREN, "while cond close");
@@ -225,7 +225,7 @@ export class StatementParser {
     }
 
     parseDoWhile(): Statement {
-        const start = this.parser.state.next().span; // do
+        const start = this.parser.state.next().span;
         const body = this.parser.statements.parseStatement();
         this.parser.state.expect(TokenKind.KW_WHILE, "do-while while");
         this.parser.state.expect(TokenKind.L_PAREN, "do-while cond");
@@ -241,7 +241,7 @@ export class StatementParser {
     }
 
     parseSwitch(): Statement {
-        const start = this.parser.state.next().span; // switch
+        const start = this.parser.state.next().span;
         this.parser.state.expect(TokenKind.L_PAREN, "switch cond");
         const condition = this.parser.expressions.parseExpression();
         this.parser.state.expect(TokenKind.R_PAREN, "switch cond close");
@@ -255,20 +255,20 @@ export class StatementParser {
     }
 
     parseCase(): Statement {
-        const start = this.parser.state.next().span; // case
+        const start = this.parser.state.next().span;
         const value = this.parser.expressions.parseExpression();
         this.parser.state.expect(TokenKind.COLON, "case");
         return { kind: AstKind.CASE, value, span: this.parser.recovery.makeSpan(start) };
     }
 
     parseDefault(): Statement {
-        const start = this.parser.state.next().span; // default
+        const start = this.parser.state.next().span;
         this.parser.state.expect(TokenKind.COLON, "default");
         return { kind: AstKind.DEFAULT, span: this.parser.recovery.makeSpan(start) };
     }
 
     parseReturn(): Statement {
-        const start = this.parser.state.next().span; // return
+        const start = this.parser.state.next().span;
         let value: Expression | undefined;
         if (this.parser.state.peek().kind !== TokenKind.SEMICOLON) {
             value = this.parser.expressions.parseExpression();

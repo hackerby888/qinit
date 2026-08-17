@@ -49,7 +49,7 @@ export interface ModuleSpecification {
         localsSize: number;
     }; // MIGRATE() metadata + dispatch target
     memBase?: number; // shared-memory gtest mode: import env.memory and place the whole layout at
-    // this byte offset inside the provider's (corpus runner's) memory. Every
+    // this byte offset inside the provider's (corpus runner's) memory.
     gtest?: boolean; // TS-compiled test runner: include the private qtest host ABI
     capabilities?: readonly PlatformCapability[];
     lhostAbi?: LhostAbiSpec; // parsed live-core imports; browser/direct callers use the generated default

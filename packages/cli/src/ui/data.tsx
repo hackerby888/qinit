@@ -1,4 +1,3 @@
-// Ways of showing records: key/value lists, stat tiles, bar charts, and the selectable table.
 import { Box, Text } from "ink";
 import { output } from "../args";
 import { termCols, truncEnd, truncMid } from "./format";
@@ -54,7 +53,6 @@ export function Tile({ title, value, color = theme.brand, width = 18 }: TileSpec
     );
 }
 
-// Tiles laid out left to right, wrapping to another row when the terminal is too narrow.
 export function TileRow({ tiles, columns, tileWidth = 18 }: { tiles: TileSpec[]; columns?: number; tileWidth?: number }) {
     const total = columns ?? termCols();
     const perRow = Math.max(1, Math.floor(total / (tileWidth + 1)));

@@ -1,6 +1,5 @@
-// Direct unit tests for the validation-side constant evaluator. It deliberately answers null where the
-// analysis-side folder in constant-evaluator.ts answers 0n — divide-by-zero is the clearest example — so
-// these cases pin which evaluator does what before anyone tries to unify them.
+// Direct unit tests for the validation-side constant evaluator. It answers null where the analysis-side
+// folder answers 0n (divide-by-zero), pinning which evaluator does what before anyone unifies them.
 import { describe, expect, test } from "bun:test";
 import { AstKind, BinaryOp, UnaryOp } from "../../src/shared/enums";
 import { constKey, evalIntegralConst, isZeroLiteral, paramSignature, typeKey } from "../../src/frontend/validation/validation-helpers";

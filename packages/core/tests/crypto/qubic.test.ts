@@ -27,7 +27,7 @@ test("deriveIdentity: golden FourQ pubkey for seed a*55 + valid identity, determ
 test("identity codec: pubkey <-> 60-char identity round-trips", async () => {
     const idn = await bytesToIdentity(bytes(PUB));
     expect(idn).toMatch(/^[A-Z]{60}$/);
-    expect(hx(identityToBytes(idn))).toBe(PUB); // 32B -> 60-char -> 32B identity
+    expect(hx(identityToBytes(idn))).toBe(PUB);
     expect(identityToBytes(idn).length).toBe(32);
 });
 

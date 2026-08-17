@@ -17,7 +17,7 @@ const die = (label: string, e: unknown) => {
 process.on("unhandledRejection", (e) => die("unhandled error", e));
 process.on("uncaughtException", (e) => die("fatal error", e));
 
-applyTheme(savedTheme()); // apply the saved color variant before anything renders
+applyTheme(savedTheme()); // before anything renders
 
 const [, , command = "help", ...args] = process.argv;
 

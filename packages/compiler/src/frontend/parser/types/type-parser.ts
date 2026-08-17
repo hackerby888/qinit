@@ -56,7 +56,7 @@ export class TypeParser {
         const tok = this.parser.state.peek();
         // const prefix (e.g., "const Type&")
         if (tok.kind === TokenKind.KW_CONST) {
-            this.parser.state.next(); // consume const
+            this.parser.state.next();
             const inner = this.parser.types.parseBaseType();
             return { kind: AstKind.CONST, valueType: inner, span: tok.span };
         }
@@ -97,7 +97,7 @@ export class TypeParser {
         }
         // Check for template arguments: Name<...>
         if (this.parser.state.peek().kind === TokenKind.L_ANGLE) {
-            this.parser.state.next(); // <
+            this.parser.state.next();
             const callArguments: TypeSpec[] = [];
             while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_ANGLE) {
                 const kind = this.parser.state.peek().kind;
@@ -149,7 +149,7 @@ export class TypeParser {
             };
             // Dependent member type: `Selector<args>::type` — the nested type of a template instance.
             if (this.parser.state.peek().kind === TokenKind.D_COLON && this.parser.state.peek(1).kind === TokenKind.IDENTIFIER) {
-                this.parser.state.next(); // ::
+                this.parser.state.next();
                 const member = this.parser.state.next().text;
                 return { kind: AstKind.DEPENDENT_MEMBER, base: inst, member, span: tok.span };
             }
@@ -241,7 +241,7 @@ export class TypeParser {
                 break;
             }
             if (this.parser.state.peek().kind === TokenKind.D_COLON) {
-                this.parser.state.next(); // ::
+                this.parser.state.next();
                 parts.push("::");
                 continue;
             }
@@ -257,7 +257,7 @@ export class TypeParser {
 
     skipAngleArgs(): boolean {
         if (this.parser.state.peek().kind !== TokenKind.L_ANGLE) return false;
-        this.parser.state.next(); // <
+        this.parser.state.next();
         let depth = 1,
             guard = 0;
         while (!this.parser.state.eof() && depth > 0 && guard++ < 500) {
@@ -285,7 +285,7 @@ export class TypeParser {
 
     isTypeCast(): boolean {
         const save = this.parser.state.position;
-        this.parser.state.next(); // (
+        this.parser.state.next();
         let pureType = true;
         let sawTypeToken = false;
         let depth = 0;
@@ -382,7 +382,7 @@ export class TypeParser {
     }
 
     parseCast(): Expression {
-        this.parser.state.next(); // (
+        this.parser.state.next();
         const type = this.parser.types.parseTypeSpec();
         this.parser.state.expect(TokenKind.R_PAREN, "cast");
         const expression = this.parser.expressions.parseUnary();
@@ -390,7 +390,7 @@ export class TypeParser {
     }
 
     parseSizeof(): Expression {
-        const start = this.parser.state.next().span; // sizeof
+        const start = this.parser.state.next().span;
         if (this.parser.state.tryConsume(TokenKind.L_PAREN)) {
             // sizeof(T) or sizeof(expr) Check if it's a type
             const tok = this.parser.state.peek();

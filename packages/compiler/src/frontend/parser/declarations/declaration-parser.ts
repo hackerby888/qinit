@@ -83,7 +83,7 @@ export class DeclarationParser {
                 // Could be: function definition, variable declaration, or constructor
                 return this.parser.functions.parseIdentifierDeclaration();
             case TokenKind.SEMICOLON:
-                this.parser.state.next(); // empty declaration
+                this.parser.state.next();
                 return { kind: AstKind.EMPTY, span: tok.span } as EmptyDecl;
             case TokenKind.KW_UNION:
                 return this.parser.records.parseUnion();
@@ -154,7 +154,7 @@ export class DeclarationParser {
     }
 
     parseEnum(): EnumDecl {
-        const start = this.parser.state.next().span; // enum
+        const start = this.parser.state.next().span;
         let isClass = false;
         // enum class Foo : uint8
         if (this.parser.state.tryConsume(TokenKind.KW_CLASS)) {
@@ -202,12 +202,12 @@ export class DeclarationParser {
     }
 
     parseTypedef(): TypedefDeclNode {
-        const start = this.parser.state.next().span; // typedef
+        const start = this.parser.state.next().span;
         let type = this.parser.types.parseTypeSpec();
         // Handle function pointer typedefs: typedef RetType (*Name)(Params);
         if (this.parser.state.peek().kind === TokenKind.L_PAREN && this.parser.state.peek(1).kind === TokenKind.STAR) {
-            this.parser.state.next(); // (
-            this.parser.state.next(); // *
+            this.parser.state.next();
+            this.parser.state.next();
             const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "typedef function pointer name");
             this.parser.state.expect(TokenKind.R_PAREN, "typedef function pointer");
             // Skip parameter list
@@ -234,7 +234,7 @@ export class DeclarationParser {
     }
 
     parseUsing(): Declaration {
-        this.parser.state.next(); // using
+        this.parser.state.next();
         // using namespace QPI;
         if (this.parser.state.tryConsumeKeyword("namespace")) {
             const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "namespace name");
@@ -269,7 +269,7 @@ export class DeclarationParser {
     }
 
     parseStaticAssertDecl(): StaticAssertDecl {
-        const start = this.parser.state.next().span; // static_assert
+        const start = this.parser.state.next().span;
         this.parser.state.expect(TokenKind.L_PAREN, "static_assert");
         const condition = this.parser.expressions.parseExpression();
         let message: Expression | undefined;
@@ -287,7 +287,7 @@ export class DeclarationParser {
     }
 
     parseExternBlock(): ExternBlockDecl | FunctionDecl {
-        const start = this.parser.state.next().span; // extern
+        const start = this.parser.state.next().span;
         // extern "C" { ... }
         if (this.parser.state.peek().kind === TokenKind.STRING_LITERAL) {
             const linkage = this.parser.state.next().text.replace(/"/g, "");
@@ -311,7 +311,7 @@ export class DeclarationParser {
     }
 
     parseFriend(): FriendDecl {
-        const start = this.parser.state.next().span; // friend
+        const start = this.parser.state.next().span;
         const declaration = this.parser.declarations.parseDeclaration();
         if (!declaration) {
             return {
@@ -342,7 +342,7 @@ export class DeclarationParser {
     }
 
     parseAccessSpec(): EmptyDecl {
-        this.parser.state.next(); // public/protected/private
+        this.parser.state.next();
         this.parser.state.expect(TokenKind.COLON, "access specifier");
         return { kind: AstKind.EMPTY };
     }

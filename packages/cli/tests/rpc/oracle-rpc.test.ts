@@ -60,9 +60,8 @@ test("oracle RPC seam: discover a pending query, inject the reply, the notificat
         expect(res.ok).toBe(true);
         srv.engine.advanceTick(1);
         expect(i64(srv.engine.sim.query(SLOT, LAST, new Uint8Array(0)))).toBe(42n); // OnReply stored the numerator
-        expect((await (await fetch(h.rpcBaseUrl + "/live/v1/dev/oracle-pending")).json()).queries.length).toBe(0); // no longer pending
+        expect((await (await fetch(h.rpcBaseUrl + "/live/v1/dev/oracle-pending")).json()).queries.length).toBe(0);
 
-        // unknown id -> false
         const bad = await post(h.rpcBaseUrl + "/live/v1/dev/oracle-resolve", {
             queryId: "999",
             reply: Buffer.from(priceReply(1n, 1n)).toString("base64"),

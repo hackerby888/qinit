@@ -1,4 +1,3 @@
-// Page furniture: the command header, the version banner, bordered panels, and section dividers.
 import { Box, Text } from "ink";
 import { Badge } from "./feedback";
 import { termCols } from "./format";

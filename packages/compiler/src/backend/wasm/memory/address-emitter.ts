@@ -181,7 +181,6 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
         return context.lowering.emitU128(context, expression);
     }
     if (expression.kind === AstKind.C_CAST || expression.kind === AstKind.STATIC_CAST) return emitAddress(context, expression.expression);
-    // a call to a helper that returns an aggregate by value (id liquidityPov(...)) → materialize into a slot
     if (expression.kind === AstKind.TERNARY) {
         const ta = context.lowering.resolveExpressionAddress(context, expression.then)?.addr ?? emitAddress(context, expression.then);
         const ea = ta ? (context.lowering.resolveExpressionAddress(context, expression.else_)?.addr ?? emitAddress(context, expression.else_)) : null;

@@ -1,7 +1,5 @@
-// Turns a traced call's changed byte windows into the rows `qinit debug` and `qinit call --trace` show.
-// Each window is resolved down to the field, element and member it covers, so a diff reads the way
-// `qinit state` reads instead of as offsets and hex. What a container's internals are called, and where
-// they sit, comes from the member tables in @qinit/proto/qpi-layout.
+// Diffs read as fields/elements/members, not offsets and hex — container internals come from the member
+// tables in @qinit/proto/qpi-layout.
 import { decodeOutput } from "@qinit/proto";
 import { AbiScalarKind, AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import {
@@ -130,9 +128,8 @@ function leafAt(names: Names, base: number, type: AbiType, offset: number, cover
     }
 }
 
-// The member of a container that byte `offset` falls in, from the tables in @qinit/proto/qpi-layout.
 // Matching takes the first member whose end passes the offset, so C padding belongs to the member that
-// follows it and the resolved leaf always ends past `offset` — which is what keeps stateDiffLines moving.
+// follows it and the leaf always ends past `offset` — what keeps stateDiffLines moving.
 function memberLeaf(
     names: Names,
     base: number,

@@ -57,7 +57,6 @@ export async function buildRunner(core: string): Promise<Uint8Array> {
     }
 }
 
-// Compile QUTIL and QX with the TS compiler, including QX as a callee.
 export async function buildContractsWithTypeScript(core: string): Promise<Record<number, Uint8Array>> {
     const headers = loadQpiHeader(core);
     const qutilSrc = readFileSync(`${core}/src/contracts/QUtil.h`, "utf8");
@@ -91,7 +90,6 @@ export async function buildContractsWithTypeScript(core: string): Promise<Record
     return { [QUTIL_IDX]: mineQutil.wasm, [QX_IDX]: mineQx.wasm };
 }
 
-// Compile deployable QUTIL and QX Wasm with Clang.
 export async function buildContractsWithClang(core: string): Promise<Record<number, Uint8Array>> {
     const dir = mkdtempSync(join(tmpdir(), "qutil-clang-"));
 
@@ -132,7 +130,6 @@ export async function buildContractsWithClang(core: string): Promise<Record<numb
     }
 }
 
-// Run the shared test runner against a deployed contract set.
 export async function runUpstream(runnerWasm: Uint8Array, contracts: Record<number, Uint8Array>): Promise<TR[]> {
     return runContractTesting(runnerWasm, contracts);
 }

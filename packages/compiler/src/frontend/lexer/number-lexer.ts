@@ -41,7 +41,7 @@ export function lexNumber(lexer: Lexer, start: number, startLine: number, startC
             text += lexer.advance();
         } else if (ch === "." && lexer.peekChar(1) >= "0" && lexer.peekChar(1) <= "9") {
             isFloat = true;
-            text += lexer.advance(); // .
+            text += lexer.advance();
         } else {
             break;
         }

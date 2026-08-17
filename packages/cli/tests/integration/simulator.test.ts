@@ -17,7 +17,6 @@ beforeAll(async () => {
     await initK12();
 });
 
-// Boot the same EngineServer used by the simulator with Counter armed on an available port.
 async function bootCounter() {
     const wasm = await loadWasmFixture("Counter");
     const srv = new EngineServer();
@@ -304,7 +303,7 @@ test("directDeploy arms a system slot, runs, surfaces in registry, undeploys", a
         expect(r?.ok).toBe(true);
         expect(r?.slot).toBe(1);
 
-        expect(BigInt(await callFunction(rpc, 1, GET, "", "uint64"))).toBe(0n); // runs at slot 1
+        expect(BigInt(await callFunction(rpc, 1, GET, "", "uint64"))).toBe(0n);
 
         const reg = await rpc.dynRegistry();
         expect((reg.contracts ?? []).some((c) => c.index === 1 && c.armed)).toBe(true); // surfaced out-of-window

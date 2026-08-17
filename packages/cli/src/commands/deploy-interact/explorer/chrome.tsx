@@ -1,5 +1,3 @@
-// The explorer's frame: the view model every screen is keyed by, the breadcrumb and control bar wrapped
-// around the body, and the shared formatting the views all reach for.
 import type { ReactNode } from "react";
 import { Box, Text } from "ink";
 import { LiteRpc, contractIndexFromIdentity } from "@qinit/core";
@@ -125,8 +123,6 @@ export function Breadcrumb({ stack }: { stack: Frame[] }) {
 }
 
 // Only advertise keys the current view actually binds — stale hints are what make a TUI feel confusing.
-// The key glyph carries the color and the label stays at normal weight; dimming the whole line is what
-// made this bar disappear into the data above it.
 type KeyHint = [key: string, label: string];
 
 function keysFor(view: View, depth: number, searching: boolean): KeyHint[] {
@@ -138,9 +134,8 @@ function keysFor(view: View, depth: number, searching: boolean): KeyHint[] {
         ];
     }
 
-    // The wallet is a form that owns every key, including esc — the shell binds none of its own there.
-    // Its stage lives in component state, which this function cannot see, so only esc (true in every
-    // stage) is advertised here and each stage draws its own keys in-body.
+    // The wallet is a form that owns every key, including esc — its stage lives in component state this
+    // function cannot see, so only esc (true in every stage) is advertised here.
     if (view.kind === "wallet") {
         return [["esc", "back"]];
     }
@@ -195,7 +190,7 @@ const SWEEP_FRAMES = 20;
 const SWEEP_MS = 120;
 
 // Wrap hints into lines that fit the terminal. Labels are never dropped — a row of bare glyphs is harder
-// to use than the bar this replaced. The shell asks for the line count so it can budget the rows.
+// to use than a full bar.
 export function hintLines(keys: KeyHint[], columns: number): KeyHint[][] {
     const lines: KeyHint[][] = [[]];
     let used = 0;

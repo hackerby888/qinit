@@ -222,7 +222,7 @@ test("zeroInputFormat: the sample is valid input — encodes to exactly the layo
     for (const fmt of ["uint64", "uint128", "[64; uint64], id", "{ uint32, id }", "uint16, uint32", "m256i", "[3; { uint8, uint64 }]"]) {
         const sample = zeroInputFormat(fmt);
         const b = await encodeInput(sample);
-        expect(hex(b)).toBe("00".repeat(b.length)); // all zero
+        expect(hex(b)).toBe("00".repeat(b.length));
         expect(b.length).toBe(layoutOf(fmt).size); // matches the entry's input scheme byte-for-byte
     }
 });

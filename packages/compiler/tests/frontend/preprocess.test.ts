@@ -1,4 +1,3 @@
-// Preprocessor unit tests: macro expansion, conditional directives, built-in defines, # and ## operators, recursion guard, varargs, backslash continuation.
 import { describe, test, expect } from "bun:test";
 import { Preprocessor } from "../../src/frontend/preprocessor";
 import type { MacroDef } from "../../src/frontend/preprocessor";
@@ -91,7 +90,7 @@ describe("function-like macros", () => {
 
     test("function-like macro not invoked without parens passes through", () => {
         const out = pp("#define FN(x) x\nFN");
-        expect(out).toContain("FN"); // FN without () is not expanded
+        expect(out).toContain("FN");
     });
 
     test("whitespace between name and paren is allowed", () => {
@@ -134,7 +133,6 @@ describe("stringification (#)", () => {
 
     test("stringify does NOT match ##param (negative lookbehind)", () => {
         const out = pp("#define PASTE(x,y) x##y\nPASTE(a,b)");
-        // ##y should NOT be stringified
         expect(out).toContain("ab");
         expect(out).not.toContain('"b"');
     });
@@ -230,7 +228,7 @@ describe("#ifdef / #ifndef / #else / #endif", () => {
 
     test("inactive branch skips macro expansion", () => {
         const out = pp("#ifdef UNDEFINED\n#define LEAK 1\n#endif\nLEAK");
-        expect(out).toContain("LEAK"); // LEAK never defined
+        expect(out).toContain("LEAK");
         expect(out).not.toContain("1");
     });
 
@@ -366,7 +364,6 @@ describe("built-in defines", () => {
 
     test("LITE_WASM_TU_BUILD is defined (empty expansion)", () => {
         const out = pp("LITE_WASM_TU_BUILD");
-        // Expands to nothing (empty body), so the identifier disappears
         expect(out).not.toContain("LITE_WASM_TU_BUILD");
     });
 
@@ -381,7 +378,6 @@ describe("built-in defines", () => {
 describe("#undef", () => {
     test("#undef removes a macro", () => {
         const lns = lines("#define X 1\nX\n#undef X\nX");
-        // First X → 1, second X stays X
         expect(lns).toContain("1");
         expect(lns).toContain("X");
     });
@@ -492,14 +488,12 @@ describe("getDefines", () => {
 describe("edge cases", () => {
     test("empty source produces only built-in expansion", () => {
         const out = pp("");
-        // Should not throw, produces empty output (no source to emit)
         expect(typeof out).toBe("string");
     });
 
     test("newlines are preserved for line numbering", () => {
         const out = pp("line1\nline2\nline3");
         const lns = out.split("\n");
-        // Should have at least the 3 source lines (plus any header padding)
         expect(lns.length).toBeGreaterThanOrEqual(3);
     });
 

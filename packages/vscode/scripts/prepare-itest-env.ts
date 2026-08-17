@@ -1,5 +1,4 @@
-// The VS Code integration host does not inherit this process's environment, so the clangd server
-// binary is resolved here and pinned into the fixture workspace settings before the tests launch.
+// The integration host does not inherit this process's env, so the resolved clangd path is pinned into the fixture settings.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";

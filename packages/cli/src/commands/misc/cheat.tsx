@@ -44,11 +44,11 @@ const MACROS = new Set([
 const KEYWORDS = new Set(["struct", "public", "return", "using", "namespace"]);
 const BUILTINS = new Set(["state", "input", "output", "qpi", "mut", "get", "set"]);
 function tokenColor(t: string): string | undefined {
-    if (KEYWORDS.has(t)) return theme.accent; // pink
-    if (MACROS.has(t)) return theme.brand; // violet
-    if (TYPES.has(t)) return theme.info; // cyan
-    if (BUILTINS.has(t)) return theme.ok; // green
-    if (/^\d+$/.test(t)) return theme.warn; // orange numbers
+    if (KEYWORDS.has(t)) return theme.accent;
+    if (MACROS.has(t)) return theme.brand;
+    if (TYPES.has(t)) return theme.info;
+    if (BUILTINS.has(t)) return theme.ok;
+    if (/^\d+$/.test(t)) return theme.warn;
     return undefined;
 }
 // one highlighted line — returns a <Text> so it can nest inline (in a row) or stack (in Code).
@@ -76,7 +76,6 @@ const Code = ({ lines }: { lines: string[] }) => (
     </Box>
 );
 
-// aligned "format" row: name + example (highlighted) + optional note
 const Fmt = ({ k, ex, note }: { k: string; ex: string; note?: string }) => (
     <Text>
         {"  "}

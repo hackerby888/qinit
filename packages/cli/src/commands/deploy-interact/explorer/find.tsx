@@ -1,12 +1,10 @@
-// One search field for every jump target, and the screen that hosts it.
 import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { SectionHeader, TextPrompt, theme, truncMid } from "../../../ui";
 import type { View, ViewProps } from "./chrome";
 
-// One field for every jump target, told apart by shape: identities are 60 uppercase characters and a tx id
-// is the same alphabet lowercased (the engine lowercases it in transport.ts), so nothing has to be typed
-// twice. Anything else is rejected rather than guessed at.
+// One field for every jump target, told apart by shape: identities are 60 uppercase and a tx id is the
+// same alphabet lowercased (the engine lowercases it in transport.ts), so nothing is typed twice.
 export function parseFindQuery(value: string): View | null {
     const query = value.trim();
     if (/^\d+$/.test(query)) {

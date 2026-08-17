@@ -186,7 +186,6 @@ async function filterCompletions(
     if (scope.kind === "member") {
         kept = await memberCompletions(doc, position, linePrefix, items, token, out);
     } else if (scope.kind === "qualified") {
-        // `QPI::`, `OI::Price::` and the contract's own types stay whole; `std::` and friends offer nothing.
         kept = keepQualifiedScope(scope.qualifier, allowed, documentNames) ? items.filter((item) => keepMemberLabel(labelOf(item))) : [];
     } else {
         kept = items.filter((item) => keepCompletionLabel(labelOf(item), allowed, documentNames));
@@ -222,9 +221,8 @@ interface ClangdApi {
     };
 }
 
-// The clangd extension owns the completion provider, but exposes its language client, and its middleware
-// hook is read per request — so wrapping it here filters the list without taking the provider over.
-// `clangd.restart` builds a fresh client, hence the re-check on every document event.
+// The clangd extension exposes its language client's middleware hook, read per request, so wrapping it
+// here filters without taking the provider over; clangd.restart rebuilds the client, hence the re-check.
 function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChannel): boolean {
     const initialCore = contractCorePath ?? core;
     if (!initialCore) return false;
@@ -268,10 +266,8 @@ function clangdClient(): ClangdApi["languageClient"] {
     return vscode.extensions.getExtension("llvm-vs-code-extensions.vscode-clangd")?.exports?.getApi?.(1)?.languageClient;
 }
 
-// clangd never re-reads a database that appears after it resolved a file, so a new entry does need
-// the restart. Restarting a client that is still starting kills it instead (the fresh client
-// re-registers `clangd.applyFix` first), so wait for it to settle. A client that has not come up by
-// then reads the finished database on its own.
+// clangd never re-reads a database that appears after it resolved a file, so a new entry needs the
+// restart; restarting a still-starting client kills it, and one that never comes up reads the DB itself.
 async function clangdSettled(): Promise<boolean> {
     const deadline = Date.now() + CLANGD_SETTLE_TIMEOUT_MS;
     while (Date.now() < deadline) {

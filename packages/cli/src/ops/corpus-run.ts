@@ -1,5 +1,4 @@
-// Run a STANDARD gtest (core-lite `contract_testing.h` suite) against a contract on a fresh isolated engine.
-// buildCorpusRunner replaces contract_testing.h with the engine-backed test harness.
+// buildCorpusRunner replaces core-lite's contract_testing.h with the engine-backed test harness.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildContractWithClang, buildCorpusRunner, systemContracts, type DynCallees } from "@qinit/build";
@@ -8,9 +7,8 @@ import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, Diagno
 import { initK12 } from "@qinit/core";
 import type { CompilerBackend } from "../config";
 
-// System suites that are too memory- or dispatch-heavy for the routine developer gate. They run in
-// shared-memory mode and belong to the opt-in heavy suite. This is empirical rather than purely state-size
-// based: PULSE/QTF need shared state because their corpora retain state pointers, while NOST has ~1 GiB state.
+// System suites too memory- or dispatch-heavy for the routine developer gate — shared-memory, opt-in heavy
+// suite. Empirical, not purely state-size: PULSE/QTF corpora retain state pointers; NOST has ~1 GiB state.
 const HEAVY_SYSTEM_GTEST_NAMES = new Set(["PULSE", "QTF", "QTRY", "GGWP", "QEARN", "NOST"]);
 const ARENA = 8 * 1024 * 1024;
 const SHARED_START = 0x20000000;
@@ -21,7 +19,6 @@ const SLACK = 128 * 1024 * 1024;
 
 const mainArenaSize = (name: string): number => (name === "NOST" ? NOST_ARENA : MAIN_ARENA);
 
-// A contract to build/deploy: the .h path + the identity the recipe needs.
 export interface StdGtestContractSpec {
     contractPath: string;
     name: string;
@@ -30,20 +27,20 @@ export interface StdGtestContractSpec {
 }
 
 export interface StdGtestRun {
-    runnerOk: boolean; // the test wasm built
+    runnerOk: boolean;
     buildError?: string;
     results: TestResult[];
     name: string;
     slot: number;
-    heavy: boolean; // ran in shared-memory mode
+    heavy: boolean;
     backend: CompilerBackend;
     timings?: Record<string, number>;
 }
 
 export interface CorpusRun extends StdGtestRun {
-    found: boolean; // the name matched a system contract
-    hasCorpus: boolean; // a test/contract_<x>.cpp exists
-    available: string[]; // system-contract names (for a not-found hint)
+    found: boolean;
+    hasCorpus: boolean;
+    available: string[];
 }
 
 export type SystemGtestTier = "light" | "heavy";
@@ -132,7 +129,6 @@ function depSpecs(catalog: any[], mainName: string, testSrc: string, contractSrc
     return deps;
 }
 
-// Build the main contract and dependencies with clang, each at its own slot.
 async function clangWasms(
     core: string,
     scratch: string,
@@ -184,7 +180,6 @@ async function clangWasms(
     return out;
 }
 
-// Build the main contract and dependencies with the TypeScript compiler.
 async function typescriptWasms(
     headers: string,
     main: StdGtestContractSpec,

@@ -102,14 +102,14 @@ export function skipLineComment(preprocessor: Preprocessor): void {
 }
 
 export function skipBlockComment(preprocessor: Preprocessor): void {
-    preprocessor.pos += 2; // skip /*
+    preprocessor.pos += 2;
     while (preprocessor.pos < preprocessor.input.length) {
         if (preprocessor.input[preprocessor.pos] === "\n") {
             preprocessor.result += "\n";
             preprocessor.line++;
             preprocessor.pos++;
         } else if (preprocessor.input[preprocessor.pos] === "*" && preprocessor.peekChar(1) === "/") {
-            preprocessor.pos += 2; // skip */
+            preprocessor.pos += 2;
             return;
         } else {
             preprocessor.pos++;

@@ -49,7 +49,6 @@ test("truncation follows the snapshot length, not the state size", () => {
     expect(recordOne(recorder, before, after).stateTruncated).toBe(false);
 });
 
-// The ring used to hold 256 calls, which a node recording from boot burns through in minutes.
 test("the ring keeps far more than the old 256 entries", () => {
     const recorder = new TraceRecorder();
     recorder.setEnabled(true);
@@ -169,7 +168,6 @@ test("nested traces use completion order for sequence, since, and limit", () => 
     expect(recorder.trace(0, 1).entries.map((entry) => entry.index)).toEqual([29]);
 });
 
-// A write past a fixed prefix used to vanish from the diff; the trace now snapshots the whole state.
 test("unmetered runtime tracing snapshots the whole state", async () => {
     const sim = new QubicSimulator({ fees: "off" });
     const contract = sim.deploy(28, await wasm("Counter"));
@@ -190,7 +188,7 @@ test("unmetered runtime tracing snapshots the whole state", async () => {
     expect(limits).toEqual([traced.stateSize, traced.stateSize]);
 });
 
-// The old 256 KiB prefix snapshot hid every write past it; BigState writes at 0 and at 60 MB.
+// BigState writes at 0 and at 60 MB.
 test("a write far past the old snapshot cap still reaches the diff", async () => {
     const sim = new QubicSimulator({ fees: "off" });
     sim.deploy(28, await wasm("BigState"));

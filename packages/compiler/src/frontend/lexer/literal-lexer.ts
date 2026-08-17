@@ -4,16 +4,16 @@ import type { Token } from "./tokens";
 
 export function lexCharLiteral(lexer: Lexer, start: number, startLine: number, startCol: number): Token {
     let text = "";
-    text += lexer.advance(); // opening '
+    text += lexer.advance();
     while (!lexer.eof()) {
         const ch = lexer.peekChar();
         if (ch === "\\") {
-            text += lexer.advance(); // backslash
+            text += lexer.advance();
             if (!lexer.eof()) {
-                text += lexer.advance(); // escaped char
+                text += lexer.advance();
             }
         } else if (ch === "'") {
-            text += lexer.advance(); // closing '
+            text += lexer.advance();
             break;
         } else if (ch === "\n") {
             break; // unterminated
@@ -30,7 +30,7 @@ export function lexCharLiteral(lexer: Lexer, start: number, startLine: number, s
 
 export function lexStringLiteral(lexer: Lexer, start: number, startLine: number, startCol: number): Token {
     let text = "";
-    text += lexer.advance(); // opening "
+    text += lexer.advance();
     while (!lexer.eof()) {
         const ch = lexer.peekChar();
         if (ch === "\\") {

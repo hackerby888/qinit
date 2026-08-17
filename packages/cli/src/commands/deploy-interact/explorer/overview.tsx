@@ -20,9 +20,8 @@ const COLUMN_GAP = 2;
 // How far the oldest visible row's rail is blended toward black.
 const RAIL_FADE = 0.75;
 
-// The leader identity is 60 characters and takes what it can; the recency rail then fills the exact
-// remainder. Both are sized here rather than left to Table, whose overflow loop shrinks the widest column
-// and truncates with truncMid — on a rail that would render as `───…───`.
+// The leader identity takes what it can and the rail fills the exact remainder; sized here because Table's
+// overflow loop truncates with truncMid, which on a rail would render as `───…───`.
 function tickLayout(tableWidth: number, railColor: (rowIndex: number) => string): { columns: Column[]; railWidth: number } {
     const fixedWidth = TICK_WIDTH + TXS_WIDTH + TIME_WIDTH;
     const flexWithRail = tableWidth - fixedWidth - COLUMN_GAP * 4;

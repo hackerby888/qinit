@@ -51,7 +51,6 @@ export function contractAddress(contractIndex: number): Uint8Array {
     return a;
 }
 
-// Call a contract function and return the decoded output.
 export async function callFunction(
     rpc: LiteRpc,
     contractIndex: number,

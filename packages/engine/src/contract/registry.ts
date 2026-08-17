@@ -20,7 +20,7 @@ export interface FireContext {
 }
 
 export class ContractRegistry {
-    readonly contracts = new Map<number, Contract>(); // slot -> wasm contract instance + state
+    readonly contracts = new Map<number, Contract>();
     readonly dirty = new Set<number>(); // slots whose state changed this tick (qpi markDirty)
     private readonly fees: FeeManager;
     private readonly recorder: TraceRecorder;
@@ -43,10 +43,9 @@ export class ContractRegistry {
         return [...this.contracts.keys()].sort((a, b) => (asc ? a - b : b - a));
     }
 
-    // Load or redeploy Wasm, then initialize or migrate state.
     // Metered deployments are pre-funded; INITIALIZE is exempt.
     deploy(slot: number, wasm: Uint8Array, host: HostServices, extMem?: WebAssembly.Memory, extraImports?: WebAssembly.Imports): Contract {
-        const prev = this.contracts.get(slot); // existing instance => this is a redeploy
+        const prev = this.contracts.get(slot);
         const prevState = prev ? prev.state() : null; // snapshot old state before the new instance replaces it
         const c = Contract.load(wasm, slot, host, extMem, extraImports);
         c.trace = this.recorder;
@@ -101,7 +100,6 @@ export class ContractRegistry {
     getComputerDigest(): Uint8Array {
         const leaves = new Map<number, Uint8Array>();
         for (const [slot, c] of this.contracts) {
-            // States above the one-shot Wasm K12 limit use a zero digest leaf.
             leaves.set(slot, c.stateSize > K12_MAX_LEAF_BYTES ? new Uint8Array(32) : k12Bytes(c.state()));
         }
 

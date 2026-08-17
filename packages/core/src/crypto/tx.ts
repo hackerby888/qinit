@@ -10,7 +10,7 @@ export const LITE_DEPLOY_ADDRESS = (() => {
 })();
 
 export interface SignedTx {
-    bytes: Uint8Array; // broadcast these
+    bytes: Uint8Array;
     id: string;
     tick: number;
 }

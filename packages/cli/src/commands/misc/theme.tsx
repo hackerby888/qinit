@@ -88,7 +88,7 @@ export function ThemeCmd({ commandArgs }: { commandArgs: CommandArguments }) {
     );
 
     // Live preview applied synchronously during render (not in a post-render effect) so the header + preview
-    // gradient + highlighted row reflect the hovered variant in the SAME frame; an effect lagged one move behind.
+    // gradient + highlighted row reflect the hovered variant in the SAME frame.
     if (phase === "pick") {
         applyTheme(THEME_NAMES[i]);
     }

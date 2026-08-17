@@ -33,8 +33,7 @@ export interface VerifyUpdate {
     action: "none" | "installed" | "updated" | "current" | "offline" | "unsupported";
     version?: string;
 }
-// Daily-cached, best-effort, never throws. Compares the published sha256 to the cached tool's and
-// pulls when newer. `force` ignores the age gate (used by `qinit setup`). Offline/unreachable = no-op.
+// Daily-cached, best-effort — never throws; `force` skips the age gate; offline/unreachable = no-op.
 export async function autoUpdateVerifyTool(opts?: {
     force?: boolean;
     maxAgeMs?: number;

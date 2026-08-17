@@ -1,5 +1,4 @@
 import { AccessSpec, AstKind, DiagnosticSeverity } from "../../src/shared/enums";
-// Validator unit tests: validateAndDesugar in isolation.
 import { describe, test, expect } from "bun:test";
 import { validateAndDesugar } from "../../src/frontend/validation";
 import type { Declaration, StructDecl, FunctionDecl, VariableDecl, Statement, Expression, TypeSpec, Span } from "../../src/ast";

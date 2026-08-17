@@ -1,4 +1,3 @@
-// Lexer unit tests: tokenize source text, verify token kinds/text/spans.
 import { describe, test, expect } from "bun:test";
 import { Lexer, TokenKind, isTypeKeyword, parseIntLiteral } from "../../src/frontend/lexer";
 
@@ -73,7 +72,6 @@ describe("keywords", () => {
     test("keywords are case-sensitive (if vs IF)", () => {
         const toks = new Lexer("if IF If").tokenize();
         expect(toks[0].kind).toBe(TokenKind.KW_IF);
-        // IF and If are identifiers, not keywords
         expect(toks[1].kind).toBe(TokenKind.IDENTIFIER);
         expect(toks[1].text).toBe("IF");
         expect(toks[2].kind).toBe(TokenKind.IDENTIFIER);
@@ -130,7 +128,6 @@ describe("operators and punctuators", () => {
     test("ellipsis (...) tokenization", () => {
         // The ellipsis check currently tokenizes `...` as three dot tokens.
         const toks = new Lexer("...").tokenize();
-        // Expected after fix: expect(toks[0].kind).toBe("ellipsis");
         expect(toks[0].kind).toBe(TokenKind.DOT);
         expect(toks[1].kind).toBe(TokenKind.DOT);
         expect(toks[2].kind).toBe(TokenKind.DOT);
@@ -507,19 +504,15 @@ describe("spans", () => {
 
     test("line tracking across newlines", () => {
         const toks = new Lexer("x\ny").tokenize();
-        // x on line 1
         expect(toks[0].span.line).toBe(1);
         expect(toks[0].span.column).toBe(1);
-        // y on line 2
         expect(toks[1].span.line).toBe(2);
         expect(toks[1].span.column).toBe(1);
     });
 
     test("col tracking after whitespace", () => {
         const toks = new Lexer("x   y").tokenize();
-        // x at col 1
         expect(toks[0].span.column).toBe(1);
-        // y at col 5 (3 spaces after x)
         expect(toks[1].span.column).toBe(5);
     });
 
@@ -592,7 +585,6 @@ describe("identifiers", () => {
 
     test("identifiers cannot start with digits", () => {
         const toks = new Lexer("1foo 2bar").tokenize();
-        // 1 and 2 are int_literals, foo and bar are identifiers
         expect(toks[0].kind).toBe(TokenKind.INT_LITERAL);
         expect(toks[0].text).toBe("1");
         expect(toks[1].kind).toBe(TokenKind.IDENTIFIER);

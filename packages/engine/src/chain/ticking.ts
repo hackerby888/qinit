@@ -7,8 +7,7 @@ import type { Tick, TickData } from "../protocol/wire";
 export const DEFAULT_TICK_HISTORY = Infinity; // unlimited: retain all finalized ticks; pass a finite number to cap
 const ZERO32 = new Uint8Array(32);
 
-// A finalized tick's consensus record: the N computor votes, the aligned-vote count, and the etalon digests they
-// committed to. Stored per tick for the quorum-tick / current-tick-info queries.
+// A finalized tick's consensus record, stored per tick for quorum-tick / current-tick-info queries.
 export interface TickRecord {
     // Signed votes expose fields directly; bytes remains the canonical buffer.
     votes: Tick[];
@@ -18,8 +17,7 @@ export interface TickRecord {
     tickData: TickData; // the leader's signed TickData; the votes commit transaction = K12(tickData.bytes)
 }
 
-// The seams TickConsensus needs from the rest of the engine: the three merkle roots (computed by the ledgers +
-// the contract states), the tick's transaction digests, and the chain clock / tick / epoch.
+// The seams TickConsensus needs from the rest of the engine.
 export interface ConsensusHost {
     getSpectrumDigest(): Uint8Array;
     getUniverseDigest(): Uint8Array;
@@ -36,7 +34,7 @@ export class TickConsensus {
     private readonly lite: boolean; // skip the per-tick quorum (votes/TickData) for EMPTY ticks — see finalizeTick
     private readonly historyTicks: number;
     private committee: Committee | null = null; // derived lazily on first finalize (needs initK12 resolved)
-    private ticks = new Map<number, TickRecord>(); // per-tick quorum record: votes + aligned count + digests
+    private ticks = new Map<number, TickRecord>(); // per-tick quorum record
     private lastDigests: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array } = {
         spectrum: ZERO32,
         universe: ZERO32,
@@ -81,8 +79,8 @@ export class TickConsensus {
         return this.lastDigests.computer;
     }
 
-    // Produce + store this tick's quorum record. The leader (computor[tick % N]) packs the tick's per-tx digests
-    // into a signed TickData. Every computor then signs a Tick vote with K12(TickData).
+    // The leader (computor[tick % N]) packs the tick's per-tx digests into a signed TickData; each computor
+    // signs a Tick vote with K12(TickData).
     finalizeTick(): void {
         const tick = this.host.tick();
         const epoch = this.host.epoch();
@@ -128,7 +126,6 @@ export class TickConsensus {
         this.pruneTicks(tick);
     }
 
-    // Keep only the configured finalized TickData and quorum window.
     private pruneTicks(tick: number): void {
         const firstRetainedTick = tick - this.historyTicks + 1;
         for (const t of this.ticks.keys()) {

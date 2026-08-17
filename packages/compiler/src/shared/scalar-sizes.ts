@@ -1,4 +1,3 @@
-// Builtin scalar sizes
 export const SCALAR_SIZE: Record<string, number> = {
     bool: 1,
     bit: 1,

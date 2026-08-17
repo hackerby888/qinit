@@ -29,7 +29,7 @@ export type TypeNode =
 function alignOf(n: TypeNode): number {
     switch (n.kind) {
         case "scalar":
-            return n.size; // 1/2/4/8
+            return n.size;
         case "uint128":
             return 8; // uint128_t = { uint64 low; uint64 high; }
         case "id":

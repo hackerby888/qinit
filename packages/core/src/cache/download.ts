@@ -16,8 +16,7 @@ export function atomicWrite(file: string, data: Uint8Array | string): void {
     renameSync(tempFile, file);
 }
 
-// Download an asset and verify its sha256 (mismatch => throw, never cache a bad blob).
-// onProgress(received, total) streams download bytes for a live progress bar.
+// sha256 mismatch => throw — never cache a bad blob. onProgress(received, total) feeds a live progress bar.
 export async function downloadVerifiedAsset(asset: AssetRef, onProgress?: (recv: number, total: number) => void): Promise<Uint8Array> {
     let response: Response;
     try {

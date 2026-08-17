@@ -287,7 +287,6 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
         afterInput(next);
     };
 
-    // A function with a known output type can run straight away; anything else needs one more prompt.
     const afterInput = (next: Call) => {
         if (next.entry.kind !== "fn") {
             setWizard({ ...next, stage: "amount" });

@@ -6,7 +6,7 @@ export class RecordParser {
     constructor(private readonly parser: Parser) {}
 
     parseNamespace(): NamespaceDecl {
-        const start = this.parser.state.next().span; // namespace
+        const start = this.parser.state.next().span;
         const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "namespace name");
         const name = nameTok?.text ?? "";
         let body: Declaration[] = [];
@@ -23,7 +23,7 @@ export class RecordParser {
     }
 
     parseStruct(): StructDecl {
-        const start = this.parser.state.next().span; // struct
+        const start = this.parser.state.next().span;
         const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "struct name");
         const name = nameTok?.text ?? "";
         // Partial / explicit specialization: `struct Foo<ProposalDataYesNo, numOfVotes> : ... { ... }`.
@@ -74,7 +74,7 @@ export class RecordParser {
     }
 
     parseSpecializationArgs(): TypeSpec[] {
-        this.parser.state.next(); // <
+        this.parser.state.next();
         const callArguments: TypeSpec[] = [];
         while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_ANGLE) {
             const kind = this.parser.state.peek().kind;
@@ -103,7 +103,7 @@ export class RecordParser {
     }
 
     parseUnion(): StructDecl {
-        const start = this.parser.state.next().span; // union
+        const start = this.parser.state.next().span;
         let name = "";
         // Union may be anonymous
         if (this.parser.state.peek().kind === TokenKind.IDENTIFIER) {

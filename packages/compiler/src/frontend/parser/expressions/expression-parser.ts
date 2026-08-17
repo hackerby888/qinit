@@ -222,7 +222,7 @@ export class ExpressionParser {
             // Parse brace initialization only when the prefix names a type.
             if (tok.kind === TokenKind.L_BRACE && (expression.kind === AstKind.IDENTIFIER || expression.kind === AstKind.QUALIFIED_NAME)) {
                 const name = expression.kind === AstKind.IDENTIFIER ? expression.name : `${expression.namespace}::${expression.name}`;
-                this.parser.state.next(); // {
+                this.parser.state.next();
                 const callArguments: Expression[] = [];
                 while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
                     callArguments.push(this.parser.expressions.parseBraceArg());
@@ -340,7 +340,7 @@ export class ExpressionParser {
 
     looksLikeTemplateArgs(): boolean {
         const save = this.parser.state.position;
-        this.parser.state.next(); // consume `<`
+        this.parser.state.next();
         let depth = 1;
         let ok = true;
         let guard = 0;
@@ -391,7 +391,7 @@ export class ExpressionParser {
 
     parseBraceArg(): Expression {
         if (this.parser.state.peek().kind === TokenKind.L_BRACE) {
-            const start = this.parser.state.next().span; // {
+            const start = this.parser.state.next().span;
             const expressions: Expression[] = [];
             while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
                 expressions.push(this.parser.expressions.parseBraceArg());

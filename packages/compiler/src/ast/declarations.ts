@@ -32,7 +32,7 @@ export type Declaration =
 export interface StructDecl {
     kind: AstKind.STRUCT;
     name: string;
-    bases: TypeSpec[]; // : public ContractBase, ...
+    bases: TypeSpec[];
     members: Declaration[];
     hasBody?: boolean;
     isUnion?: boolean;
@@ -54,7 +54,7 @@ export interface ClassTemplateDecl {
 export interface FunctionTemplateDecl {
     kind: AstKind.FUNCTION_TEMPLATE;
     name: string;
-    params: TemplateParam[]; // template parameters (KeyT, ValueT, L, ...)
+    params: TemplateParam[];
     functionParameters?: ParamDecl[]; // the function's own parameters (key, value, ...)
     returnType: TypeSpec;
     body?: Statement;
@@ -102,9 +102,9 @@ export interface VariableDecl {
 
 export interface EnumDecl {
     kind: AstKind.ENUM;
-    name?: string; // anonymous enums have no name
+    name?: string;
     underlyingType?: TypeSpec; // enum class Foo : uint8
-    isClass: boolean; // enum class vs plain enum
+    isClass: boolean;
     members: EnumeratorDecl[];
     span: Span;
 }

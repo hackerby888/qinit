@@ -1,7 +1,7 @@
 import type { Preprocessor } from "./preprocessor";
 
 export function handleDirective(preprocessor: Preprocessor): void {
-    preprocessor.pos++; // skip #
+    preprocessor.pos++;
     // Skip whitespace after #
     preprocessor.skipWhitespace();
     const directive = preprocessor.readIdentifier();
@@ -103,23 +103,23 @@ export function handleInclude(preprocessor: Preprocessor): void {
     const ch = preprocessor.input[preprocessor.pos];
     let filename = "";
     if (ch === '"') {
-        preprocessor.pos++; // skip opening "
+        preprocessor.pos++;
         while (preprocessor.pos < preprocessor.input.length && preprocessor.input[preprocessor.pos] !== '"' && preprocessor.input[preprocessor.pos] !== "\n") {
             filename += preprocessor.input[preprocessor.pos];
             preprocessor.pos++;
         }
         if (preprocessor.input[preprocessor.pos] === '"') {
-            preprocessor.pos++; // skip closing "
+            preprocessor.pos++;
         }
         preprocessor.skipToNewline();
     } else if (ch === "<") {
-        preprocessor.pos++; // skip opening <
+        preprocessor.pos++;
         while (preprocessor.pos < preprocessor.input.length && preprocessor.input[preprocessor.pos] !== ">" && preprocessor.input[preprocessor.pos] !== "\n") {
             filename += preprocessor.input[preprocessor.pos];
             preprocessor.pos++;
         }
         if (preprocessor.input[preprocessor.pos] === ">") {
-            preprocessor.pos++; // skip closing >
+            preprocessor.pos++;
         }
         preprocessor.skipToNewline();
     } else {
@@ -140,10 +140,10 @@ export function handleDefine(preprocessor: Preprocessor): void {
     let params: string[] | null = null;
     let isVarArgs = false;
     if (preprocessor.peekChar(0) === "(") {
-        preprocessor.pos++; // skip (
+        preprocessor.pos++;
         preprocessor.skipWhitespace();
         const paramStr = preprocessor.readUntil(")");
-        preprocessor.pos++; // skip )
+        preprocessor.pos++;
         if (paramStr === "...") {
             params = [];
             isVarArgs = true;

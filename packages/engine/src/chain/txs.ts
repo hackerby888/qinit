@@ -26,14 +26,13 @@ export interface QueuedTx {
 export class TxPool {
     private byTick = new Map<number, TxRecord[]>();
     private byId = new Map<string, TxRecord>();
-    private mempool = new Map<number, QueuedTx[]>(); // scheduled tick -> txs awaiting that tick
+    private mempool = new Map<number, QueuedTx[]>(); // keyed by scheduled tick
     private knownIds = new Set<string>();
 
     has(txId: string): boolean {
         return this.knownIds.has(txId);
     }
 
-    // Record an applied tx under its tick (and by id).
     record(r: TxRecord): void {
         if (this.byId.has(r.txId)) {
             throw new Error(`duplicate transaction ${r.txId}`);
@@ -62,7 +61,6 @@ export class TxPool {
         return this.byId.size;
     }
 
-    // Hold a broadcast tx until the chain reaches its scheduled tick (mempool mode).
     queue(scheduledTick: number, tx: QueuedTx): void {
         if (this.knownIds.has(tx.txId)) {
             throw new Error(`duplicate transaction ${tx.txId}`);
@@ -78,18 +76,17 @@ export class TxPool {
         this.knownIds.add(tx.txId);
     }
 
-    // The number of txs scheduled for `tick` still in the mempool — peeked without draining. The tick's pending
-    // tx-set size, read at the start of the tick as qpi numberOfTickTransactions.
+    // The tick's pending tx-set size, read at the start of the tick as qpi numberOfTickTransactions.
     dueCount(tick: number): number {
         return this.mempool.get(tick)?.length ?? 0;
     }
 
-    // Queued-but-unapplied counts per scheduled tick, oldest first — the explorer's mempool view.
+    // Per-scheduled-tick queued counts — the explorer's mempool view.
     pendingByTick(): { tick: number; count: number }[] {
         return [...this.mempool].map(([tick, queued]) => ({ tick, count: queued.length })).sort((a, b) => a.tick - b.tick);
     }
 
-    // Remove + return the txs scheduled for `tick` (drained by the orchestrator each advance).
+    // Drained by the orchestrator each advance.
     takeDue(tick: number): QueuedTx[] {
         const q = this.mempool.get(tick);
         if (!q) {

@@ -63,7 +63,6 @@ describe("differential gtest — my contract vs native test logic", () => {
         "my Counter.wasm passes the native Counter gtest",
         wasi,
         async () => {
-            // 1. Native build of the combined Counter contract + gtest → the test runner.
             const { writeFileSync, mkdtempSync } = await import("node:fs");
             const { tmpdir } = await import("node:os");
             const { join } = await import("node:path");
@@ -85,7 +84,6 @@ describe("differential gtest — my contract vs native test logic", () => {
             expect(built.ok, built.stderr).toBe(true);
             const runnerWasm = new Uint8Array(await (await import("node:fs/promises")).readFile(built.wasmPath!));
 
-            // 2. My TS compiler builds the contract under test.
             const mine = await compileContractWithTypeScript({
                 source: COUNTER,
                 contractName: "Counter",
@@ -95,7 +93,6 @@ describe("differential gtest — my contract vs native test logic", () => {
             });
             expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
-            // 3. Drive MY contract with the NATIVE test logic.
             const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
             for (const r of results) {
                 console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);

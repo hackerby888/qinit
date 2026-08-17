@@ -6,6 +6,6 @@ export { TokenKind };
 
 export interface Token {
     kind: TokenKind;
-    text: string; // raw source text
+    text: string;
     span: Span;
 }

@@ -14,7 +14,6 @@ beforeAll(async () => {
     await initK12();
 });
 
-// A server with one applied Counter.Inc transaction, plus the client that reads it back.
 async function explorerFixture() {
     const engine = new VirtualNode();
     engine.deploy(SLOT, await loadWasmFixture("Counter"));

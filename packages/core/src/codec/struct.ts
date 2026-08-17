@@ -124,7 +124,7 @@ export const u64: Codec<bigint> = {
     },
 };
 
-// a fixed-length byte field (e.g. signature, an id, an asset name) — alignment 1, returns a zero-copy window
+// a fixed-length byte field (e.g. signature, an id, an asset name)
 export const blob = (n: number): Codec<Uint8Array> => ({
     size: n,
     align: 1,

@@ -1,6 +1,5 @@
-// The deployment progress model: the six steps a deploy walks through, how an event folds into their
-// state, and the two failure messages the UI shows verbatim. Pure — no RPC, no clock beyond an injected
-// `now`, so the command's rendering can be tested without a node.
+// The deployment progress model. Pure — no RPC, no clock beyond an injected `now`, so the command's
+// rendering can be tested without a node.
 
 export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
 export type DeploymentStepEvent = {

@@ -1,6 +1,5 @@
-// clangd completes everything the translation unit can see — libc, libc++, the SIMD headers behind
-// platform/m256.h — none of which a contract may use. The allowed set is derived from the headers the
-// contract compile itself pulls in, so a new QPI container, macro or oracle interface needs no change here.
+// clangd offers libc, libc++ and SIMD too, none of which a contract may use. The allowed set is derived
+// from the headers the contract compile pulls in, so a new QPI name needs no change here.
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { QPI_BANNED_KEYWORDS } from "@qinit/compiler/analyzer";
@@ -12,8 +11,7 @@ const COMMENT_PATTERN = /\/\*[\s\S]*?\*\/|\/\/[^\n]*/g;
 const LEADING_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*/;
 const QUALIFIER_PATTERN = /([A-Za-z_][A-Za-z0-9_]*)\s*::\s*$/;
 
-// The core headers spell `std::` for their own type traits, which would otherwise allow the namespace and
-// with it everything under it. A language namespace, not a QPI name — this does not move with the API.
+// std:: is the core headers' own trait spelling — a language namespace, not a QPI name, so it is pinned here.
 const NON_QPI_NAMESPACES = new Set(["std"]);
 
 const allowedByCoreSource = new Map<string, ReadonlySet<string>>();

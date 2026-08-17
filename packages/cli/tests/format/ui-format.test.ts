@@ -48,7 +48,7 @@ test("hintLines wraps to fit the terminal and never drops a hint", () => {
 
     for (const columns of [40, 80, 120, 200]) {
         const lines = hintLines(keys, columns);
-        expect(lines.flat()).toEqual(keys); // every hint survives, in order
+        expect(lines.flat()).toEqual(keys);
         for (const line of lines) {
             expect(line.length).toBeGreaterThan(0); // no empty line inflating the row count
             if (line.length > 1) {
