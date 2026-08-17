@@ -3,18 +3,18 @@ export type Id = Uint8Array;
 
 const ZERO_ID = new Uint8Array(32);
 
+// Views a slice as a Buffer without copying, so comparisons run as native memcmp. Contract states reach
+// hundreds of megabytes, where a per-byte loop costs ten times as much.
+export function asBuffer(bytes: Uint8Array): Buffer {
+    return Buffer.from(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength);
+}
+
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
     if (a.length !== b.length) {
         return false;
     }
 
-    for (let i = 0; i < a.length; i++) {
-        if (a[i] !== b[i]) {
-            return false;
-        }
-    }
-
-    return true;
+    return asBuffer(a).equals(asBuffer(b));
 }
 
 export function concatBytes(parts: readonly Uint8Array[]): Uint8Array {

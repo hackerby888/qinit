@@ -395,58 +395,84 @@ export async function readState(
     const containers: StateContainer[] = [];
     let containerIndex = 0;
 
-    // One pass, so the blocks below the scalar rows keep the order the fields are declared in.
-    for (const field of fields) {
+    // Fields read concurrently. A node answers about one request per tick, so reading them in sequence
+    // pays that latency once per field for bytes that could all have been in flight together. Each field
+    // still reads only the ranges it needs, and results land in declaration order regardless of finish order.
+    const slots: { field: StateField; value?: string; container?: StateContainer }[] = fields.map((field) => ({ field }));
+    const reads: Promise<void>[] = [];
+    let totalBytes = 0;
+    let completedBytes = 0;
+    // Progress is aggregate: with reads overlapping, a per-field percentage would jump between fields.
+    const trackField = () => {
+        let reported = 0;
+        return (value: number) => {
+            completedBytes += value - reported;
+            reported = value;
+            onProgress?.("state", completedBytes, totalBytes);
+        };
+    };
+
+    for (const slot of slots) {
+        const field = slot.field;
         if (field.bad) {
-            decodedFields.push({
-                name: field.name,
-                value: `(undecodable: ${field.type} — fields below not shown)`,
-            });
+            slot.value = `(undecodable: ${field.type} — fields below not shown)`;
             continue;
         }
 
         if (field.container) {
             containerIndex++;
-            const selected = options.containerIndexes?.has(containerIndex) ?? false;
+            const index = containerIndex;
+            const layout = field.container;
+            const selected = options.containerIndexes?.has(index) ?? false;
             const collapsed =
                 options.collapseContainersAtBytes !== undefined && field.size >= options.collapseContainersAtBytes && !selected && !options.loadAllContainers;
 
             if (collapsed) {
-                containers.push(collapsedContainer(containerIndex, field, field.container));
-            } else {
-                onProgress?.(field.name, 0, field.size);
-                let completedBytes = 0;
-                const reportRead = (value: number) => {
-                    completedBytes = value;
-                    onProgress?.(field.name, value, field.size);
-                };
-                const tracksReads = field.container.kind === "array" || field.container.kind === "bitarray";
-                containers.push(await readContainerBlock(rpc, contractIndex, containerIndex, field, field.container, tracksReads ? reportRead : undefined));
-                if (!tracksReads && completedBytes < field.size) {
-                    onProgress?.(field.name, field.size, field.size);
-                }
+                slot.container = collapsedContainer(index, field, layout);
+                continue;
             }
+
+            totalBytes += field.size;
+            const tracksReads = layout.kind === "array" || layout.kind === "bitarray";
+            reads.push(
+                readContainerBlock(rpc, contractIndex, index, field, layout, tracksReads ? trackField() : undefined).then((loaded) => {
+                    slot.container = loaded;
+                }),
+            );
             continue;
         }
 
-        onProgress?.(field.name, 0, field.size);
-        try {
-            const byteSource = stateByteSource(rpc, contractIndex, field, (completedBytes) => onProgress?.(field.name, completedBytes, field.size));
-            const decoded = await decodeOutput(await readAllBytes(byteSource), field.abi ?? field.type);
-            decodedFields.push({
-                name: field.name,
-                value:
-                    typeof decoded === "object" && decoded !== null
-                        ? field.abi
-                            ? formatStateValue(decoded, field.abi, true, true)
-                            : fmtVal(decoded, true)
-                        : String(decoded),
-            });
-        } catch (error) {
-            decodedFields.push({
-                name: field.name,
-                value: `(read failed: ${stateReadError(error)})`,
-            });
+        totalBytes += field.size;
+        const onRead = trackField();
+        reads.push(
+            (async () => {
+                try {
+                    const decoded = await decodeOutput(await readAllBytes(stateByteSource(rpc, contractIndex, field, onRead)), field.abi ?? field.type);
+                    slot.value =
+                        typeof decoded === "object" && decoded !== null
+                            ? field.abi
+                                ? formatStateValue(decoded, field.abi, true, true)
+                                : fmtVal(decoded, true)
+                            : String(decoded);
+                } catch (error) {
+                    slot.value = `(read failed: ${stateReadError(error)})`;
+                }
+            })(),
+        );
+    }
+
+    onProgress?.("state", 0, totalBytes);
+    await Promise.all(reads);
+    // Containers that read whole blocks report no byte progress of their own, so settle the bar at the end.
+    if (completedBytes < totalBytes) {
+        onProgress?.("state", totalBytes, totalBytes);
+    }
+
+    for (const slot of slots) {
+        if (slot.container) {
+            containers.push(slot.container);
+        } else if (slot.value !== undefined) {
+            decodedFields.push({ name: slot.field.name, value: slot.value });
         }
     }
 

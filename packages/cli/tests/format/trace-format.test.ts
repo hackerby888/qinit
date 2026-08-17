@@ -173,11 +173,40 @@ test("readState: reads a complete sparse array across the 4 MiB boundary", async
         { slot: 7, off: 0, len: 4194304 },
         { slot: 7, off: 4194304, len: 8 },
     ]);
+    // Fields read concurrently, so progress is aggregate over the whole state rather than per field.
     expect(progress).toEqual([
-        ["values", 0, 4194312],
-        ["values", 4194304, 4194312],
-        ["values", 4194312, 4194312],
+        ["state", 0, 4194312],
+        ["state", 4194304, 4194312],
+        ["state", 4194312, 4194312],
     ]);
+});
+
+// A node answers about one request per tick, so serialized field reads cost one tick each.
+test("readState: reads fields concurrently and keeps declaration order", async () => {
+    const source = `
+      using namespace QPI;
+      struct CONTRACT_STATE_TYPE : public ContractBase {
+        struct StateData { uint64 a; uint64 b; uint64 c; uint64 d; };
+        INITIALIZE() {}
+      };
+    `;
+    let inFlight = 0;
+    let peakInFlight = 0;
+    const rpc: StateReader = {
+        stateRead: async (_slot, _off, len) => {
+            inFlight++;
+            peakInFlight = Math.max(peakInFlight, inFlight);
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            inFlight--;
+            return { hex: hx(new Array(len).fill(0)) };
+        },
+    };
+
+    const state = await readState(rpc, 7, source, "Concurrent");
+
+    expect(peakInFlight).toBe(4);
+    expect(state.fields.map((field) => field.name)).toEqual(["a", "b", "c", "d"]);
+    expect(state.complete).toBe(true);
 });
 
 test("readState: preserves an empty array as an empty block without an RPC read", async () => {
