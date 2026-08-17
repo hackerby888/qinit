@@ -7,6 +7,7 @@ import COUNTER_V2_SOURCE from "../fixtures/CounterV2.h" with { type: "text" };
 import DIGEST_PROBE_SOURCE from "../fixtures/DigestProbe.h" with { type: "text" };
 import DIVIDEND_SOURCE from "../fixtures/Dividend.h" with { type: "text" };
 import HOOKS_SOURCE from "../fixtures/Hooks.h" with { type: "text" };
+import HOST_WRITE_SOURCE from "../fixtures/HostWrite.h" with { type: "text" };
 import INCOMING_LOGGER_SOURCE from "../fixtures/IncomingLogger.h" with { type: "text" };
 import ORACLE_PROBE_SOURCE from "../fixtures/OracleProbe.h" with { type: "text" };
 import PROXY_SOURCE from "../fixtures/Proxy.h" with { type: "text" };
@@ -21,6 +22,7 @@ import TOKEN_SOURCE from "../fixtures/Token.h" with { type: "text" };
 import TRAP_SOURCE from "../fixtures/Trap.h" with { type: "text" };
 import VAULT_SOURCE from "../fixtures/Vault.h" with { type: "text" };
 import WATCHER_SOURCE from "../fixtures/Watcher.h" with { type: "text" };
+import WIDE_WRITE_SOURCE from "../fixtures/WideWrite.h" with { type: "text" };
 
 interface FixtureDefinitionBase {
     readonly sourceFile: `${string}.h`;
@@ -64,6 +66,7 @@ export const wasmFixtureManifest = {
     DigestProbe: fixture("DigestProbe.h", DIGEST_PROBE_SOURCE, "DigestProbe", 29),
     Dividend: fixture("Dividend.h", DIVIDEND_SOURCE, "Dividend", 28),
     Hooks: fixture("Hooks.h", HOOKS_SOURCE, "Hooks", 28),
+    HostWrite: fixture("HostWrite.h", HOST_WRITE_SOURCE, "HostWrite", 28),
     IncomingLogger: fixture("IncomingLogger.h", INCOMING_LOGGER_SOURCE, "IncomingLogger", 29),
     OracleProbe: fixture("OracleProbe.h", ORACLE_PROBE_SOURCE, "OracleProbe", 29),
     Proxy: fixture("Proxy.h", PROXY_SOURCE, "Proxy", 29, ["Counter"]),
@@ -79,6 +82,7 @@ export const wasmFixtureManifest = {
     Vault: fixture("Vault.h", VAULT_SOURCE, "Vault", 28),
     Vault29: fixture("Vault.h", VAULT_SOURCE, "Vault", 29),
     Watcher: fixture("Watcher.h", WATCHER_SOURCE, "Watcher", 28),
+    WideWrite: fixture("WideWrite.h", WIDE_WRITE_SOURCE, "WideWrite", 28),
 } as const;
 
 export type WasmFixtureName = keyof typeof wasmFixtureManifest;

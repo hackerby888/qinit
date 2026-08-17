@@ -1,6 +1,7 @@
 // Records VirtualNode debug traces for CLI and IDE inspection.
 import { toHex } from "../support/k12";
 import type { DebugEntry, DebugTrace, DebugStateRegion } from "@qinit/core";
+import { JOURNAL_GRANULE_BYTES, readJournalGranules, type JournalHeader } from "@qinit/core/wasm/journal";
 import { asBuffer, type Id } from "../support/bytes";
 
 export const TRACE_ENTRY_CAP = 8192; // ring-buffer the entries so a long session can't grow unbounded
@@ -46,6 +47,45 @@ export function diffRegions(before: Uint8Array, after: Uint8Array): DebugStateRe
     }));
 }
 
+/**
+ * The same regions `diffRegions` produces, from the contract's own write journal instead of a copy of
+ * the state. Granules the contract wrote without changing are dropped before adjacent ones are merged,
+ * so a write of an identical value never widens its neighbour's region.
+ */
+export function journalRegions(memory: Uint8Array, journalBase: number, stateAddr: number, header: JournalHeader): DebugStateRegion[] {
+    const buffer = asBuffer(memory);
+    const changed: { granule: number; before: Uint8Array; after: Uint8Array }[] = [];
+
+    for (const entry of readJournalGranules(memory, journalBase, header)) {
+        const liveAt = stateAddr + entry.offset;
+        const beforeAt = entry.before.byteOffset - memory.byteOffset;
+        if (buffer.compare(buffer, beforeAt, beforeAt + entry.before.length, liveAt, liveAt + entry.before.length) === 0) {
+            continue;
+        }
+        changed.push({ granule: entry.granule, before: entry.before.slice(), after: memory.slice(liveAt, liveAt + entry.before.length) });
+    }
+
+    changed.sort((left, right) => left.granule - right.granule);
+
+    const regions: DebugStateRegion[] = [];
+    for (let index = 0; index < changed.length; ) {
+        let end = index;
+        while (end + 1 < changed.length && changed[end + 1]!.granule === changed[end]!.granule + 1) {
+            end++;
+        }
+
+        const run = changed.slice(index, end + 1);
+        regions.push({
+            off: run[0]!.granule * JOURNAL_GRANULE_BYTES,
+            before: run.map((part) => toHex(part.before)).join(""),
+            after: run.map((part) => toHex(part.after)).join(""),
+        });
+        index = end + 1;
+    }
+
+    return regions;
+}
+
 export interface TraceBeginMetadata {
     tick: number;
     index: number;
@@ -56,6 +96,8 @@ export interface TraceBeginMetadata {
     input: Uint8Array;
     stateSize: number;
     stateBefore: Uint8Array;
+    /** Set when the before-image is not a snapshot, so its length says nothing about coverage. */
+    stateTruncated?: boolean;
 }
 
 export interface TraceEndMetadata {
@@ -66,6 +108,10 @@ export interface TraceEndMetadata {
     stateAfter: Uint8Array;
     /** Skips the diff scan when the caller already compared the two. Omit when unknown. */
     stateChanged?: boolean;
+    /** Regions the caller already resolved, from the contract's write journal rather than a snapshot. */
+    stateDiff?: DebugStateRegion[];
+    /** Journal overflow: the contract wrote more granules than the journal could record. */
+    stateTruncated?: boolean;
     execNs: number;
 }
 
@@ -113,7 +159,7 @@ export class TraceRecorder {
             outSize: 0,
             stateSize,
             // Snapshots are whole-state, so this only fires if one came up short.
-            stateTruncated: metadata.stateBefore.length < stateSize,
+            stateTruncated: metadata.stateTruncated ?? metadata.stateBefore.length < stateSize,
             invocator: metadata.invocator ? toHex(metadata.invocator.subarray(0, 32)) : "0".repeat(64),
             invocationReward: Number(metadata.invocationReward),
             inHex: toHex(metadata.input),
@@ -140,7 +186,10 @@ export class TraceRecorder {
         }
         // An unchanged state has no regions by definition, and the caller already had to compare to meter the
         // call — scanning a multi-hundred-megabyte state twice for the same answer is the whole cost.
-        entry.stateDiff = metadata.stateChanged === false ? [] : diffRegions(metadata.stateBefore, metadata.stateAfter);
+        entry.stateDiff = metadata.stateDiff ?? (metadata.stateChanged === false ? [] : diffRegions(metadata.stateBefore, metadata.stateAfter));
+        if (metadata.stateTruncated !== undefined) {
+            entry.stateTruncated = metadata.stateTruncated;
+        }
 
         this.stack.pop();
         entry.seq = ++this.seq;

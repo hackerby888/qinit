@@ -1,18 +1,43 @@
 /// <reference path="../text-assets.d.ts" />
 // Compile a qpi.h-constrained contract .h into a wasm contract module (run by the node's WAMR engine).
 import { mkdir, writeFile, copyFile } from "node:fs/promises";
-import { mkdirSync, existsSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { wasiSdkPaths } from "@qinit/core/project";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
+import { instrumentStateJournal, remapCodeOffset } from "@qinit/core/wasm/instrument";
 import { writeLineMap } from "./line-map";
 import WASM_GTEST_H from "../assets/wasm_gtest.h" with { type: "text" };
 import WASM_CONTRACT_TESTING_H_TEMPLATE from "../assets/wasm_contract_testing.h" with { type: "text" };
 import TEST_UTIL_H from "../assets/test_util.h" with { type: "text" };
 
 const WASM_CONTRACT_TESTING_H = WASM_CONTRACT_TESTING_H_TEMPLATE.replace("__QINIT_CORE_WASM_ABI_METADATA__", CORE_WASM_HEADERS.shared.abiMetadata);
+
+/**
+ * Bakes the state-write journal into the built module and shifts the line map onto the rewritten code.
+ * A failure leaves the pristine artifact in place — the contract still deploys and the host falls back
+ * to snapshot diffing — but it is reported, since the fallback silently costs a copy of the state.
+ */
+function bakeStateJournal(wasmPath: string, lineMapPath: string | undefined): string | undefined {
+    try {
+        const result = instrumentStateJournal(new Uint8Array(readFileSync(wasmPath)));
+        writeFileSync(wasmPath, result.wasm);
+
+        if (!lineMapPath) {
+            return undefined;
+        }
+        const lineMap = JSON.parse(readFileSync(lineMapPath, "utf8")) as { base: number; entries: { off: number }[] };
+        for (const entry of lineMap.entries) {
+            entry.off = remapCodeOffset(result.offsetMap, entry.off);
+        }
+        writeFileSync(lineMapPath, JSON.stringify(lineMap));
+        return undefined;
+    } catch (error) {
+        return `warning: state-write journal not baked, diffs fall back to state snapshots: ${error instanceof Error ? error.message : String(error)}\n`;
+    }
+}
 
 export interface WasmContractDescription {
     index: number;
@@ -279,6 +304,13 @@ export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: s
                 debugWasmPath = dbg;
             }
         } catch {}
+
+        // After stripping, so DWARF is never rewritten; the line map is then shifted to match the code
+        // the deployed module actually contains. Shared memory is skipped: several modules share one
+        // arena there, so the journal has nowhere of its own.
+        if (o.sharedMemoryBaseOffsetBytes === undefined && process.env.QINIT_NO_STATE_JOURNAL !== "1") {
+            stderr += bakeStateJournal(wasm, lineMapPath) ?? "";
+        }
     }
     return {
         ok: exitCode === 0,

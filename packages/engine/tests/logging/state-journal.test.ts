@@ -1,0 +1,166 @@
+import { expect, test } from "bun:test";
+import { loadWasmFixture as wasm, wasmFixtureManifest, type WasmFixtureName } from "../../../../test-utils/wasm-fixtures";
+import { QubicSimulator } from "../../src/qubic-simulator";
+import { readJournalHeader } from "@qinit/core/wasm/journal";
+import type { DebugStateRegion } from "@qinit/core";
+
+const WHO = new Uint8Array(32).fill(7);
+
+interface Drive {
+    readonly fixture: WasmFixtureName;
+    readonly run: (sim: QubicSimulator, slot: number) => void;
+}
+
+/** Runs `body` with the host-side snapshot override cleared, so a journal-mode test holds under either leg. */
+function withJournalEnabled<T>(body: () => T): T {
+    const saved = process.env.QINIT_STATE_DIFF;
+    delete process.env.QINIT_STATE_DIFF;
+    try {
+        return body();
+    } finally {
+        if (saved === undefined) {
+            delete process.env.QINIT_STATE_DIFF;
+        } else {
+            process.env.QINIT_STATE_DIFF = saved;
+        }
+    }
+}
+
+/** Runs a fixture with the journal, then again with QINIT_STATE_DIFF=snapshot, and returns both diffs. */
+async function bothMechanisms(drive: Drive): Promise<{ journal: DebugStateRegion[][]; snapshot: DebugStateRegion[][]; truncated: boolean[] }> {
+    const slot = wasmFixtureManifest[drive.fixture].slot;
+    const bytes = await wasm(drive.fixture);
+
+    const collect = () => {
+        const sim = new QubicSimulator({ fees: "off" });
+        sim.deploy(slot, bytes);
+        sim.setDebug(true);
+        drive.run(sim, slot);
+        const entries = sim.getTrace().entries.filter((entry) => entry.index === slot);
+        return { diffs: entries.map((entry) => entry.stateDiff), truncated: entries.map((entry) => entry.stateTruncated) };
+    };
+
+    const journal = withJournalEnabled(collect);
+    const snapshot = withJournalEnabled(() => {
+        process.env.QINIT_STATE_DIFF = "snapshot";
+        return collect();
+    });
+
+    return { journal: journal.diffs, snapshot: snapshot.diffs, truncated: journal.truncated };
+}
+
+test("the compilers bake a journal into every contract", async () => {
+    const sim = new QubicSimulator({ fees: "off" });
+    const contract = sim.deploy(28, await wasm("Counter")) as unknown as { mem: WebAssembly.Memory; arenaEnd: number };
+    const header = readJournalHeader(new Uint8Array(contract.mem.buffer), contract.arenaEnd);
+
+    expect(header).toBeDefined();
+    expect(header!.stateSize).toBe(8);
+    expect(header!.overflowed).toBe(false);
+});
+
+// The whole design rests on this: the journal must report exactly what copying the state reports.
+test("journal diffs match snapshot diffs byte for byte", async () => {
+    const drives: Drive[] = [
+        { fixture: "Counter", run: (sim, slot) => sim.procedure(slot, 1) },
+        { fixture: "BigState", run: (sim, slot) => sim.procedure(slot, 1, Uint8Array.from([7, 1, 0, 0, 0, 0, 0, 0])) },
+        { fixture: "Token", run: (sim, slot) => sim.procedure(slot, 1) },
+        { fixture: "Vault", run: (sim, slot) => sim.procedure(slot, 1) },
+        { fixture: "Trap", run: (sim, slot) => sim.procedure(slot, 1) },
+        { fixture: "DigestProbe", run: (sim, slot) => sim.procedure(slot, 1) },
+        { fixture: "QpiDual", run: (sim, slot) => sim.procedure(slot, 1) },
+        // Two calls in a row: the second must diff against the first's result, not against zero.
+        {
+            fixture: "Counter",
+            run: (sim, slot) => {
+                sim.procedure(slot, 1);
+                sim.procedure(slot, 1);
+            },
+        },
+    ];
+
+    for (const drive of drives) {
+        const { journal, snapshot } = await bothMechanisms(drive);
+        expect(journal, `${drive.fixture} diverged from the snapshot oracle`).toEqual(snapshot);
+    }
+});
+
+// getEntity fills a caller-provided struct, so the host writes the state and no wasm store is involved.
+// Without a host-side note this reports no change at all.
+test("a state field written by the host, not by the contract, still reaches the diff", async () => {
+    const { journal, snapshot } = await bothMechanisms({
+        fixture: "HostWrite",
+        run: (sim, slot) => sim.procedure(slot, 1, undefined, { invocator: WHO, originator: WHO }),
+    });
+
+    expect(journal[0]!.length).toBe(1);
+    expect(journal).toEqual(snapshot);
+});
+
+// More granules than the journal holds: that call can only say "truncated", and the contract falls back
+// to snapshot diffing from the next call, which must then be complete again.
+test("an overflowing call truncates, arms the fallback, and the next call is complete", async () => {
+    const slot = wasmFixtureManifest.WideWrite.slot;
+    const bytes = await wasm("WideWrite");
+    withJournalEnabled(() => {
+        const sim = new QubicSimulator({ fees: "off" });
+        const contract = sim.deploy(slot, bytes) as unknown as { mem: WebAssembly.Memory; arenaEnd: number };
+
+        const header = readJournalHeader(new Uint8Array(contract.mem.buffer), contract.arenaEnd)!;
+        const granulesInState = Math.ceil(header.stateSize / 256);
+        expect(granulesInState).toBeGreaterThan(header.capacity);
+
+        sim.setDebug(true);
+        sim.procedure(slot, 1, u64(1n));
+        const overflowed = sim.getTrace().entries.at(-1)!;
+        expect(overflowed.stateTruncated).toBe(true);
+
+        sim.procedure(slot, 1, u64(2n));
+        const recovered = sim.getTrace().entries.at(-1)!;
+        expect(recovered.stateTruncated).toBe(false);
+
+        // The fallback has the whole state, so the second call reports every changed byte.
+        const changed = recovered.stateDiff.reduce((total, region) => total + region.after.length / 2, 0);
+        expect(changed).toBe(header.stateSize);
+    });
+});
+
+// The point of the change is a number: a traced call on a 64 MB state must not allocate a 64 MB shadow.
+test("journal mode never allocates the state-sized shadow", async () => {
+    const slot = wasmFixtureManifest.BigState.slot;
+    const bytes = await wasm("BigState");
+    withJournalEnabled(() => {
+        const sim = new QubicSimulator({ fees: "off" });
+        const contract = sim.deploy(slot, bytes) as unknown as { shadow: Uint8Array | null; stateSize: number };
+
+        sim.setDebug(true);
+        sim.procedure(slot, 1, Uint8Array.from([7, 1, 0, 0, 0, 0, 0, 0]));
+        sim.procedure(slot, 1, Uint8Array.from([9, 2, 0, 0, 0, 0, 0, 0]));
+
+        expect(contract.stateSize).toBeGreaterThan(16 * 1024 * 1024);
+        expect(contract.shadow).toBeNull();
+        expect(sim.getTrace().entries.at(-1)!.stateDiff.length).toBeGreaterThan(0);
+    });
+});
+
+test("QINIT_STATE_DIFF=snapshot ignores a baked journal", async () => {
+    const saved = process.env.QINIT_STATE_DIFF;
+    process.env.QINIT_STATE_DIFF = "snapshot";
+    try {
+        const sim = new QubicSimulator({ fees: "off" });
+        const contract = sim.deploy(28, await wasm("Counter")) as unknown as { journal: unknown };
+        expect(contract.journal).toBeNull();
+    } finally {
+        if (saved === undefined) {
+            delete process.env.QINIT_STATE_DIFF;
+        } else {
+            process.env.QINIT_STATE_DIFF = saved;
+        }
+    }
+});
+
+function u64(value: bigint): Uint8Array {
+    const bytes = new Uint8Array(8);
+    new DataView(bytes.buffer).setBigUint64(0, value, true);
+    return bytes;
+}

@@ -1438,6 +1438,15 @@ parsed.validate();
 const wasm = new Uint8Array(parsed.toBinary({}).buffer);
 ```
 
+The binary is then rewritten to carry a state-write journal (`packages/core/src/wasm/instrument.ts`),
+so a host can report what a call changed without holding a copy of the state. Every store that could
+land in the contract state first saves the original bytes of the 256-byte granule it overwrites. The
+journal sits in the scratch arena, claimed by rewriting the constant `io_size()` returns downward, so
+no host has to be told it exists — and a host that does not know the format simply runs the contract.
+The clang path (`packages/build/src/compile/clang.ts`) does the same after `llvm-strip`, shifting its
+debug line map through the rewriter's offset map. `QINIT_NO_STATE_JOURNAL=1` builds without one;
+gtest shared-memory builds skip it, since several modules share one arena there.
+
 Then Qinit runs:
 
 ```ts

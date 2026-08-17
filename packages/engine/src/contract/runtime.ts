@@ -1,12 +1,18 @@
-import { ASSET_ENUMERATION_RECORD, LHOST_ABI, type LhostImportName } from "@qinit/core";
+import { ASSET_ENUMERATION_RECORD, LHOST_ABI, type DebugStateRegion, type LhostImportName } from "@qinit/core";
 import { k12Bytes, toHex } from "../support/k12";
 import { asBuffer, bytesEqual, type Id } from "../support/bytes";
-import { type TraceRecorder } from "../logging/trace";
+import { noteHostWrite, readJournalHeader, resetJournal, type JournalHeader } from "@qinit/core/wasm/journal";
+import { journalRegions, type TraceRecorder } from "../logging/trace";
 import { QpiContext } from "./abi";
 import { EntityRecord, M256i } from "../protocol/wire";
 import { validateContractIndexSignature } from "./wasm-contract-index";
 
 const EMPTY = new Uint8Array(0);
+
+/** `QINIT_STATE_DIFF=snapshot` ignores a baked journal and diffs by copying, as the engine used to. */
+function snapshotDiffForced(): boolean {
+    return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.QINIT_STATE_DIFF === "snapshot";
+}
 
 const ENV_NOOP = new Set(["addDebugMessageAssert"]);
 
@@ -306,6 +312,13 @@ export class Contract {
     // hundreds of megabytes, and both metering and trace diffs need one every call.
     private shadow: Uint8Array | null = null;
     private shadowStale = true;
+    // The contract's own write journal, when the artifact carries one. It reports what changed without a
+    // copy of the state, so the shadow above is never allocated for a contract that has it.
+    private journalBase = 0;
+    private journal: JournalHeader | null = null;
+    // Set once the journal overflows: from the next call this contract falls back to the shadow, which is
+    // slower but cannot run out of room. The overflowing call itself can only report truncation.
+    private journalOverflowed = false;
     private dispatchDepth = 0;
     private executionKinds: number[] = [];
     cost = 0n;
@@ -389,6 +402,7 @@ export class Contract {
             this.ex._initialize();
         }
 
+        this.attachJournal();
         this.readRegistry();
     }
 
@@ -481,6 +495,61 @@ export class Contract {
             this.u8().set(bytes.subarray(0, length), this.stateAddr);
         }
         this.shadowStale = true;
+    }
+
+    /**
+     * Finds the write journal an instrumented artifact carries. The module reports the region as
+     * unavailable through `io_size()`, so it sits exactly at the arena end and no host hands it out.
+     * The reset export initialises it; a module without one simply has no journal.
+     */
+    private attachJournal(): void {
+        if (typeof this.ex.__q_journal_reset !== "function" || snapshotDiffForced()) {
+            return;
+        }
+
+        this.ex.__q_journal_reset();
+        const header = readJournalHeader(this.u8(), this.arenaEnd);
+        if (!header || header.stateSize !== this.stateSize) {
+            return;
+        }
+
+        this.journalBase = this.arenaEnd;
+        this.journal = header;
+    }
+
+    /**
+     * What the journal recorded during the dispatch that just ran. Counters move during the call, so the
+     * header is re-read rather than reused. An overflow arms the shadow fallback for the next call — the
+     * before-image of the granules it missed is already gone, so this call can only report truncation.
+     */
+    private journalOutcome(): { stateDiff: DebugStateRegion[]; stateChanged: boolean; stateTruncated: boolean } {
+        const memory = this.u8();
+        const header = readJournalHeader(memory, this.journalBase);
+        if (!header) {
+            return { stateDiff: [], stateChanged: false, stateTruncated: false };
+        }
+
+        const stateDiff = journalRegions(memory, this.journalBase, this.stateAddr, header);
+        if (header.overflowed) {
+            this.journalOverflowed = true;
+        }
+
+        return { stateDiff, stateChanged: stateDiff.length > 0 || header.overflowed, stateTruncated: header.overflowed };
+    }
+
+    /**
+     * Records a host write into contract state. Store instrumentation only sees the contract's own
+     * stores, and several lhost imports write through an out-pointer a contract may aim at its state.
+     */
+    private noteGuestWrite(destination: number, length: number): void {
+        if (this.journal) {
+            noteHostWrite(this.u8(), this.journalBase, this.journal, this.stateAddr, destination, length);
+        }
+    }
+
+    private writeGuest(destination: number, bytes: Uint8Array): void {
+        this.noteGuestWrite(destination, bytes.length);
+        this.u8().set(bytes, destination);
     }
 
     // The before-image for this call. Refilled only after something outside a dispatch touched the state.
@@ -586,8 +655,15 @@ export class Contract {
         const snapshotLimit = this.stateSize;
         // A nested frame keeps explicit copies: it would otherwise advance the shadow mid-call and destroy the
         // outer frame's before-image.
-        const useShadow = wantState && !nested;
-        const stateBefore = wantState ? (useShadow ? this.shadowBefore() : this.stateSnapshot(snapshotLimit)) : EMPTY;
+        // A nested frame re-enters this same contract, so it would clear the outer frame's journal too.
+        const useJournal = wantState && !nested && this.journal !== null && !this.journalOverflowed;
+        const useShadow = wantState && !nested && !useJournal;
+        if (useJournal) {
+            // Safe to clear per dispatch because a contract can only call lower slots, so this instance is
+            // never re-entered mid-call. Deploy-time writeState/zeroState notes are cleared here too.
+            resetJournal(this.u8(), this.journalBase, this.journal!);
+        }
+        const stateBefore = wantState && !useJournal ? (useShadow ? this.shadowBefore() : this.stateSnapshot(snapshotLimit)) : EMPTY;
         const traceEntry = recorder
             ? recorder.begin({
                   tick: this.host.tick(),
@@ -599,6 +675,7 @@ export class Contract {
                   input,
                   stateSize: this.stateSize,
                   stateBefore,
+                  ...(useJournal ? { stateTruncated: false } : {}),
               })
             : null;
         const startedAt = recorder ? performance.now() : 0;
@@ -608,8 +685,9 @@ export class Contract {
         try {
             this.ex.dispatch(kind >>> 0, inputType >>> 0, inputOffset >>> 0, outputOffset >>> 0, localsOffset >>> 0);
         } catch (error) {
-            const stateAfter = wantState ? (useShadow ? this.stateView(snapshotLimit) : this.stateSnapshot(snapshotLimit)) : EMPTY;
-            const trapStateChanged = wantState && !bytesEqual(stateBefore, stateAfter);
+            const trapOutcome = useJournal ? this.journalOutcome() : null;
+            const stateAfter = wantState && !trapOutcome ? (useShadow ? this.stateView(snapshotLimit) : this.stateSnapshot(snapshotLimit)) : EMPTY;
+            const trapStateChanged = trapOutcome ? trapOutcome.stateChanged : wantState && !bytesEqual(stateBefore, stateAfter);
             this.finishMeter(metering, savedCost, trapStateChanged);
             // This path throws before the resync below, and a caller may roll the state back, so refill next time.
             this.shadowStale = true;
@@ -622,6 +700,7 @@ export class Contract {
                     stateBefore,
                     stateAfter,
                     stateChanged: trapStateChanged,
+                    ...(trapOutcome ? { stateDiff: trapOutcome.stateDiff, stateTruncated: trapOutcome.stateTruncated } : {}),
                     execNs: (performance.now() - startedAt) * 1e6,
                 });
             }
@@ -640,9 +719,10 @@ export class Contract {
             }
         }
 
-        const stateAfter = wantState ? (useShadow ? this.stateView(snapshotLimit) : this.stateSnapshot(snapshotLimit)) : EMPTY;
+        const outcome = useJournal ? this.journalOutcome() : null;
+        const stateAfter = wantState && !outcome ? (useShadow ? this.stateView(snapshotLimit) : this.stateSnapshot(snapshotLimit)) : EMPTY;
         const output = this.u8().slice(outputOffset, outputOffset + outputSize);
-        const stateChanged = wantState && !bytesEqual(stateBefore, stateAfter);
+        const stateChanged = outcome ? outcome.stateChanged : wantState && !bytesEqual(stateBefore, stateAfter);
         this.finishMeter(metering, savedCost, stateChanged);
 
         if (recorder) {
@@ -652,12 +732,18 @@ export class Contract {
                 stateBefore,
                 stateAfter,
                 stateChanged,
+                ...(outcome ? { stateDiff: outcome.stateDiff, stateTruncated: outcome.stateTruncated } : {}),
                 execNs: (performance.now() - startedAt) * 1e6,
             });
         }
         // After the recorder has read the before-image, not before.
         if (useShadow && stateChanged) {
             this.syncShadow(stateAfter);
+        }
+        // Journal mode leaves the shadow untouched, so anything it still holds is older than this call.
+        // Marking it stale keeps the fallback correct if the journal later overflows and hands back over.
+        if (useJournal && stateChanged) {
+            this.shadowStale = true;
         }
 
         return output;
@@ -812,7 +898,7 @@ export class Contract {
                 }
             },
             logBytes: (_ci: number, level: number, msgOff: number, size: number) => this.host.log(this.slot, level, u8().slice(msgOff, msgOff + size)),
-            k12: (inOff: number, len: number, outOff: number) => u8().set(k12Bytes(u8().slice(inOff, inOff + len)), outOff),
+            k12: (inOff: number, len: number, outOff: number) => this.writeGuest(outOff, k12Bytes(u8().slice(inOff, inOff + len))),
             abort: (code: number) => {
                 throw new ContractAbort(code);
             },
@@ -820,7 +906,7 @@ export class Contract {
     }
 
     // lhost: tick, epoch, and calendar reads, plus the previous tick's committed digests.
-    private timeImports(u8: () => Uint8Array): Record<string, Function> {
+    private timeImports(): Record<string, Function> {
         return {
             // time / tick (read-only)
             epoch: () => this.host.epoch() & 0xffff,
@@ -835,12 +921,13 @@ export class Contract {
             second: () => dateFields(this.host.nowMs()).second,
             millisecond: () => dateFields(this.host.nowMs()).milli,
             now: (out: number) => {
+                this.noteGuestWrite(out, 8);
                 new DataView(this.mem.buffer).setBigUint64(out, packDateAndTime(this.host.nowMs()), true);
             },
             // etalon-tick digests — the previous tick's committed state roots
-            prevSpectrumDigest: (out: number) => u8().set(this.host.getPrevSpectrumDigest().subarray(0, 32), out),
-            prevUniverseDigest: (out: number) => u8().set(this.host.getPrevUniverseDigest().subarray(0, 32), out),
-            prevComputerDigest: (out: number) => u8().set(this.host.getPrevComputerDigest().subarray(0, 32), out),
+            prevSpectrumDigest: (out: number) => this.writeGuest(out, this.host.getPrevSpectrumDigest().subarray(0, 32)),
+            prevUniverseDigest: (out: number) => this.writeGuest(out, this.host.getPrevUniverseDigest().subarray(0, 32)),
+            prevComputerDigest: (out: number) => this.writeGuest(out, this.host.getPrevComputerDigest().subarray(0, 32)),
         };
     }
 
@@ -851,6 +938,7 @@ export class Contract {
             getEntity: (idOff: number, entityOff: number) => {
                 const id = u8().slice(idOff, idOff + 32);
                 const e = this.host.getEntity(id);
+                this.noteGuestWrite(entityOff, EntityRecord.SIZE);
                 const rec = EntityRecord.wrap(u8(), entityOff);
                 rec.publicKey = M256i.wrap(id); // QPI::Entity.publicKey
                 rec.incomingAmount = e ? e.incomingAmount : 0n;
@@ -863,14 +951,14 @@ export class Contract {
             },
             queryFeeReserve: (ci: number) => this.host.queryFeeReserve(this.slot, ci >>> 0),
             nextId: (idOff: number, outOff: number) => {
-                u8().set(this.host.nextId(u8().slice(idOff, idOff + 32)), outOff);
+                this.writeGuest(outOff, this.host.nextId(u8().slice(idOff, idOff + 32)));
             },
             prevId: (idOff: number, outOff: number) => {
-                u8().set(this.host.prevId(u8().slice(idOff, idOff + 32)), outOff);
+                this.writeGuest(outOff, this.host.prevId(u8().slice(idOff, idOff + 32)));
             },
             isContractId: (idOff: number) => this.host.isContractId(u8().slice(idOff, idOff + 32)),
-            arbitrator: (out: number) => u8().set(this.host.arbitrator().subarray(0, 32), out),
-            computor: (i: number, out: number) => u8().set(this.host.computor(i >>> 0).subarray(0, 32), out),
+            arbitrator: (out: number) => this.writeGuest(out, this.host.arbitrator().subarray(0, 32)),
+            computor: (i: number, out: number) => this.writeGuest(out, this.host.computor(i >>> 0).subarray(0, 32)),
         };
     }
 
@@ -934,6 +1022,7 @@ export class Contract {
                 let p = outOff >>> 0;
                 for (let i = 0; i < n; i++) {
                     const e = entries[i];
+                    this.noteGuestWrite(p, record.size);
                     mem.set(e.owner.subarray(0, record.fields.owner.size), p + record.fields.owner.offset);
                     mem.set(e.possessor.subarray(0, record.fields.possessor.size), p + record.fields.possessor.offset);
                     dv.setBigInt64(p + record.fields.shares.offset, e.shares, true);
@@ -1030,14 +1119,12 @@ export class Contract {
                 this.host.signatureValidity(u8().slice(entOff, entOff + 32), u8().slice(digOff, digOff + 32), u8().slice(sigOff, sigOff + 64)),
             bidInIPO: (idx: number, price: bigint, qty: number) => this.host.bidInIPO(this.slot, idx >>> 0, price, qty >>> 0),
             ipoBidId: (idx: number, bid: number, outOff: number) => {
-                u8().set(this.host.ipoBidId(idx >>> 0, bid >>> 0).subarray(0, 32), outOff);
+                this.writeGuest(outOff, this.host.ipoBidId(idx >>> 0, bid >>> 0).subarray(0, 32));
             },
             ipoBidPrice: (idx: number, bid: number) => this.host.ipoBidPrice(idx >>> 0, bid >>> 0),
             computeMiningFunction: (sOff: number, pkOff: number, nOff: number, outOff: number) => {
-                u8().set(
-                    this.host.computeMiningFunction(u8().slice(sOff, sOff + 32), u8().slice(pkOff, pkOff + 32), u8().slice(nOff, nOff + 32)).subarray(0, 32),
-                    outOff,
-                );
+                const digest = this.host.computeMiningFunction(u8().slice(sOff, sOff + 32), u8().slice(pkOff, pkOff + 32), u8().slice(nOff, nOff + 32));
+                this.writeGuest(outOff, digest.subarray(0, 32));
             },
             initMiningSeed: (sOff: number) => this.host.initMiningSeed(u8().slice(sOff, sOff + 32)),
             getOracleQueryStatus: (queryId: bigint) => this.host.getOracleQueryStatus(queryId),
@@ -1081,7 +1168,7 @@ export class Contract {
                 if (!q || q.length !== size) {
                     return 0;
                 }
-                u8().set(q, outOff);
+                this.writeGuest(outOff, q);
                 return 1;
             },
             getOracleReply: (queryId: bigint, outOff: number, size: number) => {
@@ -1089,7 +1176,7 @@ export class Contract {
                 if (!r || r.length !== size) {
                     return 0;
                 }
-                u8().set(r, outOff);
+                this.writeGuest(outOff, r);
                 return 1;
             },
             distributeDividends: (amountPerShare: bigint) => {
@@ -1110,7 +1197,7 @@ export class Contract {
                 const result = this.host.callFunction(this.slot, calleeIdx >>> 0, inputType & 0xffff, input, originator);
                 this.recHost("callFunction", () => `→ @${calleeIdx >>> 0} fn #${inputType & 0xffff}${result.error ? ` ✗ err ${result.error}` : ""}`);
                 if (result.error === 0 && result.output.length > 0) {
-                    u8().set(result.output.subarray(0, Math.min(outSize, result.output.length)), outOff);
+                    this.writeGuest(outOff, result.output.subarray(0, Math.min(outSize, result.output.length)));
                 }
                 return result.error;
             },
@@ -1123,7 +1210,7 @@ export class Contract {
                     () => `→ @${calleeIdx >>> 0} proc #${inputType & 0xffff} reward=${reward}${result.error ? ` ✗ err ${result.error}` : ""}`,
                 );
                 if (result.error === 0 && result.output.length > 0) {
-                    u8().set(result.output.subarray(0, Math.min(outSize, result.output.length)), outOff);
+                    this.writeGuest(outOff, result.output.subarray(0, Math.min(outSize, result.output.length)));
                 }
                 return result.error;
             },
@@ -1145,7 +1232,7 @@ export class Contract {
         const contextView = () => QpiContext.wrap(u8(), this.ctxAddr);
         const lhost: Record<string, Function> = {
             ...this.coreImports(u8),
-            ...this.timeImports(u8),
+            ...this.timeImports(),
             ...this.identityImports(u8),
             ...this.ledgerImports(u8),
             ...this.assetImports(u8, contextView),

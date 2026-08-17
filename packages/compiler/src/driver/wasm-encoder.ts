@@ -1,3 +1,4 @@
+import { instrumentStateJournal } from "@qinit/core/wasm/instrument";
 import { WasmModuleMemoryMode } from "../shared/enums";
 import type { GeneratedContractMetadata } from "../backend/wasm/module/library-index";
 import { inspectWasmModule } from "./wasm-inspection";
@@ -16,8 +17,18 @@ export async function encodeWat(wat: string, sourceName: string): Promise<Uint8A
     return new Uint8Array(parsedModule.toBinary({}).buffer);
 }
 
+/** `QINIT_NO_STATE_JOURNAL=1` builds without the journal, so a pristine module is available to compare against. */
+export function stateJournalDisabled(): boolean {
+    return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.QINIT_NO_STATE_JOURNAL === "1";
+}
+
 export async function encodeAndInspectWat(wat: string, options: CompileOptions, metadata: GeneratedContractMetadata): Promise<Uint8Array> {
-    const wasm = await encodeWat(wat, "contract.wat");
+    const encoded = await encodeWat(wat, "contract.wat");
+
+    // Baked in before inspection, so the module that ships is the one the ABI gate checked. Shared
+    // memory is skipped: several modules share one arena there, so the journal has nowhere of its own.
+    const bakeJournal = options.sharedMemoryBaseOffsetBytes === undefined && !stateJournalDisabled();
+    const wasm = bakeJournal ? instrumentStateJournal(encoded).wasm : encoded;
 
     if (!WebAssembly.validate(wasm)) {
         throw new Error("generated module failed WebAssembly validation");
