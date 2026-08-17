@@ -168,24 +168,36 @@ test("nested traces use completion order for sequence, since, and limit", () => 
     expect(recorder.trace(0, 1).entries.map((entry) => entry.index)).toEqual([29]);
 });
 
-test("unmetered runtime tracing snapshots the whole state", async () => {
+test("unmetered runtime tracing diffs the whole state", async () => {
     const sim = new QubicSimulator({ fees: "off" });
     const contract = sim.deploy(28, await wasm("Counter"));
-    const traced = contract as unknown as {
-        stateSnapshot: (limit: number) => Uint8Array;
-        stateSize: number;
-    };
-    const snapshot = traced.stateSnapshot.bind(contract);
-    const limits: number[] = [];
-    traced.stateSnapshot = (limit: number) => {
-        limits.push(limit);
-        return snapshot(limit);
-    };
+    const { stateSize } = contract as unknown as { stateSize: number };
 
     sim.setDebug(true);
     sim.procedure(28, 1);
 
-    expect(limits).toEqual([traced.stateSize, traced.stateSize]);
+    const entry = sim.getTrace().entries.at(-1)!;
+    expect(entry.stateSize).toBe(stateSize);
+    expect(entry.stateTruncated).toBe(false);
+    expect(entry.stateDiff.length).toBeGreaterThan(0);
+});
+
+// The before-image is carried across calls rather than re-copied, so a stale one would make the second
+// call re-report the first call's bytes as freshly changed.
+test("consecutive invocations diff against the previous call's result", async () => {
+    const sim = new QubicSimulator({ fees: "off" });
+    sim.deploy(28, await wasm("Counter"));
+    sim.setDebug(true);
+
+    sim.procedure(28, 1);
+    const first = sim.getTrace().entries.at(-1)!;
+    sim.procedure(28, 1);
+    const second = sim.getTrace().entries.at(-1)!;
+
+    expect(first.stateDiff.length).toBeGreaterThan(0);
+    expect(second.stateDiff.length).toBeGreaterThan(0);
+    expect(second.stateDiff[0].off).toBe(first.stateDiff[0].off);
+    expect(second.stateDiff[0].before).toBe(first.stateDiff[0].after);
 });
 
 // BigState writes at 0 and at 60 MB.

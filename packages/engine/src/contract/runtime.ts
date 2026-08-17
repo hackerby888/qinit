@@ -1,6 +1,6 @@
 import { ASSET_ENUMERATION_RECORD, LHOST_ABI, type LhostImportName } from "@qinit/core";
 import { k12Bytes, toHex } from "../support/k12";
-import { bytesEqual, type Id } from "../support/bytes";
+import { asBuffer, bytesEqual, type Id } from "../support/bytes";
 import { type TraceRecorder } from "../logging/trace";
 import { QpiContext } from "./abi";
 import { EntityRecord, M256i } from "../protocol/wire";
@@ -32,6 +32,9 @@ export const CONTRACT_ENTRY_KIND = {
 const INPUT_BUFFER_SIZE_BYTES = 64 * 1024;
 const OUTPUT_BUFFER_SIZE_BYTES = 64 * 1024;
 const LOCALS_BUFFER_SIZE_BYTES = 32 * 1024;
+
+// Block size for catching the shadow up to a changed state: one memcmp per block, copy only what moved.
+const SHADOW_BLOCK = 64 * 1024;
 
 const BASE_CALL_COST = 10n;
 const DIGEST_BYTE_COST = 1n;
@@ -299,6 +302,10 @@ export class Contract {
     arenaEnd = 0;
     sysMask = 0;
     metering = false;
+    // The previous state, kept across invocations so the before-image costs no copy. Contract states run to
+    // hundreds of megabytes, and both metering and trace diffs need one every call.
+    private shadow: Uint8Array | null = null;
+    private shadowStale = true;
     private dispatchDepth = 0;
     private executionKinds: number[] = [];
     cost = 0n;
@@ -465,12 +472,44 @@ export class Contract {
 
     zeroState() {
         this.u8().fill(0, this.stateAddr, this.stateAddr + this.stateSize);
+        this.shadowStale = true;
     }
 
     writeState(bytes: Uint8Array): void {
         const length = Math.min(bytes.length, this.stateSize);
         if (length > 0) {
             this.u8().set(bytes.subarray(0, length), this.stateAddr);
+        }
+        this.shadowStale = true;
+    }
+
+    // The before-image for this call. Refilled only after something outside a dispatch touched the state.
+    private shadowBefore(): Uint8Array {
+        if (!this.shadow || this.shadow.length !== this.stateSize) {
+            this.shadow = new Uint8Array(this.stateSize);
+            this.shadowStale = true;
+        }
+        if (this.shadowStale) {
+            this.shadow.set(this.stateView());
+            this.shadowStale = false;
+        }
+        return this.shadow;
+    }
+
+    // Catches the shadow up to the state a dispatch left behind, copying only the blocks that moved.
+    private syncShadow(live: Uint8Array): void {
+        const shadow = this.shadow;
+        if (!shadow) {
+            return;
+        }
+
+        const shadowBuffer = asBuffer(shadow);
+        const liveBuffer = asBuffer(live);
+        for (let block = 0; block < live.length; block += SHADOW_BLOCK) {
+            const end = Math.min(block + SHADOW_BLOCK, live.length);
+            if (shadowBuffer.compare(liveBuffer, block, end, block, end) !== 0) {
+                shadow.set(live.subarray(block, end), block);
+            }
         }
     }
 
@@ -545,7 +584,10 @@ export class Contract {
         const recorder = this.trace?.enabled ? this.trace : null;
         const wantState = metering || recorder != null;
         const snapshotLimit = this.stateSize;
-        const stateBefore = wantState ? this.stateSnapshot(snapshotLimit) : EMPTY;
+        // A nested frame keeps explicit copies: it would otherwise advance the shadow mid-call and destroy the
+        // outer frame's before-image.
+        const useShadow = wantState && !nested;
+        const stateBefore = wantState ? (useShadow ? this.shadowBefore() : this.stateSnapshot(snapshotLimit)) : EMPTY;
         const traceEntry = recorder
             ? recorder.begin({
                   tick: this.host.tick(),
@@ -566,8 +608,11 @@ export class Contract {
         try {
             this.ex.dispatch(kind >>> 0, inputType >>> 0, inputOffset >>> 0, outputOffset >>> 0, localsOffset >>> 0);
         } catch (error) {
-            const stateAfter = wantState ? this.stateSnapshot(snapshotLimit) : EMPTY;
-            this.finishMeter(metering, savedCost, stateBefore, stateAfter);
+            const stateAfter = wantState ? (useShadow ? this.stateView(snapshotLimit) : this.stateSnapshot(snapshotLimit)) : EMPTY;
+            const trapStateChanged = wantState && !bytesEqual(stateBefore, stateAfter);
+            this.finishMeter(metering, savedCost, trapStateChanged);
+            // This path throws before the resync below, and a caller may roll the state back, so refill next time.
+            this.shadowStale = true;
 
             if (recorder) {
                 recorder.end(traceEntry, {
@@ -576,6 +621,7 @@ export class Contract {
                     trap: trapMessage(error),
                     stateBefore,
                     stateAfter,
+                    stateChanged: trapStateChanged,
                     execNs: (performance.now() - startedAt) * 1e6,
                 });
             }
@@ -594,9 +640,10 @@ export class Contract {
             }
         }
 
-        const stateAfter = wantState ? this.stateSnapshot(snapshotLimit) : EMPTY;
+        const stateAfter = wantState ? (useShadow ? this.stateView(snapshotLimit) : this.stateSnapshot(snapshotLimit)) : EMPTY;
         const output = this.u8().slice(outputOffset, outputOffset + outputSize);
-        this.finishMeter(metering, savedCost, stateBefore, stateAfter);
+        const stateChanged = wantState && !bytesEqual(stateBefore, stateAfter);
+        this.finishMeter(metering, savedCost, stateChanged);
 
         if (recorder) {
             recorder.end(traceEntry, {
@@ -604,8 +651,13 @@ export class Contract {
                 ok: true,
                 stateBefore,
                 stateAfter,
+                stateChanged,
                 execNs: (performance.now() - startedAt) * 1e6,
             });
+        }
+        // After the recorder has read the before-image, not before.
+        if (useShadow && stateChanged) {
+            this.syncShadow(stateAfter);
         }
 
         return output;
@@ -619,6 +671,7 @@ export class Contract {
         memory.fill(0, this.stateAddr, this.stateAddr + this.stateSize);
         memory.fill(0, localsOffset, localsOffset + LOCALS_BUFFER_SIZE_BYTES);
         memory.set(oldState, oldStateOffset);
+        this.shadowStale = true;
         this.writeCtx({});
         this.arenaStart = this.arenaBase + ((oldState.length + 15) & ~15);
         this.arenaTop = this.arenaStart;
@@ -670,10 +723,10 @@ export class Contract {
         this.host.markDirty(this.slot);
     }
 
-    private finishMeter(metering: boolean, savedCost: bigint, before: Uint8Array, after: Uint8Array): void {
+    private finishMeter(metering: boolean, savedCost: bigint, stateChanged: boolean): void {
         if (metering) {
             let cost = BASE_CALL_COST + this.cost;
-            if (!bytesEqual(before, after)) {
+            if (stateChanged) {
                 cost += DIGEST_BYTE_COST * BigInt(this.stateSize);
             }
             this.lastCost = cost;
