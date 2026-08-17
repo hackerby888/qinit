@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator, VirtualNode } from "@qinit/engine";
@@ -7,7 +7,7 @@ import { QUBIC_LOG_TYPE } from "@qinit/proto";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -32,7 +32,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Emit, 1); }
 };`;
 
-describe("QPI LOG_* lowering", () => {
+describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
     beforeAll(initK12);
 
     test("emits all native severity imports with bytes before _terminator", async () => {
@@ -40,7 +40,7 @@ describe("QPI LOG_* lowering", () => {
             source: SOURCE,
             contractName: "Logging",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 64 * 1024,
         });
         expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toEqual([]);
@@ -70,7 +70,7 @@ describe("QPI LOG_* lowering", () => {
             source: SOURCE,
             contractName: "Logging",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 64 * 1024,
         });
         const node = new VirtualNode({ mempool: false, fees: "off" });
@@ -91,7 +91,7 @@ describe("QPI LOG_* lowering", () => {
             source,
             contractName: "BadLogging",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 64 * 1024,
         });
         expect(result.diagnostics.some((d) => d.severity === DiagnosticSeverity.ERROR && d.message.includes("at least 8 bytes"))).toBe(true);
@@ -101,7 +101,7 @@ describe("QPI LOG_* lowering", () => {
             source: missing,
             contractName: "MissingTerminator",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 64 * 1024,
         });
         expect(missingResult.diagnostics.some((d) => d.severity === DiagnosticSeverity.ERROR && d.message.includes("must contain _terminator"))).toBe(true);
@@ -111,7 +111,7 @@ describe("QPI LOG_* lowering", () => {
             source: scalar,
             contractName: "ScalarLog",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 64 * 1024,
         });
         expect(scalarResult.diagnostics.some((d) => d.severity === DiagnosticSeverity.ERROR && d.message.includes("must be a struct"))).toBe(true);

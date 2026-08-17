@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { HAS_CORE } from "../../../../test-utils/paths";
 
 interface ChildResult {
     count: number;
@@ -57,7 +58,7 @@ async function parseIsolated(source: string, timeoutMs = 5_000): Promise<ChildRe
     }
 }
 
-describe("adversarial compiler input", () => {
+describe.skipIf(!HAS_CORE)("adversarial compiler input", () => {
     const invalidCases = [
         ["self-recursive macro", "#define LOOP LOOP\nLOOP"],
         ["mutually recursive macros", "#define A B\n#define B A\nA"],

@@ -1,11 +1,11 @@
 // Backend failures used to surface at line 0, column 0. emitStatement tags them with the statement span,
 // so a codegen error now points at the offending line in the user's file rather than the qpi.h prelude.
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { describe, expect, test } from "bun:test";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src";
 
-const HEADER = loadQpiHeader(CORE_PATH);
+const HEADER = () => loadQpiHeader(CORE_PATH);
 
 // The body lands on line 8, which is what a reported span must point at.
 const BODY_LINE = 8;
@@ -26,13 +26,13 @@ async function codegenErrors(body: string) {
         source: wrap(body),
         contractName: "Probe",
         slot: 27,
-        qpiHeader: HEADER,
+        qpiHeader: HEADER(),
         arenaSizeBytes: 1 << 20,
     });
     return result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR && diagnostic.message.startsWith("Codegen failed"));
 }
 
-describe("codegen diagnostics carry a source location", () => {
+describe.skipIf(!HAS_CORE)("codegen diagnostics carry a source location", () => {
     test("a bad QPI call reports the offending line", async () => {
         const errors = await codegenErrors("    qpi.K12(7, 8);");
 

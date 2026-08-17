@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Fidelity probe for i64/value-model divergence edges.
 import { coreGtest } from "../support/core-gtest";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
@@ -10,7 +10,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -88,7 +88,7 @@ TEST(Fidelity, TernaryIsLazy) {
 
 const wasi = wasiToolchain();
 
-describe("differential gtest — semantic fidelity edges", () => {
+describe.skipIf(!HAS_CORE)("differential gtest — semantic fidelity edges", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -122,7 +122,7 @@ describe("differential gtest — semantic fidelity edges", () => {
                 source: SRC,
                 contractName: "Edge",
                 slot: 28,
-                qpiHeader: HEADERS,
+                qpiHeader: HEADERS(),
                 arenaSizeBytes: 1024 * 1024,
             });
             expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

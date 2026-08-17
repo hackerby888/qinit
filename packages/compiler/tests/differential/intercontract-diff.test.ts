@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Checks higher-slot callers reaching lower-slot callees.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
@@ -7,7 +7,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader, type CompileResult, type ContractIdl } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const COUNTER = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -52,7 +52,7 @@ function u64(b: Uint8Array): bigint {
     return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
 }
 
-describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", () => {
+describe.skipIf(!HAS_CORE)("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -62,7 +62,7 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
             source: COUNTER,
             contractName: "Counter",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1024 * 1024,
         });
         expect(counter.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
@@ -72,7 +72,7 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
             source: CALLER,
             contractName: "Caller",
             slot: 29,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1024 * 1024,
             callees,
         });

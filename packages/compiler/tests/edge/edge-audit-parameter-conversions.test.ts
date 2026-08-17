@@ -1,12 +1,12 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Checks native-compatible implicit conversions at function-call boundaries.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
-const HEADERS = loadQpiHeader(CORE_PATH);
+const HEADERS = () => loadQpiHeader(CORE_PATH);
 
 const wrap = (helper: string, body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -23,7 +23,7 @@ async function run(helper: string, body: string): Promise<bigint> {
         source: wrap(helper, body),
         contractName: "ParamConversionEdge",
         slot: 27,
-        qpiHeader: HEADERS,
+        qpiHeader: HEADERS(),
         arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
@@ -38,7 +38,7 @@ async function run(helper: string, body: string): Promise<bigint> {
     return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
 }
 
-describe("edge audit — implicit parameter conversions", () => {
+describe.skipIf(!HAS_CORE)("edge audit — implicit parameter conversions", () => {
     beforeAll(async () => {
         await initK12();
     });

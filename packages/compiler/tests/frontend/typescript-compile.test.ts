@@ -3,23 +3,23 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync } from "node:fs";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12, deriveKeysSync } from "@qinit/core";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const COUNTER_SRC = readFileSync(new URL("../../../../fixtures/Counter.h", import.meta.url), "utf8");
-const QPI_HEADER = loadQpiHeader(CORE_PATH);
+const QPI_HEADER = () => loadQpiHeader(CORE_PATH);
 
 beforeAll(async () => {
     await initK12();
 });
 
-describe("TypeScript Counter compilation", () => {
+describe.skipIf(!HAS_CORE)("TypeScript Counter compilation", () => {
     test("compiles Counter.h with zero errors", async () => {
         const r = await compileContractWithTypeScript({
             source: COUNTER_SRC,
             contractName: "Counter",
             slot: 28,
-            qpiHeader: QPI_HEADER,
+            qpiHeader: QPI_HEADER(),
         });
         expect(r.diagnostics).toHaveLength(0);
         expect(r.wasm.byteLength).toBeGreaterThan(100);
@@ -30,7 +30,7 @@ describe("TypeScript Counter compilation", () => {
             source: COUNTER_SRC,
             contractName: "Counter",
             slot: 28,
-            qpiHeader: QPI_HEADER,
+            qpiHeader: QPI_HEADER(),
         });
         const sim = new QubicSimulator();
         const c = sim.deploy(28, r.wasm);
@@ -43,7 +43,7 @@ describe("TypeScript Counter compilation", () => {
             source: COUNTER_SRC,
             contractName: "Counter",
             slot: 28,
-            qpiHeader: QPI_HEADER,
+            qpiHeader: QPI_HEADER(),
         });
         const sim = new QubicSimulator();
         sim.deploy(28, r.wasm);
@@ -57,7 +57,7 @@ describe("TypeScript Counter compilation", () => {
             source: COUNTER_SRC,
             contractName: "Counter",
             slot: 28,
-            qpiHeader: QPI_HEADER,
+            qpiHeader: QPI_HEADER(),
         });
         const sim = new QubicSimulator();
         sim.deploy(28, r.wasm);

@@ -1,10 +1,10 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Ensures nested aliases from state.get() cannot mutate contract state.
 import { describe, expect, test } from "bun:test";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
-const HEADERS = loadQpiHeader(CORE_PATH);
+const HEADERS = () => loadQpiHeader(CORE_PATH);
 
 const wrap = (stateData: string, entry: string, registration: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -22,7 +22,7 @@ async function expectReadonlyRejection(source: string) {
         source,
         contractName: "ReadonlyAliasEdge",
         slot: 27,
-        qpiHeader: HEADERS,
+        qpiHeader: HEADERS(),
         arenaSizeBytes: 1 << 20,
     });
     const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
@@ -30,7 +30,7 @@ async function expectReadonlyRejection(source: string) {
     expect(result.wasm).toHaveLength(0);
 }
 
-describe("edge audit — state.get read-only aliasing", () => {
+describe.skipIf(!HAS_CORE)("edge audit — state.get read-only aliasing", () => {
     test("a procedure cannot pass a state.get scalar to a non-const reference", async () => {
         await expectReadonlyRejection(wrap(`uint64 result;`, `PUBLIC_PROCEDURE(Go) { bump(state.get().result); }`, `REGISTER_USER_PROCEDURE(Go, 1);`));
     });

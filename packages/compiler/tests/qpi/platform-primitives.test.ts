@@ -1,5 +1,5 @@
 import { DiagnosticSeverity, PlatformCapability, PlatformPrimitiveKind, PlatformWasmOp } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
@@ -8,7 +8,7 @@ import { PLATFORM_PRIMITIVES, platformPrimitive } from "../../src/backend/wasm/c
 import { readSourceTree } from "../support/source-tree";
 
 const CORE = CORE_PATH;
-const HEADER = loadQpiHeader(CORE);
+const HEADER = () => loadQpiHeader(CORE);
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -43,7 +43,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Run, 1); }
 };`;
 
-describe("typed platform primitive registry", () => {
+describe.skipIf(!HAS_CORE)("typed platform primitive registry", () => {
     beforeAll(initK12);
 
     test("aliases are unique and resolve to typed descriptors", () => {
@@ -59,7 +59,7 @@ describe("typed platform primitive registry", () => {
             source: SOURCE,
             contractName: "PlatformSource",
             slot: 27,
-            qpiHeader: HEADER,
+            qpiHeader: HEADER(),
             arenaSizeBytes: 1 << 20,
         });
         expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);

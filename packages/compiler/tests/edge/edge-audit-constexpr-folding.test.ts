@@ -3,6 +3,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { edgeRunner } from "../support/edge-compile";
+import { HAS_CORE } from "../../../../test-utils/paths";
 
 const run = edgeRunner("ConstexprFold");
 
@@ -107,7 +108,7 @@ const CASES: Record<string, { declarations: string; body: string; expected: bigi
     },
 };
 
-describe("edge audit — constexpr folding", () => {
+describe.skipIf(!HAS_CORE)("edge audit — constexpr folding", () => {
     beforeAll(async () => {
         await initK12();
     });

@@ -1,4 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
+import { HAS_CORE } from "../../../../test-utils/paths";
 // Checks integral constant expressions in REGISTER_USER_* indices.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -37,7 +38,7 @@ async function expectRangeRejection(source: string) {
     expect(result.wasm).toHaveLength(0);
 }
 
-describe("edge audit — registration constant expressions", () => {
+describe.skipIf(!HAS_CORE)("edge audit — registration constant expressions", () => {
     beforeAll(async () => {
         await initK12();
     });

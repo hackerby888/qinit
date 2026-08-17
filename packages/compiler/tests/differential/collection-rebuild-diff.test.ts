@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Collection rebalancing parity for BST in PoV state.
 import { describe, expect, beforeAll } from "bun:test";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
@@ -9,7 +9,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -48,7 +48,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 const wasi = wasiToolchain();
 
-describe("differential — Collection BST rebuild state parity", () => {
+describe.skipIf(!HAS_CORE)("differential — Collection BST rebuild state parity", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -79,7 +79,7 @@ describe("differential — Collection BST rebuild state parity", () => {
                 source: SRC,
                 contractName: "CollP",
                 slot: 28,
-                qpiHeader: HEADERS,
+                qpiHeader: HEADERS(),
                 arenaSizeBytes: 4 * 1024 * 1024,
             });
             expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

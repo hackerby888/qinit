@@ -1,11 +1,11 @@
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ASSET_ENUMERATION_RECORD, CORE_WASM_HEADERS, LHOST_ABI, loadWasmAbiSource } from "@qinit/core";
 import { emitModule } from "../../src/backend/wasm/framework";
 import { inspectWasmModule, toWasmFunctionSignatures } from "../../src/driver/wasm-inspection";
-import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
+import { qpiContextLayout } from "../support/qpi-context-layout";
 
 const CORE = CORE_PATH;
 const metadataHeader = join(CORE, "src", CORE_WASM_HEADERS.shared.abiMetadata);
@@ -26,12 +26,12 @@ describe("shared lhost ABI", () => {
         expect(Object.fromEntries(rows.map(({ name, params, results }) => [name, { params, results }]))).toEqual(manifest);
     });
 
-    test("framework imports cover the manifest exactly", async () => {
+    test.skipIf(!HAS_CORE)("framework imports cover the manifest exactly", async () => {
         const wat = emitModule({
             contractSlot: 29,
             stateSize: 0,
             arenaSize: 64 * 1024,
-            contextLayout: QPI_CONTEXT_LAYOUT,
+            contextLayout: qpiContextLayout(),
             entries: [],
             sysprocs: [],
             userFunctionsWat: ";; none",

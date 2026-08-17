@@ -1,12 +1,12 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Checks enum storage width, signedness, and aggregate placement.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
-const HEADERS = loadQpiHeader(CORE_PATH);
+const HEADERS = () => loadQpiHeader(CORE_PATH);
 
 const wrap = (enumDecl: string, stateExtra: string, body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -23,7 +23,7 @@ async function run(source: string): Promise<{ value: bigint; stateSize: number }
         source,
         contractName: "EnumEdge",
         slot: 27,
-        qpiHeader: HEADERS,
+        qpiHeader: HEADERS(),
         arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
@@ -39,7 +39,7 @@ async function run(source: string): Promise<{ value: bigint; stateSize: number }
     };
 }
 
-describe("edge audit — enum underlying types", () => {
+describe.skipIf(!HAS_CORE)("edge audit — enum underlying types", () => {
     beforeAll(async () => {
         await initK12();
     });

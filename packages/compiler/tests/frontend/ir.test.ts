@@ -23,7 +23,8 @@ import {
     OP_SIG,
 } from "../../src/backend/wasm/wat-ir";
 import { emitModule } from "../../src/backend/wasm/framework";
-import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
+import { qpiContextLayout } from "../support/qpi-context-layout";
+import { HAS_CORE } from "../../../../test-utils/paths";
 
 const p = getL("p", WatNodeType.I32);
 const v = getL("v", WatNodeType.I64);
@@ -194,12 +195,12 @@ describe("CALL_SIG agrees with framework.ts", () => {
         expect(hits).toEqual([]);
     });
 
-    test("every registry entry matches the framework definition", () => {
+    test.skipIf(!HAS_CORE)("every registry entry matches the framework definition", () => {
         const framework = emitModule({
             contractSlot: 29,
             stateSize: 0,
             arenaSize: 64 * 1024,
-            contextLayout: QPI_CONTEXT_LAYOUT,
+            contextLayout: qpiContextLayout(),
             entries: [],
             sysprocs: [],
             userFunctionsWat: ";; no user functions",

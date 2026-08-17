@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { buildContractWithTypeScript } from "../../src/ops/typescript-build";
 
 const MAIN = `using namespace QPI;
@@ -84,7 +84,7 @@ afterEach(() => {
     }
 });
 
-test("buildContractWithTypeScript analyzes transitive cyclic callees before one main build", async () => {
+test.skipIf(!HAS_CORE)("buildContractWithTypeScript analyzes transitive cyclic callees before one main build", async () => {
     const directory = mkdtempSync(join(tmpdir(), "qinit-build-typescript-"));
     temporaryDirectories.push(directory);
 
@@ -118,7 +118,7 @@ test("buildContractWithTypeScript analyzes transitive cyclic callees before one 
     expect(result.wasmK12DigestHex).toMatch(/^[0-9a-f]{64}$/);
 }, 60_000);
 
-test("buildContractWithTypeScript supports a state type distinct from the artifact name", async () => {
+test.skipIf(!HAS_CORE)("buildContractWithTypeScript supports a state type distinct from the artifact name", async () => {
     const directory = mkdtempSync(join(tmpdir(), "qinit-build-typescript-alias-"));
     temporaryDirectories.push(directory);
 

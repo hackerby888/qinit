@@ -1,4 +1,4 @@
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Compile the upstream QUTIL corpus to verify its include redirect and Wasm test harness.
 import { test, expect } from "bun:test";
 import { existsSync, mkdtempSync } from "node:fs";
@@ -18,7 +18,7 @@ function wasiAvailable(): boolean {
 }
 
 // Skipped rather than silently passed when the wasi toolchain is absent.
-test.skipIf(!wasiAvailable())(
+test.skipIf(!wasiAvailable() || !HAS_CORE)(
     "QUTIL corpus compiles verbatim against the qinit harness header",
     async () => {
         const outDir = mkdtempSync(join(tmpdir(), "qutil-corpus-"));

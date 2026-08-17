@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { LHOST_ABI } from "@qinit/core";
@@ -11,7 +11,7 @@ import { getQpiContext } from "../../src/driver/qpi-context";
 import { SemanticAnalyzer } from "../../src/semantics/semantic-analysis";
 
 const CORE = CORE_PATH;
-const HEADER = loadQpiHeader(CORE);
+const HEADER = () => loadQpiHeader(CORE);
 
 const wrap = (kind: "FUNCTION" | "PROCEDURE", body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -23,11 +23,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_${kind}(Run, 1); }
 };`;
 
-describe("typed QPI bindings", () => {
+describe.skipIf(!HAS_CORE)("typed QPI bindings", () => {
     beforeAll(initK12);
 
     test("import registry and QPI methods come from parsed core source", () => {
-        const lib = getQpiContext(HEADER).lib;
+        const lib = getQpiContext(HEADER()).lib;
         expect([...lib.importedFunctions.keys()].map((name) => name.slice("__lhost_".length))).toEqual(Object.keys(LHOST_ABI));
         expect(lib.templateMethods.get("QpiContextFunctionCall")?.has("epoch")).toBe(true);
         expect(lib.templateMethods.get("QpiContextFunctionCall")?.has("nextId")).toBe(true);
@@ -39,7 +39,7 @@ describe("typed QPI bindings", () => {
 
     test("qualified QPI context types retain inherited method lookup", () => {
         const programAnalysis = new ProgramAnalysis(new SemanticAnalyzer());
-        registerLibraryMetadata(programAnalysis, getQpiContext(HEADER).lib);
+        registerLibraryMetadata(programAnalysis, getQpiContext(HEADER()).lib);
 
         expect(programAnalysis.globalStructs.has("QPI::QpiContextFunctionCall")).toBe(true);
         expect(programAnalysis.hasInstanceMethod("QPI::QpiContextFunctionCall", "invocationReward")).toBe(true);
@@ -50,7 +50,7 @@ describe("typed QPI bindings", () => {
             source: wrap("FUNCTION", "output.digest = qpi.K12((uint32)7);"),
             contractName: "QpiTemp",
             slot: 27,
-            qpiHeader: HEADER,
+            qpiHeader: HEADER(),
             arenaSizeBytes: 1 << 20,
         });
         expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
@@ -73,7 +73,7 @@ describe("typed QPI bindings", () => {
             ),
             contractName: "QpiFunctionRecipes",
             slot: 27,
-            qpiHeader: HEADER,
+            qpiHeader: HEADER(),
             arenaSizeBytes: 1 << 20,
         });
         expect(functionResult.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
@@ -89,7 +89,7 @@ describe("typed QPI bindings", () => {
             ),
             contractName: "QpiProcedureRecipes",
             slot: 27,
-            qpiHeader: HEADER,
+            qpiHeader: HEADER(),
             arenaSizeBytes: 1 << 20,
         });
         expect(procedureResult.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
@@ -105,7 +105,7 @@ describe("typed QPI bindings", () => {
             ),
             contractName: "QpiSignedResult",
             slot: 27,
-            qpiHeader: HEADER,
+            qpiHeader: HEADER(),
             arenaSizeBytes: 1 << 20,
         });
         expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
@@ -135,7 +135,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`,
             contractName: "QpiOcBindings",
             slot: 27,
-            qpiHeader: HEADER,
+            qpiHeader: HEADER(),
             arenaSizeBytes: 1 << 20,
         });
         expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
@@ -158,7 +158,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             source: wrap("FUNCTION", "output.result = qpi.burn(1);"),
             contractName: "QpiContextReject",
             slot: 27,
-            qpiHeader: HEADER,
+            qpiHeader: HEADER(),
             strict: false,
         });
         expect(context.wasm).toHaveLength(0);
@@ -168,7 +168,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             source: wrap("FUNCTION", "output.result = qpi.notAHostBinding();"),
             contractName: "QpiUnknownReject",
             slot: 27,
-            qpiHeader: HEADER,
+            qpiHeader: HEADER(),
             strict: false,
         });
         expect(unknown.wasm).toHaveLength(0);
@@ -178,7 +178,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             source: wrap("FUNCTION", "output.result = qpi.isAssetIssued(SELF);"),
             contractName: "QpiMissingReject",
             slot: 27,
-            qpiHeader: HEADER,
+            qpiHeader: HEADER(),
             strict: false,
         });
         expect(missing.wasm).toHaveLength(0);
@@ -188,7 +188,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
             source: wrap("FUNCTION", "output.digest = qpi.nextId(7);"),
             contractName: "QpiAddressReject",
             slot: 27,
-            qpiHeader: HEADER,
+            qpiHeader: HEADER(),
             strict: false,
         });
         expect(nonAddressable.wasm).toHaveLength(0);

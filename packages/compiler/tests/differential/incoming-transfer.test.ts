@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // PIT (post incoming transfer) flow for @qinit/compiler tests.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
@@ -7,7 +7,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const SINK = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -35,7 +35,7 @@ function u64(b: Uint8Array, off = 0): bigint {
     return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(off, true);
 }
 
-describe("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () => {
+describe.skipIf(!HAS_CORE)("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -45,7 +45,7 @@ describe("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () =
             source: SINK,
             contractName: "Sink",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1024 * 1024,
         });
         expect(sink.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

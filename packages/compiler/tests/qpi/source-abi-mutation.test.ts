@@ -1,16 +1,16 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { CORE_WASM_HEADERS, parseWasmAbiSource } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src";
 import { inspectWasmModule } from "../../src/driver/wasm-inspection";
 import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "../../src/driver/qpi/snapshot";
 
-const HEADER = loadQpiHeader(CORE_PATH);
-const metadata = readFileSync(`${CORE_PATH}/src/${CORE_WASM_HEADERS.shared.abiMetadata}`, "utf8");
-const shared = readFileSync(`${CORE_PATH}/src/${CORE_WASM_HEADERS.shared.abiTypes}`, "utf8");
+const HEADER = () => loadQpiHeader(CORE_PATH);
+const metadata = () => readFileSync(`${CORE_PATH}/src/${CORE_WASM_HEADERS.shared.abiMetadata}`, "utf8");
+const shared = () => readFileSync(`${CORE_PATH}/src/${CORE_WASM_HEADERS.shared.abiTypes}`, "utf8");
 
 function addFunctionContextDeclaration(header: string, declaration: string): string {
     const marker = /struct QpiContextFunctionCall : public QpiContext\r?\n\s*\{/;
@@ -43,10 +43,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Run, 1); }
 };`;
 
-describe("source-backed ABI mutations", () => {
+describe.skipIf(!HAS_CORE)("source-backed ABI mutations", () => {
     test("a new scalar QPI wrapper compiles without a compiler method entry", async () => {
         const declared =
-            addFunctionContextDeclaration(HEADER, "inline uint32 newScalar() const;") +
+            addFunctionContextDeclaration(HEADER(), "inline uint32 newScalar() const;") +
             `\n${IMPL_BOUNDARY}\nextern "C" { unsigned int __lhost_newScalar(); }\nuint32 QPI::QpiContextFunctionCall::newScalar() const { return __lhost_newScalar(); }\n`;
         const header = mutateEmbeddedAbi(declared, (abi) => {
             abi.lhost.unshift({ name: "newScalar", params: [], results: ["i32"] });
@@ -68,7 +68,7 @@ describe("source-backed ABI mutations", () => {
 
     test("a new aggregate-returning QPI wrapper uses the normal parsed layout path", async () => {
         const header =
-            addFunctionContextDeclaration(HEADER, "inline id nextAlias(const id& value) const;") +
+            addFunctionContextDeclaration(HEADER(), "inline id nextAlias(const id& value) const;") +
             `\n${IMPL_BOUNDARY}\nQPI::id QPI::QpiContextFunctionCall::nextAlias(const QPI::id& value) const { QPI::id out; __lhost_nextId(&value, &out); return out; }\n`;
         const result = await compileContractWithTypeScript({
             source: contract("output.value = qpi.nextAlias(SELF);", "id value;"),
@@ -81,21 +81,21 @@ describe("source-backed ABI mutations", () => {
     });
 
     test("LHOST row order and additions are read from the canonical table", () => {
-        const inserted = metadata.replace(
+        const inserted = metadata().replace(
             'GI("beginFn",',
             `GI("newScalar", newScalar, "()i") \\
     GI("beginFn",`,
         );
-        const parsed = parseWasmAbiSource(inserted, shared);
+        const parsed = parseWasmAbiSource(inserted, shared());
         expect(parsed.lhost[0]).toEqual({ name: "newScalar", params: [], results: ["i32"] });
         expect(parsed.lhost[1].name).toBe("beginFn");
     });
 
     test("record field reorder changes generated offsets and capacity comes from core", async () => {
-        const reordered = shared
+        const reordered = shared()
             .replace("unsigned char owner[32];\n    unsigned char possessor[32];", "unsigned char possessor[32];\n    unsigned char owner[32];")
             .replace("#define WASM_ASSET_ENTRY_CAPACITY 1024u", "#define WASM_ASSET_ENTRY_CAPACITY 2048u");
-        const record = parseWasmAbiSource(metadata, reordered).records.AssetEntry;
+        const record = parseWasmAbiSource(metadata(), reordered).records.AssetEntry;
         expect(record.fields.possessor.offset).toBe(0);
         expect(record.fields.owner.offset).toBe(32);
         expect(record.capacity).toBe(2048);
@@ -110,10 +110,10 @@ describe("source-backed ABI mutations", () => {
             source: iteratorContract,
             contractName: "AssetRecordBaseline",
             slot: 27,
-            qpiHeader: HEADER,
+            qpiHeader: HEADER(),
             arenaSizeBytes: 1 << 20,
         });
-        const changedHeader = mutateEmbeddedAbi(HEADER, (abi) => {
+        const changedHeader = mutateEmbeddedAbi(HEADER(), (abi) => {
             abi.records.AssetEntry = record;
         });
         const changed = await compileContractWithTypeScript({
@@ -129,7 +129,7 @@ describe("source-backed ABI mutations", () => {
 
     test("system-procedure IDs and method names follow the canonical table", async () => {
         const initializeReplaced = replaceRequired(
-            metadata,
+            metadata(),
             /X\(INITIALIZE,\s*0,\s*initialize,\s*__initializeEmpty\)/,
             "X(BEGIN_EPOCH, 0, beginEpoch, __beginEpochEmpty)",
         );
@@ -138,12 +138,12 @@ describe("source-backed ABI mutations", () => {
             /X\(BEGIN_EPOCH,\s*1,\s*beginEpoch,\s*__beginEpochEmpty\)/,
             "X(INITIALIZE, 1, initialize, __initializeEmpty)",
         );
-        expect(parseWasmAbiSource(changed, shared).systemProcedures.slice(0, 2)).toEqual([
+        expect(parseWasmAbiSource(changed, shared()).systemProcedures.slice(0, 2)).toEqual([
             { name: "BEGIN_EPOCH", id: 0, method: "beginEpoch" },
             { name: "INITIALIZE", id: 1, method: "initialize" },
         ]);
 
-        const header = mutateEmbeddedAbi(HEADER, (abi) => {
+        const header = mutateEmbeddedAbi(HEADER(), (abi) => {
             const initialize = abi.systemProcedures[0];
             const beginEpoch = abi.systemProcedures[1];
             abi.systemProcedures.splice(0, 2, { ...beginEpoch, id: 0 }, { ...initialize, id: 1 });
@@ -168,14 +168,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     });
 
     test("unsupported or ambiguous core metadata fails generation", () => {
-        expect(() => parseWasmAbiSource(metadata.replace('GI("endFn"', 'GI("beginFn"'), shared)).toThrow(/duplicate LHOST import/);
-        expect(() => parseWasmAbiSource(metadata, replaceRequired(shared, /struct AssetEntry\s*\{/, "struct AssetEntry {\n    float unsupported;"))).toThrow(
+        expect(() => parseWasmAbiSource(metadata().replace('GI("endFn"', 'GI("beginFn"'), shared())).toThrow(/duplicate LHOST import/);
+        expect(() => parseWasmAbiSource(metadata(), replaceRequired(shared(), /struct AssetEntry\s*\{/, "struct AssetEntry {\n    float unsupported;"))).toThrow(
             /unsupported AssetEntry field/,
         );
         expect(() =>
             parseWasmAbiSource(
-                replaceRequired(metadata, /X\(BEGIN_EPOCH,\s*1,\s*beginEpoch,\s*__beginEpochEmpty\)/, "X(BEGIN_EPOCH, 7, beginEpoch, __beginEpochEmpty)"),
-                shared,
+                replaceRequired(metadata(), /X\(BEGIN_EPOCH,\s*1,\s*beginEpoch,\s*__beginEpochEmpty\)/, "X(BEGIN_EPOCH, 7, beginEpoch, __beginEpochEmpty)"),
+                shared(),
             ),
         ).toThrow(/ambiguous system-procedure order/);
     });

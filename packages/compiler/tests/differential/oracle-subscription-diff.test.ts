@@ -8,12 +8,13 @@ import { buildContractWithClang } from "@qinit/build";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import ORACLE_PROBE_SOURCE from "../../../../fixtures/OracleProbe.h" with { type: "text" };
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const SLOT = 29;
 
 const wasi = wasiToolchain();
+wasi.available = wasi.available && HAS_CORE;
 
 function contractId(): Uint8Array {
     const id = new Uint8Array(32);

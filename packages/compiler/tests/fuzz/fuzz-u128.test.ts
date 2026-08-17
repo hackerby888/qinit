@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // u128 differential-gate over pinned seeds from `tools/fuzz-gen-u128.ts`.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -12,7 +12,7 @@ import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 import { generate, encodeInput } from "../../tools/fuzz-gen-u128";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const PINNED: Record<number, string> = {
     1: "f001e39c3066f64700000000000000000000000000000000000000001f30ce0945ef15151dcfdc0c000000000000000000000000000000000000000000000000",
@@ -58,7 +58,7 @@ const wasiOk = (() => {
     }
 })();
 
-describe("fuzz pinned uint128 seeds", () => {
+describe.skipIf(!HAS_CORE)("fuzz pinned uint128 seeds", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -71,7 +71,7 @@ describe("fuzz pinned uint128 seeds", () => {
                 source: c.source,
                 contractName: `U${seed}`,
                 slot: 27,
-                qpiHeader: HEADERS,
+                qpiHeader: HEADERS(),
                 arenaSizeBytes: 1 << 20,
             });
             expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

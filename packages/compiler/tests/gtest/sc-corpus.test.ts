@@ -9,6 +9,7 @@ import { runContractTesting } from "@qinit/engine";
 import { buildContractWithClang, buildCorpusRunner } from "@qinit/build";
 import { compileContractWithTypeScript, loadQpiHeader, type CompileResult, type ContractIdl } from "../../src/index";
 import { CORE } from "../support/qutil-bridge";
+import { HAS_CORE } from "../../../../test-utils/paths";
 import { toolchainTest, wasiToolchain, type ToolchainStatus } from "../support/container-toolchains";
 
 // The parity and sweep cells need the wasi toolchain plus their env selector, so both gate the skip.
@@ -390,7 +391,7 @@ async function spawnCell(name: string, compilerBackend: CorpusCompilerBackend, t
     return { runner, score };
 }
 
-describe("sc-corpus — dual-backend EASY-tier sweep", () => {
+describe.skipIf(!HAS_CORE)("sc-corpus — dual-backend EASY-tier sweep", () => {
     beforeAll(async () => {
         await initK12();
     });

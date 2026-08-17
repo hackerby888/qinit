@@ -1,12 +1,12 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Namespace-aware free-helper resolution: using-directives, qualified forms, no accidental QPI fallback.
 import { describe, expect, test } from "bun:test";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
-const HEADERS = loadQpiHeader(CORE_PATH);
+const HEADERS = () => loadQpiHeader(CORE_PATH);
 
-const compile = (source: string, strict = true) => compileContractWithTypeScript({ source, contractName: "NsProbe", slot: 28, qpiHeader: HEADERS, strict });
+const compile = (source: string, strict = true) => compileContractWithTypeScript({ source, contractName: "NsProbe", slot: 28, qpiHeader: HEADERS(), strict });
 
 const contractShell = (prelude: string, body: string, members = "") => `${prelude}
 struct CONTRACT_STATE2_TYPE {};
@@ -20,7 +20,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-describe("namespace resolution", () => {
+describe.skipIf(!HAS_CORE)("namespace resolution", () => {
     test("custom namespace helper resolves via using namespace", async () => {
         const source = contractShell(
             `using namespace QPI;
@@ -115,7 +115,7 @@ struct HelperCallee : public ContractBase {
             source: calleeSource,
             contractName: "HelperCallee",
             slot: 27,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
         });
         expect(callee.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
         if (!callee.idl) {
@@ -125,7 +125,7 @@ struct HelperCallee : public ContractBase {
             source,
             contractName: "NsProbe",
             slot: 28,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             callees: [callee.idl],
             calleeSources: [{ name: "HelperCallee", source: calleeSource }],
         });
@@ -162,7 +162,7 @@ using namespace Utils;`;
     });
 
     test("header helper retains using namespace directives visible at its definition", async () => {
-        const qpiHeader = `${HEADERS}
+        const qpiHeader = `${HEADERS()}
 namespace Extra {
   inline uint64 plusSeven(uint64 v) { return v + 7ull; }
 }

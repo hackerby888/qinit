@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // u128 cast semantics regression: `(uint128)(scalarExpr)` must evaluate in scalar domain, then zero-extend into low limb.
 import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -12,7 +12,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -62,7 +62,7 @@ const runState = (wasm: Uint8Array): string => {
 
 const wasiOk = wasiToolchain().available;
 
-describe("uint128 casts of scalar expressions", () => {
+describe.skipIf(!HAS_CORE)("uint128 casts of scalar expressions", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -72,7 +72,7 @@ describe("uint128 casts of scalar expressions", () => {
             source: SOURCE,
             contractName: "UC",
             slot: 27,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1 << 20,
         });
         expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

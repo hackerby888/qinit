@@ -3,13 +3,13 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { beforeAll, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const PREFIX = "/* edge-audit unique cache-key prefix */".padEnd(63, " ") + "\n";
-const CORE_HEADER = loadQpiHeader(CORE_PATH);
-const HEADER_8 = `${CORE_HEADER}\n${PREFIX}struct HeaderType { uint64 value; };`;
-const HEADER_4 = `${CORE_HEADER}\n${PREFIX}struct HeaderType { uint32 value; };`;
+const CORE_HEADER = () => loadQpiHeader(CORE_PATH);
+const HEADER_8 = () => `${CORE_HEADER()}\n${PREFIX}struct HeaderType { uint64 value; };`;
+const HEADER_4 = () => `${CORE_HEADER()}\n${PREFIX}struct HeaderType { uint32 value; };`;
 
 const SOURCE = `struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -34,10 +34,10 @@ beforeAll(async () => {
     await initK12();
 });
 
-test("same-length headers with the same prefix retain independent parsed layouts", async () => {
-    expect(HEADER_8).toHaveLength(HEADER_4.length);
-    expect(HEADER_8.slice(0, 64)).toBe(HEADER_4.slice(0, 64));
+test.skipIf(!HAS_CORE)("same-length headers with the same prefix retain independent parsed layouts", async () => {
+    expect(HEADER_8()).toHaveLength(HEADER_4().length);
+    expect(HEADER_8().slice(0, 64)).toBe(HEADER_4().slice(0, 64));
 
-    expect(await stateSize("HeaderEight", HEADER_8)).toBe(8);
-    expect(await stateSize("HeaderFour", HEADER_4)).toBe(4);
+    expect(await stateSize("HeaderEight", HEADER_8())).toBe(8);
+    expect(await stateSize("HeaderFour", HEADER_4())).toBe(4);
 });

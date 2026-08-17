@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // u128/safe-math semantics lock-down for divergence-sensitive cases.
 import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
@@ -10,7 +10,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const SRC = `using namespace QPI;
 namespace ML {
@@ -188,7 +188,7 @@ const U128_FIELDS = [
     "gt",
 ] as const;
 
-describe("safe-math + uint128 semantics vs BigInt reference", () => {
+describe.skipIf(!HAS_CORE)("safe-math + uint128 semantics vs BigInt reference", () => {
     let sim: QubicSimulator;
 
     beforeAll(async () => {
@@ -197,7 +197,7 @@ describe("safe-math + uint128 semantics vs BigInt reference", () => {
             source: SRC,
             contractName: "M128",
             slot: 6,
-            qpiHeader: HEADERS,
+            qpiHeader: HEADERS(),
             arenaSizeBytes: 1024 * 1024,
         });
         expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
@@ -376,7 +376,7 @@ TEST(MathSat, U128Boundaries) {
 
 const wasi = wasiToolchain();
 
-describe("differential gtest — safe-math saturation + uint128 boundaries", () => {
+describe.skipIf(!HAS_CORE)("differential gtest — safe-math saturation + uint128 boundaries", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -397,7 +397,7 @@ describe("differential gtest — safe-math saturation + uint128 boundaries", () 
                 source: SRC,
                 contractName: "M128",
                 slot: 28,
-                qpiHeader: HEADERS,
+                qpiHeader: HEADERS(),
                 arenaSizeBytes: 1024 * 1024,
             });
             expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

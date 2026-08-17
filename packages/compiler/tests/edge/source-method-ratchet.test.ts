@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
@@ -7,7 +7,7 @@ import { compileContractWithTypeScript, loadQpiHeader } from "../../src";
 import { readSourceTree } from "../support/source-tree";
 
 const CORE = CORE_PATH;
-const HEADER = loadQpiHeader(CORE);
+const HEADER = () => loadQpiHeader(CORE);
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -41,7 +41,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Run, 1); }
 };`;
 
-describe("source-method lowering ratchet", () => {
+describe.skipIf(!HAS_CORE)("source-method lowering ratchet", () => {
     beforeAll(initK12);
 
     test("Array and selector behavior comes from authoritative method bodies", async () => {
@@ -49,7 +49,7 @@ describe("source-method lowering ratchet", () => {
             source: SOURCE,
             contractName: "SourceMethods",
             slot: 27,
-            qpiHeader: HEADER,
+            qpiHeader: HEADER(),
             arenaSizeBytes: 1 << 20,
         });
         expect(result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);

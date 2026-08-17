@@ -3,5 +3,9 @@ import { deriveQpiContextLayout } from "../../src/backend/wasm/module/library-in
 import { loadQpiHeader } from "../../src/driver/header";
 import { getQpiContext } from "../../src/driver/qpi-context";
 
+let cached: ReturnType<typeof deriveQpiContextLayout> | undefined;
+
 // Low-level framework tests use the same parsed core header and layout engine as contract codegen.
-export const QPI_CONTEXT_LAYOUT = deriveQpiContextLayout(getQpiContext(loadQpiHeader(CORE_PATH)).lib);
+export function qpiContextLayout(): ReturnType<typeof deriveQpiContextLayout> {
+    return (cached ??= deriveQpiContextLayout(getQpiContext(loadQpiHeader(CORE_PATH)).lib));
+}

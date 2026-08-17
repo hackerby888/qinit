@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // 32-bit fidelity parity for int-rank operations.
 import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -12,7 +12,7 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
-const HEADERS = loadQpiHeader(CORE);
+const HEADERS = () => loadQpiHeader(CORE);
 
 const wrap = (body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -95,7 +95,7 @@ const run = (wasm: Uint8Array): bigint => {
 
 const wasiOk = wasiToolchain().available;
 
-describe("32-bit width fidelity vs native", () => {
+describe.skipIf(!HAS_CORE)("32-bit width fidelity vs native", () => {
     beforeAll(async () => {
         await initK12();
     });
@@ -109,7 +109,7 @@ describe("32-bit width fidelity vs native", () => {
                     source: src,
                     contractName: "W32",
                     slot: 27,
-                    qpiHeader: HEADERS,
+                    qpiHeader: HEADERS(),
                     arenaSizeBytes: 1 << 20,
                 });
                 expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

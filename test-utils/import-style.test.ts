@@ -4,8 +4,6 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// Cannot reuse test-utils/paths.ts: importing it throws unless QINIT_CORE is set, and this gate must run
-// on a bare checkout.
 const root = resolve(import.meta.dir, "..");
 
 // Requiring a package name followed by /src/ matches both drifted shapes (../../packages/core/src/x,

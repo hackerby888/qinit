@@ -2,11 +2,12 @@
 import { describe, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { CORE, buildRunner, buildContractsWithTypeScript, buildContractsWithClang, runUpstream } from "../support/qutil-bridge";
+import { HAS_CORE } from "../../../../test-utils/paths";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 
 const wasi = wasiToolchain();
 
-describe("upstream gtest — contract_qutil.cpp against deployed QUTIL+QX wasm", () => {
+describe.skipIf(!HAS_CORE)("upstream gtest — contract_qutil.cpp against deployed QUTIL+QX wasm", () => {
     beforeAll(async () => {
         await initK12();
     });

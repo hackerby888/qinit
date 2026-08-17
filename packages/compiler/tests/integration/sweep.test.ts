@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE, QINIT_ROOT } from "../../../../test-utils/paths";
 // Measures parse, Wasm, engine-load, and state-size coverage across the corpus.
 import { test, expect, beforeAll } from "bun:test";
 import { readFileSync, existsSync } from "node:fs";
@@ -10,12 +10,12 @@ import { initK12 } from "@qinit/core";
 import { parseContractIdl } from "@qinit/proto/contract-idl";
 import { compileContractWithTypeScript, loadQpiHeader, type ContractIdl, type CompileResult } from "../../src/index";
 
-const QPI = loadQpiHeader(CORE_PATH);
+const QPI = () => loadQpiHeader(CORE_PATH);
 
 const FIXTURES = QINIT_ROOT + "/fixtures";
 const SYSTEM = CORE_PATH + "/src/contracts";
 
-const SYSTEM_CONTRACTS = systemContracts(CORE_PATH);
+const SYSTEM_CONTRACTS = () => systemContracts(CORE_PATH);
 
 // simple user-level fixtures
 const FIXTURE_FILES = ["Counter.h", "Counter5.h", "Bank.h", "Token.h", "Vault.h", "Dividend.h", "Proxy.h", "DigestProbe.h", "BigState.h"];
@@ -118,7 +118,7 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
                 source: readFileSync(dependency.path, "utf8"),
                 contractName: dependency.name,
                 slot: dependency.slot,
-                qpiHeader: QPI,
+                qpiHeader: QPI(),
                 arenaSizeBytes: 64 * 1024,
                 callees: priorIdl.length ? priorIdl : undefined,
                 calleeSources: priorSources.length ? priorSources : undefined,
@@ -141,7 +141,7 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
             source: src,
             contractName: name,
             slot: 28,
-            qpiHeader: QPI,
+            qpiHeader: QPI(),
             arenaSizeBytes: 64 * 1024,
             callees: callees.length ? callees : undefined,
             calleeSources: calleeSources.length ? calleeSources : undefined,
@@ -216,12 +216,12 @@ beforeAll(async () => {
     await initK12();
 });
 
-test("conformance sweep — fixtures + system contracts", async () => {
+test.skipIf(!HAS_CORE)("conformance sweep — fixtures + system contracts", async () => {
     const rows: Row[] = [];
 
     const declaredTargets = new Set([
         ...FIXTURE_FILES.map((file) => file.replace(".h", "")),
-        ...SYSTEM_CONTRACTS.map((contract) => contract.file.replace(".h", "")),
+        ...SYSTEM_CONTRACTS().map((contract) => contract.file.replace(".h", "")),
     ]);
     expect(Object.keys(LINKED_DEPENDENCIES).filter((name) => !declaredTargets.has(name))).toEqual([]);
     expect(
@@ -234,7 +234,7 @@ test("conformance sweep — fixtures + system contracts", async () => {
         rows.push(await sweepOne(join(FIXTURES, f), f.replace(".h", "")));
     }
     rows.push({ name: "---", parse: "---", wasm: "---", load: "---", state: "---", errors: [] });
-    for (const contract of SYSTEM_CONTRACTS) {
+    for (const contract of SYSTEM_CONTRACTS()) {
         rows.push(await sweepOne(join(SYSTEM, contract.file), contract.file.replace(".h", "")));
     }
 
