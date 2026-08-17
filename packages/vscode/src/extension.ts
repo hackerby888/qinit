@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import * as vscode from "vscode";
 import { loadConfig } from "@qinit/core/project";
@@ -8,8 +8,8 @@ import { generateClangdConfig, generateTestClangdConfig } from "./clangd-config"
 import { completionScope, documentIdentifiers, keepCompletionLabel, keepMemberLabel, keepQualifiedScope, qpiAllowedIdentifiers } from "./completion-filter";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
-import { memberFallbackCompletions, prewarmPch, type FallbackItem } from "./member-fallback";
-import { resolveProjectSourceDetails } from "./project-context";
+import { memberFallbackCompletions, type FallbackItem } from "./member-fallback";
+import { type ProjectAnalysisContext, type ProjectSourceDetails, resolveProjectSourceDetails } from "./project-context";
 import { findContractCandidates, findProjectRoot, isContractDoc, isTestDoc, projectContractDocuments, QINIT_JSON, selectTestContract } from "./project-util";
 
 const warned = new Set<string>();
@@ -21,9 +21,8 @@ let contractPrefixPath: string | undefined;
 let contractCorePath: string | undefined;
 let filterReported = false;
 let fallbackReported = false;
-// Each contract compiles against its own prefix, so the fallback resolves the one for the document
-// being completed; the last-regenerated global paired it with a foreign compile entry.
-const contractPrefixPaths = new Map<string, string>();
+// Keyed per document: a contract analyzes under its own name, slot and callees, not the last-regenerated one.
+const contractAnalysisContexts = new Map<string, ProjectAnalysisContext>();
 
 function warnOnce(key: string, message: string): void {
     if (warned.has(key)) return;
@@ -69,25 +68,30 @@ function memberSnippet(item: FallbackItem): vscode.SnippetString {
     return snippet;
 }
 
-// clangd renders a method as its name, then the parameters, then the return type; the fallback's items
-// carry the same chunks, so they are shown and inserted the same way.
+// Only `label.detail` renders inline, directly after the name — `label.description` sits far right and
+// `CompletionItem.detail` only reaches the details pane. So a field annotates its type there, the way a
+// method already shows its parameters, and both also fill the details pane.
 function fallbackCompletionItem(item: FallbackItem): vscode.CompletionItem {
     if (item.kind !== "method") {
-        const field = new vscode.CompletionItem({ label: item.name, description: item.returnType }, vscode.CompletionItemKind.Field);
+        const field = new vscode.CompletionItem(
+            { label: item.name, detail: item.returnType && `: ${item.returnType}` },
+            vscode.CompletionItemKind.Field,
+        );
+        field.detail = item.returnType;
         field.filterText = item.name;
         return field;
     }
 
-    const qualifiers = item.qualifiers ? ` ${item.qualifiers}` : "";
     const method = new vscode.CompletionItem(
         {
             label: item.name,
-            detail: `(${item.placeholders.join(", ")})${qualifiers}`,
+            detail: `(${item.placeholders.join(", ")})`,
             description: item.returnType,
         },
         vscode.CompletionItemKind.Method,
     );
     method.filterText = item.name;
+    method.detail = item.returnType;
     method.insertText = memberSnippet(item);
     if (item.placeholders.length > 0) {
         method.command = {
@@ -99,9 +103,23 @@ function fallbackCompletionItem(item: FallbackItem): vscode.CompletionItem {
 }
 
 const TYPED_WORD = /[A-Za-z0-9_]*$/;
+const HOVER_TYPE = /^Type:\s*(.+)$/m;
 
-// clangd's member completion breaks on preamble types with template members (member-fallback.ts);
-// a raw clang++ answers the same query correctly, so an empty member list is retried through it.
+// clangd prints a variable's type on its own hover line, and resolves it correctly even where the
+// completion bug leaves the member list empty — so that line is the seam for a general-C++ receiver.
+async function hoverTypeAt(doc: vscode.TextDocument, offset: number): Promise<string | undefined> {
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", doc.uri, doc.positionAt(offset));
+    for (const hover of hovers ?? []) {
+        for (const content of hover.contents) {
+            const declared = HOVER_TYPE.exec(typeof content === "string" ? content : content.value)?.[1];
+            if (declared) return declared.replace(/`/g, "").trim();
+        }
+    }
+    return undefined;
+}
+
+// clangd's member completion breaks on preamble types with template members (member-fallback.ts),
+// so an empty list is retried through the QPI compiler, which resolves the same types.
 async function fallbackMemberCompletions(
     doc: vscode.TextDocument,
     position: vscode.Position,
@@ -109,30 +127,26 @@ async function fallbackMemberCompletions(
     token: vscode.CancellationToken,
     out: vscode.OutputChannel,
 ): Promise<vscode.CompletionItem[]> {
-    const prefixPath = contractPrefixPaths.get(doc.fileName);
-    if (!prefixPath) return [];
-
-    // clang narrows its own answer to what exactly matches the letters already typed. Completing at the
-    // member operator instead returns the whole list and leaves the matching to the editor's scoring.
+    // Completing at the member operator returns the whole list and leaves matching to the editor.
     const typed = TYPED_WORD.exec(linePrefix)?.[0] ?? "";
     const items = await memberFallbackCompletions({
-        prefixPath,
-        contractPath: doc.fileName.replace(/\\/g, "/"),
         bufferText: doc.getText(),
         line: position.line,
         character: position.character - typed.length,
+        context: contractAnalysisContexts.get(doc.fileName),
         cancel: token,
+        rootType: (offset) => hoverTypeAt(doc, offset),
     });
     if (!items) return [];
     if (!fallbackReported) {
         fallbackReported = true;
-        out.appendLine(`member completion answered by clang fallback: ${items.length} items`);
+        out.appendLine(`member completion answered by the QPI compiler: ${items.length} items`);
     }
     return items.filter((item) => keepMemberLabel(item.name)).map(fallbackCompletionItem);
 }
 
 // A member list is already scoped by its type, so only the names QPI reserves have to go — and when
-// Sema resolved nothing (an empty list, or one padded with word-list items) clang answers instead.
+// Sema resolved nothing (an empty list, or one padded with word-list items) the compiler answers.
 async function memberCompletions(
     doc: vscode.TextDocument,
     position: vscode.Position,
@@ -158,7 +172,7 @@ async function filterCompletions(
     token: vscode.CancellationToken,
     out: vscode.OutputChannel,
 ): Promise<CompletionResult> {
-    if (!contractPrefixPath || !(isContractDoc(doc) || isTestDoc(doc))) return result;
+    if (!isContractDoc(doc) && !isTestDoc(doc)) return result;
     if (vscode.workspace.getConfiguration("qpi").get<string>("completionFilter") === "off") {
         return result;
     }
@@ -179,6 +193,8 @@ async function filterCompletions(
         return new vscode.CompletionList(members, incomplete);
     }
 
+    // A contract is narrowed to the QPI surface, which is walked from the prefix header clangd is using.
+    if (!contractPrefixPath) return result;
     const allowed = qpiAllowedIdentifiers(contractPrefixPath, core);
     const documentNames = documentIdentifiers(doc.getText());
     let kept: vscode.CompletionItem[];
@@ -333,11 +349,8 @@ function regenerateContract(doc: vscode.TextDocument, context: vscode.ExtensionC
             wasiSysrootPath: sourceDetails.wasiSysrootPath,
         });
         contractPrefixPath = result.prefixPath;
-        contractPrefixPaths.set(doc.fileName, result.prefixPath);
+        contractAnalysisContexts.set(doc.fileName, sourceDetails.analysis);
         contractCorePath = sourceDetails.corePath;
-        // Off the completion path: a saved callee invalidates the PCH, and rebuilding it here keeps the
-        // next `.` at a few tens of milliseconds instead of a second.
-        void prewarmPch(result.prefixPath, result.contractFile).catch(() => {});
         reportClangdConfig(result.clangdConfigured, result.dotClangdPath, result.dir);
         if (result.clangdConfigured && result.restartRequired) {
             refreshClangd(root, out, sourceDetails.corePath);
@@ -346,6 +359,21 @@ function regenerateContract(doc: vscode.TextDocument, context: vscode.ExtensionC
     } catch (error: any) {
         out.appendLine(`clangd config failed: ${String(error?.message ?? error)}`);
     }
+}
+
+// From a gtest the contract is an external module spelled `Counter::Get_input`, which is exactly how a
+// callee's structs are keyed — so the contract analyzes as one more callee of its own test.
+function testAnalysisContext(details: ProjectSourceDetails): ProjectAnalysisContext {
+    const open = vscode.workspace.textDocuments.find((candidate) => candidate.fileName === details.contractPath);
+    let source: string;
+    try {
+        source = open ? open.getText() : readFileSync(details.contractPath, "utf8");
+    } catch {
+        return details.analysis;
+    }
+
+    const calleeSources = [...(details.analysis.calleeSources ?? []), { name: details.name, source, slot: details.slot }];
+    return { ...details.analysis, calleeSources };
 }
 
 function regenerateTest(doc: vscode.TextDocument, context: vscode.ExtensionContext, fallbackCore: string | undefined, out: vscode.OutputChannel): void {
@@ -387,8 +415,8 @@ function regenerateTest(doc: vscode.TextDocument, context: vscode.ExtensionConte
             dynCallees: sourceDetails.dynCallees,
             wasiSysrootPath: sourceDetails.wasiSysrootPath,
         });
-        contractPrefixPaths.set(doc.fileName, result.prefixPath);
-        void prewarmPch(result.prefixPath, result.testFile).catch(() => {});
+        // A gtest completes against the contract it exercises, so it analyzes under that contract's context.
+        contractAnalysisContexts.set(doc.fileName, testAnalysisContext(sourceDetails));
         reportClangdConfig(result.clangdConfigured, result.dotClangdPath, dirname(result.dbPath));
         if (result.clangdConfigured && result.restartRequired) {
             refreshClangd(root, out, sourceDetails.corePath);

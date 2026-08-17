@@ -1,7 +1,7 @@
 import type { Span } from "../ast";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 import type { ParserDiagnostic } from "../frontend/parser";
-import { AnalysisPhase, DiagnosticCategory, DiagnosticSeverity, QpiContextKind, SourceAnalysisOrigin } from "../shared/enums";
+import { AnalysisPhase, DiagnosticCategory, DiagnosticSeverity, MemberCompletionKind, QpiContextKind, SourceAnalysisOrigin } from "../shared/enums";
 import { QPI_SNAPSHOT } from "../generated/qpi-snapshot";
 import { parseContractSource, preprocessContractSource, remapAnalysisDiagnostics, validateAndDesugarContractSource } from "../driver/contract-frontend";
 import { scanUnterminatedSource } from "../driver/diagnostics";
@@ -19,9 +19,11 @@ import { analyzeQpiPolicy, detectQpiContractName } from "./source-policy";
 import { compareDiagnostics } from "./rules/fixes";
 
 export { QPI_BANNED_KEYWORDS } from "./source-policy";
+export { completeMembersAt, completeMembersOfType, declaredTypeOf, splitReceiver } from "./member-query";
+export type { MemberCompletion, MemberQueryOptions, TypeMemberQueryOptions } from "./member-query";
 export { Lexer, TokenKind } from "../frontend/lexer";
 export type { Token } from "../frontend/lexer";
-export { AnalysisPhase, DiagnosticCategory, DiagnosticSeverity, QpiContextKind, SourceAnalysisOrigin };
+export { AnalysisPhase, DiagnosticCategory, DiagnosticSeverity, MemberCompletionKind, QpiContextKind, SourceAnalysisOrigin };
 export type { SourceContractCall };
 
 export interface AnalyzeContractOptions {

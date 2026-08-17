@@ -1,5 +1,4 @@
 const assert = require("node:assert");
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const vscode = require("vscode");
 
@@ -26,17 +25,6 @@ async function hoverText(doc, marker) {
     const pos = doc.positionAt(offset);
     const hovers = await vscode.commands.executeCommand("vscode.executeHoverProvider", doc.uri, pos);
     return (hovers || []).flatMap((hover) => hover.contents.map((content) => (typeof content === "string" ? content : content.value))).join("\n");
-}
-// The member fallback shells out to clang++ (WASM_CLANG or PATH); without one it stays disabled.
-function fallbackClangAvailable() {
-    for (const candidate of [process.env.WASM_CLANG, "clang++"]) {
-        if (!candidate) continue;
-        try {
-            execFileSync(candidate, ["--version"], { stdio: "pipe" });
-            return true;
-        } catch {}
-    }
-    return false;
 }
 async function completionItems(doc, marker, dot) {
     const offset = doc.getText().indexOf(marker);
@@ -126,13 +114,12 @@ suite("Qubic QPI extension", function () {
     });
 
     // clangd itself returns nothing for members reached through a field whose preamble type carries a
-    // template member (upstream bug); the extension answers these through its clang fallback.
-    test("cross-call callee members complete through the clang fallback", async function () {
-        if (!fallbackClangAvailable()) this.skip();
+    // template member (upstream bug); the extension answers these through the QPI compiler.
+    test("cross-call callee members complete through the fallback", async function () {
         const doc = await open("project/contracts/Proxy.h");
         await sleep(3000);
 
-        // The clangd client comes up asynchronously and the fallback builds a PCH on first use.
+        // The clangd client comes up asynchronously, so the first requests can land before it answers.
         let labels = [];
         for (let attempt = 0; attempt < 20; attempt++) {
             labels = await completionLabels(doc, "locals.input.offset", "locals.input.");
@@ -182,7 +169,6 @@ suite("Qubic QPI extension", function () {
     // A gtest compiles against its own generated prefix. Without one clangd falls back to plain flags
     // and every QPI symbol turns red, which is what an unconfigured test file used to look like.
     test("a gtest file is configured and completes callee members", async function () {
-        if (!fallbackClangAvailable()) this.skip();
         const doc = await open("Counter.test.cpp");
         await sleep(3000);
 
@@ -204,13 +190,86 @@ suite("Qubic QPI extension", function () {
             "the test file should have its own compile entry",
         );
 
-        // A gtest is not narrowed to the QPI surface, but its member lists lose the same noise.
-        const members = await completionLabels(doc, "input.history.setAll", "input.history.");
+        // `input.history.` reaches an Array through a field, which clangd answers with an empty list; the
+        // fallback hovers `input` for its type and resolves the rest. A gtest is not narrowed to the QPI
+        // surface, but its member lists lose the same noise.
+        let members = [];
+        for (let attempt = 0; attempt < 20; attempt++) {
+            members = await completionLabels(doc, "input.history.setAll", "input.history.");
+            if (members.includes("setAll")) break;
+            await sleep(1500);
+        }
         assert.ok(members.includes("setAll"), `a gtest should complete Array members; got [${members.slice(0, 12).join(", ")}]`);
         assert.ok(
             !members.some((l) => l.startsWith("operator") || l.startsWith("~") || l.startsWith("_")),
             `a gtest member list carries no generated noise; got [${members.slice(0, 12).join(", ")}]`,
         );
+    });
+
+// A gtest inside a qinit project reaches the contract through the project's dependency graph, and its
+    // receivers hop through a field into a nested struct — the shape clangd answers with an empty list.
+    test("a project gtest completes nested callee structs", async function () {
+        const doc = await open("project/Proxy.test.cpp");
+        await sleep(3000);
+
+        const settle = async (marker, dot, wanted) => {
+            let labels = [];
+            for (let attempt = 0; attempt < 20; attempt++) {
+                labels = await completionLabels(doc, marker, dot);
+                if (labels.includes(wanted)) break;
+                await sleep(1500);
+            }
+            assert.ok(labels.includes(wanted), `${dot} should offer ${wanted}; got [${labels.slice(0, 12).join(", ")}]`);
+        };
+
+        await settle("gi.history.setAll", "gi.history.", "setAll");
+        await settle("gi.detail.rank", "gi.detail.", "rank");
+        await settle("gi.detail.tags.setAll", "gi.detail.tags.", "setAll");
+
+        // clangd answers `gi.` itself and puts each field's type in `detail`, which renders inline. A
+        // field the fallback answers must carry its type in the same slot, or it renders far right and
+        // reads as a bare name next to a clangd-answered list.
+        const own = await completionItems(doc, "gi.history.setAll", "gi.");
+        const history = own.find((item) => labelOf(item) === "history");
+        assert.ok(history, `gi. should offer history; got [${own.map(labelOf).slice(0, 8).join(", ")}]`);
+        assert.strictEqual(String(history.detail), "Array<uint64, 8>");
+
+        const rank = (await completionItems(doc, "gi.detail.rank", "gi.detail.")).find((item) => labelOf(item) === "rank");
+        assert.ok(rank, "gi.detail. should offer rank");
+        assert.strictEqual(rank.kind, vscode.CompletionItemKind.Field);
+        // `label.detail` is the only slot rendered inline next to the name; the others reach the far
+        // right column or the details pane, where a field's type reads as missing.
+        assert.strictEqual(String(rank.label.detail), ": sint16", `a field annotates its type inline; got ${JSON.stringify(rank.label)}`);
+        assert.strictEqual(String(rank.detail), "sint16");
+
+        const setAll = (await completionItems(doc, "gi.detail.tags.setAll", "gi.detail.tags.")).find((item) => labelOf(item) === "setAll");
+        assert.ok(setAll, "gi.detail.tags. should offer setAll");
+        assert.match(String(setAll.label.detail), /^\(.*value\)$/);
+    });
+
+    // Completion runs mid-edit, where the statement is a dangling `x.` that clangd cannot type — it
+    // drops the whole statement, so hover on the root answers nothing. Completing inside an
+    // already-finished statement never reaches that state, so this types the receiver out instead.
+    test("a half-typed receiver completes where the root has no hover", async function () {
+        const doc = await open("project/Proxy.test.cpp");
+        await sleep(3000);
+        const original = doc.getText();
+
+        try {
+            await replaceDocument(doc, original.replace("    gi.detail.rank = 0;", "    gi.detail.rank = 0;\n    gi.detail."));
+            await sleep(2000);
+
+            // Marker is the tail from the dangling receiver, so it matches that one and not the
+            // well-formed `gi.detail.rank` above it.
+            const labels = await completionLabels(doc, doc.getText().slice(doc.getText().lastIndexOf("gi.detail.")), "gi.detail.");
+
+            assert.ok(
+                labels.includes("rank") && labels.includes("tags"),
+                `a half-typed receiver should still complete; got [${labels.slice(0, 12).join(", ")}]`,
+            );
+        } finally {
+            await replaceDocument(doc, original);
+        }
     });
 
     test("an ambiguous project callee is shown as a diagnostic", async () => {

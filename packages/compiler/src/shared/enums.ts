@@ -280,6 +280,11 @@ export enum AnalysisPhase {
     SEMANTIC = "semantic",
 }
 
+export enum MemberCompletionKind {
+    FIELD = "field",
+    METHOD = "method",
+}
+
 export enum ContainerEmissionMode {
     STATEMENT = "stmt",
     VALUE = "value",

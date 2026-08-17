@@ -279,7 +279,7 @@ try {
         !ok(
             brokenFieldMembers.length === 0,
             "KNOWN-BAD canary: raw clangd still returns nothing for locals.gi. — " +
-                "if this fails with items present, clangd fixed the upstream bug: retire member-fallback.ts",
+                "if this fails with items present, clangd fixed the upstream bug: member-fallback.ts can go",
         )
     ) {
         failures++;
