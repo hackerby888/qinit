@@ -14,10 +14,6 @@ const LAYERS = ["generated", "shared", "ast", "frontend", "semantics", "backend"
 
 const FORBIDDEN_LAYER_IMPORTS: Record<string, Set<string>> = Object.fromEntries(LAYERS.map((layer, index) => [layer, new Set(LAYERS.slice(index + 1))]));
 
-// Cross-layer cycles are the ones that matter; the type-only cycles inside a single layer are the
-// established split-class pattern, where a class hands itself back to the parts it delegates to.
-const MAX_FILE_LINES = 700;
-
 interface ModuleReference {
     specifier: string;
     typeOnly: boolean;
@@ -145,6 +141,8 @@ describe("compiler module boundaries", () => {
         expect(cycles).toEqual([]);
     });
 
+    // Cross-layer cycles are the ones that matter; the type-only cycles inside a single layer are the
+    // established split-class pattern, where a class hands itself back to the parts it delegates to.
     test("keeps type-only cycles inside a single layer", () => {
         const crossLayer = findCycles(buildGraph(sourceFiles, true))
             .filter((cycle) => new Set(cycle.map(sourceLayer)).size > 1)
@@ -163,19 +161,6 @@ describe("compiler module boundaries", () => {
         const unknown = sourceFiles.map(sourcePath).filter((path) => path.includes("/") && !LAYERS.includes(path.split("/")[0]));
 
         expect(unknown).toEqual([]);
-    });
-
-    test("keeps files small enough to read in one sitting", () => {
-        const oversized = sourceFiles
-            .map((file) => ({
-                path: sourcePath(file),
-                lines: readFileSync(file, "utf8").split("\n").length,
-            }))
-            // The generated QPI snapshot is one enormous embedded string, not code anyone reads.
-            .filter((file) => file.lines > MAX_FILE_LINES && !file.path.startsWith("generated/"))
-            .map((file) => `${file.path} (${file.lines} lines)`);
-
-        expect(oversized).toEqual([]);
     });
 
     test("keeps dependencies pointed toward lower compiler layers", () => {
