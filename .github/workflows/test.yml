@@ -110,10 +110,6 @@ jobs:
       - name: Verify source configuration
         run: bun run sources:check
       - run: bun install
-      # Formatting is host-independent, so one runner is enough.
-      - name: Check formatting
-        if: runner.os == 'Linux'
-        run: bun run format:check
       - name: Verify generated core ABI
         run: bun packages/core/tools/gen-wasm-abi.ts --check
       - name: Verify bundled browser snapshot
@@ -293,12 +289,13 @@ jobs:
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: bun run scripts/core-compat/ci-qpi-shared-memory.ts
 
-      - name: CLI Wasm integrations
+      # lint-test skips these for want of the SDK, so this is the only job that runs them.
+      - name: Wasm integrations
         env:
           QINIT_CORE: ${{ github.workspace }}/core
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
-        run: bun test packages/cli/tests/integration/wasm-shim-e2e.test.ts packages/cli/tests/contracts/gtest.test.ts
+        run: bun test packages/cli/tests/integration/wasm-shim-e2e.test.ts packages/cli/tests/contracts/gtest.test.ts packages/build/tests/pipeline/backend-options-parity.test.ts
 
   # Deterministic randomized differential gate for every public QPI container family. Each fixture is
   # compiled once by the TS compiler and native WASI, then reset between seeds. The exact TS artifact

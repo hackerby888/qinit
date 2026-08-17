@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContractWithClang, buildContractWithTypeScript, type ClangBuildOptions, type TypeScriptBuildOptions } from "../../src";
-import { CORE_PATH, HAS_CORE, QINIT_ROOT } from "../../../../test-utils/paths";
+import { CORE_PATH, HAS_CORE, HAS_WASI, QINIT_ROOT } from "../../../../test-utils/paths";
 
 const SOURCE = readFileSync(join(QINIT_ROOT, "fixtures", "Counter.h"), "utf8");
 
@@ -19,7 +19,8 @@ test("one options object satisfies both backends", () => {
     expect(asClang.corePath).toBe(asTypeScript.corePath);
 });
 
-test.skipIf(!HAS_CORE)("each backend accepts source text with no contractPath", async () => {
+// The clang half really invokes the wasm toolchain, so it needs the SDK as well as a core checkout.
+test.skipIf(!HAS_CORE || !HAS_WASI)("each backend accepts source text with no contractPath", async () => {
     const corePath = CORE_PATH;
     const directory = mkdtempSync(join(tmpdir(), "qinit-backend-parity-"));
 

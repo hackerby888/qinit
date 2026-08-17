@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { wasiSdkPaths } from "@qinit/core/project";
 
 /** Repository-local paths are derived from this checkout, never from a developer-specific absolute path. */
 export const QINIT_ROOT = resolve(import.meta.dir, "..");
@@ -11,6 +12,9 @@ export const CORE_PATH = raw ? resolve(raw) : "";
 
 /** True when CORE_PATH points at an actual core-lite checkout; gated suites skip rather than fail without it. */
 export const HAS_CORE = raw !== "" && existsSync(join(CORE_PATH, "src", "qpi", "qpi.h"));
+
+/** True when a wasm clang and sysroot resolve, from the cached SDK or WASM_CLANG/WASI_SYSROOT. */
+export const HAS_WASI = wasiSdkPaths() !== null;
 
 /** Hard-require a core checkout; for standalone tools/scripts that cannot meaningfully skip. */
 export function requireCorePath(): string {
