@@ -14,6 +14,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     Array<uint64, 8> nums;
     Array<Point, 4> points;
     HashMap<uint64, uint64, 8> map;
+    HashSet<uint64, 8> set;
     LinkedList<uint64, 8> list;
     BitArray<64> bits;
   };
@@ -21,7 +22,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 const FIELDS = stateFieldsOf(extractIdl(SRC, "Layout", { slot: 7 }));
-const STATE_SIZE = 512;
+const STATE_SIZE = 768;
 const offsetOf = (name: string) => FIELDS.find((field) => field.name === name)!.off;
 
 const hex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -118,6 +119,26 @@ test("HashMap internals resolve to slot, flags and population", async () => {
             filled: true,
             internal: false,
         },
+    ]);
+});
+
+// A HashSet slot is the key alone, so it has no member name below the slot; the removal counter and the
+// flags stay internal.
+test("HashSet internals resolve to slot, flags and population", async () => {
+    const set = offsetOf("set");
+    const lines = await linesFor(
+        (after) => {
+            writeLe(after, set + 4 * 8, 11, 8); // slot 4 key
+            after[set + 64 + 1] = 1 << 0; // slot 4 occupied (two-bit flags)
+            writeLe(after, set + 72, 1, 8); // population
+        },
+        { off: set, length: 88 },
+    );
+
+    expect(lines.map((line) => [line.label, line.detail, line.text, line.internal])).toEqual([
+        ["set.slot[4]", "set.slot[4]", "0 → 11", false],
+        ["set._occupationFlags[4]", "set._occupationFlags[4]", "0 → 1", true],
+        ["set", "set._population", "0 → 1 entries", false],
     ]);
 });
 
