@@ -151,6 +151,42 @@ test("plain contract transfers report moneyFlew even when PIT returns the amount
     expect(sim.balanceOf(28)).toBe(0n);
 });
 
+test("procedure tx: an amount the PIT callback returns still counts as moneyFlew", async () => {
+    await initK12();
+
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("Refund"));
+    const source = new Uint8Array(32).fill(0x11);
+    sim.fund(source, 100n);
+
+    // Core seeds the action tracker when the user procedure starts, after the callback has run, so the
+    // callback's refund never cancels the invocation reward the way a refund from the procedure would.
+    const result = sim.processTickTransaction(source, contractAddress(28), 25n, 1, new Uint8Array(0), "callback-refunded");
+
+    expect(result.moneyFlew).toBe(true);
+    expect(new DataView(sim.query(28, 1).buffer).getBigUint64(0, true)).toBe(1n); // Poke ran after the callback
+    expect(sim.balance(source)).toBe(100n);
+    expect(sim.balanceOf(28)).toBe(0n);
+});
+
+test("procedure tx: an amount the procedure itself returns clears moneyFlew", async () => {
+    await initK12();
+
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("Vault"));
+    const source = new Uint8Array(32).fill(0x11);
+    sim.fund(source, 100n);
+
+    const send = new Uint8Array(40); // Vault Send_input { id dest; sint64 amount }
+    send.set(source, 0);
+    new DataView(send.buffer).setBigInt64(32, 25n, true);
+    const result = sim.processTickTransaction(source, contractAddress(28), 25n, 2, send, "procedure-refunded");
+
+    expect(result.moneyFlew).toBe(false);
+    expect(sim.balance(source)).toBe(100n);
+    expect(sim.balanceOf(28)).toBe(0n);
+});
+
 test("getEntity: a contract reads an account's balance from the spectrum", async () => {
     await initK12();
 

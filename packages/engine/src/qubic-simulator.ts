@@ -1027,20 +1027,10 @@ export class QubicSimulator {
         return this.runOperation("contract-function", () => contract.invoke(CONTRACT_ENTRY_KIND.FUNCTION, inputType, input), { contractErrorsOnly: true });
     }
 
-    private processTickTransactionContractProcedure(
-        slot: number,
-        inputType: number,
-        input: Uint8Array,
-        invocator: Id,
-        originator: Id,
-        reward: bigint,
-        transferType = TRANSFER_TYPE_PROCEDURE_TRANSACTION,
-        notifyPostIncomingTransfer = true,
-    ): Uint8Array {
+    // Runs the user procedure only. Each caller fires POST_INCOMING_TRANSFER for the reward beforehand, because
+    // core resets the action tracker here and money moved by the callback must not count towards moneyFlew.
+    private processTickTransactionContractProcedure(slot: number, inputType: number, input: Uint8Array, invocator: Id, originator: Id, reward: bigint): Uint8Array {
         const contract = this.contracts.get(slot)!;
-        if (notifyPostIncomingTransfer && reward > 0n) {
-            this.notifyContractOfIncomingTransfer(this.contractId(slot), invocator, reward, transferType);
-        }
 
         return this.registry.fire(contract, CONTRACT_ENTRY_KIND.PROCEDURE, inputType, input, {
             invocator,
@@ -1129,16 +1119,8 @@ export class QubicSimulator {
 
         try {
             const invocator = this.contractId(callerSlot);
-            const output = this.processTickTransactionContractProcedure(
-                calleeIndex,
-                inputType,
-                input,
-                invocator,
-                originator,
-                transferredReward,
-                TRANSFER_TYPE_PROCEDURE_INVOCATION_BY_OTHER_CONTRACT,
-                false,
-            );
+            // transferInvocationReward already fired the callee's POST_INCOMING_TRANSFER for the reward.
+            const output = this.processTickTransactionContractProcedure(calleeIndex, inputType, input, invocator, originator, transferredReward);
             return { error: NO_CALL_ERROR, output };
         } catch (error) {
             return this.nestedTrapResult(callee, CONTRACT_ENTRY_KIND.PROCEDURE, inputType, error);
@@ -1258,6 +1240,7 @@ export class QubicSimulator {
             () => {
                 if (reward > 0n) {
                     this.increaseEnergy(this.contractId(slot), reward);
+                    this.notifyContractOfIncomingTransfer(this.contractId(slot), invocator, reward, TRANSFER_TYPE_PROCEDURE_TRANSACTION);
                 }
 
                 return this.processTickTransactionContractProcedure(slot, inputType, input ?? new Uint8Array(0), invocator, originator, reward);
@@ -1301,7 +1284,6 @@ export class QubicSimulator {
                 this.logStore?.begin(this.nextLogTick(), txIndex);
                 try {
                     const sourceIndex = this.spectrumIndex(source);
-                    const sourceBalanceBefore = this.energy(sourceIndex);
                     const slot = this.contractSlotOf(destination);
                     let moneyFlew = false;
 
@@ -1314,20 +1296,25 @@ export class QubicSimulator {
                             const contract = this.contracts.get(slot)!;
                             const isProcedure = contract.entries.some((entry) => entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE && entry.inputType === inputType);
 
-                            if (isProcedure && !this.fees.reserveOk(slot)) {
+                            // A dormant contract takes no transaction at all — the amount goes back and neither the
+                            // procedure nor the incoming-transfer callback runs.
+                            if (!this.fees.reserveOk(slot)) {
                                 if (amount > 0n) {
                                     this.transferBalance(destination, source, amount);
                                 }
                                 moneyFlew = false;
 
-                                this.emit(
-                                    "warn",
-                                    "fee",
-                                    `slot ${slot} dormant — procedure it=${inputType} skipped${amount > 0n ? `, refunded ${amount}` : ""}`,
-                                );
+                                this.emit("warn", "fee", `slot ${slot} dormant — tx it=${inputType} skipped${amount > 0n ? `, refunded ${amount}` : ""}`);
                             } else if (isProcedure) {
+                                if (amount > 0n) {
+                                    this.notifyContractOfIncomingTransfer(destination, source, amount, TRANSFER_TYPE_PROCEDURE_TRANSACTION);
+                                }
+
+                                // moneyFlew mirrors core's action tracker, which starts at the user procedure seeded with
+                                // the invocation reward: what the callback moved is already water under the bridge.
+                                const sourceBalanceAfterCallback = this.energy(sourceIndex);
                                 this.processTickTransactionContractProcedure(slot, inputType, payload, source, source, amount);
-                                moneyFlew = this.energy(sourceIndex) !== sourceBalanceBefore;
+                                moneyFlew = this.energy(sourceIndex) - sourceBalanceAfterCallback - amount !== 0n;
                             } else if (amount > 0n) {
                                 this.notifyContractOfIncomingTransfer(destination, source, amount, TRANSFER_TYPE_STANDARD_TRANSACTION);
                             }

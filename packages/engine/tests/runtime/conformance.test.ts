@@ -93,6 +93,33 @@ test("metered: a user procedure to a dormant contract is skipped and its amount 
     expect(sim.balanceOf(28)).toBe(500n);
 });
 
+test("metered: a plain transfer to a dormant contract is refunded and fires no POST_INCOMING_TRANSFER", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ fees: "metered" });
+    sim.deploy(28, await wasm("Vault"));
+
+    const source = new Uint8Array(32).fill(0x11);
+    const dest = contractId(28);
+    sim.fund(source, 1000n);
+    const incomingCount = () => readUint64LE(sim.query(28, GET), 8); // Vault Get_output.incomingCount
+
+    // Dormant: core refuses the whole transaction, not only procedure calls — the callback is gated out with it.
+    sim.setContractFeeReserve(28, 0n);
+    const gated = sim.processTickTransaction(source, dest, 500n, 0, EMPTY, "plain-gated");
+    expect(gated.moneyFlew).toBe(false);
+    expect(incomingCount()).toBe(0n);
+    expect(sim.balance(source)).toBe(1000n); // fully refunded
+    expect(sim.balanceOf(28)).toBe(0n);
+
+    // Funded: the same plain transfer now sticks and notifies the contract.
+    sim.setContractFeeReserve(28, 1_000_000_000n);
+    const ok = sim.processTickTransaction(source, dest, 500n, 0, EMPTY, "plain-ok");
+    expect(ok.moneyFlew).toBe(true);
+    expect(incomingCount()).toBe(1n);
+    expect(sim.balance(source)).toBe(500n);
+    expect(sim.balanceOf(28)).toBe(500n);
+});
+
 test("metered: running a procedure debits the contract's reserve by a sane metered cost", async () => {
     await initK12();
     const sim = new QubicSimulator({ fees: "metered" });
