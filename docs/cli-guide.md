@@ -947,8 +947,10 @@ provided; a named entry cannot.
 
 For `BitArray<N>`, typed `--args` and generated clients use an exact-length JSON
 array of `0` and `1` values in logical bit order. Raw `--in` remains the physical
-`uint64`-word representation. `LinkedList` is state-only: Qinit rejects it
-recursively in public function and procedure inputs and outputs.
+`uint64`-word representation. `Collection`, `HashMap`, `HashSet`, and `LinkedList`
+are state-only: Qinit rejects them recursively in public function and procedure
+inputs and outputs, matching the QPI restriction that only integers, `bit`, `id`,
+`Array`, `BitArray`, and `SlowAnySizeArray` may cross the call boundary.
 
 ### 9.2 Function flow
 

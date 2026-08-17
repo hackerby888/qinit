@@ -788,6 +788,53 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     }
 });
 
+test("compileContract rejects the other stateful containers in registered entry ABIs", async () => {
+    const source = `
+using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData {};
+  struct Map_input { HashMap<id, uint64, 8> entries; };
+  struct Map_output { HashMap<id, uint64, 8> entries; };
+  typedef HashSet<id, 8> Set_input;
+  typedef HashSet<id, 8> Set_output;
+  struct WrappedCollection { Collection<uint64, 8> items; };
+  typedef Array<WrappedCollection, 2> Coll_input;
+  typedef Array<WrappedCollection, 2> Coll_output;
+  PUBLIC_FUNCTION(Map) {}
+  PUBLIC_PROCEDURE(Set) {}
+  PUBLIC_FUNCTION(Coll) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(Map, 1);
+    REGISTER_USER_PROCEDURE(Set, 2);
+    REGISTER_USER_FUNCTION(Coll, 3);
+  }
+};`;
+
+    const result = await compileContract({
+        source,
+        contractName: "ComplexAbi",
+        slot: 28,
+        qpiHeader: QPI_SNAPSHOT,
+        arenaSizeBytes: 1 << 20,
+    });
+
+    expect(result.wasm).toHaveLength(0);
+    expect(result.idl).toBeUndefined();
+    for (const [typeName, prefix] of [
+        ["HashMap", "Map"],
+        ["HashSet", "Set"],
+        ["Collection", "Coll"],
+    ] as const) {
+        for (const direction of ["input", "output"]) {
+            expect(
+                result.diagnostics.some(
+                    (diagnostic) => diagnostic.message.includes(`${typeName} is forbidden`) && diagnostic.message.includes(`${prefix}_${direction}`),
+                ),
+            ).toBe(true);
+        }
+    }
+});
+
 test("compileContract keeps BitArray registered entry ABIs valid", async () => {
     const source = `
 using namespace QPI;

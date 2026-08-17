@@ -163,7 +163,7 @@ struct Contract : public ContractBase {
 };`;
 
     const diagnostics = analyzeContract({ source }).diagnostics;
-    expect(diagnostics.some((item) => item.code === "qpi/public-complex-type" && item.message.includes("HashMap"))).toBe(true);
+    expect(diagnostics.some((item) => item.message.includes("HashMap is forbidden") && item.message.includes("Read_output"))).toBe(true);
 });
 
 test("rejects direct and nested LinkedList inputs and outputs", () => {

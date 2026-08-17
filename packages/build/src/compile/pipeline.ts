@@ -38,22 +38,21 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         qpiHeaderError = String(error?.message ?? error);
     }
 
-    // LinkedList has no safe public wire representation; reject it even when verification is skipped.
+    // Collection/HashMap/HashSet/LinkedList have no safe public wire representation; reject them even
+    // when verification is skipped.
     const analysis = analyzeContract({
         source,
         contractName: o.stateType ?? o.contractName,
         slot: o.slot,
         qpiHeader,
     });
-    const linkedListDiagnostics = analysis.diagnostics.filter(
-        (diagnostic) =>
-            diagnostic.message.startsWith("LinkedList is forbidden in registered entry") ||
-            (diagnostic.code === "qpi/public-complex-type" && diagnostic.message.includes("`LinkedList` is forbidden in the public interface")),
+    const complexTypeDiagnostics = analysis.diagnostics.filter(
+        (diagnostic) => diagnostic.message.includes(" is forbidden in registered entry") || diagnostic.code === "qpi/public-complex-type",
     );
-    if (linkedListDiagnostics.length) {
+    if (complexTypeDiagnostics.length) {
         return {
             ok: false,
-            stderr: ["Qubic protocol violations:", ...linkedListDiagnostics.map((diagnostic) => `  • ${diagnostic.message}`)].join("\n"),
+            stderr: ["Qubic protocol violations:", ...complexTypeDiagnostics.map((diagnostic) => `  • ${diagnostic.message}`)].join("\n"),
         };
     }
     const calls = analysis.calls;

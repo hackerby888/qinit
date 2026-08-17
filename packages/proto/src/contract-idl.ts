@@ -206,6 +206,19 @@ export function abiTypeContainsKind(type: AbiType, kind: AbiTypeKind): boolean {
     }
 }
 
+// Containers the protocol forbids in a contract's public interface — they can carry inconsistent
+// internal state across the call boundary (core-lite `doc/contracts.md`, "Restrictions").
+const FORBIDDEN_PUBLIC_TYPES: readonly (readonly [AbiTypeKind, string])[] = [
+    [AbiTypeKind.COLLECTION, "Collection"],
+    [AbiTypeKind.HASH_MAP, "HashMap"],
+    [AbiTypeKind.HASH_SET, "HashSet"],
+    [AbiTypeKind.LINKED_LIST, "LinkedList"],
+];
+
+export function forbiddenPublicType(type: AbiType): string | undefined {
+    return FORBIDDEN_PUBLIC_TYPES.find(([kind]) => abiTypeContainsKind(type, kind))?.[1];
+}
+
 export function parseContractIdl(value: unknown): ContractIdl {
     return parseContract(value, "IDL");
 }

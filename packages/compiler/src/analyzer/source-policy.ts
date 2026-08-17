@@ -33,6 +33,8 @@ const KEYWORD_RULES: Record<string, { code: string; message: string }> = {
 // Names a contract may not write, for callers that suppress rather than diagnose them.
 export const QPI_BANNED_KEYWORDS: readonly string[] = Object.keys(KEYWORD_RULES);
 
+const FORBIDDEN_PUBLIC_TYPE_NAMES = new Set(["Collection", "LinkedList", "HashMap", "HashSet"]);
+
 export function analyzeQpiPolicy(source: string, registrations?: readonly ContractRegistration[], idl?: ContractIdl): SourceAnalysisDiagnostic[] {
     const tokens = new Lexer(source).tokenize();
     const entries = findEntryFunctions(tokens);
@@ -331,7 +333,6 @@ function idlDiagnostics(
         }
     }
 
-    const forbidden = new Set(["Collection", "LinkedList", "HashMap", "HashSet"]);
     const reportedTypes = new Set<string>();
     for (let index = 0; index + 2 < tokens.length; index++) {
         if (tokens[index].kind !== TokenKind.KW_STRUCT || tokens[index + 1].kind !== TokenKind.IDENTIFIER) {
@@ -353,7 +354,7 @@ function idlDiagnostics(
         }
 
         for (let cursor = open + 1; cursor < close; cursor++) {
-            if (!forbidden.has(tokens[cursor].text)) {
+            if (!FORBIDDEN_PUBLIC_TYPE_NAMES.has(tokens[cursor].text)) {
                 continue;
             }
             diagnostics.push(
@@ -402,7 +403,8 @@ function forbiddenAbiTypes(type: AbiType): string[] {
         case AbiTypeKind.BIT_ARRAY:
             return [];
         case AbiTypeKind.STRUCT:
-            return [...(type.name === "LinkedList" ? ["LinkedList"] : []), ...type.fields.flatMap((field) => forbiddenAbiTypes(field.type))];
+            // A container the IDL could not resolve into its own kind still carries its C++ name.
+            return [...(FORBIDDEN_PUBLIC_TYPE_NAMES.has(type.name ?? "") ? [type.name!] : []), ...type.fields.flatMap((field) => forbiddenAbiTypes(field.type))];
         case AbiTypeKind.COLLECTION:
             return ["Collection", ...forbiddenAbiTypes(type.value)];
         case AbiTypeKind.HASH_MAP:

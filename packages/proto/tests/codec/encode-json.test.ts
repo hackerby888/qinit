@@ -450,8 +450,8 @@ test("typed LinkedList decodes logical order and rejects public input", async ()
         { slot: 5, value: 50n },
         { slot: 1, value: 10n },
     ]);
-    await expect(encodeInputJson(linkedList, bytes)).rejects.toThrow(/linked_list input is not supported/);
-    expect(() => jsonToInputFormat(linkedList, [])).toThrow(/linked_list input is not supported/);
+    await expect(encodeInputJson(linkedList, bytes)).rejects.toThrow(/LinkedList input is not supported/);
+    expect(() => jsonToInputFormat(linkedList, [])).toThrow(/LinkedList input is not supported/);
 });
 
 test("nested LinkedList cannot bypass an overlapping struct raw input", async () => {
@@ -507,11 +507,11 @@ test("nested LinkedList cannot bypass an overlapping struct raw input", async ()
     const raw = new Uint8Array(overlapping.size);
 
     expect(hasOverlappingAbiType(overlapping)).toBe(true);
-    await expect(encodeInputJson(overlapping, raw)).rejects.toThrow(/linked_list input is not supported/);
-    expect(() => jsonToInputFormat(overlapping, raw)).toThrow(/linked_list input is not supported/);
+    await expect(encodeInputJson(overlapping, raw)).rejects.toThrow(/LinkedList input is not supported/);
+    expect(() => jsonToInputFormat(overlapping, raw)).toThrow(/LinkedList input is not supported/);
 });
 
-test("nested LinkedList cannot bypass opaque container raw inputs", async () => {
+test("opaque container raw inputs are rejected", async () => {
     const scalar: AbiType = {
         kind: AbiTypeKind.SCALAR,
         scalar: AbiScalarKind.UINT64,
@@ -556,9 +556,15 @@ test("nested LinkedList cannot bypass opaque container raw inputs", async () => 
         },
     ];
 
+    const names: Record<string, string> = {
+        [AbiTypeKind.HASH_MAP]: "HashMap",
+        [AbiTypeKind.HASH_SET]: "HashSet",
+        [AbiTypeKind.COLLECTION]: "Collection",
+    };
     for (const container of containers) {
         const raw = new Uint8Array(container.size);
-        await expect(encodeInputJson(container, raw)).rejects.toThrow(/linked_list input is not supported/);
-        expect(() => jsonToInputFormat(container, raw)).toThrow(/linked_list input is not supported/);
+        const expected = new RegExp(`${names[container.kind]} input is not supported`);
+        await expect(encodeInputJson(container, raw)).rejects.toThrow(expected);
+        expect(() => jsonToInputFormat(container, raw)).toThrow(expected);
     }
 });

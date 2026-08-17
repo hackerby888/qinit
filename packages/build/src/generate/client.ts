@@ -1,4 +1,4 @@
-import { AbiScalarKind, AbiTypeKind, abiTypeContainsKind, type AbiStruct, type AbiType, type ContractIdl } from "@qinit/proto/contract-idl";
+import { AbiScalarKind, AbiTypeKind, forbiddenPublicType, type AbiStruct, type AbiType, type ContractIdl } from "@qinit/proto/contract-idl";
 
 const TYPESCRIPT_SCALARS: Record<AbiScalarKind, string> = {
     [AbiScalarKind.BIT]: "number",
@@ -107,8 +107,9 @@ function hasInput(type: AbiType): boolean {
 
 export function generateClient(idl: ContractIdl, index: number, options?: { runtimeImport?: string }): string {
     for (const entry of [...idl.functions, ...idl.procedures]) {
-        if (abiTypeContainsKind(entry.input, AbiTypeKind.LINKED_LIST) || abiTypeContainsKind(entry.output, AbiTypeKind.LINKED_LIST)) {
-            throw new Error(`LinkedList cannot be used in public contract entry '${entry.name}'`);
+        const forbidden = forbiddenPublicType(entry.input) ?? forbiddenPublicType(entry.output);
+        if (forbidden) {
+            throw new Error(`${forbidden} cannot be used in public contract entry '${entry.name}'`);
         }
     }
 

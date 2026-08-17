@@ -1,7 +1,7 @@
 // Contract ABI format-string codec (qubic-cli compatible).
 //   types : uint8/16/32/64, sint8/16/32/64, id, bit ; struct { t, t } ; array [N; elem]
 import { bytesToIdentity, hexToBytes, identityToBytes, roundUp } from "@qinit/core";
-import { AbiScalarKind, AbiTypeKind, abiTypeContainsKind, formatAbiType, type AbiStruct, type AbiType } from "./contract-idl";
+import { AbiScalarKind, AbiTypeKind, forbiddenPublicType, formatAbiType, type AbiStruct, type AbiType } from "./contract-idl";
 import { createQpiContainerView } from "./qpi-container-view";
 import { qpiBorrowedSource } from "./qpi-container-view/source";
 import { arrayGeometry, bitWordCount } from "./qpi-layout";
@@ -384,7 +384,7 @@ async function encodeAbiType(view: DataView, offset: number, type: AbiType, valu
             return;
         }
         case AbiTypeKind.LINKED_LIST:
-            throw new Error("linked_list input is not supported");
+            throw new Error("LinkedList input is not supported");
         default:
             writeRawAbiValue(view, offset, type, value);
     }
@@ -693,14 +693,15 @@ function jsonValueToFmt(typeTok: string, value: any): string {
 
 type InputFields = { name: string; type: string }[] | AbiType;
 
-function rejectLinkedListInput(fields: InputFields): void {
-    if (!Array.isArray(fields) && abiTypeContainsKind(fields, AbiTypeKind.LINKED_LIST)) {
-        throw new Error("linked_list input is not supported");
+function rejectComplexInput(fields: InputFields): void {
+    const forbidden = Array.isArray(fields) ? undefined : forbiddenPublicType(fields);
+    if (forbidden) {
+        throw new Error(`${forbidden} input is not supported`);
     }
 }
 
 export function jsonToInputFormat(fields: InputFields, json: any): string {
-    rejectLinkedListInput(fields);
+    rejectComplexInput(fields);
     if (!Array.isArray(fields)) {
         if (fields.kind !== AbiTypeKind.STRUCT) {
             return typedJsonValueToFmt(fields, json);
@@ -718,7 +719,7 @@ export function jsonToInputFormat(fields: InputFields, json: any): string {
 }
 
 export async function encodeInputJson(fields: InputFields, json: any): Promise<Uint8Array> {
-    rejectLinkedListInput(fields);
+    rejectComplexInput(fields);
     if (!Array.isArray(fields)) {
         const bytes = new Uint8Array(fields.size);
         await encodeAbiType(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), 0, fields, json);
@@ -755,7 +756,7 @@ function typedJsonValueToFmt(type: AbiType, value: any): string {
         return `[${words.length}; ${words.map((word) => `${word}uint64`).join(", ")}]`;
     }
     if (type.kind === AbiTypeKind.LINKED_LIST) {
-        throw new Error("linked_list input is not supported");
+        throw new Error("LinkedList input is not supported");
     }
     return jsonValueToFmt(formatAbiType(type), value);
 }

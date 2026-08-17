@@ -314,3 +314,32 @@ test("rejects nested LinkedList in hand-authored public IDL", () => {
         ),
     ).toThrow(/LinkedList cannot be used in public/);
 });
+
+test("rejects HashMap in hand-authored public IDL", () => {
+    const base = extractIdl(SRC, "Demo");
+    const entry = base.functions[0];
+
+    expect(() =>
+        generateClient(
+            {
+                ...base,
+                functions: [
+                    {
+                        ...entry,
+                        inSize: 184,
+                        input: {
+                            kind: AbiTypeKind.HASH_MAP,
+                            capacity: 4,
+                            key: uint64Root,
+                            value: uint64Root,
+                            size: 184,
+                            align: 8,
+                            format: "wrong",
+                        },
+                    },
+                ],
+            },
+            28,
+        ),
+    ).toThrow(/HashMap cannot be used in public/);
+});

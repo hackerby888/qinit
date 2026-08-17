@@ -1,5 +1,5 @@
 // Assembles the ContractIdl a compiled module publishes: entries, state, enums, logs, migration.
-import { AbiTypeKind, QINIT_IDL_VERSION, abiTypeContainsKind, type ContractEntry, type ContractIdl } from "@qinit/proto/contract-idl";
+import { QINIT_IDL_VERSION, forbiddenPublicType, type ContractEntry, type ContractIdl } from "@qinit/proto/contract-idl";
 import { AstKind } from "../../../shared/enums";
 import type { StructDecl } from "../../../ast";
 import type { PreparedContractModule } from "../module/module-analysis";
@@ -34,8 +34,9 @@ export function buildContractIdl(prepared: PreparedContractModule, options: Buil
             ["input", input],
             ["output", output],
         ] as const) {
-            if (abiTypeContainsKind(type, AbiTypeKind.LINKED_LIST)) {
-                prepared.programAnalysis.error(`LinkedList is forbidden in registered entry '${registration.fnName}_${direction}'`, registration.line);
+            const forbidden = forbiddenPublicType(type);
+            if (forbidden) {
+                prepared.programAnalysis.error(`${forbidden} is forbidden in registered entry '${registration.fnName}_${direction}'`, registration.line);
             }
         }
         const entry: ContractEntry = {
