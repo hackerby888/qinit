@@ -2,6 +2,8 @@ import { ASSET_ENUMERATION_RECORD, LHOST_ABI, type DebugStateRegion, type LhostI
 import { k12Bytes, toHex } from "../support/k12";
 import { asBuffer, bytesEqual, type Id } from "../support/bytes";
 import { noteHostWrite, readJournalHeader, resetJournal, type JournalHeader } from "@qinit/core/wasm/journal";
+// Layout shared with core-lite's module_storage.h; sizing.ts is the one definition both backends use.
+import { INPUT_BUFFER_BYTES, LOCALS_BUFFER_BYTES, OUTPUT_BUFFER_BYTES } from "@qinit/core/wasm/sizing";
 import { diffRegions, journalRegions, type TraceRecorder } from "../logging/trace";
 import { QpiContext } from "./abi";
 import { EntityRecord, M256i } from "../protocol/wire";
@@ -67,11 +69,6 @@ export const CONTRACT_ENTRY_KIND = {
     SYSPROC: 2,
     MIGRATE: 3,
 } as const;
-
-// Must match the I/O layout in contract_slots.h.
-const INPUT_BUFFER_SIZE_BYTES = 64 * 1024;
-const OUTPUT_BUFFER_SIZE_BYTES = 64 * 1024;
-const LOCALS_BUFFER_SIZE_BYTES = 32 * 1024;
 
 // Block size for catching the shadow up to a changed state: one memcmp per block, copy only what moved.
 const SHADOW_BLOCK = 64 * 1024;
@@ -424,7 +421,7 @@ export class Contract {
         this.stateAddr = this.ex.state_addr() >>> 0;
         this.stateSize = this.ex.state_size() >>> 0;
         this.ctxAddr = this.ex.ctx_addr() >>> 0;
-        this.arenaBase = this.ioBase + INPUT_BUFFER_SIZE_BYTES + OUTPUT_BUFFER_SIZE_BYTES + LOCALS_BUFFER_SIZE_BYTES;
+        this.arenaBase = this.ioBase + INPUT_BUFFER_BYTES + OUTPUT_BUFFER_BYTES + LOCALS_BUFFER_BYTES;
         this.arenaStart = this.arenaBase;
         this.arenaTop = this.arenaBase;
         this.arenaEnd = this.ioBase + (this.ex.io_size() >>> 0);
@@ -670,9 +667,9 @@ export class Contract {
             // Avoid signed 32-bit alignment arithmetic for shared-memory arenas above 2 GiB.
             const base = this.arenaTop;
             inputOffset = base + 7 - ((base + 7) % 8);
-            outputOffset = inputOffset + INPUT_BUFFER_SIZE_BYTES;
-            localsOffset = outputOffset + OUTPUT_BUFFER_SIZE_BYTES;
-            const frameArenaStart = localsOffset + LOCALS_BUFFER_SIZE_BYTES;
+            outputOffset = inputOffset + INPUT_BUFFER_BYTES;
+            localsOffset = outputOffset + OUTPUT_BUFFER_BYTES;
+            const frameArenaStart = localsOffset + LOCALS_BUFFER_BYTES;
 
             if (frameArenaStart > this.arenaEnd) {
                 throw new Error("nested dispatch frame exceeds arena");
@@ -685,8 +682,8 @@ export class Contract {
             savedContext = memory.slice(this.ctxAddr, this.ctxAddr + 256);
         } else {
             inputOffset = this.ioBase;
-            outputOffset = this.ioBase + INPUT_BUFFER_SIZE_BYTES;
-            localsOffset = this.ioBase + INPUT_BUFFER_SIZE_BYTES + OUTPUT_BUFFER_SIZE_BYTES;
+            outputOffset = this.ioBase + INPUT_BUFFER_BYTES;
+            localsOffset = this.ioBase + INPUT_BUFFER_BYTES + OUTPUT_BUFFER_BYTES;
             this.arenaStart = this.arenaBase;
             this.arenaTop = this.arenaBase;
         }
@@ -694,8 +691,8 @@ export class Contract {
         const inputSize = this.inSizeFor(kind, inputType, input.length);
         const outputSize = this.outSizeFor(kind, inputType);
         memory.fill(0, inputOffset, inputOffset + inputSize);
-        memory.fill(0, outputOffset, outputOffset + OUTPUT_BUFFER_SIZE_BYTES);
-        memory.fill(0, localsOffset, localsOffset + LOCALS_BUFFER_SIZE_BYTES);
+        memory.fill(0, outputOffset, outputOffset + OUTPUT_BUFFER_BYTES);
+        memory.fill(0, localsOffset, localsOffset + LOCALS_BUFFER_BYTES);
 
         if (input.length > 0 && inputSize > 0) {
             memory.set(input.subarray(0, Math.min(input.length, inputSize)), inputOffset);
@@ -817,12 +814,12 @@ export class Contract {
     }
 
     migrate(oldState: Uint8Array): void {
-        const localsOffset = this.ioBase + INPUT_BUFFER_SIZE_BYTES + OUTPUT_BUFFER_SIZE_BYTES;
+        const localsOffset = this.ioBase + INPUT_BUFFER_BYTES + OUTPUT_BUFFER_BYTES;
         const oldStateOffset = this.arenaBase;
         const memory = this.u8();
 
         memory.fill(0, this.stateAddr, this.stateAddr + this.stateSize);
-        memory.fill(0, localsOffset, localsOffset + LOCALS_BUFFER_SIZE_BYTES);
+        memory.fill(0, localsOffset, localsOffset + LOCALS_BUFFER_BYTES);
         memory.set(oldState, oldStateOffset);
         this.shadowStale = true;
         this.writeCtx({});

@@ -13,7 +13,14 @@ import { emitDispatch, emitInitialize } from "./dispatch";
 export function emitModule(spec: ModuleSpecification): string {
     resetLhostCallSigs();
     const usesPrng = spec.capabilities?.includes(PlatformCapability.CHAIN_PRNG) ?? false;
-    const capacity = computeLayout(spec.stateSize, spec.arenaSize, spec.contextLayout.size, spec.memBase ?? (usesPrng ? 8 : 0), spec.assetEnumerationRecord);
+    const capacity = computeLayout(
+        spec.stateSize,
+        spec.arenaSize,
+        spec.contextLayout.size,
+        spec.memBase ?? (usesPrng ? 8 : 0),
+        spec.assetEnumerationRecord,
+        spec.memBase === undefined,
+    );
     const sysprocMask = spec.sysprocs.reduce((sysproc, sp) => sysproc | (1 << sp.id), 0);
     return [
         "(module",

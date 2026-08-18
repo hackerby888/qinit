@@ -26,9 +26,10 @@ export async function encodeAndInspectWat(wat: string, options: CompileOptions, 
     const encoded = await encodeWat(wat, "contract.wat");
 
     // Baked in before inspection, so the module that ships is the one the ABI gate checked. Shared
-    // memory is skipped: several modules share one arena there, so the journal has nowhere of its own.
+    // memory reserves no journal room, so it is skipped.
     const bakeJournal = options.sharedMemoryBaseOffsetBytes === undefined && !stateJournalDisabled();
-    const wasm = bakeJournal ? instrumentStateJournal(encoded).wasm : encoded;
+    const journalOptions = options.journalCapBytes === undefined ? {} : { journalCapBytes: options.journalCapBytes };
+    const wasm = bakeJournal ? instrumentStateJournal(encoded, journalOptions).wasm : encoded;
 
     if (!WebAssembly.validate(wasm)) {
         throw new Error("generated module failed WebAssembly validation");

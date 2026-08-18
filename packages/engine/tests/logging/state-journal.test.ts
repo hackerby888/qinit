@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { loadWasmFixture as wasm, wasmFixtureManifest, type WasmFixtureName } from "../../../../test-utils/wasm-fixtures";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import { JournalHeaderOffset, readJournalHeader } from "@qinit/core/wasm/journal";
+import { JOURNAL_FIRST_GENERATION, JOURNAL_HEADER_BYTES, JOURNAL_SLOT_BYTES, JournalHeaderOffset, readJournalHeader } from "@qinit/core/wasm/journal";
 import type { DebugStateRegion } from "@qinit/core";
 
 const WHO = new Uint8Array(32).fill(7);
@@ -197,6 +197,51 @@ test("QINIT_STATE_DIFF=verify checks dispatches no recorder asked about", async 
             process.env.QINIT_STATE_DIFF = saved;
         }
     }
+});
+
+// Reset retires a generation instead of scrubbing the table, so the one dangerous moment is the wrap
+// back to the first generation: a leftover slot stamped with that exact value would read as live and
+// the block behind it would never be recorded. Both reset paths must clear on wrap.
+test("a generation wrap clears leftovers stamped with the first generation", async () => {
+    const bytes = await wasm("Counter");
+    withJournalEnabled(() => {
+        const sim = new QubicSimulator({ fees: "off" });
+        const contract = sim.deploy(28, bytes) as unknown as { mem: WebAssembly.Memory; arenaEnd: number; ex: Record<string, () => void> };
+        const view = () => new DataView(contract.mem.buffer);
+        const header = () => readJournalHeader(new Uint8Array(contract.mem.buffer), contract.arenaEnd)!;
+        const tableAt = () => contract.arenaEnd + JOURNAL_HEADER_BYTES;
+        const setGeneration = (value: number) => view().setUint32(contract.arenaEnd + JournalHeaderOffset.GENERATION, value, true);
+
+        sim.setDebug(true);
+        sim.procedure(28, 1);
+        const before = sim.getTrace().entries.at(-1)!.stateDiff;
+        expect(before.length).toBe(1);
+
+        // Restamp the slot the dispatch just claimed as if it were written 2^32 dispatches ago, then
+        // wrap onto it. Without a clear, block 0 reads as already-recorded and drops out of the diff.
+        const staleSlot = tableAt() + JOURNAL_SLOT_BYTES * (header().tableSlots - 1);
+        for (let slot = tableAt(); slot < tableAt() + header().tableSlots * JOURNAL_SLOT_BYTES; slot += JOURNAL_SLOT_BYTES) {
+            view().setUint32(slot, JOURNAL_FIRST_GENERATION, true);
+        }
+        expect(view().getUint32(staleSlot, true)).toBe(JOURNAL_FIRST_GENERATION);
+        setGeneration(0xffffffff);
+
+        sim.procedure(28, 1);
+        expect(header().generation).toBe(JOURNAL_FIRST_GENERATION);
+        const wrapped = sim.getTrace().entries.at(-1)!.stateDiff;
+        expect(wrapped.length, "block vanished after the wrap — leftovers were not cleared").toBe(1);
+        expect(wrapped[0]!.off).toBe(before[0]!.off);
+
+        // Same branch inside the module, which is what a host that only calls the export relies on.
+        for (let slot = tableAt(); slot < tableAt() + header().tableSlots * JOURNAL_SLOT_BYTES; slot += JOURNAL_SLOT_BYTES) {
+            view().setUint32(slot, JOURNAL_FIRST_GENERATION, true);
+        }
+        setGeneration(0xffffffff);
+        contract.ex.__q_journal_reset!();
+        expect(header().generation).toBe(JOURNAL_FIRST_GENERATION);
+        const table = new Uint8Array(contract.mem.buffer).slice(tableAt(), tableAt() + header().tableSlots * JOURNAL_SLOT_BYTES);
+        expect(table.every((byte) => byte === 0), "wasm reset left stale stamps behind").toBe(true);
+    });
 });
 
 function u64(value: bigint): Uint8Array {

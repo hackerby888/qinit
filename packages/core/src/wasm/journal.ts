@@ -8,12 +8,18 @@ export const JOURNAL_BLOCK_BYTES = 256;
 /** "QJRN" — identifies an instrumented module without asking the module anything. */
 export const JOURNAL_MAGIC = 0x514a524e;
 
-export const JOURNAL_FORMAT_VERSION = 1;
+export const JOURNAL_FORMAT_VERSION = 2;
 
 export const JOURNAL_HEADER_BYTES = 32;
 
-/** Empty slot marker in the probe table; also the reset fill byte, repeated. */
-export const JOURNAL_EMPTY_SLOT = 0xffffffff;
+/** Probe-table slot: the generation that claimed it, then the block it holds. */
+export const JOURNAL_SLOT_BYTES = 8;
+
+/** Where the block index sits inside a slot, after the generation stamp. */
+export const JOURNAL_SLOT_BLOCK_OFFSET = 4;
+
+/** First generation. Linear memory starts zeroed, so every slot reads as an older generation. */
+export const JOURNAL_FIRST_GENERATION = 1;
 
 export const JOURNAL_ENTRY_BYTES = JOURNAL_BLOCK_BYTES + 4;
 
@@ -31,6 +37,7 @@ export const JournalHeaderOffset = {
     CAPACITY: 16,
     STATE_SIZE: 20,
     TABLE_MASK: 24,
+    GENERATION: 28,
 } as const;
 
 export interface JournalHeader {
@@ -40,6 +47,8 @@ export interface JournalHeader {
     readonly capacity: number;
     readonly stateSize: number;
     readonly tableSlots: number;
+    /** Slots stamped with this value are live; anything else is a leftover and may be reused. */
+    readonly generation: number;
     /** Where the undo entries start, relative to the journal base. */
     readonly entriesOffset: number;
     readonly overflowed: boolean;
@@ -82,7 +91,8 @@ export function readJournalHeader(memory: Uint8Array, base: number): JournalHead
         capacity: view.getUint32(base + JournalHeaderOffset.CAPACITY, true),
         stateSize: view.getUint32(base + JournalHeaderOffset.STATE_SIZE, true),
         tableSlots,
-        entriesOffset: JOURNAL_HEADER_BYTES + tableSlots * 4,
+        generation: view.getUint32(base + JournalHeaderOffset.GENERATION, true),
+        entriesOffset: JOURNAL_HEADER_BYTES + tableSlots * JOURNAL_SLOT_BYTES,
         overflowed: (flags & JOURNAL_OVERFLOW_FLAG) !== 0,
     };
 }
@@ -110,14 +120,24 @@ export function readJournalBlocks(memory: Uint8Array, base: number, header: Jour
 }
 
 /**
- * Clears the counters and the probe table so the next dispatch starts empty. The module also exports
- * `__q_journal_reset`, but doing it host-side avoids a wasm call per dispatch.
+ * Starts the next dispatch empty by retiring the generation the probe table is stamped with, so the
+ * table costs nothing to clear however large it is. The module also exports `__q_journal_reset`, but
+ * doing it host-side avoids a wasm call per dispatch.
  */
 export function resetJournal(memory: Uint8Array, base: number, header: JournalHeader): void {
     const view = new DataView(memory.buffer, memory.byteOffset);
     view.setUint32(base + JournalHeaderOffset.FLAGS, 0, true);
     view.setUint32(base + JournalHeaderOffset.ENTRY_COUNT, 0, true);
-    memory.fill(0xff, base + JOURNAL_HEADER_BYTES, base + JOURNAL_HEADER_BYTES + header.tableSlots * 4);
+
+    const next = (view.getUint32(base + JournalHeaderOffset.GENERATION, true) + 1) >>> 0;
+    if (next === 0) {
+        // Wrapped: leftovers would read as live again, so this is the one dispatch that pays a clear.
+        memory.fill(0, base + JOURNAL_HEADER_BYTES, base + JOURNAL_HEADER_BYTES + header.tableSlots * JOURNAL_SLOT_BYTES);
+        view.setUint32(base + JournalHeaderOffset.GENERATION, JOURNAL_FIRST_GENERATION, true);
+        return;
+    }
+
+    view.setUint32(base + JournalHeaderOffset.GENERATION, next, true);
 }
 
 /**
@@ -139,19 +159,20 @@ export function noteHostWrite(memory: Uint8Array, base: number, header: JournalH
     const mask = header.tableSlots - 1;
     const tableAt = base + JOURNAL_HEADER_BYTES;
     const entriesAt = base + header.entriesOffset;
+    // Read live, not from the cached header: reset advances it between dispatches.
+    const generation = view.getUint32(base + JournalHeaderOffset.GENERATION, true);
 
     for (let block = relative >>> 8; block <= lastByte >>> 8; block++) {
         let slotIndex = Math.imul(block, JOURNAL_HASH_MULTIPLIER) & mask;
         let seen = false;
 
         for (;;) {
-            const slot = tableAt + slotIndex * 4;
-            const value = view.getUint32(slot, true);
-            if (value === block) {
-                seen = true;
+            const slot = tableAt + slotIndex * JOURNAL_SLOT_BYTES;
+            if (view.getUint32(slot, true) !== generation) {
                 break;
             }
-            if (value === JOURNAL_EMPTY_SLOT) {
+            if (view.getUint32(slot + JOURNAL_SLOT_BLOCK_OFFSET, true) === block) {
+                seen = true;
                 break;
             }
             slotIndex = (slotIndex + 1) & mask;
@@ -167,7 +188,8 @@ export function noteHostWrite(memory: Uint8Array, base: number, header: JournalH
             return;
         }
 
-        view.setUint32(tableAt + slotIndex * 4, block, true);
+        view.setUint32(tableAt + slotIndex * JOURNAL_SLOT_BYTES, generation, true);
+        view.setUint32(tableAt + slotIndex * JOURNAL_SLOT_BYTES + JOURNAL_SLOT_BLOCK_OFFSET, block, true);
 
         const destination = entriesAt + count * JOURNAL_ENTRY_BYTES;
         const offset = block * JOURNAL_BLOCK_BYTES;

@@ -4,7 +4,6 @@ import COUNTER_SOURCE from "../../../../fixtures/Counter.h" with { type: "text" 
 import BIG_STATE_SOURCE from "../../../../fixtures/BigState.h" with { type: "text" };
 import TOKEN_SOURCE from "../../../../fixtures/Token.h" with { type: "text" };
 import {
-    DEFAULT_JOURNAL_CAP_BYTES,
     InstrumentError,
     JOURNAL_RESET_EXPORT,
     capacityBlocksFor,
@@ -13,7 +12,8 @@ import {
     remapCodeOffset,
     tableSlotsFor,
 } from "../../src/wasm/instrument";
-import { JOURNAL_BLOCK_BYTES } from "../../src/wasm/journal";
+import { JOURNAL_BLOCK_BYTES, JOURNAL_SLOT_BYTES } from "../../src/wasm/journal";
+import { DEFAULT_JOURNAL_CAP_BYTES, JOURNAL_REGION_BYTES } from "../../src/wasm/sizing";
 
 /**
  * A module without the journal already baked in. The shared fixture loader caches compiled contracts
@@ -50,18 +50,25 @@ test("an instrumented module still validates and keeps the ABI exports", async (
     expect(exports).toContain(JOURNAL_RESET_EXPORT);
 });
 
-// The journal lives in the arena, so the module reports less of it than before: any host that respects
-// io_size() keeps out of the journal without being told it exists.
-test("io_size shrinks by exactly the journal size", async () => {
+// The journal lives past what the module reports, so io_size() is untouched: a host that knows nothing
+// about the journal still sees exactly the region it expects, and the contract keeps its whole arena.
+test("io_size is unchanged and the journal sits immediately past it", async () => {
     const bytes = await pristine(COUNTER_SOURCE, "Counter");
     const result = instrumentStateJournal(bytes);
 
-    const sizeOf = (wasm: Uint8Array<ArrayBuffer>) => {
+    const reported = (wasm: Uint8Array<ArrayBuffer>) => {
         const instance = new WebAssembly.Instance(new WebAssembly.Module(wasm), stubImports(wasm));
-        return (instance.exports as Record<string, () => number>).io_size!() >>> 0;
+        const exports = instance.exports as Record<string, () => number>;
+        return { base: exports.io_base!() >>> 0, size: exports.io_size!() >>> 0 };
     };
 
-    expect(sizeOf(bytes) - sizeOf(result.wasm)).toBe(result.journalBytes);
+    const before = reported(bytes);
+    const after = reported(result.wasm);
+
+    expect(after.size).toBe(before.size);
+    expect(after.base).toBe(before.base);
+    expect(result.journalBase).toBe(after.base + after.size);
+    expect(result.journalBytes).toBeLessThanOrEqual(JOURNAL_REGION_BYTES);
 });
 
 test("instrumenting an already-instrumented module is refused", async () => {
@@ -77,7 +84,7 @@ test("journal size follows capacity, not state size", () => {
 
     expect(small).toBe(1);
     expect(huge).toBe(Math.floor(DEFAULT_JOURNAL_CAP_BYTES / (JOURNAL_BLOCK_BYTES + 4)));
-    expect(journalBytesFor(huge)).toBeLessThan(DEFAULT_JOURNAL_CAP_BYTES * 2);
+    expect(journalBytesFor(huge)).toBeLessThan(DEFAULT_JOURNAL_CAP_BYTES + tableSlotsFor(huge) * JOURNAL_SLOT_BYTES + 64);
     // The table is a power of two and never more than half full, so a probe always finds a free slot.
     expect(tableSlotsFor(huge)).toBeGreaterThanOrEqual(huge * 2);
     expect(tableSlotsFor(huge) & (tableSlotsFor(huge) - 1)).toBe(0);

@@ -20,9 +20,9 @@ const WASM_CONTRACT_TESTING_H = WASM_CONTRACT_TESTING_H_TEMPLATE.replace("__QINI
  * A failure leaves the pristine artifact in place — the contract still deploys and the host falls back
  * to snapshot diffing — but it is reported, since the fallback silently costs a copy of the state.
  */
-function bakeStateJournal(wasmPath: string, lineMapPath: string | undefined): string | undefined {
+function bakeStateJournal(wasmPath: string, lineMapPath: string | undefined, journalCapBytes: number | undefined): string | undefined {
     try {
-        const result = instrumentStateJournal(new Uint8Array(readFileSync(wasmPath)));
+        const result = instrumentStateJournal(new Uint8Array(readFileSync(wasmPath)), journalCapBytes === undefined ? {} : { journalCapBytes });
         writeFileSync(wasmPath, result.wasm);
 
         if (!lineMapPath) {
@@ -80,6 +80,7 @@ export interface ClangBuildOptions {
     wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
     skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some Wasm macros)
     arenaSizeBytes?: number; // contract-side arena size (WASM_ARENA_SIZE), default 1GB; shrink for browser IDE builds
+    journalCapBytes?: number; // state-write journal budget; capacity is also capped by the reserved region
     testSource?: string; // core-lite contract_testing.h-style source compiled into a private Wasm runner
     testPath?: string; // display path for the test source (a #line directive maps EXPECT_* file:line back to it)
     extraCompileFlags?: string[]; // appended to the consuming compile only (not the PCH); used by the gtest
@@ -245,7 +246,12 @@ export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: s
         "-O0",
         "-g",
         "-DNDEBUG",
-        ...(o.arenaSizeBytes ? [`-DWASM_ARENA_SIZE=${o.arenaSizeBytes}`] : []),
+        // Explicit undefined check, not truthiness: the TypeScript backend rejects a 0 arena, so this one
+        // must not silently swap it for the header's 1 GiB default and emit a different artifact.
+        ...(o.arenaSizeBytes !== undefined ? [`-DWASM_ARENA_SIZE=${o.arenaSizeBytes}`] : []),
+        // Shared-memory modules are packed by a caller-computed stride and are never instrumented, so
+        // they must not reserve journal room past their carve.
+        ...(o.sharedMemoryBaseOffsetBytes !== undefined ? ["-DWASM_JOURNAL_SIZE=0"] : []),
         ...(sysroot ? [`--sysroot=${sysroot}`] : []),
         `-I${o.corePath}`,
         `-I${src}`,
@@ -306,10 +312,9 @@ export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: s
         } catch {}
 
         // After stripping, so DWARF is never rewritten; the line map is then shifted to match the code
-        // the deployed module actually contains. Shared memory is skipped: several modules share one
-        // arena there, so the journal has nowhere of its own.
+        // the deployed module actually contains. Shared memory reserves no journal room, so it is skipped.
         if (o.sharedMemoryBaseOffsetBytes === undefined && process.env.QINIT_NO_STATE_JOURNAL !== "1") {
-            stderr += bakeStateJournal(wasm, lineMapPath) ?? "";
+            stderr += bakeStateJournal(wasm, lineMapPath, o.journalCapBytes) ?? "";
         }
     }
     return {

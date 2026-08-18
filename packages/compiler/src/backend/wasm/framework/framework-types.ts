@@ -1,14 +1,14 @@
 import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
 import { type LhostAbiSpec } from "../lhost";
 import type { PlatformCapability } from "../calls/platform-primitives";
-import { USER_ENTRY_IO_BUFFER_SIZE_BYTES, USER_ENTRY_LOCALS_BUFFER_SIZE_BYTES } from "../../../shared/entry-abi";
+import { INPUT_BUFFER_BYTES, JOURNAL_REGION_BYTES, LOCALS_BUFFER_BYTES, OUTPUT_BUFFER_BYTES } from "@qinit/core/wasm/sizing";
 
 // WAT assembler for a complete contract module.
-export const IN_SZ = USER_ENTRY_IO_BUFFER_SIZE_BYTES;
+export const IN_SZ = INPUT_BUFFER_BYTES;
 
-export const OUT_SZ = USER_ENTRY_IO_BUFFER_SIZE_BYTES;
+export const OUT_SZ = OUTPUT_BUFFER_BYTES;
 
-export const LOCALS_SZ = USER_ENTRY_LOCALS_BUFFER_SIZE_BYTES;
+export const LOCALS_SZ = LOCALS_BUFFER_BYTES;
 
 export interface QpiContextLayout {
     size: number;
@@ -82,6 +82,7 @@ export function computeLayout(
         readonly size: number;
         readonly capacity: number;
     } = ASSET_ENUMERATION_RECORD,
+    reserveJournal = true,
 ): Layout {
     const align = (count: number, argument: number) => Math.ceil(count / argument) * argument;
     const stateBase = memBase;
@@ -93,8 +94,12 @@ export function computeLayout(
     const arenaBase = localsBase + LOCALS_SZ;
     const arenaEnd = arenaBase + arenaSize;
     const ioSize = IN_SZ + OUT_SZ + LOCALS_SZ + arenaSize;
+    // The write journal lives immediately past what io_size() reports, so a host finds it at
+    // io_base() + io_size() without the contract losing any arena. Shared-memory builds carry no
+    // journal and are packed by a stride the caller computes, so they must not reserve it.
+    const journalBytes = reserveJournal ? JOURNAL_REGION_BYTES : 0;
     // Reserve an aligned buffer for asset-iterator enumeration results.
-    const iterBufBase = align(arenaEnd, 16);
+    const iterBufBase = align(arenaEnd + journalBytes, 16);
     const iterBufSize = assetRecord.size * assetRecord.capacity;
     const pages = Math.ceil((iterBufBase + iterBufSize) / 65536) + 1;
     return {

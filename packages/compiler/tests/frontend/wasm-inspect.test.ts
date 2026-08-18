@@ -4,6 +4,7 @@ import { emitModule, type ModuleSpecification } from "../../src/backend/wasm/fra
 import { inspectWasmModule, LHOST_ABI, WASM_MODULE_EXPORT_ABI } from "../../src/driver/wasm-inspection";
 import { qpiContextLayout } from "../support/qpi-context-layout";
 import { HAS_CORE } from "../../../../test-utils/paths";
+import { JOURNAL_REGION_BYTES } from "@qinit/core/wasm/sizing";
 
 const SPEC: ModuleSpecification = {
     contractSlot: 29,
@@ -56,11 +57,13 @@ describe.skipIf(!HAS_CORE)("Wasm module inspection", () => {
         expect(result.ok).toBe(true);
         expect(result.diagnostics).toEqual([]);
         expect(result.memoryMode).toBe(InspectedMemoryMode.DEFINED);
+        // Six pages of state, context, IO and arena, plus the write-journal region reserved past them.
+        const pages = 6n + BigInt(JOURNAL_REGION_BYTES / 65536);
         expect(result.memories).toEqual([
             {
                 source: WasmMemorySource.DEFINED,
-                minimumPages: 6n,
-                maximumPages: 6n,
+                minimumPages: pages,
+                maximumPages: pages,
                 shared: false,
                 memory64: false,
             },

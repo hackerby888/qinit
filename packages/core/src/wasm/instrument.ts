@@ -6,14 +6,16 @@
 // static immediate, so `i64.store offset=N` becomes `i32.const N` + `call $__q_i64_store` and the
 // helper owns the address arithmetic — which is why no function needs extra locals.
 import {
-    JOURNAL_EMPTY_SLOT,
     JOURNAL_ENTRY_BYTES,
+    JOURNAL_FIRST_GENERATION,
     JOURNAL_FORMAT_VERSION,
     JOURNAL_BLOCK_BYTES,
     JOURNAL_HASH_MULTIPLIER,
     JOURNAL_HEADER_BYTES,
     JOURNAL_MAGIC,
     JOURNAL_OVERFLOW_FLAG,
+    JOURNAL_SLOT_BLOCK_OFFSET,
+    JOURNAL_SLOT_BYTES,
     JournalHeaderOffset,
 } from "./journal";
 import {
@@ -40,12 +42,7 @@ import {
     encodeMutableI32Global,
     type WasmTypeCode,
 } from "./wasm-emit";
-
-/** 64 KiB input + 64 KiB output + 32 KiB locals sit ahead of the scratch arena inside `io_size()`. */
-export const IO_BUFFER_BYTES = 64 * 1024 + 64 * 1024 + 32 * 1024;
-
-/** Default journal budget. Also clamped to a quarter of the arena, so a contract keeps its scratch. */
-export const DEFAULT_JOURNAL_CAP_BYTES = 1024 * 1024;
+import { DEFAULT_JOURNAL_CAP_BYTES, JOURNAL_REGION_BYTES } from "./sizing";
 
 export const JOURNAL_RESET_EXPORT = "__q_journal_reset";
 
@@ -131,7 +128,20 @@ export function tableSlotsFor(capacityBlocks: number): number {
 }
 
 export function journalBytesFor(capacityBlocks: number): number {
-    return JOURNAL_HEADER_BYTES + tableSlotsFor(capacityBlocks) * 4 + capacityBlocks * JOURNAL_ENTRY_BYTES;
+    return JOURNAL_HEADER_BYTES + tableSlotsFor(capacityBlocks) * JOURNAL_SLOT_BYTES + capacityBlocks * JOURNAL_ENTRY_BYTES;
+}
+
+/** Largest block count whose header, probe table and entries all fit the region reserved for them. */
+export function capacityFittingRegion(capacityBlocks: number): number {
+    let fitted = capacityBlocks;
+
+    while (fitted > 1 && journalBytesFor(fitted) > JOURNAL_REGION_BYTES) {
+        const tableBytes = tableSlotsFor(fitted) * JOURNAL_SLOT_BYTES;
+        const entryBudget = JOURNAL_REGION_BYTES - JOURNAL_HEADER_BYTES - tableBytes;
+        fitted = Math.min(fitted - 1, Math.max(1, Math.floor(entryBudget / JOURNAL_ENTRY_BYTES)));
+    }
+
+    return fitted;
 }
 
 interface ModuleView {
@@ -544,22 +554,17 @@ export function instrumentStateJournal(wasm: Uint8Array, options: InstrumentOpti
     const ioBase = constantAccessorValue(view, "io_base");
     const ioSize = constantAccessorValue(view, "io_size");
 
-    // Only the scratch arena inside io_size can be lent out, and never all of it: the contract still
-    // needs scratch to run in.
-    const arenaBytes = ioSize - IO_BUFFER_BYTES;
-    if (arenaBytes <= 0) {
-        throw new InstrumentError(`io_size ${ioSize} leaves no arena for a journal`);
-    }
+    // The journal sits past what io_size() reports, in memory reserved beside the arena, so the contract
+    // keeps every byte of scratch and a host that ignores the journal still sees the region it expects.
+    const capBytes = Math.max(JOURNAL_ENTRY_BYTES, options.journalCapBytes ?? DEFAULT_JOURNAL_CAP_BYTES);
+    const capacityBlocks = capacityFittingRegion(capacityBlocksFor(stateSize, capBytes));
 
-    const capBytes = Math.max(JOURNAL_ENTRY_BYTES, Math.min(options.journalCapBytes ?? DEFAULT_JOURNAL_CAP_BYTES, Math.floor(arenaBytes / 4)));
-    const capacityBlocks = capacityBlocksFor(stateSize, capBytes);
     const journalBytes = journalBytesFor(capacityBlocks);
     const tableSlots = tableSlotsFor(capacityBlocks);
-    const entriesOffset = JOURNAL_HEADER_BYTES + tableSlots * 4;
-    const shrunkIoSize = ioSize - journalBytes;
+    const entriesOffset = JOURNAL_HEADER_BYTES + tableSlots * JOURNAL_SLOT_BYTES;
 
-    if (shrunkIoSize <= IO_BUFFER_BYTES) {
-        throw new InstrumentError(`a ${journalBytes}-byte journal would leave no arena`);
+    if (journalBytes > JOURNAL_REGION_BYTES) {
+        throw new InstrumentError(`a ${journalBytes}-byte journal exceeds the ${JOURNAL_REGION_BYTES}-byte reserved region`);
     }
 
     // Instrumenting twice would duplicate the export and double-wrap every store, so it fails loudly
@@ -639,9 +644,6 @@ export function instrumentStateJournal(wasm: Uint8Array, options: InstrumentOpti
     });
     const rewrittenBodies = rewrites.map((rewrite) => rewrite.bytes);
 
-    const ioSizeBody = accessorIndex.get("io_size")! - view.importedFunctionCount;
-    rewrittenBodies[ioSizeBody] = rewriteConstantBody(view.bodies[ioSizeBody]!, shrunkIoSize);
-
     const helperBodies = emitHelpers({
         accessorIndex,
         layout,
@@ -663,7 +665,7 @@ export function instrumentStateJournal(wasm: Uint8Array, options: InstrumentOpti
 
     return {
         wasm: joinSections(sections),
-        journalBase: ioBase + shrunkIoSize,
+        journalBase: ioBase + ioSize,
         journalBytes,
         capacityBlocks,
         stateSize,
@@ -730,32 +732,6 @@ function buildOffsetMap(
     return offsetMap;
 }
 
-/** Re-encodes a `i32.const N; …` accessor body with a new constant. */
-function rewriteConstantBody(body: Uint8Array, value: number): Uint8Array {
-    const reader = new ByteReader(body);
-    reader.u32("body size");
-    const contentStart = reader.position;
-
-    const localGroups = reader.u32("local group count");
-    for (let index = 0; index < localGroups; index++) {
-        reader.u32("local count");
-        reader.byte("local type");
-    }
-
-    const constantStart = reader.position;
-    if (reader.byte("first opcode") !== Op.I32_CONST) {
-        throw new InstrumentError("accessor body does not begin with i32.const");
-    }
-    reader.i32("accessor constant");
-
-    const rebuilt = new ByteWriter();
-    rebuilt.bytes(body.subarray(contentStart, constantStart));
-    rebuilt.byte(Op.I32_CONST).i32(value);
-    rebuilt.bytes(body.subarray(reader.position));
-
-    const encoded = rebuilt.toBytes();
-    return new ByteWriter().u32(encoded.length).bytes(encoded).toBytes();
-}
 
 interface HelperContext {
     readonly accessorIndex: Map<AccessorName, number>;
@@ -796,6 +772,7 @@ function emitInit(context: HelperContext): Uint8Array {
     code.localGet(journal).constI32(context.capacityBlocks).memory(Op.I32_STORE, JournalHeaderOffset.CAPACITY);
     code.localGet(journal).globalGet(context.sizeGlobal).memory(Op.I32_STORE, JournalHeaderOffset.STATE_SIZE);
     code.localGet(journal).constI32(context.tableSlots - 1).memory(Op.I32_STORE, JournalHeaderOffset.TABLE_MASK);
+    code.localGet(journal).constI32(JOURNAL_FIRST_GENERATION).memory(Op.I32_STORE, JournalHeaderOffset.GENERATION);
 
     // Set before the reset call, or reset would see an unready journal and recurse back into init.
     code.constI32(1).globalSet(context.readyGlobal);
@@ -806,7 +783,8 @@ function emitInit(context: HelperContext): Uint8Array {
 
 function emitReset(context: HelperContext): Uint8Array {
     const journal = 0;
-    const code = new CodeEmitter([{ count: 1, type: WasmType.I32 }]);
+    const generation = 1;
+    const code = new CodeEmitter([{ count: 2, type: WasmType.I32 }]);
 
     code.globalGet(context.readyGlobal).op(Op.I32_EQZ);
     code.if(() => {
@@ -816,8 +794,17 @@ function emitReset(context: HelperContext): Uint8Array {
     code.globalGet(context.journalGlobal).localTee(journal);
     code.constI32(0).memory(Op.I32_STORE, JournalHeaderOffset.FLAGS);
     code.localGet(journal).constI32(0).memory(Op.I32_STORE, JournalHeaderOffset.ENTRY_COUNT);
-    code.localGet(journal).constI32(JOURNAL_HEADER_BYTES).op(Op.I32_ADD);
-    code.constI32(0xff).constI32(context.tableSlots * 4).bulk(BULK_MEMORY_FILL, 0);
+
+    // Retiring the generation frees every slot at once, so the table costs nothing to clear.
+    code.localGet(journal).memory(Op.I32_LOAD, JournalHeaderOffset.GENERATION).constI32(1).op(Op.I32_ADD).localSet(generation);
+    code.localGet(generation).op(Op.I32_EQZ);
+    code.if(() => {
+        // Wrapped: leftovers would read as live again, so this one dispatch pays a clear.
+        code.localGet(journal).constI32(JOURNAL_HEADER_BYTES).op(Op.I32_ADD);
+        code.constI32(0).constI32(context.tableSlots * JOURNAL_SLOT_BYTES).bulk(BULK_MEMORY_FILL, 0);
+        code.constI32(JOURNAL_FIRST_GENERATION).localSet(generation);
+    });
+    code.localGet(journal).localGet(generation).memory(Op.I32_STORE, JournalHeaderOffset.GENERATION);
 
     return code.finish();
 }
@@ -835,7 +822,7 @@ function emitNote(context: HelperContext): Uint8Array {
     const journal = 5;
     const slotIndex = 6;
     const slot = 7;
-    const value = 8;
+    const generation = 8;
     const count = 9;
     const destination = 10;
     const copyLength = 11;
@@ -858,6 +845,7 @@ function emitNote(context: HelperContext): Uint8Array {
 
     code.localGet(lastBlock).constI32(8).op(Op.I32_SHR_U).localSet(lastBlock);
     code.globalGet(context.journalGlobal).localSet(journal);
+    code.localGet(journal).memory(Op.I32_LOAD, JournalHeaderOffset.GENERATION).localSet(generation);
     code.localGet(relative).constI32(8).op(Op.I32_SHR_U).localSet(block);
 
     code.block("done", () => {
@@ -871,10 +859,10 @@ function emitNote(context: HelperContext): Uint8Array {
                 code.block("placed", () => {
                     code.loop("probe", () => {
                         code.localGet(journal).constI32(JOURNAL_HEADER_BYTES).op(Op.I32_ADD);
-                        code.localGet(slotIndex).constI32(2).op(Op.I32_SHL).op(Op.I32_ADD).localTee(slot);
-                        code.memory(Op.I32_LOAD).localTee(value);
-                        code.localGet(block).op(Op.I32_EQ).brIf("seen");
-                        code.localGet(value).constI32(JOURNAL_EMPTY_SLOT | 0).op(Op.I32_EQ).brIf("placed");
+                        code.localGet(slotIndex).constI32(3).op(Op.I32_SHL).op(Op.I32_ADD).localTee(slot);
+                        // A slot stamped with any other generation is a leftover: take it.
+                        code.memory(Op.I32_LOAD).localGet(generation).op(Op.I32_EQ).op(Op.I32_EQZ).brIf("placed");
+                        code.localGet(slot).memory(Op.I32_LOAD, JOURNAL_SLOT_BLOCK_OFFSET).localGet(block).op(Op.I32_EQ).brIf("seen");
                         code.localGet(slotIndex).constI32(1).op(Op.I32_ADD).constI32(context.tableSlots - 1).op(Op.I32_AND).localSet(slotIndex);
                         code.br("probe");
                     });
@@ -889,7 +877,8 @@ function emitNote(context: HelperContext): Uint8Array {
                     code.br("done");
                 });
 
-                code.localGet(slot).localGet(block).memory(Op.I32_STORE);
+                code.localGet(slot).localGet(generation).memory(Op.I32_STORE);
+                code.localGet(slot).localGet(block).memory(Op.I32_STORE, JOURNAL_SLOT_BLOCK_OFFSET);
 
                 code.localGet(journal).constI32(context.entriesOffset).op(Op.I32_ADD);
                 code.localGet(count).constI32(JOURNAL_ENTRY_BYTES).op(Op.I32_MUL).op(Op.I32_ADD).localTee(destination);

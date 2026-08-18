@@ -8,6 +8,7 @@ export interface CompileOptions {
     contractName: string;
     slot: number;
     arenaSizeBytes?: number;
+    journalCapBytes?: number;
     callees?: ContractIdl[];
     calleeSources?: Array<{
         name: string;

@@ -29,6 +29,8 @@ interface FixtureDefinitionBase {
     readonly source: string;
     readonly contractName: string;
     readonly slot: number;
+    /** Shrinks the state-write journal so a fixture can overflow it without needing a huge state. */
+    readonly journalCapBytes?: number;
 }
 
 interface FixtureDefinition<Dependencies extends readonly string[] | undefined> extends FixtureDefinitionBase {
@@ -41,6 +43,7 @@ function fixture<const Dependencies extends readonly string[] | undefined = unde
     contractName: string,
     slot: number,
     dependencies?: Dependencies,
+    journalCapBytes?: number,
 ): FixtureDefinition<Dependencies> {
     return {
         sourceFile,
@@ -48,6 +51,7 @@ function fixture<const Dependencies extends readonly string[] | undefined = unde
         contractName,
         slot,
         ...(dependencies ? { dependencies } : {}),
+        ...(journalCapBytes === undefined ? {} : { journalCapBytes }),
     };
 }
 
@@ -82,7 +86,9 @@ export const wasmFixtureManifest = {
     Vault: fixture("Vault.h", VAULT_SOURCE, "Vault", 28),
     Vault29: fixture("Vault.h", VAULT_SOURCE, "Vault", 29),
     Watcher: fixture("Watcher.h", WATCHER_SOURCE, "Watcher", 28),
-    WideWrite: fixture("WideWrite.h", WIDE_WRITE_SOURCE, "WideWrite", 28),
+    // A 64 KiB journal holds ~250 blocks against a 2048-block state, so the overflow rung stays
+    // reachable without a state large enough to exhaust the real budget.
+    WideWrite: fixture("WideWrite.h", WIDE_WRITE_SOURCE, "WideWrite", 28, undefined, 64 * 1024),
 } as const;
 
 export type WasmFixtureName = keyof typeof wasmFixtureManifest;
@@ -145,6 +151,7 @@ async function compileFixtureUncached(name: WasmFixtureName): Promise<CompileRes
             contractName: definition.contractName,
             slot: definition.slot,
             arenaSizeBytes: FIXTURE_ARENA_SIZE,
+            ...(definition.journalCapBytes === undefined ? {} : { journalCapBytes: definition.journalCapBytes }),
             ...(callees.length > 0 ? { callees, calleeSources } : {}),
         });
         const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
