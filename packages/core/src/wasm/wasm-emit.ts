@@ -113,8 +113,8 @@ export class CodeEmitter {
         return this.op(opcode).u32(align).u32(offset);
     }
 
-    bulk(operation: number, ...immediates: number[]): this {
-        this.op(Op.PREFIX_FC).u32(operation);
+    bulk(subOpcode: number, ...immediates: number[]): this {
+        this.op(Op.PREFIX_FC).u32(subOpcode);
         for (const immediate of immediates) {
             this.u32(immediate);
         }
@@ -156,15 +156,15 @@ export class CodeEmitter {
 
     /** The complete body entry: locals vector, code, `end`, prefixed with its byte size. */
     finish(): Uint8Array {
-        const body = new ByteWriter();
-        body.u32(this.localGroups.length);
+        const bodyWriter = new ByteWriter();
+        bodyWriter.u32(this.localGroups.length);
         for (const group of this.localGroups) {
-            body.u32(group.count).byte(group.type);
+            bodyWriter.u32(group.count).byte(group.type);
         }
-        body.bytes(this.writer.toBytes());
-        body.byte(Op.END);
+        bodyWriter.bytes(this.writer.toBytes());
+        bodyWriter.byte(Op.END);
 
-        const encoded = body.toBytes();
+        const encoded = bodyWriter.toBytes();
         return new ByteWriter().u32(encoded.length).bytes(encoded).toBytes();
     }
 }

@@ -121,7 +121,7 @@ test("an overflowing call truncates, arms the fallback, and the next call is com
 
         const header = readJournalHeader(new Uint8Array(contract.mem.buffer), contract.arenaEnd)!;
         const blocksInState = Math.ceil(header.stateSize / 256);
-        expect(blocksInState).toBeGreaterThan(header.capacity);
+        expect(blocksInState).toBeGreaterThan(header.capacityBlocks);
 
         sim.setDebug(true);
         sim.procedure(slot, 1, u64(1n));

@@ -6,16 +6,19 @@
 // static immediate, so `i64.store offset=N` becomes `i32.const N` + `call $__q_i64_store` and the
 // helper owns the address arithmetic — which is why no function needs extra locals.
 import {
+    JOURNAL_BLOCK_BYTES,
+    JOURNAL_BLOCK_SHIFT,
     JOURNAL_ENTRY_BYTES,
+    JOURNAL_ENTRY_DATA_OFFSET,
     JOURNAL_FIRST_GENERATION,
     JOURNAL_FORMAT_VERSION,
-    JOURNAL_BLOCK_BYTES,
     JOURNAL_HASH_MULTIPLIER,
     JOURNAL_HEADER_BYTES,
     JOURNAL_MAGIC,
     JOURNAL_OVERFLOW_FLAG,
-    JOURNAL_SLOT_BLOCK_OFFSET,
+    JOURNAL_SLOT_BLOCK_INDEX_OFFSET,
     JOURNAL_SLOT_BYTES,
+    JOURNAL_SLOT_SHIFT,
     JournalHeaderOffset,
 } from "./journal";
 import {
@@ -757,22 +760,22 @@ function emitHelpers(context: HelperContext): Uint8Array[] {
 
 /** Resolves the journal base and writes the header. Runs once, lazily, from whichever helper is first. */
 function emitInit(context: HelperContext): Uint8Array {
-    const journal = 0;
+    const journalBase = 0;
     const code = new CodeEmitter([{ count: 1, type: WasmType.I32 }]);
 
     code.call(context.accessorIndex.get("state_addr")!).globalSet(context.stateGlobal);
     code.call(context.accessorIndex.get("state_size")!).globalSet(context.sizeGlobal);
     code.call(context.accessorIndex.get("io_base")!).call(context.accessorIndex.get("io_size")!).op(Op.I32_ADD);
-    code.localTee(journal).globalSet(context.journalGlobal);
+    code.localTee(journalBase).globalSet(context.journalGlobal);
 
-    code.localGet(journal).constI32(0).constI32(JOURNAL_HEADER_BYTES).bulk(BULK_MEMORY_FILL, 0);
+    code.localGet(journalBase).constI32(0).constI32(JOURNAL_HEADER_BYTES).bulk(BULK_MEMORY_FILL, 0);
 
-    code.localGet(journal).constI32(JOURNAL_MAGIC).memory(Op.I32_STORE, JournalHeaderOffset.MAGIC);
-    code.localGet(journal).constI32(JOURNAL_FORMAT_VERSION).memory(Op.I32_STORE, JournalHeaderOffset.VERSION);
-    code.localGet(journal).constI32(context.capacityBlocks).memory(Op.I32_STORE, JournalHeaderOffset.CAPACITY);
-    code.localGet(journal).globalGet(context.sizeGlobal).memory(Op.I32_STORE, JournalHeaderOffset.STATE_SIZE);
-    code.localGet(journal).constI32(context.tableSlots - 1).memory(Op.I32_STORE, JournalHeaderOffset.TABLE_MASK);
-    code.localGet(journal).constI32(JOURNAL_FIRST_GENERATION).memory(Op.I32_STORE, JournalHeaderOffset.GENERATION);
+    code.localGet(journalBase).constI32(JOURNAL_MAGIC).memory(Op.I32_STORE, JournalHeaderOffset.MAGIC);
+    code.localGet(journalBase).constI32(JOURNAL_FORMAT_VERSION).memory(Op.I32_STORE, JournalHeaderOffset.VERSION);
+    code.localGet(journalBase).constI32(context.capacityBlocks).memory(Op.I32_STORE, JournalHeaderOffset.CAPACITY);
+    code.localGet(journalBase).globalGet(context.sizeGlobal).memory(Op.I32_STORE, JournalHeaderOffset.STATE_SIZE);
+    code.localGet(journalBase).constI32(context.tableSlots - 1).memory(Op.I32_STORE, JournalHeaderOffset.TABLE_MASK);
+    code.localGet(journalBase).constI32(JOURNAL_FIRST_GENERATION).memory(Op.I32_STORE, JournalHeaderOffset.GENERATION);
 
     // Set before the reset call, or reset would see an unready journal and recurse back into init.
     code.constI32(1).globalSet(context.readyGlobal);
@@ -782,7 +785,7 @@ function emitInit(context: HelperContext): Uint8Array {
 }
 
 function emitReset(context: HelperContext): Uint8Array {
-    const journal = 0;
+    const journalBase = 0;
     const generation = 1;
     const code = new CodeEmitter([{ count: 2, type: WasmType.I32 }]);
 
@@ -791,20 +794,20 @@ function emitReset(context: HelperContext): Uint8Array {
         code.call(context.layout.initIndex).op(Op.RETURN);
     });
 
-    code.globalGet(context.journalGlobal).localTee(journal);
+    code.globalGet(context.journalGlobal).localTee(journalBase);
     code.constI32(0).memory(Op.I32_STORE, JournalHeaderOffset.FLAGS);
-    code.localGet(journal).constI32(0).memory(Op.I32_STORE, JournalHeaderOffset.ENTRY_COUNT);
+    code.localGet(journalBase).constI32(0).memory(Op.I32_STORE, JournalHeaderOffset.ENTRY_COUNT);
 
     // Retiring the generation frees every slot at once, so the table costs nothing to clear.
-    code.localGet(journal).memory(Op.I32_LOAD, JournalHeaderOffset.GENERATION).constI32(1).op(Op.I32_ADD).localSet(generation);
+    code.localGet(journalBase).memory(Op.I32_LOAD, JournalHeaderOffset.GENERATION).constI32(1).op(Op.I32_ADD).localSet(generation);
     code.localGet(generation).op(Op.I32_EQZ);
     code.if(() => {
         // Wrapped: leftovers would read as live again, so this one dispatch pays a clear.
-        code.localGet(journal).constI32(JOURNAL_HEADER_BYTES).op(Op.I32_ADD);
+        code.localGet(journalBase).constI32(JOURNAL_HEADER_BYTES).op(Op.I32_ADD);
         code.constI32(0).constI32(context.tableSlots * JOURNAL_SLOT_BYTES).bulk(BULK_MEMORY_FILL, 0);
         code.constI32(JOURNAL_FIRST_GENERATION).localSet(generation);
     });
-    code.localGet(journal).localGet(generation).memory(Op.I32_STORE, JournalHeaderOffset.GENERATION);
+    code.localGet(journalBase).localGet(generation).memory(Op.I32_STORE, JournalHeaderOffset.GENERATION);
 
     return code.finish();
 }
@@ -816,88 +819,89 @@ function emitReset(context: HelperContext): Uint8Array {
 function emitNote(context: HelperContext): Uint8Array {
     const address = 0;
     const length = 1;
-    const relative = 2;
-    const lastBlock = 3;
-    const block = 4;
-    const journal = 5;
+    const relativeByteOffset = 2;
+    const lastByteOffset = 3;
+    const blockIndex = 4;
+    const journalBase = 5;
     const slotIndex = 6;
-    const slot = 7;
+    const slotAddress = 7;
     const generation = 8;
-    const count = 9;
-    const destination = 10;
+    const entryCount = 9;
+    const entryAddress = 10;
     const copyLength = 11;
+    const lastBlockIndex = 12;
 
-    const code = new CodeEmitter([{ count: 10, type: WasmType.I32 }]);
+    const code = new CodeEmitter([{ count: 11, type: WasmType.I32 }]);
 
     code.localGet(length).op(Op.I32_EQZ);
     code.if(() => {
         code.op(Op.RETURN);
     });
 
-    code.localGet(address).globalGet(context.stateGlobal).op(Op.I32_SUB).localTee(relative);
-    code.localGet(length).op(Op.I32_ADD).constI32(1).op(Op.I32_SUB).localSet(lastBlock);
+    code.localGet(address).globalGet(context.stateGlobal).op(Op.I32_SUB).localTee(relativeByteOffset);
+    code.localGet(length).op(Op.I32_ADD).constI32(1).op(Op.I32_SUB).localSet(lastByteOffset);
 
     // A write may run past the end of the state; clamp so the tail block is not read out of bounds.
-    code.localGet(lastBlock).globalGet(context.sizeGlobal).op(Op.I32_GE_U);
+    code.localGet(lastByteOffset).globalGet(context.sizeGlobal).op(Op.I32_GE_U);
     code.if(() => {
-        code.globalGet(context.sizeGlobal).constI32(1).op(Op.I32_SUB).localSet(lastBlock);
+        code.globalGet(context.sizeGlobal).constI32(1).op(Op.I32_SUB).localSet(lastByteOffset);
     });
 
-    code.localGet(lastBlock).constI32(8).op(Op.I32_SHR_U).localSet(lastBlock);
-    code.globalGet(context.journalGlobal).localSet(journal);
-    code.localGet(journal).memory(Op.I32_LOAD, JournalHeaderOffset.GENERATION).localSet(generation);
-    code.localGet(relative).constI32(8).op(Op.I32_SHR_U).localSet(block);
+    code.localGet(lastByteOffset).constI32(JOURNAL_BLOCK_SHIFT).op(Op.I32_SHR_U).localSet(lastBlockIndex);
+    code.globalGet(context.journalGlobal).localSet(journalBase);
+    code.localGet(journalBase).memory(Op.I32_LOAD, JournalHeaderOffset.GENERATION).localSet(generation);
+    code.localGet(relativeByteOffset).constI32(JOURNAL_BLOCK_SHIFT).op(Op.I32_SHR_U).localSet(blockIndex);
 
     code.block("done", () => {
         code.loop("next", () => {
-            code.localGet(block).localGet(lastBlock).op(Op.I32_GT_U).brIf("done");
+            code.localGet(blockIndex).localGet(lastBlockIndex).op(Op.I32_GT_U).brIf("done");
 
             code.block("seen", () => {
-                code.localGet(block).constI32(JOURNAL_HASH_MULTIPLIER).op(Op.I32_MUL);
+                code.localGet(blockIndex).constI32(JOURNAL_HASH_MULTIPLIER).op(Op.I32_MUL);
                 code.constI32(context.tableSlots - 1).op(Op.I32_AND).localSet(slotIndex);
 
                 code.block("placed", () => {
                     code.loop("probe", () => {
-                        code.localGet(journal).constI32(JOURNAL_HEADER_BYTES).op(Op.I32_ADD);
-                        code.localGet(slotIndex).constI32(3).op(Op.I32_SHL).op(Op.I32_ADD).localTee(slot);
+                        code.localGet(journalBase).constI32(JOURNAL_HEADER_BYTES).op(Op.I32_ADD);
+                        code.localGet(slotIndex).constI32(JOURNAL_SLOT_SHIFT).op(Op.I32_SHL).op(Op.I32_ADD).localTee(slotAddress);
                         // A slot stamped with any other generation is a leftover: take it.
                         code.memory(Op.I32_LOAD).localGet(generation).op(Op.I32_EQ).op(Op.I32_EQZ).brIf("placed");
-                        code.localGet(slot).memory(Op.I32_LOAD, JOURNAL_SLOT_BLOCK_OFFSET).localGet(block).op(Op.I32_EQ).brIf("seen");
+                        code.localGet(slotAddress).memory(Op.I32_LOAD, JOURNAL_SLOT_BLOCK_INDEX_OFFSET).localGet(blockIndex).op(Op.I32_EQ).brIf("seen");
                         code.localGet(slotIndex).constI32(1).op(Op.I32_ADD).constI32(context.tableSlots - 1).op(Op.I32_AND).localSet(slotIndex);
                         code.br("probe");
                     });
                 });
 
-                code.localGet(journal).memory(Op.I32_LOAD, JournalHeaderOffset.ENTRY_COUNT).localSet(count);
-                code.localGet(count).constI32(context.capacityBlocks).op(Op.I32_GE_U);
+                code.localGet(journalBase).memory(Op.I32_LOAD, JournalHeaderOffset.ENTRY_COUNT).localSet(entryCount);
+                code.localGet(entryCount).constI32(context.capacityBlocks).op(Op.I32_GE_U);
                 code.if(() => {
-                    code.localGet(journal);
-                    code.localGet(journal).memory(Op.I32_LOAD, JournalHeaderOffset.FLAGS);
+                    code.localGet(journalBase);
+                    code.localGet(journalBase).memory(Op.I32_LOAD, JournalHeaderOffset.FLAGS);
                     code.constI32(JOURNAL_OVERFLOW_FLAG).op(Op.I32_OR).memory(Op.I32_STORE, JournalHeaderOffset.FLAGS);
                     code.br("done");
                 });
 
-                code.localGet(slot).localGet(generation).memory(Op.I32_STORE);
-                code.localGet(slot).localGet(block).memory(Op.I32_STORE, JOURNAL_SLOT_BLOCK_OFFSET);
+                code.localGet(slotAddress).localGet(generation).memory(Op.I32_STORE);
+                code.localGet(slotAddress).localGet(blockIndex).memory(Op.I32_STORE, JOURNAL_SLOT_BLOCK_INDEX_OFFSET);
 
-                code.localGet(journal).constI32(context.entriesOffset).op(Op.I32_ADD);
-                code.localGet(count).constI32(JOURNAL_ENTRY_BYTES).op(Op.I32_MUL).op(Op.I32_ADD).localTee(destination);
-                code.localGet(block).memory(Op.I32_STORE);
+                code.localGet(journalBase).constI32(context.entriesOffset).op(Op.I32_ADD);
+                code.localGet(entryCount).constI32(JOURNAL_ENTRY_BYTES).op(Op.I32_MUL).op(Op.I32_ADD).localTee(entryAddress);
+                code.localGet(blockIndex).memory(Op.I32_STORE);
 
-                code.globalGet(context.sizeGlobal).localGet(block).constI32(8).op(Op.I32_SHL).op(Op.I32_SUB).localTee(copyLength);
+                code.globalGet(context.sizeGlobal).localGet(blockIndex).constI32(JOURNAL_BLOCK_SHIFT).op(Op.I32_SHL).op(Op.I32_SUB).localTee(copyLength);
                 code.constI32(JOURNAL_BLOCK_BYTES).op(Op.I32_GT_U);
                 code.if(() => {
                     code.constI32(JOURNAL_BLOCK_BYTES).localSet(copyLength);
                 });
 
-                code.localGet(destination).constI32(4).op(Op.I32_ADD);
-                code.globalGet(context.stateGlobal).localGet(block).constI32(8).op(Op.I32_SHL).op(Op.I32_ADD);
+                code.localGet(entryAddress).constI32(JOURNAL_ENTRY_DATA_OFFSET).op(Op.I32_ADD);
+                code.globalGet(context.stateGlobal).localGet(blockIndex).constI32(JOURNAL_BLOCK_SHIFT).op(Op.I32_SHL).op(Op.I32_ADD);
                 code.localGet(copyLength).bulk(BULK_MEMORY_COPY, 0, 0);
 
-                code.localGet(journal).localGet(count).constI32(1).op(Op.I32_ADD).memory(Op.I32_STORE, JournalHeaderOffset.ENTRY_COUNT);
+                code.localGet(journalBase).localGet(entryCount).constI32(1).op(Op.I32_ADD).memory(Op.I32_STORE, JournalHeaderOffset.ENTRY_COUNT);
             });
 
-            code.localGet(block).constI32(1).op(Op.I32_ADD).localSet(block);
+            code.localGet(blockIndex).constI32(1).op(Op.I32_ADD).localSet(blockIndex);
             code.br("next");
         });
     });
@@ -910,16 +914,16 @@ function emitNote(context: HelperContext): Uint8Array {
  * them — costs a compare rather than a second call.
  */
 function emitStoreHelper(context: HelperContext, kind: StoreKind): Uint8Array {
-    const address = 0;
+    const baseAddress = 0;
     const value = 1;
     const offset = 2;
-    const effective = 3;
+    const targetAddress = 3;
 
     const code = new CodeEmitter([{ count: 1, type: WasmType.I32 }]);
 
-    code.localGet(address).localGet(offset).op(Op.I32_ADD).localTee(effective);
+    code.localGet(baseAddress).localGet(offset).op(Op.I32_ADD).localTee(targetAddress);
     // Wrapping past 2^32 would turn an out-of-bounds trap into a write somewhere else entirely.
-    code.localGet(address).op(Op.I32_LT_U);
+    code.localGet(baseAddress).op(Op.I32_LT_U);
     code.if(() => {
         code.op(Op.UNREACHABLE);
     });
@@ -929,19 +933,19 @@ function emitStoreHelper(context: HelperContext, kind: StoreKind): Uint8Array {
         code.call(context.layout.initIndex);
     });
 
-    code.localGet(effective).globalGet(context.stateGlobal).op(Op.I32_SUB).globalGet(context.sizeGlobal).op(Op.I32_LT_U);
+    code.localGet(targetAddress).globalGet(context.stateGlobal).op(Op.I32_SUB).globalGet(context.sizeGlobal).op(Op.I32_LT_U);
     code.if(() => {
-        code.localGet(effective).constI32(kind.bytes).call(context.layout.noteIndex);
+        code.localGet(targetAddress).constI32(kind.bytes).call(context.layout.noteIndex);
     });
 
-    code.localGet(effective).localGet(value).memory(kind.opcode);
+    code.localGet(targetAddress).localGet(value).memory(kind.opcode);
 
     return code.finish();
 }
 
 function emitBulkHelper(context: HelperContext, operation: number): Uint8Array {
     const destination = 0;
-    const source = 1;
+    const sourceOrValue = 1;
     const length = 2;
 
     const code = new CodeEmitter();
@@ -952,7 +956,7 @@ function emitBulkHelper(context: HelperContext, operation: number): Uint8Array {
     });
 
     code.localGet(destination).localGet(length).call(context.layout.noteIndex);
-    code.localGet(destination).localGet(source).localGet(length);
+    code.localGet(destination).localGet(sourceOrValue).localGet(length);
     if (operation === BULK_MEMORY_COPY) {
         code.bulk(BULK_MEMORY_COPY, 0, 0);
     } else {

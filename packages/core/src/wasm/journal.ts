@@ -5,6 +5,9 @@
 /** Undo granularity. Matches the engine's diff window, so journal output equals a snapshot diff. */
 export const JOURNAL_BLOCK_BYTES = 256;
 
+/** log2(JOURNAL_BLOCK_BYTES): block index ⇄ byte offset. */
+export const JOURNAL_BLOCK_SHIFT = 8;
+
 /** "QJRN" — identifies an instrumented module without asking the module anything. */
 export const JOURNAL_MAGIC = 0x514a524e;
 
@@ -15,13 +18,19 @@ export const JOURNAL_HEADER_BYTES = 32;
 /** Probe-table slot: the generation that claimed it, then the block it holds. */
 export const JOURNAL_SLOT_BYTES = 8;
 
+/** log2(JOURNAL_SLOT_BYTES): slot index → slot address. */
+export const JOURNAL_SLOT_SHIFT = 3;
+
 /** Where the block index sits inside a slot, after the generation stamp. */
-export const JOURNAL_SLOT_BLOCK_OFFSET = 4;
+export const JOURNAL_SLOT_BLOCK_INDEX_OFFSET = 4;
 
 /** First generation. Linear memory starts zeroed, so every slot reads as an older generation. */
 export const JOURNAL_FIRST_GENERATION = 1;
 
-export const JOURNAL_ENTRY_BYTES = JOURNAL_BLOCK_BYTES + 4;
+/** Byte offset of the original bytes inside an entry, after the leading block index. */
+export const JOURNAL_ENTRY_DATA_OFFSET = 4;
+
+export const JOURNAL_ENTRY_BYTES = JOURNAL_BLOCK_BYTES + JOURNAL_ENTRY_DATA_OFFSET;
 
 export const JOURNAL_OVERFLOW_FLAG = 1;
 
@@ -44,7 +53,7 @@ export interface JournalHeader {
     readonly version: number;
     readonly flags: number;
     readonly entryCount: number;
-    readonly capacity: number;
+    readonly capacityBlocks: number;
     readonly stateSize: number;
     readonly tableSlots: number;
     /** Slots stamped with this value are live; anything else is a leftover and may be reused. */
@@ -88,7 +97,7 @@ export function readJournalHeader(memory: Uint8Array, base: number): JournalHead
         version,
         flags,
         entryCount: view.getUint32(base + JournalHeaderOffset.ENTRY_COUNT, true),
-        capacity: view.getUint32(base + JournalHeaderOffset.CAPACITY, true),
+        capacityBlocks: view.getUint32(base + JournalHeaderOffset.CAPACITY, true),
         stateSize: view.getUint32(base + JournalHeaderOffset.STATE_SIZE, true),
         tableSlots,
         generation: view.getUint32(base + JournalHeaderOffset.GENERATION, true),
@@ -113,7 +122,7 @@ export function readJournalBlocks(memory: Uint8Array, base: number, header: Jour
             continue;
         }
 
-        blocks.push({ block, offset, before: memory.subarray(at + 4, at + 4 + length) });
+        blocks.push({ block, offset, before: memory.subarray(at + JOURNAL_ENTRY_DATA_OFFSET, at + JOURNAL_ENTRY_DATA_OFFSET + length) });
     }
 
     return blocks;
@@ -162,7 +171,7 @@ export function noteHostWrite(memory: Uint8Array, base: number, header: JournalH
     // Read live, not from the cached header: reset advances it between dispatches.
     const generation = view.getUint32(base + JournalHeaderOffset.GENERATION, true);
 
-    for (let block = relative >>> 8; block <= lastByte >>> 8; block++) {
+    for (let block = relative >>> JOURNAL_BLOCK_SHIFT; block <= lastByte >>> JOURNAL_BLOCK_SHIFT; block++) {
         let slotIndex = Math.imul(block, JOURNAL_HASH_MULTIPLIER) & mask;
         let seen = false;
 
@@ -171,7 +180,7 @@ export function noteHostWrite(memory: Uint8Array, base: number, header: JournalH
             if (view.getUint32(slot, true) !== generation) {
                 break;
             }
-            if (view.getUint32(slot + JOURNAL_SLOT_BLOCK_OFFSET, true) === block) {
+            if (view.getUint32(slot + JOURNAL_SLOT_BLOCK_INDEX_OFFSET, true) === block) {
                 seen = true;
                 break;
             }
@@ -183,19 +192,19 @@ export function noteHostWrite(memory: Uint8Array, base: number, header: JournalH
         }
 
         const count = view.getUint32(base + JournalHeaderOffset.ENTRY_COUNT, true);
-        if (count >= header.capacity) {
+        if (count >= header.capacityBlocks) {
             view.setUint32(base + JournalHeaderOffset.FLAGS, view.getUint32(base + JournalHeaderOffset.FLAGS, true) | JOURNAL_OVERFLOW_FLAG, true);
             return;
         }
 
         view.setUint32(tableAt + slotIndex * JOURNAL_SLOT_BYTES, generation, true);
-        view.setUint32(tableAt + slotIndex * JOURNAL_SLOT_BYTES + JOURNAL_SLOT_BLOCK_OFFSET, block, true);
+        view.setUint32(tableAt + slotIndex * JOURNAL_SLOT_BYTES + JOURNAL_SLOT_BLOCK_INDEX_OFFSET, block, true);
 
         const destination = entriesAt + count * JOURNAL_ENTRY_BYTES;
         const offset = block * JOURNAL_BLOCK_BYTES;
         const copyLength = Math.min(JOURNAL_BLOCK_BYTES, header.stateSize - offset);
         view.setUint32(destination, block, true);
-        memory.copyWithin(destination + 4, stateAddr + offset, stateAddr + offset + copyLength);
+        memory.copyWithin(destination + JOURNAL_ENTRY_DATA_OFFSET, stateAddr + offset, stateAddr + offset + copyLength);
         view.setUint32(base + JournalHeaderOffset.ENTRY_COUNT, count + 1, true);
     }
 }
