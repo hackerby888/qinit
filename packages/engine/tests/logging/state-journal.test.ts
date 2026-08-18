@@ -8,6 +8,10 @@ const WHO = new Uint8Array(32).fill(7);
 
 interface Drive {
     readonly fixture: WasmFixtureName;
+    /** Contracts the driver calls into. Each keeps its own instance, its own memory and its own journal. */
+    readonly callees?: readonly WasmFixtureName[];
+    /** Traced entries expected, so a drive cannot quietly stop covering its callees. */
+    readonly entries?: number;
     readonly run: (sim: QubicSimulator, slot: number) => void;
 }
 
@@ -30,13 +34,18 @@ function withJournalEnabled<T>(body: () => T): T {
 async function bothMechanisms(drive: Drive): Promise<{ journal: DebugStateRegion[][]; snapshot: DebugStateRegion[][]; truncated: boolean[] }> {
     const slot = wasmFixtureManifest[drive.fixture].slot;
     const bytes = await wasm(drive.fixture);
+    const callees = await Promise.all((drive.callees ?? []).map(async (name) => [wasmFixtureManifest[name].slot, await wasm(name)] as const));
 
+    // Every traced entry is compared, callees included, not just the driver's own.
     const collect = () => {
         const sim = new QubicSimulator({ fees: "off" });
+        for (const [calleeSlot, calleeBytes] of callees) {
+            sim.deploy(calleeSlot, calleeBytes);
+        }
         sim.deploy(slot, bytes);
         sim.setDebug(true);
         drive.run(sim, slot);
-        const entries = sim.getTrace().entries.filter((entry) => entry.index === slot);
+        const entries = sim.getTrace().entries;
         return { diffs: entries.map((entry) => entry.stateDiff), truncated: entries.map((entry) => entry.stateTruncated) };
     };
 
@@ -68,7 +77,8 @@ test("journal diffs match snapshot diffs byte for byte", async () => {
         { fixture: "Vault", run: (sim, slot) => sim.procedure(slot, 1) },
         { fixture: "Trap", run: (sim, slot) => sim.procedure(slot, 1) },
         { fixture: "DigestProbe", run: (sim, slot) => sim.procedure(slot, 1) },
-        { fixture: "QpiDual", run: (sim, slot) => sim.procedure(slot, 1) },
+        // Caller and callee are separate instances with separate memories, so each keeps its own journal.
+        { fixture: "QpiDual", callees: ["QpiDualCallee"], entries: 4, run: (sim, slot) => sim.procedure(slot, 1) },
         // Two calls in a row: the second must diff against the first's result, not against zero.
         {
             fixture: "Counter",
@@ -82,6 +92,9 @@ test("journal diffs match snapshot diffs byte for byte", async () => {
     for (const drive of drives) {
         const { journal, snapshot } = await bothMechanisms(drive);
         expect(journal, `${drive.fixture} diverged from the snapshot oracle`).toEqual(snapshot);
+        if (drive.entries !== undefined) {
+            expect(journal.length, `${drive.fixture} traced fewer contracts than expected`).toBe(drive.entries);
+        }
     }
 });
 
