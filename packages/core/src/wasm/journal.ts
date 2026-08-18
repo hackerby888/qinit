@@ -1,9 +1,9 @@
 // State-write journal baked into a contract module by `instrument.ts`. The contract records the
-// original bytes of every state granule it is the first to overwrite, so a host can report what
+// original bytes of every state block it is the first to overwrite, so a host can report what
 // changed without keeping a copy of the state.
 
 /** Undo granularity. Matches the engine's diff window, so journal output equals a snapshot diff. */
-export const JOURNAL_GRANULE_BYTES = 256;
+export const JOURNAL_BLOCK_BYTES = 256;
 
 /** "QJRN" — identifies an instrumented module without asking the module anything. */
 export const JOURNAL_MAGIC = 0x514a524e;
@@ -15,7 +15,7 @@ export const JOURNAL_HEADER_BYTES = 32;
 /** Empty slot marker in the probe table; also the reset fill byte, repeated. */
 export const JOURNAL_EMPTY_SLOT = 0xffffffff;
 
-export const JOURNAL_ENTRY_BYTES = JOURNAL_GRANULE_BYTES + 4;
+export const JOURNAL_ENTRY_BYTES = JOURNAL_BLOCK_BYTES + 4;
 
 export const JOURNAL_OVERFLOW_FLAG = 1;
 
@@ -45,9 +45,9 @@ export interface JournalHeader {
     readonly overflowed: boolean;
 }
 
-export interface JournalGranule {
-    readonly granule: number;
-    /** Byte offset of the granule inside the contract state. */
+export interface JournalBlock {
+    readonly block: number;
+    /** Byte offset of the block inside the contract state. */
     readonly offset: number;
     readonly before: Uint8Array;
 }
@@ -87,26 +87,26 @@ export function readJournalHeader(memory: Uint8Array, base: number): JournalHead
     };
 }
 
-/** The granules this dispatch was the first to write, in journal order, with their original bytes. */
-export function readJournalGranules(memory: Uint8Array, base: number, header: JournalHeader): JournalGranule[] {
+/** The blocks this dispatch was the first to write, in journal order, with their original bytes. */
+export function readJournalBlocks(memory: Uint8Array, base: number, header: JournalHeader): JournalBlock[] {
     const view = new DataView(memory.buffer, memory.byteOffset);
     const entriesAt = base + header.entriesOffset;
-    const granules: JournalGranule[] = [];
+    const blocks: JournalBlock[] = [];
 
     for (let index = 0; index < header.entryCount; index++) {
         const at = entriesAt + index * JOURNAL_ENTRY_BYTES;
-        const granule = view.getUint32(at, true);
-        const offset = granule * JOURNAL_GRANULE_BYTES;
-        // The last granule of a state is short whenever the state is not a multiple of the granule.
-        const length = Math.min(JOURNAL_GRANULE_BYTES, header.stateSize - offset);
+        const block = view.getUint32(at, true);
+        const offset = block * JOURNAL_BLOCK_BYTES;
+        // The last block of a state is short whenever the state is not a multiple of the block.
+        const length = Math.min(JOURNAL_BLOCK_BYTES, header.stateSize - offset);
         if (length <= 0) {
             continue;
         }
 
-        granules.push({ granule, offset, before: memory.subarray(at + 4, at + 4 + length) });
+        blocks.push({ block, offset, before: memory.subarray(at + 4, at + 4 + length) });
     }
 
-    return granules;
+    return blocks;
 }
 
 /**
@@ -140,14 +140,14 @@ export function noteHostWrite(memory: Uint8Array, base: number, header: JournalH
     const tableAt = base + JOURNAL_HEADER_BYTES;
     const entriesAt = base + header.entriesOffset;
 
-    for (let granule = relative >>> 8; granule <= lastByte >>> 8; granule++) {
-        let slotIndex = Math.imul(granule, JOURNAL_HASH_MULTIPLIER) & mask;
+    for (let block = relative >>> 8; block <= lastByte >>> 8; block++) {
+        let slotIndex = Math.imul(block, JOURNAL_HASH_MULTIPLIER) & mask;
         let seen = false;
 
         for (;;) {
             const slot = tableAt + slotIndex * 4;
             const value = view.getUint32(slot, true);
-            if (value === granule) {
+            if (value === block) {
                 seen = true;
                 break;
             }
@@ -167,12 +167,12 @@ export function noteHostWrite(memory: Uint8Array, base: number, header: JournalH
             return;
         }
 
-        view.setUint32(tableAt + slotIndex * 4, granule, true);
+        view.setUint32(tableAt + slotIndex * 4, block, true);
 
         const destination = entriesAt + count * JOURNAL_ENTRY_BYTES;
-        const offset = granule * JOURNAL_GRANULE_BYTES;
-        const copyLength = Math.min(JOURNAL_GRANULE_BYTES, header.stateSize - offset);
-        view.setUint32(destination, granule, true);
+        const offset = block * JOURNAL_BLOCK_BYTES;
+        const copyLength = Math.min(JOURNAL_BLOCK_BYTES, header.stateSize - offset);
+        view.setUint32(destination, block, true);
         memory.copyWithin(destination + 4, stateAddr + offset, stateAddr + offset + copyLength);
         view.setUint32(base + JournalHeaderOffset.ENTRY_COUNT, count + 1, true);
     }

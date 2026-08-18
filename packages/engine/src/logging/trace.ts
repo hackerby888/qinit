@@ -1,7 +1,7 @@
 // Records VirtualNode debug traces for CLI and IDE inspection.
 import { toHex } from "../support/k12";
 import type { DebugEntry, DebugTrace, DebugStateRegion } from "@qinit/core";
-import { JOURNAL_GRANULE_BYTES, readJournalGranules, type JournalHeader } from "@qinit/core/wasm/journal";
+import { JOURNAL_BLOCK_BYTES, readJournalBlocks, type JournalHeader } from "@qinit/core/wasm/journal";
 import { asBuffer, type Id } from "../support/bytes";
 
 export const TRACE_ENTRY_CAP = 8192; // ring-buffer the entries so a long session can't grow unbounded
@@ -49,34 +49,34 @@ export function diffRegions(before: Uint8Array, after: Uint8Array): DebugStateRe
 
 /**
  * The same regions `diffRegions` produces, from the contract's own write journal instead of a copy of
- * the state. Granules the contract wrote without changing are dropped before adjacent ones are merged,
+ * the state. Blocks the contract wrote without changing are dropped before adjacent ones are merged,
  * so a write of an identical value never widens its neighbour's region.
  */
 export function journalRegions(memory: Uint8Array, journalBase: number, stateAddr: number, header: JournalHeader): DebugStateRegion[] {
     const buffer = asBuffer(memory);
-    const changed: { granule: number; before: Uint8Array; after: Uint8Array }[] = [];
+    const changed: { block: number; before: Uint8Array; after: Uint8Array }[] = [];
 
-    for (const entry of readJournalGranules(memory, journalBase, header)) {
+    for (const entry of readJournalBlocks(memory, journalBase, header)) {
         const liveAt = stateAddr + entry.offset;
         const beforeAt = entry.before.byteOffset - memory.byteOffset;
         if (buffer.compare(buffer, beforeAt, beforeAt + entry.before.length, liveAt, liveAt + entry.before.length) === 0) {
             continue;
         }
-        changed.push({ granule: entry.granule, before: entry.before.slice(), after: memory.slice(liveAt, liveAt + entry.before.length) });
+        changed.push({ block: entry.block, before: entry.before.slice(), after: memory.slice(liveAt, liveAt + entry.before.length) });
     }
 
-    changed.sort((left, right) => left.granule - right.granule);
+    changed.sort((left, right) => left.block - right.block);
 
     const regions: DebugStateRegion[] = [];
     for (let index = 0; index < changed.length; ) {
         let end = index;
-        while (end + 1 < changed.length && changed[end + 1]!.granule === changed[end]!.granule + 1) {
+        while (end + 1 < changed.length && changed[end + 1]!.block === changed[end]!.block + 1) {
             end++;
         }
 
         const run = changed.slice(index, end + 1);
         regions.push({
-            off: run[0]!.granule * JOURNAL_GRANULE_BYTES,
+            off: run[0]!.block * JOURNAL_BLOCK_BYTES,
             before: run.map((part) => toHex(part.before)).join(""),
             after: run.map((part) => toHex(part.after)).join(""),
         });
@@ -110,7 +110,7 @@ export interface TraceEndMetadata {
     stateChanged?: boolean;
     /** Regions the caller already resolved, from the contract's write journal rather than a snapshot. */
     stateDiff?: DebugStateRegion[];
-    /** Journal overflow: the contract wrote more granules than the journal could record. */
+    /** Journal overflow: the contract wrote more blocks than the journal could record. */
     stateTruncated?: boolean;
     execNs: number;
 }

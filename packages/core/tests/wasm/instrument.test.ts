@@ -7,13 +7,13 @@ import {
     DEFAULT_JOURNAL_CAP_BYTES,
     InstrumentError,
     JOURNAL_RESET_EXPORT,
-    capacityGranulesFor,
+    capacityBlocksFor,
     instrumentStateJournal,
     journalBytesFor,
     remapCodeOffset,
     tableSlotsFor,
 } from "../../src/wasm/instrument";
-import { JOURNAL_GRANULE_BYTES } from "../../src/wasm/journal";
+import { JOURNAL_BLOCK_BYTES } from "../../src/wasm/journal";
 
 /**
  * A module without the journal already baked in. The shared fixture loader caches compiled contracts
@@ -71,12 +71,12 @@ test("instrumenting an already-instrumented module is refused", async () => {
 });
 
 test("journal size follows capacity, not state size", () => {
-    // A bit-per-granule map would cost 450 KB for a 923 MB state; the probe table is capacity-sized.
-    const small = capacityGranulesFor(8, DEFAULT_JOURNAL_CAP_BYTES);
-    const huge = capacityGranulesFor(923_559_560, DEFAULT_JOURNAL_CAP_BYTES);
+    // A bit-per-block map would cost 450 KB for a 923 MB state; the probe table is capacity-sized.
+    const small = capacityBlocksFor(8, DEFAULT_JOURNAL_CAP_BYTES);
+    const huge = capacityBlocksFor(923_559_560, DEFAULT_JOURNAL_CAP_BYTES);
 
     expect(small).toBe(1);
-    expect(huge).toBe(Math.floor(DEFAULT_JOURNAL_CAP_BYTES / (JOURNAL_GRANULE_BYTES + 4)));
+    expect(huge).toBe(Math.floor(DEFAULT_JOURNAL_CAP_BYTES / (JOURNAL_BLOCK_BYTES + 4)));
     expect(journalBytesFor(huge)).toBeLessThan(DEFAULT_JOURNAL_CAP_BYTES * 2);
     // The table is a power of two and never more than half full, so a probe always finds a free slot.
     expect(tableSlotsFor(huge)).toBeGreaterThanOrEqual(huge * 2);

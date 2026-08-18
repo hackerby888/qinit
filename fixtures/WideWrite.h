@@ -1,4 +1,4 @@
-// Rewrites half a megabyte of state in one call — more granules than the write journal can hold, so it
+// Rewrites half a megabyte of state in one call — more blocks than the write journal can hold, so it
 // exercises the overflow path and the fallback to snapshot diffing.
 using namespace QPI;
 

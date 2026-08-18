@@ -554,7 +554,7 @@ export class Contract {
     /**
      * What the journal recorded during the dispatch that just ran. Counters move during the call, so the
      * header is re-read rather than reused. An overflow arms the shadow fallback for the next call — the
-     * before-image of the granules it missed is already gone, so this call can only report truncation.
+     * before-image of the blocks it missed is already gone, so this call can only report truncation.
      */
     private journalOutcome(): { stateDiff: DebugStateRegion[]; stateChanged: boolean; stateTruncated: boolean } {
         const memory = this.u8();

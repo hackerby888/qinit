@@ -110,7 +110,7 @@ test("a state field written by the host, not by the contract, still reaches the 
     expect(journal).toEqual(snapshot);
 });
 
-// More granules than the journal holds: that call can only say "truncated", and the contract falls back
+// More blocks than the journal holds: that call can only say "truncated", and the contract falls back
 // to snapshot diffing from the next call, which must then be complete again.
 test("an overflowing call truncates, arms the fallback, and the next call is complete", async () => {
     const slot = wasmFixtureManifest.WideWrite.slot;
@@ -120,8 +120,8 @@ test("an overflowing call truncates, arms the fallback, and the next call is com
         const contract = sim.deploy(slot, bytes) as unknown as { mem: WebAssembly.Memory; arenaEnd: number };
 
         const header = readJournalHeader(new Uint8Array(contract.mem.buffer), contract.arenaEnd)!;
-        const granulesInState = Math.ceil(header.stateSize / 256);
-        expect(granulesInState).toBeGreaterThan(header.capacity);
+        const blocksInState = Math.ceil(header.stateSize / 256);
+        expect(blocksInState).toBeGreaterThan(header.capacity);
 
         sim.setDebug(true);
         sim.procedure(slot, 1, u64(1n));
