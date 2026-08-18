@@ -2,16 +2,50 @@ import { ASSET_ENUMERATION_RECORD, LHOST_ABI, type DebugStateRegion, type LhostI
 import { k12Bytes, toHex } from "../support/k12";
 import { asBuffer, bytesEqual, type Id } from "../support/bytes";
 import { noteHostWrite, readJournalHeader, resetJournal, type JournalHeader } from "@qinit/core/wasm/journal";
-import { journalRegions, type TraceRecorder } from "../logging/trace";
+import { diffRegions, journalRegions, type TraceRecorder } from "../logging/trace";
 import { QpiContext } from "./abi";
 import { EntityRecord, M256i } from "../protocol/wire";
 import { validateContractIndexSignature } from "./wasm-contract-index";
 
 const EMPTY = new Uint8Array(0);
 
+function stateDiffMode(): string | undefined {
+    return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.QINIT_STATE_DIFF;
+}
+
 /** `QINIT_STATE_DIFF=snapshot` ignores a baked journal and diffs by copying, as the engine used to. */
 function snapshotDiffForced(): boolean {
-    return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.QINIT_STATE_DIFF === "snapshot";
+    return stateDiffMode() === "snapshot";
+}
+
+/**
+ * `QINIT_STATE_DIFF=verify` runs both mechanisms on every dispatch and throws when they disagree. It
+ * turns any suite into a journal validator: a write path the rewriter missed shows up as a mismatch on
+ * the contract and call that made it, rather than as a diff nobody notices is short.
+ */
+function journalVerifyEnabled(): boolean {
+    return stateDiffMode() === "verify";
+}
+
+/** Where two region lists first differ, short enough to read in a test failure. */
+function firstRegionMismatch(journal: readonly DebugStateRegion[], snapshot: readonly DebugStateRegion[]): string | undefined {
+    for (let index = 0; index < Math.max(journal.length, snapshot.length); index++) {
+        const left = journal[index];
+        const right = snapshot[index];
+        if (!left) {
+            return `journal missed the write at +${right!.off}`;
+        }
+        if (!right) {
+            return `journal reported a write at +${left.off} the snapshot did not see`;
+        }
+        if (left.off !== right.off) {
+            return `region ${index} is at +${left.off} but the snapshot has +${right.off}`;
+        }
+        if (left.before !== right.before || left.after !== right.after) {
+            return `region ${index} at +${left.off} holds different bytes`;
+        }
+    }
+    return undefined;
 }
 
 const ENV_NOOP = new Set(["addDebugMessageAssert"]);
@@ -538,6 +572,28 @@ export class Contract {
     }
 
     /**
+     * Compares what the journal reported against a real before/after diff of the same dispatch, and
+     * throws on any disagreement. A truncated diff is skipped: overflow reports an incomplete diff by
+     * design, and the fallback covers it from the next call.
+     */
+    private verifyJournal(before: Uint8Array, outcome: { stateDiff: DebugStateRegion[]; stateTruncated: boolean }, kind: number, inputType: number): void {
+        if (outcome.stateTruncated) {
+            return;
+        }
+
+        const expected = diffRegions(before, this.stateView(this.stateSize));
+        const mismatch = firstRegionMismatch(outcome.stateDiff, expected);
+        if (!mismatch) {
+            return;
+        }
+
+        throw new Error(
+            `state journal disagrees with the snapshot on slot ${this.slot} kind ${kind} entry ${inputType}: ` +
+                `${mismatch} (journal ${outcome.stateDiff.length} regions, snapshot ${expected.length})`,
+        );
+    }
+
+    /**
      * Records a host write into contract state. Store instrumentation only sees the contract's own
      * stores, and several lhost imports write through an out-pointer a contract may aim at its state.
      */
@@ -651,7 +707,9 @@ export class Contract {
         this.cost = 0n;
 
         const recorder = this.trace?.enabled ? this.trace : null;
-        const wantState = metering || recorder != null;
+        // Verify mode wants the state on every dispatch, so an untraced, unmetered call is checked too.
+        const verifying = journalVerifyEnabled();
+        const wantState = metering || recorder != null || verifying;
         const snapshotLimit = this.stateSize;
         // A nested frame keeps explicit copies: it would otherwise advance the shadow mid-call and destroy the
         // outer frame's before-image.
@@ -664,6 +722,7 @@ export class Contract {
             resetJournal(this.u8(), this.journalBase, this.journal!);
         }
         const stateBefore = wantState && !useJournal ? (useShadow ? this.shadowBefore() : this.stateSnapshot(snapshotLimit)) : EMPTY;
+        const verifyBefore = useJournal && verifying ? this.stateSnapshot(snapshotLimit) : EMPTY;
         const traceEntry = recorder
             ? recorder.begin({
                   tick: this.host.tick(),
@@ -704,6 +763,11 @@ export class Contract {
                     execNs: (performance.now() - startedAt) * 1e6,
                 });
             }
+            // Checked after the trace entry closes: a trap leaves partial writes behind, which is exactly
+            // where a missed write path would hide.
+            if (trapOutcome && verifying) {
+                this.verifyJournal(verifyBefore, trapOutcome, kind, inputType);
+            }
             throw error instanceof ContractExecutionError ? error : new ContractExecutionError(this.slot, kind, inputType, error);
         } finally {
             this.executionKinds.pop();
@@ -735,6 +799,9 @@ export class Contract {
                 ...(outcome ? { stateDiff: outcome.stateDiff, stateTruncated: outcome.stateTruncated } : {}),
                 execNs: (performance.now() - startedAt) * 1e6,
             });
+        }
+        if (outcome && verifying) {
+            this.verifyJournal(verifyBefore, outcome, kind, inputType);
         }
         // After the recorder has read the before-image, not before.
         if (useShadow && stateChanged) {

@@ -1447,6 +1447,16 @@ The clang path (`packages/build/src/compile/clang.ts`) does the same after `llvm
 debug line map through the rewriter's offset map. `QINIT_NO_STATE_JOURNAL=1` builds without one;
 gtest shared-memory builds skip it, since several modules share one arena there.
 
+The walker is fail-closed: an opcode outside the portable profile — SIMD, atomics, `memory.init` —
+aborts the build rather than passing through uninstrumented, so a write path can never be missed
+silently. Host-side, `QINIT_STATE_DIFF=verify` runs the journal and a real snapshot diff on every
+dispatch and throws when they disagree, which turns any suite into a journal validator:
+
+```bash
+QINIT_STATE_DIFF=verify bun test          # every dispatch checked against the snapshot oracle
+QINIT_STATE_DIFF=snapshot bun test        # ignore the journal, diff by copying
+```
+
 Then Qinit runs:
 
 ```ts

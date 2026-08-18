@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { loadWasmFixture as wasm, wasmFixtureManifest, type WasmFixtureName } from "../../../../test-utils/wasm-fixtures";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import { readJournalHeader } from "@qinit/core/wasm/journal";
+import { JournalHeaderOffset, readJournalHeader } from "@qinit/core/wasm/journal";
 import type { DebugStateRegion } from "@qinit/core";
 
 const WHO = new Uint8Array(32).fill(7);
@@ -163,6 +163,33 @@ test("QINIT_STATE_DIFF=snapshot ignores a baked journal", async () => {
         const sim = new QubicSimulator({ fees: "off" });
         const contract = sim.deploy(28, await wasm("Counter")) as unknown as { journal: unknown };
         expect(contract.journal).toBeNull();
+    } finally {
+        if (saved === undefined) {
+            delete process.env.QINIT_STATE_DIFF;
+        } else {
+            process.env.QINIT_STATE_DIFF = saved;
+        }
+    }
+});
+
+// Verify mode exists to catch a write path the journal misses. It only earns that if it checks calls
+// nobody traced, so this drives an untraced contract and plants a host write the journal cannot see.
+test("QINIT_STATE_DIFF=verify checks dispatches no recorder asked about", async () => {
+    const saved = process.env.QINIT_STATE_DIFF;
+    process.env.QINIT_STATE_DIFF = "verify";
+    try {
+        const sim = new QubicSimulator({ fees: "off" });
+        const contract = sim.deploy(28, await wasm("Counter"));
+        sim.procedure(28, 1);
+
+        // Debug was never switched on, so the only reason state was diffed at all is verify mode.
+        expect(sim.getTrace().entries.length).toBe(0);
+
+        // Blind the journal to the state it covers. It then under-reports exactly as a missed write path
+        // would, and verify mode has to notice a write the contract really made.
+        const view = contract as unknown as { mem: WebAssembly.Memory; arenaEnd: number };
+        new DataView(view.mem.buffer).setUint32(view.arenaEnd + JournalHeaderOffset.STATE_SIZE, 0, true);
+        expect(() => sim.procedure(28, 1)).toThrow(/journal disagrees with the snapshot/);
     } finally {
         if (saved === undefined) {
             delete process.env.QINIT_STATE_DIFF;
