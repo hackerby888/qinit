@@ -188,10 +188,11 @@ async function renderValue(bytes: Uint8Array, type: AbiType): Promise<string> {
 }
 
 // Occupation flags and BitArrays are packed, so report the indices that moved, not the raw words.
-function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, after: Uint8Array): StateDiffLine[] {
+// `firstIndex` is the index the visible slice starts at, so a window opening inside the flags reports too.
+function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, after: Uint8Array, firstIndex: number): StateDiffLine[] {
     const rows: StateDiffLine[] = [];
     const valueAt = (bytes: Uint8Array, index: number) => {
-        const bit = index * leaf.bitsPer;
+        const bit = (index - firstIndex) * leaf.bitsPer;
         const byte = bytes[bit >> 3];
         if (byte === undefined) {
             return undefined;
@@ -200,7 +201,7 @@ function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, afte
         return (byte >> (bit & 7)) & mask;
     };
 
-    for (let index = 0; index < leaf.count; index++) {
+    for (let index = firstIndex; index < leaf.count; index++) {
         const from = valueAt(before, index);
         const to = valueAt(after, index);
         if (from === undefined || to === undefined || from === to) {
@@ -271,11 +272,12 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
             const slice = (bytes: Uint8Array, from: number, to: number) => bytes.slice(from - region.off, to - region.off);
 
             if (leaf.kind === "bits") {
-                const flagsEnd = Math.min(leaf.off + leaf.size, end);
-                if (leaf.off >= region.off) {
-                    rows.push(...bitRows(leaf, slice(before, leaf.off, flagsEnd), slice(after, leaf.off, flagsEnd)));
-                }
-                position = flagsEnd;
+                // The whole flags run starts at `leaf.off`, which may be windows behind this one.
+                const visibleStart = Math.max(leaf.off, region.off);
+                const visibleEnd = Math.min(leaf.off + leaf.size, end);
+                const firstIndex = ((visibleStart - leaf.off) * 8) / leaf.bitsPer;
+                rows.push(...bitRows(leaf, slice(before, visibleStart, visibleEnd), slice(after, visibleStart, visibleEnd), firstIndex));
+                position = visibleEnd;
                 continue;
             }
 

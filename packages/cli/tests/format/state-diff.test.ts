@@ -252,3 +252,41 @@ test("a Collection element value smaller than its slot is reported once", async 
 
     expect(lines.map((line) => [line.label, line.detail, line.text])).toEqual([["queue[1]", "queue._elements[1].value", "0 → 9"]]);
 });
+
+// Packed flags run past one 256-byte window as soon as a container is big, and core reports the window
+// that changed, not the run that contains it. Resolving from the run's start dropped every such row.
+const BIG_SRC = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData {
+    HashMap<uint64, uint64, 4096> big;
+    BitArray<4096> wide;
+  };
+  INITIALIZE() {}
+};`;
+
+const BIG_FIELDS = stateFieldsOf(extractIdl(BIG_SRC, "Big", { slot: 7 }));
+const BIG_STATE_SIZE = 68000;
+const bigOffsetOf = (name: string) => BIG_FIELDS.find((field) => field.name === name)!.off;
+
+const bigRowsFor = async (write: (after: Uint8Array) => void, span: { off: number; length: number }) => {
+    const before = new Uint8Array(BIG_STATE_SIZE);
+    const after = before.slice();
+    write(after);
+
+    const lines = await stateDiffLines(BIG_FIELDS, [region(before, after, span.off, span.length)]);
+    return lines.map((line) => `${line.label} ${line.text}`);
+};
+
+test("an occupation flag reports from a window that opens inside the flags", async () => {
+    const flags = bigOffsetOf("big") + 4096 * 16; // the records come first, then the flags
+    const window = flags + 512; // a 256-byte block well past the start of the run
+
+    expect(await bigRowsFor((after) => (after[flags + 750] = 1), { off: window, length: 256 })).toEqual(["big._occupationFlags[3000] 0 → 1"]);
+});
+
+test("a BitArray reports from a window that opens past its first block", async () => {
+    const wide = bigOffsetOf("wide");
+
+    expect(await bigRowsFor((after) => (after[wide + 375] = 1), { off: wide + 256, length: 256 })).toEqual(["wide[3000] 0 → 1"]);
+});
