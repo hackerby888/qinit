@@ -144,8 +144,9 @@ test("describeTrace: decodes proc input, caller, log enum, and captured state di
     expect(v.logs).toHaveLength(1);
     expect(v.logs[0].typeName).toBe("Bumped"); // enum Kind: 1 -> Bumped
     expect(v.logs[0].fields).toEqual({ _contractIndex: 0, _type: 1, value: 9n });
+    // The entry reads as one line named by its key — here the all-zero id the fixture stores in slot 0.
     expect(v.stateDiff.map(({ label, text, internal }) => ({ label, text, internal }))).toEqual([
-        { label: "bal.slot[0].value", text: "0 → 42", internal: false },
+        { label: "bal[AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFXIB]", text: "= 42 (new)", internal: false },
         {
             label: "bal._occupationFlags[0]",
             text: "0 → 1",

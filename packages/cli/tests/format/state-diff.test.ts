@@ -76,9 +76,9 @@ test("a struct element decodes whole, with its member names", async () => {
     ).toEqual(["points[2] 0 → {x: 508, y: 842}"]);
 });
 
-// A HashMap write touches the record, the occupation flags and the population counter. The record and the
-// entry total are the contract's own; the flags are bookkeeping the default view leaves out.
-test("HashMap internals resolve to slot, flags and population", async () => {
+// A HashMap write touches the record, the occupation flags and the population counter. The record reads as
+// one entry named by its key; the bucket it hashed into stays on the full path, with the flags, below.
+test("a HashMap insert reads as one entry named by its key", async () => {
     const map = offsetOf("map");
     const lines = await linesFor(
         (after) => {
@@ -96,12 +96,12 @@ test("HashMap internals resolve to slot, flags and population", async () => {
             detail: "map.slot[4].key",
             text: "0 → 11",
             filled: true,
-            internal: false,
+            internal: true,
         },
         {
-            label: "map.slot[4].value",
+            label: "map[11]",
             detail: "map.slot[4].value",
-            text: "0 → 101",
+            text: "= 101 (new)",
             filled: true,
             internal: false,
         },
@@ -122,9 +122,8 @@ test("HashMap internals resolve to slot, flags and population", async () => {
     ]);
 });
 
-// A HashSet slot is the key alone, so it has no member name below the slot; the removal counter and the
-// flags stay internal.
-test("HashSet internals resolve to slot, flags and population", async () => {
+// A HashSet slot is the key alone, with no value member below it, so the key row is what carries the entry.
+test("a HashSet insert reads as one entry named by its key", async () => {
     const set = offsetOf("set");
     const lines = await linesFor(
         (after) => {
@@ -136,9 +135,165 @@ test("HashSet internals resolve to slot, flags and population", async () => {
     );
 
     expect(lines.map((line) => [line.label, line.detail, line.text, line.internal])).toEqual([
-        ["set.slot[4]", "set.slot[4]", "0 → 11", false],
+        ["set[11]", "set.slot[4]", "(new)", false],
         ["set._occupationFlags[4]", "set._occupationFlags[4]", "0 → 1", true],
         ["set", "set._population", "0 → 1 entries", false],
+    ]);
+});
+
+// An entry's own history — an update, a removal, a reused tombstone — needs a before image that already
+// holds something, so these seed the state instead of starting from zero.
+const MAP = offsetOf("map");
+const MAP_FLAGS = MAP + 128;
+const MAP_POPULATION = MAP + 136;
+const WHOLE_MAP = { off: MAP, length: 152 };
+const mapKey = (slot: number) => MAP + slot * 16;
+const mapValue = (slot: number) => mapKey(slot) + 8;
+
+// 0b00 free, 0b01 occupied, 0b10 occupied but marked for removal — two bits per slot, as core packs them.
+const setFlag = (state: Uint8Array, slot: number, value: number) => {
+    const bit = slot * 2;
+    const index = MAP_FLAGS + (bit >> 3);
+    state[index] = (state[index] & ~(3 << (bit & 7))) | (value << (bit & 7));
+};
+
+const changeRows = async (seed: (state: Uint8Array) => void, write: (after: Uint8Array) => void, spans: { off: number; length: number }[]) => {
+    const before = new Uint8Array(STATE_SIZE);
+    seed(before);
+    const after = before.slice();
+    write(after);
+
+    const lines = await stateDiffLines(
+        FIELDS,
+        spans.map((span) => region(before, after, span.off, span.length)),
+    );
+    return lines.map((line) => [line.label, line.text, line.internal]);
+};
+
+const liveEntry = (state: Uint8Array) => {
+    writeLe(state, mapKey(4), 11, 8);
+    writeLe(state, mapValue(4), 101, 8);
+    setFlag(state, 4, 1);
+    writeLe(state, MAP_POPULATION, 1, 8);
+};
+
+// Nothing about the slot changes on an update, so the key never gets a row of its own — it is read from the
+// window instead, which is the only reason the line can still name it.
+test("a HashMap update names the live key and keeps the arrow", async () => {
+    expect(await changeRows(liveEntry, (after) => writeLe(after, mapValue(4), 202, 8), [WHOLE_MAP])).toEqual([["map[11]", "101 → 202", false]]);
+});
+
+// removeByIndex zero-fills the record, so the key that names the line only survives in the before image.
+test("a removed entry is named by the key it held", async () => {
+    const rows = await changeRows(
+        liveEntry,
+        (after) => {
+            writeLe(after, mapKey(4), 0, 8);
+            writeLe(after, mapValue(4), 0, 8);
+            setFlag(after, 4, 2);
+            writeLe(after, MAP_POPULATION, 0, 8);
+        },
+        [WHOLE_MAP],
+    );
+
+    expect(rows).toEqual([
+        ["map.slot[4].key", "11 → 0", true],
+        ["map[11]", "101 → (removed)", false],
+        ["map._occupationFlags[4]", "1 → 2", true],
+        ["map", "1 → 0 entries", false],
+    ]);
+});
+
+test("a slot reused from a tombstone still reads as a new entry", async () => {
+    const rows = await changeRows(
+        (state) => setFlag(state, 4, 2),
+        (after) => {
+            writeLe(after, mapKey(4), 11, 8);
+            writeLe(after, mapValue(4), 101, 8);
+            setFlag(after, 4, 1);
+            writeLe(after, MAP_POPULATION, 1, 8);
+        },
+        [WHOLE_MAP],
+    );
+
+    expect(rows).toEqual([
+        ["map.slot[4].key", "0 → 11", true],
+        ["map[11]", "= 101 (new)", false],
+        ["map._occupationFlags[4]", "2 → 1", true],
+        ["map", "0 → 1 entries", false],
+    ]);
+});
+
+test("a slot vacated outright is named by the key it held", async () => {
+    const rows = await changeRows(
+        liveEntry,
+        (after) => {
+            writeLe(after, mapKey(4), 0, 8);
+            writeLe(after, mapValue(4), 0, 8);
+            setFlag(after, 4, 0);
+            writeLe(after, MAP_POPULATION, 0, 8);
+        },
+        [WHOLE_MAP],
+    );
+
+    expect(rows).toEqual([
+        ["map.slot[4].key", "11 → 0", true],
+        ["map[11]", "101 → 0", false],
+        ["map._occupationFlags[4]", "1 → 0", true],
+        ["map", "1 → 0 entries", false],
+    ]);
+});
+
+// A zero value writes no bytes that differ, so there is no value row to carry the entry and the key row has
+// to. Without that the insert would show up as nothing but a population bump.
+test("an entry whose value stays zero is still reported", async () => {
+    const rows = await changeRows(
+        () => {},
+        (after) => {
+            writeLe(after, mapKey(4), 45, 8);
+            setFlag(after, 4, 1);
+            writeLe(after, MAP_POPULATION, 1, 8);
+        },
+        [WHOLE_MAP],
+    );
+
+    expect(rows).toEqual([
+        ["map[45]", "(new)", false],
+        ["map._occupationFlags[4]", "0 → 1", true],
+        ["map", "0 → 1 entries", false],
+    ]);
+});
+
+// A core node reports the bytes that changed, so an update can arrive without the key that would name it.
+test("a window without the key leaves the row on its resolved path", async () => {
+    expect(await changeRows(liveEntry, (after) => writeLe(after, mapValue(4), 202, 8), [{ off: mapValue(4), length: 8 }])).toEqual([
+        ["map.slot[4].value", "101 → 202", false],
+    ]);
+});
+
+test("two entries written in one call keep their own keys", async () => {
+    const rows = await changeRows(
+        () => {},
+        (after) => {
+            writeLe(after, mapKey(4), 11, 8);
+            writeLe(after, mapValue(4), 101, 8);
+            setFlag(after, 4, 1);
+            writeLe(after, mapKey(6), 13, 8);
+            writeLe(after, mapValue(6), 103, 8);
+            setFlag(after, 6, 1);
+            writeLe(after, MAP_POPULATION, 2, 8);
+        },
+        [WHOLE_MAP],
+    );
+
+    expect(rows).toEqual([
+        ["map.slot[4].key", "0 → 11", true],
+        ["map[11]", "= 101 (new)", false],
+        ["map.slot[6].key", "0 → 13", true],
+        ["map[13]", "= 103 (new)", false],
+        ["map._occupationFlags[4]", "0 → 1", true],
+        ["map._occupationFlags[6]", "0 → 1", true],
+        ["map", "0 → 2 entries", false],
     ]);
 });
 
@@ -289,4 +444,60 @@ test("a BitArray reports from a window that opens past its first block", async (
     const wide = bigOffsetOf("wide");
 
     expect(await bigRowsFor((after) => (after[wide + 375] = 1), { off: wide + 256, length: 256 })).toEqual(["wide[3000] 0 → 1"]);
+});
+
+// A window can stop inside a struct value, and an id key is what a real contract keys a map by — both have
+// to survive being folded onto one entry line.
+const KEYED_SRC = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct AB { uint64 a; uint64 b; };
+  struct StateData {
+    HashMap<uint64, AB, 8> ab;
+    HashMap<id, uint64, 8> owners;
+  };
+  INITIALIZE() {}
+};`;
+
+const KEYED_FIELDS = stateFieldsOf(extractIdl(KEYED_SRC, "Keyed", { slot: 7 }));
+const keyedOffsetOf = (name: string) => KEYED_FIELDS.find((field) => field.name === name)!.off;
+
+test("a struct value reported in parts keeps its member on the entry line", async () => {
+    const ab = keyedOffsetOf("ab");
+    const before = new Uint8Array(1024);
+    const after = before.slice();
+    writeLe(after, ab + 4 * 24, 11, 8); // slot 4 key
+    writeLe(after, ab + 4 * 24 + 8, 5, 8); // slot 4 value.a; value.b falls outside the window
+    after[ab + 192 + 1] = 1 << 0;
+    writeLe(after, ab + 200, 1, 8);
+
+    const lines = await stateDiffLines(KEYED_FIELDS, [region(before, after, ab + 96, 16), region(before, after, ab + 192, 16)]);
+
+    expect(lines.map((line) => [line.label, line.detail, line.text])).toEqual([
+        ["ab.slot[4].key", "ab.slot[4].key", "0 → 11"],
+        ["ab[11].a", "ab.slot[4].value.a", "= 5 (new)"],
+        ["ab._occupationFlags[4]", "ab._occupationFlags[4]", "0 → 1"],
+        ["ab", "ab._population", "0 → 1 entries"],
+    ]);
+});
+
+test("an id key labels the entry the way qinit state does", async () => {
+    const owners = keyedOffsetOf("owners");
+    const before = new Uint8Array(1024);
+    const after = before.slice();
+    after.fill(7, owners + 4 * 40, owners + 4 * 40 + 32); // slot 4 key
+    writeLe(after, owners + 4 * 40 + 32, 9, 8); // slot 4 value
+    after[owners + 320 + 1] = 1 << 0;
+    writeLe(after, owners + 328, 1, 8);
+
+    const lines = await stateDiffLines(KEYED_FIELDS, [region(before, after, owners, 344)]);
+
+    // The full identity, as `qinit state` prints it — a long label beats a bucket index that means nothing.
+    const owner = "FXHSWSJBTCZHFAFXHSWSJBTCZHFAFXHSWSJBTCZHFAFXHSWSJBTCZHFAYKSC";
+    expect(lines.map((line) => [line.label, line.text])).toEqual([
+        ["owners.slot[4].key", `0 → ${owner}`],
+        [`owners[${owner}]`, "= 9 (new)"],
+        ["owners._occupationFlags[4]", "0 → 1"],
+        ["owners", "0 → 1 entries"],
+    ]);
 });

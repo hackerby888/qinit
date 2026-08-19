@@ -1333,12 +1333,23 @@ without available `TickData` shows `—`. Pressing `x` hides the selected record
 Step 5 is what makes a diff readable. `stateDiffLines()` walks the ABI type from the
 containing field down to the element the bytes belong to, using the geometry helpers
 and member tables in [`qpi-layout.ts`](../packages/proto/src/qpi-layout.ts) — so a
-HashMap write reports `map.slot[31].value`, `map._occupationFlags[31]` and
-`map._population` rather than byte offsets. Internals are named the way core declares
+HashMap write reports the entry, `map._occupationFlags[31]` and `map._population`
+rather than byte offsets. Internals are named the way core declares
 them in `qpi_containers.h`, which a test pins against the bundled `qpi.h` snapshot.
 Indexed collections always resolve per element; a struct is reported
 whole when the region covers all of it. Occupation flags and `BitArray` fields report
-the indices that flipped instead of the raw words.
+the indices that flipped instead of the raw words, including when the changed window
+opens partway into a run of flags too long to fit one window.
+
+A `HashMap` or `HashSet` record goes one step further: its rows collapse onto a single
+line named by the key the contract wrote, rather than by the bucket the entry hashed
+into — a placement detail no contract author picks. So `map.slot[31].key  0 → 45` and
+`map.slot[31].value  0 → 46` read as one `map[45]  = 46 (new)`. The key is read from
+the changed window rather than from the rows, because an update leaves the key bytes
+alone and they never produce a row of their own. The occupation flag is what separates
+`(new)`, `(removed)` and a plain update, so a window carrying neither the flag nor the
+key leaves the row on its resolved path instead of guessing. `Collection` and
+`LinkedList` are addressed by index and already read short, so they keep their rows.
 
 Resolving that deep also finds bookkeeping a contract author never wrote — free-list
 heads, BST links, per-PoV counters — so each row is classified and the default view
@@ -1346,13 +1357,14 @@ keeps only two of the three classes:
 
 | Class    | Rows                                                                                                                                                                            | Default |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| payload  | scalars, struct members, `Array`/`BitArray` elements, `slot[i].key`/`.value`, node and element values, a `Collection` element's `priority`, a PoV id                            | shown   |
+| payload  | scalars, struct members, `Array`/`BitArray` elements, a keyed container's entry line, node and element values, a `Collection` element's `priority`, a PoV id                    | shown   |
 | count    | a container's `_population`, rendered as `trail  1 → 2 entries`                                                                                                                 | shown   |
-| internal | occupation flags, `_headIndex`/`_tailIndex`/`_freeHeadIndex`/`_nextUnusedIndex`, `bst*Index`, `povIndex`, per-PoV counters, `_markRemovalCounter`, node `nextIndex`/`prevIndex` | hidden  |
+| internal | occupation flags, `_headIndex`/`_tailIndex`/`_freeHeadIndex`/`_nextUnusedIndex`, `bst*Index`, `povIndex`, per-PoV counters, `_markRemovalCounter`, node `nextIndex`/`prevIndex`, a collapsed entry's own `slot[i].key` | hidden  |
 
 Each row therefore carries two labels: the shown one drops the internal path segments
-(`trail._nodes[1].value` reads as `trail[1]`), and the full path returns with the
-internal rows under `ctrl+t` in `qinit debug` or `--trace-full` on `qinit call`.
+(`trail._nodes[1].value` reads as `trail[1]`, `map.slot[31].value` as `map[45]`), and
+the full path returns with the internal rows under `ctrl+t` in `qinit debug` or
+`--trace-full` on `qinit call`.
 Hidden rows are always counted in a tail line, so a call that touched only bookkeeping
 never reads as "no change". `qinit call --trace` prints every row; `qinit debug` bounds
 the block to what is left of the terminal after the rows around it and pages through the
