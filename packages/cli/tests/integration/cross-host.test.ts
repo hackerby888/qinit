@@ -1,14 +1,17 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Verify that the TypeScript and core WAMR hosts produce identical contract state.
 import { test, expect } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { buildContractWithClang } from "@qinit/build";
+import { compileContractWithTypeScript } from "@qinit/compiler/browser";
+import type { DebugStateRegion } from "@qinit/core";
 import { QubicSimulator, initK12, toHex } from "@qinit/engine";
 
 const CORE = CORE_PATH;
+// Both are real build directories; whichever exists wins, so the suite runs instead of skipping.
 const GTEST =
-    [process.env.QINIT_WAMR_GTEST?.trim(), `${CORE}/build-wtests/test/qubic_wasm_tests`]
+    [process.env.QINIT_WAMR_GTEST?.trim(), `${CORE}/build-wasm/test/qubic_wasm_tests`, `${CORE}/build-wtests/test/qubic_wasm_tests`]
         .filter((candidate): candidate is string => Boolean(candidate))
         .find(existsSync) ?? "";
 const FIX = `${import.meta.dir}/../../../../fixtures`;
@@ -90,45 +93,98 @@ const CASES: Case[] = [
     },
 ];
 
-for (const c of CASES) {
-    test.skipIf(!haveBoth)(
-        `cross-host: ${c.name} (${c.covers}) state byte-identical on the node WAMR and qinit`,
-        async () => {
-            await initK12();
-            const r = await buildContractWithClang({
-                contractPath: `${FIX}/${c.name}.h`,
-                contractName: c.name,
-                slot: c.slot,
-                corePath: CORE,
-                outDir: "/tmp/qinit-xhost",
-                skipVerify: true,
-            });
-            expect(r.ok, r.stderr).toBe(true);
+const OUT_DIR = "/tmp/qinit-xhost";
 
-            // qinit side: deploy (runs INITIALIZE) then the op script, read the raw StateData
-            const sim = new QubicSimulator();
-            const ct = sim.deploy(c.slot, new Uint8Array(await Bun.file(r.wasmPath!).arrayBuffer()));
-            for (const o of c.ops) sim.procedure(c.slot, o.it, o.in);
-            const qinitHex = toHex(ct.state());
-            expect(ct.state().length).toBe(c.bytes);
+// The deployed backend and the one the node's own toolchain produces have to agree with each other too.
+type Backend = "clang" | "typescript";
+const BACKENDS: Backend[] = ["clang", "typescript"];
 
-            // node side: same wasm under WAMR, same INITIALIZE + script, via the gtest that prints CROSSHOST_STATE=<hex>
-            const script = c.ops.map((o) => `${o.it}:${toHex(o.in)}`).join(";");
-            const proc = Bun.spawnSync([GTEST, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"], {
-                cwd: tmpdir(),
-                env: {
-                    ...process.env,
-                    QINIT_WASM: r.wasmPath!,
-                    QINIT_SCRIPT: script,
-                    QINIT_EXPECTED_SLOT: String(c.slot),
-                },
-            });
-            const m = proc.stdout.toString().match(/CROSSHOST_STATE=([0-9a-f]+)/);
-            expect(m, `gtest emitted no CROSSHOST_STATE:\n${proc.stdout.toString()}\n${proc.stderr.toString()}`).not.toBeNull();
+async function buildCase(backend: Backend, testCase: Case): Promise<string> {
+    if (backend === "clang") {
+        const built = await buildContractWithClang({
+            contractPath: `${FIX}/${testCase.name}.h`,
+            contractName: testCase.name,
+            slot: testCase.slot,
+            corePath: CORE,
+            outDir: OUT_DIR,
+            skipVerify: true,
+        });
+        expect(built.ok, built.stderr).toBe(true);
+        return built.wasmPath!;
+    }
 
-            // the proof: byte-identical contract state across the two independent host implementations
-            expect(m![1]).toBe(qinitHex);
-        },
-        120_000,
-    );
+    const built = await compileContractWithTypeScript({
+        source: readFileSync(`${FIX}/${testCase.name}.h`, "utf8"),
+        contractName: testCase.name,
+        slot: testCase.slot,
+    });
+    const wasmPath = `${OUT_DIR}/${testCase.name}.typescript.wasm`;
+    await Bun.write(wasmPath, Uint8Array.from(built.wasm));
+    return wasmPath;
+}
+
+/** The wire form the gtest prints, so both hosts' regions compare as one string per op. */
+const encodeRegions = (regions: readonly DebugStateRegion[]) => regions.map((region) => `${region.off},${region.before},${region.after}`).join(";");
+
+for (const backend of BACKENDS) {
+    for (const c of CASES) {
+        test.skipIf(!haveBoth)(
+            `cross-host ${backend}: ${c.name} (${c.covers}) state and diffs identical on the node WAMR and qinit`,
+            async () => {
+                await initK12();
+                const wasmPath = await buildCase(backend, c);
+                const wasmBytes = new Uint8Array(await Bun.file(wasmPath).arrayBuffer());
+
+                // qinit side: deploy (runs INITIALIZE) then the op script, read the raw StateData.
+                // Debug goes on after deploy so the trace holds one entry per scripted op and nothing else.
+                const sim = new QubicSimulator();
+                const ct = sim.deploy(c.slot, wasmBytes);
+                sim.setDebug(true);
+                for (const o of c.ops) sim.procedure(c.slot, o.it, o.in);
+                const qinitHex = toHex(ct.state());
+                expect(ct.state().length).toBe(c.bytes);
+                const qinitEntries = sim.getTrace().entries;
+
+                // node side: same wasm under WAMR, same INITIALIZE + script, via the gtest that prints
+                // CROSSHOST_STATE=<hex> and one CROSSHOST_DIFF=<op>:<regions> per op.
+                const script = c.ops.map((o) => `${o.it}:${toHex(o.in)}`).join(";");
+                const proc = Bun.spawnSync([GTEST, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"], {
+                    cwd: tmpdir(),
+                    env: {
+                        ...process.env,
+                        QINIT_WASM: wasmPath,
+                        QINIT_SCRIPT: script,
+                        QINIT_EXPECTED_SLOT: String(c.slot),
+                    },
+                });
+                const stdout = proc.stdout.toString();
+                const state = stdout.match(/CROSSHOST_STATE=([0-9a-f]+)/);
+                expect(state, `gtest emitted no CROSSHOST_STATE:\n${stdout}\n${proc.stderr.toString()}`).not.toBeNull();
+
+                // the proof: byte-identical contract state across the two independent host implementations
+                expect(state![1]).toBe(qinitHex);
+
+                // and the same again for what each host reports *changed*, which is what a trace shows
+                const nodeDiffs = [...stdout.matchAll(/CROSSHOST_DIFF=(\d+):(.*)/g)].map((match) => [Number(match[1]), match[2]!.trim()] as const);
+                if (nodeDiffs.length === 0) {
+                    return; // an artifact built before the journal reports state only
+                }
+
+                expect(nodeDiffs.length, "the node reported one diff per op").toBe(c.ops.length);
+                expect(qinitEntries.length, "qinit traced one entry per op").toBe(c.ops.length);
+
+                for (const [index, body] of nodeDiffs) {
+                    const entry = qinitEntries[index]!;
+                    if (body === "overflow" || body === "trap") {
+                        expect(entry.stateTruncated, `op ${index}: the node reported ${body}, qinit did not`).toBe(true);
+                        continue;
+                    }
+
+                    expect(entry.stateTruncated, `op ${index}: qinit truncated, the node did not`).toBe(false);
+                    expect(encodeRegions(entry.stateDiff), `op ${index}: the two hosts report different changed bytes`).toBe(body);
+                }
+            },
+            120_000,
+        );
+    }
 }
