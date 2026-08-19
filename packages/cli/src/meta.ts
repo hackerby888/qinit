@@ -382,6 +382,12 @@ const commandMeta = {
     },
     // Internal: the release guard that proves wasm crypto still works in the compiled binary.
     smoke: { group: "misc", summary: "check identity cryptography", hidden: true },
+    info: {
+        group: "misc",
+        json: true,
+        summary: "show the current setup",
+        options: [stringOption("rpc", "<url>", "RPC URL")],
+    },
     version: { group: "misc", json: true, summary: "show the Qinit version" },
     help: { group: "misc", summary: "show command help" },
 } satisfies Record<string, CommandMeta>;

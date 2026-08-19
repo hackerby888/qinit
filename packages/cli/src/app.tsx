@@ -2,6 +2,7 @@
 import { Component, useEffect, type ReactNode } from "react";
 import { Box, Text, useApp } from "ink";
 import { Doctor } from "./commands/setup/doctor";
+import { Info } from "./commands/misc/info";
 import { Setup } from "./commands/setup/setup";
 import { Smoke } from "./commands/misc/smoke";
 import { Node } from "./commands/node/node";
@@ -132,6 +133,7 @@ type CommandHandler = (invocation: CommandInvocation) => ReactNode;
 const HANDLERS = {
     setup: ({ commandArgs }) => <Setup commandArgs={commandArgs} />,
     doctor: () => <Doctor />,
+    info: ({ commandArgs }) => <Info commandArgs={commandArgs} />,
     ext: ({ commandArgs }) => <Ext commandArgs={commandArgs} />,
     node: ({ commandArgs, subcommand }) =>
         subcommand === "run" ? <NodeRun commandArgs={commandArgs} /> : <Node commandArgs={commandArgs} subcommand={subcommand} />,
