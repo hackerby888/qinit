@@ -1,6 +1,6 @@
 # Qinit
 
-Qinit is a Bun/TypeScript toolkit for Qubic dynamic contracts: scaffold, compile,
+Qinit is a Bun/TypeScript toolkit for Qubic Smart Contract: scaffold, compile,
 deploy, test, inspect, and generate typed clients from one standalone CLI.
 
 [`docs/`](./docs/README.md) holds the deep dives: the
@@ -85,45 +85,3 @@ metadata explicitly:
 qinit integrate --contract contracts/Counter.h --contract-name Counter \
   --out ../Counter-core --asset COUNTER --construction-epoch 250
 ```
-
-Re-running the command against a clean existing checkout updates the contract
-source and test while preserving its registered index, asset, and epochs.
-Referenced custom callees must already be registered in that Core checkout at
-lower indices; Qinit does not recursively add them. Core currently builds these
-projects with Visual Studio on Windows, and the command prints the next NuGet,
-MSBuild, and test commands.
-
-## Workspace
-
-| Path                | Responsibility                                                                 |
-| ------------------- | ------------------------------------------------------------------------------ |
-| `packages/cli`      | Ink command interface and standalone binary entry                              |
-| `packages/core`     | Qubic primitives, signing, RPC, tool downloads, and source metadata            |
-| `packages/build`    | Contract builds, dependency graphs, slot planning, IDL, and project generation |
-| `packages/compiler` | TypeScript-to-Wasm compiler and browser entry                                  |
-| `packages/engine`   | In-process contract simulation and protocol adapters                           |
-| `packages/proto`    | Dynamic-contract wire, ABI, and IDL codecs                                     |
-| `packages/vscode`   | QPI language support extension                                                 |
-| `fixtures`          | Shared contract fixtures                                                       |
-| `scripts`           | CI, release, live-node, and compatibility automation                           |
-| `test-utils`        | Shared test helpers                                                            |
-
-Workspace packages are private while their distribution contracts are being
-stabilized. Qinit releases the standalone CLI and contract-verifier artifacts;
-there is currently no npm package release workflow.
-
-## Cross-repository development
-
-`config/repositories.json` owns the first-party repositories and branches;
-`config/toolchains.json` owns external repositories and tool versions. After
-editing either file, run `bun run sources:sync`. CI runs
-`bun run sources:check` to reject stale generated values.
-After changing the Bun version, also run `bun install` to regenerate `bun.lock`.
-
-An empty core-lite `pinnedCommit` follows the latest `developmentRef`; a full
-commit SHA selects that exact revision. Each CI run resolves the selected ref
-once and uses the resulting commit for every job.
-
-Manual CI runs accept repository and ref overrides, so a new organization or
-branch can be tested before changing the descriptor. The installers also accept
-`QINIT_REPOSITORY=owner/repository` when testing a moved Qinit release source.
