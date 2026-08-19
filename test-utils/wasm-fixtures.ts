@@ -2,6 +2,7 @@ import type { CompileResult, ContractIdl } from "@qinit/compiler/browser";
 import { compileContractWithTypeScript } from "@qinit/compiler/browser";
 import API_PROBE_SOURCE from "../fixtures/ApiProbe.h" with { type: "text" };
 import BIG_STATE_SOURCE from "../fixtures/BigState.h" with { type: "text" };
+import CALL_OUT_STATE_SOURCE from "../fixtures/CallOutState.h" with { type: "text" };
 import COUNTER_SOURCE from "../fixtures/Counter.h" with { type: "text" };
 import COUNTER_V2_SOURCE from "../fixtures/CounterV2.h" with { type: "text" };
 import DIGEST_PROBE_SOURCE from "../fixtures/DigestProbe.h" with { type: "text" };
@@ -58,6 +59,7 @@ function fixture<const Dependencies extends readonly string[] | undefined = unde
 export const wasmFixtureManifest = {
     ApiProbe: fixture("ApiProbe.h", API_PROBE_SOURCE, "ApiProbe", 29),
     BigState: fixture("BigState.h", BIG_STATE_SOURCE, "BigState", 28),
+    CallOutState: fixture("CallOutState.h", CALL_OUT_STATE_SOURCE, "CallOutState", 29, ["Counter"]),
     Counter: fixture("Counter.h", COUNTER_SOURCE, "Counter", 28),
     Counter1: fixture("Counter.h", COUNTER_SOURCE, "Counter", 1),
     Counter5: fixture("Counter.h", COUNTER_SOURCE, "Counter", 5),

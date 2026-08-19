@@ -110,6 +110,24 @@ test("a state field written by the host, not by the contract, still reaches the 
     expect(journal).toEqual(snapshot);
 });
 
+// An inter-contract call's output buffer can be a state field, and then lh_liteCallFunction writes the
+// state through an out-pointer. Same blind spot as getEntity, reached by a different import.
+test("an inter-contract call that writes its output straight into state still reaches the diff", async () => {
+    const { journal, snapshot } = await bothMechanisms({
+        fixture: "CallOutState",
+        callees: ["Counter"],
+        entries: 2,
+        run: (sim, slot) => {
+            sim.procedure(28, 1); // Counter.Inc, so the pulled value is not the zero the state already holds
+            sim.procedure(slot, 1);
+        },
+    });
+
+    // The caller's own entry is the one the host wrote; it must report the field, not an empty diff.
+    expect(journal.at(-1)!.length).toBe(1);
+    expect(journal).toEqual(snapshot);
+});
+
 // More blocks than the journal holds: that call can only say "truncated", and the contract falls back
 // to snapshot diffing from the next call, which must then be complete again.
 test("an overflowing call truncates, arms the fallback, and the next call is complete", async () => {
