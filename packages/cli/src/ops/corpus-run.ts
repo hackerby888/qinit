@@ -8,7 +8,7 @@ import { initK12 } from "@qinit/core";
 import type { CompilerBackend } from "../config";
 
 // Suites that need the shared-memory harness: PULSE/QTF corpora retain state pointers, NOST has a ~1 GiB
-// state, and QTRY/QEARN are unusably slow through the shadow bridge (measured 66x and 33x unshared).
+// state, QTRY exhausts the smaller unshared arena outright, and QEARN is 33x slower through the shadow bridge.
 const HEAVY_SYSTEM_GTEST_NAMES = new Set(["PULSE", "QTF", "QTRY", "QEARN", "NOST"]);
 const ARENA = 8 * 1024 * 1024;
 const SHARED_START = 0x20000000;
