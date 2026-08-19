@@ -10,6 +10,7 @@ import { activeNodeScratchDir } from "../../ops/node";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { loadContractIdls, type ContractIdls } from "../../contracts/idl-lookup";
+import type { ContractIdl } from "@qinit/proto/contract-idl";
 import { Header, Table, Spinner, theme, useFrame, useTerminalSize, type Column } from "../../ui";
 import type { CommandArguments } from "../../args";
 
@@ -327,6 +328,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                                 entry={entryLabel(cur.kind, cur.entry, idls.get(cur.index))}
                                 source={reg.current.find((c) => c.index === cur.index)?.source}
                                 codeHash={reg.current.find((c) => c.index === cur.index)?.codeHash}
+                                contractIdl={idls.get(cur.index)}
                                 qpiHeader={qpiHeader}
                                 showInternals={showInternals}
                                 width={detailWidth}
@@ -348,6 +350,7 @@ function Detail({
     entry,
     source,
     codeHash,
+    contractIdl,
     qpiHeader,
     showInternals,
     width,
@@ -358,6 +361,7 @@ function Detail({
     entry: string;
     source?: string;
     codeHash?: string;
+    contractIdl?: ContractIdl;
     qpiHeader?: string;
     showInternals: boolean;
     width: number;
@@ -368,7 +372,7 @@ function Detail({
     const [stateOffset, setStateOffset] = useState(0);
     useEffect(() => {
         let alive = true;
-        describeTrace(e, qpiHeader ? source : undefined, name, qpiHeader)
+        describeTrace(e, qpiHeader ? source : undefined, name, qpiHeader, contractIdl)
             .then((view) => {
                 if (alive) setV(view);
             })
@@ -378,11 +382,11 @@ function Detail({
             // trapped call: source-mapped backtrace from node.log + the slot's line map
             try {
                 const idl = loadContractIdlFile();
-                const contractIdl = contractIdlForSlot(idl, e.index, codeHash);
+                const slotArtifact = contractIdlForSlot(idl, e.index, codeHash);
                 const log = join(activeNodeScratchDir(), "node.log");
                 if (existsSync(log)) {
                     const b = resolveTrapBacktrace(readFileSync(log, "utf8"), {
-                        lineMapPath: contractIdl?.linesJson,
+                        lineMapPath: slotArtifact?.linesJson,
                     });
                     if (b?.frames.length && alive) setBt(formatTrapBacktrace(b));
                 }

@@ -1,6 +1,7 @@
 // Decodes one debug trace entry into the strings the trace views render.
 import { decodeOutput, decodeLog, type DecodedLog } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
+import type { ContractIdl } from "@qinit/proto/contract-idl";
 import { stateDiffLines, type StateDiffLine } from "./state-diff";
 import { enumMap, formatStateValue, stateFieldsOf, type StateField } from "./state-format";
 import { bytesToIdentity, hexToBytes, type DebugEntry } from "@qinit/core";
@@ -14,7 +15,17 @@ export interface DecodedTrace {
     logs: DecodedLog[];
 }
 
-export async function describeTrace(entry: DebugEntry, source: string | undefined, name: string, qpiHeader?: string): Promise<DecodedTrace> {
+/**
+ * `contractIdl` is the IDL the build already produced for this slot. Prefer it: deriving one from source
+ * alone loses what the build knew, notably a state field whose type a callee declares.
+ */
+export async function describeTrace(
+    entry: DebugEntry,
+    source: string | undefined,
+    name: string,
+    qpiHeader?: string,
+    contractIdl?: ContractIdl,
+): Promise<DecodedTrace> {
     let input = entry.inHex ? "0x" + entry.inHex : "(none)";
     let output = entry.outHex ? "0x" + entry.outHex : "(none)";
     let caller = "(none)";
@@ -31,12 +42,17 @@ export async function describeTrace(entry: DebugEntry, source: string | undefine
     let stateDiff: StateDiffLine[] = [];
     let logs: DecodedLog[] = [];
 
-    if (source) {
-        try {
-            const idl = extractIdl(source, name, {
-                slot: entry.index,
-                qpiHeader,
-            });
+    try {
+        const idl =
+            contractIdl ??
+            (source
+                ? extractIdl(source, name, {
+                      slot: entry.index,
+                      qpiHeader,
+                  })
+                : undefined);
+
+        if (idl) {
             const registered = entry.kind === 0 ? idl.functions : idl.procedures;
             const metadata = registered.find((candidate) => candidate.inputType === entry.entry);
 
@@ -56,9 +72,9 @@ export async function describeTrace(entry: DebugEntry, source: string | undefine
             if (entry.logs?.length) {
                 logs = await Promise.all(entry.logs.map((log) => decodeLog(log.type, log.size, log.hex, idl.logs, enumNames)));
             }
-        } catch {
-            // Raw trace bytes remain available when source decoding fails.
         }
+    } catch {
+        // Raw trace bytes remain available when decoding fails.
     }
 
     return {

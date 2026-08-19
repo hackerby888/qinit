@@ -53,6 +53,72 @@ const fakeRpc = (state: Uint8Array | number[], calls: StateReadCall[] = []): Sta
     };
 };
 
+// A state field whose type a callee declares cannot be resolved from this contract's source alone, so
+// deriving the IDL here reports it as a short scalar and leaves its tail bytes unowned. The build
+// already produced the right IDL; describeTrace has to use it rather than recompute a worse one.
+test("describeTrace: prefers the build's IDL over one derived from source", async () => {
+    const CALLEE_TYPED_SRC = `
+using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { Counter::Get_output pulled; };
+  struct Pull_input {}; struct Pull_output {};
+  PUBLIC_PROCEDURE(Pull) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Pull, 1); }
+  INITIALIZE() {}
+};`;
+    const uint64: AbiType = { kind: AbiTypeKind.SCALAR, scalar: AbiScalarKind.UINT64, size: 8, align: 8, format: "uint64" };
+    const buildIdl: any = {
+        version: 1,
+        name: "CallOutState",
+        slot: 30,
+        functions: [],
+        procedures: [],
+        enums: [],
+        logs: [],
+        state: {
+            kind: AbiTypeKind.STRUCT,
+            name: "StateData",
+            size: 8,
+            align: 8,
+            format: "",
+            fields: [
+                {
+                    name: "pulled",
+                    offset: 0,
+                    size: 8,
+                    type: { kind: AbiTypeKind.STRUCT, name: "Get_output", size: 8, align: 8, format: "", fields: [{ name: "value", offset: 0, size: 8, type: uint64 }] },
+                },
+            ],
+        },
+    };
+    const entry: any = {
+        seq: 1,
+        tick: 10,
+        index: 30,
+        entry: 1,
+        kind: 1,
+        ok: true,
+        execNs: 100,
+        invocator: "11".repeat(32),
+        invocationReward: 0,
+        inHex: "",
+        outHex: "",
+        stateDiff: [{ off: 0, before: hx(le(0, 8)), after: hx(le(1, 8)) }],
+        hostCalls: [],
+        logs: [],
+    };
+
+    // Source alone: `pulled` degrades to a short scalar and bytes past it belong to no field.
+    const derived = await describeTrace(entry, CALLEE_TYPED_SRC, "CallOutState");
+    expect(derived.stateDiff.some((line) => line.label.startsWith("@"))).toBe(true);
+
+    // With the build's IDL the whole field resolves and nothing is left unowned.
+    const supplied = await describeTrace(entry, CALLEE_TYPED_SRC, "CallOutState", undefined, buildIdl);
+    expect(supplied.stateDiff.some((line) => line.label.startsWith("@"))).toBe(false);
+    expect(supplied.stateDiff.map((line) => `${line.label} ${line.text}`)).toEqual(["pulled 0 → 1"]);
+});
+
 test("describeTrace: decodes proc input, caller, log enum, and captured state diff", async () => {
     const before = new Array(184).fill(0);
     const after = hashmapBuf(42);

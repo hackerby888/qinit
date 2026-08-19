@@ -262,7 +262,7 @@ function CallOneShot({
                             e: te,
                             name: traceName,
                             entry: entryLabel(mode === "fn" ? 0 : 1, entry, entryIdl?.name),
-                            view: await describeTrace(te, traceSrc, traceName, traceSrc ? loadConfiguredQpiHeader() : undefined),
+                            view: await describeTrace(te, traceSrc, traceName, traceSrc ? loadConfiguredQpiHeader() : undefined, contractIdl),
                         });
                     else setNote("(no trace captured — is the debug toggle available on this node?)");
                     try {
