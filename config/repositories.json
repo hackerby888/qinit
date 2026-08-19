@@ -5,7 +5,7 @@
     },
     "coreLite": {
         "repository": "hackerby888/core-lite",
-        "developmentRef": "feat/dynamic-contracts",
+        "developmentRef": "integrate/dynamic-contracts-fork-rollback",
         "pinnedCommit": ""
     }
 }
