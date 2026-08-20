@@ -255,7 +255,12 @@ function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, afte
         return (byte >> (bit & 7)) & mask;
     };
 
-    for (let index = firstIndex; index < leaf.count; index++) {
+    // The slice only covers a bounded run of indices. Without this the loop walks the whole capacity and
+    // only `valueAt`'s bounds check keeps it quiet — 33M no-op turns per window on a 536 MB map.
+    const visibleBits = Math.min(before.length, after.length) * 8;
+    const lastIndex = Math.min(leaf.count, firstIndex + Math.floor(visibleBits / leaf.bitsPer));
+
+    for (let index = firstIndex; index < lastIndex; index++) {
         const from = valueAt(before, index);
         const to = valueAt(after, index);
         if (from === undefined || to === undefined || from === to) {
