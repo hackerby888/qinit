@@ -83,3 +83,44 @@ export function qpiSnapshotSource(bytes: Uint8Array): QpiByteSource {
 export function qpiBorrowedSource(bytes: Uint8Array): QpiByteSource {
     return byteArraySource(bytes);
 }
+
+// Two occupation bits per slot, 32 slots to a word. Reading each word once instead of once per slot, and
+// skipping the empty ones, turns a full-capacity walk into work proportional to the slots in use.
+export function occupiedSlots(flags: Uint8Array, capacity: number): number[] {
+    const slots: number[] = [];
+
+    for (let word = 0; word * 32 < capacity; word++) {
+        const bits = uint64At(flags, word * 8);
+        if (bits === 0n) {
+            continue;
+        }
+
+        const base = word * 32;
+        for (let offset = 0; offset < 32 && base + offset < capacity; offset++) {
+            const flag = Number((bits >> BigInt(offset * 2)) & 3n);
+            if (flag === 1) {
+                slots.push(base + offset);
+            } else if (flag === 3) {
+                throw new QpiContainerConsistencyError(`invalid occupation flag at slot ${base + offset}`);
+            }
+        }
+    }
+
+    return slots;
+}
+
+// Neighbouring slots are read as one range, so a run of entries costs one fetch rather than one each.
+export function occupiedRanges(slots: number[]): Array<{ start: number; end: number }> {
+    const ranges: Array<{ start: number; end: number }> = [];
+
+    for (const slot of slots) {
+        const last = ranges[ranges.length - 1];
+        if (last && slot === last.end + 1) {
+            last.end = slot;
+        } else {
+            ranges.push({ start: slot, end: slot });
+        }
+    }
+
+    return ranges;
+}

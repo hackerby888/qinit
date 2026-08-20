@@ -2,7 +2,7 @@ import { decodeAbiValue } from "../abi-fmt";
 import { AbiScalarKind, AbiTypeKind, type AbiCollection, type AbiScalar } from "../contract-idl";
 import { collectionGeometry } from "../qpi-layout";
 import { QpiContainerConsistencyError, QpiIncompleteReadError } from "./errors";
-import { readQpiBytes, readUint64, sint64At, uint64At, type QpiByteSource } from "./source";
+import { occupiedRanges, occupiedSlots, readQpiBytes, readUint64, sint64At, uint64At, type QpiByteSource } from "./source";
 
 const NULL_INDEX = -1n;
 const POV_TYPE: AbiScalar = {
@@ -224,33 +224,6 @@ function populationOf(population: bigint, capacity: number): number {
         throw new QpiContainerConsistencyError(`container population ${population} exceeds capacity ${capacity}`);
     }
     return Number(population);
-}
-
-function occupiedSlots(flags: Uint8Array, capacity: number): number[] {
-    const slots: number[] = [];
-    for (let slot = 0; slot < capacity; slot++) {
-        const wordOffset = Math.floor(slot / 32) * 8;
-        const flag = Number((uint64At(flags, wordOffset) >> BigInt((slot % 32) * 2)) & 3n);
-        if (flag === 1) {
-            slots.push(slot);
-        } else if (flag === 3) {
-            throw new QpiContainerConsistencyError(`invalid occupation flag at slot ${slot}`);
-        }
-    }
-    return slots;
-}
-
-function occupiedRanges(slots: number[]): Array<{ start: number; end: number }> {
-    const ranges: Array<{ start: number; end: number }> = [];
-    for (const slot of slots) {
-        const last = ranges[ranges.length - 1];
-        if (last && slot === last.end + 1) {
-            last.end = slot;
-        } else {
-            ranges.push({ start: slot, end: slot });
-        }
-    }
-    return ranges;
 }
 
 function elementIndex(value: bigint, population: number, label: string): number {

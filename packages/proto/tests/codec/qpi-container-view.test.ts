@@ -379,3 +379,143 @@ test("snapshot sources copy their bytes", async () => {
     original[0] = 9;
     expect(await new QpiArrayView(singleType, snapshot).get(0)).toBe(7);
 });
+
+// Real system contracts hold containers of hundreds of megabytes, and listing one used to cost a walk of
+// the whole capacity however few entries it held. A sparse source keeps that testable: bytes are zero
+// unless a case seeded them, so a 545 MB container never has to be allocated.
+function sparseSourceOf(byteLength: number, seeded: Map<number, number>, maxReadLength = 4 * 1024 * 1024): QpiByteSource {
+    return {
+        byteLength,
+        maxReadLength,
+        async read(offset, length) {
+            const bytes = new Uint8Array(length);
+            for (let index = 0; index < length; index++) {
+                bytes[index] = seeded.get(offset + index) ?? 0;
+            }
+            return bytes;
+        },
+    };
+}
+
+function seedUint64(seeded: Map<number, number>, offset: number, value: bigint | number) {
+    let rest = BigInt(value);
+    for (let index = 0; index < 8; index++) {
+        seeded.set(offset + index, Number(rest & 0xffn));
+        rest >>= 8n;
+    }
+}
+
+const seedFlag = (seeded: Map<number, number>, flagsOffset: number, slot: number, value: number) => {
+    const at = flagsOffset + ((slot * 2) >> 3);
+    seeded.set(at, (seeded.get(at) ?? 0) | (value << ((slot * 2) & 7)));
+};
+
+const HUGE_CAPACITY = 1 << 25; // 33.5M slots — 536 MB of records and 8 MiB of occupation flags
+
+test("HashMap view lists a sparse 545 MB map without walking every slot", async () => {
+    const geometry = hashMapGeometry(uint64Type, uint64Type, HUGE_CAPACITY);
+    const type: AbiHashMap = {
+        kind: AbiTypeKind.HASH_MAP,
+        key: uint64Type,
+        value: uint64Type,
+        capacity: HUGE_CAPACITY,
+        size: geometry.size,
+        align: geometry.align,
+        format: "",
+    };
+
+    const seeded = new Map<number, number>();
+    const slots = [0, 9822, HUGE_CAPACITY - 1];
+    for (const [index, slot] of slots.entries()) {
+        seedUint64(seeded, slot * geometry.recordStride, 100 + index);
+        seedUint64(seeded, slot * geometry.recordStride + geometry.valueOffset, 200 + index);
+        seedFlag(seeded, geometry.flagsOffset, slot, 1);
+    }
+    seedUint64(seeded, geometry.populationOffset, slots.length);
+
+    const started = performance.now();
+    const entries = await new QpiHashMapView(type, sparseSourceOf(type.size, seeded)).entries();
+
+    expect(entries).toEqual([
+        { slot: 0, key: 100n, value: 200n },
+        { slot: 9822, key: 101n, value: 201n },
+        { slot: HUGE_CAPACITY - 1, key: 102n, value: 202n },
+    ]);
+    // One flag word read per 32 slots rather than one per slot. Against this source the old scan takes
+    // ~2700 ms and the current one ~150 ms, so the bound sits well clear of both.
+    expect(performance.now() - started).toBeLessThan(1000);
+});
+
+test("HashSet view lists a sparse large set by slot", async () => {
+    const capacity = 1 << 22;
+    const geometry = hashSetGeometry(uint64Type, capacity);
+    const type: AbiHashSet = {
+        kind: AbiTypeKind.HASH_SET,
+        key: uint64Type,
+        capacity,
+        size: geometry.size,
+        align: geometry.align,
+        format: "",
+    };
+
+    const seeded = new Map<number, number>();
+    const slots = [0, 300_000, capacity - 1];
+    for (const [index, slot] of slots.entries()) {
+        seedUint64(seeded, slot * geometry.recordStride, 70 + index);
+        seedFlag(seeded, geometry.flagsOffset, slot, 1);
+    }
+    seedUint64(seeded, geometry.populationOffset, slots.length);
+
+    expect(await new QpiHashSetView(type, sparseSourceOf(type.size, seeded)).entries()).toEqual([
+        { slot: 0, key: 70n },
+        { slot: 300_000, key: 71n },
+        { slot: capacity - 1, key: 72n },
+    ]);
+});
+
+// Skipping empty flag words must not skip a broken one: an 0b11 pair still has to be caught, and named by
+// the slot it sits in rather than by the word it shares.
+test("HashMap view still rejects an invalid flag in a populated word", async () => {
+    const capacity = 1 << 20;
+    const geometry = hashMapGeometry(uint64Type, uint64Type, capacity);
+    const type: AbiHashMap = {
+        kind: AbiTypeKind.HASH_MAP,
+        key: uint64Type,
+        value: uint64Type,
+        capacity,
+        size: geometry.size,
+        align: geometry.align,
+        format: "",
+    };
+
+    const seeded = new Map<number, number>();
+    seedFlag(seeded, geometry.flagsOffset, 500_000, 1);
+    seedFlag(seeded, geometry.flagsOffset, 500_003, 3);
+    seedUint64(seeded, geometry.populationOffset, 1);
+
+    await expect(new QpiHashMapView(type, sparseSourceOf(type.size, seeded)).entries()).rejects.toThrow("invalid occupation flag at slot 500003");
+});
+
+// A capacity below one flag word leaves bits past the end of the container. They are not slots, and a
+// stale one must not turn into an entry.
+test("HashMap view ignores flag bits past a capacity shorter than one word", async () => {
+    const geometry = hashMapGeometry(uint64Type, uint64Type, 4);
+    const type: AbiHashMap = {
+        kind: AbiTypeKind.HASH_MAP,
+        key: uint64Type,
+        value: uint64Type,
+        capacity: 4,
+        size: geometry.size,
+        align: geometry.align,
+        format: "",
+    };
+
+    const bytes = new Uint8Array(type.size);
+    bytes[geometry.flagsOffset] = 1 << 2; // slot 1
+    bytes[geometry.flagsOffset + 1] = 1; // slot 4, one past the last
+    setUint64(bytes, geometry.recordStride, 11);
+    setUint64(bytes, geometry.recordStride + geometry.valueOffset, 101);
+    setUint64(bytes, geometry.populationOffset, 1);
+
+    expect(await new QpiHashMapView(type, qpiSnapshotSource(bytes)).entries()).toEqual([{ slot: 1, key: 11n, value: 101n }]);
+});
