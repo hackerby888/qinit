@@ -5,8 +5,11 @@ import { narrowCastIr, lowerScalarLoad, isSignedScalarType } from "../memory/mem
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, VariableDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
+import { tryLowerOverloadedOperator } from "./operator-overload";
 import { unsignedScalar } from "./conversions";
 // ---- value (rvalue) codegen — produces an i64 ----
+const LVALUE_OPERAND_KINDS: ReadonlySet<AstKind> = new Set([AstKind.IDENTIFIER, AstKind.MEMBER_ACCESS, AstKind.SUBSCRIPT]);
+
 export function lowerValueExpression(context: FunctionEmissionContext, expression: Expression): watIr.WatNode {
     if (
         context.programAnalysis.gtestMode &&
@@ -146,6 +149,10 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             return watIr.i64Constant(0);
         }
         case AstKind.SUBSCRIPT: {
+            const subscripted = LVALUE_OPERAND_KINDS.has(expression.object.kind)
+                ? tryLowerOverloadedOperator(context, "operator[]", expression.object, expression.index)
+                : null;
+            if (subscripted) return subscripted;
             const resolvedAddress = context.lowering.resolveExpressionAddress(context, expression);
             if (resolvedAddress && resolvedAddress.size <= 8)
                 return lowerScalarLoad(resolvedAddress.addr, resolvedAddress.size, isSignedScalarType(resolvedAddress.type, context.programAnalysis));
@@ -197,6 +204,12 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 if (resolvedAddress && resolvedAddress.size <= 8) {
                     return lowerScalarLoad(resolvedAddress.addr, resolvedAddress.size, isSignedScalarType(resolvedAddress.type, context.programAnalysis));
                 }
+            }
+            // Only a settled lvalue is safe to ask for a type: resolving a call materializes it, which
+            // would emit the call before we know whether an overload wants it.
+            if (expression.operator !== UnaryOp.ADDRESS_OF && LVALUE_OPERAND_KINDS.has(expression.argument.kind)) {
+                const overloaded = tryLowerOverloadedOperator(context, `operator${expression.operator}`, expression.argument);
+                if (overloaded) return overloaded;
             }
             const valueNode = lowerValueExpression(context, expression.argument);
             // Re-canonicalize 32-bit unary results after wrapping.

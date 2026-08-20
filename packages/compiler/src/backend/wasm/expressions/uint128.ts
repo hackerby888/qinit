@@ -4,6 +4,7 @@ import { isUint128 } from "../memory/address-resolution";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, FunctionDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
+import { compiledCallResult } from "./operator-overload";
 // Detect uint128 expressions that require 16-byte source-backed operations.
 export function isU128Expr(context: FunctionEmissionContext, expression: Expression): boolean {
     if (expression.kind === AstKind.PAREN) return isU128Expr(context, expression.expression);
@@ -124,14 +125,9 @@ export function sourceU128Result(
 ): watIr.WatNode {
     const compiled = context.lowering.callCompiled(context, U128_CLASS, method, watIr.serializeWatNode(self), callArguments, paramTypeKey);
     if (!compiled) throw new Error(`authoritative uint128_t::${method} could not be lowered`);
-    if (compiled.retDest) {
-        context.lines.push(`    ${compiled.call}`);
-        return watIr.rawWatNode(compiled.retDest, WatNodeType.I32, "source-compiled uint128 aggregate result");
-    }
-    if (compiled.cm.retKind === WatNodeType.I64) return watIr.rawWatNode(compiled.call, WatNodeType.I64, "source-compiled uint128 scalar result");
-    if (compiled.cm.retKind === WatNodeType.I32) return watIr.rawWatNode(compiled.call, WatNodeType.I32, "source-compiled uint128 reference result");
-    context.lines.push(`    ${compiled.call}`);
-    throw new Error(`void uint128_t::${method} used as a value`);
+    const result = compiledCallResult(context, compiled, `uint128_t::${method}`);
+    if (!result) throw new Error(`void uint128_t::${method} used as a value`);
+    return result;
 }
 // Materialize a uint128 expression into a 16-byte slot (low@0, high@8). Arithmetic and
 // comparisons are instantiated from the authoritative platform/uint128.h method bodies.

@@ -3,13 +3,54 @@ import { FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { u128ConstructorExpr } from "./uint128";
+import { classOperandName, concreteType, tryLowerOverloadedOperator } from "./operator-overload";
+// $memeq/$m256_lt stand in for m256.h's operators, so they key on the type rather than on a 32-byte
+// size — a user struct of the same width gets its own declared operator instead.
+function isM256Operand(context: FunctionEmissionContext, expression: Expression): boolean {
+    const resolved = concreteType(context, context.lowering.resolveExpressionAddress(context, expression)?.type);
+    const name = resolved?.kind === AstKind.NAME || resolved?.kind === AstKind.TEMPLATE_INSTANCE ? resolved.name : null;
+
+    if (!name) {
+        return false;
+    }
+
+    const separator = name.lastIndexOf("::");
+    const unqualified = separator >= 0 ? name.slice(separator + 2) : name;
+
+    return unqualified === "m256i" || unqualified === "id";
+}
+
+// The byte-wise intrinsics stand in for m256.h's operators. They apply when an operand is known to
+// be m256i, and also when neither operand's type can be inferred — a by-value `id::zero()` has no
+// address to resolve a type from, and rejecting those would fail code Clang accepts. A class we did
+// resolve gets no substitution: it must declare the operator, which is what C++ requires.
+function usesByteEquality(context: FunctionEmissionContext, left: Expression, right: Expression): boolean {
+    if (isM256Operand(context, left) || isM256Operand(context, right)) {
+        return true;
+    }
+
+    return classOperandName(context, left) === null && classOperandName(context, right) === null;
+}
+
+const COMPARISON_OPERATORS: ReadonlySet<string> = new Set([
+    BinaryOp.EQUAL,
+    BinaryOp.NOT_EQUAL,
+    BinaryOp.LESS_THAN,
+    BinaryOp.GREATER_THAN,
+    BinaryOp.LESS_THAN_OR_EQUAL,
+    BinaryOp.GREATER_THAN_OR_EQUAL,
+]);
+
 export function lowerBinaryExpression(
     context: FunctionEmissionContext,
     expression: Expression & {
         kind: AstKind.BINARY_OP;
     },
 ): watIr.WatNode {
-    // uint128 comparisons instantiate the corresponding platform/uint128.h operator body.
+    // uint128 comparisons instantiate the corresponding platform/uint128.h operator body. This stays
+    // ahead of the general resolver only for the scalar operand it converts (`a == 5`); the resolver
+    // takes over once it can convert an argument to a parameter's class type.
+    // ponytail: delete this block after the resolver grows parameter conversion.
     if (
         (expression.operator === BinaryOp.EQUAL ||
             expression.operator === BinaryOp.NOT_EQUAL ||
@@ -26,10 +67,15 @@ export function lowerBinaryExpression(
         if (result.ty !== WatNodeType.I64) throw new Error(`uint128_t::${method} did not return a scalar`);
         return expression.operator === BinaryOp.NOT_EQUAL ? watIr.operation("i64.extend_i32_u", watIr.operation("i64.eqz", result)) : result;
     }
-    // id/struct equality compares bytes, not an i64 value.
+    // Whatever the class declared wins, for every operator, the same way C++ resolves it.
+    const overloaded = tryLowerOverloadedOperator(context, `operator${expression.operator}`, expression.left, expression.right);
+    if (overloaded) return overloaded;
+    // m256i's own operator== is written in x86 intrinsics, so byte equality substitutes for it here.
+    // The two agree by construction: the intrinsic body compares all 32 bytes.
     if (expression.operator === BinaryOp.EQUAL || expression.operator === BinaryOp.NOT_EQUAL) {
-        const la = context.lowering.aggOperand(context, expression.left);
-        const ra = context.lowering.aggOperand(context, expression.right);
+        const substitutes = usesByteEquality(context, expression.left, expression.right);
+        const la = substitutes ? context.lowering.aggOperand(context, expression.left) : null;
+        const ra = substitutes ? context.lowering.aggOperand(context, expression.right) : null;
         if (la && ra) {
             const eq = watIr.functionCall(
                 "$memeq",
@@ -49,8 +95,9 @@ export function lowerBinaryExpression(
         expression.operator === BinaryOp.LESS_THAN_OR_EQUAL ||
         expression.operator === BinaryOp.GREATER_THAN_OR_EQUAL
     ) {
-        const la = context.lowering.aggOperand(context, expression.left);
-        const ra = context.lowering.aggOperand(context, expression.right);
+        const substitutes = usesByteEquality(context, expression.left, expression.right);
+        const la = substitutes ? context.lowering.aggOperand(context, expression.left) : null;
+        const ra = substitutes ? context.lowering.aggOperand(context, expression.right) : null;
         if (la && ra && la.size === 32 && ra.size === 32) {
             const leftAddressAndSize = (
                 left: {
@@ -73,6 +120,17 @@ export function lowerBinaryExpression(
             return watIr.operation("i64.extend_i32_u", watIr.operation("i32.eqz", leftAddressAndSize(la, ra)));
         }
     }
+    // A class operand that reached here has no candidate: report the C++ error rather than let it
+    // fail as an unreadable aggregate deeper in the generic path.
+    if (COMPARISON_OPERATORS.has(expression.operator)) {
+        const operandClass = classOperandName(context, expression.left) ?? classOperandName(context, expression.right);
+
+        if (operandClass) {
+            context.programAnalysis.error(`no viable operator${expression.operator} for '${operandClass}'`, expression.span);
+            return watIr.i64Constant(0);
+        }
+    }
+
     // Preserve C++ short-circuit evaluation for logical operators.
     if (expression.operator === BinaryOp.LOGICAL_AND || expression.operator === BinaryOp.LOGICAL_OR) {
         const lb = watIr.operation("i64.ne", watIr.i64Constant(0), context.lowering.lowerValueExpression(context, expression.left));
