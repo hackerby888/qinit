@@ -705,16 +705,19 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     expect(result.idl).toBeUndefined();
 });
 
+// The message quotes the dimension it rejected, so the author can see which number was wrong. A literal
+// used to print as 'unknown', which is every declaration anyone actually writes.
 test("rejects invalid QPI container dimensions", () => {
-    for (const [field, label, requirement] of [
-        ["Array<uint64, 3> invalid;", "Array length", "positive power-of-two"],
-        ["SlowAnySizeArray<uint64, 0> invalid;", "SlowAnySizeArray length", "positive integer"],
-        ["BitArray<3> invalid;", "BitArray bit count", "positive power-of-two"],
-        ["BitArray<2251799813685249> invalid;", "BitArray bit count", "positive power-of-two"],
-        ["HashMap<uint64, uint64, 3> invalid;", "HashMap capacity", "positive power-of-two"],
-        ["HashSet<uint64, 6> invalid;", "HashSet capacity", "positive power-of-two"],
-        ["Collection<uint64, 0> invalid;", "Collection capacity", "positive power-of-two"],
-        ["LinkedList<uint64, 3> invalid;", "LinkedList capacity", "positive power-of-two"],
+    for (const [field, label, requirement, quoted] of [
+        ["Array<uint64, 3> invalid;", "Array length", "positive power-of-two", "'3'"],
+        ["Array<uint64, 2 * 3> invalid;", "Array length", "positive power-of-two", "'6'"],
+        ["SlowAnySizeArray<uint64, 0> invalid;", "SlowAnySizeArray length", "positive integer", "'0'"],
+        ["BitArray<3> invalid;", "BitArray bit count", "positive power-of-two", "'3'"],
+        ["BitArray<2251799813685249> invalid;", "BitArray bit count", "positive power-of-two", "'2251799813685249'"],
+        ["HashMap<uint64, uint64, 3> invalid;", "HashMap capacity", "positive power-of-two", "'3'"],
+        ["HashSet<uint64, 6> invalid;", "HashSet capacity", "positive power-of-two", "'6'"],
+        ["Collection<uint64, 0> invalid;", "Collection capacity", "positive power-of-two", "'0'"],
+        ["LinkedList<uint64, 3> invalid;", "LinkedList capacity", "positive power-of-two", "'3'"],
     ]) {
         const result = analyzeContract({
             source: `
@@ -725,8 +728,26 @@ struct Contract : public ContractBase {
         });
 
         expect(result.idl).toBeUndefined();
-        expect(result.diagnostics.some((diagnostic) => diagnostic.message.includes(label) && diagnostic.message.includes(requirement))).toBe(true);
+        const named = result.diagnostics.filter(
+            (diagnostic) => diagnostic.message.includes(label) && diagnostic.message.includes(requirement) && diagnostic.message.includes(quoted),
+        );
+        expect(named.length, `${field} did not name ${quoted}`).toBeGreaterThan(0);
     }
+});
+
+// A named dimension keeps its name: the constant is what the author wrote and what they have to change.
+test("a rejected named dimension is quoted by its name, not its value", () => {
+    const result = analyzeContract({
+        source: `
+using namespace QPI;
+struct Contract : public ContractBase {
+  static constexpr uint64 SLOT_COUNT = 3;
+  struct StateData { Array<uint64, SLOT_COUNT> invalid; };
+};`,
+    });
+
+    expect(result.idl).toBeUndefined();
+    expect(result.diagnostics.some((diagnostic) => diagnostic.message.includes("Array length 'SLOT_COUNT'"))).toBe(true);
 });
 
 test("keeps raw C array dimension validation independent", () => {

@@ -286,7 +286,7 @@ export class AbiTypeBuilder {
             return;
         }
 
-        this.programAnalysis.error(`${label} '${typeLabel(sourceType)}' must resolve to a non-negative integer`, sourceType.span ?? 0);
+        this.programAnalysis.error(`${label} '${dimensionLabel(sourceType, value)}' must resolve to a non-negative integer`, sourceType.span ?? 0);
     }
 
     private validatePowerOfTwoDimension(label: string, value: number, sourceType: TypeSpec, bindings: TemplateBindings): void {
@@ -294,7 +294,7 @@ export class AbiTypeBuilder {
             return;
         }
 
-        this.programAnalysis.error(`${label} '${typeLabel(sourceType)}' must resolve to a positive power-of-two integer`, sourceType.span ?? 0);
+        this.programAnalysis.error(`${label} '${dimensionLabel(sourceType, value)}' must resolve to a positive power-of-two integer`, sourceType.span ?? 0);
     }
 
     private validatePositiveDimension(label: string, value: number, sourceType: TypeSpec, bindings: TemplateBindings): void {
@@ -302,7 +302,7 @@ export class AbiTypeBuilder {
             return;
         }
 
-        this.programAnalysis.error(`${label} '${typeLabel(sourceType)}' must resolve to a positive integer`, sourceType.span ?? 0);
+        this.programAnalysis.error(`${label} '${dimensionLabel(sourceType, value)}' must resolve to a positive integer`, sourceType.span ?? 0);
     }
 
     private dimensionResolves(sourceType: TypeSpec, bindings: TemplateBindings): boolean {
@@ -373,6 +373,13 @@ function withLocalStructs(declaration: StructDecl, bindings: TemplateBindings): 
         values: bindings.values,
         structs,
     };
+}
+
+// A template parameter or a named constant reads better as its name; a literal or an arithmetic
+// expression has no name worth showing, so name it by what it resolved to.
+function dimensionLabel(type: TypeSpec, value: number): string {
+    const named = typeLabel(type);
+    return named === "unknown" && Number.isFinite(value) ? String(value) : named;
 }
 
 function typeLabel(type: TypeSpec): string {
