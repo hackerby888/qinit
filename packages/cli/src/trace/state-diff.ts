@@ -399,7 +399,7 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
 
         while (position < end) {
             const field = fields.find((candidate) => position >= candidate.off && position < candidate.off + candidate.size);
-            if (!field?.abi) {
+            const unnamed = () => {
                 rows.push({
                     label: `@${position}`,
                     detail: `@${position}`,
@@ -407,6 +407,30 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
                     filled: false,
                     internal: false,
                 });
+            };
+
+            if (!field) {
+                const next = fields.find((candidate) => candidate.off > position);
+
+                // Alignment padding between two fields belongs to neither, so step over it. Stopping here
+                // drops every later row in the window, and the bytes are only worth a row if they moved.
+                if (next && next.off < end) {
+                    if (!bytesEqual(slice(before, position, next.off), slice(after, position, next.off))) {
+                        unnamed();
+                    }
+                    position = next.off;
+                    continue;
+                }
+
+                // Past the last field, alignment slack and a region longer than the whole state look the
+                // same from here, and the second is worth saying out loud.
+                unnamed();
+                break;
+            }
+
+            // A field with no ABI cannot be decoded at all, which is still a reason to stop.
+            if (!field.abi) {
+                unnamed();
                 break;
             }
 

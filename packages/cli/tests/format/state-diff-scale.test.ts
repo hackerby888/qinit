@@ -4,7 +4,9 @@ import { test, expect } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import type { DebugStateRegion } from "@qinit/core";
 import { collectionGeometry, hashMapGeometry, hashSetGeometry, linkedListGeometry } from "@qinit/proto/qpi-layout";
+import { systemContracts } from "@qinit/build/contracts/system-contracts";
 import { stateFieldsOf, type StateField } from "../../src/trace/state-format";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { stateDiffLines } from "../../src/trace/state-diff";
 
 const U64 = { size: 8, align: 8 };
@@ -501,4 +503,104 @@ test("a fully dirty region reports one row per changed byte", async () => {
     const window = diffWindow(0, length, undefined, (bytes) => bytes.fill(1));
 
     expect(await stateDiffLines(BLOB_FIELDS, [window])).toHaveLength(length);
+});
+
+// C alignment padding between two state fields belongs to neither, and the walk used to stop dead on it.
+// Every field after the gap went unreported, with no error and no warning.
+const GAP_FIELDS = fieldsOf("Gap", "sint8 flag; uint64 counter; uint64 tail;");
+
+test("fields after an alignment gap are still reported", async () => {
+    const window = diffWindow(0, 24, undefined, (bytes) => {
+        bytes[0] = 1;
+        writeLe(bytes, 8, 42);
+        writeLe(bytes, 16, 99);
+    });
+
+    expect(await rowsFor(GAP_FIELDS, [window])).toEqual(["flag 0 → 1", "counter 0 → 42", "tail 0 → 99"]);
+});
+
+// Padding bytes cannot move through a typed QPI write, so if they did the reader wants to know — and the
+// walk still has to carry on to the field on the far side.
+test("a change inside an alignment gap is reported without stopping the walk", async () => {
+    const window = diffWindow(0, 24, undefined, (bytes) => {
+        bytes[0] = 1;
+        bytes[3] = 7;
+        writeLe(bytes, 16, 99);
+    });
+
+    expect(await rowsFor(GAP_FIELDS, [window])).toEqual(["flag 0 → 1", "@1 (outside any known field)", "tail 0 → 99"]);
+});
+
+test("an untouched alignment gap costs no row", async () => {
+    const window = diffWindow(0, 24, undefined, (bytes) => writeLe(bytes, 16, 99));
+
+    expect(await rowsFor(GAP_FIELDS, [window])).toEqual(["tail 0 → 99"]);
+});
+
+// Past the last field, alignment slack and a region longer than the whole state are indistinguishable, so
+// that row stays unconditional — trace-format.test.ts leans on it to spot a degraded IDL.
+test("a region running past the last field still says so", async () => {
+    const window = diffWindow(0, 32, undefined, (bytes) => writeLe(bytes, 16, 99));
+
+    expect(await rowsFor(GAP_FIELDS, [window])).toEqual(["tail 0 → 99", "@24 (outside any known field)"]);
+});
+
+// A gap far enough in that its window is nowhere near the start of the state.
+const FAR_GAP_FIELDS = fieldsOf("FarGap", `Array<uint64, ${1 << 16}> bulk; uint32 narrow; uint64 after;`);
+
+test("a gap in the middle of a large state does not stop the walk", async () => {
+    const narrow = offsetOf(FAR_GAP_FIELDS, "narrow");
+    const window = diffWindow(narrow, 16, undefined, (bytes) => {
+        writeLe(bytes, 0, 5, 4);
+        writeLe(bytes, offsetOf(FAR_GAP_FIELDS, "after") - narrow, 77);
+    });
+
+    expect(await rowsFor(FAR_GAP_FIELDS, [window])).toEqual(["narrow 0 → 5", "after 0 → 77"]);
+});
+
+// The gap is not hypothetical: 10 of the 28 system contracts have one, QX included, where the four bytes
+// after _tradeFee used to hide the whole order book from any window that reached them.
+function stateGaps(fields: StateField[]): { end: number; next: StateField }[] {
+    const gaps: { end: number; next: StateField }[] = [];
+
+    for (let index = 0; index + 1 < fields.length; index++) {
+        const end = fields[index]!.off + fields[index]!.size;
+        if (end < fields[index + 1]!.off) {
+            gaps.push({ end, next: fields[index + 1]! });
+        }
+    }
+
+    return gaps;
+}
+
+const namesField = (detail: string, name: string) => detail === name || detail.startsWith(`${name}.`) || detail.startsWith(`${name}[`);
+
+test.skipIf(!HAS_CORE)("every system contract with a state gap reports across it", async () => {
+    const contracts = await systemContracts(CORE_PATH);
+    let checked = 0;
+
+    for (const contract of contracts) {
+        if (!contract.idl) {
+            continue;
+        }
+
+        const fields = stateFieldsOf(contract.idl);
+        for (const gap of stateGaps(fields)) {
+            const start = Math.max(0, gap.end - 128);
+            const length = Math.max(256, gap.next.off - start + 8);
+            const window = diffWindow(start, length, undefined, (bytes) => {
+                bytes[0] = 1;
+                bytes[gap.next.off - start] = 1;
+            });
+
+            const rows = await stateDiffLines(fields, [window]);
+            expect(
+                rows.some((line) => namesField(line.detail, gap.next.name)),
+                `${contract.idl.name} lost ${gap.next.name}`,
+            ).toBe(true);
+            checked++;
+        }
+    }
+
+    expect(checked).toBeGreaterThanOrEqual(10);
 });
