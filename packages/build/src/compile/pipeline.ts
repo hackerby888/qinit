@@ -14,10 +14,10 @@ import type { ContractBuildResult, SystemContractCompiler } from "./types";
 import { buildContractWithTypeScript } from "./typescript";
 import { buildCalleePrelude } from "../contracts/intercontract";
 import type { DynCallees } from "../contracts/intercontract";
-import { generateWasmContractTestingHeaderForCore, systemContractClosure, systemContracts } from "../contracts/system-contracts";
+import { generateWasmContractTestingHeaderForCore, KNOWN_LOG_HEADER_VIOLATIONS, systemContractClosure, systemContracts } from "../contracts/system-contracts";
 import { k12Hex } from "@qinit/core";
 import { analyzeContract } from "@qinit/compiler/analyzer";
-import { loadQpiHeader } from "@qinit/compiler";
+import { loadQpiHeader, LOG_HEADER_WORD_HINT } from "@qinit/compiler";
 
 export async function buildContractWithClang(input: ClangBuildOptions): Promise<ContractBuildResult> {
     let source: string;
@@ -46,13 +46,19 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         slot: o.slot,
         qpiHeader,
     });
-    const complexTypeDiagnostics = analysis.diagnostics.filter(
-        (diagnostic) => diagnostic.message.includes(" is forbidden in registered entry") || diagnostic.code === "qpi/public-complex-type",
+    // The TypeScript backend promotes this one to an error itself; matching it here keeps a clang
+    // build from accepting a log payload whose leading word the host is going to overwrite.
+    const rejectsLogHeader = o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(o.contractPath));
+    const protocolDiagnostics = analysis.diagnostics.filter(
+        (diagnostic) =>
+            diagnostic.message.includes(" is forbidden in registered entry") ||
+            diagnostic.code === "qpi/public-complex-type" ||
+            (rejectsLogHeader && diagnostic.message.includes(LOG_HEADER_WORD_HINT)),
     );
-    if (complexTypeDiagnostics.length) {
+    if (protocolDiagnostics.length) {
         return {
             ok: false,
-            stderr: ["Qubic protocol violations:", ...complexTypeDiagnostics.map((diagnostic) => `  • ${diagnostic.message}`)].join("\n"),
+            stderr: ["Qubic protocol violations:", ...protocolDiagnostics.map((diagnostic) => `  • ${diagnostic.message}`)].join("\n"),
         };
     }
     const calls = analysis.calls;

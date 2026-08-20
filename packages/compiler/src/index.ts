@@ -20,6 +20,7 @@ export { Parser } from "./frontend/parser";
 export { formatAst } from "./ast/print";
 export { emitModule } from "./backend/wasm/framework";
 export type { UserEntry, SystemProcedureInfo, ModuleSpecification } from "./backend/wasm/framework";
+export { LOG_HEADER_WORD_HINT } from "./backend/wasm/abi/log-payload";
 
 export type { ParseAstResult } from "./driver/parse-ast";
 export { loadQpiHeader, withPrelude } from "./driver/header";

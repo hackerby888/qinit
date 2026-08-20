@@ -333,6 +333,24 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
         expect(compilerDiagnostics(source)).toEqual([]);
     });
+
+    // The host overwrites the first four bytes with the contract index, so a wider field there loses
+    // them. Reported as a fidelity finding, which the compile driver promotes to an error.
+    test("a payload whose leading field spans the reserved word is reported", () => {
+        const source = LOGGING_SOURCE.replace("uint32 _contractIndex; uint32 _type;", "uint64 counter;");
+        const findings = compilerDiagnostics(source);
+
+        expect(findings.map((item) => item.message)).toEqual(["__qinit_log_info payload must open with a 4-byte word reserved for the contract index"]);
+        expect(findings[0].severity).toBe(DiagnosticSeverity.WARNING);
+        expect(findings[0].code).toBe("compiler/fidelity");
+        expect(findings[0].span.line).toBe(LOG_CALL_LINE);
+    });
+
+    test("the reserved word may be named anything four bytes wide", () => {
+        const source = LOGGING_SOURCE.replace("uint32 _contractIndex;", "uint32 contractId;");
+
+        expect(compilerDiagnostics(source)).toEqual([]);
+    });
 });
 
 describe("LOG_* call context", () => {

@@ -1,7 +1,7 @@
 // buildCorpusRunner replaces core-lite's contract_testing.h with the engine-backed test harness.
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { buildContractWithClang, buildCorpusRunner, systemContracts, type DynCallees } from "@qinit/build";
+import { basename, join } from "node:path";
+import { buildContractWithClang, buildCorpusRunner, KNOWN_LOG_HEADER_VIOLATIONS, systemContracts, type DynCallees } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { initK12 } from "@qinit/core";
@@ -233,6 +233,7 @@ async function typescriptWasms(
             qpiHeader: headers,
             callees: callees.length ? callees : undefined,
             calleeSources: calleeSources.length ? calleeSources : undefined,
+            strict: !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(d.contractPath)),
         };
         const dr = await compileContractWithTypeScript({
             ...depOpts,
@@ -266,6 +267,7 @@ async function typescriptWasms(
             qpiHeader: headers,
             callees: callees.length ? callees : undefined,
             calleeSources: calleeSources.length ? calleeSources : undefined,
+            strict: !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(main.contractPath)),
         },
         mainArenaSize(main.name),
     );

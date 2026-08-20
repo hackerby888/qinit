@@ -167,7 +167,17 @@ function checkLogStatement(programAnalysis: ProgramAnalysis, roots: PayloadRoots
     }
 
     // The argument span survives the preprocessed-to-source remap; the callee's column does not.
-    programAnalysis.error(logPayloadMessage(call.callee.name, defect), argument.span ?? statement.span);
+    const span = argument.span ?? statement.span;
+    const message = logPayloadMessage(call.callee.name, defect);
+
+    // Reported as a fidelity warning so it hardens into an error for ordinary builds while
+    // `strict: false` can still compile a known-violating contract from the core corpus.
+    if (defect === LogPayloadDefect.HEADER_WORD_NOT_RESERVED) {
+        programAnalysis.warn(message, span);
+        return;
+    }
+
+    programAnalysis.error(message, span);
 }
 
 // ponytail: depth-1 payloads only (locals.x / state.get().x); deeper chains need codegen's typedef

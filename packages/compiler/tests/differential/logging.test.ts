@@ -65,6 +65,30 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         expect(logs.every((l) => l.hex.length === 34)).toBe(true);
     });
 
+    // The wasm SDK hands the payload to lh_logBytes untouched, so logging the same struct twice has
+    // to produce the same bytes. Only the leading word can tell: it is what the host overwrites.
+    test("logging one payload repeatedly leaves it byte-identical", async () => {
+        const source = SOURCE.replace("locals.message._type = 9;", "locals.message._contractIndex = 7;\n    locals.message._type = 9;");
+        const result = await compileContractWithTypeScript({
+            source,
+            contractName: "Logging",
+            slot: 28,
+            qpiHeader: HEADERS(),
+            arenaSizeBytes: 64 * 1024,
+        });
+        expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+
+        const sim = new QubicSimulator();
+        sim.setDebug(true);
+        sim.deploy(28, result.wasm);
+        sim.procedure(28, 1, Uint8Array.of(42, 0, 0, 0, 0, 0, 0, 0));
+        const logs = sim.getTrace().entries.at(-1)?.logs ?? [];
+
+        expect(logs).toHaveLength(5);
+        expect(logs.every((l) => l.hex.slice(0, 8) === "07000000")).toBe(true);
+        expect(new Set(logs.map((l) => l.hex)).size).toBe(1);
+    });
+
     test("the same import persists native records on VirtualNode", async () => {
         const result = await compileContractWithTypeScript({
             source: SOURCE,
@@ -83,6 +107,27 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         expect(range).toEqual({ fromLogId: 0n, length: 5n });
         const records = node.logger.recordsBetween(range.fromLogId + 1n, range.fromLogId + range.length - 1n)!;
         expect(new DataView(records.buffer).getUint32(26, true)).toBe(28);
+    });
+
+    // Analysis reports the misplaced header word as a fidelity finding; the compile driver is what
+    // turns it into a rejection, so the corpus can still build a known-violating core contract.
+    test("rejects a payload that parks data in the reserved word unless strict is off", async () => {
+        const source = SOURCE.replace("uint32 _contractIndex; uint32 _type;", "uint64 counter;");
+        const options = {
+            source,
+            contractName: "HeaderWord",
+            slot: 28,
+            qpiHeader: HEADERS(),
+            arenaSizeBytes: 64 * 1024,
+        };
+
+        const strict = await compileContractWithTypeScript(options);
+        const rejected = strict.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
+        expect(rejected.map((d) => d.message)).toContain("__qinit_log_error payload must open with a 4-byte word reserved for the contract index");
+
+        const relaxed = await compileContractWithTypeScript({ ...options, strict: false });
+        expect(relaxed.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+        expect(relaxed.wasm.length).toBeGreaterThan(0);
     });
 
     test("rejects malformed payload structs", async () => {

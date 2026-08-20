@@ -1,9 +1,10 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { compileContractWithTypeScript, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { analyzeContract, type SourceAnalysisResult } from "@qinit/compiler/analyzer";
 import { k12Hex } from "@qinit/core";
 import type { ContractBuildResult } from "./types";
+import { KNOWN_LOG_HEADER_VIOLATIONS } from "../contracts/system-contracts";
 import { resolveContractSource } from "./source";
 
 export interface TypeScriptCalleeBuildOptions {
@@ -23,6 +24,7 @@ export interface TypeScriptBuildOptions {
     corePath: string;
     outDir: string;
     dynCallees?: Record<string, TypeScriptCalleeBuildOptions>;
+    strict?: boolean; // default true; false keeps fidelity-only findings from failing the build
 }
 
 interface DynamicCalleeSource {
@@ -72,8 +74,11 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         };
     }
     let source: string;
+    let contractPath: string;
     try {
-        source = resolveContractSource(o).source;
+        const resolved = resolveContractSource(o);
+        source = resolved.source;
+        contractPath = resolved.contractPath;
     } catch (error: any) {
         return { ok: false, stderr: String(error?.message ?? error) };
     }
@@ -108,6 +113,7 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         qpiHeader,
         callees: callees.length ? callees : undefined,
         calleeSources: calleeSources.length ? calleeSources : undefined,
+        strict: o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(contractPath)),
     });
     const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
     if (errors.length) {

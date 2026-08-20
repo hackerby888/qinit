@@ -15,6 +15,7 @@ export { buildCalleePrelude, parseRegisters, scanCallees, parseContractDef } fro
 export type { DynCallees, CalleeDef } from "./contracts/intercontract";
 export {
     generateWasmContractTestingHeaderForCore,
+    KNOWN_LOG_HEADER_VIOLATIONS,
     systemContractClosure,
     systemContractDescriptions,
     systemContracts,

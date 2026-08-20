@@ -107,7 +107,9 @@ function emitLogMessage(context: FunctionEmissionContext, expression: CallExpres
 
     const defect = logPayloadDefect(payload.layout);
 
-    if (defect) {
+    // A misplaced header word still lowers, and analysis already reported it at the same call, so
+    // only the defects that leave nothing to emit stop here.
+    if (defect && defect !== LogPayloadDefect.HEADER_WORD_NOT_RESERVED) {
         context.programAnalysis.error(logPayloadMessage(callName, defect), span);
         return;
     }
@@ -123,6 +125,4 @@ function emitLogMessage(context: FunctionEmissionContext, expression: CallExpres
     );
 
     context.lines.push(`    ${watIr.serializeWatNode(loggingCall)}`);
-    // Restore the host-stamped contract index so logging cannot alter contract state.
-    context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i32.store", null, payloadAddress, watIr.i32Constant(0)))}`);
 }

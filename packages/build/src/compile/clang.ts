@@ -79,6 +79,7 @@ export interface ClangBuildOptions {
     wasmClang?: string; // clang targeting wasm32-wasi; default env WASM_CLANG / the auto-fetched wasi-sdk
     wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
     skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some Wasm macros)
+    strict?: boolean; // default true; false keeps fidelity-only findings out of the build gate, matching CompileOptions.strict
     arenaSizeBytes?: number; // contract-side arena size (WASM_ARENA_SIZE), default 1GB; shrink for browser IDE builds
     journalCapBytes?: number; // state-write journal budget; capacity is also capped by the reserved region
     testSource?: string; // core-lite contract_testing.h-style source compiled into a private Wasm runner

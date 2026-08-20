@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initK12 } from "@qinit/core";
 import { runContractTesting } from "@qinit/engine";
-import { buildContractWithClang, buildCorpusRunner } from "@qinit/build";
+import { buildContractWithClang, buildCorpusRunner, KNOWN_LOG_HEADER_VIOLATIONS } from "@qinit/build";
 import { compileContractWithTypeScript, loadQpiHeader, type CompileResult, type ContractIdl } from "../../src/index";
 import { CORE } from "../support/qutil-bridge";
 import { HAS_CORE } from "../../../../test-utils/paths";
@@ -251,6 +251,7 @@ async function buildWithTypeScript(spec: Spec): Promise<Record<number, Uint8Arra
         arenaSizeBytes: ARENA,
         callees,
         calleeSources,
+        strict: KNOWN_LOG_HEADER_VIOLATIONS.has(spec.header) ? false : undefined,
     });
     const mainErrs = mainR.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
     if (mainErrs.length) {

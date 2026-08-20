@@ -8,6 +8,12 @@ import type { TypeSpec } from "../../../ast";
 export const LOG_TERMINATOR_FIELD = "_terminator";
 export const MIN_TERMINATOR_OFFSET_BYTES = 8;
 
+// The host overwrites the payload's leading word with the contract index before the record is
+// persisted, so a field spanning those bytes loses them. Core keeps a 4-byte word there under
+// several spellings (_contractIndex, contractIndex, contractId), so the rule matches on width.
+export const LOG_HEADER_WORD_BYTES = 4;
+export const LOG_HEADER_WORD_HINT = "must open with a 4-byte word reserved for the contract index";
+
 // The struct-shape half of the contract. A null layout is left to the caller, which knows whether
 // that means a definite scalar or a type it simply could not resolve.
 export function logPayloadDefect(layout: StructLayout): LogPayloadDefect | null {
@@ -21,7 +27,31 @@ export function logPayloadDefect(layout: StructLayout): LogPayloadDefect | null 
         return LogPayloadDefect.TERMINATOR_TOO_EARLY;
     }
 
+    if (!headerWordIsReserved(layout)) {
+        return LogPayloadDefect.HEADER_WORD_NOT_RESERVED;
+    }
+
     return null;
+}
+
+// Empty members also report offset 0, so only sized fields decide whether the leading word is
+// a slot of its own rather than the front of a wider value.
+function headerWordIsReserved(layout: StructLayout): boolean {
+    let found = false;
+
+    for (const field of layout.fields.values()) {
+        if (field.offset !== 0 || field.size === 0) {
+            continue;
+        }
+
+        if (field.size !== LOG_HEADER_WORD_BYTES) {
+            return false;
+        }
+
+        found = true;
+    }
+
+    return found;
 }
 
 export function logPayloadMessage(callName: string, defect: LogPayloadDefect): string {
@@ -32,6 +62,8 @@ export function logPayloadMessage(callName: string, defect: LogPayloadDefect): s
             return `${callName} payload struct must contain ${LOG_TERMINATOR_FIELD}`;
         case LogPayloadDefect.TERMINATOR_TOO_EARLY:
             return `${callName} payload ${LOG_TERMINATOR_FIELD} offset must be at least ${MIN_TERMINATOR_OFFSET_BYTES} bytes`;
+        case LogPayloadDefect.HEADER_WORD_NOT_RESERVED:
+            return `${callName} payload ${LOG_HEADER_WORD_HINT}`;
     }
 }
 

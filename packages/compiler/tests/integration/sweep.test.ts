@@ -4,7 +4,7 @@ import { CORE_PATH, HAS_CORE, QINIT_ROOT } from "../../../../test-utils/paths";
 import { test, expect, beforeAll } from "bun:test";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { systemContracts } from "@qinit/build";
+import { KNOWN_LOG_HEADER_VIOLATIONS, systemContracts } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { parseContractIdl } from "@qinit/proto/contract-idl";
@@ -145,6 +145,7 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
             arenaSizeBytes: 64 * 1024,
             callees: callees.length ? callees : undefined,
             calleeSources: calleeSources.length ? calleeSources : undefined,
+            strict: KNOWN_LOG_HEADER_VIOLATIONS.has(`${displayName}.h`) ? false : undefined,
         });
     } catch (e: any) {
         row.parse = "THROW:" + (e.message ?? "").slice(0, 30);
