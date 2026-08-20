@@ -11,6 +11,14 @@ const U64 = { size: 8, align: 8 };
 
 const hex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
+function writeLe(bytes: Uint8Array, offset: number, value: number, width = 8) {
+    let rest = BigInt(value);
+    for (let index = 0; index < width; index++) {
+        bytes[offset + index] = Number(rest & 0xffn);
+        rest >>= 8n;
+    }
+}
+
 // A window carries its own bytes, so a case can sit anywhere in a 545 MB state without allocating one.
 // `seed` fills the before image and `write` the after image, both at offsets relative to the window.
 function diffWindow(off: number, length: number, seed?: (bytes: Uint8Array) => void, write?: (bytes: Uint8Array) => void): DebugStateRegion {
@@ -69,4 +77,30 @@ test("resolving 64 flag windows does not walk the whole capacity", async () => {
 
     expect(rows).toHaveLength(64);
     expect(performance.now() - started).toBeLessThan(3000);
+});
+
+// A uint32 value under a uint64 key leaves four pad bytes at the end of every record. They used to
+// resolve back to the record base — the key — and report it once per pad byte, four rows of noise.
+const NARROW_CAPACITY = 8;
+const NARROW = hashMapGeometry(U64, { size: 4, align: 4 }, NARROW_CAPACITY);
+const NARROW_FIELDS = fieldsOf("Narrow", `HashMap<uint64, uint32, ${NARROW_CAPACITY}> narrow;`);
+
+test("a record's trailing pad reports nothing instead of re-reading its key", async () => {
+    const base = offsetOf(NARROW_FIELDS, "narrow");
+    const slot = 4;
+    const record = slot * NARROW.recordStride;
+
+    const window = diffWindow(base, NARROW.populationOffset + 8, undefined, (bytes) => {
+        writeLe(bytes, record, 11);
+        writeLe(bytes, record + NARROW.valueOffset, 5, 4);
+        bytes[flagByte(NARROW.flagsOffset, slot)] = flagBits(slot, 1);
+        writeLe(bytes, NARROW.populationOffset, 1);
+    });
+
+    expect(await rowsFor(NARROW_FIELDS, [window])).toEqual([
+        "narrow.slot[4].key 0 → 11",
+        "narrow[11] = 5 (new)",
+        "narrow._occupationFlags[4] 0 → 1",
+        "narrow 0 → 1 entries",
+    ]);
 });

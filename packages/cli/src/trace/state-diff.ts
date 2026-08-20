@@ -33,7 +33,6 @@ const WORD_TYPES: Record<WordType, AbiType> = {
     uint64: word(AbiScalarKind.UINT64),
     id: word(AbiScalarKind.ID, 32),
 };
-const SINT64 = WORD_TYPES.sint64;
 
 // `payload` is a value the contract itself wrote, `count` a container's entry total, and `internal` the
 // bookkeeping — occupation flags, list links, free-list heads — that only the full view shows.
@@ -101,8 +100,6 @@ const at = (names: Names, off: number, type: AbiType, cls: LeafClass = "payload"
     off,
     type,
 });
-
-const bookkeeping = (names: Names, off: number, type: AbiType) => at(names, off, type, "internal");
 
 // The member of `type` that byte `offset` (relative to `base`) falls in. Indexed collections always
 // resolve per element; a struct stops as one row when `covered` says the region holds all of it.
@@ -190,7 +187,9 @@ function memberLeaf(
 
     const found = region.members.find((candidate) => inner < candidate.off + candidate.size);
     if (!found) {
-        return bookkeeping(record, recordBase, SINT64);
+        // Trailing pad after a record's last member names nothing. A zero-count bits leaf reports no row and
+        // still moves the walk past the rest of the record, which reading the pad as a word did not.
+        return bitsLeaf(record, recordBase + inner, region.stride - inner, 1, 0, "internal");
     }
 
     const named = child(record, found.path, found.short);
