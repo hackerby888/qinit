@@ -11,6 +11,13 @@ import { validateContractIndexSignature } from "./wasm-contract-index";
 
 const EMPTY = new Uint8Array(0);
 
+// The leading word of a log payload, in the little-endian form core's host writes there.
+function contractIndexWord(slot: number): Uint8Array {
+    const word = new Uint8Array(4);
+    new DataView(word.buffer).setUint32(0, slot >>> 0, true);
+    return word;
+}
+
 function stateDiffMode(): string | undefined {
     return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.QINIT_STATE_DIFF;
 }
@@ -961,7 +968,13 @@ export class Contract {
                     this.arenaTop = pointer;
                 }
             },
-            logBytes: (_ci: number, level: number, msgOff: number, size: number) => this.host.log(this.slot, level, u8().slice(msgOff, msgOff + size)),
+            logBytes: (_ci: number, level: number, msgOff: number, size: number) => {
+                // The record and the trace both take the payload as the contract left it.
+                this.host.log(this.slot, level, u8().slice(msgOff, msgOff + size));
+                // Core stamps the contract index over the payload's leading word afterwards, so a
+                // contract that logs the same struct twice reads the stamp back the second time.
+                this.writeGuest(msgOff, contractIndexWord(this.slot));
+            },
             k12: (inOff: number, len: number, outOff: number) => this.writeGuest(outOff, k12Bytes(u8().slice(inOff, inOff + len))),
             abort: (code: number) => {
                 throw new ContractAbort(code);

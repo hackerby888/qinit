@@ -65,9 +65,9 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         expect(logs.every((l) => l.hex.length === 34)).toBe(true);
     });
 
-    // The wasm SDK hands the payload to lh_logBytes untouched, so logging the same struct twice has
-    // to produce the same bytes. Only the leading word can tell: it is what the host overwrites.
-    test("logging one payload repeatedly leaves it byte-identical", async () => {
+    // The wasm SDK hands the payload to lh_logBytes untouched, so everything the contract wrote has
+    // to survive being logged. Only the leading word moves, and only because the host stamps it.
+    test("repeated logs of one payload differ only in the host's leading word", async () => {
         const source = SOURCE.replace("locals.message._type = 9;", "locals.message._contractIndex = 7;\n    locals.message._type = 9;");
         const result = await compileContractWithTypeScript({
             source,
@@ -85,8 +85,10 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         const logs = sim.getTrace().entries.at(-1)?.logs ?? [];
 
         expect(logs).toHaveLength(5);
-        expect(logs.every((l) => l.hex.slice(0, 8) === "07000000")).toBe(true);
-        expect(new Set(logs.map((l) => l.hex)).size).toBe(1);
+        // The contract's own value is what the first log carries; the host's stamp lands after it.
+        expect(logs.map((l) => l.hex.slice(0, 8))).toEqual(["07000000", "1c000000", "1c000000", "1c000000", "1c000000"]);
+        // A zero here instead would be emission clobbering the word the host owns.
+        expect(new Set(logs.map((l) => l.hex.slice(8))).size).toBe(1);
     });
 
     test("the same import persists native records on VirtualNode", async () => {
