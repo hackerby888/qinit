@@ -5,6 +5,7 @@ import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, StructDecl, FunctionDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { addrIr } from "./memory-operations";
+import { classOperandName, overloadedOperatorAddress } from "../expressions/operator-overload";
 // Address of an lvalue or a materializable aggregate. Returns null if not addressable.
 export function emitAddress(context: FunctionEmissionContext, expression: Expression): string | null {
     if (expression.kind === AstKind.IDENTIFIER && expression.name === "SELF") return "(call $self_id)";
@@ -280,6 +281,27 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
     if (expression.kind === AstKind.CALL && expression.callee.kind === AstKind.IDENTIFIER) {
         const hinfo = context.lowering.lookupHelper(context, expression);
         if (hinfo?.retAgg) return context.lowering.emitAggHelperCall(context, expression, hinfo);
+    }
+    // An operator that returns its own class produces an rvalue with no home, exactly like the
+    // uint128 branch above but without naming a type: the slot the body wrote into is its address.
+    if (expression.kind === AstKind.BINARY_OP) {
+        const cached = context.materializedCalls?.get(expression);
+        if (cached) return cached.addr;
+
+        const operatorAddress = overloadedOperatorAddress(context, `operator${expression.operator}`, expression.left, expression.right);
+
+        if (operatorAddress) {
+            const className = classOperandName(context, expression);
+            const type: TypeSpec | null = className ? { kind: AstKind.NAME, name: className } : null;
+            const bind = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
+            (context.materializedCalls ??= new WeakMap()).set(expression, {
+                addr: operatorAddress,
+                type,
+                size: type ? context.programAnalysis.sizeOfType(type, bind) : 0,
+                layout: type ? context.programAnalysis.layoutOfType(type, bind) : null,
+            });
+            return operatorAddress;
+        }
     }
     // `Type(args)` constructs Type, through whatever constructor the class declares. It sits after
     // the helper lookup so a function of the same name wins the spelling, the way C++ name hiding

@@ -273,6 +273,41 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(0n);
     });
 
+    // An operator that returns its own class produces an rvalue with no home of its own. The
+    // constructor scales, so a comparison that skipped either body would not answer 1.
+    const MONEY = `struct Money {
+    uint64 qus;
+    Money() { qus = 0; }
+    Money(uint64 value) { qus = value * 10 + 1; }
+    Money operator+(const Money& other) const { return Money((qus + other.qus - 2) / 10); }
+    bit operator==(const Money& other) const { return qus == other.qus; }
+  };`;
+
+    test("an operator result is a comparison operand", async () => {
+        const source = wrap(
+            MONEY,
+            "Money a; Money b;",
+            `locals.a = Money(2);
+       locals.b = Money(3);
+       state.mut().result = ((locals.a + locals.b) == Money(5)) ? 1 : 0;`,
+        );
+
+        expect(await run(source)).toBe(1n);
+    });
+
+    test("an operator result is an argument", async () => {
+        const source = wrap(
+            MONEY,
+            "Money a; Money b; Money total;",
+            `locals.a = Money(2);
+       locals.b = Money(3);
+       locals.total = Money(5);
+       state.mut().result = (locals.total == (locals.a + locals.b)) ? 1 : 0;`,
+        );
+
+        expect(await run(source)).toBe(1n);
+    });
+
     // m256i's own operators are x86 intrinsics, so the backend substitutes a byte compare for them.
     // That substitution has to keep working, and has to keep meaning "all 32 bytes".
     test("id equality still compares the whole value", async () => {
