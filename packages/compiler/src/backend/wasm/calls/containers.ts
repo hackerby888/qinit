@@ -282,7 +282,13 @@ export function callCompiled(
             // rejects — `qpi.nextId(7)` for an id built only from four limbs.
             const resolvedParam = context.programAnalysis.resolveType(paramType, bind);
             const paramOwner = resolvedParam.kind === AstKind.NAME || resolvedParam.kind === AstKind.TEMPLATE_INSTANCE ? resolvedParam.name : null;
-            if (paramOwner && context.programAnalysis.templateMethods.get(paramOwner)?.has(`${paramOwner}/1`)) {
+            const singleArgument = paramOwner ? context.programAnalysis.templateMethods.get(paramOwner)?.get(`${paramOwner}/1`) : undefined;
+            // A copy constructor takes one argument too, and converts nothing: feeding it a scalar
+            // would send the same argument back through this branch for its own `const T&` parameter.
+            const convertsFromScalar =
+                !!singleArgument &&
+                !context.programAnalysis.isAggregateType(context.programAnalysis.derefType(singleArgument.functionParameters?.[0]?.type ?? paramType));
+            if (convertsFromScalar) {
                 return context.lowering.argAddr(
                     context,
                     callArgument,
