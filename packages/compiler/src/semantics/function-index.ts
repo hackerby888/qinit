@@ -96,16 +96,25 @@ export function resolveSourceMethodDefinition(
     const overloadKey = programAnalysis.buildMethodOverloadKey(methodName, methodArgumentCount, parameterTypeDiscriminator);
     let definition: FunctionTemplateDecl | undefined;
 
-    for (const ownerName of programAnalysis.methodOwnerNames(ownerTypeName)) {
-        const methodsByName = programAnalysis.templateMethods.get(ownerName);
-        definition =
-            (overloadKey ? methodsByName?.get(overloadKey) : undefined) ??
-            (specializationKey ? methodsByName?.get(specializationKey) : undefined) ??
-            (methodArgumentCount !== undefined ? methodsByName?.get(`${methodName}/${methodArgumentCount}`) : undefined) ??
-            methodsByName?.get(methodName);
+    const select = (methods: Map<string, FunctionTemplateDecl> | undefined) =>
+        (overloadKey ? methods?.get(overloadKey) : undefined) ??
+        (specializationKey ? methods?.get(specializationKey) : undefined) ??
+        (methodArgumentCount !== undefined ? methods?.get(`${methodName}/${methodArgumentCount}`) : undefined) ??
+        methods?.get(methodName);
 
-        if (definition) {
-            break;
+    // The class the name resolves to owns the search. structByName applies C++ scoping — a nested
+    // declaration shadows a global one — so a contract's own class is asked before any qpi type that
+    // happens to share its name. Names remain the fallback for templates and inherited methods.
+    const ownerDeclaration = programAnalysis.structByName(ownerTypeName, ownerBindings);
+    definition = ownerDeclaration ? select(programAnalysis.methodsByDeclaration.get(ownerDeclaration)) : undefined;
+
+    if (!definition) {
+        for (const ownerName of programAnalysis.methodOwnerNames(ownerTypeName)) {
+            definition = select(programAnalysis.templateMethods.get(ownerName));
+
+            if (definition) {
+                break;
+            }
         }
     }
 

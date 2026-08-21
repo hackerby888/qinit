@@ -60,6 +60,8 @@ export class ProgramAnalysis {
     enumConstType: Map<string, TypeSpec> = new Map(); // enumerator name → its enum/underlying scalar type
     enumNames: Set<string> = new Set(); // every named enum type, for type-name resolution checks
     templateMethods: Map<string, Map<string, FunctionTemplateDecl>> = new Map(); // Class → method → out-of-class def
+    methodsByDeclaration: Map<StructDecl, Map<string, FunctionTemplateDecl>> = new Map(); // the same methods, under the class that declared them, so two classes sharing a name do not share a table
+    declarationIds: Map<StructDecl, number> = new Map(); // stable per-declaration id, so an instantiation cache key names one class and not every class spelled alike
     compiledMethods: Map<string, CompiledMethod> = new Map(); // instantiation cache key → compiled method
     emittedMethodOrder: string[] = []; // emitted WAT, in emission order (appended to module)
     constCache: Map<string, bigint> = new Map();
@@ -342,6 +344,17 @@ export class ProgramAnalysis {
     // Resolve structs through binding, nested, and global tables.
     structByName(name: string, templateBindings: TemplateBindings): StructDecl | undefined {
         return structIndex.structByName(this, name, templateBindings);
+    }
+    /** A stable id for a class declaration, assigned on first use. */
+    declarationId(structDeclaration: StructDecl): number {
+        let id = this.declarationIds.get(structDeclaration);
+
+        if (id === undefined) {
+            id = this.declarationIds.size + 1;
+            this.declarationIds.set(structDeclaration, id);
+        }
+
+        return id;
     }
     // Resolve qualified nested types through bindings, typedefs, and structs.
     qualifiedNestedType(name: string, templateBindings: TemplateBindings): TypeSpec | null {

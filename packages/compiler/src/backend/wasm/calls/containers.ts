@@ -1,7 +1,7 @@
 import { AstKind, ContainerEmissionMode, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { getFunctionLoweringServices } from "../functions/function-lowering-registry";
 import { emitScalarLoad, addrIr, isSignedScalarType } from "../memory/memory-operations";
-import { TemplateBindings, CompiledMethod, FieldLayout, FunctionEmissionContext } from "../types";
+import { TemplateBindings, CompiledMethod, FieldLayout, FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import { ProgramAnalysis } from "../../../semantics/program-analysis";
 import type { TypeSpec, Expression, FunctionTemplateDecl, ParamDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
@@ -133,9 +133,6 @@ export function compileContainerMethod(
     }
     return cm;
 }
-// ponytail: this key, and staticConstsOf below, still identify a class by name, so two classes
-// sharing an unqualified name share a cache entry and each other's static constants. Carry the owner
-// StructDecl from captureStructMethods through to emitTemplateMethod to identify them by declaration.
 function methodTypeKey(
     type: TypeSpec & {
         kind: AstKind.TEMPLATE_INSTANCE;
@@ -143,7 +140,11 @@ function methodTypeKey(
     context: ProgramAnalysis,
 ): string {
     const argumentKeys = type.callArguments.map((argument) => context.typeKeyOf(argument)).join(",");
-    return `${type.name}<${argumentKeys}>`;
+    // A plain class carries its declaration's id: without it two classes spelled alike share one
+    // instantiation, and whichever compiled first answers for both.
+    const declaration = type.callArguments.length === 0 ? context.structByName(type.name, EMPTY_TEMPLATE_BINDINGS) : undefined;
+    const identity = declaration ? `#${context.declarationId(declaration)}` : "";
+    return `${type.name}${identity}<${argumentKeys}>`;
 }
 // Emit an instantiated method with `$this`, concrete parameters, and its body.
 export function emitTemplateMethod(

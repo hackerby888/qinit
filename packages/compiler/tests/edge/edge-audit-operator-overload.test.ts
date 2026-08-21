@@ -220,6 +220,26 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
+    // QPI::DateAndTime declares method bodies of its own, and the method index is keyed by the bare
+    // class name. The field is called `value` to match QPI's, so QPI's operator== compiles against
+    // this struct and answers wrongly instead of failing to compile — the silent case, which is the
+    // one worth pinning.
+    test("a nested class runs its own methods, not a same-named QPI type's", async () => {
+        const source = wrap(
+            `struct DateAndTime {
+    uint64 value;
+    bit operator==(const DateAndTime& other) const { return 1; }
+  };`,
+            "DateAndTime left; DateAndTime right;",
+            `locals.left.value = 1;
+       locals.right.value = 2;
+       state.mut().result = (locals.left == locals.right) ? 1 : 0;`,
+        );
+
+        // The declared body ignores the values. QPI::DateAndTime's compares them and would answer 0.
+        expect(await run(source)).toBe(1n);
+    });
+
     // m256i's own operators are x86 intrinsics, so the backend substitutes a byte compare for them.
     // That substitution has to keep working, and has to keep meaning "all 32 bytes".
     test("id equality still compares the whole value", async () => {

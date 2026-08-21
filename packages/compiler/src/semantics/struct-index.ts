@@ -104,13 +104,21 @@ export function captureStructMethods(programAnalysis: ProgramAnalysis, structDec
             isConstexpr: fn.isConstexpr,
             span: fn.span,
         };
+        const akey = `${fn.name}/${(fn.params ?? []).length}`;
+
         for (const cls of names) {
             if (!programAnalysis.templateMethods.has(cls)) programAnalysis.templateMethods.set(cls, new Map());
             const into = programAnalysis.templateMethods.get(cls)!;
-            const akey = `${fn.name}/${(fn.params ?? []).length}`;
             if (!into.has(akey)) into.set(akey, def);
             if (!into.has(fn.name)) into.set(fn.name, def);
         }
+
+        // The same entries under the declaration itself: the name-keyed table is first-writer-wins,
+        // so a class whose name a qpi type already claimed would otherwise never see its own bodies.
+        if (!programAnalysis.methodsByDeclaration.has(structDeclaration)) programAnalysis.methodsByDeclaration.set(structDeclaration, new Map());
+        const owned = programAnalysis.methodsByDeclaration.get(structDeclaration)!;
+        if (!owned.has(akey)) owned.set(akey, def);
+        if (!owned.has(fn.name)) owned.set(fn.name, def);
     }
 }
 

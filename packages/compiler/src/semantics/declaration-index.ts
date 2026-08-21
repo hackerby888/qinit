@@ -69,6 +69,13 @@ export function registerTopLevelDeclarations(
                         }
                     }
                     if (!into.has(fn.name)) into.set(fn.name, def);
+                    // Also under the declaration itself — see captureStructMethods for why the
+                    // name-keyed table alone cannot tell two classes spelled the same apart.
+                    if (!programAnalysis.methodsByDeclaration.has(structDeclaration)) programAnalysis.methodsByDeclaration.set(structDeclaration, new Map());
+                    const owned = programAnalysis.methodsByDeclaration.get(structDeclaration)!;
+                    if (fn.params[0]) owned.set(`${akey}@${programAnalysis.typeKey(programAnalysis.derefType(fn.params[0].type))}`, def);
+                    if (!owned.has(akey)) owned.set(akey, def);
+                    if (!owned.has(fn.name)) owned.set(fn.name, def);
                 }
             }
             // file-scope structs can still nest constants/enums (e.g. a contract's static constexpr)
