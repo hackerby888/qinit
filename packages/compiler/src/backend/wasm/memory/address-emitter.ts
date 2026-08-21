@@ -277,10 +277,14 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
             }
         }
     }
-    // a call to a helper that returns an aggregate by value (id liquidityPov(...)) → materialize into a slot.
-    if (expression.kind === AstKind.CALL && expression.callee.kind === AstKind.IDENTIFIER) {
-        const hinfo = context.lowering.lookupHelper(context, expression);
-        if (hinfo?.retAgg) return context.lowering.emitAggHelperCall(context, expression, hinfo);
+    // a call to a helper that returns an aggregate by value (id liquidityPov(...)) → materialize into a
+    // slot. A template helper is the same call with explicit arguments, so div<uint128>(a, b) lands here too.
+    if ((expression.kind === AstKind.CALL || expression.kind === AstKind.TEMPLATE_CALL) && expression.callee.kind === AstKind.IDENTIFIER) {
+        const call = expression as Expression & {
+            kind: AstKind.CALL;
+        };
+        const hinfo = context.lowering.lookupHelper(context, call);
+        if (hinfo?.retAgg) return context.lowering.emitAggHelperCall(context, call, hinfo);
     }
     // An operator that returns its own class produces an rvalue with no home, exactly like the
     // uint128 branch above but without naming a type: the slot the body wrote into is its address.

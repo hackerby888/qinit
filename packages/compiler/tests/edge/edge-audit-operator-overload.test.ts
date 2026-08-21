@@ -354,6 +354,39 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(9n);
     });
 
+    // A helper returns its class by value, so the comparison's left operand is a call with no home.
+    const HELPER_MONEY = `struct Money {
+    uint64 qus;
+    Money() { qus = 0; }
+    Money(uint64 value) { qus = value; }
+    bit operator==(const Money& other) const { return qus == other.qus; }
+  };
+  static Money makeMoney(uint64 value) { Money m; m.qus = value; return m; }`;
+
+    test("a helper's result is a comparison operand", async () => {
+        const source = wrap(
+            HELPER_MONEY,
+            "Money m;",
+            `locals.m = Money(5);
+       state.mut().result = (makeMoney(5) == locals.m) ? 1 : 0;`,
+        );
+
+        expect(await run(source)).toBe(1n);
+    });
+
+    // The shape the uint128 fuzz corpus compares: a template helper's result on the left.
+    test("a template helper's result is a comparison operand", async () => {
+        const source = wrap(
+            "",
+            "uint128 a; uint128 b;",
+            `locals.a = uint128(0, 8);
+       locals.b = uint128(0, 4);
+       state.mut().result = (div<uint128>(locals.a, locals.b) == uint128(0, 2)) ? 1 : 0;`,
+        );
+
+        expect(await run(source)).toBe(1n);
+    });
+
     // m256i's own operators are x86 intrinsics, so the backend substitutes a byte compare for them.
     // That substitution has to keep working, and has to keep meaning "all 32 bytes".
     test("id equality still compares the whole value", async () => {

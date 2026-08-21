@@ -1,7 +1,7 @@
 import { AstKind, BinaryOp, WatNodeType } from "../../../shared/enums";
-import type { Expression, TypeSpec } from "../../../ast";
+import type { Expression, FunctionTemplateDecl, TypeSpec } from "../../../ast";
 import * as watIr from "../wat-ir";
-import type { FunctionEmissionContext } from "../types";
+import { EMPTY_TEMPLATE_BINDINGS, type FunctionEmissionContext } from "../types";
 
 // C++ resolves every operator through overload resolution, so the lowering asks the type what it
 // declared rather than assuming a representation. Only member candidates are considered: qpi's
@@ -40,6 +40,71 @@ const VALUE_PRESERVING_OPERATORS: ReadonlySet<string> = new Set([
     BinaryOp.SHIFT_RIGHT,
 ]);
 
+// A helper call's declared return type, read from the index. Never through lookupHelper, which
+// compiles the helper: typing an operand must not emit code or fail a build.
+function helperResultType(context: FunctionEmissionContext, expression: Expression): TypeSpec | null {
+    if (expression.kind !== AstKind.CALL && expression.kind !== AstKind.TEMPLATE_CALL) {
+        return null;
+    }
+
+    const callee = expression.callee;
+
+    if (callee.kind !== AstKind.IDENTIFIER && callee.kind !== AstKind.QUALIFIED_NAME) {
+        return null;
+    }
+
+    const programAnalysis = context.programAnalysis;
+    // A contract's own helpers register their metadata, return type included, before any body is
+    // lowered, so this reads a value that is already there.
+    const compiledOverloads = programAnalysis.helperOverloads.get(callee.name) ?? [];
+    const compiled = compiledOverloads.length ? compiledOverloads : [programAnalysis.helpers.get(callee.name)].filter((entry) => entry !== undefined);
+
+    if (compiled.length) {
+        const returnTypes = compiled.map((entry) => entry!.retType).filter((type) => type !== undefined);
+
+        return returnTypes.length === compiled.length && new Set(returnTypes.map((type) => programAnalysis.typeKey(type!))).size === 1 ? returnTypes[0]! : null;
+    }
+
+    for (const key of programAnalysis.namespaceCandidates(callee.name, context.sourceNamespace, context.usingNamespaces)) {
+        const overloads = programAnalysis.libFnOverloads.get(key) ?? (programAnalysis.libFns.has(key) ? [programAnalysis.libFns.get(key)!] : []);
+
+        if (overloads.length) {
+            const declared = overloads.map((overload) => programAnalysis.derefType(overload.returnType));
+            const distinct = new Set(declared.map((type) => programAnalysis.typeKey(type)));
+
+            // Overloads that disagree on their return type say nothing about this call.
+            return distinct.size === 1 ? declared[0] : null;
+        }
+
+        const templates = programAnalysis.libFnTemplates.get(key);
+
+        if (templates?.length) {
+            return templateResultType(context, templates[0], expression);
+        }
+    }
+
+    return null;
+}
+
+// Substitute a call's explicit template arguments into the template's declared return type, so
+// div<uint128>(a, b) reads as uint128_t.
+function templateResultType(context: FunctionEmissionContext, template: FunctionTemplateDecl, expression: Expression): TypeSpec | null {
+    const explicit = (expression as { templateArguments?: TypeSpec[] }).templateArguments ?? [];
+    const types = new Map<string, TypeSpec>();
+
+    template.params.forEach((parameter, index) => {
+        if (parameter.kind === AstKind.TYPE && explicit[index]) {
+            types.set(parameter.name, explicit[index]);
+        }
+    });
+
+    if (!types.size) {
+        return null;
+    }
+
+    return context.programAnalysis.substInBindings(context.programAnalysis.derefType(template.returnType), { ...EMPTY_TEMPLATE_BINDINGS, types });
+}
+
 // The class an operand belongs to, or null when it is a scalar or an unresolved type. The rvalue
 // shapes are read from the syntax rather than through the address resolver, which would emit a call
 // operand before an overload has claimed it.
@@ -63,7 +128,18 @@ export function classOperandName(context: FunctionEmissionContext, expression: E
             return classOperandName(context, expression.then, depth + 1) ?? classOperandName(context, expression.else_, depth + 1);
         }
 
-        // `Type(args)` names its class in the callee.
+        // A helper's declared return type, then `Type(args)` naming its class in the callee. Helper
+        // first, matching emitAddress, so an operand is typed by whatever will actually be emitted.
+        const returned = concreteType(context, helperResultType(context, expression));
+
+        if (returned?.kind === AstKind.NAME && context.programAnalysis.isAggregateType(returned)) {
+            return returned.name;
+        }
+
+        if (returned?.kind === AstKind.TEMPLATE_INSTANCE) {
+            return returned.name;
+        }
+
         if (expression.kind === AstKind.CALL && expression.callee.kind === AstKind.IDENTIFIER) {
             const constructed = concreteType(context, { kind: AstKind.NAME, name: expression.callee.name });
 
