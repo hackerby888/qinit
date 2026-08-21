@@ -221,19 +221,6 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
             if (context.lowering.emitConstruct(context, scratchAddress, expression.type, expression.callArguments)) return scratchAddress;
         }
     }
-    // Plain aggregate constructor syntax is normalized through the authoritative class constructor.
-    if (
-        expression.kind === AstKind.CALL &&
-        expression.callee.kind === AstKind.IDENTIFIER &&
-        (expression.callee.name === "id" || expression.callee.name === "m256i")
-    ) {
-        const type: TypeSpec = { kind: AstKind.NAME, name: expression.callee.name };
-        const destination = context.lowering.allocateScratchSlot(context, 32);
-        if (!context.lowering.emitConstruct(context, destination, type, expression.callArguments)) {
-            throw new Error(`authoritative ${expression.callee.name} constructor could not be lowered`);
-        }
-        return destination;
-    }
     // Compile qualified aggregate-returning methods from their owning struct bodies.
     if (expression.kind === AstKind.CALL && (expression.callee.kind === AstKind.IDENTIFIER || expression.callee.kind === AstKind.QUALIFIED_NAME)) {
         const qualified = expression.callee.name;
@@ -293,6 +280,20 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
     if (expression.kind === AstKind.CALL && expression.callee.kind === AstKind.IDENTIFIER) {
         const hinfo = context.lowering.lookupHelper(context, expression);
         if (hinfo?.retAgg) return context.lowering.emitAggHelperCall(context, expression, hinfo);
+    }
+    // `Type(args)` constructs Type, through whatever constructor the class declares. It sits after
+    // the helper lookup so a function of the same name wins the spelling, the way C++ name hiding
+    // resolves it.
+    if (expression.kind === AstKind.CALL && expression.callee.kind === AstKind.IDENTIFIER) {
+        const type: TypeSpec = { kind: AstKind.NAME, name: expression.callee.name };
+        const size = context.programAnalysis.isAggregateType(type) ? context.programAnalysis.sizeOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS) : 0;
+        if (size > 0) {
+            const destination = context.lowering.allocateScratchSlot(context, size);
+            if (!context.lowering.emitConstruct(context, destination, type, expression.callArguments)) {
+                throw new Error(`authoritative ${expression.callee.name} constructor could not be lowered`);
+            }
+            return destination;
+        }
     }
     // AssetOwnership/PossessionIterator.possessor()/owner() → address of the id in the current buffer record.
     if (expression.kind === AstKind.CALL && expression.callee.kind === AstKind.MEMBER_ACCESS) {

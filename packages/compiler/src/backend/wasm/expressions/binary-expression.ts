@@ -3,12 +3,11 @@ import { FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { u128ConstructorExpr } from "./uint128";
-import { classOperandName, concreteType, tryLowerOverloadedOperator } from "./operator-overload";
+import { classOperandName, tryLowerOverloadedOperator } from "./operator-overload";
 // $memeq/$m256_lt stand in for m256.h's operators, so they key on the type rather than on a 32-byte
 // size — a user struct of the same width gets its own declared operator instead.
 function isM256Operand(context: FunctionEmissionContext, expression: Expression): boolean {
-    const resolved = concreteType(context, context.lowering.resolveExpressionAddress(context, expression)?.type);
-    const name = resolved?.kind === AstKind.NAME || resolved?.kind === AstKind.TEMPLATE_INSTANCE ? resolved.name : null;
+    const name = classOperandName(context, expression);
 
     if (!name) {
         return false;

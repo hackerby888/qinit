@@ -164,6 +164,62 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
+    // `FeeAmount(n)` is spelled as a call, so it has no address of its own. Each case below is one a
+    // Clang build accepts. The constructor scales its argument, so a field-wise fallback that skipped
+    // it would store 5 where the declared body stores 51.
+    const FEE_AMOUNT = `struct FeeAmount {
+    uint64 qus;
+    FeeAmount() { qus = 0; }
+    FeeAmount(uint64 value) { qus = value * 10 + 1; }
+    bit operator==(const FeeAmount& other) const { return qus == other.qus; }
+  };`;
+
+    test("a constructor call assigns to an aggregate local", async () => {
+        const source = wrap(
+            FEE_AMOUNT,
+            "FeeAmount bid;",
+            `locals.bid = FeeAmount(5);
+       state.mut().result = locals.bid.qus;`,
+        );
+
+        expect(await run(source)).toBe(51n);
+    });
+
+    test("a constructor call is a comparison operand", async () => {
+        const source = wrap(
+            FEE_AMOUNT,
+            "FeeAmount bid;",
+            `locals.bid = FeeAmount(5);
+       state.mut().result = (locals.bid == FeeAmount(5)) ? 1 : 0;`,
+        );
+
+        expect(await run(source)).toBe(1n);
+    });
+
+    // The parameter is `const FeeAmount&` and the argument is a number, so the converting constructor
+    // has to run: it turns 5 into 51, which is what the left operand holds.
+    test("a scalar converts to the parameter's class", async () => {
+        const source = wrap(
+            FEE_AMOUNT,
+            "FeeAmount bid;",
+            `locals.bid = FeeAmount(5);
+       state.mut().result = (locals.bid == 5) ? 1 : 0;`,
+        );
+
+        expect(await run(source)).toBe(1n);
+    });
+
+    test("a constructor call is the left operand", async () => {
+        const source = wrap(
+            FEE_AMOUNT,
+            "FeeAmount bid;",
+            `locals.bid = FeeAmount(5);
+       state.mut().result = (FeeAmount(5) == locals.bid) ? 1 : 0;`,
+        );
+
+        expect(await run(source)).toBe(1n);
+    });
+
     // m256i's own operators are x86 intrinsics, so the backend substitutes a byte compare for them.
     // That substitution has to keep working, and has to keep meaning "all 32 bytes".
     test("id equality still compares the whole value", async () => {

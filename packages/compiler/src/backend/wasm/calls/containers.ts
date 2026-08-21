@@ -275,8 +275,24 @@ export function callCompiled(
                 );
             }
             const direct = context.lowering.emitAddress(context, callArgument);
-            if (!direct) throw new Error(`${type.name}::${method} aggregate argument ${methodParameterIndex + 1} is not addressable`);
-            return direct;
+            if (direct) return direct;
+            // An argument with no address of its own converts through the parameter class's
+            // one-argument constructor, when it declares one. A class that declares none has no such
+            // conversion in C++ either, and initialising its fields instead would accept calls Clang
+            // rejects — `qpi.nextId(7)` for an id built only from four limbs.
+            const resolvedParam = context.programAnalysis.resolveType(paramType, bind);
+            const paramOwner = resolvedParam.kind === AstKind.NAME || resolvedParam.kind === AstKind.TEMPLATE_INSTANCE ? resolvedParam.name : null;
+            if (paramOwner && context.programAnalysis.templateMethods.get(paramOwner)?.has(`${paramOwner}/1`)) {
+                return context.lowering.argAddr(
+                    context,
+                    callArgument,
+                    context.programAnalysis.sizeOfType(paramType, bind),
+                    paramType,
+                    methodParameter.readOnlyRef === true,
+                    true,
+                );
+            }
+            throw new Error(`${type.name}::${method} aggregate argument ${methodParameterIndex + 1} is not addressable`);
         }
         return context.lowering.argAddr(
             context,

@@ -27,6 +27,16 @@ export function concreteType(context: FunctionEmissionContext, type: TypeSpec | 
 
 // The class an operand belongs to, or null when it is a scalar or an unresolved type.
 export function classOperandName(context: FunctionEmissionContext, expression: Expression): string | null {
+    // `Type(args)` names its class syntactically. Reading it here rather than through the address
+    // resolver keeps a constructor operand from being emitted before an overload has claimed it.
+    if (expression.kind === AstKind.CALL && expression.callee.kind === AstKind.IDENTIFIER) {
+        const constructed = concreteType(context, { kind: AstKind.NAME, name: expression.callee.name });
+
+        if (constructed?.kind === AstKind.NAME && context.programAnalysis.isAggregateType(constructed)) {
+            return constructed.name;
+        }
+    }
+
     const node = context.lowering.resolveExpressionAddress(context, expression);
     const resolved = concreteType(context, node?.type);
 
