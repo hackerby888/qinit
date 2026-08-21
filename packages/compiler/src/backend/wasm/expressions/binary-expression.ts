@@ -2,7 +2,6 @@ import { AstKind, BinaryOp, WatNodeType } from "../../../shared/enums";
 import { FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
-import { u128ConstructorExpr } from "./uint128";
 import { classOperandName, tryLowerOverloadedOperator } from "./operator-overload";
 // $memeq/$m256_lt stand in for m256.h's operators, so they key on the type rather than on a 32-byte
 // size — a user struct of the same width gets its own declared operator instead.
@@ -46,27 +45,6 @@ export function lowerBinaryExpression(
         kind: AstKind.BINARY_OP;
     },
 ): watIr.WatNode {
-    // uint128 comparisons instantiate the corresponding platform/uint128.h operator body. What keeps
-    // this ahead of the general resolver is the left operand: `div<uint128>(a, b) == c` compares the
-    // result of a helper call, and neither classOperandName nor emitAddress reads a helper's declared
-    // return type, so the resolver cannot type it or give it an address.
-    // ponytail: delete this block once a helper call's result carries its class.
-    if (
-        (expression.operator === BinaryOp.EQUAL ||
-            expression.operator === BinaryOp.NOT_EQUAL ||
-            expression.operator === BinaryOp.LESS_THAN ||
-            expression.operator === BinaryOp.GREATER_THAN ||
-            expression.operator === BinaryOp.LESS_THAN_OR_EQUAL ||
-            expression.operator === BinaryOp.GREATER_THAN_OR_EQUAL) &&
-        (context.lowering.isU128Expr(context, expression.left) || context.lowering.isU128Expr(context, expression.right))
-    ) {
-        const left = context.lowering.lowerUint128Expression(context, expression.left);
-        const method = expression.operator === BinaryOp.NOT_EQUAL ? "operator==" : `operator${expression.operator}`;
-        const right = context.lowering.isU128Expr(context, expression.right) ? expression.right : u128ConstructorExpr(expression.right);
-        const result = context.lowering.sourceU128Result(context, method, left, [right], "uint128_t");
-        if (result.ty !== WatNodeType.I64) throw new Error(`uint128_t::${method} did not return a scalar`);
-        return expression.operator === BinaryOp.NOT_EQUAL ? watIr.operation("i64.extend_i32_u", watIr.operation("i64.eqz", result)) : result;
-    }
     // Whatever the class declared wins, for every operator, the same way C++ resolves it.
     const overloaded = tryLowerOverloadedOperator(context, `operator${expression.operator}`, expression.left, expression.right);
     if (overloaded) return overloaded;
