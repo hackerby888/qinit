@@ -308,6 +308,52 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
+    // Both bodies compute something a memberwise copy would not, so a memcpy cannot answer for them.
+    const ASSIGNING = `struct Box {
+    uint64 v;
+    Box& operator=(const Box& other) { v = other.v * 2; return *this; }
+    Box& operator+=(const Box& other) { v = v + other.v + 100; return *this; }
+  };`;
+
+    test("a declared operator= runs instead of a memberwise copy", async () => {
+        const source = wrap(
+            ASSIGNING,
+            "Box a; Box b;",
+            `locals.a.v = 5;
+       locals.b = locals.a;
+       state.mut().result = locals.b.v;`,
+        );
+
+        expect(await run(source)).toBe(10n);
+    });
+
+    test("a declared compound assignment runs", async () => {
+        const source = wrap(
+            ASSIGNING,
+            "Box a; Box b;",
+            `locals.a.v = 5;
+       locals.b.v = 1;
+       locals.b += locals.a;
+       state.mut().result = locals.b.v;`,
+        );
+
+        expect(await run(source)).toBe(106n);
+    });
+
+    // A class that declares nothing keeps the copy C++ gives it implicitly.
+    test("a class with no declared assignment is still copied", async () => {
+        const source = wrap(
+            "struct Plain { uint64 v; uint64 w; };",
+            "Plain source; Plain target;",
+            `locals.source.v = 5;
+       locals.source.w = 9;
+       locals.target = locals.source;
+       state.mut().result = locals.target.w;`,
+        );
+
+        expect(await run(source)).toBe(9n);
+    });
+
     // m256i's own operators are x86 intrinsics, so the backend substitutes a byte compare for them.
     // That substitution has to keep working, and has to keep meaning "all 32 bytes".
     test("id equality still compares the whole value", async () => {

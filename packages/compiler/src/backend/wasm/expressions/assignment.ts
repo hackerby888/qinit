@@ -4,6 +4,7 @@ import { tryEmitAggregateAssignment } from "./aggregate-assignment";
 import type { AssignmentExpression } from "./assignment-types";
 import { tryEmitScalarAssignment } from "./scalar-assignment";
 import { tryEmitTestHarnessAssignment } from "../gtest/harness-assignment";
+import { tryEmitOverloadedAssignment } from "./overloaded-assignment";
 import { tryEmitUint128Assignment } from "./uint128-assignment";
 
 export { compoundToBinary, narrowLocalValue, newValueTmp } from "./assignment-helpers";
@@ -17,6 +18,10 @@ export function emitAssignment(context: FunctionEmissionContext, expression: Ass
     const target = context.lowering.resolveExpressionAddress(context, expression.left);
 
     if (tryEmitUint128Assignment(context, expression, target)) {
+        return;
+    }
+
+    if (tryEmitOverloadedAssignment(context, expression, target)) {
         return;
     }
 
