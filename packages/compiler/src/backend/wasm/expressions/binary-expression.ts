@@ -47,10 +47,10 @@ export function lowerBinaryExpression(
     },
 ): watIr.WatNode {
     // uint128 comparisons instantiate the corresponding platform/uint128.h operator body. What keeps
-    // this ahead of the general resolver is the left operand: lowerUint128Expression gives an rvalue
-    // an address, and the resolver's emitAddress has no answer for a class-typed operator result, so
-    // `div<uint128>(a, b) == c` resolves here and nowhere else.
-    // ponytail: delete this block once an overloaded operator's result can be materialized generally.
+    // this ahead of the general resolver is the left operand: `div<uint128>(a, b) == c` compares the
+    // result of a helper call, and neither classOperandName nor emitAddress reads a helper's declared
+    // return type, so the resolver cannot type it or give it an address.
+    // ponytail: delete this block once a helper call's result carries its class.
     if (
         (expression.operator === BinaryOp.EQUAL ||
             expression.operator === BinaryOp.NOT_EQUAL ||
