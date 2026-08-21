@@ -133,6 +133,9 @@ export function compileContainerMethod(
     }
     return cm;
 }
+// ponytail: this key, and staticConstsOf below, still identify a class by name, so two classes
+// sharing an unqualified name share a cache entry and each other's static constants. Carry the owner
+// StructDecl from captureStructMethods through to emitTemplateMethod to identify them by declaration.
 function methodTypeKey(
     type: TypeSpec & {
         kind: AstKind.TEMPLATE_INSTANCE;

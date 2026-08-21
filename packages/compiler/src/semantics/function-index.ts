@@ -8,11 +8,7 @@ export function methodOwnerNames(programAnalysis: ProgramAnalysis, name: string,
     if (seen.has(bare)) return [];
     seen.add(bare);
     const out = [bare];
-    const struct =
-        programAnalysis.globalStructs.get(name) ??
-        programAnalysis.nested.get(name) ??
-        programAnalysis.globalStructs.get(bare) ??
-        programAnalysis.nested.get(bare);
+    const struct = programAnalysis.structByName(name, EMPTY_TEMPLATE_BINDINGS);
     const directBases = struct?.bases ?? [];
     for (const baseType of directBases) {
         const resolvedBase = programAnalysis.resolveType(baseType, EMPTY_TEMPLATE_BINDINGS);

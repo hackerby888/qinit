@@ -125,6 +125,45 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
+    // `Price` is also a core oracle interface (src/oracle_interfaces/Price.h), a struct with no data
+    // members. C++ resolves the nested declaration; a lookup that answers with the global one hands
+    // the operator body an empty `this`, so the comparison can never see a field. The name is taken
+    // from core on purpose — the test should break if that collision ever disappears upstream.
+    const SHADOWED = (compared: string) => `struct Price {
+    uint64 a;
+    uint64 b;
+    bit operator==(const Price& other) const { return ${compared} == other.${compared}; }
+  };`;
+
+    test("a nested type shadows a global one of the same name", async () => {
+        const source = wrap(
+            SHADOWED("a"),
+            "Price left; Price right;",
+            `locals.left = { 7, 1 };
+       locals.right = { 7, 2 };
+       state.mut().result = (locals.left == locals.right) ? 1 : 0;`,
+        );
+
+        // The operands differ in `b`, so only the declared body — reading the contract's own Price —
+        // answers 1.
+        expect(await run(source)).toBe(1n);
+    });
+
+    // Comparing the second field pins the layout rather than its mere presence: a body compiled
+    // against the wrong declaration cannot land on the right offset.
+    test("a shadowed type's operator reads its own field offsets", async () => {
+        const source = wrap(
+            SHADOWED("b"),
+            "Price left; Price right;",
+            `locals.left = { 1, 9 };
+       locals.right = { 2, 9 };
+       state.mut().result = (locals.left == locals.right) ? 1 : 0;`,
+        );
+
+        // Reading offset 0 instead would compare 1 against 2 and answer 0.
+        expect(await run(source)).toBe(1n);
+    });
+
     // m256i's own operators are x86 intrinsics, so the backend substitutes a byte compare for them.
     // That substitution has to keep working, and has to keep meaning "all 32 bytes".
     test("id equality still compares the whole value", async () => {
