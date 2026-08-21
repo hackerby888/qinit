@@ -105,10 +105,14 @@ export function captureStructMethods(programAnalysis: ProgramAnalysis, structDec
             span: fn.span,
         };
         const akey = `${fn.name}/${(fn.params ?? []).length}`;
+        // Overloads of one arity are told apart by their first parameter's type, the same key
+        // declaration-index writes for file-scope structs.
+        const typedKey = fn.params[0] ? `${akey}@${programAnalysis.typeKey(programAnalysis.derefType(fn.params[0].type))}` : null;
 
         for (const cls of names) {
             if (!programAnalysis.templateMethods.has(cls)) programAnalysis.templateMethods.set(cls, new Map());
             const into = programAnalysis.templateMethods.get(cls)!;
+            if (typedKey) into.set(typedKey, def);
             if (!into.has(akey)) into.set(akey, def);
             if (!into.has(fn.name)) into.set(fn.name, def);
         }
@@ -117,6 +121,7 @@ export function captureStructMethods(programAnalysis: ProgramAnalysis, structDec
         // so a class whose name a qpi type already claimed would otherwise never see its own bodies.
         if (!programAnalysis.methodsByDeclaration.has(structDeclaration)) programAnalysis.methodsByDeclaration.set(structDeclaration, new Map());
         const owned = programAnalysis.methodsByDeclaration.get(structDeclaration)!;
+        if (typedKey) owned.set(typedKey, def);
         if (!owned.has(akey)) owned.set(akey, def);
         if (!owned.has(fn.name)) owned.set(fn.name, def);
     }

@@ -240,6 +240,39 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
+    // Two operator== overloads of the same arity. The class one compares, the scalar one always
+    // answers false, so picking the wrong body is visible in the result rather than in a diagnostic.
+    const TWO_OVERLOADS = `struct Two {
+    uint64 q;
+    Two() { q = 0; }
+    Two(uint64 v) { q = v; }
+    bit operator==(const Two& other) const { return q == other.q; }
+    bit operator==(uint64 scalar) const { return 0; }
+  };`;
+
+    test("a class-typed argument picks the class overload", async () => {
+        const source = wrap(
+            TWO_OVERLOADS,
+            "Two t;",
+            `locals.t = Two(1);
+       state.mut().result = (locals.t == Two(1)) ? 1 : 0;`,
+        );
+
+        expect(await run(source)).toBe(1n);
+    });
+
+    test("a scalar argument picks the scalar overload", async () => {
+        const source = wrap(
+            TWO_OVERLOADS,
+            "Two t;",
+            `locals.t = Two(1);
+       state.mut().result = (locals.t == 1) ? 1 : 0;`,
+        );
+
+        // The scalar body answers false. Reaching the class body instead would convert 1 and answer 1.
+        expect(await run(source)).toBe(0n);
+    });
+
     // m256i's own operators are x86 intrinsics, so the backend substitutes a byte compare for them.
     // That substitution has to keep working, and has to keep meaning "all 32 bytes".
     test("id equality still compares the whole value", async () => {

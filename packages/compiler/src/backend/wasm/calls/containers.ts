@@ -203,6 +203,66 @@ export function emitTemplateMethod(
     const tail = cm.retKind === WatNodeType.I64 ? ["    (i64.const 0)"] : cm.retKind === WatNodeType.I32 ? ["    (i32.const 0)"] : [];
     return [header, ...localDecls, ...context.lines, ...tail, "  )"].join("\n");
 }
+// The class an argument names in the source: `Type{...}` and `Type(args)` say what they build without
+// being lowered, which is what lets an overload be picked before anything is emitted.
+function syntacticArgumentType(context: FunctionEmissionContext, argument: Expression): TypeSpec | null {
+    if (argument.kind === AstKind.CONSTRUCT) {
+        return context.programAnalysis.derefType(argument.type);
+    }
+
+    if (argument.kind === AstKind.CALL && argument.callee.kind === AstKind.IDENTIFIER) {
+        const named: TypeSpec = { kind: AstKind.NAME, name: argument.callee.name };
+        if (context.programAnalysis.isAggregateType(named)) return named;
+    }
+
+    return null;
+}
+
+/**
+ * Tell same-arity overloads apart by their first parameter's type, the way C++ picks a candidate.
+ *
+ * Only a class that declares more than one candidate pays for resolving the argument, which keeps
+ * the single-overload case — nearly every call — from asking the address resolver anything.
+ */
+function overloadDiscriminator(
+    context: FunctionEmissionContext,
+    type: TypeSpec & {
+        kind: AstKind.TEMPLATE_INSTANCE;
+    },
+    method: string,
+    callArguments: Expression[],
+    bind: TemplateBindings,
+): string | undefined {
+    const declaration = context.programAnalysis.structByName(type.name, bind);
+    const methods = declaration ? context.programAnalysis.methodsByDeclaration.get(declaration) : undefined;
+
+    if (!methods || !callArguments[0]) {
+        return undefined;
+    }
+
+    const prefix = `${method}/${callArguments.length}@`;
+    const candidates = [...methods.keys()].filter((key) => key.startsWith(prefix));
+
+    if (candidates.length < 2) {
+        return undefined;
+    }
+
+    const argumentType = syntacticArgumentType(context, callArguments[0]) ?? context.lowering.resolveExpressionAddress(context, callArguments[0])?.type;
+
+    if (argumentType) {
+        const key = `${prefix}${context.programAnalysis.typeKey(context.programAnalysis.derefType(argumentType))}`;
+        return methods.has(key) ? key.slice(prefix.length) : undefined;
+    }
+
+    // Nothing to match against: a literal binds to a scalar parameter, never to a class one.
+    const scalar = candidates.find((key) => {
+        const parameter = methods.get(key)?.functionParameters?.[0];
+        return !!parameter && !context.programAnalysis.isAggregateType(context.programAnalysis.derefType(parameter.type));
+    });
+
+    return scalar?.slice(prefix.length);
+}
+
 // Build a call using the compiled method's concrete parameter types.
 export function callCompiled(
     context: FunctionEmissionContext,
@@ -230,15 +290,9 @@ export function callCompiled(
             }
             return null;
         });
-    const cm = compileContainerMethod(
-        context.programAnalysis,
-        type,
-        method,
-        callArguments.length,
-        parameterTypeDiscriminator,
-        methodArgTypes,
-        explicitTemplateArgs,
-    );
+    const bind = context.programAnalysis.bindContainer(type.name, type.callArguments);
+    const discriminator = parameterTypeDiscriminator ?? overloadDiscriminator(context, type, method, callArguments, bind);
+    const cm = compileContainerMethod(context.programAnalysis, type, method, callArguments.length, discriminator, methodArgTypes, explicitTemplateArgs);
     if (!cm) return null;
     const minimumArgs = cm.functionParameters.findIndex((parameter) => parameter.defaultValue !== undefined);
     const minimum = minimumArgs < 0 ? cm.functionParameters.length : minimumArgs;
@@ -246,7 +300,6 @@ export function callCompiled(
         const expected = minimum === cm.functionParameters.length ? `${minimum}` : `${minimum}..${cm.functionParameters.length}`;
         throw new Error(`${type.name}::${method} expects ${expected} argument(s), got ${callArguments.length}`);
     }
-    const bind = context.programAnalysis.bindContainer(type.name, type.callArguments);
     const methodArgumentOperands = cm.functionParameters.map((methodParameter, methodParameterIndex) => {
         const callArgument = callArguments[methodParameterIndex] ?? methodParameter.defaultValue;
         if (!callArgument) {
