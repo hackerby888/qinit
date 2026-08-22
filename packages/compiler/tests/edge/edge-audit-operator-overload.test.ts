@@ -387,6 +387,35 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
+    // Two scalar overloads of one arity. Which one a literal binds to is a conversion-rank question,
+    // not a source-order one, so both declaration orders must answer the same.
+    const WIDE_FIRST = `struct Sc {
+    uint64 pick(uint64 wide) const { return 1; }
+    uint64 pick(sint32 narrow) const { return 2; }
+  };`;
+    const NARROW_FIRST = `struct Sc {
+    uint64 pick(sint32 narrow) const { return 2; }
+    uint64 pick(uint64 wide) const { return 1; }
+  };`;
+
+    for (const [order, declaration] of [
+        ["wide first", WIDE_FIRST],
+        ["narrow first", NARROW_FIRST],
+    ] as [string, string][]) {
+        test(`an int literal picks the int parameter, ${order}`, async () => {
+            const source = wrap(declaration, "Sc s;", "state.mut().result = locals.s.pick(7);");
+
+            // 7 is an int: sint32 is an exact match, uint64 only a conversion.
+            expect(await run(source)).toBe(2n);
+        });
+
+        test(`an unsigned long long literal picks the 64-bit parameter, ${order}`, async () => {
+            const source = wrap(declaration, "Sc s;", "state.mut().result = locals.s.pick(7ull);");
+
+            expect(await run(source)).toBe(1n);
+        });
+    }
+
     // m256i's own operators are x86 intrinsics, so the backend substitutes a byte compare for them.
     // That substitution has to keep working, and has to keep meaning "all 32 bytes".
     test("id equality still compares the whole value", async () => {

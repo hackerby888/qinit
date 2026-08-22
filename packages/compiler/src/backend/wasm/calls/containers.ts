@@ -5,6 +5,7 @@ import { TemplateBindings, CompiledMethod, FieldLayout, FunctionEmissionContext,
 import { ProgramAnalysis } from "../../../semantics/program-analysis";
 import type { TypeSpec, Expression, FunctionTemplateDecl, ParamDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
+import { CONVERSION_RANK, conversionRank, integerLiteralType } from "./overload-ranking";
 // ---- compiling instantiated container methods from the real qpi.h bodies ----
 // A method parameter's wasm calling convention: references/pointers and aggregates pass by address (i32), scalars pass by value (i64).
 export function classifyMethodParam(
@@ -254,13 +255,35 @@ function overloadDiscriminator(
         return methods.has(key) ? key.slice(prefix.length) : undefined;
     }
 
-    // Nothing to match against: a literal binds to a scalar parameter, never to a class one.
-    const scalar = candidates.find((key) => {
-        const parameter = methods.get(key)?.functionParameters?.[0];
-        return !!parameter && !context.programAnalysis.isAggregateType(context.programAnalysis.derefType(parameter.type));
-    });
+    // A literal has a type of its own, so the candidates can be ranked the way C++ ranks them.
+    const literalType = integerLiteralType(callArguments[0]);
 
-    return scalar?.slice(prefix.length);
+    if (!literalType) {
+        return undefined;
+    }
+
+    const ranked = candidates
+        .map((key) => {
+            const parameter = methods.get(key)?.functionParameters?.[0];
+
+            return {
+                key,
+                rank: parameter ? conversionRank(context.programAnalysis, literalType, parameter.type) : CONVERSION_RANK.none,
+            };
+        })
+        .filter((candidate) => candidate.rank < CONVERSION_RANK.none)
+        .sort((left, right) => left.rank - right.rank);
+
+    if (!ranked.length) {
+        return undefined;
+    }
+
+    if (ranked.length > 1 && ranked[0].rank === ranked[1].rank) {
+        context.programAnalysis.error(`ambiguous call to ${type.name}::${method}`, callArguments[0].span);
+        return undefined;
+    }
+
+    return ranked[0].key.slice(prefix.length);
 }
 
 // Build a call using the compiled method's concrete parameter types.
