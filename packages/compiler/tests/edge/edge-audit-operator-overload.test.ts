@@ -12,28 +12,13 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { edgeCompiler, edgeRunner } from "../support/edge-compile";
 import { HAS_CORE } from "../../../../test-utils/paths";
 import { bothDeclarationOrders, fixtureTest } from "../support/fixture-shapes";
+import { ASSIGNING, FEE_AMOUNT, HALF_KEY, HELPER_MONEY, MONEY, wrapOperatorFixture as wrap } from "../support/operator-fixtures";
 
 const run = edgeRunner("OperatorOverload");
 const compile = edgeCompiler("OperatorOverload");
 
 // operator== deliberately ignores `b`, so {1,2} and {1,99} are equal to the operator and different
 // to memcmp. Every assertion below turns on that disagreement.
-const HALF_KEY = `struct HalfKey {
-    uint64 a;
-    uint64 b;
-    bit operator==(const HalfKey& other) const { return a == other.a; }
-  };`;
-
-const wrap = (declarations: string, locals: string, body: string) => `using namespace QPI;
-struct CONTRACT_STATE2_TYPE {};
-struct CONTRACT_STATE_TYPE : public ContractBase {
-  ${declarations}
-  struct StateData { uint64 result; };
-  struct Go_input {}; struct Go_output {};
-  struct Go_locals { ${locals} };
-  PUBLIC_PROCEDURE_WITH_LOCALS(Go) { ${body} }
-  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
-};`;
 
 describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     beforeAll(initK12);
@@ -173,12 +158,6 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     // `FeeAmount(n)` is spelled as a call, so it has no address of its own. Each case below is one a
     // Clang build accepts. The constructor scales its argument, so a field-wise fallback that skipped
     // it would store 5 where the declared body stores 51.
-    const FEE_AMOUNT = `struct FeeAmount {
-    uint64 qus;
-    FeeAmount() { qus = 0; }
-    FeeAmount(uint64 value) { qus = value * 10 + 1; }
-    bit operator==(const FeeAmount& other) const { return qus == other.qus; }
-  };`;
 
     fixtureTest("a constructor call assigns to an aggregate local", async () => {
         const source = wrap(
@@ -283,13 +262,6 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
 
     // An operator that returns its own class produces an rvalue with no home of its own. The
     // constructor scales, so a comparison that skipped either body would not answer 1.
-    const MONEY = `struct Money {
-    uint64 qus;
-    Money() { qus = 0; }
-    Money(uint64 value) { qus = value * 10 + 1; }
-    Money operator+(const Money& other) const { return Money((qus + other.qus - 2) / 10); }
-    bit operator==(const Money& other) const { return qus == other.qus; }
-  };`;
 
     fixtureTest("an operator result is a comparison operand", async () => {
         const source = wrap(
@@ -317,11 +289,6 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     });
 
     // Both bodies compute something a memberwise copy would not, so a memcpy cannot answer for them.
-    const ASSIGNING = `struct Box {
-    uint64 v;
-    Box& operator=(const Box& other) { v = other.v * 2; return *this; }
-    Box& operator+=(const Box& other) { v = v + other.v + 100; return *this; }
-  };`;
 
     fixtureTest("a declared operator= runs instead of a memberwise copy", async () => {
         const source = wrap(
@@ -363,13 +330,6 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     });
 
     // A helper returns its class by value, so the comparison's left operand is a call with no home.
-    const HELPER_MONEY = `struct Money {
-    uint64 qus;
-    Money() { qus = 0; }
-    Money(uint64 value) { qus = value; }
-    bit operator==(const Money& other) const { return qus == other.qus; }
-  };
-  static Money makeMoney(uint64 value) { Money m; m.qus = value; return m; }`;
 
     fixtureTest("a helper's result is a comparison operand", async () => {
         const source = wrap(
