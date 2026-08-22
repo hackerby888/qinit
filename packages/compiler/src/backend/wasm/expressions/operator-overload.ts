@@ -1,5 +1,5 @@
 import { AstKind, BinaryOp, WatNodeType } from "../../../shared/enums";
-import type { Expression, FunctionTemplateDecl, TypeSpec } from "../../../ast";
+import type { Expression, FunctionTemplateDecl, StructDecl, TypeSpec } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { EMPTY_TEMPLATE_BINDINGS, type FunctionEmissionContext } from "../types";
 
@@ -162,6 +162,14 @@ export function classOperandName(context: FunctionEmissionContext, expression: E
 // Methods are indexed under both the qualified and the unqualified name depending on where the type
 // was declared, so a lookup has to try both — QPI::DateAndTime declares its operators as DateAndTime.
 export function operatorOwner(context: FunctionEmissionContext, className: string, operatorName: string, arity: number): string | null {
+    // Ask the class the name resolves to, and its bases, the way member lookup does. Asking the
+    // name-keyed table instead reports whatever other class shares the spelling.
+    const declaration = context.programAnalysis.structByName(className, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
+
+    if (declaration && context.programAnalysis.methodsByDeclaration.has(declaration)) {
+        return declaresOperator(context, declaration, operatorName, arity, 0) ? className : null;
+    }
+
     const separator = className.lastIndexOf("::");
     const candidates = separator >= 0 ? [className, className.slice(separator + 2)] : [className];
 
@@ -174,6 +182,25 @@ export function operatorOwner(context: FunctionEmissionContext, className: strin
     }
 
     return null;
+}
+
+function declaresOperator(context: FunctionEmissionContext, declaration: StructDecl, operatorName: string, arity: number, depth: number): boolean {
+    const methods = context.programAnalysis.methodsByDeclaration.get(declaration);
+
+    if (methods && (methods.has(`${operatorName}/${arity}`) || methods.has(operatorName))) {
+        return true;
+    }
+
+    if (depth >= 8) {
+        return false;
+    }
+
+    return (declaration.bases ?? []).some((base) => {
+        const baseName = context.programAnalysis.baseTemplateName(context.programAnalysis.resolveType(base, EMPTY_TEMPLATE_BINDINGS));
+        const baseDeclaration = baseName ? context.programAnalysis.structByName(baseName, EMPTY_TEMPLATE_BINDINGS) : undefined;
+
+        return !!baseDeclaration && declaresOperator(context, baseDeclaration, operatorName, arity, depth + 1);
+    });
 }
 
 // Emit a call to the operator body the class declared. Mirrors sourceU128Result, which is the same
