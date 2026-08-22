@@ -12,7 +12,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { edgeCompiler, edgeRunner } from "../support/edge-compile";
 import { HAS_CORE } from "../../../../test-utils/paths";
 import { bothDeclarationOrders, fixtureTest } from "../support/fixture-shapes";
-import { ASSIGNING, FEE_AMOUNT, HALF_KEY, HELPER_MONEY, MONEY, wrapOperatorFixture as wrap } from "../support/operator-fixtures";
+import { ASSIGNING, COPY_ONLY, FEE_AMOUNT, HALF_KEY, HALF_KEY_BOOL, HELPER_MONEY, MONEY, wrapOperatorFixture as wrap } from "../support/operator-fixtures";
 
 const run = edgeRunner("OperatorOverload");
 const compile = edgeCompiler("OperatorOverload");
@@ -36,7 +36,20 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
-    fixtureTest("!= is rewritten from operator== when only == is declared", async () => {
+    fixtureTest("!= is rewritten from a bool-returning operator==", async () => {
+        const source = wrap(
+            HALF_KEY_BOOL,
+            "BoolKey left; BoolKey right;",
+            `locals.left = { 1, 2 };
+       locals.right = { 1, 99 };
+       state.mut().result = (locals.left != locals.right) ? 1 : 0;`,
+        );
+
+        // C++20 rewrites this to !(left == right). Byte inequality would answer 1.
+        expect(await run(source)).toBe(0n);
+    });
+
+    fixtureTest("!= is not rewritten when operator== returns something other than bool", async () => {
         const source = wrap(
             HALF_KEY,
             "HalfKey left; HalfKey right;",
@@ -45,8 +58,28 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
        state.mut().result = (locals.left != locals.right) ? 1 : 0;`,
         );
 
-        // C++20 rewrites this to !(left == right). Byte inequality would answer 1.
-        expect(await run(source)).toBe(0n);
+        const result = await compile(source);
+        const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
+
+        // Clang refuses the rewritten candidate here, naming the return type; accepting it would build
+        // something the native compiler will not.
+        expect(errors.map((diagnostic) => diagnostic.message).join(" ")).toContain("no viable operator!= for 'HalfKey'");
+    });
+
+    fixtureTest("a scalar does not convert through a copy constructor", async () => {
+        const source = wrap(
+            COPY_ONLY,
+            "Sealed s;",
+            `locals.s.v = 5;
+       state.mut().result = (locals.s == 5) ? 1 : 0;`,
+        );
+
+        const result = await compile(source);
+        const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
+
+        // The only one-argument constructor takes the class itself, so there is no conversion. Handing
+        // the scalar to it would pass the same argument back for its own parameter without end.
+        expect(errors.map((diagnostic) => diagnostic.message).join(" ")).toContain("aggregate argument 1 is not addressable");
     });
 
     // Core hashes a key by its raw bytes (KangarooTwelve over sizeof(KeyT)) but probes slots with

@@ -287,6 +287,21 @@ export function compiledCallResult(
     return null;
 }
 
+// The rewritten candidate is formed only for a bool-returning operator==; Clang rejects the rewrite
+// for any other return type, so accepting it here would compile code the native build will not.
+function equalityReturnsBool(context: FunctionEmissionContext, className: string | null): boolean {
+    if (!className) {
+        return false;
+    }
+
+    const declaration = context.programAnalysis.structByName(className, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
+    const owned = declaration ? context.programAnalysis.methodsByDeclaration.get(declaration) : undefined;
+    const definition = (owned ?? context.programAnalysis.templateMethods.get(className))?.get("operator==/1");
+    const returned = definition ? context.programAnalysis.derefType(definition.returnType) : null;
+
+    return returned?.kind === AstKind.NAME && returned.name === "bool";
+}
+
 /**
  * Lower `left <op> right` (or a unary `<op> left`) through the operator the operand's class declares.
  *
@@ -314,9 +329,9 @@ export function tryLowerOverloadedOperator(context: FunctionEmissionContext, ope
         return null;
     }
 
-    // C++20 rewrites `a != b` to `!(a == b)` when only operator== is declared, so a type that
-    // declares equality alone still compares both ways.
-    if (operatorName === "operator!=") {
+    // C++20 rewrites `a != b` to `!(a == b)`, so a type declaring equality alone still compares both
+    // ways — but only when that operator== returns bool, not merely something convertible to it.
+    if (operatorName === "operator!=" && equalityReturnsBool(context, classOperandName(context, left))) {
         const equality = tryLowerOverloadedOperator(context, "operator==", left, right);
 
         if (equality) {

@@ -11,7 +11,17 @@ import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
-import { ASSIGNING, FEE_AMOUNT, HALF_KEY, HELPER_MONEY, MONEY, wrapOperatorFixture as wrap } from "../support/operator-fixtures";
+import {
+    ASSIGNING,
+    COMPOUND,
+    FEE_AMOUNT,
+    HALF_KEY,
+    HALF_KEY_BOOL,
+    HELPER_MONEY,
+    INDEXED,
+    MONEY,
+    wrapOperatorFixture as wrap,
+} from "../support/operator-fixtures";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 
 const SLOT = 27;
@@ -115,6 +125,55 @@ const CASES: ParityCase[] = [
        state.mut().result = locals.b.v;`,
         ),
         expected: 106n,
+    },
+    {
+        name: "RewrittenInequality",
+        source: wrap(
+            HALF_KEY_BOOL,
+            "BoolKey left; BoolKey right;",
+            `locals.left = { 1, 2 };
+       locals.right = { 1, 99 };
+       state.mut().result = (locals.left != locals.right) ? 1 : 0;`,
+        ),
+        // C++20 rewrites this to !(left == right), and that operator ignores `b`.
+        expected: 0n,
+    },
+    {
+        name: "CompoundOperators",
+        source: wrap(
+            COMPOUND,
+            "Acc a; Acc b;",
+            `locals.a.v = 100;
+       locals.b.v = 3;
+       locals.a -= locals.b;
+       locals.a *= locals.b;
+       locals.a <<= locals.b;
+       state.mut().result = locals.a.v;`,
+        ),
+        // 100 - 3 + 1000 = 1097; 1097 * 3 + 7 = 3298; (3298 << 3) | 1 = 26385.
+        expected: 26385n,
+    },
+    {
+        name: "SubscriptOperator",
+        source: wrap(
+            INDEXED,
+            "Row row;",
+            `locals.row.cells[2] = 5;
+       state.mut().result = locals.row[2];`,
+        ),
+        // The declared body folds the index in; reading cells[2] straight would answer 5.
+        expected: 52n,
+    },
+    {
+        name: "TernaryOperand",
+        source: wrap(
+            MONEY,
+            "Money a; Money b;",
+            `locals.a = Money(2);
+       locals.b = Money(3);
+       state.mut().result = (((locals.a.qus < locals.b.qus) ? locals.a : locals.b) == Money(2)) ? 1 : 0;`,
+        ),
+        expected: 1n,
     },
     {
         name: "HelperResultOperand",

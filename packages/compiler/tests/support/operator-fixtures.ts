@@ -21,6 +21,13 @@ export const HALF_KEY = `struct HalfKey {
     bit operator==(const HalfKey& other) const { return a == other.a; }
   };`;
 
+// The same shape returning bool: C++20 forms the rewritten `!=` candidate only for a bool-returning
+// operator==, so the two spellings are not interchangeable.
+export const HALF_KEY_BOOL = HALF_KEY.replace("bit operator==", "bool operator==")
+    .replace("HalfKey", "BoolKey")
+    .replace("HalfKey", "BoolKey")
+    .replace("HalfKey", "BoolKey");
+
 // The constructor scales, so a field-wise fallback that skipped it stores 5 where the body stores 51.
 export const FEE_AMOUNT = `struct FeeAmount {
     uint64 qus;
@@ -53,3 +60,28 @@ export const HELPER_MONEY = `struct Money {
     bit operator==(const Money& other) const { return qus == other.qus; }
   };
   static Money makeMoney(uint64 value) { Money m; m.qus = value; return m; }`;
+
+// Each compound body computes something the built-in operator would not, so a fallback that added or
+// shifted the first field cannot produce the asserted value.
+export const COMPOUND = `struct Acc {
+    uint64 v;
+    Acc() { v = 0; }
+    Acc& operator-=(const Acc& other) { v = v - other.v + 1000; return *this; }
+    Acc& operator*=(const Acc& other) { v = v * other.v + 7; return *this; }
+    Acc& operator<<=(const Acc& other) { v = (v << other.v) | 1; return *this; }
+  };`;
+
+// operator[] mixes the index into the answer, so reading the array directly answers something else.
+export const INDEXED = `struct Row {
+    uint64 cells[4];
+    uint64 operator[](uint64 index) const { return cells[index] * 10 + index; }
+  };`;
+
+// A class whose only constructor is a copy: C++ has no conversion from a scalar to it, and neither
+// have we since the argument would otherwise be handed back to the copy constructor forever.
+export const COPY_ONLY = `struct Sealed {
+    uint64 v;
+    Sealed() { v = 0; }
+    Sealed(const Sealed& other) { v = other.v; }
+    bit operator==(const Sealed& other) const { return v == other.v; }
+  };`;
