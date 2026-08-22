@@ -1,11 +1,17 @@
-// The Wasm backend used to compare any two aggregates as bytes, which silently ignored a declared
-// operator== and accepted key types Clang rejects. Each case here compares values whose byte
-// equality and declared equality disagree, so a byte comparison cannot produce the asserted answer.
-import { beforeAll, describe, expect, test } from "bun:test";
+// Two rules hold for every fixture here, because the defects this suite exists for were all silent.
+//
+// A fixture must disagree with the path it replaces: its declared body computes something the
+// fallback — byte comparison, memberwise copy, the first-declared candidate — cannot produce, so a
+// test cannot pass on the path it is meant to prove is gone.
+//
+// A test must have been seen to fail. Revert the fix and watch it go red before trusting it; a test
+// that has never failed has not been shown to test anything.
+import { beforeAll, describe, expect } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { edgeCompiler, edgeRunner } from "../support/edge-compile";
 import { HAS_CORE } from "../../../../test-utils/paths";
+import { bothDeclarationOrders, fixtureTest } from "../support/fixture-shapes";
 
 const run = edgeRunner("OperatorOverload");
 const compile = edgeCompiler("OperatorOverload");
@@ -32,7 +38,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     beforeAll(initK12);
 
-    test("a declared operator== decides equality, not the bytes", async () => {
+    fixtureTest("a declared operator== decides equality, not the bytes", async () => {
         const source = wrap(
             HALF_KEY,
             "HalfKey left; HalfKey right;",
@@ -45,7 +51,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
-    test("!= is rewritten from operator== when only == is declared", async () => {
+    fixtureTest("!= is rewritten from operator== when only == is declared", async () => {
         const source = wrap(
             HALF_KEY,
             "HalfKey left; HalfKey right;",
@@ -62,7 +68,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     // operator==. A key whose equality disagrees with its bytes therefore misses its own slot, in
     // both backends — the map is only coherent when the two notions agree. Pinned so the behaviour
     // is a recorded consequence rather than a surprise.
-    test("a byte-different probe misses its slot even when the operator calls it equal", async () => {
+    fixtureTest("a byte-different probe misses its slot even when the operator calls it equal", async () => {
         const source = wrap(
             `${HALF_KEY}
   struct Pair { uint64 x; uint64 y; };`,
@@ -83,7 +89,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source.replace("locals.probe = { 1, 99 };", "locals.probe = { 1, 2 };"))).toBe(7n);
     });
 
-    test("a key type with no operator== is rejected the way Clang rejects it", async () => {
+    fixtureTest("a key type with no operator== is rejected the way Clang rejects it", async () => {
         const source = wrap(
             `struct BareKey { uint64 a; uint64 b; };
   struct Pair { uint64 x; uint64 y; };`,
@@ -98,7 +104,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(errors.map((diagnostic) => diagnostic.message).join(" ")).toContain("no viable operator== for 'BareKey'");
     });
 
-    test("a relational operator with no candidate is reported the same way", async () => {
+    fixtureTest("a relational operator with no candidate is reported the same way", async () => {
         const source = wrap(
             "struct BareKey { uint64 a; uint64 b; };",
             "BareKey left; BareKey right;",
@@ -113,7 +119,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(errors.map((diagnostic) => diagnostic.message).join(" ")).toContain("no viable operator< for 'BareKey'");
     });
 
-    test("a declared unary operator is called", async () => {
+    fixtureTest("a declared unary operator is called", async () => {
         const source = wrap(
             "struct Flag { uint64 v; bit operator!() const { return v == 0; } };",
             "Flag flag;",
@@ -135,7 +141,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     bit operator==(const Price& other) const { return ${compared} == other.${compared}; }
   };`;
 
-    test("a nested type shadows a global one of the same name", async () => {
+    fixtureTest("a nested type shadows a global one of the same name", async () => {
         const source = wrap(
             SHADOWED("a"),
             "Price left; Price right;",
@@ -151,7 +157,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
 
     // Comparing the second field pins the layout rather than its mere presence: a body compiled
     // against the wrong declaration cannot land on the right offset.
-    test("a shadowed type's operator reads its own field offsets", async () => {
+    fixtureTest("a shadowed type's operator reads its own field offsets", async () => {
         const source = wrap(
             SHADOWED("b"),
             "Price left; Price right;",
@@ -174,7 +180,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     bit operator==(const FeeAmount& other) const { return qus == other.qus; }
   };`;
 
-    test("a constructor call assigns to an aggregate local", async () => {
+    fixtureTest("a constructor call assigns to an aggregate local", async () => {
         const source = wrap(
             FEE_AMOUNT,
             "FeeAmount bid;",
@@ -185,7 +191,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(51n);
     });
 
-    test("a constructor call is a comparison operand", async () => {
+    fixtureTest("a constructor call is a comparison operand", async () => {
         const source = wrap(
             FEE_AMOUNT,
             "FeeAmount bid;",
@@ -198,7 +204,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
 
     // The parameter is `const FeeAmount&` and the argument is a number, so the converting constructor
     // has to run: it turns 5 into 51, which is what the left operand holds.
-    test("a scalar converts to the parameter's class", async () => {
+    fixtureTest("a scalar converts to the parameter's class", async () => {
         const source = wrap(
             FEE_AMOUNT,
             "FeeAmount bid;",
@@ -209,7 +215,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
-    test("a constructor call is the left operand", async () => {
+    fixtureTest("a constructor call is the left operand", async () => {
         const source = wrap(
             FEE_AMOUNT,
             "FeeAmount bid;",
@@ -224,7 +230,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     // class name. The field is called `value` to match QPI's, so QPI's operator== compiles against
     // this struct and answers wrongly instead of failing to compile — the silent case, which is the
     // one worth pinning.
-    test("a nested class runs its own methods, not a same-named QPI type's", async () => {
+    fixtureTest("a nested class runs its own methods, not a same-named QPI type's", async () => {
         const source = wrap(
             `struct DateAndTime {
     uint64 value;
@@ -242,36 +248,38 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
 
     // Two operator== overloads of the same arity. The class one compares, the scalar one always
     // answers false, so picking the wrong body is visible in the result rather than in a diagnostic.
-    const TWO_OVERLOADS = `struct Two {
+    const twoOverloads = (members: string) => `struct Two {
     uint64 q;
     Two() { q = 0; }
     Two(uint64 v) { q = v; }
-    bit operator==(const Two& other) const { return q == other.q; }
-    bit operator==(uint64 scalar) const { return 0; }
+    ${members}
   };`;
+    const TWO_CANDIDATES = ["bit operator==(const Two& other) const { return q == other.q; }", "bit operator==(uint64 scalar) const { return 0; }"];
 
-    test("a class-typed argument picks the class overload", async () => {
-        const source = wrap(
-            TWO_OVERLOADS,
-            "Two t;",
-            `locals.t = Two(1);
+    for (const { order, members } of bothDeclarationOrders(TWO_CANDIDATES)) {
+        fixtureTest(`a class-typed argument picks the class overload, ${order}`, async () => {
+            const source = wrap(
+                twoOverloads(members),
+                "Two t;",
+                `locals.t = Two(1);
        state.mut().result = (locals.t == Two(1)) ? 1 : 0;`,
-        );
+            );
 
-        expect(await run(source)).toBe(1n);
-    });
+            expect(await run(source)).toBe(1n);
+        });
 
-    test("a scalar argument picks the scalar overload", async () => {
-        const source = wrap(
-            TWO_OVERLOADS,
-            "Two t;",
-            `locals.t = Two(1);
+        fixtureTest(`a scalar argument picks the scalar overload, ${order}`, async () => {
+            const source = wrap(
+                twoOverloads(members),
+                "Two t;",
+                `locals.t = Two(1);
        state.mut().result = (locals.t == 1) ? 1 : 0;`,
-        );
+            );
 
-        // The scalar body answers false. Reaching the class body instead would convert 1 and answer 1.
-        expect(await run(source)).toBe(0n);
-    });
+            // The scalar body answers false. Reaching the class body instead would convert 1 and answer 1.
+            expect(await run(source)).toBe(0n);
+        });
+    }
 
     // An operator that returns its own class produces an rvalue with no home of its own. The
     // constructor scales, so a comparison that skipped either body would not answer 1.
@@ -283,7 +291,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     bit operator==(const Money& other) const { return qus == other.qus; }
   };`;
 
-    test("an operator result is a comparison operand", async () => {
+    fixtureTest("an operator result is a comparison operand", async () => {
         const source = wrap(
             MONEY,
             "Money a; Money b;",
@@ -295,7 +303,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
-    test("an operator result is an argument", async () => {
+    fixtureTest("an operator result is an argument", async () => {
         const source = wrap(
             MONEY,
             "Money a; Money b; Money total;",
@@ -315,7 +323,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     Box& operator+=(const Box& other) { v = v + other.v + 100; return *this; }
   };`;
 
-    test("a declared operator= runs instead of a memberwise copy", async () => {
+    fixtureTest("a declared operator= runs instead of a memberwise copy", async () => {
         const source = wrap(
             ASSIGNING,
             "Box a; Box b;",
@@ -327,7 +335,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(10n);
     });
 
-    test("a declared compound assignment runs", async () => {
+    fixtureTest("a declared compound assignment runs", async () => {
         const source = wrap(
             ASSIGNING,
             "Box a; Box b;",
@@ -341,7 +349,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     });
 
     // A class that declares nothing keeps the copy C++ gives it implicitly.
-    test("a class with no declared assignment is still copied", async () => {
+    fixtureTest("a class with no declared assignment is still copied", async () => {
         const source = wrap(
             "struct Plain { uint64 v; uint64 w; };",
             "Plain source; Plain target;",
@@ -363,7 +371,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
   };
   static Money makeMoney(uint64 value) { Money m; m.qus = value; return m; }`;
 
-    test("a helper's result is a comparison operand", async () => {
+    fixtureTest("a helper's result is a comparison operand", async () => {
         const source = wrap(
             HELPER_MONEY,
             "Money m;",
@@ -375,7 +383,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     });
 
     // The shape the uint128 fuzz corpus compares: a template helper's result on the left.
-    test("a template helper's result is a comparison operand", async () => {
+    fixtureTest("a template helper's result is a comparison operand", async () => {
         const source = wrap(
             "",
             "uint128 a; uint128 b;",
@@ -389,27 +397,19 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
 
     // Two scalar overloads of one arity. Which one a literal binds to is a conversion-rank question,
     // not a source-order one, so both declaration orders must answer the same.
-    const WIDE_FIRST = `struct Sc {
-    uint64 pick(uint64 wide) const { return 1; }
-    uint64 pick(sint32 narrow) const { return 2; }
-  };`;
-    const NARROW_FIRST = `struct Sc {
-    uint64 pick(sint32 narrow) const { return 2; }
-    uint64 pick(uint64 wide) const { return 1; }
-  };`;
+    const SCALAR_CANDIDATES = ["uint64 pick(uint64 wide) const { return 1; }", "uint64 pick(sint32 narrow) const { return 2; }"];
 
-    for (const [order, declaration] of [
-        ["wide first", WIDE_FIRST],
-        ["narrow first", NARROW_FIRST],
-    ] as [string, string][]) {
-        test(`an int literal picks the int parameter, ${order}`, async () => {
+    for (const { order, members } of bothDeclarationOrders(SCALAR_CANDIDATES)) {
+        const declaration = `struct Sc {\n    ${members}\n  };`;
+
+        fixtureTest(`an int literal picks the int parameter, ${order}`, async () => {
             const source = wrap(declaration, "Sc s;", "state.mut().result = locals.s.pick(7);");
 
             // 7 is an int: sint32 is an exact match, uint64 only a conversion.
             expect(await run(source)).toBe(2n);
         });
 
-        test(`an unsigned long long literal picks the 64-bit parameter, ${order}`, async () => {
+        fixtureTest(`an unsigned long long literal picks the 64-bit parameter, ${order}`, async () => {
             const source = wrap(declaration, "Sc s;", "state.mut().result = locals.s.pick(7ull);");
 
             expect(await run(source)).toBe(1n);
@@ -418,7 +418,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
 
     // m256i's own operators are x86 intrinsics, so the backend substitutes a byte compare for them.
     // That substitution has to keep working, and has to keep meaning "all 32 bytes".
-    test("id equality still compares the whole value", async () => {
+    fixtureTest("id equality still compares the whole value", async () => {
         const equal = wrap(
             "",
             "id left; id right;",
