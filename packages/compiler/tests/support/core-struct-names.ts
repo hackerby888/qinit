@@ -65,3 +65,40 @@ export function coreStructNamesWithMethods(corePath: string): string[] {
 
     return [...found].sort();
 }
+
+/**
+ * Names core declares as class templates whose body declares a method with an implementation.
+ *
+ * A contract nesting one of these shadows the template itself. The instance is keyed by name and
+ * arguments, so the contract's own instantiation and core's can claim the same key.
+ */
+export function coreTemplateNamesWithMethods(corePath: string): string[] {
+    const found = new Set<string>();
+
+    for (const file of headerFiles(corePath)) {
+        const lines = readFileSync(file, "utf8").split("\n");
+
+        for (let index = 0; index < lines.length; index++) {
+            if (!/^[\t ]*template\s*</.test(lines[index])) {
+                continue;
+            }
+
+            // The declaration may sit on the template line or on one of the next few, when the
+            // parameter list wraps.
+            const window = lines.slice(index, index + 4).join(" ");
+            const declaration = /\b(?:struct|class)\s+(\w+)/.exec(window);
+
+            if (!declaration) {
+                continue;
+            }
+
+            const body = lines.slice(index, index + 80).join("\n");
+
+            if (/\b\w+\s*\([^;]*\)\s*(const\s*)?\{/.test(body)) {
+                found.add(declaration[1]);
+            }
+        }
+    }
+
+    return [...found].sort();
+}

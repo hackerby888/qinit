@@ -24,6 +24,9 @@ export function collectNested(programAnalysis: ProgramAnalysis, contract: Struct
             // Register nested templates and their inline methods like file-scope templates.
             const ct = member as any;
             if (ct.hasBody === false) continue;
+            // A contract's own template shadows a core one of the same name whole, parameter list
+            // included, so it is kept apart rather than compared by member count.
+            programAnalysis.nestedTemplates.set(ct.name, ct);
             const prev = programAnalysis.templates.get(ct.name);
             if (!prev || (prev.members?.length ?? 0) < (ct.members?.length ?? 0)) programAnalysis.templates.set(ct.name, ct);
             for (const mm of ct.specializationArgs ? [] : ct.members) {

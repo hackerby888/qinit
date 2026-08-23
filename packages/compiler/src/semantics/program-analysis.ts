@@ -42,6 +42,7 @@ export class ProgramAnalysis {
     } = ASSET_ENUMERATION_RECORD;
     sema: SemanticAnalyzer;
     nested: Map<string, StructDecl> = new Map(); // contract-local nested structs
+    nestedTemplates: Map<string, ClassTemplate> = new Map(); // contract-local nested class templates
     templates: Map<string, ClassTemplate> = new Map(); // qpi.h templates (HashMap, Array, ...)
     specializations: Map<
         string,
@@ -342,6 +343,24 @@ export class ProgramAnalysis {
         return typeLayout.alignOfType(this, type, templateBindings);
     }
     // Resolve structs through binding, nested, and global tables.
+    /**
+     * The class template a name resolves to, contract-local declarations first.
+     *
+     * A contract nesting `Array` or `HashMap` shadows core's whole declaration, parameter list
+     * included, the same way a nested struct shadows a global one.
+     */
+    templateByName(name: string): ClassTemplate | undefined {
+        const hit = this.nestedTemplates.get(name) ?? this.templates.get(name);
+        if (hit) return hit;
+
+        const index = name.lastIndexOf("::");
+        if (index >= 0) {
+            const unqualifiedName = name.slice(index + 2);
+            return this.nestedTemplates.get(unqualifiedName) ?? this.templates.get(unqualifiedName);
+        }
+
+        return undefined;
+    }
     structByName(name: string, templateBindings: TemplateBindings): StructDecl | undefined {
         return structIndex.structByName(this, name, templateBindings);
     }

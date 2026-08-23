@@ -14,7 +14,7 @@ export function instantiateTemplate(
 } | null {
     const resolvedArguments = callArguments.map((argument) => programAnalysis.resolveType(argument, parent));
     const templateDeclaration =
-        programAnalysis.templates.get(name) ?? (name.includes("::") ? programAnalysis.templates.get(name.slice(name.lastIndexOf("::") + 2)) : undefined);
+        programAnalysis.templateByName(name);
     if (!templateDeclaration) return null;
     const specialization = programAnalysis.matchTemplateSpecialization(name, resolvedArguments, parent);
     if (specialization) return specialization;
@@ -185,7 +185,7 @@ export function bindContainer(
     callArguments: TypeSpec[],
     templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
 ): TemplateBindings {
-    const templateDeclaration = programAnalysis.templates.get(name);
+    const templateDeclaration = programAnalysis.templateByName(name);
     const out: TemplateBindings = { types: new Map(), values: new Map(), structs: new Map() };
     if (!templateDeclaration) return out;
     const resolved = callArguments.map((argument) => programAnalysis.resolveType(argument, templateBindings));
@@ -229,7 +229,7 @@ export function bindContainer(
 
 export function staticConstsOf(programAnalysis: ProgramAnalysis, name: string, templateBindings: TemplateBindings): Map<string, bigint> {
     const out = new Map<string, bigint>();
-    const templateDeclaration = programAnalysis.templates.get(name);
+    const templateDeclaration = programAnalysis.templateByName(name);
     if (!templateDeclaration) return out;
     for (const member of templateDeclaration.members) {
         if (member.kind === AstKind.VARIABLE) {
