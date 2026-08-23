@@ -2,7 +2,8 @@
 // differential one asserts Clang computes the same thing from the same source.
 
 /** One probe contract: declarations, procedure locals, and a body that writes StateData.result. */
-export const wrapOperatorFixture = (declarations: string, locals: string, body: string) => `using namespace QPI;
+export const wrapOperatorFixture = (declarations: string, locals: string, body: string, prelude = "") => `using namespace QPI;
+${prelude}
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
   ${declarations}
