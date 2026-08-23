@@ -109,23 +109,38 @@ function templateResultType(context: FunctionEmissionContext, template: Function
 // shapes are read from the syntax rather than through the address resolver, which would emit a call
 // operand before an overload has claimed it.
 export function classOperandName(context: FunctionEmissionContext, expression: Expression, depth = 0): string | null {
+    const operand = classOperandType(context, expression, depth);
+    return operand ? operand.name : null;
+}
+
+/**
+ * The class an operand belongs to, with its template arguments intact.
+ *
+ * The name alone is not enough to call an operator on: `K<uint16>` and `K<uint64>` share it, and a
+ * body instantiated without the arguments reads its own fields at the wrong width.
+ */
+export function classOperandType(
+    context: FunctionEmissionContext,
+    expression: Expression,
+    depth = 0,
+): (TypeSpec & { kind: AstKind.NAME | AstKind.TEMPLATE_INSTANCE }) | null {
     if (depth < 8) {
         if (expression.kind === AstKind.PAREN) {
-            return classOperandName(context, expression.expression, depth + 1);
+            return classOperandType(context, expression.expression, depth + 1);
         }
 
         if (expression.kind === AstKind.C_CAST || expression.kind === AstKind.STATIC_CAST) {
             const cast = concreteType(context, expression.type);
-            if (cast?.kind === AstKind.NAME && context.programAnalysis.isAggregateType(cast)) return cast.name;
-            return classOperandName(context, expression.expression, depth + 1);
+            if (cast?.kind === AstKind.NAME && context.programAnalysis.isAggregateType(cast)) return cast;
+            return classOperandType(context, expression.expression, depth + 1);
         }
 
         if (expression.kind === AstKind.BINARY_OP && VALUE_PRESERVING_OPERATORS.has(expression.operator)) {
-            return classOperandName(context, expression.left, depth + 1) ?? classOperandName(context, expression.right, depth + 1);
+            return classOperandType(context, expression.left, depth + 1) ?? classOperandType(context, expression.right, depth + 1);
         }
 
         if (expression.kind === AstKind.TERNARY) {
-            return classOperandName(context, expression.then, depth + 1) ?? classOperandName(context, expression.else_, depth + 1);
+            return classOperandType(context, expression.then, depth + 1) ?? classOperandType(context, expression.else_, depth + 1);
         }
 
         // A helper's declared return type, then `Type(args)` naming its class in the callee. Helper
@@ -133,18 +148,18 @@ export function classOperandName(context: FunctionEmissionContext, expression: E
         const returned = concreteType(context, helperResultType(context, expression));
 
         if (returned?.kind === AstKind.NAME && context.programAnalysis.isAggregateType(returned)) {
-            return returned.name;
+            return returned;
         }
 
         if (returned?.kind === AstKind.TEMPLATE_INSTANCE) {
-            return returned.name;
+            return returned;
         }
 
         if (expression.kind === AstKind.CALL && expression.callee.kind === AstKind.IDENTIFIER) {
             const constructed = concreteType(context, { kind: AstKind.NAME, name: expression.callee.name });
 
             if (constructed?.kind === AstKind.NAME && context.programAnalysis.isAggregateType(constructed)) {
-                return constructed.name;
+                return constructed;
             }
         }
     }
@@ -153,10 +168,10 @@ export function classOperandName(context: FunctionEmissionContext, expression: E
     const resolved = concreteType(context, node?.type);
 
     if (resolved?.kind === AstKind.NAME && context.programAnalysis.isAggregateType(resolved)) {
-        return resolved.name;
+        return resolved;
     }
 
-    return resolved?.kind === AstKind.TEMPLATE_INSTANCE ? resolved.name : null;
+    return resolved?.kind === AstKind.TEMPLATE_INSTANCE ? resolved : null;
 }
 
 // Methods are indexed under both the qualified and the unqualified name depending on where the type
@@ -207,7 +222,7 @@ function declaresOperator(context: FunctionEmissionContext, declaration: StructD
 // call for one hardcoded type.
 function callOperator(
     context: FunctionEmissionContext,
-    className: string,
+    ownerType: TypeSpec & { kind: AstKind.NAME | AstKind.TEMPLATE_INSTANCE },
     operatorName: string,
     self: Expression,
     operands: Expression[],
@@ -223,25 +238,35 @@ function callOperator(
 
     const owner: TypeSpec & {
         kind: AstKind.TEMPLATE_INSTANCE;
-    } = {
-        kind: AstKind.TEMPLATE_INSTANCE,
-        name: className,
-        callArguments: [],
-    };
+    } =
+        ownerType.kind === AstKind.TEMPLATE_INSTANCE
+            ? ownerType
+            : { kind: AstKind.TEMPLATE_INSTANCE, name: ownerType.name, callArguments: [] };
     const compiled = context.lowering.callCompiled(context, owner, operatorName, selfAddress, operands);
 
     if (!compiled) {
         return null;
     }
 
-    return { node: compiledCallResult(context, compiled, `${className}::${operatorName}`), aggregate: !!compiled.retDest };
+    return { node: compiledCallResult(context, compiled, `${owner.name}::${operatorName}`), aggregate: !!compiled.retDest };
 }
 
 // The class an operator is resolved on, or null when the operand has none.
-function operatorTarget(context: FunctionEmissionContext, operatorName: string, left: Expression, arity: number): string | null {
-    const leftClass = classOperandName(context, left);
+function operatorTarget(
+    context: FunctionEmissionContext,
+    operatorName: string,
+    left: Expression,
+    arity: number,
+): (TypeSpec & { kind: AstKind.NAME | AstKind.TEMPLATE_INSTANCE }) | null {
+    const leftClass = classOperandType(context, left);
+    if (!leftClass) return null;
 
-    return leftClass ? operatorOwner(context, leftClass, operatorName, arity) : null;
+    // The operator may be declared on a base, or under the unqualified spelling of a namespaced
+    // class; the operand keeps its own arguments either way.
+    const ownerName = operatorOwner(context, leftClass.name, operatorName, arity);
+    if (!ownerName) return null;
+
+    return ownerName === leftClass.name ? leftClass : { kind: AstKind.NAME, name: ownerName };
 }
 
 /**
