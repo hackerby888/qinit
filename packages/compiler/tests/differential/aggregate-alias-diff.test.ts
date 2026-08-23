@@ -9,6 +9,7 @@ import { buildContractWithClang } from "@qinit/build";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
+import { HEAVY_HOOK_TIMEOUT_MS } from "../support/fixture-shapes";
 
 const CORE = CORE_PATH;
 const SLOT = 27;
@@ -115,7 +116,7 @@ beforeAll(async () => {
         }
         nativeWasm = new Uint8Array(readFileSync(built.wasmPath));
     }
-});
+}, HEAVY_HOOK_TIMEOUT_MS);
 
 afterAll(() => {
     if (nativeDir) rmSync(nativeDir, { recursive: true, force: true });
