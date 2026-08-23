@@ -25,6 +25,8 @@ export interface StructLayout {
     align: number;
     fields: Map<string, FieldLayout>;
     zeroOffsetEmptyStructs?: Set<StructDecl | string>;
+    /** Where each direct base's subobject starts, so its constructor can run on it. */
+    baseSubobjects?: Array<{ type: TypeSpec; offset: number }>;
 }
 
 export interface TemplateBindings {

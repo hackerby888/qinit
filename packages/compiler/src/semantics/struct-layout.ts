@@ -206,11 +206,13 @@ export function layoutOfMembers(
         // Place base-class fields first and inherit their static constants.
         let memberVals = templateBindings.values;
         const zeroOffsetEmptyStructs = new Set<StructDecl | string>();
+        const baseSubobjects: Array<{ type: TypeSpec; offset: number }> = [];
         for (const baseType of bases) {
             const baseContribution = programAnalysis.baseContribution(baseType, templateBindings);
             if (!baseContribution) continue;
             offset = programAnalysis.alignUp(offset, baseContribution.layout.align);
             const baseOffset = offset;
+            baseSubobjects.push({ type: baseType, offset: baseOffset });
             for (const baseField of baseContribution.layout.fields.values()) {
                 fields.set(baseField.name, {
                     name: baseField.name,
@@ -282,6 +284,7 @@ export function layoutOfMembers(
         const size = fields.size === 0 ? 1 : programAnalysis.alignUp(offset, maxAlign);
         const layout: StructLayout = { size, align: maxAlign, fields };
         if (zeroOffsetEmptyStructs.size) layout.zeroOffsetEmptyStructs = zeroOffsetEmptyStructs;
+        if (baseSubobjects.length) layout.baseSubobjects = baseSubobjects;
         if (key) programAnalysis.layoutCache.set(key, layout);
         return layout;
     } finally {

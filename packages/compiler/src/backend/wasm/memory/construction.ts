@@ -45,6 +45,26 @@ export function resolveContainerElem(
     return result;
 }
 // Zero an aggregate destination, then initialize each supplied field.
+/**
+ * Run each direct base's constructor on its own subobject.
+ *
+ * A derived class constructs its bases before its own body runs, whether or not it declares a
+ * constructor of its own; without this a base that initialises its fields leaves them zero.
+ */
+function emitBaseConstructors(context: FunctionEmissionContext, dstAddr: string, type: TypeSpec): void {
+    const bind = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
+    const layout = context.programAnalysis.layoutOfType(type, bind);
+
+    for (const base of layout?.baseSubobjects ?? []) {
+        const resolvedBase = context.programAnalysis.resolveType(base.type, bind);
+        const baseName = context.programAnalysis.baseTemplateName(resolvedBase);
+        // Only a base that constructs something needs the call; the rest are already zeroed.
+        if (!baseName || !context.programAnalysis.hasInstanceMethod(baseName, baseName)) continue;
+
+        const destination = watIr.serializeWatNode(watIr.addressWithOffset(addrIr(dstAddr), base.offset));
+        emitConstruct(context, destination, base.type, []);
+    }
+}
 export function emitConstruct(context: FunctionEmissionContext, dstAddr: string, type: TypeSpec, callArguments: Expression[]): boolean {
     const resolved = context.programAnalysis.resolveType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
     const owner =
@@ -67,6 +87,7 @@ export function emitConstruct(context: FunctionEmissionContext, dstAddr: string,
         if (!compiled || compiled.cm.retKind !== WatNodeType.VOID) {
             throw new Error(`authoritative ${owner} constructor could not be lowered`);
         }
+        emitBaseConstructors(context, dstAddr, type);
         context.lines.push(`    ${compiled.call}`);
         return true;
     }
@@ -78,6 +99,9 @@ export function emitConstruct(context: FunctionEmissionContext, dstAddr: string,
     context.lines.push(
         `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", watIr.localGet(destinationBase, WatNodeType.I32), watIr.i32Constant(layout.size), watIr.i32Constant(0)))}`,
     );
+    // With no arguments this is default construction, so the bases construct themselves. A braced
+    // initialiser instead assigns the fields below, which is what aggregate initialisation means.
+    if (callArguments.length === 0) emitBaseConstructors(context, `(local.get $${destinationBase})`, type);
     for (let index = 0; index < callArguments.length && index < fields.length; index++) {
         const field = fields[index];
         const fieldDestination = watIr.addressWithOffset(watIr.localGet(destinationBase, WatNodeType.I32), field.offset);
