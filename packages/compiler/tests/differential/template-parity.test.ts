@@ -1,6 +1,6 @@
-// User-declared templates, built by both compilers from the same source. Every fixture makes two
-// instantiations of one template compute different numbers from the same input, so a body compiled
-// once and reused for both answers wrong rather than crashing.
+// User-declared templates, built by both compilers from the same source. Every fixture makes an
+// instantiation compute something its uint64 twin would not, so a body that drops T's width or
+// signedness answers wrong rather than crashing.
 import { beforeAll, describe, expect } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";

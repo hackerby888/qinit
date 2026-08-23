@@ -1,6 +1,6 @@
 // Probe contracts for user-declared templates. Every fixture is built so a wrong answer is a
-// different number, not a crash: two instantiations of one template compute different values from
-// the same input, and both land in the single `result` field.
+// different number, not a crash: an instantiation at a narrow or signed T computes something the
+// same body at uint64 would not, and the answer lands in the single `result` field.
 import { wrapOperatorFixture as wrap } from "./operator-fixtures";
 
 export interface TemplateCase {
@@ -10,8 +10,8 @@ export interface TemplateCase {
     expected: bigint;
 }
 
-// `v * 3 + 1` at 100 is 301 in uint64 and 45 in uint8, so an instantiation compiled once and reused
-// for both widths answers 301 twice.
+// `v * 3 + 1` at 100 is 301 in uint64 and 45 in uint8, so a body that does not carry T's width into
+// its own arithmetic answers 301 for both.
 const WRAP = `template <typename T> struct Wrap {
     T v;
     T scaled() const { return v * 3 + 1; }
@@ -56,8 +56,8 @@ export const CASES: TemplateCase[] = [
         ),
     },
     {
-        // `>>` on a signed T is arithmetic and on an unsigned T is logical. One shared lowering for
-        // both instantiations gets one of them wrong.
+        // `>>` on a signed T is arithmetic and on an unsigned T is logical. A body that does not
+        // carry T's signedness picks one rule and applies it to both.
         name: "SignednessThroughT",
         expected: 9223372036854775800n,
         source: wrap(
