@@ -93,12 +93,12 @@ export const CASES: TemplateCase[] = [
         expected: 9223372036854775800n,
         source: wrap(
             `template <typename T> struct Shifter {
-    T v;
-    T half() const { return v >> 1; }
+    T balance;
+    T half() const { return balance >> 1; }
   };`,
             "Shifter<sint64> negative; Shifter<uint64> wide;",
-            `locals.negative.v = -8;
-       locals.wide.v = 0xFFFFFFFFFFFFFFF8ULL;
+            `locals.negative.balance = -8;
+       locals.wide.balance = 0xFFFFFFFFFFFFFFF8ULL;
        state.mut().result = ((uint64)locals.negative.half()) + locals.wide.half();`,
         ),
     },

@@ -164,7 +164,9 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
             if (fieldLayout)
                 return {
                     addr: addressAtOffset(thisAddr, fieldLayout.offset),
-                    type: fieldLayout.type,
+                    // The layout keeps the field as declared, so a member typed by a template
+                    // parameter arrives as that parameter until the instance's bindings are applied.
+                    type: context.programAnalysis.substInBindings(fieldLayout.type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
                     size: fieldLayout.size,
                     layout: context.programAnalysis.layoutOfType(fieldLayout.type, context.thisBind),
                 };
