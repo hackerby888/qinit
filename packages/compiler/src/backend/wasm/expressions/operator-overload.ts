@@ -181,8 +181,16 @@ export function operatorOwner(context: FunctionEmissionContext, className: strin
     // name-keyed table instead reports whatever other class shares the spelling.
     const declaration = context.programAnalysis.structByName(className, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
 
+    // The walk covers the bases, so a class that inherits every method still finds one. It runs even
+    // when the class owns no methods of its own, which is exactly when it has no table entry.
+    if (declaration && declaresOperator(context, declaration, operatorName, arity, 0)) {
+        return className;
+    }
+
+    // A class that does own methods has been asked and answered; consulting the name-keyed table now
+    // would report whatever other class shares the spelling.
     if (declaration && context.programAnalysis.methodsByDeclaration.has(declaration)) {
-        return declaresOperator(context, declaration, operatorName, arity, 0) ? className : null;
+        return null;
     }
 
     const separator = className.lastIndexOf("::");
