@@ -453,7 +453,15 @@ export function emitContainerCall(
             callArguments: [],
         } as TypeSpec;
     }
-    if (ct?.kind === AstKind.NAME && (context.programAnalysis.globalStructs.has(ct.name) || context.programAnalysis.templateMethods.has(ct.name))) {
+    // A class is a class whether or not it declares methods of its own: one that inherits all of them
+    // has no entry in the method table, and asking the scoped resolver finds a nested declaration the
+    // global map never held.
+    if (
+        ct?.kind === AstKind.NAME &&
+        (context.programAnalysis.globalStructs.has(ct.name) ||
+            context.programAnalysis.templateMethods.has(ct.name) ||
+            context.programAnalysis.structByName(ct.name, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS))
+    ) {
         ct = { kind: AstKind.TEMPLATE_INSTANCE, name: ct.name, callArguments: [] } as TypeSpec;
     }
     if (!ct || ct.kind !== AstKind.TEMPLATE_INSTANCE) return null;
