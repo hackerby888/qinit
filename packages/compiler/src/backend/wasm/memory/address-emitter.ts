@@ -310,8 +310,18 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
     // `Type(args)` constructs Type, through whatever constructor the class declares. It sits after
     // the helper lookup so a function of the same name wins the spelling, the way C++ name hiding
     // resolves it.
-    if (expression.kind === AstKind.CALL && expression.callee.kind === AstKind.IDENTIFIER) {
-        const type: TypeSpec = { kind: AstKind.NAME, name: expression.callee.name };
+    // `Type<Args>(...)` names the same construction as `Type(...)`, just with the arguments written
+    // out. Only a declared class template spells one: `reinterpret_cast<T>(x)` has the same shape and
+    // is a cast, not a construction.
+    const constructsTemplate =
+        expression.kind === AstKind.TEMPLATE_CALL &&
+        expression.callee.kind === AstKind.IDENTIFIER &&
+        context.programAnalysis.templates.has(expression.callee.name);
+    if ((expression.kind === AstKind.CALL || constructsTemplate) && expression.callee.kind === AstKind.IDENTIFIER) {
+        const templateArguments = constructsTemplate ? ((expression as { templateArguments?: TypeSpec[] }).templateArguments ?? []) : [];
+        const type: TypeSpec = templateArguments.length
+            ? { kind: AstKind.TEMPLATE_INSTANCE, name: expression.callee.name, callArguments: templateArguments }
+            : { kind: AstKind.NAME, name: expression.callee.name };
         const size = context.programAnalysis.isAggregateType(type) ? context.programAnalysis.sizeOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS) : 0;
         if (size > 0) {
             const destination = context.lowering.allocateScratchSlot(context, size);
