@@ -10,6 +10,12 @@ import { unsignedScalar } from "./conversions";
 // ---- value (rvalue) codegen — produces an i64 ----
 const LVALUE_OPERAND_KINDS: ReadonlySet<AstKind> = new Set([AstKind.IDENTIFIER, AstKind.MEMBER_ACCESS, AstKind.SUBSCRIPT]);
 
+// A cast names its target type, which inside an instantiated method can be a template parameter.
+function castTypeName(context: FunctionEmissionContext, type: TypeSpec | undefined): string | undefined {
+    if (!type) return undefined;
+    const resolved = context.programAnalysis.substInBindings(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
+    return resolved.kind === AstKind.NAME ? resolved.name : undefined;
+}
 export function lowerValueExpression(context: FunctionEmissionContext, expression: Expression): watIr.WatNode {
     if (
         context.programAnalysis.gtestMode &&
@@ -170,7 +176,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 if ((name === "static_cast" || name === "reinterpret_cast" || name === "const_cast") && expression.callArguments[0]) {
                     const inner = lowerValueExpression(context, expression.callArguments[0]);
                     const tgt = expression.templateArguments?.[0];
-                    return name === "static_cast" && tgt?.kind === AstKind.NAME ? narrowCastIr(inner, tgt.name) : inner;
+                    return name === "static_cast" ? narrowCastIr(inner, castTypeName(context, tgt)) : inner;
                 }
                 const helper = context.lowering.emitHelperCall(
                     context,
@@ -269,10 +275,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
         }
         case AstKind.C_CAST:
         case AstKind.STATIC_CAST:
-            return narrowCastIr(
-                lowerValueExpression(context, expression.expression),
-                expression.type?.kind === AstKind.NAME ? expression.type.name : undefined,
-            );
+            return narrowCastIr(lowerValueExpression(context, expression.expression), castTypeName(context, expression.type));
         case AstKind.CONSTRUCT: {
             const storageType = context.programAnalysis.scalarStorageType(expression.type);
             if (storageType.kind === AstKind.NAME && SCALAR_SIZE[storageType.name] !== undefined && SCALAR_SIZE[storageType.name] <= 8) {

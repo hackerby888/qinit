@@ -32,6 +32,21 @@ const AMOUNT = `template <typename T> struct Amount {
 
 export const CASES: TemplateCase[] = [
     {
+        // Both cast spellings name T as their target. The method returns uint64, so nothing but the
+        // cast itself can narrow, and the sum keeps the cast away from the return.
+        name: "CastToTemplateParameter",
+        expected: 45045n,
+        source: wrap(
+            `template <typename T> struct Fee {
+    T units;
+    uint64 scaled() const { return (T)(units * 3 + 1) * 1000 + static_cast<T>(units * 3 + 1); }
+  };`,
+            "Fee<uint8> fee;",
+            `locals.fee.units = 100;
+       state.mut().result = locals.fee.scaled();`,
+        ),
+    },
+    {
         // `v` is also an enumerator core declares. A class member hides a namespace-scope name of the
         // same spelling, so the shift has to read the member's own width and signedness.
         name: "MemberNamedLikeConstant",
