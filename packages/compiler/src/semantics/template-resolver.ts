@@ -189,6 +189,7 @@ export function bindContainer(
     const out: TemplateBindings = { types: new Map(), values: new Map(), structs: new Map() };
     if (!templateDeclaration) return out;
     const resolved = callArguments.map((argument) => programAnalysis.resolveType(argument, templateBindings));
+    const instanceArguments: TypeSpec[] = [];
     for (let parameterIndex = 0; parameterIndex < templateDeclaration.params.length; parameterIndex++) {
         const parameter = templateDeclaration.params[parameterIndex];
         const parameterArgument =
@@ -199,9 +200,13 @@ export function bindContainer(
                   ? ({ kind: AstKind.EXPR_VALUE, expression: parameter.default } as TypeSpec)
                   : undefined);
         if (!parameterArgument) continue;
+        instanceArguments.push(parameterArgument);
         if (parameter.kind === AstKind.TYPE) out.types.set(parameter.name, parameterArgument);
         else out.values.set(parameter.name, programAnalysis.evalConstFromType(parameterArgument, templateBindings));
     }
+    // Inside its own body a class template's bare name is the instantiation being compiled, so bind
+    // it like any other name: `const Key&` in Key<T> means `const Key<T>&`.
+    if (!out.types.has(name)) out.types.set(name, { kind: AstKind.TEMPLATE_INSTANCE, name, callArguments: instanceArguments });
     for (const member of templateDeclaration.members) {
         if (member.kind === AstKind.STRUCT && (member as StructDecl).name && (member as StructDecl).hasBody !== false)
             out.structs.set((member as StructDecl).name, member as StructDecl);
