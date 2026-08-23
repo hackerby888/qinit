@@ -187,11 +187,9 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 );
                 if (helper !== null) return watIr.rawWatNode(helper, WatNodeType.I64, "source-compiled template helper");
             }
-            if (
-                expression.callee.kind === AstKind.MEMBER_ACCESS &&
-                expression.callee.object.kind === AstKind.IDENTIFIER &&
-                expression.callee.object.name === "qpi"
-            ) {
+            // `object.method<T>(...)` names an instance method with its template arguments written out.
+            // The handler resolves the object itself, so any object reaches it, not only `qpi`.
+            if (expression.callee.kind === AstKind.MEMBER_ACCESS) {
                 const source = context.lowering.emitTemplateContainerCall(context, expression, true);
                 if (source !== null) return watIr.rawWatNode(source, WatNodeType.I64, "source-compiled template instance method");
             }

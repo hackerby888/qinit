@@ -94,23 +94,29 @@ export function registerCalleeContractDeclarations(programAnalysis: ProgramAnaly
 
 export function captureStructMethods(programAnalysis: ProgramAnalysis, structDeclaration: StructDecl, names: string[]): void {
     for (const mm of structDeclaration.members) {
-        if (mm.kind !== AstKind.FUNCTION || !(mm as FunctionDecl).body) continue;
-        const fn = mm as FunctionDecl;
+        // A member function template is a method like any other; its template parameters are its own
+        // rather than the class's, which a plain struct does not have.
+        const isMethodTemplate = mm.kind === AstKind.FUNCTION_TEMPLATE;
+        if ((mm.kind !== AstKind.FUNCTION && !isMethodTemplate) || !(mm as FunctionDecl | FunctionTemplateDecl).body) continue;
+        const fn = mm as FunctionDecl | FunctionTemplateDecl;
         if (fn.name.startsWith("~")) continue;
+        const functionParameters = (isMethodTemplate ? (fn as FunctionTemplateDecl).functionParameters : (fn as FunctionDecl).params) ?? [];
         const def: FunctionTemplateDecl = {
             kind: AstKind.FUNCTION_TEMPLATE,
             name: fn.name,
-            params: [],
-            functionParameters: fn.params,
+            params: isMethodTemplate ? ((fn as FunctionTemplateDecl).params ?? []) : [],
+            functionParameters,
             returnType: fn.returnType,
             body: fn.body,
             isConstexpr: fn.isConstexpr,
             span: fn.span,
         };
-        const akey = `${fn.name}/${(fn.params ?? []).length}`;
+        const akey = `${fn.name}/${functionParameters.length}`;
         // Overloads of one arity are told apart by their first parameter's type, the same key
         // declaration-index writes for file-scope structs.
-        const typedKey = fn.params[0] ? `${akey}@${programAnalysis.typeKey(programAnalysis.derefType(fn.params[0].type))}` : null;
+        const typedKey = functionParameters[0]
+            ? `${akey}@${programAnalysis.typeKey(programAnalysis.derefType(functionParameters[0].type))}`
+            : null;
 
         for (const cls of names) {
             if (!programAnalysis.templateMethods.has(cls)) programAnalysis.templateMethods.set(cls, new Map());
