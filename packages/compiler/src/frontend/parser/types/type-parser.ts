@@ -98,6 +98,9 @@ export class TypeParser {
         // Check for template arguments: Name<...>
         if (this.parser.state.peek().kind === TokenKind.L_ANGLE) {
             this.parser.state.next();
+            // Inside an argument list `>` and `>>` close it rather than compare or shift, so a value
+            // argument stops at the list's own end: `Cell<Array<uint64, 2>>` closes twice.
+            this.parser.state.templateAngleDepth++;
             const callArguments: TypeSpec[] = [];
             while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_ANGLE) {
                 const kind = this.parser.state.peek().kind;
@@ -140,6 +143,7 @@ export class TypeParser {
                     break;
                 }
             }
+            this.parser.state.templateAngleDepth--;
             this.parser.state.consumeTemplateAngleClose();
             const inst: TypeSpec = {
                 kind: AstKind.TEMPLATE_INSTANCE,

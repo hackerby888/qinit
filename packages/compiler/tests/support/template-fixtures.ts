@@ -32,6 +32,19 @@ const AMOUNT = `template <typename T> struct Amount {
 
 export const CASES: TemplateCase[] = [
     {
+        // Two argument lists closing together lex as one `>>`. The inner list has to end there rather
+        // than let a value argument read it as a shift, and the outer list closes on what is left.
+        name: "NestedAngleBrackets",
+        expected: 42007n,
+        source: wrap(
+            `template <typename T> struct Cell { T v; };`,
+            "Cell<Cell<uint64>> nested; Cell<Array<uint64, 2>> row;",
+            `locals.nested.v.v = 42;
+       locals.row.v.set(1, 7);
+       state.mut().result = locals.nested.v.v * 1000 + locals.row.v.get(1);`,
+        ),
+    },
+    {
         // Both cast spellings name T as their target. The method returns uint64, so nothing but the
         // cast itself can narrow, and the sum keeps the cast away from the return.
         name: "CastToTemplateParameter",
