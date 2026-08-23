@@ -40,11 +40,26 @@ export function tryEmitOverloadedAssignment(context: FunctionEmissionContext, ex
     }
 
     const operatorName = `operator${expression.operator}`;
-    const ownerName = operatorOwner(context, targetType.name, operatorName, 1);
+    const declarer = operatorOwner(context, targetType.name, operatorName, 1);
 
-    if (!ownerName) {
+    if (!declarer) {
         return false;
     }
+
+    // A template base answers with its own instantiation; the assignment runs on that subobject.
+    if (declarer.kind === AstKind.TEMPLATE_INSTANCE) {
+        const compiledBase = context.lowering.callCompiled(context, declarer, operatorName, target.addr, [expression.right]);
+
+        if (!compiledBase) {
+            return false;
+        }
+
+        const discardsBase = !compiledBase.retDest && compiledBase.cm.retKind !== WatNodeType.VOID;
+        context.lines.push(`    ${discardsBase ? `(drop ${compiledBase.call})` : compiledBase.call}`);
+        return true;
+    }
+
+    const ownerName = declarer.kind === AstKind.NAME ? declarer.name : targetType.name;
 
     // A template's arguments come from the target's type; instantiating Array without them leaves
     // T and L unbound.

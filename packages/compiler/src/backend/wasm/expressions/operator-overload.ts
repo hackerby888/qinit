@@ -176,15 +176,17 @@ export function classOperandType(
 
 // Methods are indexed under both the qualified and the unqualified name depending on where the type
 // was declared, so a lookup has to try both — QPI::DateAndTime declares its operators as DateAndTime.
-export function operatorOwner(context: FunctionEmissionContext, className: string, operatorName: string, arity: number): string | null {
+export function operatorOwner(context: FunctionEmissionContext, className: string, operatorName: string, arity: number): TypeSpec | null {
     // Ask the class the name resolves to, and its bases, the way member lookup does. Asking the
     // name-keyed table instead reports whatever other class shares the spelling.
     const declaration = context.programAnalysis.structByName(className, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
 
     // The walk covers the bases, so a class that inherits every method still finds one. It runs even
     // when the class owns no methods of its own, which is exactly when it has no table entry.
-    if (declaration && declaresOperator(context, declaration, operatorName, arity, 0)) {
-        return className;
+    const declarer = declaration ? operatorDeclarer(context, declaration, operatorName, arity, 0) : null;
+
+    if (declarer) {
+        return declarer;
     }
 
     // A class that does own methods has been asked and answered; consulting the name-keyed table now
@@ -200,30 +202,61 @@ export function operatorOwner(context: FunctionEmissionContext, className: strin
         const methods = context.programAnalysis.templateMethods.get(candidate);
 
         if (methods && (methods.has(`${operatorName}/${arity}`) || methods.has(operatorName))) {
-            return candidate;
+            return { kind: AstKind.NAME, name: candidate };
         }
     }
 
     return null;
 }
 
-function declaresOperator(context: FunctionEmissionContext, declaration: StructDecl, operatorName: string, arity: number, depth: number): boolean {
+/**
+ * Which class declares the operator: the one asked, or the base it inherits it from.
+ *
+ * The base is returned as the type the derived class names, template arguments included, because the
+ * body belongs to that instantiation and has to be compiled against its bindings.
+ */
+function operatorDeclarer(
+    context: FunctionEmissionContext,
+    declaration: StructDecl,
+    operatorName: string,
+    arity: number,
+    depth: number,
+): TypeSpec | null {
     const methods = context.programAnalysis.methodsByDeclaration.get(declaration);
 
     if (methods && (methods.has(`${operatorName}/${arity}`) || methods.has(operatorName))) {
-        return true;
+        return { kind: AstKind.NAME, name: declaration.name };
     }
 
     if (depth >= 8) {
-        return false;
+        return null;
     }
 
-    return (declaration.bases ?? []).some((base) => {
-        const baseName = context.programAnalysis.baseTemplateName(context.programAnalysis.resolveType(base, EMPTY_TEMPLATE_BINDINGS));
-        const baseDeclaration = baseName ? context.programAnalysis.structByName(baseName, EMPTY_TEMPLATE_BINDINGS) : undefined;
+    for (const base of declaration.bases ?? []) {
+        const resolvedBase = context.programAnalysis.resolveType(base, EMPTY_TEMPLATE_BINDINGS);
+        const baseName = context.programAnalysis.baseTemplateName(resolvedBase);
+        if (!baseName) continue;
 
-        return !!baseDeclaration && declaresOperator(context, baseDeclaration, operatorName, arity, depth + 1);
-    });
+        const baseDeclaration = context.programAnalysis.structByName(baseName, EMPTY_TEMPLATE_BINDINGS);
+
+        if (baseDeclaration) {
+            // A plain base's methods reach the derived class through the owner-name walk, so the
+            // class asked stays the target; only a template base has to name its instantiation.
+            if (operatorDeclarer(context, baseDeclaration, operatorName, arity, depth + 1)) {
+                return { kind: AstKind.NAME, name: declaration.name };
+            }
+            continue;
+        }
+
+        // A base that is a class template has no struct declaration behind its name; its members are
+        // indexed under the template's own name, and its arguments live in the base type itself.
+        const templateMethods = context.programAnalysis.templateMethods.get(baseName);
+        if (templateMethods && (templateMethods.has(`${operatorName}/${arity}`) || templateMethods.has(operatorName))) {
+            return resolvedBase;
+        }
+    }
+
+    return null;
 }
 
 // Emit a call to the operator body the class declared. Mirrors sourceU128Result, which is the same
@@ -271,10 +304,15 @@ function operatorTarget(
 
     // The operator may be declared on a base, or under the unqualified spelling of a namespaced
     // class; the operand keeps its own arguments either way.
-    const ownerName = operatorOwner(context, leftClass.name, operatorName, arity);
-    if (!ownerName) return null;
+    const owner = operatorOwner(context, leftClass.name, operatorName, arity);
+    if (!owner) return null;
 
-    return ownerName === leftClass.name ? leftClass : { kind: AstKind.NAME, name: ownerName };
+    // A template base answers with its own instantiation, arguments included. A plain answer that
+    // names the operand's own class gives the operand back, so its template arguments survive.
+    if (owner.kind === AstKind.TEMPLATE_INSTANCE) return owner;
+    if (owner.kind !== AstKind.NAME) return null;
+
+    return owner.name === leftClass.name ? leftClass : owner;
 }
 
 /**
