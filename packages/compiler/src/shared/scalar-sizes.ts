@@ -23,4 +23,21 @@ export const SCALAR_SIZE: Record<string, number> = {
     m256i: 32,
     __m256i: 32,
     auto: 8, // `auto` locals in qpi.h bodies are integer counters (pointer cases carry a trailing *)
+    // Native C spellings. Widths are the wasm32-wasi ones a contract actually builds against, which is
+    // ILP32 — `long` is 4 bytes here, not the 8 an x86 habit would assume.
+    short: 2,
+    "short int": 2,
+    "signed short int": 2,
+    "unsigned short int": 2,
+    int: 4,
+    signed: 4,
+    unsigned: 4,
+    long: 4,
+    "long int": 4,
+    "signed long": 4,
+    "signed long int": 4,
+    "unsigned long": 4,
+    "unsigned long int": 4,
+    size_t: 4,
+    wchar_t: 4,
 };

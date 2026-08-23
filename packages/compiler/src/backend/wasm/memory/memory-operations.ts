@@ -94,7 +94,16 @@ export const SIGNED_SCALARS = new Set([
     "long long",
     "int",
     "short",
+    // plain `char` and `wchar_t` are signed on wasm32-wasi, per static_assert against the SDK
     "char",
+    "wchar_t",
+    "signed",
+    "short int",
+    "signed short int",
+    "long",
+    "long int",
+    "signed long",
+    "signed long int",
 ]);
 export function isSignedScalarType(type: TypeSpec | null | undefined, programAnalysis?: ProgramAnalysis): boolean {
     if (!type) return false;
@@ -114,7 +123,7 @@ export function narrowCastIr(inner: watIr.WatNode, typeName: string | undefined)
     if (typeName === "bit" || typeName === "bool") {
         return watIr.operation("i64.extend_i32_u", watIr.operation("i64.ne", watIr.i64Constant(0), inner));
     }
-    if (typeName.startsWith("sint") || typeName.startsWith("signed")) {
+    if (SIGNED_SCALARS.has(typeName)) {
         let operator = "i64.extend8_s";
         if (byteWidth === 4) operator = "i64.extend32_s";
         else if (byteWidth === 2) operator = "i64.extend16_s";
