@@ -1,6 +1,6 @@
 import { ASSET_ENUMERATION_RECORD, LHOST_ABI, type DebugStateRegion, type LhostImportName } from "@qinit/core";
 import { k12Bytes, toHex } from "../support/k12";
-import { asBuffer, bytesEqual, type Id } from "../support/bytes";
+import { bytesEqual, rangesEqual, type Id } from "../support/bytes";
 import { noteHostWrite, readJournalHeader, resetJournal, type JournalHeader } from "@qinit/core/wasm/journal";
 // Layout shared with core-lite's module_storage.h; sizing.ts is the one definition both backends use.
 import { INPUT_BUFFER_BYTES, LOCALS_BUFFER_BYTES, OUTPUT_BUFFER_BYTES } from "@qinit/core/wasm/sizing";
@@ -632,11 +632,9 @@ export class Contract {
             return;
         }
 
-        const shadowBuffer = asBuffer(shadow);
-        const liveBuffer = asBuffer(live);
         for (let block = 0; block < live.length; block += SHADOW_BLOCK) {
             const end = Math.min(block + SHADOW_BLOCK, live.length);
-            if (shadowBuffer.compare(liveBuffer, block, end, block, end) !== 0) {
+            if (!rangesEqual(shadow, block, live, block, end - block)) {
                 shadow.set(live.subarray(block, end), block);
             }
         }

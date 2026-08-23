@@ -2,7 +2,7 @@
 import { toHex } from "../support/k12";
 import type { DebugEntry, DebugTrace, DebugStateRegion } from "@qinit/core";
 import { JOURNAL_BLOCK_BYTES, readJournalBlocks, type JournalHeader } from "@qinit/core/wasm/journal";
-import { asBuffer, type Id } from "../support/bytes";
+import { rangesEqual, type Id } from "../support/bytes";
 
 export const TRACE_ENTRY_CAP = 8192; // ring-buffer the entries so a long session can't grow unbounded
 // Changed bytes alone rarely spell a whole value — writing 3870 into a zeroed uint64 dirties two bytes.
@@ -15,19 +15,17 @@ const COARSE_BLOCK = 64 * 1024;
 
 export function diffRegions(before: Uint8Array, after: Uint8Array): DebugStateRegion[] {
     const length = Math.min(before.length, after.length);
-    const beforeBuffer = asBuffer(before.subarray(0, length));
-    const afterBuffer = asBuffer(after.subarray(0, length));
     const windows: { start: number; end: number }[] = [];
 
     for (let block = 0; block < length; block += COARSE_BLOCK) {
         const blockEnd = Math.min(block + COARSE_BLOCK, length);
-        if (beforeBuffer.compare(afterBuffer, block, blockEnd, block, blockEnd) === 0) {
+        if (rangesEqual(before, block, after, block, blockEnd - block)) {
             continue;
         }
 
         for (let start = block; start < blockEnd; start += DIFF_WINDOW) {
             const end = Math.min(start + DIFF_WINDOW, length);
-            if (beforeBuffer.compare(afterBuffer, start, end, start, end) === 0) {
+            if (rangesEqual(before, start, after, start, end - start)) {
                 continue;
             }
 
@@ -53,13 +51,12 @@ export function diffRegions(before: Uint8Array, after: Uint8Array): DebugStateRe
  * so a write of an identical value never widens its neighbour's region.
  */
 export function journalRegions(memory: Uint8Array, journalBase: number, stateAddr: number, header: JournalHeader): DebugStateRegion[] {
-    const buffer = asBuffer(memory);
     const changed: { block: number; before: Uint8Array; after: Uint8Array }[] = [];
 
     for (const entry of readJournalBlocks(memory, journalBase, header)) {
         const liveAt = stateAddr + entry.offset;
         const beforeAt = entry.before.byteOffset - memory.byteOffset;
-        if (buffer.compare(buffer, beforeAt, beforeAt + entry.before.length, liveAt, liveAt + entry.before.length) === 0) {
+        if (rangesEqual(memory, beforeAt, memory, liveAt, entry.before.length)) {
             continue;
         }
         changed.push({ block: entry.block, before: entry.before.slice(), after: memory.slice(liveAt, liveAt + entry.before.length) });
@@ -68,7 +65,7 @@ export function journalRegions(memory: Uint8Array, journalBase: number, stateAdd
     changed.sort((left, right) => left.block - right.block);
 
     const regions: DebugStateRegion[] = [];
-    for (let index = 0; index < changed.length; ) {
+    for (let index = 0; index < changed.length;) {
         let end = index;
         while (end + 1 < changed.length && changed[end + 1]!.block === changed[end]!.block + 1) {
             end++;
