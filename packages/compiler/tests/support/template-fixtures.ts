@@ -32,6 +32,37 @@ const AMOUNT = `template <typename T> struct Amount {
 
 export const CASES: TemplateCase[] = [
     {
+        // The control for the return conversion: no template anywhere, just a method whose declared
+        // return type is narrower than the expression it returns. `100 * 3 + 1` is 301 as an int and
+        // 45 once it converts to uint8.
+        name: "NarrowReturnNoTemplate",
+        expected: 45n,
+        source: wrap(
+            `struct Fee {
+    uint8 units;
+    uint8 scaled() const { return units * 3 + 1; }
+  };`,
+            "Fee fee;",
+            `locals.fee.units = 100;
+       state.mut().result = locals.fee.scaled();`,
+        ),
+    },
+    {
+        // The same conversion when the declared return is signed: the low byte of 151 has its top bit
+        // set, so the value comes back negative rather than masked.
+        name: "SignedNarrowReturnNoTemplate",
+        expected: 18446744073709551511n,
+        source: wrap(
+            `struct Fee {
+    uint8 units;
+    sint8 scaled() const { return units * 3 + 1; }
+  };`,
+            "Fee fee;",
+            `locals.fee.units = 50;
+       state.mut().result = (uint64)(sint64)locals.fee.scaled();`,
+        ),
+    },
+    {
         name: "TwoInstantiations",
         expected: 301045n,
         source: wrap(

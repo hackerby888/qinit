@@ -174,6 +174,9 @@ export function emitTemplateMethod(
         params: new Map(),
         retIsValue: cm.retKind === WatNodeType.I64,
         retIsAddr: cm.retKind === WatNodeType.I32,
+        // `return e` converts e to the declared return type. The type is the instantiated one, so a
+        // method returning T narrows to whatever T became.
+        retTypeName: cm.retType?.kind === AstKind.NAME ? cm.retType.name : undefined,
         thisLayout,
         thisType: type,
         thisBind: bind,
