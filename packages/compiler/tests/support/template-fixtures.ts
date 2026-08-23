@@ -32,6 +32,21 @@ const AMOUNT = `template <typename T> struct Amount {
 
 export const CASES: TemplateCase[] = [
     {
+        // `v` is also an enumerator core declares. A class member hides a namespace-scope name of the
+        // same spelling, so the shift has to read the member's own width and signedness.
+        name: "MemberNamedLikeConstant",
+        expected: 9223372036854775804n,
+        source: wrap(
+            `struct Bits {
+    uint64 v;
+    uint64 half() const { return v >> 1; }
+  };`,
+            "Bits bits;",
+            `locals.bits.v = 0xFFFFFFFFFFFFFFF8ULL;
+       state.mut().result = locals.bits.half();`,
+        ),
+    },
+    {
         // The control for the return conversion: no template anywhere, just a method whose declared
         // return type is narrower than the expression it returns. `100 * 3 + 1` is 301 as an int and
         // 45 once it converts to uint8.

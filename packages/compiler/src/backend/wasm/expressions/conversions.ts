@@ -156,11 +156,13 @@ export function scalarTypeInfo(
         case AstKind.SUBSCRIPT: {
             const type =
                 expression.kind === AstKind.IDENTIFIER
-                    ? (context.params?.get(expression.name)?.type ??
+                    ? // A class member hides a namespace-scope name of the same spelling, so the
+                      // addressable lookup runs before named constants — the order the value path uses.
+                      (context.params?.get(expression.name)?.type ??
                       context.refLocals?.get(expression.name) ??
                       context.localVars.get(expression.name)?.type ??
-                      context.programAnalysis.typeOfConstant(expression.name) ??
                       context.lowering.resolveExpressionAddress(context, expression)?.type ??
+                      context.programAnalysis.typeOfConstant(expression.name) ??
                       null)
                     : (context.lowering.resolveExpressionAddress(context, expression)?.type ?? null);
             let resolvedType = type;
