@@ -418,3 +418,12 @@ export enum LogPayloadDefect {
     TERMINATOR_TOO_EARLY = "terminator_too_early",
     HEADER_WORD_NOT_RESERVED = "header_word_not_reserved",
 }
+
+/**
+ * A C++ construct the TypeScript compiler does not fully implement.
+ *
+ * Grep a member to find every site that reports it; that set is the work list for implementing it.
+ */
+export enum UnsupportedFeature {
+    NATIVE_C_SCALAR = "native_c_scalar",
+}

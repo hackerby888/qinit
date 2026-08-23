@@ -3,6 +3,7 @@ import { getFunctionLoweringServices } from "../functions/function-lowering-regi
 import { emitScalarLoad, addrIr, isSignedScalarType } from "../memory/memory-operations";
 import { TemplateBindings, CompiledMethod, FieldLayout, FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import { ProgramAnalysis } from "../../../semantics/program-analysis";
+import { firstInfidelitySince } from "../../../semantics/analysis-diagnostics";
 import type { TypeSpec, Expression, FunctionTemplateDecl, ParamDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { CONVERSION_RANK, conversionRank, integerLiteralType } from "./overload-ranking";
@@ -121,8 +122,8 @@ export function compileContainerMethod(
         const warningBase = programAnalysis.warnings.length;
         const errorBase = programAnalysis.errors.length;
         const wat = emitTemplateMethod(programAnalysis, cm, definition, type, ownerBindings);
-        if (programAnalysis.warnings.length !== warningBase || programAnalysis.errors.length !== errorBase) {
-            const diagnostic = programAnalysis.errors[errorBase]?.message ?? programAnalysis.warnings[warningBase]?.message ?? "unknown lowering diagnostic";
+        const diagnostic = firstInfidelitySince(programAnalysis, warningBase, errorBase);
+        if (diagnostic) {
             throw new Error(`authoritative body emitted a diagnostic: ${diagnostic}`);
         }
         programAnalysis.emittedMethodOrder.push(wat);

@@ -1,5 +1,6 @@
 import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { ProgramAnalysis } from "../../../semantics/program-analysis";
+import { firstInfidelitySince } from "../../../semantics/analysis-diagnostics";
 import { emitHelperFunction } from "../functions/function-emitter";
 import { FunctionEmissionContext, CompiledHelperMetadata, TemplateBindings, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import { isAuthoritativeSymbol } from "../abi/tables";
@@ -66,8 +67,8 @@ export function compileLibraryFunction(
             align: 1,
             fields: new Map(),
         });
-        if (authoritative && (programAnalysis.warnings.length !== warningBase || programAnalysis.errors.length !== errorBase)) {
-            const diagnostic = programAnalysis.errors[errorBase]?.message ?? programAnalysis.warnings[warningBase]?.message ?? "unknown lowering diagnostic";
+        const diagnostic = authoritative ? firstInfidelitySince(programAnalysis, warningBase, errorBase) : null;
+        if (diagnostic) {
             throw new Error(`authoritative body emitted a diagnostic: ${diagnostic}`);
         }
         programAnalysis.emittedMethodOrder.push(wat);
@@ -262,8 +263,8 @@ export function compileLibraryFunctionInstance(
         const warningBase = programAnalysis.warnings.length;
         const errorBase = programAnalysis.errors.length;
         const wat = context.lowering.emitHelperFunction(programAnalysis, info, def, { size: 0, align: 1, fields: new Map() }, bind);
-        if (authoritative && (programAnalysis.warnings.length !== warningBase || programAnalysis.errors.length !== errorBase)) {
-            const diagnostic = programAnalysis.errors[errorBase]?.message ?? programAnalysis.warnings[warningBase]?.message ?? "unknown lowering diagnostic";
+        const diagnostic = authoritative ? firstInfidelitySince(programAnalysis, warningBase, errorBase) : null;
+        if (diagnostic) {
             throw new Error(`authoritative body emitted a diagnostic: ${diagnostic}`);
         }
         programAnalysis.emittedMethodOrder.push(wat);

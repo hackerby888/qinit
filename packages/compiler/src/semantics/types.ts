@@ -11,6 +11,8 @@ export interface CodeGenerationWarning {
     message: string;
     line: number;
     column: number;
+    // Advisory: the construct lowers correctly, so strict mode must not promote it to an error.
+    advisory?: boolean;
 }
 
 export interface FieldLayout {

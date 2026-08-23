@@ -465,6 +465,10 @@ export class ProgramAnalysis {
     warn(message: string, at: number | Span): void {
         return analysisDiagnostics.warn(this, message, at);
     }
+    // Survives strict mode: the construct compiles correctly, the note is about style or portability.
+    advise(message: string, at: number | Span): void {
+        return analysisDiagnostics.advise(this, message, at);
+    }
     // Deduplicate hard semantic errors raised during speculative emission.
     error(message: string, at: number | Span): void {
         return analysisDiagnostics.error(this, message, at);

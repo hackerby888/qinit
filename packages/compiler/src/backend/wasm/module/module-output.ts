@@ -41,7 +41,8 @@ export function copyProgramDiagnostics(programAnalysis: ProgramAnalysis, semanti
                 line: warning.line,
                 column: warning.column,
             },
-            DiagnosticCategory.FIDELITY,
+            // An advisory lowers correctly, so it must not be promoted to an error by strict mode.
+            warning.advisory ? undefined : DiagnosticCategory.FIDELITY,
         );
     }
 

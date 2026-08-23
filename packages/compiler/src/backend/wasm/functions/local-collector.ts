@@ -1,6 +1,7 @@
-import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
+import { AstKind, UnsupportedFeature, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { SCALAR_SIZE, C_SCALAR_NAMES } from "../abi/tables";
 import { isAutoType, resolveAliasType } from "../expressions/conversions";
+import { adviseUnsupported } from "../../../semantics/unsupported";
 import { castInfo } from "../memory/address-resolution";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Statement, StructDecl, FunctionDecl, VariableDecl } from "../../../ast";
@@ -99,6 +100,9 @@ export function collectFunctionLocals(statement: Statement, context: FunctionEmi
                     !context.programAnalysis.structByName(dType.name, templateBindings)
                 ) {
                     context.programAnalysis.error(`unknown type '${dType.name}' in declaration of '${variableDeclaration.name}'`, statement.span.line);
+                }
+                if (dType.kind === AstKind.NAME && C_SCALAR_NAMES.has(dType.name)) {
+                    adviseUnsupported(context.programAnalysis, UnsupportedFeature.NATIVE_C_SCALAR, statement.span.line, dType.name);
                 }
                 // Store aggregate locals in allocated slots referenced by i32 locals.
                 const concrete = dType.kind === AstKind.NAME && templateBindings.types.has(dType.name) ? templateBindings.types.get(dType.name)! : dType;

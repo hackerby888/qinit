@@ -32,8 +32,25 @@ export const SYSPROC_IO: Record<
         typedIO: true,
     },
 };
-// List C scalar spellings handled outside SCALAR_SIZE for validation.
-export const C_SCALAR_NAMES = new Set(["int", "unsigned", "signed", "long", "short", "char", "size_t", "unsigned long", "long int"]);
+// Native C spellings, as opposed to the fixed-width QPI ones. They lower correctly at their wasm32
+// widths; this set only drives the advisory that says a contract is using them.
+export const C_SCALAR_NAMES = new Set([
+    "char",
+    "short",
+    "short int",
+    "signed short int",
+    "int",
+    "signed",
+    "unsigned",
+    "long",
+    "long int",
+    "signed long",
+    "signed long int",
+    "unsigned long",
+    "unsigned long int",
+    "size_t",
+    "wchar_t",
+]);
 // QPI safe-math names whose result type follows their arguments. Their bodies are compiled from the
 // authoritative qpi.h/math_lib.h sources; this set is used only for type inference.
 export const MATH_INTRINSIC_NAMES = new Set(["div", "sdiv", "mod", "min", "max", "abs", "sadd", "ssub", "smul"]);
