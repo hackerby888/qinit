@@ -32,6 +32,19 @@ const AMOUNT = `template <typename T> struct Amount {
 
 export const CASES: TemplateCase[] = [
     {
+        // The specialization names `unsigned char` and the instantiation names `uint8`, which is a
+        // typedef of it. Matching on the spelling would miss; matching on what each resolves to hits.
+        name: "SpecializationSpelledDifferently",
+        expected: 12n,
+        source: wrap(
+            "",
+            "Tag<uint64> general; Tag<uint8> special;",
+            `state.mut().result = locals.general.id() * 10 + locals.special.id();`,
+            `template <typename T> struct Tag { uint64 id() const { return 1; } };
+template <> struct Tag<unsigned char> { uint64 id() const { return 2; } };`,
+        ),
+    },
+    {
         // Two argument lists closing together lex as one `>>`. The inner list has to end there rather
         // than let a value argument read it as a shift, and the outer list closes on what is left.
         name: "NestedAngleBrackets",

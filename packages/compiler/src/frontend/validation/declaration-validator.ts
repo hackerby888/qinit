@@ -43,8 +43,16 @@ export function runTopLevel(validator: Validator, declarations: Declaration[]): 
             declaration.name &&
             !isForwardDecl
         ) {
-            if (typeNames.has(declaration.name)) validator.error(`duplicate type definition '${declaration.name}'`, declaration.span);
-            typeNames.add(declaration.name);
+            // A specialization declares a different entity from the primary template, so it is keyed by
+            // its arguments too: `template <> struct Tag<uint8>` and `template <typename T> struct Tag`
+            // coexist, while two specializations over the same arguments still collide.
+            const specializationArgs = (declaration as { specializationArgs?: TypeSpec[] }).specializationArgs;
+            const declared = specializationArgs?.length
+                ? `${declaration.name}<${specializationArgs.map((argument) => typeKey(unwrapType(argument))).join(",")}>`
+                : declaration.name;
+
+            if (typeNames.has(declared)) validator.error(`duplicate type definition '${declaration.name}'`, declaration.span);
+            typeNames.add(declared);
         }
         if (declaration.kind === AstKind.TYPEDEF_DECL && declaration.name) {
             validator.typeAliases.set(

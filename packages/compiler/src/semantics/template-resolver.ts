@@ -58,14 +58,12 @@ export function matchTemplateSpecialization(
                 templateBindings.values.set(specializedParameter.name, programAnalysis.evalConstFromType(instantiationArg, parent));
                 continue;
             }
-            if (specializationArg.kind === AstKind.NAME) {
-                const normalizedName =
-                    instantiationArg.kind === AstKind.NAME
-                        ? instantiationArg.name
-                        : instantiationArg.kind === AstKind.TEMPLATE_INSTANCE
-                          ? instantiationArg.name
-                          : "";
-                if (normalizedName !== specializationArg.name) {
+            if (specializationArg.kind === AstKind.NAME || specializationArg.kind === AstKind.TEMPLATE_INSTANCE) {
+                // Compare what each argument resolves to rather than how it is spelled: `uint8` and
+                // `unsigned char` name one type, and a specialization written with either has to match
+                // an instantiation written with the other.
+                const specialized = programAnalysis.typeKey(programAnalysis.resolveType(specializationArg, parent));
+                if (specialized !== programAnalysis.typeKey(instantiationArg)) {
                     match = false;
                     break;
                 }
