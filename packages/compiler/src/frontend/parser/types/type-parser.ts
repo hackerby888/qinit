@@ -167,13 +167,14 @@ export class TypeParser {
         let index = 1;
         while (this.parser.state.peek(index).kind === TokenKind.D_COLON && this.parser.state.peek(index + 1).kind === TokenKind.IDENTIFIER) index += 2;
         const operator = this.parser.state.peek(index).kind;
+        // `>>` closes two argument lists here, so it never continues an expression: in `Cell<Cell<T>>`
+        // the inner `T` is a type, not the left side of a shift. C++ needs parentheses to shift here.
         if (
             operator !== TokenKind.STAR &&
             operator !== TokenKind.PLUS &&
             operator !== TokenKind.SLASH &&
             operator !== TokenKind.PERCENT &&
-            operator !== TokenKind.L_SHIFT &&
-            operator !== TokenKind.R_SHIFT
+            operator !== TokenKind.L_SHIFT
         )
             return false;
         const after = this.parser.state.peek(index + 1).kind;
