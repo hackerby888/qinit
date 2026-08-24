@@ -269,3 +269,60 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(runProcedureStateWord(result.wasm)).toBe(42n);
     });
 });
+
+// qpi.h's `Ch` namespace declares one constant per character, so a struct local named `u` used as a
+// value resolved to 'u' (117) instead of being converted or refused.
+describe.skipIf(!HAS_CORE)("an aggregate local never resolves to a named constant", () => {
+    const classToScalar = (localName: string) => `
+using namespace QPI;
+
+struct CONTRACT_STATE2_TYPE {};
+
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct U { uint64 v; operator uint64() const { return v; } };
+  struct StateData { uint64 x; };
+  struct Run_input { uint64 seed; };
+  struct Run_output {};
+  PUBLIC_PROCEDURE(Run) { U ${localName}; ${localName}.v = 11; state.mut().x = ${localName}; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Run, 1); }
+};
+`;
+
+    const compileLocal = async (localName: string) => {
+        const result = await compileContractWithTypeScript({
+            source: classToScalar(localName),
+            contractName: "ShadowProbe",
+            slot: 27,
+            qpiHeader: HEADERS(),
+            arenaSizeBytes: 1 << 20,
+        });
+        return {
+            wasm: result.wasm,
+            errors: result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR),
+        };
+    };
+
+    // `u` collides with Ch::u; `total` does not. Both must fail the same way.
+    for (const localName of ["u", "total"]) {
+        test(`a local named '${localName}' is refused, not silently converted`, async () => {
+            const { wasm, errors } = await compileLocal(localName);
+
+            expect(wasm.length).toBe(0);
+            expect(errors.some((diagnostic) => /unsupported conversion from class type to a scalar for '.+'/.test(diagnostic.message))).toBe(true);
+        });
+    }
+
+    // The bug produced 'u' == 117 with no diagnostic at all, so pin that it cannot compile to a value.
+    test("never compiles to the character constant", async () => {
+        const result = await compileContractWithTypeScript({
+            source: classToScalar("u"),
+            contractName: "ShadowProbe",
+            slot: 27,
+            qpiHeader: HEADERS(),
+            arenaSizeBytes: 1 << 20,
+            strict: false,
+        });
+
+        expect(result.wasm.length === 0 || runProcedureStateWord(result.wasm) !== 117n).toBe(true);
+    });
+});

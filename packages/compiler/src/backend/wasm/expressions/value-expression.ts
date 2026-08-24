@@ -1,7 +1,8 @@
-import { AstKind, UnaryOp, WatNodeType } from "../../../shared/enums";
+import { AstKind, UnaryOp, UnsupportedFeature, WatNodeType } from "../../../shared/enums";
 import { SCALAR_SIZE } from "../abi/tables";
 import { describeShape } from "../calls/call-shape";
 import { narrowCastIr, lowerScalarLoad, isSignedScalarType } from "../memory/memory-operations";
+import { reportUnsupported } from "../../../semantics/unsupported";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, VariableDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
@@ -110,6 +111,14 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 if (io && io.size > 0 && io.size <= 8 && (!io.layout || io.layout.fields.size === 0)) {
                     return lowerScalarLoad(io.addr, io.size, isSignedScalarType(io.type, context.programAnalysis));
                 }
+            }
+            // An aggregate local holds an address, not a scalar value, and must not reach the named-constant
+            // lookup below. qpi.h's `Ch` declares one constant per character, so a struct local named `u`
+            // silently compiled to 'u' (117) instead of being converted or refused.
+            const aggregateLocal = context.refLocals?.get(expression.name);
+            if (aggregateLocal && context.programAnalysis.isAggregateType(aggregateLocal)) {
+                reportUnsupported(context.programAnalysis, UnsupportedFeature.CLASS_TO_SCALAR_CONVERSION, expression.span, expression.name);
+                return watIr.i64Constant(0);
             }
             // a named constant: enum constant or constexpr (incl. qualified Type::NAME)
             const resolvedConstant = context.programAnalysis.resolveConst(expression.name, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
