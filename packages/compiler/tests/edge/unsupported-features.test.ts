@@ -145,3 +145,80 @@ describe.skipIf(!HAS_CORE)("a destructor with a body is refused, not dropped", (
         expect(wasm.length).toBeGreaterThan(0);
     });
 });
+
+// A token the declaration parser cannot model used to be a fidelity warning that skipped one token and
+// let the rest re-parse as something else. Not knowing what the code says is a parse error.
+describe.skipIf(!HAS_CORE)("an unparseable declaration is a parse error", () => {
+    const withMember = (member: string) => `
+using namespace QPI;
+
+struct CONTRACT_STATE2_TYPE {};
+
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  ${member}
+  struct StateData { uint64 x; };
+  struct Probe_input { uint64 seed; };
+  struct Probe_output { uint64 v; };
+  PUBLIC_FUNCTION(Probe) { output.v = input.seed; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Probe, 1); }
+};
+`;
+
+    const compileMember = async (member: string) => {
+        const result = await compileContractWithTypeScript({
+            source: withMember(member),
+            contractName: "ParseProbe",
+            slot: 28,
+            qpiHeader: HEADERS(),
+        });
+        return {
+            wasm: result.wasm,
+            errors: result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR),
+        };
+    };
+
+    test("names the token and points at clang", async () => {
+        const { wasm, errors } = await compileMember("% uint64 v;");
+
+        expect(wasm.length).toBe(0);
+        expect(errors.some((diagnostic) => /unsupported construct at '%'/.test(diagnostic.message))).toBe(true);
+        expect(errors.some((diagnostic) => /build this contract with clang/.test(diagnostic.message))).toBe(true);
+    });
+
+    // It must fail even where a fidelity warning would have been tolerated, since the parse is unsound.
+    test("fails even with the strict gate disabled", async () => {
+        const result = await compileContractWithTypeScript({
+            source: withMember("% uint64 v;"),
+            contractName: "ParseProbe",
+            slot: 28,
+            qpiHeader: HEADERS(),
+            strict: false,
+        });
+
+        expect(result.wasm.length).toBe(0);
+        expect(result.diagnostics.some((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toBe(true);
+    });
+
+    test("a clean contract is untouched", async () => {
+        const { wasm, errors } = await compileMember("uint64 plain;");
+
+        expect(errors).toEqual([]);
+        expect(wasm.length).toBeGreaterThan(0);
+    });
+
+    // These two reached the same backstop until they got handlers. qpi.h uses both -- `typename` for a
+    // dependent oracle reply field, `volatile` on m256i's assignment operators -- so they must parse.
+    test("a volatile member parses, with the qualifier dropped", async () => {
+        const { wasm, errors } = await compileMember("volatile uint64 v;");
+
+        expect(errors).toEqual([]);
+        expect(wasm.length).toBeGreaterThan(0);
+    });
+
+    test("a typename-qualified dependent member parses", async () => {
+        const { wasm, errors } = await compileMember("typename QPI::Array<uint64, 2> pair;");
+
+        expect(errors).toEqual([]);
+        expect(wasm.length).toBeGreaterThan(0);
+    });
+});

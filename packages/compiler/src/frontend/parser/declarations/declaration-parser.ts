@@ -1,4 +1,4 @@
-import { AstKind, DiagnosticCategory, DiagnosticSeverity, TokenKind } from "../../../shared/enums";
+import { AstKind, DiagnosticSeverity, TokenKind } from "../../../shared/enums";
 import type {
     ClassTemplateDecl,
     Declaration,
@@ -42,6 +42,13 @@ export class DeclarationParser {
                 return this.parser.declarations.parseExternBlock();
             case TokenKind.KW_FRIEND:
                 return this.parser.declarations.parseFriend();
+            case TokenKind.KW_TYPENAME:
+            case TokenKind.KW_VOLATILE:
+                // `typename` only disambiguates a dependent type, and `volatile` has no meaning for a
+                // single-threaded contract. Both qualify the declaration that follows, so drop the
+                // qualifier and parse it.
+                this.parser.state.next();
+                return this.parser.declarations.parseDeclaration();
             case TokenKind.TILDE: {
                 // A destructor has no return type. Without this case the '~' falls to the default branch
                 // and is skipped, leaving `Foo(){}` to re-parse as a constructor.
@@ -105,11 +112,11 @@ export class DeclarationParser {
                 return this.parser.functions.parseFunctionRest(`operator ${targetName}`, targetType, false, false, false, false, false);
             }
             default:
-                // Record unsupported qpi.h constructs as fidelity warnings.
-                this.parser.state.bodyDiagnostics.push({
-                    severity: DiagnosticSeverity.WARNING,
-                    category: DiagnosticCategory.FIDELITY,
-                    message: `skipped unparseable token '${tok.text}' (${tok.kind})`,
+                // Not understanding a token means not knowing what the code says, so continuing would
+                // reinterpret the rest of the declaration as something else. Refuse instead.
+                this.parser.state.diagnostics.push({
+                    severity: DiagnosticSeverity.ERROR,
+                    message: `unsupported construct at '${tok.text}' (${tok.kind}) — the TypeScript compiler cannot parse this; build this contract with clang`,
                     span: tok.span,
                 });
                 this.parser.state.next();
