@@ -162,10 +162,16 @@ export function emitDeclarationStatement(context: FunctionEmissionContext, state
                 context.lines.push(
                     `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", watIr.localGet(variableDeclaration.name, WatNodeType.I32), watIr.i32Constant(byteSize), watIr.i32Constant(0)))}`,
                 );
-                if (context.programAnalysis.gtestMode && !variableDeclaration.initializer && concrete.kind === AstKind.NAME) {
+                if (!variableDeclaration.initializer && concrete.kind === AstKind.NAME) {
+                    // `T local;` runs T's default constructor. Zeroing the slot without it left every
+                    // field at 0, which diverges from clang for any constructor that assigns.
                     const struct = context.programAnalysis.structOf(concrete, db);
                     const constructor = struct?.members.find(
-                        (member) => member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === concrete.name && (member as FunctionDecl).body,
+                        (member) =>
+                            member.kind === AstKind.FUNCTION &&
+                            (member as FunctionDecl).name === concrete.name &&
+                            (member as FunctionDecl).body &&
+                            ((member as FunctionDecl).params ?? []).length === 0,
                     ) as FunctionDecl | undefined;
                     const layout = context.programAnalysis.layoutOfType(concrete, db);
                     if (constructor && layout) {

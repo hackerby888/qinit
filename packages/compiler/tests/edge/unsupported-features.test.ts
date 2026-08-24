@@ -2,9 +2,24 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Ensures each unsupported-feature tier fails, or survives, the strict gate as intended.
 import { describe, expect, test } from "bun:test";
+import { QubicSimulator } from "@qinit/engine";
+import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const HEADERS = () => loadQpiHeader(CORE_PATH);
+
+await initK12();
+
+// Deploy, drive procedure 1, and read the first state word.
+function runProcedureStateWord(wasm: Uint8Array): bigint {
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+    const user = new Uint8Array(32).fill(7);
+    sim.fund(user, 1_000_000n);
+    sim.deploy(27, wasm);
+    sim.procedure(27, 1, new Uint8Array(32), { invocator: user });
+    const state = new Uint8Array(sim.contracts.get(27)!.state());
+    return new DataView(state.buffer, state.byteOffset).getBigUint64(0, true);
+}
 
 // Native C spellings lower correctly at their wasm32 widths, so they must not fail a strict build.
 const NATIVE_C_SRC = `
@@ -220,5 +235,37 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
         expect(errors).toEqual([]);
         expect(wasm.length).toBeGreaterThan(0);
+    });
+});
+
+// `T local;` runs T's default constructor in C++. Zeroing the slot and skipping the body left every
+// field at 0; clang returns 42 for this contract.
+describe.skipIf(!HAS_CORE)("a default constructor runs for a struct local", () => {
+    const CTOR_SRC = `
+using namespace QPI;
+
+struct CONTRACT_STATE2_TYPE {};
+
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Guarded { uint64 mark; Guarded() { mark = 42; } };
+  struct StateData { uint64 x; };
+  struct Run_input { uint64 seed; };
+  struct Run_output {};
+  PUBLIC_PROCEDURE(Run) { Guarded g; state.mut().x = g.mark; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Run, 1); }
+};
+`;
+
+    test("the constructor body assigns, so the field is not left zero", async () => {
+        const result = await compileContractWithTypeScript({
+            source: CTOR_SRC,
+            contractName: "CtorProbe",
+            slot: 27,
+            qpiHeader: HEADERS(),
+            arenaSizeBytes: 1 << 20,
+        });
+
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+        expect(runProcedureStateWord(result.wasm)).toBe(42n);
     });
 });
