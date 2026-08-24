@@ -273,7 +273,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
             <Header cmd="test" />
             <Box flexDirection="column">
                 {lines.map((l, i) => (
-                    <Status key={i} ok={l.ok} label={l.label} detail={l.detail} pad={10} />
+                    <Status key={i} ok={l.ok} label={l.label} detail={l.detail} pad={14} />
                 ))}
             </Box>
             {s.phase === "setup" && (

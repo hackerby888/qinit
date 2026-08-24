@@ -7,6 +7,10 @@ import { lerp, theme } from "./theme";
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+// Step and StepRow share a label column so their details line up wherever the two are mixed. Wide
+// enough for the longest label any command registers ("check contract") plus a two-space gutter.
+export const STEP_LABEL_PAD = 16;
+
 export function Spinner({ label, color = theme.info }: { label: string; color?: string }) {
     const frame = useFrame();
     return (
@@ -61,9 +65,9 @@ export function Step({ state, label, detail }: { state: StepState; label: string
         <Text>
             {glyph}{" "}
             <Text bold={state !== "pending"} color={labelColor}>
-                {label}
+                {label.padEnd(STEP_LABEL_PAD)}
             </Text>
-            {detail ? <Text dimColor>{`  ${detail}`}</Text> : null}
+            {detail ? <Text dimColor>{truncEnd(detail, Math.max(12, termCols() - STEP_LABEL_PAD - 4))}</Text> : null}
         </Text>
     );
 }
@@ -119,9 +123,9 @@ export function StepRow({ state, label, detail, pct, elapsedMs }: { state: StepS
         <Text>
             {glyph}{" "}
             <Text bold={state !== "pending"} color={state === "pending" ? theme.mute : undefined}>
-                {label.padEnd(14)}
+                {label.padEnd(STEP_LABEL_PAD)}
             </Text>
-            {pct != null && state === "active" ? <Bar pct={pct} /> : detail ? <Text dimColor>{truncEnd(detail, Math.max(12, termCols() - 24))}</Text> : null}
+            {pct != null && state === "active" ? <Bar pct={pct} /> : detail ? <Text dimColor>{truncEnd(detail, Math.max(12, termCols() - STEP_LABEL_PAD - 8))}</Text> : null}
             {state === "ok" && elapsedMs ? <Text dimColor>{`  ${fmtMs(elapsedMs)}`}</Text> : null}
         </Text>
     );
