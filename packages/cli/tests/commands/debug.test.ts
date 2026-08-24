@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { formatTraceAge, mergeTraceEntries, traceSelectionIndex } from "../../src/commands/deploy-interact/debug";
+import { formatTraceAge, idlCacheKey, mergeTraceEntries, traceSelectionIndex } from "../../src/commands/deploy-interact/debug";
 
 test("debug traces merge once in newest-first order and stay hidden", () => {
     const previous = [
@@ -50,4 +50,23 @@ test("debug trace age uses the supplied chain clock", () => {
     expect(formatTraceAge(tickMs, tickMs + 60_000)).toBe("1 min ago");
     expect(formatTraceAge(tickMs, tickMs + 2 * 60 * 60_000)).toBe("2 hr ago");
     expect(formatTraceAge(tickMs, tickMs + 24 * 60 * 60_000)).toBe("1 day ago");
+});
+
+test("debug idl cache key follows a redeploy into the same slot", () => {
+    const before = [
+        { index: 29, codeHash: "aa" },
+        { index: 30, codeHash: "bb" },
+    ] as any;
+    const reordered = [
+        { index: 30, codeHash: "bb" },
+        { index: 29, codeHash: "aa" },
+    ] as any;
+    const redeployed = [
+        { index: 29, codeHash: "cc" },
+        { index: 30, codeHash: "bb" },
+    ] as any;
+
+    expect(idlCacheKey(reordered)).toBe(idlCacheKey(before));
+    expect(idlCacheKey(redeployed)).not.toBe(idlCacheKey(before));
+    expect(idlCacheKey([{ index: 29 }] as any)).toBe("29:");
 });

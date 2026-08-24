@@ -47,6 +47,15 @@ function latestTickClock(tickTimes: Iterable<TickClock>): TickClock | undefined 
     return latest;
 }
 
+// A redeployed slot keeps its index and changes its code, and with it the state layout every trace is
+// read against — so the cached IDLs are keyed on both.
+export function idlCacheKey(contracts: readonly DynamicContractRegistryEntry[]): string {
+    return contracts
+        .map((contract) => `${contract.index}:${contract.codeHash ?? ""}`)
+        .sort()
+        .join(",");
+}
+
 export function mergeTraceEntries<T extends { seq: number }>(previous: readonly T[], incoming: readonly T[], hidden: ReadonlySet<number>): T[] {
     const bySequence = new Map(previous.filter((entry) => !hidden.has(entry.seq)).map((entry) => [entry.seq, entry]));
     for (const entry of incoming) {
@@ -107,7 +116,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     const [tickTimeRetry, setTickTimeRetry] = useState(0);
     const [showInternals, setShowInternals] = useState(false);
     const [idls, setIdls] = useState<ContractIdls>(() => new Map());
-    const idlSlots = useRef("");
+    const idlKey = useRef("");
     const selectedSeqRef = useRef<number | null>(null);
     const visibleEntriesRef = useRef<DebugEntry[]>([]);
     const hiddenSeqs = useRef(new Set<number>());
@@ -134,13 +143,10 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
             try {
                 reg.current = (await rpc.dynRegistry()).contracts ?? [];
                 // Entry names come from the IDLs, and resolving one can fall back to re-running the compiler —
-                // so they are reloaded when a slot appears or leaves, not on every poll.
-                const slots = reg.current
-                    .map((contract) => contract.index)
-                    .sort((left, right) => left - right)
-                    .join(",");
-                if (slots !== idlSlots.current) {
-                    idlSlots.current = slots;
+                // so they are reloaded when a slot appears, leaves, or is redeployed, not on every poll.
+                const key = idlCacheKey(reg.current);
+                if (key !== idlKey.current) {
+                    idlKey.current = key;
                     loadContractIdls(rpc)
                         .then((loaded) => alive && setIdls(loaded))
                         .catch(() => {});
@@ -397,7 +403,7 @@ function Detail({
         return () => {
             alive = false;
         };
-    }, [e.seq, codeHash]);
+    }, [e.seq, codeHash, contractIdl]);
 
     useEffect(() => setStateOffset(0), [e.seq, showInternals]);
 
