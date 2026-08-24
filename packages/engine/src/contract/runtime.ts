@@ -18,6 +18,9 @@ function contractIndexWord(slot: number): Uint8Array {
     return word;
 }
 
+// Core leaves the word cleared after a log, so a contract never reads the stamp back.
+const CLEARED_LOG_HEADER_WORD = new Uint8Array(4);
+
 function stateDiffMode(): string | undefined {
     return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.QINIT_STATE_DIFF;
 }
@@ -967,11 +970,12 @@ export class Contract {
                 }
             },
             logBytes: (_ci: number, level: number, msgOff: number, size: number) => {
-                // The record and the trace both take the payload as the contract left it.
-                this.host.log(this.slot, level, u8().slice(msgOff, msgOff + size));
-                // Core stamps the contract index over the payload's leading word afterwards, so a
-                // contract that logs the same struct twice reads the stamp back the second time.
+                // Core stamps the contract index over the payload's leading word, records the payload as
+                // stamped, then clears the word again — so every record carries the index and the contract
+                // reads back a zero however many times it logs the same struct (logging.h).
                 this.writeGuest(msgOff, contractIndexWord(this.slot));
+                this.host.log(this.slot, level, u8().slice(msgOff, msgOff + size));
+                this.writeGuest(msgOff, CLEARED_LOG_HEADER_WORD);
             },
             k12: (inOff: number, len: number, outOff: number) => this.writeGuest(outOff, k12Bytes(u8().slice(inOff, inOff + len))),
             abort: (code: number) => {

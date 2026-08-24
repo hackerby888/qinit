@@ -66,8 +66,8 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
     });
 
     // The wasm SDK hands the payload to lh_logBytes untouched, so everything the contract wrote has
-    // to survive being logged. Only the leading word moves, and only because the host stamps it.
-    test("repeated logs of one payload differ only in the host's leading word", async () => {
+    // to survive being logged. Only the leading word moves, and only because the host owns it.
+    test("every record carries the host's contract index, not the word the contract wrote", async () => {
         const source = SOURCE.replace("locals.message._type = 9;", "locals.message._contractIndex = 7;\n    locals.message._type = 9;");
         const result = await compileContractWithTypeScript({
             source,
@@ -85,10 +85,36 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         const logs = sim.getTrace().entries.at(-1)?.logs ?? [];
 
         expect(logs).toHaveLength(5);
-        // The contract's own value is what the first log carries; the host's stamp lands after it.
-        expect(logs.map((l) => l.hex.slice(0, 8))).toEqual(["07000000", "1c000000", "1c000000", "1c000000", "1c000000"]);
+        // Core stamps the index before it records the payload, so the contract's own 7 reaches no record.
+        expect(logs.map((l) => l.hex.slice(0, 8))).toEqual(["1c000000", "1c000000", "1c000000", "1c000000", "1c000000"]);
         // A zero here instead would be emission clobbering the word the host owns.
         expect(new Set(logs.map((l) => l.hex.slice(8))).size).toBe(1);
+    });
+
+    // The other half of core's contract: the stamp is cleared once the record is taken, so a contract
+    // reading the word back sees a zero rather than its own index.
+    test("the host clears the leading word once the record is taken", async () => {
+        const source = SOURCE.replace("uint32 _contractIndex; uint32 _type;", "uint32 _contractIndex; uint32 seen;")
+            .replace("locals.message._type = 9;", "locals.message.seen = 9;")
+            .replace("LOG_WARNING(locals.message);", "locals.message.seen = locals.message._contractIndex;\n    LOG_WARNING(locals.message);");
+        const result = await compileContractWithTypeScript({
+            source,
+            contractName: "Logging",
+            slot: 28,
+            qpiHeader: HEADERS(),
+            arenaSizeBytes: 64 * 1024,
+        });
+        expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+
+        const sim = new QubicSimulator();
+        sim.setDebug(true);
+        sim.deploy(28, result.wasm);
+        sim.procedure(28, 1, Uint8Array.of(42, 0, 0, 0, 0, 0, 0, 0));
+        const logs = sim.getTrace().entries.at(-1)?.logs ?? [];
+
+        expect(logs).toHaveLength(5);
+        // `seen` sits right behind the header word and holds what LOG_ERROR left there.
+        expect(logs[1]!.hex.slice(8, 16)).toBe("00000000");
     });
 
     test("the same import persists native records on VirtualNode", async () => {
