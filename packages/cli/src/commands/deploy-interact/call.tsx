@@ -17,7 +17,7 @@ import { resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
 import { loadContracts, resolveContract } from "../../contracts/registry";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { Header, Spinner, Status, Bar, theme } from "../../ui";
-import { invalidArgs, type CommandArguments } from "../../args";
+import { invalidArgs, output, type CommandArguments } from "../../args";
 
 type Result = {
     ok: boolean | null;
@@ -27,12 +27,50 @@ type Result = {
     err?: string;
 };
 type Trace = { e: DebugEntry; name: string; entry: string; view: DecodedTrace };
+// What --json reports beyond the result itself: the values the rendered rows hold as text.
+type CallFacts = { contract: string; slot: number; entry: string; tick?: number; tx?: string; out?: string };
 type Confirm = { start: number; net: number; target: number };
 type CallMode = "fn" | "proc";
 
 // Non-interactive forms (qubic-cli style):
 //   qinit call --fn   <idx> <functionId>   --in "<fmt>" --out "<fmt>"
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// --json: the rendered rows as data. Trace keys are absent without --trace rather than empty, so a
+// consumer can tell "nothing changed" from "never captured"; internal rows come through tagged, not
+// dropped, which is what --trace-full toggles in the view.
+export function callJsonResult(mode: CallMode, contract: string, entryName: string, result: Result | null, facts: CallFacts | null, trace: Trace | null) {
+    return {
+        ok: result?.ok ?? false,
+        contract: facts?.contract ?? contract,
+        slot: facts?.slot ?? null,
+        entry: facts?.entry ?? entryName,
+        kind: mode === "fn" ? "function" : "procedure",
+        tick: facts?.tick ?? trace?.e.tick ?? null,
+        tx: facts?.tx ?? null,
+        out: facts?.out ?? trace?.view.outDecoded ?? null,
+        error: result?.err ?? null,
+        ...(trace
+            ? {
+                  execNs: trace.e.execNs,
+                  caller: trace.view.caller,
+                  in: trace.view.inDecoded,
+                  state: trace.view.stateDiff.map((line) => ({ label: line.label, detail: line.detail, text: line.text, internal: line.internal })),
+                  logs: trace.view.logs.map((log) => ({
+                      severity: log.severity,
+                      type: log.type,
+                      name: log.name ?? null,
+                      fields: log.fields ?? null,
+                      hex: log.hex,
+                  })),
+              }
+            : {}),
+    };
+}
+
+// Log fields decode to bigint, which JSON.stringify throws on, and a uint64 past 2^53 would lose
+// digits as a number anyway.
+export const bigintText = (_key: string, value: unknown) => (typeof value === "bigint" ? value.toString() : value);
 
 export function Call({ commandArgs }: { commandArgs: CommandArguments }) {
     const fn = commandArgs.has("fn");
@@ -79,6 +117,7 @@ function CallOneShot({
     const amount = commandArgs.get("amount");
     const [result, setResult] = useState<Result | null>(null);
     const [trace, setTrace] = useState<Trace | null>(null);
+    const [facts, setFacts] = useState<CallFacts | null>(null);
     const [confirm, setConfirm] = useState<Confirm | null>(null);
     const [note, setNote] = useState("");
     const [done, setDone] = useState(false);
@@ -182,20 +221,19 @@ function CallOneShot({
                 };
                 const label = `${contract}.${entryIdl?.name ?? (mode === "fn" ? "fn#" : "proc#") + entry}`;
 
+                const entryLabelName = entryIdl?.name ?? String(entry);
+
                 if (mode === "fn") {
                     const out = await callFunction(rpc, idx, entry, input, outputFormat ?? entryIdl?.output ?? "");
                     const empty = out == null || (typeof out === "object" && Object.keys(out).length === 0);
                     const ne = empty ? await nodeErr() : "";
+                    // An explicit --out format overrides the IDL, and only the IDL type carries field names.
+                    const rendered = !outputFormat && entryIdl ? formatStateValue(out, entryIdl.output, showAll, true) : fmtVal(out, showAll);
+                    setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, out: rendered });
                     setResult({
                         ok: ne ? false : true,
                         label,
-                        rows: [
-                            [
-                                "out",
-                                // An explicit --out format overrides the IDL, and only the IDL type carries field names.
-                                !outputFormat && entryIdl ? formatStateValue(out, entryIdl.output, showAll, true) : fmtVal(out, showAll),
-                            ],
-                        ],
+                        rows: [["out", rendered]],
                         err: await enrichErr(ne),
                     });
                 } else {
@@ -233,6 +271,7 @@ function CallOneShot({
                     const ok = !r.ok ? false : r.confirmed && !r.included ? false : true;
                     // An empty signer is the usual reason a broadcast tx never makes it into a tick.
                     const dropped = r.ok && r.confirmed && !r.included;
+                    setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, tick, tx: r.txId || undefined });
                     setResult({
                         ok,
                         label,
@@ -257,12 +296,19 @@ function CallOneShot({
                             .pop();
                         if (!te) await sleep(700);
                     }
+                    // The header only matters for deriving an IDL from source, and the build already gave
+                    // us one — a core checkout that cannot supply it must not fail a call that ran.
+                    let traceHeader: string | undefined;
+                    try {
+                        traceHeader = traceSrc ? loadConfiguredQpiHeader() : undefined;
+                    } catch {}
+
                     if (te)
                         setTrace({
                             e: te,
                             name: traceName,
                             entry: entryLabel(mode === "fn" ? 0 : 1, entry, entryIdl?.name),
-                            view: await describeTrace(te, traceSrc, traceName, traceSrc ? loadConfiguredQpiHeader() : undefined, contractIdl),
+                            view: await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl),
                         });
                     else setNote("(no trace captured — is the debug toggle available on this node?)");
                     try {
@@ -278,10 +324,13 @@ function CallOneShot({
     }, []);
     useEffect(() => {
         if (done) {
+            if (output.json) process.stdout.write(JSON.stringify(callJsonResult(mode, contract, entryName, result, facts, trace), bigintText) + "\n");
             if (result?.ok === false) process.exitCode = 1;
             exit();
         }
     }, [done]); // failure -> non-zero for scripts/CI
+
+    if (output.json) return null;
 
     const rw = Math.max(2, ...(result?.rows ?? []).map(([k]) => k.length));
     const pct = confirm && confirm.target > confirm.start ? (confirm.net - confirm.start) / (confirm.target - confirm.start) : 1;
