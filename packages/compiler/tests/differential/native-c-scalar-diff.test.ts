@@ -12,12 +12,12 @@ import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const SLOT = 27;
-// Mixed native C widths in state: if short/int/long are sized wrongly, every later field shifts.
+// Mixed native C widths in state: if char/short/int/long are sized wrongly, every later field shifts.
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct Mixed {
-    short tag;
+    char tag;
     short count;
     int amount;
     long total;
@@ -33,7 +33,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   PUBLIC_PROCEDURE(Run)
   {
-    state.mut().mixed.tag = (short)input.tag;
+    state.mut().mixed.tag = (char)input.tag;
     state.mut().mixed.count = (short)input.count;
     state.mut().mixed.amount = (int)input.amount;
     state.mut().mixed.total = (long)input.total;
