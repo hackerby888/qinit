@@ -1,8 +1,9 @@
-import { AstKind } from "../shared/enums";
+import { AstKind, UnsupportedFeature } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { EMPTY_TEMPLATE_BINDINGS, NamespaceLookupContext } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
+import { raiseUnsupported } from "./unsupported";
 
 export function registerTopLevelDeclarations(
     programAnalysis: ProgramAnalysis,
@@ -43,7 +44,13 @@ export function registerTopLevelDeclarations(
                 for (const member of structDeclaration.members) {
                     if (member.kind !== AstKind.FUNCTION || !(member as FunctionDecl).body) continue;
                     const fn = member as FunctionDecl;
-                    if (fn.name.startsWith("~")) continue;
+                    if (fn.name.startsWith("~")) {
+                        // Same discard as struct-index: a destructor body never runs, so say so.
+                        if (fn.body?.kind === AstKind.COMPOUND && fn.body.body.length > 0) {
+                            raiseUnsupported(programAnalysis, UnsupportedFeature.DESTRUCTOR, fn.span, fn.name);
+                        }
+                        continue;
+                    }
                     if (!programAnalysis.templateMethods.has(structDeclaration.name)) programAnalysis.templateMethods.set(structDeclaration.name, new Map());
                     const into = programAnalysis.templateMethods.get(structDeclaration.name)!;
                     const def: FunctionTemplateDecl = {

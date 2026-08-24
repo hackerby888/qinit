@@ -14,6 +14,9 @@ const FEATURE_TEXT: Record<UnsupportedFeature, FeatureText> = {
         noun: "native C type",
         advice: "it lowers at its wasm32 width, but the QPI spellings (uint64, sint32, ...) are fixed-width on every target",
     },
+    [UnsupportedFeature.DESTRUCTOR]: {
+        noun: "destructor",
+    },
 };
 
 const CLANG_REMEDY = "the TypeScript compiler does not implement this yet; build this contract with clang";

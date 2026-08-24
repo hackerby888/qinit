@@ -42,6 +42,16 @@ export class DeclarationParser {
                 return this.parser.declarations.parseExternBlock();
             case TokenKind.KW_FRIEND:
                 return this.parser.declarations.parseFriend();
+            case TokenKind.TILDE: {
+                // A destructor has no return type. Without this case the '~' falls to the default branch
+                // and is skipped, leaving `Foo(){}` to re-parse as a constructor.
+                this.parser.state.next();
+                const destructorName = this.parser.state.expect(TokenKind.IDENTIFIER, "destructor name");
+                if (!destructorName) {
+                    return { kind: AstKind.EMPTY, span: tok.span } as EmptyDecl;
+                }
+                return this.parser.functions.parseFunctionRest(`~${destructorName.text}`, { kind: AstKind.VOID }, false, false, false, false, false);
+            }
             case TokenKind.KW_PUBLIC:
             case TokenKind.KW_PROTECTED:
             case TokenKind.KW_PRIVATE:

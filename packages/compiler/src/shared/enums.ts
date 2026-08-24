@@ -426,4 +426,5 @@ export enum LogPayloadDefect {
  */
 export enum UnsupportedFeature {
     NATIVE_C_SCALAR = "native_c_scalar",
+    DESTRUCTOR = "destructor",
 }

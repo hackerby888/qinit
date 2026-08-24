@@ -1,7 +1,8 @@
-import { AstKind } from "../shared/enums";
+import { AstKind, UnsupportedFeature } from "../shared/enums";
 import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
+import { raiseUnsupported } from "./unsupported";
 
 export function collectNested(programAnalysis: ProgramAnalysis, contract: StructDecl): void {
     for (const member of contract.members) {
@@ -99,7 +100,14 @@ export function captureStructMethods(programAnalysis: ProgramAnalysis, structDec
         const isMethodTemplate = mm.kind === AstKind.FUNCTION_TEMPLATE;
         if ((mm.kind !== AstKind.FUNCTION && !isMethodTemplate) || !(mm as FunctionDecl | FunctionTemplateDecl).body) continue;
         const fn = mm as FunctionDecl | FunctionTemplateDecl;
-        if (fn.name.startsWith("~")) continue;
+        if (fn.name.startsWith("~")) {
+            // Destructors are never invoked -- no scope-exit lowering exists -- so a body with statements
+            // is silently lost. An empty one is a genuine no-op and stays allowed.
+            if (fn.body?.kind === AstKind.COMPOUND && fn.body.body.length > 0) {
+                raiseUnsupported(programAnalysis, UnsupportedFeature.DESTRUCTOR, fn.span, fn.name);
+            }
+            continue;
+        }
         const functionParameters = (isMethodTemplate ? (fn as FunctionTemplateDecl).functionParameters : (fn as FunctionDecl).params) ?? [];
         const def: FunctionTemplateDecl = {
             kind: AstKind.FUNCTION_TEMPLATE,

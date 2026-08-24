@@ -86,3 +86,62 @@ describe.skipIf(!HAS_CORE)("native C scalar types are advisory, not fatal", () =
         expect(new Set(messages).size).toBe(messages.length);
     });
 });
+
+// A destructor body never runs: no scope-exit lowering exists, and both declaration indexes drop
+// `~`-named functions outright.
+const destructorContract = (body: string) => `
+using namespace QPI;
+
+struct CONTRACT_STATE2_TYPE {};
+
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Guard {
+    uint64 mark;
+    ~Guard() {${body}}
+  };
+  struct StateData { uint64 x; };
+  struct Probe_input { uint64 seed; };
+  struct Probe_output { uint64 v; };
+  PUBLIC_FUNCTION(Probe) { output.v = input.seed; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Probe, 1); }
+};
+`;
+
+const compileDestructor = async (body: string) => {
+    const result = await compileContractWithTypeScript({
+        source: destructorContract(body),
+        contractName: "DestructorProbe",
+        slot: 28,
+        qpiHeader: HEADERS(),
+    });
+    return {
+        wasm: result.wasm,
+        errors: result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR),
+    };
+};
+
+describe.skipIf(!HAS_CORE)("a destructor with a body is refused, not dropped", () => {
+    test("names the feature and points at clang", async () => {
+        const { wasm, errors } = await compileDestructor(" mark = 999; ");
+
+        expect(wasm.length).toBe(0);
+        expect(errors.some((diagnostic) => /unsupported destructor '~Guard'/.test(diagnostic.message))).toBe(true);
+        expect(errors.some((diagnostic) => /build this contract with clang/.test(diagnostic.message))).toBe(true);
+    });
+
+    // The old failure was a parser fidelity warning about a stray token, which named neither the
+    // construct nor the remedy. Guard against regressing to it.
+    test("no longer reports an unparseable token", async () => {
+        const { errors } = await compileDestructor(" mark = 999; ");
+
+        expect(errors.some((diagnostic) => /skipped unparseable token/.test(diagnostic.message))).toBe(false);
+    });
+
+    // An empty destructor really is a no-op, so refusing it would be over-rejection.
+    test("an empty destructor still compiles", async () => {
+        const { wasm, errors } = await compileDestructor(" ");
+
+        expect(errors).toEqual([]);
+        expect(wasm.length).toBeGreaterThan(0);
+    });
+});
