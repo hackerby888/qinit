@@ -232,3 +232,66 @@ test("deployContract: racing deployments preserve the winner's occupied slot", a
     await expect(deployContract(opts(loser === 0 ? "RaceA" : "RaceB", rpcs[loser]), () => {})).rejects.toThrow(/slot \d+ is occupied by 'Race[AB]'/);
     expect(rpcs[loser].stats.chunks).toBe(0);
 }, 20000);
+
+// A DEPLOY names the tick it must run in, so a client that is slow to sign and broadcast has it dropped
+// for a tick that already passed. The upload already resends missing chunks; this pins the same for the
+// DEPLOY, which otherwise leaves the slot empty and the confirm poll spinning until it gives up.
+test("deployContract: a DEPLOY dropped for a missed tick is resent", async () => {
+    process.env.QINIT_NO_UPDATE = "1";
+    const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
+    dirs.push(core);
+    const contractPath = join(core, "Missed.h");
+    await Bun.write(contractPath, "struct Missed {};");
+    const node = await VirtualNode.create({
+        mempool: false,
+        fees: "off",
+        slotBase: wasmFixtureManifest.Counter.slot,
+    });
+
+    let tick = 0;
+    let deployBroadcasts = 0;
+    const rpc: any = {
+        dynUpload: () => node.dynUpload(),
+        tickInfo: async () => ({ tick: (tick += 10), epoch: 1 }),
+        hurryToTick: async () => 0,
+        fundedSeed: async () => undefined,
+        dynRegistry: () => node.dynRegistry(),
+        directDeploy: async () => null,
+        putContractSource: (slot: number, source: string) => node.putContractSource(slot, source),
+        broadcastTx: async (bytes: Uint8Array) => {
+            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            const inputType = view.getUint16(76, true);
+
+            if (inputType === LITE_TX.DEPLOY) {
+                deployBroadcasts++;
+                // Swallow the first one exactly as a node does with a tick that has already passed:
+                // accepted on the wire, never executed.
+                if (deployBroadcasts === 1) {
+                    return { ok: true, transactionId: "missed-its-tick" };
+                }
+            }
+
+            return node.broadcastTx(bytes);
+        },
+    };
+
+    const result = await deployContract(
+        {
+            contractPath,
+            name: "Missed",
+            core,
+            rpcBaseUrl: "http://unused",
+            seed: "a".repeat(55),
+            slotOverride: wasmFixtureManifest.Counter.slot,
+            artifact: { wasm: await wasm("Counter") },
+            backend: "core" as const,
+            rpc,
+        },
+        () => {},
+    );
+
+    expect(deployBroadcasts).toBeGreaterThan(1);
+    expect(result.reason).toBeUndefined();
+    expect(result.armed).toBe(true);
+    expect(result.ok).toBe(true);
+}, 20000);

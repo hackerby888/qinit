@@ -263,20 +263,31 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
     const session = upload.session;
 
     emit({ step: "deploy", state: "active" });
-    const deployTick = (await readTick()) + TX_TICK_OFFSET;
-    const deployResult = await rpc.broadcastTx(
-        await buildUploadTx(
-            seed,
-            LITE_TX.DEPLOY,
-            encodeDeploy({
-                sessionId: session,
-                targetSlot: slot,
-                finalHashHex: hash,
-                name: options.name,
-            }),
-            deployTick,
-        ),
-    );
+
+    // A DEPLOY names the tick it must execute in, so a client that spends longer than TX_TICK_OFFSET
+    // ticks signing and broadcasting has its transaction dropped for a tick that already passed. The
+    // node clears the upload session on a successful deploy, so a resend of one that did land is
+    // refused at the session check rather than re-arming the slot.
+    const broadcastDeploy = async () => {
+        const tick = (await readTick()) + TX_TICK_OFFSET;
+        const result = await rpc.broadcastTx(
+            await buildUploadTx(
+                seed,
+                LITE_TX.DEPLOY,
+                encodeDeploy({
+                    sessionId: session,
+                    targetSlot: slot,
+                    finalHashHex: hash,
+                    name: options.name,
+                }),
+                tick,
+            ),
+        );
+        return { ok: result.ok, code: result.code, transactionId: result.transactionId, tick };
+    };
+
+    let deployResult = await broadcastDeploy();
+    let deployTick = deployResult.tick;
 
     if (!deployResult.ok) {
         emit({ step: "deploy", state: "fail", detail: `code ${deployResult.code}` });
@@ -297,6 +308,10 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
     });
 
     emit({ step: "confirm", state: "active", detail: "polling arm…" });
+    // Ticks past the target to allow before calling the transaction lost, and how many times to resend.
+    const DEPLOY_MISS_GRACE_TICKS = 3;
+    const DEPLOY_MAX_RESENDS = 3;
+    let deployResends = 0;
     // The DEPLOY tx sits three ticks out; arming and INITIALIZE follow, so the poll below still runs.
     await rpc.hurryToTick(deployTick + 1);
     const expectedHash = hash.toLowerCase();
@@ -353,6 +368,24 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
                     });
                     continue;
                 }
+            }
+
+            // Its tick is well past and the slot has not changed, so the transaction is gone. A fresh
+            // one costs a tick; waiting out the rest of this poll costs minutes and still fails.
+            if (lastTick > deployTick + DEPLOY_MISS_GRACE_TICKS && deployResends < DEPLOY_MAX_RESENDS) {
+                const missedTick = deployTick;
+                deployResends++;
+                const resent = await broadcastDeploy();
+                deployTick = resent.tick;
+
+                if (resent.ok) {
+                    deployResult = resent;
+                }
+
+                emit({
+                    note: `deploy tx did not land for tick ${missedTick}; resent for tick ${resent.tick} [${deployResends}/${DEPLOY_MAX_RESENDS}]`,
+                });
+                continue;
             }
 
             emit({ step: "confirm", state: "active", detail: `tick ${lastTick}` });
