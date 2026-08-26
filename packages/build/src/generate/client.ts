@@ -198,8 +198,11 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         lines.push(
             `  async ${entry.name}(${parameter}opts: { seed?: string; amount?: number; confirm?: boolean } = {}): Promise<{ ok: boolean; txId?: string; tick?: number; confirmed?: boolean; included?: boolean; moneyFlew?: boolean }> {`,
         );
+        lines.push(`    const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed());`);
+        lines.push(
+            `    if (!seed) throw new Error("${idl.name}.${entry.name}: no signing seed — pass { seed }, construct ${idl.name} with { seed }, or set QINIT_SEED");`,
+        );
         lines.push(`    const ti = (await this.rpc.tickInfo()) as { tick?: number };`);
-        lines.push(`    const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed()) ?? "a".repeat(55);`);
         lines.push(
             `    const r = await invokeProcedure({ seed, rpcBaseUrl: this.rpcBaseUrl, contractIndex: this.index, procedureId: ${entry.inputType}, amount: opts.amount ?? 0, input: { type: ${inputSchema}, value: ${value} }, tick: (ti.tick ?? 0) + 8, confirm: opts.confirm !== false, rpc: this.rpc }) as QinitProcedureResult;`,
         );

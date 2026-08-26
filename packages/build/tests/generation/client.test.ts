@@ -228,6 +228,13 @@ test("procedure wiring: tick+8, confirm-by-default, typed return", () => {
     has("input: { type: Put_procedure_input_schema, value: args }");
 });
 
+// Signing with a well-known placeholder seed on a live network would look like a working call.
+test("a procedure without a seed refuses to sign instead of falling back", () => {
+    has("const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed());");
+    has('if (!seed) throw new Error("Demo.Inc: no signing seed');
+    expect(out).not.toContain('"a".repeat(55)');
+});
+
 test("overlapping procedure input is exposed as raw bytes", () => {
     const base = extractIdl(SRC, "Demo");
     const procedure = base.procedures.find((entry) => entry.name === "Put")!;

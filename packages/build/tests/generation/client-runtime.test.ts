@@ -81,6 +81,9 @@ test("no-argument generated clients send the canonical padding byte", async () =
         ).toEqual({ ok: true });
         expect(runtime.functionInputs).toEqual([new Uint8Array([0])]);
         expect(runtime.procedureInputs).toEqual([new Uint8Array([0])]);
+
+        // The fake node has no funded seed, so an unsigned call has nothing to fall back to.
+        await expect(client.Reset({ confirm: false })).rejects.toThrow("Demo.Reset: no signing seed");
     } finally {
         rmSync(outputDir, {
             recursive: true,
