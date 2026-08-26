@@ -970,11 +970,12 @@ export class Contract {
                 }
             },
             logBytes: (_ci: number, level: number, msgOff: number, size: number) => {
-                // Core stamps the contract index over the payload's leading word, records the payload as
-                // stamped, then clears the word again — so every record carries the index and the contract
-                // reads back a zero however many times it logs the same struct (logging.h).
+                // Core takes the trace record before it stamps the contract index over the payload's leading
+                // word, logs the stamped payload, then clears the word again; the log store stamps its own
+                // copy, so the trace is the only reader that wants the bytes the contract left.
+                const payload = u8().slice(msgOff, msgOff + size);
                 this.writeGuest(msgOff, contractIndexWord(this.slot));
-                this.host.log(this.slot, level, u8().slice(msgOff, msgOff + size));
+                this.host.log(this.slot, level, payload);
                 this.writeGuest(msgOff, CLEARED_LOG_HEADER_WORD);
             },
             k12: (inOff: number, len: number, outOff: number) => this.writeGuest(outOff, k12Bytes(u8().slice(inOff, inOff + len))),

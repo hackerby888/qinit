@@ -67,7 +67,7 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
 
     // The wasm SDK hands the payload to lh_logBytes untouched, so everything the contract wrote has
     // to survive being logged. Only the leading word moves, and only because the host owns it.
-    test("every record carries the host's contract index, not the word the contract wrote", async () => {
+    test("the trace keeps the leading word the contract wrote, then reads back the host's zero", async () => {
         const source = SOURCE.replace("locals.message._type = 9;", "locals.message._contractIndex = 7;\n    locals.message._type = 9;");
         const result = await compileContractWithTypeScript({
             source,
@@ -85,9 +85,10 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         const logs = sim.getTrace().entries.at(-1)?.logs ?? [];
 
         expect(logs).toHaveLength(5);
-        // Core stamps the index before it records the payload, so the contract's own 7 reaches no record.
-        expect(logs.map((l) => l.hex.slice(0, 8))).toEqual(["1c000000", "1c000000", "1c000000", "1c000000", "1c000000"]);
-        // A zero here instead would be emission clobbering the word the host owns.
+        // Core traces the payload before it stamps the index, so only the first record sees the 7; the
+        // clear that follows every log is what leaves the rest at zero.
+        expect(logs.map((l) => l.hex.slice(0, 8))).toEqual(["07000000", "00000000", "00000000", "00000000", "00000000"]);
+        // Everything behind the header word is the contract's and has to survive all five logs.
         expect(new Set(logs.map((l) => l.hex.slice(8))).size).toBe(1);
     });
 
@@ -95,7 +96,7 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
     // reading the word back sees a zero rather than its own index.
     test("the host clears the leading word once the record is taken", async () => {
         const source = SOURCE.replace("uint32 _contractIndex; uint32 _type;", "uint32 _contractIndex; uint32 seen;")
-            .replace("locals.message._type = 9;", "locals.message.seen = 9;")
+            .replace("locals.message._type = 9;", "locals.message._contractIndex = 7;\n    locals.message.seen = 9;")
             .replace("LOG_WARNING(locals.message);", "locals.message.seen = locals.message._contractIndex;\n    LOG_WARNING(locals.message);");
         const result = await compileContractWithTypeScript({
             source,
@@ -113,7 +114,9 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         const logs = sim.getTrace().entries.at(-1)?.logs ?? [];
 
         expect(logs).toHaveLength(5);
-        // `seen` sits right behind the header word and holds what LOG_ERROR left there.
+        // LOG_ERROR traces the contract's own 7, and `seen` sits right behind the header word holding
+        // what the clear left there — a 7 here would mean the host never cleared the word.
+        expect(logs[0]!.hex.slice(0, 8)).toBe("07000000");
         expect(logs[1]!.hex.slice(8, 16)).toBe("00000000");
     });
 
