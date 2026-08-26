@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { LiteRpc, type DynamicContractRegistryEntry } from "@qinit/core";
-import { resolveDeploymentSlot } from "../../src/call";
+import { resolveDeploymentSlot, sendTransfer } from "../../src/call";
+
+const realFetch = globalThis.fetch;
 
 function contract(index: number, armed: boolean, name = ""): DynamicContractRegistryEntry {
     return {
@@ -60,4 +62,96 @@ test("resolveDeploymentSlot ignores same-name and free entries outside the dynam
         slot: 30,
         reused: true,
     });
+});
+
+// A node that answers tick-info, accepts broadcasts, and reports each tx as included or missed in order.
+function fakeNode(verdicts: ({ found: boolean } | "no-route")[]) {
+    const broadcasts: string[] = [];
+    let tick = 100;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+        const path = new URL(String(url)).pathname;
+        const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+        if (path === "/live/v1/tick-info") {
+            return json({ tick, epoch: 1 });
+        }
+        if (path === "/live/v1/broadcast-transaction") {
+            broadcasts.push(String(JSON.parse(String(init?.body)).encodedTransaction));
+            tick += 10;
+            return json({ peersBroadcasted: 1, transactionId: `tx${broadcasts.length}` });
+        }
+        if (path.startsWith("/live/v1/tx-status/")) {
+            const verdict = verdicts[broadcasts.length - 1];
+            if (!verdict || verdict === "no-route") {
+                return json({ code: 404 }, 404);
+            }
+            return json({ processed: true, found: verdict.found, moneyFlew: verdict.found, currentTick: tick });
+        }
+        return json({ code: 404 }, 404);
+    }) as typeof fetch;
+
+    return { broadcasts };
+}
+
+const transfer = (rpc: LiteRpc) =>
+    sendTransfer({
+        seed: "a".repeat(55),
+        destination: new Uint8Array(32),
+        amount: 0,
+        rpcBaseUrl: "http://node",
+        rpc,
+        tick: 108,
+        confirm: true,
+        confirmTimeoutMs: 2000,
+    });
+
+test("a transaction the node processed without including is signed again for a later tick", async () => {
+    const node = fakeNode([{ found: false }, { found: true }]);
+
+    try {
+        const result = await transfer(new LiteRpc("http://node"));
+
+        expect(node.broadcasts.length).toBe(2);
+        expect(node.broadcasts[0]).not.toBe(node.broadcasts[1]);
+        expect(result).toMatchObject({ confirmed: true, included: true, tick: 113 }); // resent for tick-info + TX_TICK_OFFSET
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+test("resends stop at the configured limit", async () => {
+    const node = fakeNode([{ found: false }, { found: false }, { found: false }]);
+
+    try {
+        const result = await sendTransfer({
+            seed: "a".repeat(55),
+            destination: new Uint8Array(32),
+            amount: 0,
+            rpcBaseUrl: "http://node",
+            rpc: new LiteRpc("http://node"),
+            tick: 108,
+            confirm: true,
+            confirmTimeoutMs: 2000,
+            resends: 1,
+        });
+
+        expect(node.broadcasts.length).toBe(2);
+        expect(result).toMatchObject({ confirmed: true, included: false });
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+// Without tx-status the tx may well have landed, and a blind resend would execute it twice.
+test("a transaction with an unknown fate is never resent", async () => {
+    const node = fakeNode(["no-route", "no-route"]);
+
+    try {
+        const result = await transfer(new LiteRpc("http://node"));
+
+        expect(node.broadcasts.length).toBe(1);
+        expect(result).toMatchObject({ confirmed: false });
+    } finally {
+        globalThis.fetch = realFetch;
+    }
 });

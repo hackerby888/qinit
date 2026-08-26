@@ -3,6 +3,7 @@
 import { LiteRpc, buildSignedTx, broadcastTx, type BroadcastResult, type SignedTx } from "@qinit/core";
 import { decodeOutput, encodeInput, encodeInputJson } from "./abi-fmt";
 import type { AbiType } from "./contract-idl";
+import { TX_TICK_OFFSET } from "./protocol";
 
 export interface TypedContractInput {
     type: AbiType;
@@ -79,52 +80,82 @@ interface SubmitOptions {
     confirm?: boolean;
     rpc?: LiteRpc;
     confirmTimeoutMs?: number;
+    resends?: number; // how many times a tx that missed its tick is rebuilt for a later one (0 disables)
     onProgress?: (i: { tick: number; target: number }) => void; // live network-tick vs target while confirming
 }
 
+// A transaction is signed for one tick, so a missed tick means signing a new one rather than rebroadcasting.
+type TransactionBuilder = (tick: number) => Promise<SignedTx>;
+
+const MAX_TX_RESENDS = 3;
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Broadcast a signed tx and, when asked, poll until its target tick has executed. Shared by every
-// submission path — a contract procedure and a plain transfer differ only in how the tx was built.
-async function broadcastAndConfirm(tx: SignedTx, opts: SubmitOptions): Promise<SubmittedTx> {
-    const broadcast = await broadcastTx(tx.bytes, opts.rpcBaseUrl);
-    const result = { ...broadcast, txId: tx.id, tick: opts.tick };
-
-    // The tx is in the mempool now, so a dev node can be pulled straight past the tick that executes it.
-    const rpc = opts.rpc ?? new LiteRpc(opts.rpcBaseUrl);
-    await rpc.hurryToTick(opts.tick + 1);
-    if (!opts.confirm) {
-        return result;
-    }
-
+// Poll until the node has processed the tx's target tick. Undefined means the node cannot say: it has no
+// tx-status route, or the wait ran out — either way the tx's fate is unknown and must not be assumed.
+async function awaitProcessed(rpc: LiteRpc, txId: string, tick: number, opts: SubmitOptions): Promise<{ found: boolean; moneyFlew: boolean } | undefined> {
     const deadline = Date.now() + (opts.confirmTimeoutMs ?? 30000);
     for (;;) {
         try {
-            const status = await rpc.txStatus(opts.tick, tx.id);
-            opts.onProgress?.({ tick: status.currentTick ?? 0, target: opts.tick });
+            const status = await rpc.txStatus(tick, txId);
+            opts.onProgress?.({ tick: status.currentTick ?? 0, target: tick });
             if (status.processed) {
-                return {
-                    ...result,
-                    confirmed: true,
-                    included: status.found,
-                    moneyFlew: status.moneyFlew,
-                };
+                return { found: status.found, moneyFlew: status.moneyFlew };
             }
         } catch {
             // addon missing — degrade to a tick-margin wait (node passed the target tick)
             try {
                 const tickInfo = await rpc.tickInfo();
                 const current = tickInfo.tick ?? 0;
-                opts.onProgress?.({ tick: current, target: opts.tick });
-                if (current > opts.tick) {
-                    return { ...result, confirmed: false };
+                opts.onProgress?.({ tick: current, target: tick });
+                if (current > tick) {
+                    return undefined;
                 }
             } catch {}
         }
         if (Date.now() > deadline) {
-            return { ...result, confirmed: false };
+            return undefined;
         }
         await sleep(300);
+    }
+}
+
+// Broadcast a signed tx and, when asked, poll until its target tick has executed. Shared by every
+// submission path — a contract procedure and a plain transfer differ only in how the tx was built.
+// A tx the node processed without including is resent for a later tick; an unknown fate never is,
+// because a blind resend of a tx that did land would execute it twice.
+async function broadcastAndConfirm(buildTx: TransactionBuilder, opts: SubmitOptions): Promise<SubmittedTx> {
+    const rpc = opts.rpc ?? new LiteRpc(opts.rpcBaseUrl);
+    const resends = opts.resends ?? MAX_TX_RESENDS;
+    let tick = opts.tick;
+
+    for (let attempt = 0; ; attempt++) {
+        const tx = await buildTx(tick);
+        const broadcast = await broadcastTx(tx.bytes, opts.rpcBaseUrl);
+        const result = { ...broadcast, txId: tx.id, tick };
+
+        // The tx is in the mempool now, so a dev node can be pulled straight past the tick that executes it.
+        await rpc.hurryToTick(tick + 1);
+        if (!opts.confirm) {
+            return result;
+        }
+
+        const processed = await awaitProcessed(rpc, tx.id, tick, opts);
+        if (!processed) {
+            return { ...result, confirmed: false };
+        }
+
+        if (processed.found || attempt >= resends) {
+            return {
+                ...result,
+                confirmed: true,
+                included: processed.found,
+                moneyFlew: processed.moneyFlew,
+            };
+        }
+
+        // The tick came and went without the tx, so it is lost rather than pending: sign a fresh one further out.
+        tick = (await rpc.tickInfo()).tick + TX_TICK_OFFSET;
     }
 }
 
@@ -136,15 +167,16 @@ export async function sendTransfer(
         amount: number;
     },
 ): Promise<SubmittedTx> {
-    const tx = await buildSignedTx(opts.seed, {
-        destination: opts.destination,
-        amount: opts.amount,
-        tick: opts.tick,
-        inputType: 0,
-        payload: new Uint8Array(0),
-    });
+    const buildTx = (tick: number) =>
+        buildSignedTx(opts.seed, {
+            destination: opts.destination,
+            amount: opts.amount,
+            tick,
+            inputType: 0,
+            payload: new Uint8Array(0),
+        });
 
-    return broadcastAndConfirm(tx, opts);
+    return broadcastAndConfirm(buildTx, opts);
 }
 
 // Invoke a contract procedure (signed tx). tick must be a near-future, accepted tick.
@@ -168,12 +200,14 @@ export async function invokeProcedure(
             : opts.input
               ? await encodeInputJson(opts.input.type, opts.input.value)
               : await encodeInput(opts.inputFormat ?? "");
-    const tx = await buildSignedTx(opts.seed, {
-        destination: contractAddress(opts.contractIndex),
-        amount: opts.amount,
-        tick: opts.tick,
-        inputType: opts.procedureId,
-        payload,
-    });
-    return broadcastAndConfirm(tx, opts);
+    const buildTx = (tick: number) =>
+        buildSignedTx(opts.seed, {
+            destination: contractAddress(opts.contractIndex),
+            amount: opts.amount,
+            tick,
+            inputType: opts.procedureId,
+            payload,
+        });
+
+    return broadcastAndConfirm(buildTx, opts);
 }
