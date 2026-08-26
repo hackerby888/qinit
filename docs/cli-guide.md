@@ -1740,7 +1740,7 @@ Chain and contract routes:
 
 | Method                    | Endpoint                                   | Primary CLI consumers                                   |
 | ------------------------- | ------------------------------------------ | ------------------------------------------------------- |
-| `tickInfo()`              | `GET /tick-info`                           | deploy, procedure call, state reachability, node health |
+| `tickInfo()`              | `GET /live/v1/tick-info`                   | deploy, procedure call, state reachability, node health |
 | `latestCreatedTickInfo()` | `GET /latest-created-tick-info`            | tick freshness checks                                   |
 | `faultInfo()`             | `GET /live/v1/dev/fault`                   | simulator fault reporting                               |
 | `whoami()`                | `GET /live/v1/whoami`                      | explicit core/simulator orchestration                   |

@@ -22,7 +22,18 @@ test("LiteRpc uses the shared default endpoint", async () => {
     }) as typeof fetch;
 
     await new LiteRpc().tickInfo();
-    expect(requestedUrl).toBe(`${DEFAULT_RPC_BASE}/tick-info`);
+    expect(requestedUrl).toBe(`${DEFAULT_RPC_BASE}/live/v1/tick-info`);
+});
+
+// A live Qubic node nests the numbers one level down; core-lite and the simulator answer flat.
+test("LiteRpc.tickInfo unwraps a live node's tickInfo envelope", async () => {
+    globalThis.fetch = (async () => json({ tickInfo: { tick: 76453658, epoch: 227, initialTick: 75241781 } })) as unknown as typeof fetch;
+
+    expect(await new LiteRpc("http://node").tickInfo()).toEqual({
+        tick: 76453658,
+        epoch: 227,
+        initialTick: 75241781,
+    });
 });
 
 test("LiteRpc.whoami reads the backend identity endpoint", async () => {

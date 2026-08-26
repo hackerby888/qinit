@@ -41,6 +41,19 @@ test("/tick-info reports the engine's tick + epoch", async () => {
     }
 });
 
+// The client asks for the prefixed route, which is the one a live Qubic node serves.
+test("/live/v1/tick-info answers like the bare route", async () => {
+    const { base, stop } = await serve();
+    try {
+        const [prefixed, bare] = await Promise.all([fetch(`${base}/live/v1/tick-info`), fetch(`${base}/tick-info`)]);
+
+        expect(prefixed.status).toBe(200);
+        expect(await prefixed.json()).toEqual(await bare.json());
+    } finally {
+        stop();
+    }
+});
+
 test("/live/v1/whoami identifies the simulator", async () => {
     const { base, stop } = await serve();
     try {

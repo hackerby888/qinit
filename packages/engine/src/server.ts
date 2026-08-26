@@ -45,7 +45,7 @@ export class EngineServer {
         const engine = this.engine;
         const path = url.pathname;
 
-        if (path === "/tick-info" || path === "/latest-created-tick-info") {
+        if (path === "/tick-info" || path === "/live/v1/tick-info" || path === "/latest-created-tick-info") {
             return json(await engine.tickInfo());
         }
 
