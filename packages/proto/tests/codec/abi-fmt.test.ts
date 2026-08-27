@@ -226,3 +226,64 @@ test("zeroInputFormat: the sample is valid input — encodes to exactly the layo
         expect(b.length).toBe(layoutOf(fmt).size); // matches the entry's input scheme byte-for-byte
     }
 });
+
+// ---- grammar rejections: a malformed layout must name what is wrong, not crash or corrupt silently ----
+test("parseLayout rejects a malformed array instead of looping or yielding NaN", () => {
+    expect(() => parseLayout("[2 uint8]")).toThrow(/array needs a ';'/); // used to recurse until the stack blew
+    expect(() => parseLayout("[abc; uint8]")).toThrow(/array count 'abc' must be a non-negative integer/);
+    expect(() => layoutOf("[-3;uint8]")).toThrow(/array count '-3' must be a non-negative integer/);
+    expect(() => layoutOf("[1.5;uint8]")).toThrow(/array count '1.5' must be a non-negative integer/);
+    expect(() => parseLayout("[2;uint8")).toThrow(/array is missing its closing ']'/);
+});
+
+test("parseLayout names an unterminated struct and a stray delimiter", () => {
+    expect(() => parseLayout("{uint64")).toThrow(/struct is missing its closing '}'/);
+    expect(() => parseLayout("}")).toThrow(/expected a type at position 0/);
+    expect(parseLayout("{ uint8, }")).toEqual({ kind: "struct", fields: [parseLayout("uint8")] }); // a trailing comma stays legal
+    expect(() => parseLayout("notatype")).toThrow(/unknown type/); // still the message for a real typo
+});
+
+test("encodeInput rejects an array whose declared count does not match its values", async () => {
+    await expect(encodeInput("[5; 1uint8]")).rejects.toThrow(/array of 5 needs 5 values, got 1/);
+    await expect(encodeInput("[0; 1uint8, 2uint8]")).rejects.toThrow(/array of 0 needs 0 values, got 2/);
+    await expect(encodeInput("[2;{}]")).rejects.toThrow(/array of 2 needs 2 values, got 1/);
+});
+
+test("the count check counts values after ×N expansion, so the existing shorthands still pass", async () => {
+    expect(await encodeInput("[0;]")).toEqual(new Uint8Array(0));
+    expect((await encodeInput("[3; {}, {}, {}]")).length).toBe(3);
+    expect((await encodeInput("[64; 0uint64 ×64]")).length).toBe(512);
+    expect((await encodeInput("[2; 1uint128 ×2]")).length).toBe(32);
+    expect((await encodeInput("[4; 9uint32 ×4]")).length).toBe(16);
+});
+
+// ---- sint128: a valid AbiScalarKind that the string dialect used to reject outright ----
+test("sint128 parses, sizes, and round-trips as a signed 128-bit value", async () => {
+    expect(parseLayout("sint128")).toEqual({ kind: "sint128" });
+    expect(layoutOf("sint128")).toEqual({ size: 16, align: 8 });
+
+    expect(await decodeOutput(new Uint8Array(16).fill(0xff), "sint128")).toBe(-1n);
+    expect(hex(await encodeInput("-1sint128"))).toBe("ff".repeat(16));
+
+    const min = -(1n << 127n);
+    const max = (1n << 127n) - 1n;
+    expect(await decodeOutput(await encodeInput(`${min}sint128`), "sint128")).toBe(min);
+    expect(await decodeOutput(await encodeInput(`${max}sint128`), "sint128")).toBe(max);
+});
+
+test("sint128 rejects values outside the signed range and non-integers", async () => {
+    await expect(encodeInput(`${1n << 127n}sint128`)).rejects.toThrow(/out of range/);
+    await expect(encodeInput(`${-(1n << 127n) - 1n}sint128`)).rejects.toThrow(/out of range/);
+    await expect(encodeInput("1.5sint128")).rejects.toThrow(/sint128 must be an integer/);
+});
+
+test("sint128 aligns and pads like uint128 inside a struct", async () => {
+    expect(layoutOf("{ uint8, sint128 }")).toEqual({ size: 24, align: 8 }); // uint8@0, sint128@8, no tail padding needed
+    expect(structFieldOffsets("sint128, uint8")).toEqual([
+        { off: 0, size: 16 },
+        { off: 16, size: 1 },
+    ]);
+    expect(zeroInputFormat("sint128")).toBe("0sint128");
+    expect(zeroInputFormat("[2;sint128]")).toBe("[2; 0sint128 ×2]");
+    expect((await encodeInput("[2; 0sint128 ×2]")).length).toBe(32);
+});

@@ -21,6 +21,7 @@ const SCALAR_SIZE: Record<string, number> = {
 export type TypeNode =
     | { kind: "scalar"; type: string; size: number; signed: boolean; big: boolean }
     | { kind: "uint128" }
+    | { kind: "sint128" }
     | { kind: "id" }
     | { kind: "bytes"; size: number } // m256i as raw hex (a digest, NOT an identity)
     | { kind: "array"; count: number; elem: TypeNode }
@@ -31,6 +32,7 @@ function alignOf(n: TypeNode): number {
         case "scalar":
             return n.size;
         case "uint128":
+        case "sint128":
             return 8; // uint128_t = { uint64 low; uint64 high; }
         case "id":
             return 8; // m256i = 4x uint64 -> align 8
@@ -48,6 +50,7 @@ function sizeOf(n: TypeNode): number {
         case "scalar":
             return n.size;
         case "uint128":
+        case "sint128":
             return 16;
         case "id":
             return 32; // identity = 32 bytes on the wire
@@ -124,6 +127,7 @@ function parseType(s: string, i: number): [TypeNode, number] {
         const fields: TypeNode[] = [];
         while (true) {
             while (i < s.length && /[\s,]/.test(s[i])) i++;
+            if (i >= s.length) throw new Error("struct is missing its closing '}'");
             if (s[i] === "}") {
                 i++;
                 break;
@@ -137,19 +141,25 @@ function parseType(s: string, i: number): [TypeNode, number] {
     if (s[i] === "[") {
         i++;
         const semi = s.indexOf(";", i);
-        const count = parseInt(s.slice(i, semi), 10);
+        if (semi < 0) throw new Error("array needs a ';' between its count and element type");
+        const rawCount = s.slice(i, semi).trim();
+        if (!/^\d+$/.test(rawCount)) throw new Error(`array count '${rawCount}' must be a non-negative integer`);
+        const count = parseInt(rawCount, 10);
         const [elem, ni] = parseType(s, semi + 1);
         i = ni;
         while (i < s.length && /\s/.test(s[i])) i++;
-        if (s[i] === "]") i++;
+        if (s[i] !== "]") throw new Error("array is missing its closing ']'");
+        i++;
         return [{ kind: "array", count, elem }, i];
     }
     let j = i;
     while (j < s.length && /[A-Za-z0-9]/.test(s[j])) j++;
     const tok = s.slice(i, j);
+    if (!tok) throw new Error(`expected a type at position ${i}`);
     if (tok === "id") return [{ kind: "id" }, j];
     if (tok === "m256i") return [{ kind: "bytes", size: 32 }, j]; // m256i raw hex (vs id = identity)
     if (tok === "uint128") return [{ kind: "uint128" }, j];
+    if (tok === "sint128") return [{ kind: "sint128" }, j];
     const size = SCALAR_SIZE[tok];
     if (!size) throw new Error(`unknown type '${tok}'`);
     return [{ kind: "scalar", type: tok, size, signed: tok.startsWith("sint"), big: size === 8 }, j];
@@ -178,6 +188,12 @@ async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[an
             const low = v.getBigUint64(off, true);
             const high = v.getBigUint64(off + 8, true);
             return [(high << 64n) | low, off + 16];
+        }
+        case "sint128": {
+            const low = v.getBigUint64(off, true);
+            const high = v.getBigUint64(off + 8, true);
+            const value = (high << 64n) | low;
+            return [value >= 1n << 127n ? value - (1n << 128n) : value, off + 16];
         }
         case "id": {
             const b = new Uint8Array(32);
@@ -574,6 +590,7 @@ function tokenAlign(tok: string): number {
     if (tok.endsWith("id")) return 8;
     if (tok.endsWith("m256i")) return 8;
     if (tok.endsWith("uint128")) return 8;
+    if (tok.endsWith("sint128")) return 8;
     const m = tok.match(/^-?\d+([a-z0-9]+)$/);
     return m ? (SCALAR_SIZE[m[1]] ?? 1) : 1;
 }
@@ -600,6 +617,12 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
         const inner = tok.slice(1, tok.lastIndexOf("]"));
         const semi = inner.indexOf(";");
         const parts = expandReps(splitTop(semi >= 0 ? inner.slice(semi + 1) : inner));
+        if (semi >= 0) {
+            const count = parseInt(inner.slice(0, semi), 10);
+            if (Number.isInteger(count) && parts.length !== count) {
+                throw new Error(`array of ${count} needs ${count} values, got ${parts.length}`);
+            }
+        }
         for (const t of parts) await encodeToken(t, out); // each elem self-aligns -> stride
         return;
     }
@@ -621,6 +644,22 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
         if (!/^[0-9a-fA-F]{64}$/.test(hex)) throw new Error(`m256i must be 0 or 64 hex chars (32 bytes), got '${v}'`);
         padTo(out, 8);
         for (const x of hexToBytes(hex)) out.push(x);
+        return;
+    }
+    if (tok.endsWith("sint128")) {
+        const numStr = tok.slice(0, -7).trim();
+        if (!/^-?\d+$/.test(numStr)) throw new Error(`sint128 must be an integer, got '${numStr}'`);
+        const val = BigInt(numStr);
+        const min = -(1n << 127n);
+        const max = (1n << 127n) - 1n;
+        if (val < min || val > max) throw new Error(`sint128 out of range: ${numStr} (allowed ${min}..${max})`);
+        padTo(out, 8);
+        const buf = new Uint8Array(16);
+        const dv = new DataView(buf.buffer);
+        const encoded = BigInt.asUintN(128, val); // two's complement, low limb first
+        dv.setBigUint64(0, encoded & ((1n << 64n) - 1n), true);
+        dv.setBigUint64(8, encoded >> 64n, true);
+        for (const x of buf) out.push(x);
         return;
     }
     if (tok.endsWith("uint128")) {
@@ -788,6 +827,8 @@ export function zeroInputFormat(fmt: string | AbiType): string {
                 return `0${n.type}`;
             case "uint128":
                 return "0uint128";
+            case "sint128":
+                return "0sint128";
             case "id":
                 return "0id";
             case "bytes":
@@ -836,3 +877,4 @@ export async function encodeInput(fmt: string): Promise<Uint8Array> {
     padTo(out, sa); // round the whole input struct to its alignment
     return new Uint8Array(out);
 }
+
