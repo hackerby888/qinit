@@ -265,6 +265,44 @@ test("the value dialect needs the bracket that closes what it opened", async () 
     expect((await encodeInput("[1; 1uint64]x2")).length).toBe(16);
 });
 
+// The values that sit exactly on each width's limit, with the bytes they must produce. Range checks are
+// only ever wrong by one, and every existing case sits well inside the range where an off-by-one hides.
+const BOUNDS: [type: string, low: string, lowHex: string, high: string, highHex: string][] = [
+    ["uint8", "0", "00", "255", "ff"],
+    ["uint16", "0", "0000", "65535", "ffff"],
+    ["uint32", "0", "00000000", "4294967295", "ffffffff"],
+    ["uint64", "0", "0000000000000000", "18446744073709551615", "ffffffffffffffff"],
+    ["uint128", "0", "00".repeat(16), "340282366920938463463374607431768211455", "ff".repeat(16)],
+    ["sint8", "-128", "80", "127", "7f"],
+    ["sint16", "-32768", "0080", "32767", "ff7f"],
+    ["sint32", "-2147483648", "00000080", "2147483647", "ffffff7f"],
+    ["sint64", "-9223372036854775808", "0000000000000080", "9223372036854775807", "ffffffffffffff7f"],
+    ["sint128", "-170141183460469231731687303715884105728", "00".repeat(15) + "80", "170141183460469231731687303715884105727", "ff".repeat(15) + "7f"],
+];
+
+test.each(BOUNDS)("%s encodes and reads back both of its limits", async (type, low, lowHex, high, highHex) => {
+    for (const [value, expected] of [
+        [low, lowHex],
+        [high, highHex],
+    ]) {
+        const bytes = await encodeInput(`${value}${type}`);
+        expect({ value, hex: hex(bytes) }).toEqual({ value, hex: expected });
+        expect(String(await decodeOutput(bytes, type))).toBe(value);
+    }
+});
+
+test.each(BOUNDS)("%s rejects the value just past each of its limits", async (type, low, _lowHex, high) => {
+    await expect(encodeInput(`${BigInt(low) - 1n}${type}`)).rejects.toThrow(`${type} out of range`);
+    await expect(encodeInput(`${BigInt(high) + 1n}${type}`)).rejects.toThrow(`${type} out of range`);
+});
+
+test("bit takes 0 and 1 and nothing either side", async () => {
+    expect(hex(await encodeInput("0bit"))).toBe("00");
+    expect(hex(await encodeInput("1bit"))).toBe("01");
+    await expect(encodeInput("2bit")).rejects.toThrow("bit must be 0 or 1, got 2");
+    await expect(encodeInput("-1bit")).rejects.toThrow("bit must be 0 or 1, got -1");
+});
+
 // One malformed shape, written in both dialects. Every hole found so far was one dialect being
 // stricter than the other, so the two columns are asserted together rather than in separate tests.
 const MALFORMED: [case_: string, typeFormat: string, valueFormat: string][] = [
