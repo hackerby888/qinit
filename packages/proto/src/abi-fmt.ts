@@ -621,7 +621,10 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
     tok = tok.trim();
     if (!tok) return;
     if (tok[0] === "{") {
-        const parts = expandReps(splitTop(tok.slice(1, tok.lastIndexOf("}"))));
+        // lastIndexOf returns -1 when the closer is absent, and slice(1, -1) would silently drop the last
+        // character instead — so an unterminated or mismatched bracket has to be caught here.
+        if (tok[tok.length - 1] !== "}") throw new Error(`struct value is missing its closing '}': '${tok}'`);
+        const parts = expandReps(splitTop(tok.slice(1, -1)));
         const sa = parts.length ? Math.max(...parts.map(tokenAlign)) : 1;
         padTo(out, sa);
         if (parts.length === 0) {
@@ -632,7 +635,8 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
         return;
     }
     if (tok[0] === "[") {
-        const inner = tok.slice(1, tok.lastIndexOf("]"));
+        if (tok[tok.length - 1] !== "]") throw new Error(`array value is missing its closing ']': '${tok}'`);
+        const inner = tok.slice(1, -1);
         const semi = inner.indexOf(";");
         const parts = expandReps(splitTop(semi >= 0 ? inner.slice(semi + 1) : inner));
         if (semi >= 0) {

@@ -251,6 +251,20 @@ test("encodeInput rejects an array whose declared count does not match its value
     await expect(encodeInput("[2;{}]")).rejects.toThrow(/array of 2 needs 2 values, got 1/);
 });
 
+test("the value dialect needs the bracket that closes what it opened", async () => {
+    // slice(1, lastIndexOf(...)) chopped the last character when the closer was absent, so whether a
+    // truncated token failed depended on whether that character happened to break the last type name.
+    expect(await encodeInput("[2; 1uint8, 2uint8]")).toEqual(new Uint8Array([1, 2]));
+    for (const bad of ["[2; 1uint8, 2uint88", "[2; 1uint8, 2uint8}", "[2; 1uint8, 2uint8)", "[2; 1uint8, 2uint8]junk"]) {
+        await expect(encodeInput(bad)).rejects.toThrow(`array value is missing its closing ']': '${bad}'`);
+    }
+    for (const bad of ["{ 1uint8, 2uint8x", "{ 1uint8, 2uint8]", "{ 1uint8, 2uint8 }junk"]) {
+        await expect(encodeInput(bad)).rejects.toThrow(`struct value is missing its closing '}': '${bad}'`);
+    }
+    // The ×N shorthand still reaches encodeToken with the closer intact, because expandReps ran first.
+    expect((await encodeInput("[1; 1uint64]x2")).length).toBe(16);
+});
+
 test("a missing separator is an error, not a shorter layout", () => {
     // parseLayout used to keep the node parseType returned and drop the index saying where it stopped,
     // so the tail of the part vanished and a dropped ',' read back as a layout with fewer fields.
