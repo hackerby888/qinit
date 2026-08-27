@@ -265,6 +265,50 @@ test("the value dialect needs the bracket that closes what it opened", async () 
     expect((await encodeInput("[1; 1uint64]x2")).length).toBe(16);
 });
 
+// One malformed shape, written in both dialects. Every hole found so far was one dialect being
+// stricter than the other, so the two columns are asserted together rather than in separate tests.
+const MALFORMED: [case_: string, typeFormat: string, valueFormat: string][] = [
+    ["a missing separator", "uint64 uint8", "1uint64 2uint8"],
+    ["a missing separator inside a struct", "{ uint64 uint8 }", "{ 1uint64 2uint8 }"],
+    ["a doubled separator", "uint64,, uint8", "1uint64,, 2uint8"],
+    ["a doubled separator inside a struct", "{ uint64,, uint8 }", "{ 1uint8,, 2uint16 }"],
+    ["a leading separator", ", uint64", ", 1uint64"],
+    ["an unterminated array", "[2;uint8", "[2; 1uint8, 2uint88"],
+    ["an unterminated struct", "{ uint8", "{ 1uint8, 2uint8x"],
+    ["the wrong bracket closing an array", "[2;uint8}", "[2; 1uint8, 2uint8}"],
+    ["the wrong bracket closing a struct", "{ uint8]", "{ 1uint8, 2uint8]"],
+    ["a stray closing bracket", "uint8]", "1uint8]"],
+    ["text after the closing bracket", "[2;uint8] junk", "[2; 1uint8, 2uint8]junk"],
+    ["a non-numeric array count", "[abc;uint8]", "[abc; 1uint8, 2uint8]"],
+    ["a fractional array count", "[2.9;uint8]", "[2.9; 1uint8, 2uint8]"],
+    ["a negative array count", "[-1;uint8]", "[-1; 1uint8]"],
+    ["a type name in the array count", "[2uint8;uint8]", "[2uint8; 1uint8, 2uint8]"],
+    ["a missing ';' in an array", "[2 uint8]", "[2 1uint8, 2uint8]"],
+    ["an empty array element list", "[2;]", "[2; ]"],
+    ["an unknown scalar", "uint63", "1uint63"],
+];
+
+test.each(MALFORMED)("both dialects reject %s", async (_case, typeFormat, valueFormat) => {
+    expect(() => layoutOf(typeFormat)).toThrow();
+    await expect(encodeInput(valueFormat)).rejects.toThrow();
+});
+
+// The other half of the symmetry: what one dialect accepts, the other has to accept too.
+const WELL_FORMED: [case_: string, typeFormat: string, valueFormat: string][] = [
+    ["a plain field list", "uint64, uint8", "1uint64, 2uint8"],
+    ["one trailing separator", "uint64, uint8,", "1uint64, 2uint8,"],
+    ["one trailing separator inside a struct", "{ uint64, uint8, }", "{ 1uint64, 2uint8, }"],
+    ["one trailing separator inside an array", "[2;uint8]", "[2; 1uint8, 2uint8,]"],
+    ["an empty struct", "{}", "{}"],
+    ["a zero-length array", "[0;uint8]", "[0;]"],
+    ["whitespace around every token", "  {  uint64 ,  uint8  }  ", "  {  1uint64 ,  2uint8  }  "],
+];
+
+test.each(WELL_FORMED)("both dialects accept %s", async (_case, typeFormat, valueFormat) => {
+    const layout = layoutOf(typeFormat);
+    expect(await encodeInput(valueFormat)).toHaveLength(layout.size);
+});
+
 test("a missing separator is an error, not a shorter layout", () => {
     // parseLayout used to keep the node parseType returned and drop the index saying where it stopped,
     // so the tail of the part vanished and a dropped ',' read back as a layout with fewer fields.

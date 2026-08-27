@@ -573,7 +573,13 @@ function splitTop(s: string): string[] {
         } else cur += ch;
     }
     parts.push(cur);
-    return parts.map((x) => x.trim()).filter((x) => x.length);
+    const trimmed = parts.map((x) => x.trim());
+    // One trailing ',' is allowed, so only the last entry may be empty — anything else is a doubled or
+    // leading separator, which both dialects would otherwise read as a shorter list.
+    for (let k = 0; k < trimmed.length - 1; k++) {
+        if (!trimmed[k]) throw new Error(`empty entry between ',' separators at position ${k}`);
+    }
+    return trimmed.filter((x) => x.length);
 }
 
 // Expand `<token> ×N` using ×, *, or x as the multiplier; spaces are optional.
