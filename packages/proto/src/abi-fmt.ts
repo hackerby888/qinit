@@ -618,8 +618,12 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
         const semi = inner.indexOf(";");
         const parts = expandReps(splitTop(semi >= 0 ? inner.slice(semi + 1) : inner));
         if (semi >= 0) {
-            const count = parseInt(inner.slice(0, semi), 10);
-            if (Number.isInteger(count) && parts.length !== count) {
+            // Same strictness as the type dialect: parseInt would read '2uint64' as 2 and leave NaN
+            // counts unchecked, so a junk header got less validation than a real one.
+            const rawCount = inner.slice(0, semi).trim();
+            if (!/^\d+$/.test(rawCount)) throw new Error(`array count '${rawCount}' must be a non-negative integer`);
+            const count = parseInt(rawCount, 10);
+            if (parts.length !== count) {
                 throw new Error(`array of ${count} needs ${count} values, got ${parts.length}`);
             }
         }

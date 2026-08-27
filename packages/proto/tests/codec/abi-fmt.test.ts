@@ -251,6 +251,16 @@ test("encodeInput rejects an array whose declared count does not match its value
     await expect(encodeInput("[2;{}]")).rejects.toThrow(/array of 2 needs 2 values, got 1/);
 });
 
+test("the value dialect rejects the same junk array counts the type dialect does", async () => {
+    // parseInt used to read '2uint64' as 2 and hand back NaN for 'abc', which skipped the count check
+    // entirely — so a nonsense header was validated less than a real one.
+    for (const bad of ["2uint64", "2.9", "0x10", "abc", "-1", " "]) {
+        await expect(encodeInput(`[${bad}; 1uint64, 2uint64]`)).rejects.toThrow(`array count '${bad.trim()}' must be a non-negative integer`);
+        expect(() => parseLayout(`[${bad};uint64]`)).toThrow(`array count '${bad.trim()}' must be a non-negative integer`);
+    }
+    expect((await encodeInput("[2; 1uint64, 2uint64]")).length).toBe(16);
+});
+
 test("the count check counts values after ×N expansion, so the existing shorthands still pass", async () => {
     expect(await encodeInput("[0;]")).toEqual(new Uint8Array(0));
     expect((await encodeInput("[3; {}, {}, {}]")).length).toBe(3);
