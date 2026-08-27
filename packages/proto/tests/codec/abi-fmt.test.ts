@@ -251,6 +251,28 @@ test("encodeInput rejects an array whose declared count does not match its value
     await expect(encodeInput("[2;{}]")).rejects.toThrow(/array of 2 needs 2 values, got 1/);
 });
 
+test("a missing separator is an error, not a shorter layout", () => {
+    // parseLayout used to keep the node parseType returned and drop the index saying where it stopped,
+    // so the tail of the part vanished and a dropped ',' read back as a layout with fewer fields.
+    expect(layoutOf("uint64, uint8")).toEqual({ size: 16, align: 8 });
+    expect(() => layoutOf("uint64 uint8")).toThrow("unexpected 'uint8' after the type (fields are separated by ',')");
+    expect(() => layoutOf("{ uint8 } { uint64 }")).toThrow("unexpected '{ uint64 }' after the type");
+    for (const junk of ["uint8]", "{uint8}}", "[2;uint8]]", "id????"]) {
+        expect(() => layoutOf(junk)).toThrow(/unexpected '.+' after the type/);
+    }
+});
+
+test("struct fields need a comma between them, with one trailing comma still allowed", () => {
+    expect(structFieldOffsets("{ uint64, uint8 }")).toEqual([
+        { off: 0, size: 8 },
+        { off: 8, size: 1 },
+    ]);
+    expect(() => layoutOf("{ uint64 uint8 }")).toThrow("struct fields are separated by ',' (got 'u' at position 9)");
+    expect(() => layoutOf("{ uint64,, uint8 }")).toThrow("expected a type at position 9");
+    expect(layoutOf("{ uint8, }")).toEqual({ size: 1, align: 1 });
+    expect(layoutOf("{ uint8 }")).toEqual({ size: 1, align: 1 });
+});
+
 test("the value dialect rejects the same junk array counts the type dialect does", async () => {
     // parseInt used to read '2uint64' as 2 and hand back NaN for 'abc', which skipped the count check
     // entirely — so a nonsense header was validated less than a real one.

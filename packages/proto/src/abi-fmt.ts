@@ -125,9 +125,19 @@ function parseType(s: string, i: number): [TypeNode, number] {
     if (s[i] === "{") {
         i++;
         const fields: TypeNode[] = [];
-        while (true) {
-            while (i < s.length && /[\s,]/.test(s[i])) i++;
+        const skipSpace = () => {
+            while (i < s.length && /\s/.test(s[i])) i++;
             if (i >= s.length) throw new Error("struct is missing its closing '}'");
+        };
+        while (true) {
+            skipSpace();
+            // A separator is required between fields, so a dropped ',' is an error rather than a
+            // shorter struct. One trailing ',' before the '}' stays legal.
+            if (fields.length && s[i] !== "}") {
+                if (s[i] !== ",") throw new Error(`struct fields are separated by ',' (got '${s[i]}' at position ${i})`);
+                i++;
+                skipSpace();
+            }
             if (s[i] === "}") {
                 i++;
                 break;
@@ -169,8 +179,16 @@ export function parseLayout(fmt: string): TypeNode {
     const t = fmt.trim();
     if (!t) return { kind: "struct", fields: [] };
     const parts = splitTop(t); // top-level list: 1 -> that node; >1 -> implicit struct (symmetric with encode)
-    if (parts.length === 1) return parseType(parts[0], 0)[0];
-    return { kind: "struct", fields: parts.map((p) => parseType(p, 0)[0]) };
+    // parseType stops at the end of one type, so anything left in the part is text the caller meant as
+    // another field. Dropping it would read a missing ',' as a shorter layout.
+    const one = (p: string): TypeNode => {
+        const [node, end] = parseType(p, 0);
+        const rest = p.slice(end).trim();
+        if (rest) throw new Error(`unexpected '${rest}' after the type (fields are separated by ',')`);
+        return node;
+    };
+    if (parts.length === 1) return one(parts[0]);
+    return { kind: "struct", fields: parts.map(one) };
 }
 
 // ---------- output decode (aligned; async: id -> 60-char identity) ----------
