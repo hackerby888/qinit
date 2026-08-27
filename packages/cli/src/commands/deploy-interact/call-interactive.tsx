@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, type DynamicContractRegistryEntry } from "@qinit/core";
-import { callFunction, invokeProcedure, encodeInput, hasOverlappingAbiType, zeroInputFormat, TX_TICK_OFFSET } from "@qinit/proto";
+import { callFunction, invokeProcedure, encodeInput, checkInputSize, hasOverlappingAbiType, zeroInputFormat, TX_TICK_OFFSET } from "@qinit/proto";
 import { AbiTypeKind, type AbiField, type AbiType, type ContractEntry, type ContractIdl, type ContractIdlFile } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { loadConfiguredQpiHeader, resolveSeed } from "../../config";
@@ -211,7 +211,10 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
 
         try {
             try {
-                await encodeInput(draft.input ?? "");
+                const encoded = await encodeInput(draft.input ?? "");
+                if (entry.input) {
+                    checkInputSize(entry.input, encoded, entryLabel(entry));
+                }
             } catch (error: any) {
                 addResult("✗ bad input: " + String(error?.message ?? error));
                 const sample = zeroSample(entry);

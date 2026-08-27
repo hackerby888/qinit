@@ -878,3 +878,10 @@ export async function encodeInput(fmt: string): Promise<Uint8Array> {
     return new Uint8Array(out);
 }
 
+// encodeInput sees only values, never the schema, so a self-consistent but wrong-shaped input encodes
+// fine and the engine then zero-fills or truncates it silently. Size against the IDL is the cross-check.
+export function checkInputSize(type: AbiType, bytes: Uint8Array, label: string): void {
+    if (bytes.length === type.size) return;
+    const shape = type.format ? ` (${type.format})` : " (no input)";
+    throw new Error(`encodes to ${bytes.length} bytes, ${label} wants ${type.size}${shape}`);
+}

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { encodeInput, decodeOutput, decodeAbiValue, structFieldOffsets, layoutOf, parseLayout, zeroInputFormat } from "../../src/abi-fmt";
+import { checkInputSize, encodeInput, decodeOutput, decodeAbiValue, structFieldOffsets, layoutOf, parseLayout, zeroInputFormat } from "../../src/abi-fmt";
 import { formatAbiType, type AbiType } from "../../src/contract-idl";
 import { arr, ba, bit, co, hm, hs, i8, i16, i32, i64, i128, id, ll, m256i, st, u8, u16, u32, u64, u128, validated } from "./abi-builders";
 
@@ -464,4 +464,41 @@ test("a ×0 repeat contributes no values and satisfies a zero-length array", asy
     expect(await encodeInput("[0; 1uint8 ×0]")).toEqual(new Uint8Array(0));
     expect(await encodeInput("5uint64 ×0")).toEqual(new Uint8Array(0));
     await expect(encodeInput("[1; 1uint8 ×0]")).rejects.toThrow(/array of 1 needs 1 values, got 0/);
+});
+
+// A value format that is self-consistent can still be the wrong shape for the entry it is sent to, and
+// encodeInput cannot see that. These pin the size cross-check the two call sites run afterwards.
+test("checkInputSize passes an input whose encoding matches the entry", async () => {
+    const type = validated(st(arr(u16, 4), u32));
+    expect(type.size).toBe(12);
+    const input = await encodeInput("[4; 1uint16, 2uint16, 3uint16, 4uint16], 9uint32");
+    expect(() => checkInputSize(type, input, "proc 1/2")).not.toThrow();
+});
+
+test("checkInputSize rejects a self-consistent input of the wrong shape", async () => {
+    const type = validated(st(arr(u16, 4), u32));
+    // Declares a 2-element array, so it encodes cleanly at 8 bytes — the engine would zero-fill the rest
+    // and the contract would read the uint32 as the array's third element.
+    const short = await encodeInput("[2; 1uint16, 2uint16], 9uint32");
+    expect(short.length).toBe(8);
+    expect(() => checkInputSize(type, short, "proc 1/2")).toThrow("encodes to 8 bytes, proc 1/2 wants 12 ({ [4;uint16], uint32 })");
+});
+
+test("checkInputSize rejects an input that drops the array brackets entirely", async () => {
+    const type = validated(st(arr(u16, 4), u32));
+    const flat = await encodeInput("1uint16, 2uint16, 9uint32");
+    expect(() => checkInputSize(type, flat, "proc 1/2")).toThrow(/encodes to 8 bytes, proc 1\/2 wants 12/);
+});
+
+test("checkInputSize accepts the empty input an entry with no arguments encodes to", async () => {
+    const type = validated(st());
+    const empty = await encodeInput("");
+    expect(empty.length).toBe(type.size);
+    expect(() => checkInputSize(type, empty, "proc 1/1")).not.toThrow();
+});
+
+test("checkInputSize names an over-long input against an entry that takes none", async () => {
+    const type = validated(st());
+    const extra = await encodeInput("1uint64");
+    expect(() => checkInputSize(type, extra, "proc 1/1")).toThrow(/encodes to 8 bytes, proc 1\/1 wants 1/);
 });

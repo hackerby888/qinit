@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
 import { activeNodeScratchDir } from "../../ops/node";
-import { callFunction, invokeProcedure, encodeInput, encodeInputJson, zeroInputFormat, TX_TICK_OFFSET } from "@qinit/proto";
+import { callFunction, invokeProcedure, encodeInput, encodeInputJson, checkInputSize, zeroInputFormat, TX_TICK_OFFSET } from "@qinit/proto";
 import { AbiTypeKind, type ContractEntry } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { describeTrace, type DecodedTrace } from "../../trace/format";
@@ -179,6 +179,13 @@ function CallOneShot({
                             }
                         } catch {}
                         throw new Error(`bad input: ${enc?.message ?? enc}${z ? `\nall-zero sample: ${z}` : ""}`);
+                    }
+                }
+                if (entryIdl) {
+                    try {
+                        checkInputSize(entryIdl.input, input, `${mode} ${idx}/${entry}`);
+                    } catch (size: any) {
+                        throw new Error(`bad input: ${size?.message ?? size}`);
                     }
                 }
 
