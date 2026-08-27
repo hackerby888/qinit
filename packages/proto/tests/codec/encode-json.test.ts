@@ -3,6 +3,7 @@ import { jsonToInputFormat, encodeInputJson, encodeInput, decodeOutput, hasOverl
 import { callFunction } from "../../src/call";
 import { linkedListGeometry } from "../../src/qpi-layout";
 import { AbiScalarKind, AbiTypeKind, type AbiStruct, type AbiType } from "../../src/contract-idl";
+import { arr, ba, ll, st, u8, validated } from "./abi-builders";
 
 test("jsonToInputFormat: flat scalars by field name", () => {
     expect(jsonToInputFormat([{ name: "value", type: "uint64" }], { value: 3 })).toBe("3uint64");
@@ -567,4 +568,31 @@ test("opaque container raw inputs are rejected", async () => {
         await expect(encodeInputJson(container, raw)).rejects.toThrow(expected);
         expect(() => jsonToInputFormat(container, raw)).toThrow(expected);
     }
+});
+
+test("a forbidden container is rejected however deeply an input buries it", async () => {
+    const buried = validated(st(u8, arr(st(u8, ll(u8, 2)), 2)));
+    const value = [
+        0,
+        [
+            [0, []],
+            [0, []],
+        ],
+    ];
+
+    expect(() => jsonToInputFormat(buried, value)).toThrow("LinkedList input is not supported");
+    await expect(encodeInputJson(buried, value)).rejects.toThrow("LinkedList input is not supported");
+});
+
+test("an array of BitArrays keeps each one LSB-first in its own words", async () => {
+    const pair = validated(arr(ba(64), 2));
+    const first = Array.from({ length: 64 }, (_value, index) => (index === 0 ? 1 : 0));
+    const last = Array.from({ length: 64 }, (_value, index) => (index === 63 ? 1 : 0));
+
+    expect(jsonToInputFormat(pair, [first, last])).toBe("[2; [1; 1uint64], [1; 9223372036854775808uint64]]");
+
+    const bytes = await encodeInputJson(pair, [first, last]);
+    expect(bytes.length).toBe(16);
+    expect(bytes[0]).toBe(0x01); // bit 0 of the first array
+    expect(bytes[15]).toBe(0x80); // bit 63 of the second
 });

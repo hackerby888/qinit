@@ -4,6 +4,7 @@ import { test, expect } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import { stateFieldsOf } from "../../src/trace/state-format";
 import { stateDiffLines } from "../../src/trace/state-diff";
+import { arrayGeometry, hashMapGeometry } from "@qinit/proto";
 
 const SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -499,5 +500,60 @@ test("an id key labels the entry the way qinit state does", async () => {
         [`owners[${owner}]`, "= 9 (new)"],
         ["owners._occupationFlags[4]", "0 → 1"],
         ["owners", "0 → 1 entries"],
+    ]);
+});
+
+// A container whose value is itself indexed: the row has to name the key AND the element inside it.
+const NESTED_SRC = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData {
+    uint64 counter;
+    HashMap<uint64, Array<uint64, 2>, 4> nested;
+  };
+  INITIALIZE() {}
+};`;
+
+const NESTED_IDL = extractIdl(NESTED_SRC, "Nested", { slot: 7 });
+const NESTED_FIELDS = stateFieldsOf(NESTED_IDL);
+const NESTED = NESTED_FIELDS.find((field) => field.name === "nested")!;
+const NESTED_GEOMETRY = hashMapGeometry({ size: 8, align: 8 }, arrayGeometry({ size: 8, align: 8 }, 2), 4);
+
+const nestedRowsFor = async (write: (after: Uint8Array) => void, span: { off: number; length: number }) => {
+    const before = new Uint8Array(NESTED_IDL.state.size);
+    const after = before.slice();
+    write(after);
+
+    const lines = await stateDiffLines(NESTED_FIELDS, [region(before, after, span.off, span.length)]);
+    return lines.map((line) => `${line.label} ${line.text}`);
+};
+
+test("an element of a nested array inside a map value is named through both levels", async () => {
+    const rows = await nestedRowsFor((after) => writeLe(after, NESTED.off + NESTED_GEOMETRY.valueOffset + 8, 7, 8), {
+        off: NESTED.off,
+        length: NESTED_GEOMETRY.recordStride,
+    });
+
+    expect(rows).toEqual(["nested[0][1] 0 → 7"]); // slot 0, second element of the value array
+});
+
+test("a nested-map insert names the key, every element it wrote, and the flag", async () => {
+    const rows = await nestedRowsFor(
+        (after) => {
+            writeLe(after, NESTED.off, 5, 8);
+            writeLe(after, NESTED.off + NESTED_GEOMETRY.valueOffset, 1, 8);
+            writeLe(after, NESTED.off + NESTED_GEOMETRY.valueOffset + 8, 2, 8);
+            writeLe(after, NESTED.off + NESTED_GEOMETRY.flagsOffset, 1, 8);
+            writeLe(after, NESTED.off + NESTED_GEOMETRY.populationOffset, 1, 8);
+        },
+        { off: NESTED.off, length: NESTED.size },
+    );
+
+    expect(rows).toEqual([
+        "nested.slot[0].key 0 → 5",
+        "nested[5][0] = 1 (new)",
+        "nested[5][1] = 2 (new)",
+        "nested._occupationFlags[0] 0 → 1",
+        "nested 0 → 1 entries",
     ]);
 });

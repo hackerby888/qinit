@@ -6,6 +6,8 @@ import {
     QpiBitArrayView,
     QpiCollectionView,
     QpiContainerConsistencyError,
+    QpiIncompleteReadError,
+    createQpiContainerView,
     QpiHashMapView,
     QpiHashSetView,
     QpiLinkedListView,
@@ -27,6 +29,9 @@ import {
     type AbiStruct,
     type QpiByteSource,
 } from "../../src";
+import { bytesToIdentity } from "@qinit/core";
+import { decodeAbiValue } from "../../src/abi-fmt";
+import { arr, ba, co, hm, id, ll, st, u8, u16, u64, u128, validated } from "./abi-builders";
 
 const uint8Type: AbiScalar = {
     kind: AbiTypeKind.SCALAR,
@@ -518,4 +523,216 @@ test("HashMap view ignores flag bits past a capacity shorter than one word", asy
     setUint64(bytes, geometry.populationOffset, 1);
 
     expect(await new QpiHashMapView(type, qpiSnapshotSource(bytes)).entries()).toEqual([{ slot: 1, key: 11n, value: 101n }]);
+});
+
+// ---- containers nested inside containers: no fixture above reaches past one container level ----
+const setNested = {
+    u64: (bytes: Uint8Array, offset: number, value: bigint | number) => setUint64(bytes, offset, value),
+    i64: (bytes: Uint8Array, offset: number, value: bigint | number) => setInt64(bytes, offset, value),
+};
+
+// HashMap<struct{ Array<id,2>; uint64 }, LinkedList<uint64,2>, 2> — a struct key holding an id array,
+// and a value that is itself a container with its own flags, links and population.
+const NESTED_KEY = st(arr(id, 2), u64);
+const NESTED_VALUE = ll(u64, 2);
+const NESTED_MAP = validated(hm(NESTED_KEY, NESTED_VALUE, 2));
+const nestedMapGeometry = hashMapGeometry(NESTED_KEY, NESTED_VALUE, 2);
+const nestedListGeometry = linkedListGeometry(u64, 2);
+
+// Slot 1 holds owners [id(1), id(2)] / 99, and a two-node list whose logical order is node 1 then node 0.
+function nestedMapBytes(): Uint8Array {
+    const bytes = new Uint8Array(NESTED_MAP.size);
+    const record = nestedMapGeometry.recordStride; // slot 1
+    bytes[record] = 1;
+    bytes[record + 32] = 2;
+    setNested.u64(bytes, record + 64, 99);
+
+    const list = record + nestedMapGeometry.valueOffset;
+    setNested.u64(bytes, list, 9);
+    setNested.i64(bytes, list + nestedListGeometry.nextOffset, -1);
+    setNested.i64(bytes, list + nestedListGeometry.prevOffset, 1);
+    setNested.u64(bytes, list + nestedListGeometry.nodeStride, 7);
+    setNested.i64(bytes, list + nestedListGeometry.nodeStride + nestedListGeometry.nextOffset, 0);
+    setNested.i64(bytes, list + nestedListGeometry.nodeStride + nestedListGeometry.prevOffset, -1);
+    setNested.u64(bytes, list + nestedListGeometry.flagsOffset, 3); // both nodes occupied, one bit each
+    setNested.i64(bytes, list + nestedListGeometry.headOffset, 1);
+    setNested.i64(bytes, list + nestedListGeometry.tailOffset, 0);
+    setNested.u64(bytes, list + nestedListGeometry.populationOffset, 2);
+
+    setNested.u64(bytes, nestedMapGeometry.flagsOffset, 4); // slot 1 occupied: two bits per slot
+    setNested.u64(bytes, nestedMapGeometry.populationOffset, 1);
+    return bytes;
+}
+
+const identityOfFirstByte = async (byte: number) => bytesToIdentity(Uint8Array.of(byte, ...new Uint8Array(31)));
+
+test("a HashMap with a struct key and a LinkedList value decodes both nestings", async () => {
+    expect(NESTED_MAP.size).toBe(360);
+
+    expect(await decodeAbiValue(nestedMapBytes(), NESTED_MAP)).toEqual([
+        {
+            slot: 1,
+            key: [[await identityOfFirstByte(1), await identityOfFirstByte(2)], 99n],
+            value: [
+                { slot: 1, value: 7n }, // logical order, not slot order
+                { slot: 0, value: 9n },
+            ],
+        },
+    ]);
+});
+
+test("an inconsistent nested container fails from inside the outer one", async () => {
+    const badPopulation = nestedMapBytes();
+    setNested.u64(badPopulation, nestedMapGeometry.populationOffset, 2);
+    await expect(decodeAbiValue(badPopulation, NESTED_MAP)).rejects.toThrow(/HashMap has 1 occupied slots but population 2/);
+
+    const badHead = nestedMapBytes();
+    setNested.i64(badHead, nestedMapGeometry.recordStride + nestedMapGeometry.valueOffset + nestedListGeometry.headOffset, 0);
+    await expect(decodeAbiValue(badHead, NESTED_MAP)).rejects.toThrow(/LinkedList slot 0 has previous 1, expected -1/);
+
+    await expect(decodeAbiValue(nestedMapBytes().slice(0, NESTED_MAP.size - 1), NESTED_MAP)).rejects.toThrow(RangeError);
+});
+
+// Collection<struct{ BitArray<64>; uint128 }, 2> — the PoV table, the element trailer, and a value
+// whose 8-byte alignment carries a 16-byte member.
+const COLLECTION_ELEMENT = st(ba(64), u128);
+const NESTED_COLLECTION = validated(co(COLLECTION_ELEMENT, 2));
+const nestedCollectionGeometry = collectionGeometry(COLLECTION_ELEMENT, 2);
+
+// One PoV with two elements; the BST puts element 1 (priority 2) before element 0 (priority 5).
+function nestedCollectionBytes(): Uint8Array {
+    const bytes = new Uint8Array(NESTED_COLLECTION.size);
+    bytes[nestedCollectionGeometry.povValueOffset] = 3;
+    setNested.u64(bytes, nestedCollectionGeometry.povPopulationOffset, 2);
+    setNested.i64(bytes, nestedCollectionGeometry.povHeadOffset, 1);
+    setNested.i64(bytes, nestedCollectionGeometry.povTailOffset, 0);
+    setNested.i64(bytes, nestedCollectionGeometry.povBstRootOffset, 0);
+    setNested.u64(bytes, nestedCollectionGeometry.flagsOffset, 1);
+
+    const first = nestedCollectionGeometry.elementsOffset;
+    const second = first + nestedCollectionGeometry.elementStride;
+    setNested.u64(bytes, first, 0b101); // bits 0 and 2 set, LSB-first
+    setNested.u64(bytes, first + 8, 5); // uint128 low limb
+    setNested.i64(bytes, first + nestedCollectionGeometry.elementPriorityOffset, 5);
+    setNested.i64(bytes, first + nestedCollectionGeometry.elementBstParentOffset, -1);
+    setNested.i64(bytes, first + nestedCollectionGeometry.elementBstLeftOffset, 1);
+    setNested.i64(bytes, first + nestedCollectionGeometry.elementBstRightOffset, -1);
+
+    setNested.u64(bytes, second + 16, 1); // uint128 HIGH limb: 2^64, so limb order survives the nesting
+    setNested.i64(bytes, second + nestedCollectionGeometry.elementPriorityOffset, 2);
+    setNested.i64(bytes, second + nestedCollectionGeometry.elementBstParentOffset, 0);
+    setNested.i64(bytes, second + nestedCollectionGeometry.elementBstLeftOffset, -1);
+    setNested.i64(bytes, second + nestedCollectionGeometry.elementBstRightOffset, -1);
+
+    setNested.u64(bytes, nestedCollectionGeometry.populationOffset, 2);
+    return bytes;
+}
+
+test("a Collection of a struct holding a BitArray and a uint128 walks the PoV tree in priority order", async () => {
+    expect(NESTED_COLLECTION.size).toBe(280);
+
+    const entries = (await decodeAbiValue(nestedCollectionBytes(), NESTED_COLLECTION)) as {
+        povSlot: number;
+        pov: string;
+        elementIndex: number;
+        priority: bigint;
+        value: [number[], bigint];
+    }[];
+
+    expect(entries.map((entry) => [entry.povSlot, entry.elementIndex, entry.priority])).toEqual([
+        [0, 1, 2n],
+        [0, 0, 5n],
+    ]);
+    expect(entries[0].pov).toBe(await identityOfFirstByte(3));
+    expect(entries[0].value[0]).toEqual(new Array(64).fill(0));
+    expect(entries[0].value[1]).toBe(1n << 64n);
+
+    expect(entries[1].value[0].length).toBe(64);
+    expect(entries[1].value[0].filter((bitValue) => bitValue === 1).length).toBe(2);
+    expect([entries[1].value[0][0], entries[1].value[0][2]]).toEqual([1, 1]);
+    expect(entries[1].value[1]).toBe(5n);
+});
+
+test("a broken Collection element tree is rejected rather than partially walked", async () => {
+    const badParent = nestedCollectionBytes();
+    setNested.i64(
+        badParent,
+        nestedCollectionGeometry.elementsOffset + nestedCollectionGeometry.elementStride + nestedCollectionGeometry.elementBstParentOffset,
+        -1,
+    );
+    await expect(decodeAbiValue(badParent, NESTED_COLLECTION)).rejects.toThrow(/Collection element 1 has parent -1, expected 0/);
+});
+
+test("an array of HashMap of BitArray decodes an empty inner container as no entries", async () => {
+    const inner = hm(id, ba(64), 2);
+    const type = validated(arr(inner, 2));
+    const geometry = hashMapGeometry(id, ba(64), 2);
+    expect(type.size).toBe(208);
+
+    const bytes = new Uint8Array(type.size);
+    const second = inner.size; // the first map stays all zero
+    bytes[second] = 7;
+    setNested.u64(bytes, second + geometry.valueOffset, 0b1011);
+    setNested.u64(bytes, second + geometry.flagsOffset, 1);
+    setNested.u64(bytes, second + geometry.populationOffset, 1);
+
+    const decoded = (await decodeAbiValue(bytes, type)) as { slot: number; key: string; value: number[] }[][];
+    expect(decoded[0]).toEqual([]); // an empty map is no entries, not one null entry
+    expect(decoded[1].length).toBe(1);
+    expect(decoded[1][0].slot).toBe(0);
+    expect(decoded[1][0].key).toBe(await identityOfFirstByte(7));
+    expect(decoded[1][0].value.slice(0, 4)).toEqual([1, 1, 0, 1]);
+
+    const badFlag = bytes.slice();
+    setNested.u64(badFlag, second + geometry.flagsOffset, 3);
+    await expect(decodeAbiValue(badFlag, type)).rejects.toThrow(/invalid occupation flag at slot 0/);
+});
+
+test("a container can be a HashMap key, a struct field, and a LinkedList value", async () => {
+    const innerMap = hm(u8, u8, 2);
+    const keyedByMap = validated(hm(innerMap, u8, 2));
+    const outerGeometry = hashMapGeometry(innerMap, u8, 2);
+    const keyedBytes = new Uint8Array(keyedByMap.size);
+    keyedBytes[outerGeometry.valueOffset] = 42;
+    setNested.u64(keyedBytes, outerGeometry.flagsOffset, 1);
+    setNested.u64(keyedBytes, outerGeometry.populationOffset, 1);
+    expect(await decodeAbiValue(keyedBytes, keyedByMap)).toEqual([{ slot: 0, key: [], value: 42 }]);
+
+    const withNeighbours = validated(st(u8, hm(u8, u64, 2), u16)) as AbiStruct;
+    const fieldGeometry = hashMapGeometry(u8, u64, 2);
+    expect(withNeighbours.fields.map((field) => field.offset)).toEqual([0, 8, 64]);
+    const structBytes = new Uint8Array(withNeighbours.size);
+    structBytes[0] = 7;
+    structBytes[8] = 1;
+    setNested.u64(structBytes, 8 + fieldGeometry.valueOffset, 2);
+    setNested.u64(structBytes, 8 + fieldGeometry.flagsOffset, 1);
+    setNested.u64(structBytes, 8 + fieldGeometry.populationOffset, 1);
+    new DataView(structBytes.buffer).setUint16(64, 513, true);
+    expect(await decodeAbiValue(structBytes, withNeighbours)).toEqual([7, [{ slot: 0, key: 1, value: 2n }], 513]);
+
+    const listOfMaps = validated(ll(innerMap, 2));
+    const listGeometry = linkedListGeometry(innerMap, 2);
+    const innerGeometry = hashMapGeometry(u8, u8, 2);
+    const listBytes = new Uint8Array(listOfMaps.size);
+    listBytes[0] = 1;
+    listBytes[innerGeometry.valueOffset] = 2;
+    setNested.u64(listBytes, innerGeometry.flagsOffset, 1);
+    setNested.u64(listBytes, innerGeometry.populationOffset, 1);
+    setNested.i64(listBytes, listGeometry.nextOffset, -1);
+    setNested.i64(listBytes, listGeometry.prevOffset, -1);
+    setNested.u64(listBytes, listGeometry.flagsOffset, 1);
+    setNested.i64(listBytes, listGeometry.headOffset, 0);
+    setNested.i64(listBytes, listGeometry.tailOffset, 0);
+    setNested.u64(listBytes, listGeometry.populationOffset, 1);
+    expect(await decodeAbiValue(listBytes, listOfMaps)).toEqual([{ slot: 0, value: [{ slot: 0, key: 1, value: 2 }] }]);
+});
+
+test("a nested container view refuses a source shorter than the container it describes", () => {
+    const bytes = nestedMapBytes();
+    for (const cut of [NESTED_MAP.size - 1, nestedMapGeometry.populationOffset, 8, 0]) {
+        expect(() => createQpiContainerView(NESTED_MAP, qpiSnapshotSource(bytes.slice(0, cut)))).toThrow(QpiIncompleteReadError);
+    }
+    expect(() => createQpiContainerView(NESTED_COLLECTION, qpiSnapshotSource(nestedCollectionBytes().slice(0, NESTED_COLLECTION.size - 1)))).toThrow(
+        QpiIncompleteReadError,
+    );
 });

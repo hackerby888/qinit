@@ -267,3 +267,10 @@ test("a one-field log keeps its value in the positional list", async () => {
     expect(d.values).toEqual([7n]);
     expect(d.fields).toEqual({ only: 7n });
 });
+
+test("loggedSizeOf drops only the outer tail padding — a nested struct keeps its own", () => {
+    expect(loggedSizeOf("uint64, uint8")).toBe(9); // 16 with tail padding, 9 as logged
+    expect(loggedSizeOf("{ uint64, uint8 }")).toBe(9); // a single struct field is the same layout
+    expect(loggedSizeOf("{ uint64, uint8 }, uint8")).toBe(17); // the inner struct still costs its full 16
+    expect(loggedSizeOf("uint8, { uint16, uint8 }, uint8")).toBe(7); // uint8@0, struct(4)@2, uint8@6
+});

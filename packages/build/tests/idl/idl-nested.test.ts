@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { AbiTypeKind, extractIdl } from "../../src/compile/idl";
+import { formatAbiType, layoutOf, parseContractIdl } from "@qinit/proto";
 
 const SOURCE = `
 using namespace QPI;
@@ -77,4 +78,46 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     expect(input.fields.map((field) => field.name)).toEqual(["a", "b", "c", "d", "x", "y"]);
     expect(input.fields.map((field) => field.type.format)).toEqual(["id", "id", "id", "id", "sint64", "sint64"]);
     expect(input.format).toBe("id, id, id, id, sint64, sint64");
+});
+
+// A container inside a container never appeared in these fixtures, yet it is what the state viewer meets
+// on real contracts. The sizes below must match what proto computes from the same type tree.
+const NESTED_CONTAINERS = `
+using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Key { Array<id, 2> owners; uint64 tag; };
+  struct Deep { BitArray<64> bits; uint128 total; };
+  struct StateData {
+    HashMap<Key, LinkedList<uint64, 2>, 2> nestedMap;
+    Collection<Deep, 2> deep;
+    Array<Array<uint64, 2>, 2> matrix;
+    HashSet<Key, 4> keys;
+  };
+  INITIALIZE() {}
+};`;
+
+test("containers nested inside containers keep the layout proto computes for them", () => {
+    const idl = extractIdl(NESTED_CONTAINERS, "NestedContainers", { slot: 7 });
+
+    expect(idl.state.size).toBe(984);
+    expect(idl.state.align).toBe(8);
+    expect(idl.state.fields.map((field) => [field.name, field.offset, field.size, field.type.kind])).toEqual([
+        ["nestedMap", 0, 360, AbiTypeKind.HASH_MAP],
+        ["deep", 360, 280, AbiTypeKind.COLLECTION],
+        ["matrix", 640, 32, AbiTypeKind.ARRAY],
+        ["keys", 672, 312, AbiTypeKind.HASH_SET],
+    ]);
+
+    expect(formatAbiType(idl.state.fields[0].type)).toBe(
+        "{ [2;{ { [2;id], uint64 }, { [2;{ uint64, sint64, sint64 }], [1;uint64], sint64, sint64, sint64, uint64, uint64 } }], [1;uint64], uint64, uint64 }",
+    );
+    expect(formatAbiType(idl.state.fields[2].type)).toBe("[2;[2;uint64]]");
+
+    // The frontend, the validator, and the format-string parser must all agree on the same bytes.
+    expect(parseContractIdl(idl).state.size).toBe(984);
+    for (const field of idl.state.fields) {
+        expect(`${field.name}: ${JSON.stringify(layoutOf(formatAbiType(field.type)))}`).toBe(
+            `${field.name}: ${JSON.stringify({ size: field.size, align: field.type.align })}`,
+        );
+    }
 });

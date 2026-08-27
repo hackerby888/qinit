@@ -1,5 +1,7 @@
 import { test, expect } from "bun:test";
-import { encodeInput, decodeOutput, structFieldOffsets, layoutOf, parseLayout, zeroInputFormat } from "../../src/abi-fmt";
+import { encodeInput, decodeOutput, decodeAbiValue, structFieldOffsets, layoutOf, parseLayout, zeroInputFormat } from "../../src/abi-fmt";
+import { formatAbiType, type AbiType } from "../../src/contract-idl";
+import { arr, ba, bit, co, hm, hs, i8, i16, i32, i64, i128, id, ll, m256i, st, u8, u16, u32, u64, u128, validated } from "./abi-builders";
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 const bytes = (h: string) => new Uint8Array((h.match(/../g) ?? []).map((x) => parseInt(x, 16)));
@@ -286,4 +288,180 @@ test("sint128 aligns and pads like uint128 inside a struct", async () => {
     expect(zeroInputFormat("sint128")).toBe("0sint128");
     expect(zeroInputFormat("[2;sint128]")).toBe("[2; 0sint128 ×2]");
     expect((await encodeInput("[2; 0sint128 ×2]")).length).toBe(32);
+});
+
+// ---- properties: the three layers (qpi-layout geometry, formatAbiType, the string parser) must agree ----
+// Each row is a type built from the geometry oracle, run through parseContractIdl, then re-parsed from
+// its own format string. Any drift between the C++ mirror and the grammar fails here first.
+const LAYOUT_ROWS: [label: string, type: AbiType, size: number, align: number, format?: string][] = [
+    ["HashMap with a struct key and a LinkedList value", hm(st(arr(id, 2), u64), ll(u64, 2), 2), 360, 8],
+    ["Collection of a struct holding a BitArray and a uint128", co(st(ba(64), u128), 2), 280, 8],
+    ["LinkedList of HashMap", ll(hm(u8, u8, 2), 2), 144, 8],
+    ["array of HashMap of BitArray", arr(hm(id, ba(64), 2), 2), 208, 8, "[2;{ [2;{ id, [1;uint64] }], [1;uint64], uint64, uint64 }]"],
+    ["HashMap whose value is a Collection", hm(u8, co(u8, 2), 2), 536, 8],
+    ["HashMap whose key is a HashMap", hm(hm(u8, u8, 2), u8, 2), 104, 8],
+    ["HashSet of a struct with record-stride padding", hs(st(u64, u8), 4), 88, 8, "{ [4;{ uint64, uint8 }], [1;uint64], uint64, uint64 }"],
+    ["HashSet of a struct holding an array", hs(st(u8, arr(u16, 4)), 4), 64, 8, "{ [4;{ uint8, [4;uint16] }], [1;uint64], uint64, uint64 }"],
+    ["array of array of struct", arr(arr(st(u8, u64), 2), 2), 64, 8, "[2;[2;{ uint8, uint64 }]]"],
+    ["a container between two scalars", st(u8, hm(u8, u64, 2), u16), 72, 8, "{ uint8, { [2;{ uint8, uint64 }], [1;uint64], uint64, uint64 }, uint16 }"],
+    ["four nested structs, padding forced at each level", st(u8, st(u16, st(u32, st(u8, u64)))), 40, 8, "{ uint8, { uint16, { uint32, { uint8, uint64 } } } }"],
+    ["a one-bit BitArray still costs a whole word", ba(1), 8, 8, "[1;uint64]"],
+    ["a 1024-bit BitArray is sixteen words", ba(1024), 128, 8, "[16;uint64]"],
+];
+
+test("every container kind's format string re-parses to its own size and alignment", () => {
+    for (const [label, raw, size, align, format] of LAYOUT_ROWS) {
+        const type = validated(raw);
+        expect(`${label}: ${type.size}/${type.align}`).toBe(`${label}: ${size}/${align}`);
+        expect(`${label}: ${JSON.stringify(layoutOf(formatAbiType(type)))}`).toBe(`${label}: ${JSON.stringify({ size, align })}`);
+        if (format !== undefined) {
+            expect(formatAbiType(type)).toBe(format);
+        }
+    }
+});
+
+// The two decoders share no code: one walks a TypeNode it parsed from a string, the other walks the
+// IDL's own offsets. Container roots are excluded — the typed path returns {slot,key,value} entries there.
+const CROSS_PATH_ROWS: [label: string, type: AbiType, size: number, format: string][] = [
+    [
+        "every scalar width in one struct",
+        st(bit, i8, u16, i16, u32, i32, u64, i64, u128, i128, id, m256i),
+        128,
+        "{ bit, sint8, uint16, sint16, uint32, sint32, uint64, sint64, uint128, sint128, id, m256i }",
+    ],
+    ["array of struct with an inner array and an id", arr(st(u8, arr(st(u16, u8), 2), id), 2), 96, "[2;{ uint8, [2;{ uint16, uint8 }], id }]"],
+    ["four levels ending in an array", st(u8, st(u16, st(u32, st(u8, arr(u64, 2))))), 48, "{ uint8, { uint16, { uint32, { uint8, [2;uint64] } } } }"],
+    ["empty structs as a field, an element, and a neighbour", st(st(), arr(st(), 3), u8), 5, "{ {}, [3;{}], uint8 }"],
+];
+
+test("the string and typed decoders agree on the same bytes", async () => {
+    for (const [label, raw, size, format] of CROSS_PATH_ROWS) {
+        const type = validated(raw);
+        expect(`${label}: ${type.size} ${formatAbiType(type)}`).toBe(`${label}: ${size} ${format}`);
+
+        const bytes = new Uint8Array(type.size);
+        for (let index = 0; index < bytes.length; index++) {
+            bytes[index] = (index * 37 + 11) & 0xff;
+        }
+        expect(await decodeOutput(bytes, format)).toEqual(await decodeAbiValue(bytes, type));
+    }
+});
+
+test("the decoders read the same wide scalars, not just the same shape", async () => {
+    const type = validated(st(bit, i8, u16, i16, u32, i32, u64, i64, u128, i128, id, m256i));
+    const bytes = new Uint8Array(type.size);
+    for (let index = 0; index < bytes.length; index++) {
+        bytes[index] = (index * 37 + 11) & 0xff;
+    }
+
+    const decoded = await decodeAbiValue(bytes, type);
+    expect(decoded.slice(0, 10)).toEqual([
+        11,
+        48,
+        31317,
+        -15201,
+        2726123571,
+        907144391,
+        6789480933367316571n,
+        -8763657326330795901n,
+        285376675360240156043455777163709894827n,
+        50520332810868806498481338092594995451n, // sint128 stays positive below 2^127
+    ]);
+    expect(decoded[10]).toMatch(/^[A-Z]{60}$/); // id renders as an identity
+    expect(decoded[11]).toMatch(/^[0-9a-f]{64}$/); // m256i stays raw hex
+});
+
+// zeroInputFormat is the sample a user gets back when their --in fails to parse, so it has to be
+// valid input for the very layout it was built from: same byte count, all zeros.
+const ZERO_ROWS: [fmt: string, sample: string, size: number][] = [
+    ["{}", "", 1],
+    ["[0;uint8]", "[0; 0uint8 ×0]", 0],
+    ["[2;{}]", "[2; {  } ×2]", 2],
+    ["{ {}, {} }", "{  }, {  }", 2],
+    ["[3;{ {} }]", "[3; { {  } } ×3]", 3],
+    ["{ uint8, [3;{ uint16, uint8 }], id }", "0uint8, [3; { 0uint16, 0uint8 } ×3], 0id", 48],
+    ["[2;[2;{ uint8, uint64 }]]", "[2; [2; { 0uint8, 0uint64 } ×2] ×2]", 64],
+    ["{ uint8, { uint16, { uint32, { uint8, uint64 } } } }", "0uint8, { 0uint16, { 0uint32, { 0uint8, 0uint64 } } }", 40],
+    ["[2;{ id, [1;uint64] }]", "[2; { 0id, [1; 0uint64 ×1] } ×2]", 80],
+    ["uint128, uint8", "0uint128, 0uint8", 24],
+    ["m256i, uint8, id", "0m256i, 0uint8, 0id", 72],
+    ["bit, uint64", "0bit, 0uint64", 16],
+    ["[64;bit]", "[64; 0bit ×64]", 64],
+    ["{ uint8, m256i }", "0uint8, 0m256i", 40],
+    ["sint128", "0sint128", 16],
+    ["{ sint128, uint8 }", "0sint128, 0uint8", 24],
+];
+
+test("zeroInputFormat emits a valid all-zero sample for every nesting shape", async () => {
+    for (const [fmt, sample, size] of ZERO_ROWS) {
+        expect(`${fmt} -> ${zeroInputFormat(fmt)}`).toBe(`${fmt} -> ${sample}`);
+        expect(`${fmt}: ${layoutOf(fmt).size}`).toBe(`${fmt}: ${size}`);
+
+        const bytes = await encodeInput(sample);
+        expect(`${fmt}: ${bytes.length}`).toBe(`${fmt}: ${size}`);
+        expect(bytes.every((byte) => byte === 0)).toBe(true);
+    }
+});
+
+test("zeroInputFormat reaches the same sample through a type string and through an AbiType", () => {
+    for (const [, raw] of LAYOUT_ROWS) {
+        const type = validated(raw);
+        expect(zeroInputFormat(type)).toBe(zeroInputFormat(formatAbiType(type)));
+    }
+});
+
+test("structFieldOffsets covers a bare scalar, a nested struct, and a whole array as one field", () => {
+    expect(structFieldOffsets("uint64")).toEqual([{ off: 0, size: 8 }]); // a non-struct root is one field
+    expect(structFieldOffsets("uint8, {uint16, uint8}, id, bit")).toEqual([
+        { off: 0, size: 1 },
+        { off: 2, size: 4 },
+        { off: 8, size: 32 },
+        { off: 40, size: 1 },
+    ]);
+    expect(structFieldOffsets("[2;[3;{uint8, uint64}]]")).toEqual([{ off: 0, size: 96 }]);
+    expect(layoutOf("[2;[3;{uint8, uint64}]]")).toEqual({ size: 96, align: 8 });
+});
+
+test("a nested value format encodes and decodes byte-for-byte through three levels", async () => {
+    const encoded = await encodeInput("{ 1uint8, [2; {2uint8, 3uint64}, {4uint8, 5uint64}] }");
+    expect(encoded.length).toBe(layoutOf("{ uint8, [2;{uint8,uint64}] }").size); // 40: the array aligns to 8 first
+    expect(await decodeOutput(encoded, "{ uint8, [2;{uint8,uint64}] }")).toEqual([
+        1,
+        [
+            [2, 3n],
+            [4, 5n],
+        ],
+    ]);
+
+    const matrix = await encodeInput("[2; [2; {1uint8, 2uint64}, {3uint8, 4uint64}], [2; {5uint8, 6uint64}, {7uint8, 8uint64}]]");
+    expect(matrix.length).toBe(layoutOf("[2;[2;{uint8,uint64}]]").size);
+    expect(await decodeOutput(matrix, "[2;[2;{uint8,uint64}]]")).toEqual([
+        [
+            [1, 2n],
+            [3, 4n],
+        ],
+        [
+            [5, 6n],
+            [7, 8n],
+        ],
+    ]);
+});
+
+test("the ×N shorthand expands inside a nested struct inside an array", async () => {
+    const short = await encodeInput("[2; { 1uint8, [3; 2uint16 ×3] } ×2]");
+    const long = await encodeInput("[2; { 1uint8, [3; 2uint16, 2uint16, 2uint16] }, { 1uint8, [3; 2uint16, 2uint16, 2uint16] }]");
+
+    expect(hex(short)).toBe(hex(long));
+    expect(hex(short)).toBe("0100" + "020002000200" + "0100" + "020002000200"); // uint8, pad, three uint16, twice
+    expect(short.length).toBe(layoutOf("[2;{ uint8, [3;uint16] }]").size);
+    expect(await decodeOutput(short, "[2;{ uint8, [3;uint16] }]")).toEqual([
+        [1, [2, 2, 2]],
+        [1, [2, 2, 2]],
+    ]);
+});
+
+test("a ×0 repeat contributes no values and satisfies a zero-length array", async () => {
+    expect(await encodeInput("[0; 1uint8 ×0]")).toEqual(new Uint8Array(0));
+    expect(await encodeInput("5uint64 ×0")).toEqual(new Uint8Array(0));
+    await expect(encodeInput("[1; 1uint8 ×0]")).rejects.toThrow(/array of 1 needs 1 values, got 0/);
 });
