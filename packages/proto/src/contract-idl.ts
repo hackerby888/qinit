@@ -1,3 +1,4 @@
+import { roundUp } from "@qinit/core";
 import {
     arrayGeometry,
     bitArrayGeometry,
@@ -630,10 +631,6 @@ function validatePositivePowerOfTwo(value: number, label: string): void {
     if (!isPowerOfTwo(value)) {
         throw new Error(`${label} ${value} must be a positive power of two`);
     }
-}
-
-function roundUp(value: number, align: number): number {
-    return Math.ceil(value / align) * align;
 }
 
 function isPowerOfTwo(value: number): boolean {

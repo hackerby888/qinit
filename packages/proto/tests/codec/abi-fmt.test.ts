@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { checkInputSize, encodeInput, decodeOutput, decodeAbiValue, structFieldOffsets, layoutOf, parseLayout, zeroInputFormat } from "../../src/abi-fmt";
 import { formatAbiType, type AbiType } from "../../src/contract-idl";
+import { hashMapGeometry } from "../../src/qpi-layout";
 import { arr, ba, bit, co, hm, hs, i8, i16, i32, i64, i128, id, ll, m256i, st, u8, u16, u32, u64, u128, validated } from "./abi-builders";
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -263,6 +264,29 @@ test("the value dialect needs the bracket that closes what it opened", async () 
     }
     // The ×N shorthand still reaches encodeToken with the closer intact, because expandReps ran first.
     expect((await encodeInput("[1; 1uint64]x2")).length).toBe(16);
+});
+
+// Every other type in these suites is small, so nothing reached the size where a bitwise roundUp used
+// to truncate to int32 — the parser reported a negative or zero size while the validator reported the
+// real one. Live contract states already run past 1GB, so 2GB is the next size up, not a hypothetical.
+test("a type larger than 2GB sizes the same through the validator and the parser", () => {
+    for (const count of [2 ** 27, 2 ** 28, 2 ** 29]) {
+        const type = validated(st(arr(u64, count), u8));
+        const label = `{ [${count};uint64], uint8 }`;
+        expect({ label, size: layoutOf(formatAbiType(type)).size }).toEqual({ label, size: type.size });
+        expect(type.size).toBe(count * 8 + 8);
+    }
+});
+
+test("container geometry past 2GB keeps its zones in order", () => {
+    const type = validated(hm(u64, u64, 2 ** 27));
+    expect(type.size).toBeGreaterThan(2 ** 31);
+    // The zones have to stay ascending; truncation used to send flagsOffset negative and leave
+    // populationOffset below it, which no consistency check downstream would have questioned.
+    const geometry = hashMapGeometry(u64, u64, 2 ** 27);
+    expect(geometry.flagsOffset).toBe(2 ** 31);
+    expect(geometry.populationOffset).toBeGreaterThan(geometry.flagsOffset);
+    expect(layoutOf(formatAbiType(type)).size).toBe(type.size);
 });
 
 // The values that sit exactly on each width's limit, with the bytes they must produce. Range checks are

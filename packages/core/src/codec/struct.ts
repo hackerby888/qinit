@@ -194,7 +194,9 @@ export const sub = <T extends { bytes: Uint8Array }>(klass: { SIZE: number; wrap
     },
 });
 
-export const roundUp = (n: number, align: number): number => (n + align - 1) & ~(align - 1);
+// Bitwise rounding coerces to int32, so anything at or past 2GB truncates to a small, negative or zero
+// value that still looks like a valid size. Contract states already run past 1GB.
+export const roundUp = (n: number, align: number): number => Math.ceil(n / align) * align;
 
 // ---- shared view base: a zero-copy window plus its DataView. ----
 export abstract class View implements Backing {
