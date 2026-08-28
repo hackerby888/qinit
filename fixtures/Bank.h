@@ -2,11 +2,11 @@
 // Exercises HashMap<id,uint64>.set/get + Array<uint64,N> in contract state.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct Bank2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Bank : public ContractBase
 {
     struct StateData
     {

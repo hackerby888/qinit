@@ -70,7 +70,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
             }
 
             mkdirSync(join(dir, "contracts"), { recursive: true });
-            const source = templateSource(kind);
+            const source = templateSource(kind, name);
             writeFileSync(join(dir, "contracts", `${name}.h`), source);
 
             // Scaffold a contract_testing.h test from the contract IDL.
@@ -97,7 +97,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
             };
             if (coreDir) cfg.coreDir = coreDir;
             if (kind === "intercontract") {
-                writeFileSync(join(dir, "contracts", "Counter.h"), templateSource("counter"));
+                writeFileSync(join(dir, "contracts", "Counter.h"), templateSource("counter", "Counter"));
             }
             writeFileSync(join(dir, "qinit.json"), JSON.stringify(cfg, null, 2) + "\n");
             writeFileSync(join(dir, ".gitignore"), ["dist/", "*.wasm", "*.log", "qinit.idl.json", "contracts_dyn/", ".DS_Store"].join("\n") + "\n");

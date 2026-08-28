@@ -2,11 +2,11 @@
 // attached to the Rec call, the contract's QpiContext was populated (the ctx-copy fix works).
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct RewardProbe2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct RewardProbe : public ContractBase
 {
     struct StateData
     {

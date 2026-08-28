@@ -47,7 +47,7 @@ template <typename T> struct TemplateForward {};
     test("uses a nested template definition after its forward declaration", () => {
         const result = analyzeContract({
             source: `
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct NestedTemplateForward : public ContractBase {
   struct Base { uint64 value; };
   template <typename T> struct Wrapper;
   template <typename T> struct Wrapper : Base {};
@@ -68,7 +68,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     test("keeps empty template bases distinct from same-type members", () => {
         const result = analyzeContract({
             source: `
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct TemplateEmptyBase : public ContractBase {
   template <typename T> struct Empty {};
   struct StateData : Empty<uint8> { Empty<uint8> member; };
 };`,
@@ -92,7 +92,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     test("keeps indirect empty bases distinct from same-type members", () => {
         const result = analyzeContract({
             source: `
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct IndirectEmptyBase : public ContractBase {
   struct Empty {};
   struct Intermediate : Empty {};
   struct StateData : Intermediate { Empty member; };

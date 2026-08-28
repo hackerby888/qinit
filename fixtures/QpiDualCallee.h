@@ -1,9 +1,9 @@
 // Companion contract for the deterministic compiler/runtime parity matrix.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE {};
+struct QpiDualCallee2 {};
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct QpiDualCallee : public ContractBase
 {
     struct StateData
     {

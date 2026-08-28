@@ -2,11 +2,11 @@
 // qpi.setShareholderProposal() targeting this one; records the proposal's first byte + a count.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct ShareReceiver2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct ShareReceiver : public ContractBase
 {
     struct StateData
     {

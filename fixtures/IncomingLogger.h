@@ -1,8 +1,8 @@
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE {};
+struct IncomingLogger2 {};
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct IncomingLogger : public ContractBase
 {
     struct StateData { uint64 dummy; };
 

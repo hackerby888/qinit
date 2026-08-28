@@ -2,11 +2,11 @@
 // MIGRATE() carries the old counter forward (OldStateData == v1 StateData). Exercises state migration on redeploy.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct CounterV22
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct CounterV2 : public ContractBase
 {
     struct StateData
     {

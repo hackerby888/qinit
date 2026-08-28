@@ -2,11 +2,11 @@
 // lifecycle callbacks. Drives the TS engine's money model (ledger + transfer + reward + PIT trigger).
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct Vault2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Vault : public ContractBase
 {
     struct StateData
     {

@@ -23,6 +23,13 @@ export const TEMPLATE_NOTE: Partial<Record<TemplateKind, string>> = {
     intercontract: "Counter callee scaffolded in contracts/ for automatic dependency resolution",
 };
 
-export function templateSource(kind: TemplateKind): string {
-    return HEAD + BODIES[kind];
+// The template bodies carry core's `CONTRACT_STATE_TYPE` macro so one file serves every contract name.
+// Scaffolding resolves it: core defines that macro around the include, so a struct still wearing it has no
+// name of its own — nothing outside core's include block, clangd included, can refer to the contract.
+export function templateSource(kind: TemplateKind, contractName?: string): string {
+    const body = BODIES[kind];
+    if (!contractName) {
+        return HEAD + body;
+    }
+    return HEAD + body.replaceAll("CONTRACT_STATE2_TYPE", `${contractName}2`).replaceAll("CONTRACT_STATE_TYPE", contractName);
 }

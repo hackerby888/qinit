@@ -2,11 +2,11 @@
 // upstream macros — ReadCounter reads Counter's value (CALL function), BumpCounter increments it
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct Proxy2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Proxy : public ContractBase
 {
     struct StateData
     {

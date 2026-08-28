@@ -1,7 +1,7 @@
 // Div traps on a zero divisor, verifying that the engine isolates a faulting procedure.
 using namespace QPI;
-struct CONTRACT_STATE2_TYPE {};
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Trap2 {};
+struct Trap : public ContractBase
 {
     struct StateData { uint64 n; };
     struct Bump_input {}; struct Bump_output {};

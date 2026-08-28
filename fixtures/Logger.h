@@ -4,11 +4,11 @@ using namespace QPI;
 // Log message kinds: the debugger resolves LogMsg._type back to these names.
 enum LogKind { LogStarted = 0, LogValue = 1, LogDone = 2 };
 
-struct CONTRACT_STATE2_TYPE
+struct Logger2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Logger : public ContractBase
 {
     struct StateData
     {

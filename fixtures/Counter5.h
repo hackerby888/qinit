@@ -2,11 +2,11 @@
 // Same fn/proc inputTypes as Counter, deployed over slot 28. Proxy is built against Counter@28.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct Counter52
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Counter5 : public ContractBase
 {
     struct StateData
     {

@@ -2,11 +2,11 @@
 // field, so lh_liteCallFunction fills it through an out-pointer no contract store ever touches.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct CallOutState2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct CallOutState : public ContractBase
 {
     struct StateData
     {

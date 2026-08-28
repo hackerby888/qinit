@@ -1,11 +1,11 @@
 // Price-oracle fixture shared by the TS/Clang and VirtualNode/WAMR parity tests.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct OracleProbe2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct OracleProbe : public ContractBase
 {
     struct StateData
     {

@@ -1,11 +1,11 @@
 // Context-read fixture: qpi.getEntity (balance), qpi.arbitrator, qpi.queryFeeReserve.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct Probe2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Probe : public ContractBase
 {
     struct StateData
     {

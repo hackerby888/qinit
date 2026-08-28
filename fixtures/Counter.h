@@ -2,11 +2,11 @@
 // qpi.h + the Wasm SDK headers. Exercises: state.mut/get, register, INITIALIZE.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct Counter2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Counter : public ContractBase
 {
     struct StateData
     {

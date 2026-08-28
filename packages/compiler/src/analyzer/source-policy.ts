@@ -43,9 +43,48 @@ export function analyzeQpiPolicy(source: string, registrations?: readonly Contra
         ...localDiagnostics(source, tokens, entries),
         ...localsFormDiagnostics(tokens, entries),
         ...idlDiagnostics(tokens, entries, registrations, idl),
+        ...contractNameDiagnostics(tokens),
     ];
 
     return diagnostics.sort(compareDiagnostics);
+}
+
+// Core wraps every contract include in `#define CONTRACT_STATE_TYPE <Name>` / `#undef`, so a struct that
+// names itself with the macro compiles there — but it has no name of its own. Read on its own, by clangd
+// or a reviewer, the struct is literally `CONTRACT_STATE_TYPE` and nothing can refer to it: another
+// contract's `RANDOM::BuyEntropy_input` only resolves because RANDOM declares its own name. All 36 core
+// contracts do. Advisory, because Qinit defines the macro too and the contract still builds here.
+function contractNameDiagnostics(tokens: readonly Token[]): SourceAnalysisDiagnostic[] {
+    const diagnostics: SourceAnalysisDiagnostic[] = [];
+
+    for (let index = 0; index < tokens.length; index++) {
+        if (tokens[index].kind !== TokenKind.KW_STRUCT && tokens[index].kind !== TokenKind.KW_CLASS) {
+            continue;
+        }
+        const name = tokens[index + 1];
+        if (name?.kind !== TokenKind.IDENTIFIER || (name.text !== "CONTRACT_STATE_TYPE" && name.text !== "CONTRACT_STATE2_TYPE")) {
+            continue;
+        }
+
+        for (let cursor = index + 2; cursor < tokens.length; cursor++) {
+            const token = tokens[cursor];
+            if (token.kind === TokenKind.L_BRACE || token.kind === TokenKind.SEMICOLON) {
+                break;
+            }
+            if (token.kind === TokenKind.IDENTIFIER && token.text === "ContractBase") {
+                diagnostics.push(
+                    diagnostic(
+                        "qpi/macro-contract-name",
+                        `Name the contract struct after the contract (\`struct MyToken : public ContractBase\`) rather than the \`${name.text}\` macro — core defines that macro around the include, so the struct has no name of its own outside it.`,
+                        name.span,
+                    ),
+                );
+                break;
+            }
+        }
+    }
+
+    return diagnostics;
 }
 
 export function detectQpiContractName(source: string): string | undefined {
@@ -404,7 +443,10 @@ function forbiddenAbiTypes(type: AbiType): string[] {
             return [];
         case AbiTypeKind.STRUCT:
             // A container the IDL could not resolve into its own kind still carries its C++ name.
-            return [...(FORBIDDEN_PUBLIC_TYPE_NAMES.has(type.name ?? "") ? [type.name!] : []), ...type.fields.flatMap((field) => forbiddenAbiTypes(field.type))];
+            return [
+                ...(FORBIDDEN_PUBLIC_TYPE_NAMES.has(type.name ?? "") ? [type.name!] : []),
+                ...type.fields.flatMap((field) => forbiddenAbiTypes(field.type)),
+            ];
         case AbiTypeKind.COLLECTION:
             return ["Collection", ...forbiddenAbiTypes(type.value)];
         case AbiTypeKind.HASH_MAP:

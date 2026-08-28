@@ -8,7 +8,7 @@ import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
 const SOURCE = `
 using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct RichIdl : public ContractBase {
   enum class Event : uint8 { Started = 2, Finished };
 
   struct Payload {
@@ -101,7 +101,7 @@ test("analyzer and compiler publish the same authoritative v4 IDL", async () => 
 test("emits exact scalar, array, and struct alias roots", () => {
     const source = `
 using namespace QPI;
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct AliasRoots : public ContractBase {
   struct Payload {
     uint16 code;
     uint64 amount;
@@ -203,7 +203,7 @@ test("emits rare scalar, enum, array, and migration ABI types", () => {
     const source = `
 using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct RareAbiTypes : public ContractBase {
   enum Plain { PlainValue = 1 };
   enum class Tiny : uint8 { TinyValue = 2 };
   enum class Wide : uint64 { WideValue = 3 };
@@ -424,7 +424,7 @@ struct Box {
   typedef typename Selector<Flag>::type Value;
   Array<Value, 2> values;
 };
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct DependentAbiType : public ContractBase {
   struct StateData {};
   struct Read_input {};
   typedef Box<false> Read_output;
@@ -461,7 +461,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 test("uses semantic registration constants for IDL and policy checks", () => {
     const source = `
 using namespace QPI;
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct NamedRegistration : public ContractBase {
   static constexpr uint64 READ_INDEX = 7;
   struct Read_input {};
   struct Read_output {};
@@ -483,7 +483,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 test("keeps hexadecimal registration indices distinct", () => {
     const source = `
 using namespace QPI;
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct HexRegistrations : public ContractBase {
   struct Read_input {};
   struct Read_output {};
   struct Other_input {};
@@ -508,7 +508,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 test("rejects registration constants with unresolved dependencies", () => {
     const source = `
 using namespace QPI;
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct InvalidRegistration : public ContractBase {
   static constexpr uint64 READ_INDEX = MISSING_INDEX + 1;
   struct Read_input {};
   struct Read_output {};
@@ -539,7 +539,7 @@ namespace BuildTestOI {
 }`;
     const source = `
 using namespace QPI;
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct OracleUser : public ContractBase {
   struct Ask_input {
     BuildTestOI::Price::OracleQuery price;
     BuildTestOI::Mock::OracleQuery mock;
@@ -564,7 +564,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 test("keeps same-named nested array element layouts distinct", () => {
     const source = `
 using namespace QPI;
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct NestedArrays : public ContractBase {
   struct Smaller_input {};
   struct Smaller_output {
     struct Order {
@@ -640,7 +640,7 @@ template <typename T, uint64 L>
 struct FixedValues {
   Array<T, L> values;
 };
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct GenericLayout : public ContractBase {
   struct StateData {
     FixedValues<uint16, 4> fixed;
   };
@@ -668,7 +668,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 test("does not publish IDL when layout analysis reports an error", () => {
     const source = `
 using namespace QPI;
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct InvalidLayout : public ContractBase {
   struct StateData { Array<uint64, UNKNOWN_CAPACITY> values; };
   struct Read_input {};
   struct Read_output {};
@@ -690,7 +690,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 test("rejects positive array lengths containing unresolved constants", () => {
     const source = `
 using namespace QPI;
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct InvalidExpressionLayout : public ContractBase {
   struct StateData {
     Array<uint64, UNKNOWN_CAPACITY + 1> values;
   };
@@ -772,7 +772,7 @@ struct Contract : public ContractBase {
 test("compileContract rejects LinkedList throughout registered entry ABIs", async () => {
     const source = `
 using namespace QPI;
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct LinkedListAbi : public ContractBase {
   struct StateData {};
   typedef LinkedList<uint64, 8> Direct_input;
   typedef LinkedList<uint64, 8> Direct_output;
@@ -812,7 +812,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 test("compileContract rejects the other stateful containers in registered entry ABIs", async () => {
     const source = `
 using namespace QPI;
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct ComplexAbi : public ContractBase {
   struct StateData {};
   struct Map_input { HashMap<id, uint64, 8> entries; };
   struct Map_output { HashMap<id, uint64, 8> entries; };
@@ -859,7 +859,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 test("compileContract keeps BitArray registered entry ABIs valid", async () => {
     const source = `
 using namespace QPI;
-struct CONTRACT_STATE_TYPE : public ContractBase {
+struct BitArrayAbi : public ContractBase {
   struct StateData {};
   typedef BitArray<128> Bits_input;
   typedef BitArray<128> Bits_output;

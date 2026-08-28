@@ -2,9 +2,9 @@
 // digest used by its dispatch so the same call can be replayed under Sim.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE {};
+struct RandomDual2 {};
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct RandomDual : public ContractBase
 {
     struct StateData
     {

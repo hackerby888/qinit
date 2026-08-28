@@ -1,11 +1,11 @@
 // Exercises asset issuance, share queries and transfers, and identity iteration.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct Token2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Token : public ContractBase
 {
     struct StateData
     {

@@ -2,11 +2,11 @@
 // Records the incoming amount (proves a sysproc WITH input marshalling runs on-chain). GetLast reads it.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct ShareProbe2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct ShareProbe : public ContractBase
 {
     struct StateData
     {

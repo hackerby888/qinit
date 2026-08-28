@@ -1,11 +1,11 @@
 // Uses markers at both ends of a 64 MiB state to exercise large-state allocation and access.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct BigState2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct BigState : public ContractBase
 {
     struct StateData
     {

@@ -2,11 +2,11 @@
 // contract. Issues its own asset, then Acquire calls acquireShares so the wasm->lhost->host path is exercised.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct ShareManager2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct ShareManager : public ContractBase
 {
     struct StateData
     {

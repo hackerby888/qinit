@@ -2,11 +2,11 @@
 // wasm contract's INITIALIZE ran (not zero-init). Inc proves the procedure path still works on top.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct InitProbe2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct InitProbe : public ContractBase
 {
     struct StateData
     {

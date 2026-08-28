@@ -2,11 +2,11 @@
 // pays amountPerShare * NUMBER_OF_COMPUTORS out of the contract balance (true on success, false if short).
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct Dividend2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Dividend : public ContractBase
 {
     struct StateData
     {

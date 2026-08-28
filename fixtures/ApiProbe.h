@@ -2,11 +2,11 @@
 // oracle-status ops) so the build proves each lhost import resolves on the contract side.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct ApiProbe2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct ApiProbe : public ContractBase
 {
     struct StateData
     {

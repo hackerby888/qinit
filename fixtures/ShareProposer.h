@@ -2,11 +2,11 @@
 // marker byte in the 1024-byte proposal buffer — triggers the target's SET_SHAREHOLDER_PROPOSAL callback.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct ShareProposer2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct ShareProposer : public ContractBase
 {
     struct StateData
     {

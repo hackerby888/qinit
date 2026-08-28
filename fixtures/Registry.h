@@ -2,11 +2,11 @@
 // Array output, struct output, scalar input. Deployed to a LITEDYN slot.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct Registry2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Registry : public ContractBase
 {
     struct StateData
     {

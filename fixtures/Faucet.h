@@ -2,11 +2,11 @@
 // own balance to `dest`. The invoking tx's amount funds the contract (invocationReward).
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct Faucet2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Faucet : public ContractBase
 {
     struct StateData
     {

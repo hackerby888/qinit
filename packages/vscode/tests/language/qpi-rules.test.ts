@@ -195,3 +195,16 @@ test("lifecycle hooks: stack-local detection + the _WITH_LOCALS hint both cover 
         [],
     );
 });
+
+// Core wraps every contract include in `#define CONTRACT_STATE_TYPE <Name>` / `#undef`, so a struct that
+// names itself with the macro compiles inside core but has no name of its own anywhere else — clangd, a
+// reviewer, and another contract's `RANDOM::BuyEntropy_input` all need the real one.
+test("the contract struct has to carry its own name, not core's macro", () => {
+    expect(rulesOf("struct CONTRACT_STATE_TYPE : public ContractBase { };")).toContain("qpi/macro-contract-name");
+    expect(rulesOf("struct CONTRACT_STATE2_TYPE : public ContractBase { };")).toContain("qpi/macro-contract-name");
+    expect(rulesOf("struct MyToken : public ContractBase { };")).not.toContain("qpi/macro-contract-name");
+
+    // Only the contract struct — a plain struct that happens to carry the name is core's own second
+    // state type, declared without a base, and is left alone.
+    expect(rulesOf("struct CONTRACT_STATE2_TYPE { };")).not.toContain("qpi/macro-contract-name");
+});

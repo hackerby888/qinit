@@ -2,11 +2,11 @@
 // size (so `marker` names at the right offset). Bump writes marker; Get reads it.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct DbgMap2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct DbgMap : public ContractBase
 {
     struct StateData
     {

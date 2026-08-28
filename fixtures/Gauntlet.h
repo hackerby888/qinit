@@ -1,11 +1,11 @@
 // Exercises QPI arithmetic edge cases beyond the counter fixtures, including zero divisors and wrapping.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct Gauntlet2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Gauntlet : public ContractBase
 {
     struct StateData
     {

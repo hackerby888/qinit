@@ -10,9 +10,9 @@ struct QpiDualLowBitHash
     }
 };
 
-struct CONTRACT_STATE2_TYPE {};
+struct QpiDual2 {};
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct QpiDual : public ContractBase
 {
     struct StateData
     {

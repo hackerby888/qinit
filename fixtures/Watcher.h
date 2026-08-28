@@ -1,11 +1,11 @@
 // Regular-tx fixture: reads an account's spectrum balance via qpi.getEntity (balance = incoming - outgoing).
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct Watcher2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct Watcher : public ContractBase
 {
     struct StateData
     {

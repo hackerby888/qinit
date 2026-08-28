@@ -2,11 +2,11 @@
 // decodes it logically (per-PoV, priority order). Cnt returns the total population.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct DbgColl2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct DbgColl : public ContractBase
 {
     struct StateData
     {

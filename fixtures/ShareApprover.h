@@ -1,11 +1,11 @@
 // Approves share-management releases and acquisitions, with a configurable release fee.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct ShareApprover2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct ShareApprover : public ContractBase
 {
     struct StateData
     {

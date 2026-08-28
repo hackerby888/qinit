@@ -2,11 +2,11 @@
 // exercises the overflow path and the fallback to snapshot diffing.
 using namespace QPI;
 
-struct CONTRACT_STATE2_TYPE
+struct WideWrite2
 {
 };
 
-struct CONTRACT_STATE_TYPE : public ContractBase
+struct WideWrite : public ContractBase
 {
     struct StateData
     {
