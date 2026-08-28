@@ -123,12 +123,3 @@ export function emitConstruct(context: FunctionEmissionContext, dstAddr: string,
     }
     return true;
 }
-// Materialize a 256-bit id/m256i from up to four 64-bit limb expressions into scratch; returns its addr.
-export function materializeId(context: FunctionEmissionContext, limbs: Expression[]): string {
-    const size = context.lowering.allocateScratchSlotNode(context, 32);
-    for (let index = 0; index < 4; index++) {
-        const value = limbs[index] ? context.lowering.lowerValueExpression(context, limbs[index]) : watIr.i64Constant(0);
-        context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, watIr.addressWithOffset(size, index * 8), value))}`);
-    }
-    return watIr.serializeWatNode(size);
-}
