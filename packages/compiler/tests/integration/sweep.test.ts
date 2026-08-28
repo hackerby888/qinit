@@ -50,10 +50,13 @@ const LINKED_DEPENDENCIES: Record<string, string[]> = {
     QIP: ["QX"],
     QThirtyFour: ["RANDOM", "RL", "QRP"],
     QReservePool: ["RANDOM", "RL"],
+    QRaffle: ["RANDOM"],
     RandomLottery: ["RANDOM"],
     Pulse: ["RANDOM", "RL", "QRP", "QTF", "QX"],
     Nostromo: ["QX"],
 };
+
+const INTER_CONTRACT_CALL = /(?:INVOKE|CALL)_OTHER_CONTRACT_(?:PROCEDURE|FUNCTION)\s*\(\s*([A-Za-z_]\w*)/g;
 
 function structName(src: string): string {
     const m = src.match(/struct\s+(\w+)\s*:\s*public\s+ContractBase/);
@@ -98,6 +101,17 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
     const src = readFileSync(path, "utf8");
     const name = structName(src);
     const dependencyNames = LINKED_DEPENDENCIES[displayName] ?? [];
+
+    // The macro names its callee literally, so a table entry that has fallen behind the contract is
+    // detectable here. Without this it surfaces as a pile of "unsupported" diagnostics pointing at the
+    // contract's own source, when the fault is a missing line in this file.
+    const undeclared = [...new Set(Array.from(src.matchAll(INTER_CONTRACT_CALL), (match) => match[1]))].filter((callee) => !dependencyNames.includes(callee));
+    if (undeclared.length) {
+        row.parse = "DEPS";
+        row.errors.push(`calls ${undeclared.join(", ")}, absent from LINKED_DEPENDENCIES['${displayName}']`);
+        return row;
+    }
+
     const dependencyResults: CompileResult[] = [];
 
     let r;
@@ -217,52 +231,56 @@ beforeAll(async () => {
     await initK12();
 });
 
-test.skipIf(!HAS_CORE)("conformance sweep — fixtures + system contracts", async () => {
-    const rows: Row[] = [];
+test.skipIf(!HAS_CORE)(
+    "conformance sweep — fixtures + system contracts",
+    async () => {
+        const rows: Row[] = [];
 
-    const declaredTargets = new Set([
-        ...FIXTURE_FILES.map((file) => file.replace(".h", "")),
-        ...SYSTEM_CONTRACTS().map((contract) => contract.file.replace(".h", "")),
-    ]);
-    expect(Object.keys(LINKED_DEPENDENCIES).filter((name) => !declaredTargets.has(name))).toEqual([]);
-    expect(
-        Object.values(LINKED_DEPENDENCIES)
-            .flat()
-            .filter((name) => !(name in DEPENDENCIES)),
-    ).toEqual([]);
+        const declaredTargets = new Set([
+            ...FIXTURE_FILES.map((file) => file.replace(".h", "")),
+            ...SYSTEM_CONTRACTS().map((contract) => contract.file.replace(".h", "")),
+        ]);
+        expect(Object.keys(LINKED_DEPENDENCIES).filter((name) => !declaredTargets.has(name))).toEqual([]);
+        expect(
+            Object.values(LINKED_DEPENDENCIES)
+                .flat()
+                .filter((name) => !(name in DEPENDENCIES)),
+        ).toEqual([]);
 
-    for (const f of FIXTURE_FILES) {
-        rows.push(await sweepOne(join(FIXTURES, f), f.replace(".h", "")));
-    }
-    rows.push({ name: "---", parse: "---", wasm: "---", load: "---", state: "---", errors: [] });
-    for (const contract of SYSTEM_CONTRACTS()) {
-        rows.push(await sweepOne(join(SYSTEM, contract.file), contract.file.replace(".h", "")));
-    }
+        for (const f of FIXTURE_FILES) {
+            rows.push(await sweepOne(join(FIXTURES, f), f.replace(".h", "")));
+        }
+        rows.push({ name: "---", parse: "---", wasm: "---", load: "---", state: "---", errors: [] });
+        for (const contract of SYSTEM_CONTRACTS()) {
+            rows.push(await sweepOne(join(SYSTEM, contract.file), contract.file.replace(".h", "")));
+        }
 
-    const pad = (s: string, n: number) => s.padEnd(n);
-    console.log("\n" + pad("CONTRACT", 22) + pad("PARSE", 10) + pad("WASM", 10) + pad("LOAD", 8) + "STATE");
-    console.log("-".repeat(62));
-    for (const r of rows) {
-        console.log(pad(r.name, 22) + pad(r.parse, 10) + pad(r.wasm, 10) + pad(r.load, 8) + r.state);
-    }
+        const pad = (s: string, n: number) => s.padEnd(n);
+        console.log("\n" + pad("CONTRACT", 22) + pad("PARSE", 10) + pad("WASM", 10) + pad("LOAD", 8) + "STATE");
+        console.log("-".repeat(62));
+        for (const r of rows) {
+            console.log(pad(r.name, 22) + pad(r.parse, 10) + pad(r.wasm, 10) + pad(r.load, 8) + r.state);
+        }
 
-    const real = rows.filter((r) => r.name !== "---");
-    const parsed = real.filter((r) => r.parse === "ok").length;
-    const wasmd = real.filter((r) => r.wasm.endsWith("b")).length;
-    const loaded = real.filter((r) => r.load === "ok").length;
-    const failures = real.filter((row) => row.parse !== "ok" || !row.wasm.endsWith("b") || row.load !== "ok");
-    const failureReport = failures.map((row) => `${row.name}: ${row.errors.join("; ") || `${row.parse}/${row.wasm}/${row.load}`}`).join("\n");
-    console.log("-".repeat(62));
-    console.log(`TOTAL ${real.length}  ·  parsed ${parsed}  ·  wasm ${wasmd}  ·  engine-loaded ${loaded}\n`);
+        const real = rows.filter((r) => r.name !== "---");
+        const parsed = real.filter((r) => r.parse === "ok").length;
+        const wasmd = real.filter((r) => r.wasm.endsWith("b")).length;
+        const loaded = real.filter((r) => r.load === "ok").length;
+        const failures = real.filter((row) => row.parse !== "ok" || !row.wasm.endsWith("b") || row.load !== "ok");
+        const failureReport = failures.map((row) => `${row.name}: ${row.errors.join("; ") || `${row.parse}/${row.wasm}/${row.load}`}`).join("\n");
+        console.log("-".repeat(62));
+        console.log(`TOTAL ${real.length}  ·  parsed ${parsed}  ·  wasm ${wasmd}  ·  engine-loaded ${loaded}\n`);
 
-    // Dependency-aware coverage is deterministic, so drift is now a gating failure rather than a table-only measurement.
-    expect(
-        failures.map((row) => row.name),
-        failureReport,
-    ).toEqual([]);
-    expect({ parsed, wasmd, loaded }).toEqual({
-        parsed: real.length,
-        wasmd: real.length,
-        loaded: real.length,
-    });
-}, 30_000);
+        // Dependency-aware coverage is deterministic, so drift is now a gating failure rather than a table-only measurement.
+        expect(
+            failures.map((row) => row.name),
+            failureReport,
+        ).toEqual([]);
+        expect({ parsed, wasmd, loaded }).toEqual({
+            parsed: real.length,
+            wasmd: real.length,
+            loaded: real.length,
+        });
+    },
+    30_000,
+);
