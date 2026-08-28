@@ -14,7 +14,10 @@ import {
 } from "../support/container-harness";
 import { toolchainTest, wamrToolchain, wasiToolchain } from "../support/container-toolchains";
 
-const ENABLED = process.env.QINIT_CONTAINER_PARITY === "1";
+// On by default: the toolchain probes below already skip each test whose compiler or runtime is absent,
+// so this only ever needs to be turned off deliberately (QINIT_CONTAINER_PARITY=0). It ran as a
+// permanent skip for as long as the WAMR probe missed core-lite's build-wasm directory.
+const ENABLED = process.env.QINIT_CONTAINER_PARITY !== "0";
 const SEEDS = Number(process.env.QINIT_CONTAINER_SEEDS ?? 4);
 const SEED_START = Number(process.env.QINIT_CONTAINER_SEED_START ?? 0);
 const SEED_END = SEED_START + SEEDS - 1;

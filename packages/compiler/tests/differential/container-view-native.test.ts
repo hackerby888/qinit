@@ -8,7 +8,9 @@ import { CONTAINER_FIXTURES } from "../support/container-fixtures";
 import { CONTAINER_SLOT, compileClangFixture, decodeWords, executeWamr } from "../support/container-harness";
 import { toolchainTest, wamrToolchain, wasiToolchain } from "../support/container-toolchains";
 
-const ENABLED = process.env.QINIT_CONTAINER_PARITY === "1";
+// Same switch as container-parity: on unless deliberately disabled, because the toolchain probe below
+// already skips when WASI or WAMR is missing.
+const ENABLED = process.env.QINIT_CONTAINER_PARITY !== "0";
 const CHECKPOINT_OPERATIONS: Record<string, number> = {
     Array: 12,
     BitArray: 14,

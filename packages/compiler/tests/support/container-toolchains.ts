@@ -30,8 +30,11 @@ export function wasiToolchain(): ToolchainStatus {
 
 export function wamrToolchain(corePath: string): ToolchainStatus {
     const configured = process.env.QINIT_WAMR_GTEST?.trim();
+    // build-wasm is where core-lite's own wasm test target lands by default; it was missing here while
+    // cross-host.test.ts did look for it, so the matrix reported "no WAMR" on machines that had one.
     const candidates = [
         configured,
+        join(corePath, "build-wasm", "test", "qubic_wasm_tests"),
         join(corePath, "build-wtests", "test", "qubic_wasm_tests"),
         join(corePath, "build-container-parity", "test", "qubic_wasm_tests"),
     ].filter((candidate): candidate is string => Boolean(candidate));
