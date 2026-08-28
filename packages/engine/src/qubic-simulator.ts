@@ -83,10 +83,14 @@ export class EngineFaultedError extends Error {
 // Bounds the undrained pruned-transaction backlog; the transport drains far below this every tick.
 const MAX_PRUNED_TRANSACTION_IDS = 100_000;
 
+// Ticks per epoch on the live network. A shorter one is how a test or the IDE reaches END_EPOCH without
+// ticking three thousand times; 0 turns the rollover off entirely.
+export const DEFAULT_EPOCH_LENGTH = 3000;
+
 export class QubicSimulator {
     currentTick = 0;
     currentEpoch = 0;
-    epochLength = 3000;
+    epochLength: number;
     host: HostServices;
     onLog?: LogSink;
     private registry: ContractRegistry;
@@ -127,9 +131,11 @@ export class QubicSimulator {
             liteTicking?: boolean;
             logStore?: QubicLogStore;
             historyTicks?: number;
+            epochLength?: number;
         } = {},
     ) {
         this.mempoolMode = options.mempool ?? false;
+        this.epochLength = Math.max(0, Math.trunc(options.epochLength ?? DEFAULT_EPOCH_LENGTH));
         this.historyTicks = Math.max(1, Math.trunc(options.historyTicks ?? DEFAULT_TICK_HISTORY));
         this.fees = new FeeManager(options.fees ?? "off", options.defaultReserve);
         this.logStore = options.logStore;
@@ -1029,7 +1035,14 @@ export class QubicSimulator {
 
     // Runs the user procedure only. Each caller fires POST_INCOMING_TRANSFER for the reward beforehand, because
     // core resets the action tracker here and money moved by the callback must not count towards moneyFlew.
-    private processTickTransactionContractProcedure(slot: number, inputType: number, input: Uint8Array, invocator: Id, originator: Id, reward: bigint): Uint8Array {
+    private processTickTransactionContractProcedure(
+        slot: number,
+        inputType: number,
+        input: Uint8Array,
+        invocator: Id,
+        originator: Id,
+        reward: bigint,
+    ): Uint8Array {
         const contract = this.contracts.get(slot)!;
 
         return this.registry.fire(contract, CONTRACT_ENTRY_KIND.PROCEDURE, inputType, input, {

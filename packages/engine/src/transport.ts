@@ -59,6 +59,7 @@ export interface VirtualNodeOptions {
     liteTicking?: boolean;
     historyTicks?: number;
     maxLogBytes?: number;
+    epochLength?: number;
 }
 
 export class VirtualNode implements NodeTransport {
@@ -101,6 +102,7 @@ export class VirtualNode implements NodeTransport {
             liteTicking: options.liteTicking,
             logStore: this.logger,
             historyTicks: options.historyTicks,
+            epochLength: options.epochLength,
         });
         this.slotBase = options.slotBase ?? DEFAULT_WASM_SLOT_LAYOUT.slotBase;
         this.slotCount = options.slotCount ?? DEFAULT_WASM_SLOT_LAYOUT.slotCount;

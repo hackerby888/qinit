@@ -3,7 +3,7 @@
 export { Contract, CONTRACT_ENTRY_KIND, ContractAbort } from "./contract/runtime";
 export type { HostServices } from "./contract/runtime";
 export { SYSTEM_PROCEDURES } from "@qinit/core";
-export { EngineFaultedError, QubicSimulator } from "./qubic-simulator";
+export { DEFAULT_EPOCH_LENGTH, EngineFaultedError, QubicSimulator } from "./qubic-simulator";
 export type { TickRecord } from "./qubic-simulator";
 export type { EngineFaultInfo } from "@qinit/core";
 export { runContractTesting } from "./gtest";

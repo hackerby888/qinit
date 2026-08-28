@@ -2,7 +2,8 @@
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/support/k12";
-import { QubicSimulator } from "../../src/qubic-simulator";
+import { DEFAULT_EPOCH_LENGTH, QubicSimulator } from "../../src/qubic-simulator";
+import { VirtualNode } from "../../src/transport";
 
 const GET = 1; // REGISTER_USER_FUNCTION(Get, 1)
 
@@ -61,4 +62,34 @@ test("crossing an epoch boundary fires END_EPOCH then BEGIN_EPOCH", async () => 
     expect(endticks).toBe(20n);
     expect(epochs).toBe(2n); // BEGIN_EPOCH fired at tick 10 and tick 20
     expect(endepochs).toBe(2n); // END_EPOCH likewise
+});
+
+// epochLength was only reachable by assigning the field after construction, which a caller that rebuilds
+// the node — the IDE's reset does — silently loses. These pin it as an option on both entry points.
+test("epochLength is a constructor option on the simulator and the node", async () => {
+    await initK12();
+    expect(new QubicSimulator().epochLength).toBe(DEFAULT_EPOCH_LENGTH);
+    expect(new QubicSimulator({ epochLength: 25 }).epochLength).toBe(25);
+    expect((await VirtualNode.create({ epochLength: 25 })).sim.epochLength).toBe(25);
+
+    // 0 keeps its existing meaning — the rollover never fires — and a fractional or negative value
+    // would put the modulo check at line 1002 into a state no tick could satisfy.
+    expect(new QubicSimulator({ epochLength: 0 }).epochLength).toBe(0);
+    expect(new QubicSimulator({ epochLength: -5 }).epochLength).toBe(0);
+    expect(new QubicSimulator({ epochLength: 7.9 }).epochLength).toBe(7);
+});
+
+test("a node built with a short epoch rolls over at that length", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ epochLength: 4 });
+    sim.deploy(28, await wasm("Hooks"));
+
+    for (let i = 0; i < 8; i++) {
+        sim.advance();
+    }
+    expect(sim.currentTick).toBe(8);
+    expect(sim.currentEpoch).toBe(2); // boundaries at ticks 4 and 8
+    const [, , epochs, endepochs] = counters(sim);
+    expect(epochs).toBe(2n);
+    expect(endepochs).toBe(2n);
 });
