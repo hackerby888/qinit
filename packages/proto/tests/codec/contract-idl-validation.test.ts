@@ -161,3 +161,31 @@ test("a 300-deep type chain parses without special handling", () => {
     expect(validated(structs)).toMatchObject({ size: 1, align: 1 });
     expect(validated(arrays)).toMatchObject({ size: 1, align: 1 });
 });
+
+// The rest of this file covers malformed input *shapes* — bad enum keys, non-slot file keys, wrong
+// migration sizes. What it missed is the validator's *recomputation consistency*: the IDL carries a
+// redundant size and align beside each type, and the validator recomputes both from the field tree and
+// rejects a disagreement. A mutation sweep removed each of those two checks and nothing failed.
+//
+// The consequence is not cosmetic. Unlike `format`, which parseContractIdl overwrites with its own
+// computation, a field's `size` is *kept* — so an IDL claiming a uint64 field is 999 bytes is believed,
+// and every field after it reads at the wrong offset.
+test("a field size that disagrees with its type is rejected, not believed", () => {
+    const good = contractIdl(named(["counter", u64], ["flag", u8]) as AbiStruct) as Record<string, unknown>;
+    expect(() => parseContractIdl(good)).not.toThrow();
+
+    const lying = JSON.parse(JSON.stringify(good));
+    lying.state.fields[0].size = 999;
+    expect(() => parseContractIdl(lying)).toThrow("size 999 does not match type size 8");
+});
+
+test("an alignment that is not a power of two is rejected", () => {
+    const good = contractIdl(st(u64) as AbiStruct) as Record<string, unknown>;
+    expect(() => parseContractIdl(good)).not.toThrow();
+
+    for (const align of [3, 6, 12]) {
+        const skewed = JSON.parse(JSON.stringify(good));
+        skewed.state.fields[0].type.align = align;
+        expect(() => parseContractIdl(skewed)).toThrow(`align ${align} must be a power of two`);
+    }
+});
