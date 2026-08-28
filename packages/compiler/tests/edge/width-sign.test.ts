@@ -129,7 +129,18 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     state.mut().result = (uint64)(locals.a + 3u);
   }
 
+  // uint128 is two 64-bit halves, low at offset 0. Swapping which half .low and .high read is a
+  // silent wrong number, and it was caught only by the differentials. Qswap's LiquidityInfo carries a
+  // uint128, so this is reachable from shipping contracts.
+  struct U128Halves_input {}; struct U128Halves_output {};
+  struct U128Halves_locals { uint128 v; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(U128Halves) {
+    locals.v = uint128(7, 3);
+    state.mut().result = locals.v.low * 1000 + locals.v.high;
+  }
+
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_PROCEDURE(U128Halves, 12);
     REGISTER_USER_PROCEDURE(MixedCompare, 10);
     REGISTER_USER_PROCEDURE(WrapToWide, 11);
     REGISTER_USER_PROCEDURE(Shifts, 9);
@@ -192,6 +203,8 @@ describe("width and signedness — no core checkout required", () => {
     // Nothing narrows this one on the way to a uint64 field, so the wrap must happen in the
     // arithmetic itself. This is the case that catches a missing wrapL.
     test("a 32-bit sum widened to 64 bits has already wrapped", () => expect(run(11)).toBe(BigInt.asUintN(32, 4294967295n + 3n)));
+    // uint128(high, low) per qpi.h's constructor order, so .low is 3 and .high is 7.
+    test("uint128 .low and .high read their own halves", () => expect(run(12)).toBe(3n * 1000n + 7n));
     test("left shift shifts, at 64-bit and 32-bit width", () =>
         expect(run(9)).toBe(BigInt.asUintN(64, 1n << 5n) + BigInt.asUintN(64, (1n << 63n) >> 60n) + BigInt.asUintN(32, 1n << 31n)));
 });
