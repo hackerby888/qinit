@@ -31,11 +31,14 @@ export function alignOfTypeB(programAnalysis: ProgramAnalysis, type: TypeSpec, t
 }
 
 export function alignOfNameType(programAnalysis: ProgramAnalysis, typeName: string, templateBindings: TemplateBindings): number {
-    const boundType = templateBindings.types.get(typeName);
+    // A namespace-qualified name reaches the same declaration as its bare spelling, and sizeOfType looks
+    // up both — align has to strip the qualifier the same way, or the two disagree about one field.
+    const baseName = typeName.includes("::") ? typeName.slice(typeName.lastIndexOf("::") + 2) : typeName;
+    const boundType = templateBindings.types.get(typeName) ?? templateBindings.types.get(baseName);
     if (boundType) return programAnalysis.alignOfTypeB(boundType, templateBindings);
-    const scalarSize = SCALAR_SIZE[typeName];
+    const scalarSize = SCALAR_SIZE[typeName] ?? SCALAR_SIZE[baseName];
     if (scalarSize !== undefined) return Math.min(scalarSize, 8);
-    const typedefType = programAnalysis.typedefs.get(typeName);
+    const typedefType = programAnalysis.typedefs.get(typeName) ?? programAnalysis.typedefs.get(baseName);
     if (typedefType) return programAnalysis.alignOfTypeB(typedefType, templateBindings);
     const resolvedStruct = programAnalysis.structByName(typeName, templateBindings);
     if (resolvedStruct) return programAnalysis.layoutOfStruct(resolvedStruct, templateBindings).align;
