@@ -24,6 +24,7 @@
         "test:sc:light": "bun run scripts/core-compat/test-system-gtests.ts --light",
         "test:sc:heavy": "bun run scripts/core-compat/test-system-gtests.ts --heavy",
         "test:sc:all": "bun run scripts/core-compat/test-system-gtests.ts --all",
+        "sweep:mutations": "bun run scripts/mutation-sweep.ts",
         "test:compiled": "bash scripts/release/check-compiled.sh",
         "test:node": "bash scripts/live-node/smoke-node.sh",
         "check:idl:native": "bun run scripts/core-compat/check-idl-native.ts",
