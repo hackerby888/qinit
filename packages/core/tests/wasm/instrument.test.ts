@@ -7,12 +7,13 @@ import {
     InstrumentError,
     JOURNAL_RESET_EXPORT,
     capacityBlocksFor,
+    capacityFittingRegion,
     instrumentStateJournal,
     journalBytesFor,
     remapCodeOffset,
     tableSlotsFor,
 } from "../../src/wasm/instrument";
-import { JOURNAL_BLOCK_BYTES, JOURNAL_SLOT_BYTES } from "../../src/wasm/journal";
+import { JOURNAL_BLOCK_BYTES, JOURNAL_ENTRY_BYTES, JOURNAL_HEADER_BYTES, JOURNAL_SLOT_BYTES } from "../../src/wasm/journal";
 import { DEFAULT_JOURNAL_CAP_BYTES, JOURNAL_REGION_BYTES } from "../../src/wasm/sizing";
 
 /**
@@ -88,6 +89,25 @@ test("journal size follows capacity, not state size", () => {
     // The table is a power of two and never more than half full, so a probe always finds a free slot.
     expect(tableSlotsFor(huge)).toBeGreaterThanOrEqual(huge * 2);
     expect(tableSlotsFor(huge) & (tableSlotsFor(huge) - 1)).toBe(0);
+});
+
+// The bound above is one-sided and adds the probe-table term itself, so a journalBytesFor that left
+// the table out stayed under it. Pin the three parts instead.
+test("journalBytesFor counts header, probe table and entries", () => {
+    for (const blocks of [1, 1000, 258_110]) {
+        expect(journalBytesFor(blocks)).toBe(JOURNAL_HEADER_BYTES + tableSlotsFor(blocks) * JOURNAL_SLOT_BYTES + blocks * JOURNAL_ENTRY_BYTES);
+    }
+});
+
+// capacityFittingRegion had no test at all. It is the last thing between a large-state contract and a
+// journal that runs off the end of its reserved region, so what matters is that its answer always fits.
+test("capacityFittingRegion returns a capacity that fits the reserved region", () => {
+    for (const blocks of [1, 1000, 258_110, 1_000_000]) {
+        const fitted = capacityFittingRegion(blocks);
+        expect(fitted).toBeGreaterThanOrEqual(1);
+        expect(fitted).toBeLessThanOrEqual(blocks);
+        expect(journalBytesFor(fitted)).toBeLessThanOrEqual(JOURNAL_REGION_BYTES);
+    }
 });
 
 // Trap backtraces symbolize through a line map built from the pristine module, so the offsets it

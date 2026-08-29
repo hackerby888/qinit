@@ -48,4 +48,10 @@ test("contractIndexFromIdentity: decodes contract addresses, rejects everything 
     // A real entity identity has non-zero high chunks.
     expect(contractIndexFromIdentity(await bytesToIdentity(bytes(PUB)))).toBeNull();
     expect(contractIndexFromIdentity("TOOSHORT")).toBeNull();
+
+    // PUB differs from a contract address at many positions at once, so it never pins where the
+    // all-zero-chunk scan ends. Position 55 is the last char of chunk 3, and the only one that does.
+    const lastHighChar = "B" + "A".repeat(54) + "B" + "AAAA";
+    expect(lastHighChar).toHaveLength(60);
+    expect(contractIndexFromIdentity(lastHighChar)).toBeNull();
 });
