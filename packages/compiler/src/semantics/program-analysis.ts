@@ -56,6 +56,7 @@ export class ProgramAnalysis {
     constexprInit: Map<string, Expression> = new Map(); // named constexpr → its init expression
     constexprType: Map<string, TypeSpec> = new Map(); // named constexpr → declared scalar type
     enumConst: Map<string, bigint> = new Map(); // enum constant (NAME and Type::NAME) → value
+    checkedTemplateAsserts: Set<string> = new Set(); // template instantiations whose static_asserts already ran
     enumSize: Map<string, number> = new Map(); // enum type name → storage size from its underlying type (enum class X : uint8 → 1)
     enumUnderlying: Map<string, TypeSpec> = new Map(); // enum type name → declared underlying scalar type
     enumConstType: Map<string, TypeSpec> = new Map(); // enumerator name → its enum/underlying scalar type

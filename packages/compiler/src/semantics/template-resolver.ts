@@ -13,8 +13,7 @@ export function instantiateTemplate(
     b: TemplateBindings;
 } | null {
     const resolvedArguments = callArguments.map((argument) => programAnalysis.resolveType(argument, parent));
-    const templateDeclaration =
-        programAnalysis.templateByName(name);
+    const templateDeclaration = programAnalysis.templateByName(name);
     if (!templateDeclaration) return null;
     const specialization = programAnalysis.matchTemplateSpecialization(name, resolvedArguments, parent);
     if (specialization) return specialization;
@@ -135,13 +134,39 @@ export function layoutOfTemplate(programAnalysis: ProgramAnalysis, name: string,
     if (!inst) {
         return programAnalysis.fallbackTemplateLayout(name, resolved, parent);
     }
-    return programAnalysis.layoutOfMembers(
-        inst.templateDeclaration.members,
-        inst.b,
-        `${name}<${resolved.map((resolvedItem) => programAnalysis.typeKey(resolvedItem)).join(",")}>`,
-        false,
-        inst.templateDeclaration.bases,
-    );
+    const key = `${name}<${resolved.map((resolvedItem) => programAnalysis.typeKey(resolvedItem)).join(",")}>`;
+    checkTemplateStaticAsserts(programAnalysis, inst.templateDeclaration, inst.b, key);
+    return programAnalysis.layoutOfMembers(inst.templateDeclaration.members, inst.b, key, false, inst.templateDeclaration.bases);
+}
+
+// C++ evaluates a template's static_asserts when the template is instantiated, so a rule written in
+// qpi.h — `Array`'s power-of-two capacity, say — holds wherever the container is declared. Qinit only
+// checked the ones it rebuilt for the IDL, which left every container in a _locals struct unchecked.
+function checkTemplateStaticAsserts(programAnalysis: ProgramAnalysis, declaration: ClassTemplate, bindings: TemplateBindings, key: string): void {
+    if (programAnalysis.checkedTemplateAsserts.has(key)) {
+        return;
+    }
+    programAnalysis.checkedTemplateAsserts.add(key);
+
+    for (const member of declaration.members) {
+        if (member.kind !== AstKind.STATIC_ASSERT_DECL) {
+            continue;
+        }
+
+        let value: bigint;
+        try {
+            value = programAnalysis.evalConstBig(member.condition, bindings);
+        } catch {
+            // Not a constant under these bindings (sizeof and friends). C++ still folds it; we do not
+            // guess, so an assertion we cannot evaluate stays silent rather than firing wrongly.
+            continue;
+        }
+
+        if (value === 0n) {
+            const detail = member.message?.kind === AstKind.STRING_LITERAL ? `: ${member.message.value}` : "";
+            programAnalysis.error(`static assertion failed for ${key}${detail}`, member.span);
+        }
+    }
 }
 
 export function withLocalStructs(members: Declaration[], templateBindings: TemplateBindings): TemplateBindings {
