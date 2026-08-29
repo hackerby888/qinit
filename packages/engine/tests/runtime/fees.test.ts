@@ -75,4 +75,8 @@ test("queryFeeReserve: out-of-range contract index resolves to the caller's own 
     expect(f.queryFeeReserve(9, 12)).toBe(654n); // valid index -> that contract
     expect(f.queryFeeReserve(9, 0)).toBe(321n); // ci < 1 -> caller (9)
     expect(f.queryFeeReserve(9, 99999)).toBe(321n); // ci >= MAX_NUMBER_OF_CONTRACTS -> caller (9)
+
+    // 1 is the first in-range index, so it is the only value that separates `ci < 1` from `ci <= 1`.
+    f.setContractFeeReserve(1, 111n);
+    expect(f.queryFeeReserve(9, 1)).toBe(111n);
 });

@@ -75,6 +75,35 @@ test("decreaseEnergy never creates a record, and a negative amount is refused", 
     expect(spectrum.energy(spectrum.spectrumIndex(id(1)))).toBe(100n);
 });
 
+// The mirror of the case above. increaseEnergy takes an unvalidated amount straight from
+// QubicSimulator.fund, so a negative one would destroy Qu rather than create it.
+test("increaseEnergy refuses a negative amount", () => {
+    const { spectrum } = ledger();
+    const a = id(1);
+    spectrum.increaseEnergy(a, 100n);
+
+    spectrum.increaseEnergy(a, -1n);
+    expect(spectrum.energy(spectrum.spectrumIndex(a))).toBe(100n);
+    expect(spectrum.getEntity(a)!.numberOfIncomingTransfers).toBe(1);
+});
+
+// totalAmount is the explorer's circulatingSupply, and nothing else recomputes it — so a wrong sign
+// here is a wrong number on the API with no other symptom.
+test("totalAmount is the sum of balances, not of gross flows", () => {
+    const { spectrum } = ledger();
+    const a = id(1);
+    const b = id(2);
+    spectrum.increaseEnergy(a, 100n);
+    spectrum.increaseEnergy(b, 40n);
+    expect(spectrum.totalAmount()).toBe(140n);
+
+    // Moving Qu between two entities leaves the total alone: a's outgoing has to cancel b's incoming.
+    spectrum.decreaseEnergy(spectrum.spectrumIndex(a), 30n);
+    spectrum.increaseEnergy(b, 30n);
+    expect(spectrum.totalAmount()).toBe(140n);
+    expect(spectrum.energy(spectrum.spectrumIndex(a))).toBe(70n);
+});
+
 test("zero identity is not inserted into the spectrum", () => {
     const expectedDigest = toHex(ledger().spectrum.getSpectrumDigest());
     const { spectrum } = ledger();

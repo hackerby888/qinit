@@ -53,6 +53,27 @@ test("transfer to a user moves balance, no PIT; insufficient transfer is a no-op
     expect(sim.balanceOf(28)).toBe(70n);
 });
 
+// transfer() discards decreaseEnergy's return value and credits the destination regardless, so the
+// `remaining < 0` guard is the only thing standing between a contract and minting Qu. 1000 vs 70 is
+// far from that edge; one Qu over the balance is where a wrong comparison shows up.
+test("transfer at the balance boundary neither overdraws nor mints", async () => {
+    await initK12();
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("Vault"));
+    sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n });
+    const supply = sim.spectrumInfo().totalAmount;
+
+    expect(send(sim, 28, USER, 101n)).toBe(-1n); // one over -> refused, and nothing is credited
+    expect(sim.balanceOf(28)).toBe(100n);
+    expect(sim.balance(USER)).toBe(0n);
+    expect(sim.spectrumInfo().totalAmount).toBe(supply);
+
+    expect(send(sim, 28, USER, 100n)).toBe(0n); // exactly the balance -> allowed
+    expect(sim.balanceOf(28)).toBe(0n);
+    expect(sim.balance(USER)).toBe(100n);
+    expect(sim.spectrumInfo().totalAmount).toBe(supply);
+});
+
 test("transfer host events show eight chars from both ends of a Qubic identity", async () => {
     await initK12();
     const sim = new QubicSimulator();
