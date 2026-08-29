@@ -1,9 +1,19 @@
 // The validator branches the main contract-idl suite does not reach: enums, migration, the registry
 // file, entry metadata, and how deep a type tree may go before anything gives.
 import { expect, test } from "bun:test";
-import { AbiScalarKind, formatAbiType, parseContractIdl, parseContractIdlFile, type AbiStruct, type AbiType } from "../../src/contract-idl";
+import {
+    AbiScalarKind,
+    AbiTypeKind,
+    abiTypeContainsKind,
+    forbiddenPublicType,
+    formatAbiType,
+    parseContractIdl,
+    parseContractIdlFile,
+    type AbiStruct,
+    type AbiType,
+} from "../../src/contract-idl";
 import { hasOverlappingAbiType } from "../../src/abi-fmt";
-import { arr, contractIdl, hm, id, ll, named, st, u8, u64, validated } from "./abi-builders";
+import { arr, co, contractIdl, hm, hs, id, ll, named, st, u8, u64, validated } from "./abi-builders";
 
 const STATE = st(u64) as AbiStruct;
 const enumIdl = (underlying: string, members: unknown) => contractIdl(STATE, { enums: [{ name: "E", underlying, members }] as never });
@@ -188,4 +198,61 @@ test("an alignment that is not a power of two is rejected", () => {
         skewed.state.fields[0].type.align = align;
         expect(() => parseContractIdl(skewed)).toThrow(`align ${align} must be a power of two`);
     }
+});
+
+// A union whose widest member is not its last one: the struct's extent is the furthest field end, not the
+// end of whichever field happens to come last. With byte alignment there is no padding to hide the difference.
+test("a struct spans its furthest field, not its last one", () => {
+    const union: AbiStruct = {
+        kind: AbiTypeKind.STRUCT,
+        size: 16,
+        align: 1,
+        format: "",
+        fields: [
+            { name: "raw", offset: 0, size: 16, type: arr(u8, 16) },
+            { name: "tag", offset: 0, size: 1, type: u8 },
+        ],
+    };
+
+    expect(validated(union)).toMatchObject({ size: 16, align: 1 });
+    expect(hasOverlappingAbiType(validated(union))).toBe(true);
+
+    // Over-declaring the size names the extent the widest field reaches, not the end of the last one.
+    expect(() => parseContractIdl(contractIdl(st({ ...union, size: 32 }) as AbiStruct))).toThrow("IDL state field 0 type size 32 must be 16");
+});
+
+test("every count the IDL carries must be a real non-negative integer", () => {
+    const good = contractIdl(named(["counter", u64]) as AbiStruct) as Record<string, unknown>;
+    const NON_NEGATIVE = "must be a non-negative integer";
+    const skewed = (mutate: (idl: any) => void) => {
+        const copy = JSON.parse(JSON.stringify(good));
+        mutate(copy);
+        return () => parseContractIdl(copy);
+    };
+
+    expect(skewed((idl) => (idl.slot = -1))).toThrow(`IDL slot ${NON_NEGATIVE}`);
+    expect(skewed((idl) => (idl.sysprocMask = -1))).toThrow(`IDL sysprocMask ${NON_NEGATIVE}`);
+    expect(skewed((idl) => (idl.state.size = -16))).toThrow(`IDL state size ${NON_NEGATIVE}`);
+    expect(skewed((idl) => (idl.state.fields[0].offset = -8))).toThrow(`IDL state field 0 offset ${NON_NEGATIVE}`);
+    expect(skewed((idl) => (idl.state.fields[0].size = -8))).toThrow(`IDL state field 0 size ${NON_NEGATIVE}`);
+    expect(skewed((idl) => (idl.state.fields[0].type.align = -8))).toThrow(`IDL state field 0 type align ${NON_NEGATIVE}`);
+
+    // A fractional or unrepresentable count is refused by the same gate.
+    expect(skewed((idl) => (idl.slot = 1.5))).toThrow(`IDL slot ${NON_NEGATIVE}`);
+    expect(skewed((idl) => (idl.slot = 2 ** 53))).toThrow(`IDL slot ${NON_NEGATIVE}`);
+    expect(skewed((idl) => (idl.state.size = "16"))).toThrow(`IDL state size ${NON_NEGATIVE}`);
+});
+
+test("a forbidden container is reported wherever the type tree hides it, not just on the key side", () => {
+    const inMapValue = validated(hm(u64, co(u64, 2), 2));
+    const inMapKey = validated(hm(co(u64, 2), u64, 2));
+    const inArray = validated(arr(hs(u64, 2), 2));
+    const inStructField = validated(st(u64, ll(u64, 2)));
+
+    expect(abiTypeContainsKind(inMapValue, AbiTypeKind.COLLECTION)).toBe(true);
+    expect(forbiddenPublicType(inMapValue)).toBe("Collection");
+    expect(forbiddenPublicType(inMapKey)).toBe("Collection");
+    expect(forbiddenPublicType(inArray)).toBe("HashSet");
+    expect(forbiddenPublicType(inStructField)).toBe("LinkedList");
+    expect(forbiddenPublicType(validated(arr(st(u64, u8), 2)))).toBeUndefined();
 });

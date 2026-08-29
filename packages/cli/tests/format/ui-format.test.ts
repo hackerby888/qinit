@@ -1,7 +1,7 @@
 // Pure formatting helpers behind the explorer's stat tiles. fmtCompact is the interesting one: it has to
 // stay correct past 2^53, where Number-based scaling silently drifts.
 import { test, expect } from "bun:test";
-import { fmtCompact, truncMid, truncEnd } from "../../src/ui";
+import { fmtCompact, fmtMs, truncMid, truncEnd } from "../../src/ui";
 import { initialView, parseFindQuery } from "../../src/commands/deploy-interact/explorer";
 import { parseCommandInvocation } from "../../src/args";
 import { hintLines } from "../../src/commands/deploy-interact/explorer/chrome";
@@ -155,4 +155,39 @@ test("truncation helpers keep values inside a fixed cell width", () => {
     expect(truncMid("abcdefghij", 10)).toBe("abcdefghij");
     expect(truncMid("abcdefghij", 7).length).toBe(7);
     expect(truncMid("abcdefghij", 7)).toContain("…");
+});
+
+test("fmtCompact holds its unit at the widest one it has and normalises padded digits", () => {
+    // 22 digits is past the last unit's range, so the scale clamps rather than running off the table.
+    expect(fmtCompact("1" + "0".repeat(21))).toBe("1000.0 E");
+    expect(fmtCompact("9".repeat(24))).toBe("999999.9 E");
+
+    // A zero-padded amount reads as its value, and an all-zero one still reads as "0".
+    expect(fmtCompact("000")).toBe("0");
+    expect(fmtCompact("0000000000001000")).toBe("1.0 K");
+    expect(fmtCompact("-000")).toBe("-0");
+});
+
+test("truncation helpers put the ellipsis where the wider half of the value survives", () => {
+    // An odd budget leaves the head one character longer than the tail.
+    expect(truncMid("abcdef", 4)).toBe("ab…f");
+    expect(truncMid("abcdefghij", 7)).toBe("abc…hij");
+    expect(truncMid("abcdefghij", 5)).toBe("ab…ij");
+    expect(truncEnd("abcdef", 4)).toBe("abc…");
+    expect(truncEnd("abcdef", 1)).toBe("a…");
+});
+
+test("truncation counts UTF-16 units, so an astral character can be cut in half", () => {
+    // Pinned, not endorsed: the cells budget in code units, and a pair that straddles the cut splits.
+    expect(truncEnd("😀😀😀", 4)).toBe("😀\ud83d…");
+    expect(truncMid("😀😀😀", 4)).toBe("😀…\ude00");
+    expect(truncEnd("plain😀", 6)).toBe("plain…");
+});
+
+test("fmtMs switches to seconds at exactly one second", () => {
+    expect(fmtMs(undefined)).toBe("");
+    expect(fmtMs(0)).toBe("0ms");
+    expect(fmtMs(999)).toBe("999ms");
+    expect(fmtMs(1000)).toBe("1.0s");
+    expect(fmtMs(1949)).toBe("1.9s");
 });
