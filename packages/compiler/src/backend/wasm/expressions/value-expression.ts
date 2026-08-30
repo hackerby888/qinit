@@ -306,16 +306,25 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             // sizeof someLvalue — e.g. sizeof(*this) (the container).
             const resolvedAddress = context.lowering.resolveExpressionAddress(context, expression.expression);
             if (resolvedAddress) return watIr.i64Constant(resolvedAddress.size);
-            const scalar = context.lowering.scalarTypeInfo(context, expression.expression);
-            if (scalar) return watIr.i64Constant(scalar.width);
-            // Handle bare type names parsed as sizeof expressions.
-            if (expression.expression.kind === AstKind.IDENTIFIER) {
-                const byteSize = context.programAnalysis.sizeOfType(
-                    { kind: AstKind.NAME, name: expression.expression.name },
-                    context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
-                );
+            // A bare type name parses as an identifier here. Any real lvalue already returned above, so the
+            // name is resolved as a type first: the scalar shape of a name it cannot place is a default
+            // width, which would silently answer for a qualified type it simply failed to look up.
+            const sizeOfNamedType = () =>
+                expression.expression.kind === AstKind.IDENTIFIER
+                    ? context.programAnalysis.sizeOfType({ kind: AstKind.NAME, name: expression.expression.name }, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS)
+                    : 0;
+
+            // A name that really is a type answers ahead of the scalar shape, which reports a default width
+            // for anything it cannot place — that default used to shadow every qualified type name.
+            if (expression.expression.kind === AstKind.IDENTIFIER && context.programAnalysis.namesAType(expression.expression.name)) {
+                const byteSize = sizeOfNamedType();
                 if (byteSize > 0) return watIr.i64Constant(byteSize);
             }
+            const scalar = context.lowering.scalarTypeInfo(context, expression.expression);
+            if (scalar) return watIr.i64Constant(scalar.width);
+            // Kept as the original fallback: names this reaches are types no table above enumerates.
+            const namedTypeSize = sizeOfNamedType();
+            if (namedTypeSize > 0) return watIr.i64Constant(namedTypeSize);
             context.programAnalysis.warn(`unsupported sizeof expr`, expression.span.line);
             return watIr.i64Constant(0);
         }

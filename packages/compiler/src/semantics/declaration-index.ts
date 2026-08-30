@@ -484,3 +484,19 @@ export function followScopedTypedef(programAnalysis: ProgramAnalysis, name: stri
     }
     return undefined;
 }
+
+/**
+ * Does this name refer to a type at all? sizeOfType answers with a default for a name it cannot place, so a
+ * caller that must tell `sizeof(SomeType)` from `sizeof(someLocal)` has to ask first rather than trust the size.
+ */
+export function namesAType(programAnalysis: ProgramAnalysis, name: string): boolean {
+    return scopedLookupKeys(name).some(
+        (key) =>
+            SCALAR_SIZE[key] !== undefined ||
+            programAnalysis.typedefs.has(key) ||
+            programAnalysis.globalStructs.has(key) ||
+            programAnalysis.nested.has(key) ||
+            programAnalysis.enumNames.has(key) ||
+            programAnalysis.templates.has(key),
+    );
+}

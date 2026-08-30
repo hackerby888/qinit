@@ -102,6 +102,9 @@ export class ProgramAnalysis {
         return declarationIndex.captureMemberNamespaceContexts(this, members, context);
     }
     // A typedef names its target unqualified, so follow it from the scope the alias was written in.
+    namesAType(name: string): boolean {
+        return declarationIndex.namesAType(this, name);
+    }
     typedefTarget(key: string): TypeSpec | undefined {
         return declarationIndex.typedefTarget(this, key);
     }
