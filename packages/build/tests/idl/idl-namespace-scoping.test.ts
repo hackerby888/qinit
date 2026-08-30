@@ -193,3 +193,56 @@ namespace Beta { struct Rec { uint64 v; }; typedef Array<Rec, 4> Buffer; }`;
         ["b", 32],
     ]);
 });
+
+// A base named through a typedef is the one bug in this family the validator cannot catch: every path
+// agrees on the wrong base, so the IDL is self-consistent. Only the concrete C++ layout tells them apart.
+test("a base class named through a namespaced typedef comes from that namespace", () => {
+    const declarations = `
+namespace Alpha { struct Base { uint8 v; }; typedef Base B; }
+namespace Beta { struct Base { uint64 a; uint64 b; }; typedef Base B; }`;
+    const stateFields = "    FromAlpha a;\n    FromBeta b;";
+    const nested = `
+  struct FromAlpha : public Alpha::B { uint8 extra; };
+  struct FromBeta : public Beta::B { uint8 extra; };`;
+
+    const source = `
+using namespace QPI;
+${declarations}
+struct CONTRACT_STATE_TYPE : public ContractBase {
+${nested}
+  struct StateData {
+${stateFields}
+  };
+  INITIALIZE() {}
+};`;
+
+    const idl = extractIdl(source, "Bases", { slot: 18 });
+    expect(() => parseContractIdl(idl)).not.toThrow();
+    expect(idl.state.fields.map((field) => [field.name, field.size, field.type.align, field.type.format])).toEqual([
+        ["a", 2, 1, "{ uint8, uint8 }"],
+        ["b", 24, 8, "{ uint64, uint64, uint8 }"],
+    ]);
+});
+
+test("a base class named directly still resolves to its own namespace", () => {
+    const source = `
+using namespace QPI;
+namespace Alpha { struct Base { uint8 v; }; }
+namespace Beta { struct Base { uint64 a; uint64 b; }; }
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct FromAlpha : public Alpha::Base { uint8 extra; };
+  struct FromBeta : public Beta::Base { uint8 extra; };
+  struct StateData {
+    FromAlpha a;
+    FromBeta b;
+  };
+  INITIALIZE() {}
+};`;
+
+    const idl = extractIdl(source, "Bases", { slot: 19 });
+    expect(() => parseContractIdl(idl)).not.toThrow();
+    expect(idl.state.fields.map((field) => [field.name, field.size])).toEqual([
+        ["a", 2],
+        ["b", 24],
+    ]);
+});

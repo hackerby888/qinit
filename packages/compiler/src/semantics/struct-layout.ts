@@ -2,6 +2,7 @@ import { AstKind } from "../shared/enums";
 import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout } from "./types";
 import type { TypeSpec, Declaration, StructDecl, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
+import { followScopedTypedef } from "./declaration-index";
 
 function emptyStructIdentity(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings): StructDecl | string | null {
     let resolved = programAnalysis.substInBindings(type, templateBindings);
@@ -28,7 +29,9 @@ export function baseContribution(
         const bound = parentB.types.get(resolvedBaseType.name);
         if (bound) resolvedBaseType = bound;
         else {
-            const td = programAnalysis.typedefs.get(resolvedBaseType.name);
+            // A base named through a typedef resolves in the scope that typedef was declared in, so
+            // `struct D : Beta::B` inherits Beta's type and not a same-named one from elsewhere.
+            const td = followScopedTypedef(programAnalysis, resolvedBaseType.name);
             if (td) resolvedBaseType = td;
         }
     }
