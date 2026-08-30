@@ -95,7 +95,7 @@ export function resolveType(programAnalysis: ProgramAnalysis, type: TypeSpec, te
     if (bound && !(bound.kind === AstKind.NAME && bound.name === type.name)) {
         return programAnalysis.resolveType(bound, templateBindings, depth + 1);
     }
-    const td = programAnalysis.typedefs.get(type.name);
+    const td = followScopedTypedef(programAnalysis, type.name);
     if (td && !(td.kind === AstKind.NAME && td.name === type.name)) {
         return programAnalysis.resolveType(td, templateBindings, depth + 1);
     }
@@ -174,7 +174,7 @@ export function resolveNamedTypeInScope(
     const nestedType = nested.get(type.name);
     if (nestedType && !(nestedType.kind === AstKind.NAME && nestedType.name === type.name))
         return programAnalysis.resolveInScope(nestedType, scope, nested, depth + 1);
-    const typedefType = programAnalysis.typedefs.get(type.name);
+    const typedefType = followScopedTypedef(programAnalysis, type.name);
     if (typedefType && !(typedefType.kind === AstKind.NAME && typedefType.name === type.name))
         return programAnalysis.resolveInScope(typedefType, scope, nested, depth + 1);
     const qualifiedType = programAnalysis.qualifiedNestedType(type.name, scope);

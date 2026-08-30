@@ -88,7 +88,7 @@ export function layoutOfType(
         const bound = templateBindings.types.get(type.name) ?? templateBindings.types.get(baseName);
         if (bound) return programAnalysis.layoutOfType(bound, templateBindings);
         if (SCALAR_SIZE[type.name] !== undefined || SCALAR_SIZE[baseName] !== undefined) return null;
-        const td = programAnalysis.typedefs.get(type.name) ?? programAnalysis.typedefs.get(baseName);
+        const td = followScopedTypedef(programAnalysis, type.name);
         if (td) return programAnalysis.layoutOfType(td, templateBindings);
         const structDeclaration = programAnalysis.structByName(type.name, templateBindings);
         if (structDeclaration) return programAnalysis.layoutOfStruct(structDeclaration, templateBindings);

@@ -420,23 +420,57 @@ export function collectEnum(
 }
 
 /**
- * The type a typedef names, seen from the scope the alias was declared in. `namespace Beta { typedef W Own; }`
- * means Beta's W, so an unqualified target is re-pointed at its own scope when that scope declares one.
+ * The type a typedef names, seen from the scope the alias was declared in. `namespace Beta { typedef Rec Alias; }`
+ * means Beta's Rec — and so does `typedef Array<Rec, 4> Buffer`, so every unqualified name the target carries is
+ * re-pointed, not just a bare one.
  */
 export function typedefTarget(programAnalysis: ProgramAnalysis, key: string): TypeSpec | undefined {
     const target = programAnalysis.typedefs.get(key);
-    if (!target || target.kind !== AstKind.NAME || target.name.includes("::")) {
-        return target;
-    }
-
     const scope = programAnalysis.typedefScope.get(key);
+    return target && scope ? qualifyNamesInScope(programAnalysis, target, scope) : target;
+}
+
+// Is this name declared inside that scope? Only then does the scope get to claim it.
+function declaredInScope(programAnalysis: ProgramAnalysis, scope: string, name: string): boolean {
+    const scoped = `${scope}${name}`;
+    return (
+        programAnalysis.typedefs.has(scoped) ||
+        programAnalysis.globalStructs.has(scoped) ||
+        programAnalysis.enumSize.has(scoped) ||
+        programAnalysis.templates.has(scoped)
+    );
+}
+
+/**
+ * Re-point every unqualified name a type carries at the scope it was written in, wherever the name sits in the
+ * shape: the type itself, an array's element, a template's arguments. A name that scope does not declare is left
+ * alone, so an outer or global one still resolves the way it always did.
+ */
+export function qualifyNamesInScope(programAnalysis: ProgramAnalysis, type: TypeSpec, scope: string): TypeSpec {
     if (!scope) {
-        return target;
+        return type;
     }
 
-    const scoped = `${scope}${target.name}`;
-    const declaredInScope = programAnalysis.typedefs.has(scoped) || programAnalysis.globalStructs.has(scoped) || programAnalysis.enumSize.has(scoped);
-    return declaredInScope ? { ...target, name: scoped } : target;
+    if (type.kind === AstKind.NAME) {
+        return !type.name.includes("::") && declaredInScope(programAnalysis, scope, type.name) ? { ...type, name: `${scope}${type.name}` } : type;
+    }
+
+    if (type.kind === AstKind.ARRAY) {
+        return { ...type, element: qualifyNamesInScope(programAnalysis, type.element, scope) };
+    }
+
+    if (type.kind === AstKind.CONST) {
+        return { ...type, valueType: qualifyNamesInScope(programAnalysis, type.valueType, scope) };
+    }
+
+    if (type.kind === AstKind.TEMPLATE_INSTANCE) {
+        return {
+            ...type,
+            callArguments: type.callArguments.map((argument) => qualifyNamesInScope(programAnalysis, argument, scope)),
+        };
+    }
+
+    return type;
 }
 
 // The typedef a name reaches, followed from the scope that declared it.

@@ -2,7 +2,7 @@
 // bare name alone, two namespaces sharing a name collapse into whichever registered last — silently, with
 // the loser's width changing under it. The table below is the invariant: one row per declaration kind.
 import { expect, test } from "bun:test";
-import { extractIdl } from "../../src/compile/idl";
+import { extractIdl, parseContractIdl } from "../../src/compile/idl";
 
 const contract = (declarations: string, stateFields: string) => `
 using namespace QPI;
@@ -14,8 +14,15 @@ ${stateFields}
   INITIALIZE() {}
 };`;
 
-const sizesOf = (declarations: string, stateFields: string) =>
-    extractIdl(contract(declarations, stateFields), "Scoped", { slot: 15 }).state.fields.map((field) => [field.name, field.size]);
+// Every fixture is round-tripped through the validator: it recomputes size, align and format from the type
+// tree, so any two resolution paths disagreeing about one field is rejected here rather than shipped.
+const idlOf = (declarations: string, stateFields: string) => {
+    const idl = extractIdl(contract(declarations, stateFields), "Scoped", { slot: 15 });
+    expect(() => parseContractIdl(idl)).not.toThrow();
+    return idl;
+};
+
+const sizesOf = (declarations: string, stateFields: string) => idlOf(declarations, stateFields).state.fields.map((field) => [field.name, field.size]);
 
 // One row per declaration kind: two namespaces declare the same name, each field must get its own.
 const SIBLING_CASES: { kind: string; declarations: string; stateFields: string; sizes: [string, number][] }[] = [
@@ -150,5 +157,39 @@ namespace Beta { struct Outer { struct Inner { uint64 v; }; Inner inner; uint8 t
         ["a", 2],
         ["b", 16],
         ["c", 1],
+    ]);
+});
+
+test("a namespaced typedef of a struct keeps that namespace's struct, not a same-named one", () => {
+    const declarations = `
+namespace Alpha { struct Rec { uint8 v; }; typedef Rec Alias; }
+namespace Beta { struct Rec { uint64 v; }; typedef Rec Alias; }`;
+
+    const fields = idlOf(declarations, "    Alpha::Alias a;\n    Beta::Alias b;").state.fields;
+    expect(fields.map((field) => [field.name, field.size, field.type.align, field.type.format])).toEqual([
+        ["a", 1, 1, "{ uint8 }"],
+        ["b", 8, 8, "{ uint64 }"],
+    ]);
+});
+
+test("a typedef reaching a struct through another typedef stays in its own namespace", () => {
+    const declarations = `
+namespace Alpha { struct Rec { uint8 v; }; typedef Rec Inner; typedef Inner Outer; }
+namespace Beta { struct Rec { uint64 v; }; typedef Rec Inner; typedef Inner Outer; }`;
+
+    expect(sizesOf(declarations, "    Alpha::Outer a;\n    Beta::Outer b;")).toEqual([
+        ["a", 1],
+        ["b", 8],
+    ]);
+});
+
+test("a namespaced typedef of a container keeps its own element type", () => {
+    const declarations = `
+namespace Alpha { struct Rec { uint8 v; }; typedef Array<Rec, 4> Buffer; }
+namespace Beta { struct Rec { uint64 v; }; typedef Array<Rec, 4> Buffer; }`;
+
+    expect(sizesOf(declarations, "    Alpha::Buffer a;\n    Beta::Buffer b;")).toEqual([
+        ["a", 4],
+        ["b", 32],
     ]);
 });
