@@ -80,6 +80,8 @@ export function resolveConst(programAnalysis: ProgramAnalysis, name: string, tem
     }
     if (programAnalysis.constInProgress.has(name)) return null; // cyclic constexpr — give up
     programAnalysis.constInProgress.add(name);
+    // The initializer's own identifiers resolve from where the constant was written, not from here.
+    programAnalysis.constantScopes.push(programAnalysis.constexprScope.get(name) ?? "");
     try {
         const numericValue = programAnalysis.normalizeConst(
             programAnalysis.evalConstBig(initializer, EMPTY_TEMPLATE_BINDINGS),
@@ -88,6 +90,7 @@ export function resolveConst(programAnalysis: ProgramAnalysis, name: string, tem
         programAnalysis.constCache.set(name, numericValue);
         return numericValue;
     } finally {
+        programAnalysis.constantScopes.pop();
         programAnalysis.constInProgress.delete(name);
     }
 }
@@ -117,7 +120,13 @@ export function evalConstBig(programAnalysis: ProgramAnalysis, expression: Expre
         case AstKind.IDENTIFIER: {
             const numericValue = templateBindings.values.get(expression.name);
             if (numericValue !== undefined) return numericValue;
-            const resolvedConstant = programAnalysis.resolveConst(expression.name, templateBindings);
+            const enclosingScope = programAnalysis.constantScopes[programAnalysis.constantScopes.length - 1];
+            const resolvedConstant = enclosingScope
+                ? programAnalysis.resolveConstInScope(expression.name, templateBindings, {
+                      sourceNamespace: enclosingScope.replace(/::$/, ""),
+                      usingNamespaces: [],
+                  })
+                : programAnalysis.resolveConst(expression.name, templateBindings);
             if (resolvedConstant !== null) return resolvedConstant;
             return 0n;
         }

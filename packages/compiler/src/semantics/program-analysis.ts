@@ -1,4 +1,4 @@
-import { AstKind } from "../shared/enums";
+import { AstKind, BareNamePolicy } from "../shared/enums";
 import {
     ClassTemplate,
     CompiledMethod,
@@ -53,8 +53,11 @@ export class ProgramAnalysis {
     > = new Map(); // partial/explicit specializations keyed by template name
     globalStructs: Map<string, StructDecl> = new Map(); // qpi.h global/namespace structs
     typedefs: Map<string, TypeSpec> = new Map(); // typedef aliases
+    typedefScope: Map<string, string> = new Map(); // typedef alias → the scope prefix it was declared in
     constexprInit: Map<string, Expression> = new Map(); // named constexpr → its init expression
     constexprType: Map<string, TypeSpec> = new Map(); // named constexpr → declared scalar type
+    constexprScope: Map<string, string> = new Map(); // named constexpr → the scope prefix it was declared in
+    constantScopes: string[] = []; // scope prefixes of the constants whose initializers are being evaluated
     enumConst: Map<string, bigint> = new Map(); // enum constant (NAME and Type::NAME) → value
     checkedTemplateAsserts: Set<string> = new Set(); // template instantiations whose static_asserts already ran
     enumSize: Map<string, number> = new Map(); // enum type name → storage size from its underlying type (enum class X : uint8 → 1)
@@ -97,6 +100,10 @@ export class ProgramAnalysis {
     captureMemberNamespaceContexts(members: Declaration[], context: NamespaceLookupContext): void {
         return declarationIndex.captureMemberNamespaceContexts(this, members, context);
     }
+    // A typedef names its target unqualified, so follow it from the scope the alias was written in.
+    typedefTarget(key: string): TypeSpec | undefined {
+        return declarationIndex.typedefTarget(this, key);
+    }
     namespaceContextOf(declaration?: object | null): NamespaceLookupContext {
         return declarationIndex.namespaceContextOf(this, declaration);
     }
@@ -118,8 +125,8 @@ export class ProgramAnalysis {
     registerLibFnTemplate(key: string, fn: FunctionTemplateDecl): void {
         return declarationIndex.registerLibFnTemplate(this, key, fn);
     }
-    collectConstant(variableDeclaration: VariableDecl, scopePrefix = ""): void {
-        return declarationIndex.collectConstant(this, variableDeclaration, scopePrefix);
+    collectConstant(variableDeclaration: VariableDecl, scopePrefix = "", barePolicy?: BareNamePolicy): void {
+        return declarationIndex.collectConstant(this, variableDeclaration, scopePrefix, barePolicy);
     }
     collectEnum(
         type: {
@@ -131,8 +138,9 @@ export class ProgramAnalysis {
             }[];
         },
         scopePrefix = "",
+        barePolicy?: BareNamePolicy,
     ): void {
-        return declarationIndex.collectEnum(this, type, scopePrefix);
+        return declarationIndex.collectEnum(this, type, scopePrefix, barePolicy);
     }
     resolveConstInScope(name: string, templateBindings: TemplateBindings, context: NamespaceLookupContext): bigint | null {
         return constantEvaluator.resolveConstInScope(this, name, templateBindings, context);

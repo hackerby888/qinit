@@ -1,6 +1,6 @@
 import { AstKind } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
-import { lookupScoped, scopedLookupKeys } from "./declaration-index";
+import { followScopedTypedef, lookupScoped, scopedLookupKeys } from "./declaration-index";
 import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
@@ -38,7 +38,7 @@ export function sizeOfTypeInner(programAnalysis: ProgramAnalysis, type: TypeSpec
             .map((key) => SCALAR_SIZE[key])
             .find((scalarSize) => scalarSize !== undefined);
         if (size !== undefined) return size;
-        const td = lookupScoped(programAnalysis.typedefs, type.name);
+        const td = followScopedTypedef(programAnalysis, type.name);
         if (td) return programAnalysis.sizeOfType(td, templateBindings);
         const struct = programAnalysis.structByName(type.name, templateBindings);
         if (struct) return programAnalysis.layoutOfStruct(struct, templateBindings).size;

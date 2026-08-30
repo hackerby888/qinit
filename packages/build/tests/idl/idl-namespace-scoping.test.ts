@@ -72,9 +72,7 @@ for (const scoped of SIBLING_CASES) {
     });
 }
 
-// Still open: the IDL type path resolves an array length without a scope, and a constant's initializer is
-// evaluated without the scope it was declared in. Value expressions already resolve correctly.
-test.skip("a name declared in a namespace does not displace the global one", () => {
+test("a name declared in a namespace does not displace the global one", () => {
     const declarations = `
 typedef uint8 Unit;
 constexpr uint64 COUNT = 2;
@@ -121,7 +119,7 @@ namespace Beta { enum class Size : uint64 { Small = 16, Large = 32 }; }`;
     ]);
 });
 
-test.skip("a constant defined from another constant resolves inside its own namespace", () => {
+test("a constant defined from another constant resolves inside its own namespace", () => {
     const declarations = `
 namespace Alpha { constexpr uint64 BASE = 2; constexpr uint64 DOUBLED = BASE * 2; }
 namespace Beta { constexpr uint64 BASE = 8; constexpr uint64 DOUBLED = BASE * 2; }`;

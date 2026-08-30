@@ -103,6 +103,8 @@ export function registerTopLevelDeclarations(
     if (!programAnalysis.namespaceUsings.has(nsPrefix)) programAnalysis.namespaceUsings.set(nsPrefix, scopeUsing);
     const activeUsing = [...new Set([...inheritedUsing, ...scopeUsing])];
     const sourceNamespace = nsPrefix.endsWith("::") ? nsPrefix.slice(0, -2) : nsPrefix || undefined;
+    // A name in a namespace does not hide an outer one, so only a global declaration claims the bare key.
+    const barePolicy = nsPrefix ? BareNamePolicy.KEEP : BareNamePolicy.OVERWRITE;
     for (const declaration of declarations) {
         const td = declaration.kind === AstKind.TYPEDEF_DECL ? (declaration as any) : null;
         const usingMatch = typeof td?.name === "string" ? /^using namespace (.+)$/.exec(td.name) : null;
@@ -124,7 +126,7 @@ export function registerTopLevelDeclarations(
             const structDeclaration = declaration as StructDecl;
             programAnalysis.captureMemberNamespaceContexts(structDeclaration.members, lookupContext);
             if (structDeclaration.name && structDeclaration.hasBody !== false) {
-                registerScoped(programAnalysis.globalStructs, nsPrefix, structDeclaration.name, structDeclaration);
+                registerScoped(programAnalysis.globalStructs, nsPrefix, structDeclaration.name, structDeclaration, barePolicy);
                 // Inline value/void methods of a plain (non-template) struct — e.g. ProposalDataYesNo::checkValidity
                 for (const member of structDeclaration.members) {
                     if (member.kind !== AstKind.FUNCTION || !(member as FunctionDecl).body) continue;
@@ -300,11 +302,12 @@ export function registerTopLevelDeclarations(
                 else programAnalysis.libFnTemplates.set(key, [fn as FunctionTemplateDecl]);
             }
         } else if (declaration.kind === AstKind.TYPEDEF_DECL) {
-            registerScoped(programAnalysis.typedefs, nsPrefix, td.name, td.type);
+            registerScoped(programAnalysis.typedefs, nsPrefix, td.name, td.type, barePolicy);
+            registerScoped(programAnalysis.typedefScope, nsPrefix, td.name, nsPrefix, barePolicy);
         } else if (declaration.kind === AstKind.VARIABLE) {
-            programAnalysis.collectConstant(declaration as VariableDecl, nsPrefix);
+            programAnalysis.collectConstant(declaration as VariableDecl, nsPrefix, barePolicy);
         } else if (declaration.kind === AstKind.ENUM) {
-            programAnalysis.collectEnum(declaration as any, nsPrefix);
+            programAnalysis.collectEnum(declaration as any, nsPrefix, barePolicy);
         }
     }
 }
@@ -349,11 +352,18 @@ export function registerLibFnTemplate(programAnalysis: ProgramAnalysis, key: str
     else programAnalysis.libFnTemplates.set(key, [fn]);
 }
 
-export function collectConstant(programAnalysis: ProgramAnalysis, variableDeclaration: VariableDecl, scopePrefix = ""): void {
+export function collectConstant(
+    programAnalysis: ProgramAnalysis,
+    variableDeclaration: VariableDecl,
+    scopePrefix = "",
+    barePolicy: BareNamePolicy = BareNamePolicy.OVERWRITE,
+): void {
     if (variableDeclaration.initializer && (variableDeclaration.isConstexpr || variableDeclaration.type.kind === AstKind.CONST)) {
         // User constants shadow seeded qpi.h constants with the same unqualified name.
-        registerScoped(programAnalysis.constexprInit, scopePrefix, variableDeclaration.name, variableDeclaration.initializer);
-        registerScoped(programAnalysis.constexprType, scopePrefix, variableDeclaration.name, variableDeclaration.type);
+        registerScoped(programAnalysis.constexprInit, scopePrefix, variableDeclaration.name, variableDeclaration.initializer, barePolicy);
+        registerScoped(programAnalysis.constexprType, scopePrefix, variableDeclaration.name, variableDeclaration.type, barePolicy);
+        // The initializer names its neighbours unqualified, so it has to be evaluated where it was written.
+        registerScoped(programAnalysis.constexprScope, scopePrefix, variableDeclaration.name, scopePrefix, barePolicy);
         for (const key of scopedKeys(scopePrefix, variableDeclaration.name)) {
             programAnalysis.enumConst.delete(key);
             programAnalysis.enumConstType.delete(key);
@@ -378,6 +388,7 @@ export function collectEnum(
         }[];
     },
     scopePrefix = "",
+    barePolicy: BareNamePolicy = BareNamePolicy.OVERWRITE,
 ): void {
     if (type.name) {
         for (const key of scopedKeys(scopePrefix, type.name)) {
@@ -386,8 +397,8 @@ export function collectEnum(
     }
     if (type.name && type.underlyingType?.kind === AstKind.NAME) {
         const byteSize = SCALAR_SIZE[type.underlyingType.name];
-        if (byteSize !== undefined) registerScoped(programAnalysis.enumSize, scopePrefix, type.name, byteSize);
-        registerScoped(programAnalysis.enumUnderlying, scopePrefix, type.name, type.underlyingType);
+        if (byteSize !== undefined) registerScoped(programAnalysis.enumSize, scopePrefix, type.name, byteSize, barePolicy);
+        registerScoped(programAnalysis.enumUnderlying, scopePrefix, type.name, type.underlyingType, barePolicy);
     }
     const enumType: TypeSpec = type.underlyingType ?? { kind: AstKind.NAME, name: "sint32" };
     let next = 0n;
@@ -406,4 +417,34 @@ export function collectEnum(
             programAnalysis.constCache.delete(key);
         }
     }
+}
+
+/**
+ * The type a typedef names, seen from the scope the alias was declared in. `namespace Beta { typedef W Own; }`
+ * means Beta's W, so an unqualified target is re-pointed at its own scope when that scope declares one.
+ */
+export function typedefTarget(programAnalysis: ProgramAnalysis, key: string): TypeSpec | undefined {
+    const target = programAnalysis.typedefs.get(key);
+    if (!target || target.kind !== AstKind.NAME || target.name.includes("::")) {
+        return target;
+    }
+
+    const scope = programAnalysis.typedefScope.get(key);
+    if (!scope) {
+        return target;
+    }
+
+    const scoped = `${scope}${target.name}`;
+    const declaredInScope = programAnalysis.typedefs.has(scoped) || programAnalysis.globalStructs.has(scoped) || programAnalysis.enumSize.has(scoped);
+    return declaredInScope ? { ...target, name: scoped } : target;
+}
+
+// The typedef a name reaches, followed from the scope that declared it.
+export function followScopedTypedef(programAnalysis: ProgramAnalysis, name: string): TypeSpec | undefined {
+    for (const key of scopedLookupKeys(name)) {
+        if (programAnalysis.typedefs.has(key)) {
+            return programAnalysis.typedefTarget(key);
+        }
+    }
+    return undefined;
 }

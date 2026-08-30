@@ -1,7 +1,7 @@
 import { AstKind } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout } from "./types";
-import { lookupScoped, scopedLookupKeys } from "./declaration-index";
+import { followScopedTypedef, lookupScoped, scopedLookupKeys } from "./declaration-index";
 import type { TypeSpec, Declaration, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
 
@@ -39,7 +39,7 @@ export function alignOfNameType(programAnalysis: ProgramAnalysis, typeName: stri
         .map((key) => SCALAR_SIZE[key])
         .find((size) => size !== undefined);
     if (scalarSize !== undefined) return Math.min(scalarSize, 8);
-    const typedefType = lookupScoped(programAnalysis.typedefs, typeName);
+    const typedefType = followScopedTypedef(programAnalysis, typeName);
     if (typedefType) return programAnalysis.alignOfTypeB(typedefType, templateBindings);
     const resolvedStruct = programAnalysis.structByName(typeName, templateBindings);
     if (resolvedStruct) return programAnalysis.layoutOfStruct(resolvedStruct, templateBindings).align;
