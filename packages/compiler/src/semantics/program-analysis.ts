@@ -134,6 +134,9 @@ export class ProgramAnalysis {
     ): void {
         return declarationIndex.collectEnum(this, type, scopePrefix);
     }
+    resolveConstInScope(name: string, templateBindings: TemplateBindings, context: NamespaceLookupContext): bigint | null {
+        return constantEvaluator.resolveConstInScope(this, name, templateBindings, context);
+    }
     scopedConstantKeys(name: string): string[] {
         return constantEvaluator.scopedConstantKeys(this, name);
     }

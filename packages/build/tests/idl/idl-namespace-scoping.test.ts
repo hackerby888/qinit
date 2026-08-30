@@ -72,8 +72,8 @@ for (const scoped of SIBLING_CASES) {
     });
 }
 
-// Unqualified names are still resolved without a scope, so they land on the shared bare key. Qualified
-// references (every test above) are correct; these two wait on the lookup context reaching type resolution.
+// Still open: the IDL type path resolves an array length without a scope, and a constant's initializer is
+// evaluated without the scope it was declared in. Value expressions already resolve correctly.
 test.skip("a name declared in a namespace does not displace the global one", () => {
     const declarations = `
 typedef uint8 Unit;

@@ -77,3 +77,44 @@ describe.skipIf(!HAS_CORE)("edge audit — typed constexpr semantics", () => {
         expect(await run(wrap(unrelated, `state.mut().result = Ch::_9;`))).toBe(57n);
     });
 });
+
+// qpi.h reads its own namespace constants unqualified — NULL_INDEX alone appears 151 times as the
+// container "not found" sentinel. A contract constant sharing the name must not rebind any of them.
+describe.skipIf(!HAS_CORE)("edge audit — a contract constant cannot rebind qpi.h's own", () => {
+    const withMap = (constant: string) => `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { uint64 result; HashMap<uint64, uint64, 8> m; };
+  ${constant}
+  struct Go_input {}; struct Go_output {};
+  PUBLIC_PROCEDURE(Go) { state.mut().m.set(11, 111); uint64 out = 0; state.mut().result = state.get().m.get(99, out) ? 1 : 0; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};`;
+
+    const compile = async (source: string) => {
+        const result = await compileContractWithTypeScript({
+            source,
+            contractName: "ShadowEdge",
+            slot: 27,
+            qpiHeader: HEADERS(),
+            arenaSizeBytes: 1 << 20,
+        });
+        expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+        return result.wasm!;
+    };
+
+    test("an unused shadowing constant leaves the emitted module byte-identical", async () => {
+        const plain = await compile(withMap(""));
+        const shadowed = await compile(withMap(`static constexpr sint64 NULL_INDEX = 999;`));
+        expect(shadowed).toEqual(plain);
+    });
+
+    test("the contract still reads its own value for that name", async () => {
+        const source = wrap(`static constexpr sint64 NULL_INDEX = 999;`, `state.mut().result = NULL_INDEX;`);
+        expect(await run(source)).toBe(999n);
+    });
+
+    test("a HashMap miss stays a miss while the name is shadowed", async () => {
+        expect(await run(withMap(`static constexpr sint64 NULL_INDEX = 999;`))).toBe(0n);
+    });
+});

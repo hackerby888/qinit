@@ -120,8 +120,12 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 reportUnsupported(context.programAnalysis, UnsupportedFeature.CLASS_TO_SCALAR_CONVERSION, expression.span, expression.name);
                 return watIr.i64Constant(0);
             }
-            // a named constant: enum constant or constexpr (incl. qualified Type::NAME)
-            const resolvedConstant = context.programAnalysis.resolveConst(expression.name, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
+            // A named constant: enum constant or constexpr (incl. qualified Type::NAME). The scope the
+            // reference sits in decides, so qpi.h's own NULL_INDEX is not rebound by a contract's.
+            const resolvedConstant = context.programAnalysis.resolveConstInScope(expression.name, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS, {
+                sourceNamespace: context.sourceNamespace,
+                usingNamespaces: context.usingNamespaces ?? [],
+            });
             if (resolvedConstant !== null) return watIr.i64Constant(resolvedConstant);
             context.programAnalysis.warn(`unknown identifier '${expression.name}'`, expression.span);
             return watIr.i64Constant(0);

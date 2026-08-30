@@ -61,6 +61,38 @@ export function lookupScoped<Value>(map: ReadonlyMap<string, Value>, name: strin
     return undefined;
 }
 
+/**
+ * C++ unqualified lookup order for a name written inside a scope: the innermost enclosing scope first, then
+ * each enclosing one outward, then the visible using-directives, and only then the global name. A name that
+ * already carries a qualifier is looked up as written instead, which `scopedLookupKeys` handles.
+ */
+export function unqualifiedLookupKeys(name: string, context: NamespaceLookupContext = { usingNamespaces: [] }): string[] {
+    if (name.includes("::")) {
+        return scopedLookupKeys(name, context);
+    }
+
+    const keys: string[] = [];
+    const add = (key: string) => {
+        if (!keys.includes(key)) keys.push(key);
+    };
+
+    // `A::B` encloses `A`, so walk the qualifier off one segment at a time.
+    let scope = context.sourceNamespace;
+    while (scope) {
+        add(`${scope}::${name}`);
+        const separator = scope.lastIndexOf("::");
+        scope = separator > 0 ? scope.slice(0, separator) : undefined;
+    }
+
+    // The bare name carries both globals and the contract's own members, and either hides a name that a
+    // using-directive merely made visible — so the directives are the last resort, not the first.
+    add(name);
+    for (const usingNamespace of context.usingNamespaces) {
+        add(`${usingNamespace}::${name}`);
+    }
+    return keys;
+}
+
 export function registerTopLevelDeclarations(
     programAnalysis: ProgramAnalysis,
     declarations: Declaration[],

@@ -1,10 +1,10 @@
 import { AstKind, BinaryOp, UnaryOp } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
-import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
+import { EMPTY_TEMPLATE_BINDINGS, NamespaceLookupContext, TemplateBindings } from "./types";
 import type { TypeSpec, Expression } from "../ast";
 import { parseIntLiteral } from "../frontend/lexer";
 import type { ProgramAnalysis } from "./program-analysis";
-import { scopedLookupKeys } from "./declaration-index";
+import { scopedLookupKeys, unqualifiedLookupKeys } from "./declaration-index";
 
 export function typeOfConstant(programAnalysis: ProgramAnalysis, name: string): TypeSpec | null {
     return (
@@ -223,4 +223,29 @@ export function scopedConstantKeys(programAnalysis: ProgramAnalysis, name: strin
     return scopedLookupKeys(name, {
         usingNamespaces: programAnalysis.namespaceUsings.get("") ?? [],
     });
+}
+
+/**
+ * Resolve a constant the way C++ would from the scope the reference sits in: the innermost enclosing
+ * namespace wins over the global name, so a contract constant cannot rebind one qpi.h reads unqualified.
+ * Only a candidate that is really declared is followed, and it resolves under its own key so the cache
+ * never hands one scope's value to another.
+ */
+export function resolveConstInScope(
+    programAnalysis: ProgramAnalysis,
+    name: string,
+    templateBindings: TemplateBindings,
+    context: NamespaceLookupContext,
+): bigint | null {
+    for (const key of unqualifiedLookupKeys(name, context)) {
+        if (key === name) {
+            const resolved = programAnalysis.resolveConst(name, templateBindings);
+            if (resolved !== null) return resolved;
+            continue;
+        }
+        if (programAnalysis.enumConst.has(key) || programAnalysis.constexprInit.has(key)) {
+            return programAnalysis.resolveConst(key, templateBindings);
+        }
+    }
+    return null;
 }
