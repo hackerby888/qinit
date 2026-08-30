@@ -1,9 +1,65 @@
-import { AstKind, UnsupportedFeature } from "../shared/enums";
+import { AstKind, BareNamePolicy, UnsupportedFeature } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { EMPTY_TEMPLATE_BINDINGS, NamespaceLookupContext } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
 import { raiseUnsupported } from "./unsupported";
+
+/**
+ * Index one declaration under both the name that addresses it from outside its scope and its bare name.
+ * Without the qualified key two scopes sharing a name collapse into whichever registered last; without the
+ * bare key a using-directive cannot reach it. `barePolicy` keeps each caller's existing precedence: a
+ * namespace's later declaration wins, a name nested in a struct keeps the first one seen.
+ */
+export function registerScoped<Value>(
+    map: Map<string, Value>,
+    scopePrefix: string,
+    name: string,
+    value: Value,
+    barePolicy: BareNamePolicy = BareNamePolicy.OVERWRITE,
+): void {
+    if (scopePrefix) {
+        map.set(`${scopePrefix}${name}`, value);
+    }
+
+    if (barePolicy === BareNamePolicy.OVERWRITE || !map.has(name)) {
+        map.set(name, value);
+    }
+}
+
+/**
+ * The keys a scoped name may be indexed under, most specific first: the name as written, the scopes it can be
+ * reached from, then the bare tail a using-directive registered it under. One order for every scoped table, so
+ * tightening it later is one edit rather than fifteen.
+ */
+export function scopedLookupKeys(name: string, context: NamespaceLookupContext = { usingNamespaces: [] }): string[] {
+    const keys: string[] = [];
+    const add = (key: string) => {
+        if (!keys.includes(key)) keys.push(key);
+    };
+
+    add(name);
+    if (context.sourceNamespace) {
+        add(`${context.sourceNamespace}::${name}`);
+    }
+    for (const usingNamespace of context.usingNamespaces) {
+        add(`${usingNamespace}::${name}`);
+    }
+
+    const separator = name.lastIndexOf("::");
+    if (separator >= 0) {
+        add(name.slice(separator + 2));
+    }
+    return keys;
+}
+
+export function lookupScoped<Value>(map: ReadonlyMap<string, Value>, name: string, context?: NamespaceLookupContext): Value | undefined {
+    for (const key of scopedLookupKeys(name, context)) {
+        const hit = map.get(key);
+        if (hit !== undefined) return hit;
+    }
+    return undefined;
+}
 
 export function registerTopLevelDeclarations(
     programAnalysis: ProgramAnalysis,
@@ -36,10 +92,7 @@ export function registerTopLevelDeclarations(
             const structDeclaration = declaration as StructDecl;
             programAnalysis.captureMemberNamespaceContexts(structDeclaration.members, lookupContext);
             if (structDeclaration.name && structDeclaration.hasBody !== false) {
-                if (nsPrefix) {
-                    programAnalysis.globalStructs.set(`${nsPrefix}${structDeclaration.name}`, structDeclaration);
-                }
-                programAnalysis.globalStructs.set(structDeclaration.name, structDeclaration);
+                registerScoped(programAnalysis.globalStructs, nsPrefix, structDeclaration.name, structDeclaration);
                 // Inline value/void methods of a plain (non-template) struct — e.g. ProposalDataYesNo::checkValidity
                 for (const member of structDeclaration.members) {
                     if (member.kind !== AstKind.FUNCTION || !(member as FunctionDecl).body) continue;
@@ -92,24 +145,29 @@ export function registerTopLevelDeclarations(
             programAnalysis.captureMemberNamespaceContexts(ct.members, lookupContext);
             if (ct.hasBody === false) continue;
             // Keep the primary template and index each partial specialization separately.
+            const templateDeclaration = {
+                params: ct.params,
+                members: ct.members,
+                bases: ct.bases,
+            };
             if (ct.specializationArgs) {
-                if (!programAnalysis.specializations.has(ct.name)) programAnalysis.specializations.set(ct.name, []);
-                programAnalysis.specializations.get(ct.name)!.push({
+                const specialization = {
                     specArgs: ct.specializationArgs,
-                    templateDeclaration: {
-                        params: ct.params,
-                        members: ct.members,
-                        bases: ct.bases,
-                    },
-                });
+                    templateDeclaration,
+                };
+                for (const key of nsPrefix ? [`${nsPrefix}${ct.name}`, ct.name] : [ct.name]) {
+                    if (!programAnalysis.specializations.has(key)) programAnalysis.specializations.set(key, []);
+                    programAnalysis.specializations.get(key)!.push(specialization);
+                }
             } else {
+                if (nsPrefix) {
+                    programAnalysis.templates.set(`${nsPrefix}${ct.name}`, templateDeclaration);
+                }
+                // The bare name is shared, so the fullest body wins it — a forward declaration must not
+                // displace the definition that follows it.
                 const existing = programAnalysis.templates.get(ct.name);
                 if (!existing || (ct.members?.length ?? 0) >= existing.members.length) {
-                    programAnalysis.templates.set(ct.name, {
-                        params: ct.params,
-                        members: ct.members,
-                        bases: ct.bases,
-                    });
+                    programAnalysis.templates.set(ct.name, templateDeclaration);
                 }
             }
             // Capture inline methods, including templates, so call-site types can complete their
@@ -210,16 +268,11 @@ export function registerTopLevelDeclarations(
                 else programAnalysis.libFnTemplates.set(key, [fn as FunctionTemplateDecl]);
             }
         } else if (declaration.kind === AstKind.TYPEDEF_DECL) {
-            // Addressable both ways, like a namespace struct above. Bare-only keys collapse two namespaces
-            // that share a typedef name into whichever registered last, silently changing the loser's width.
-            if (nsPrefix) {
-                programAnalysis.typedefs.set(`${nsPrefix}${td.name}`, td.type);
-            }
-            programAnalysis.typedefs.set(td.name, td.type);
+            registerScoped(programAnalysis.typedefs, nsPrefix, td.name, td.type);
         } else if (declaration.kind === AstKind.VARIABLE) {
-            programAnalysis.collectConstant(declaration as VariableDecl);
+            programAnalysis.collectConstant(declaration as VariableDecl, nsPrefix);
         } else if (declaration.kind === AstKind.ENUM) {
-            programAnalysis.collectEnum(declaration as any);
+            programAnalysis.collectEnum(declaration as any, nsPrefix);
         }
     }
 }
@@ -264,15 +317,22 @@ export function registerLibFnTemplate(programAnalysis: ProgramAnalysis, key: str
     else programAnalysis.libFnTemplates.set(key, [fn]);
 }
 
-export function collectConstant(programAnalysis: ProgramAnalysis, variableDeclaration: VariableDecl): void {
+export function collectConstant(programAnalysis: ProgramAnalysis, variableDeclaration: VariableDecl, scopePrefix = ""): void {
     if (variableDeclaration.initializer && (variableDeclaration.isConstexpr || variableDeclaration.type.kind === AstKind.CONST)) {
         // User constants shadow seeded qpi.h constants with the same unqualified name.
-        programAnalysis.constexprInit.set(variableDeclaration.name, variableDeclaration.initializer);
-        programAnalysis.constexprType.set(variableDeclaration.name, variableDeclaration.type);
-        programAnalysis.enumConst.delete(variableDeclaration.name);
-        programAnalysis.enumConstType.delete(variableDeclaration.name);
-        programAnalysis.constCache.delete(variableDeclaration.name);
+        registerScoped(programAnalysis.constexprInit, scopePrefix, variableDeclaration.name, variableDeclaration.initializer);
+        registerScoped(programAnalysis.constexprType, scopePrefix, variableDeclaration.name, variableDeclaration.type);
+        for (const key of scopedKeys(scopePrefix, variableDeclaration.name)) {
+            programAnalysis.enumConst.delete(key);
+            programAnalysis.enumConstType.delete(key);
+            programAnalysis.constCache.delete(key);
+        }
     }
+}
+
+// The keys one scoped name occupies, qualified first — for the deletes that have to clear every one of them.
+function scopedKeys(scopePrefix: string, name: string): string[] {
+    return scopePrefix ? [`${scopePrefix}${name}`, name] : [name];
 }
 
 export function collectEnum(
@@ -285,29 +345,32 @@ export function collectEnum(
             value?: Expression;
         }[];
     },
+    scopePrefix = "",
 ): void {
     if (type.name) {
-        programAnalysis.enumNames.add(type.name);
+        for (const key of scopedKeys(scopePrefix, type.name)) {
+            programAnalysis.enumNames.add(key);
+        }
     }
     if (type.name && type.underlyingType?.kind === AstKind.NAME) {
         const byteSize = SCALAR_SIZE[type.underlyingType.name];
-        if (byteSize !== undefined) programAnalysis.enumSize.set(type.name, byteSize);
-        programAnalysis.enumUnderlying.set(type.name, type.underlyingType);
+        if (byteSize !== undefined) registerScoped(programAnalysis.enumSize, scopePrefix, type.name, byteSize);
+        registerScoped(programAnalysis.enumUnderlying, scopePrefix, type.name, type.underlyingType);
     }
     const enumType: TypeSpec = type.underlyingType ?? { kind: AstKind.NAME, name: "sint32" };
     let next = 0n;
     for (const member of type.members) {
         const numericValue = member.value ? programAnalysis.evalConstBig(member.value, EMPTY_TEMPLATE_BINDINGS) : next;
         next = numericValue + 1n;
-        programAnalysis.constexprInit.delete(member.name);
-        programAnalysis.constexprType.delete(member.name);
-        programAnalysis.enumConst.set(member.name, programAnalysis.normalizeConst(numericValue, enumType));
-        programAnalysis.enumConstType.set(member.name, enumType);
-        programAnalysis.constCache.delete(member.name);
-        if (type.name) {
-            programAnalysis.enumConst.set(`${type.name}::${member.name}`, programAnalysis.normalizeConst(numericValue, enumType));
-            programAnalysis.enumConstType.set(`${type.name}::${member.name}`, enumType);
-            programAnalysis.constCache.delete(`${type.name}::${member.name}`);
+        // A member is reachable bare, as Enum::member, and — inside a namespace — as NS::Enum::member.
+        const memberScopes = type.name ? [...scopedKeys(scopePrefix, `${type.name}::`), ""] : [""];
+        for (const scope of memberScopes) {
+            const key = `${scope}${member.name}`;
+            programAnalysis.constexprInit.delete(key);
+            programAnalysis.constexprType.delete(key);
+            programAnalysis.enumConst.set(key, programAnalysis.normalizeConst(numericValue, enumType));
+            programAnalysis.enumConstType.set(key, enumType);
+            programAnalysis.constCache.delete(key);
         }
     }
 }

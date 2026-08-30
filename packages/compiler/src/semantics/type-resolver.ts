@@ -1,5 +1,6 @@
 import { AstKind } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
+import { lookupScoped, scopedLookupKeys } from "./declaration-index";
 import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
@@ -30,13 +31,14 @@ export function sizeOfTypeInner(programAnalysis: ProgramAnalysis, type: TypeSpec
         return programAnalysis.layoutOfStruct(type.struct, templateBindings).size;
     }
     if (type.kind === AstKind.NAME) {
-        const baseName = type.name.includes("::") ? type.name.slice(type.name.lastIndexOf("::") + 2) : type.name;
         // template parameter bound to a concrete type?
-        const bound = templateBindings.types.get(type.name) ?? templateBindings.types.get(baseName);
+        const bound = lookupScoped(templateBindings.types, type.name);
         if (bound) return programAnalysis.sizeOfType(bound, templateBindings);
-        const size = SCALAR_SIZE[type.name] ?? SCALAR_SIZE[baseName];
+        const size = scopedLookupKeys(type.name)
+            .map((key) => SCALAR_SIZE[key])
+            .find((scalarSize) => scalarSize !== undefined);
         if (size !== undefined) return size;
-        const td = programAnalysis.typedefs.get(type.name) ?? programAnalysis.typedefs.get(baseName);
+        const td = lookupScoped(programAnalysis.typedefs, type.name);
         if (td) return programAnalysis.sizeOfType(td, templateBindings);
         const struct = programAnalysis.structByName(type.name, templateBindings);
         if (struct) return programAnalysis.layoutOfStruct(struct, templateBindings).size;
@@ -45,7 +47,7 @@ export function sizeOfTypeInner(programAnalysis: ProgramAnalysis, type: TypeSpec
         // asset iterators occupy their 8-byte runtime shape (count @0, cursor @4) wherever they live
         if (/Asset(Ownership|Possession)Iterator$/.test(type.name)) return 8;
         // an enum type: sized by its declared underlying type (enum class X : uint8 → 1), default int
-        const es = programAnalysis.enumSize.get(type.name) ?? programAnalysis.enumSize.get(type.name.split("::").pop()!);
+        const es = lookupScoped(programAnalysis.enumSize, type.name);
         if (es !== undefined) return es;
         const num = parseInt(type.name);
         if (!isNaN(num)) return num; // shouldn't happen for a type, defensive

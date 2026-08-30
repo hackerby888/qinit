@@ -118,18 +118,21 @@ export class ProgramAnalysis {
     registerLibFnTemplate(key: string, fn: FunctionTemplateDecl): void {
         return declarationIndex.registerLibFnTemplate(this, key, fn);
     }
-    collectConstant(variableDeclaration: VariableDecl): void {
-        return declarationIndex.collectConstant(this, variableDeclaration);
+    collectConstant(variableDeclaration: VariableDecl, scopePrefix = ""): void {
+        return declarationIndex.collectConstant(this, variableDeclaration, scopePrefix);
     }
-    collectEnum(type: {
-        name?: string;
-        underlyingType?: TypeSpec;
-        members: {
-            name: string;
-            value?: Expression;
-        }[];
-    }): void {
-        return declarationIndex.collectEnum(this, type);
+    collectEnum(
+        type: {
+            name?: string;
+            underlyingType?: TypeSpec;
+            members: {
+                name: string;
+                value?: Expression;
+            }[];
+        },
+        scopePrefix = "",
+    ): void {
+        return declarationIndex.collectEnum(this, type, scopePrefix);
     }
     typeOfConstant(name: string): TypeSpec | null {
         return constantEvaluator.typeOfConstant(this, name);

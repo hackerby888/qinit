@@ -1,8 +1,9 @@
-import { AstKind, UnsupportedFeature } from "../shared/enums";
+import { AstKind, BareNamePolicy, UnsupportedFeature } from "../shared/enums";
 import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
 import { raiseUnsupported } from "./unsupported";
+import { registerScoped } from "./declaration-index";
 
 export function collectNested(programAnalysis: ProgramAnalysis, contract: StructDecl): void {
     for (const member of contract.members) {
@@ -76,8 +77,7 @@ export function registerCalleeContractDeclarations(programAnalysis: ProgramAnaly
                         name: string;
                         type: TypeSpec;
                     };
-                    programAnalysis.typedefs.set(`${name}::${td.name}`, td.type);
-                    if (!programAnalysis.typedefs.has(td.name)) programAnalysis.typedefs.set(td.name, td.type);
+                    registerScoped(programAnalysis.typedefs, `${name}::`, td.name, td.type, BareNamePolicy.KEEP);
                 } else if (member.kind === AstKind.FUNCTION) {
                     const fn = member as FunctionDecl;
                     if (!fn.body || !fn.isStatic) continue;
@@ -122,9 +122,7 @@ export function captureStructMethods(programAnalysis: ProgramAnalysis, structDec
         const akey = `${fn.name}/${functionParameters.length}`;
         // Overloads of one arity are told apart by their first parameter's type, the same key
         // declaration-index writes for file-scope structs.
-        const typedKey = functionParameters[0]
-            ? `${akey}@${programAnalysis.typeKey(programAnalysis.derefType(functionParameters[0].type))}`
-            : null;
+        const typedKey = functionParameters[0] ? `${akey}@${programAnalysis.typeKey(programAnalysis.derefType(functionParameters[0].type))}` : null;
 
         for (const cls of names) {
             if (!programAnalysis.templateMethods.has(cls)) programAnalysis.templateMethods.set(cls, new Map());

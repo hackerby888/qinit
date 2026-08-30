@@ -1,6 +1,7 @@
 import { AstKind } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout } from "./types";
+import { lookupScoped, scopedLookupKeys } from "./declaration-index";
 import type { TypeSpec, Declaration, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
 
@@ -31,20 +32,20 @@ export function alignOfTypeB(programAnalysis: ProgramAnalysis, type: TypeSpec, t
 }
 
 export function alignOfNameType(programAnalysis: ProgramAnalysis, typeName: string, templateBindings: TemplateBindings): number {
-    // A namespace-qualified name reaches the same declaration as its bare spelling, and sizeOfType looks
-    // up both — align has to strip the qualifier the same way, or the two disagree about one field.
-    const baseName = typeName.includes("::") ? typeName.slice(typeName.lastIndexOf("::") + 2) : typeName;
-    const boundType = templateBindings.types.get(typeName) ?? templateBindings.types.get(baseName);
+    // Same lookup order sizeOfType uses, so the two can never disagree about one field's width.
+    const boundType = lookupScoped(templateBindings.types, typeName);
     if (boundType) return programAnalysis.alignOfTypeB(boundType, templateBindings);
-    const scalarSize = SCALAR_SIZE[typeName] ?? SCALAR_SIZE[baseName];
+    const scalarSize = scopedLookupKeys(typeName)
+        .map((key) => SCALAR_SIZE[key])
+        .find((size) => size !== undefined);
     if (scalarSize !== undefined) return Math.min(scalarSize, 8);
-    const typedefType = programAnalysis.typedefs.get(typeName) ?? programAnalysis.typedefs.get(baseName);
+    const typedefType = lookupScoped(programAnalysis.typedefs, typeName);
     if (typedefType) return programAnalysis.alignOfTypeB(typedefType, templateBindings);
     const resolvedStruct = programAnalysis.structByName(typeName, templateBindings);
     if (resolvedStruct) return programAnalysis.layoutOfStruct(resolvedStruct, templateBindings).align;
     const qualifiedNested = programAnalysis.qualifiedNestedType(typeName, templateBindings);
     if (qualifiedNested) return programAnalysis.alignOfTypeB(qualifiedNested, templateBindings);
-    const enumAlignment = programAnalysis.enumSize.get(typeName) ?? programAnalysis.enumSize.get(typeName.split("::").pop()!);
+    const enumAlignment = lookupScoped(programAnalysis.enumSize, typeName);
     return enumAlignment ?? 4;
 }
 

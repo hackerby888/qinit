@@ -424,6 +424,12 @@ export enum LogPayloadDefect {
  *
  * Grep a member to find every site that reports it; that set is the work list for implementing it.
  */
+// Which declaration wins the bare, unqualified key when two scopes share a name.
+export enum BareNamePolicy {
+    OVERWRITE = "overwrite",
+    KEEP = "keep",
+}
+
 export enum UnsupportedFeature {
     NATIVE_C_SCALAR = "native_c_scalar",
     DESTRUCTOR = "destructor",
