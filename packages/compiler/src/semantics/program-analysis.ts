@@ -52,6 +52,7 @@ export class ProgramAnalysis {
         }[]
     > = new Map(); // partial/explicit specializations keyed by template name
     globalStructs: Map<string, StructDecl> = new Map(); // qpi.h global/namespace structs
+    structScope: Map<StructDecl, string> = new Map(); // struct → the scope prefix it was declared in
     typedefs: Map<string, TypeSpec> = new Map(); // typedef aliases
     typedefScope: Map<string, string> = new Map(); // typedef alias → the scope prefix it was declared in
     constexprInit: Map<string, Expression> = new Map(); // named constexpr → its init expression

@@ -127,6 +127,8 @@ export function registerTopLevelDeclarations(
             programAnalysis.captureMemberNamespaceContexts(structDeclaration.members, lookupContext);
             if (structDeclaration.name && structDeclaration.hasBody !== false) {
                 registerScoped(programAnalysis.globalStructs, nsPrefix, structDeclaration.name, structDeclaration, barePolicy);
+                // Its bases are written unqualified, so remember where to resolve them from.
+                if (nsPrefix) programAnalysis.structScope.set(structDeclaration, nsPrefix);
                 // Inline value/void methods of a plain (non-template) struct — e.g. ProposalDataYesNo::checkValidity
                 for (const member of structDeclaration.members) {
                     if (member.kind !== AstKind.FUNCTION || !(member as FunctionDecl).body) continue;

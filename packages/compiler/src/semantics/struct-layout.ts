@@ -2,7 +2,7 @@ import { AstKind } from "../shared/enums";
 import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout } from "./types";
 import type { TypeSpec, Declaration, StructDecl, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
-import { followScopedTypedef } from "./declaration-index";
+import { followScopedTypedef, qualifyNamesInScope } from "./declaration-index";
 
 function emptyStructIdentity(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings): StructDecl | string | null {
     let resolved = programAnalysis.substInBindings(type, templateBindings);
@@ -146,7 +146,12 @@ export function structCacheKey(programAnalysis: ProgramAnalysis, struct: StructD
 
 export function layoutOfStruct(programAnalysis: ProgramAnalysis, struct: StructDecl, templateBindings: TemplateBindings): StructLayout {
     if (struct.hasBody === false) return { size: 0, align: 1, fields: new Map() };
-    return programAnalysis.layoutOfMembers(struct.members, templateBindings, programAnalysis.structCacheKey(struct), struct.isUnion, struct.bases);
+
+    // `namespace Beta { struct D : public Base {}; }` means Beta's Base, so the bases are resolved from
+    // the scope the struct was written in before anything downstream looks them up by name.
+    const scope = programAnalysis.structScope.get(struct);
+    const bases = scope ? struct.bases.map((base) => qualifyNamesInScope(programAnalysis, base, scope)) : struct.bases;
+    return programAnalysis.layoutOfMembers(struct.members, templateBindings, programAnalysis.structCacheKey(struct), struct.isUnion, bases);
 }
 
 export function bindingSig(programAnalysis: ProgramAnalysis, templateBindings: TemplateBindings): string {

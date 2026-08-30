@@ -246,3 +246,31 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         ["b", 24],
     ]);
 });
+
+test("a nested type reached through a namespaced typedef comes from that namespace", () => {
+    const declarations = `
+namespace Alpha { struct Owner { struct Inner { uint8 v; }; }; typedef Owner O; }
+namespace Beta { struct Owner { struct Inner { uint64 a; uint64 b; }; }; typedef Owner O; }`;
+
+    expect(sizesOf(declarations, "    Alpha::O::Inner a;\n    Beta::O::Inner b;")).toEqual([
+        ["a", 1],
+        ["b", 16],
+    ]);
+});
+
+// A base written unqualified inside a namespace means that namespace's type. Nothing recorded where a
+// struct was declared before this, so `Beta::D` inherited whichever Base owned the bare name.
+test("a struct inherits the base of its own namespace, not a same-named one", () => {
+    const declarations = `
+namespace Alpha { struct Base { uint8 v; }; struct D : public Base { uint8 e; }; typedef D T; }
+namespace Beta { struct Base { uint64 a; uint64 b; }; struct D : public Base { uint8 e; }; typedef D T; }`;
+
+    expect(sizesOf(declarations, "    Alpha::D a;\n    Beta::D b;")).toEqual([
+        ["a", 2],
+        ["b", 24],
+    ]);
+    expect(sizesOf(declarations, "    Alpha::T a;\n    Beta::T b;")).toEqual([
+        ["a", 2],
+        ["b", 24],
+    ]);
+});

@@ -3,7 +3,7 @@ import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
 import { raiseUnsupported } from "./unsupported";
-import { registerScoped } from "./declaration-index";
+import { followScopedTypedef, registerScoped } from "./declaration-index";
 
 export function collectNested(programAnalysis: ProgramAnalysis, contract: StructDecl): void {
     for (const member of contract.members) {
@@ -174,7 +174,7 @@ export function structByName(programAnalysis: ProgramAnalysis, name: string, tem
 export function qualifiedNestedType(programAnalysis: ProgramAnalysis, name: string, templateBindings: TemplateBindings): TypeSpec | null {
     for (let sep = name.indexOf("::"); sep > 0; sep = name.indexOf("::", sep + 2)) {
         const head = name.slice(0, sep);
-        const headType = templateBindings.types.get(head) ?? programAnalysis.typedefs.get(head);
+        const headType = templateBindings.types.get(head) ?? followScopedTypedef(programAnalysis, head);
         const structDeclaration = headType
             ? programAnalysis.structOf(headType, templateBindings)
             : (programAnalysis.structByName(head, templateBindings) ?? null);
@@ -217,7 +217,7 @@ export function structOf(programAnalysis: ProgramAnalysis, type: TypeSpec, templ
     if (type.kind === AstKind.NAME) {
         const bound = templateBindings.types.get(type.name);
         if (bound) return programAnalysis.structOf(bound, templateBindings);
-        const td = programAnalysis.typedefs.get(type.name);
+        const td = followScopedTypedef(programAnalysis, type.name);
         if (td) return programAnalysis.structOf(td, templateBindings);
         const structDeclaration = programAnalysis.structByName(type.name, templateBindings);
         if (structDeclaration) return structDeclaration;
