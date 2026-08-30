@@ -210,6 +210,11 @@ export function registerTopLevelDeclarations(
                 else programAnalysis.libFnTemplates.set(key, [fn as FunctionTemplateDecl]);
             }
         } else if (declaration.kind === AstKind.TYPEDEF_DECL) {
+            // Addressable both ways, like a namespace struct above. Bare-only keys collapse two namespaces
+            // that share a typedef name into whichever registered last, silently changing the loser's width.
+            if (nsPrefix) {
+                programAnalysis.typedefs.set(`${nsPrefix}${td.name}`, td.type);
+            }
             programAnalysis.typedefs.set(td.name, td.type);
         } else if (declaration.kind === AstKind.VARIABLE) {
             programAnalysis.collectConstant(declaration as VariableDecl);
