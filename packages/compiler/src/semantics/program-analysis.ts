@@ -134,6 +134,9 @@ export class ProgramAnalysis {
     ): void {
         return declarationIndex.collectEnum(this, type, scopePrefix);
     }
+    scopedConstantKeys(name: string): string[] {
+        return constantEvaluator.scopedConstantKeys(this, name);
+    }
     typeOfConstant(name: string): TypeSpec | null {
         return constantEvaluator.typeOfConstant(this, name);
     }

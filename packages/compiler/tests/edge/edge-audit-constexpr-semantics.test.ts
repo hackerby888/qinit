@@ -61,4 +61,19 @@ describe.skipIf(!HAS_CORE)("edge audit — typed constexpr semantics", () => {
         const source = wrap(`static constexpr uint64 K = 123;`, `state.mut().result = K;`);
         expect(await run(source)).toBe(123n);
     });
+
+    // The shadow is scoped to the contract: QPI::Ch spells the letters, and a member named after one of
+    // them must not change what Ch::K means anywhere else in the same contract.
+    test("shadowing a qpi.h constant leaves its qualified name alone", async () => {
+        const shadowed = `static constexpr uint64 K = 123;`;
+        expect(await run(wrap(shadowed, `state.mut().result = Ch::K;`))).toBe(75n);
+        expect(await run(wrap(shadowed, `state.mut().result = QPI::Ch::K;`))).toBe(75n);
+        expect(await run(wrap(shadowed, `state.mut().result = Ch::a;`))).toBe(97n);
+    });
+
+    test("a partly-qualified constant resolves through the visible using-directive", async () => {
+        const unrelated = `static constexpr uint64 Z = 1;`;
+        expect(await run(wrap(unrelated, `state.mut().result = Ch::K;`))).toBe(75n);
+        expect(await run(wrap(unrelated, `state.mut().result = Ch::_9;`))).toBe(57n);
+    });
 });

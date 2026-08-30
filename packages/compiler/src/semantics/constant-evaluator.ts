@@ -4,6 +4,7 @@ import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, Expression } from "../ast";
 import { parseIntLiteral } from "../frontend/lexer";
 import type { ProgramAnalysis } from "./program-analysis";
+import { scopedLookupKeys } from "./declaration-index";
 
 export function typeOfConstant(programAnalysis: ProgramAnalysis, name: string): TypeSpec | null {
     return (
@@ -61,8 +62,21 @@ export function resolveConst(programAnalysis: ProgramAnalysis, name: string, tem
                 return BigInt(candidate.index);
             }
         }
-        // Fall back to the unqualified tail of a namespace constant.
-        return separator >= 0 ? programAnalysis.resolveConst(name.slice(separator + 2), templateBindings) : null;
+        // A partly-qualified name (Ch::K under `using namespace QPI`) reaches its declaration only once the
+        // visible using-directives are applied, so try those before the bare tail they would otherwise hit.
+        // Only a candidate that is really declared is followed: recursing on every spelling lets two names
+        // that each fall back to the other spin forever.
+        for (const candidate of programAnalysis.scopedConstantKeys(name)) {
+            if (candidate === name) continue;
+
+            const enumValue = programAnalysis.enumConst.get(candidate);
+            if (enumValue !== undefined) return enumValue;
+
+            if (programAnalysis.constexprInit.has(candidate)) {
+                return programAnalysis.resolveConst(candidate, templateBindings);
+            }
+        }
+        return null;
     }
     if (programAnalysis.constInProgress.has(name)) return null; // cyclic constexpr — give up
     programAnalysis.constInProgress.add(name);
@@ -202,4 +216,11 @@ export function evalConstBig(programAnalysis: ProgramAnalysis, expression: Expre
 
 export function evalConstNum(programAnalysis: ProgramAnalysis, expression: Expression, templateBindings: TemplateBindings): number {
     return Number(programAnalysis.evalConstBig(expression, templateBindings));
+}
+
+// Every key a constant reference may be indexed under, using-directives of the translation unit included.
+export function scopedConstantKeys(programAnalysis: ProgramAnalysis, name: string): string[] {
+    return scopedLookupKeys(name, {
+        usingNamespaces: programAnalysis.namespaceUsings.get("") ?? [],
+    });
 }

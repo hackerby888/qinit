@@ -362,8 +362,9 @@ export function collectEnum(
     for (const member of type.members) {
         const numericValue = member.value ? programAnalysis.evalConstBig(member.value, EMPTY_TEMPLATE_BINDINGS) : next;
         next = numericValue + 1n;
-        // A member is reachable bare, as Enum::member, and — inside a namespace — as NS::Enum::member.
-        const memberScopes = type.name ? [...scopedKeys(scopePrefix, `${type.name}::`), ""] : [""];
+        // A named enum owns its members (Code::X); an unnamed one's belong to the scope around it (Ch::K).
+        // Both stay reachable bare, which is how a using-directive sees them.
+        const memberScopes = type.name ? [...scopedKeys(scopePrefix, `${type.name}::`), ""] : [...new Set([scopePrefix, ""])];
         for (const scope of memberScopes) {
             const key = `${scope}${member.name}`;
             programAnalysis.constexprInit.delete(key);
