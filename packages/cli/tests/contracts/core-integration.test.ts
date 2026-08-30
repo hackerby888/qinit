@@ -159,7 +159,9 @@ function expectTerminalElapsed(events: CoreIntegrationProgress[]): void {
 
 afterEach(() => {
     for (const path of temporaryDirectories.splice(0)) {
-        rmSync(path, { recursive: true, force: true });
+        // `force` only swallows ENOENT. Windows holds handles on the pack files and index.lock git just
+        // wrote, so removal races it and throws EBUSY — retrying is what node offers for exactly that.
+        rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
 });
 
