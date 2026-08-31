@@ -1,3 +1,4 @@
+import { CheatMode } from "@qinit/compiler";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -112,7 +113,7 @@ export async function buildProjectContracts(options: {
     outDir: string;
     skipVerify?: boolean;
     // A production build defines the cheatcodes away, which is what Core compiles.
-    cheats?: "on" | "noop" | "off";
+    cheats?: CheatMode;
     onContract?: (contract: PlannedProjectContract) => void;
 }): Promise<ProjectBuildOutcome> {
     const byStateType = new Map(options.plan.map((contract) => [contract.stateType, contract]));

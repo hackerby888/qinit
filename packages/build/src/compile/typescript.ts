@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { compileContractWithTypeScript, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
+import { CheatMode,compileContractWithTypeScript, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { analyzeContract, type SourceAnalysisResult } from "@qinit/compiler/analyzer";
 import { k12Hex } from "@qinit/core";
 import type { ContractBuildResult } from "./types";
@@ -25,7 +25,7 @@ export interface TypeScriptBuildOptions {
     outDir: string;
     dynCallees?: Record<string, TypeScriptCalleeBuildOptions>;
     strict?: boolean; // default true; false keeps fidelity-only findings from failing the build
-    cheats?: "on" | "noop" | "off"; // development cheatcodes; "off" is what Core sees
+    cheats?: CheatMode; // development cheatcodes; OFF is what Core sees
 }
 
 interface DynamicCalleeSource {

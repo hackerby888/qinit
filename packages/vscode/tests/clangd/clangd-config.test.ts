@@ -6,6 +6,7 @@ import { generateClangdConfig, generateTestClangdConfig, deriveName, DEFAULT_SLO
 import { writeFileSync } from "node:fs";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { generateWasmWrapperSource } from "@qinit/build/compile/clang";
+import { CheatMode } from "@qinit/compiler";
 
 const COUNTER = resolve("fixtures", "Counter.h");
 const hasFixture = existsSync(COUNTER);
@@ -206,7 +207,7 @@ test("a production wrapper defines no cheatcodes at all", () => {
         slot: 28,
         corePath: "/tmp/core",
         outDir: "/tmp/out",
-        cheats: "off",
+        cheats: CheatMode.OFF,
     });
 
     expect(wrapper).not.toContain("CC_PRINT");

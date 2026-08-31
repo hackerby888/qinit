@@ -1,4 +1,4 @@
-import { CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURES, type DebugTrace, type EngineFaultInfo } from "@qinit/core";
+import { CHEAT_ERR, CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURES, type DebugTrace, type EngineFaultInfo } from "@qinit/core";
 import { encodeBurningLog, encodeQuTransferLog, MAINNET_COMPUTOR_COUNT, MAX_INPUT_SIZE, QUBIC_LOG_TYPE, TXS_PER_TICK } from "@qinit/proto";
 import { Contract, CONTRACT_ENTRY_KIND, ContractExecutionError, Entity, HostServices } from "./contract/runtime";
 import { toHex, verifySync } from "./support/k12";
@@ -397,6 +397,12 @@ export class QubicSimulator {
 
     /** Sets a balance outright rather than transferring, which is the point of a deal. */
     private cheatDeal(id: Id, amount: bigint): bigint {
+        // The amount arrives as an unsigned word, so anything past the signed range lands here
+        // negative. A negative balance is meaningless, and would decrease against a missing entry.
+        if (amount < 0n) {
+            return CHEAT_ERR.unknownOp;
+        }
+
         const current = this.balance(id);
 
         if (current > amount) {

@@ -260,6 +260,13 @@ export enum StorageClass {
     EXTERN = "extern",
 }
 
+/** How a build treats the development cheatcodes. `OFF` injects nothing, which is what Core sees. */
+export enum CheatMode {
+    ON = "on",
+    NOOP = "noop",
+    OFF = "off",
+}
+
 export enum DiagnosticSeverity {
     ERROR = "error",
     WARNING = "warning",

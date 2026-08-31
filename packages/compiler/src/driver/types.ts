@@ -1,5 +1,5 @@
 import type { ParserDiagnostic } from "../frontend/parser";
-import type { CheatMode } from "./qpi/cheats";
+import type { CheatMode } from "../shared/enums";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 
 export type { ContractIdl } from "@qinit/proto/contract-idl";

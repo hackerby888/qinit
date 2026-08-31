@@ -5,11 +5,10 @@
 // wasm: the compiler interns them in the IDL and emits nothing, which is what keeps QPI's string ban
 // intact and works around the backend having no string codegen at all.
 
+import { CheatMode } from "../../shared/enums";
+
 /** Arguments per call, since the ordinal rides in the low byte of the tag the contract sends. */
 export const CHEAT_MAX_PARTS = 255;
-
-/** How a cheat build treats the macros: expand them, define them away, or leave them undeclared. */
-export type CheatMode = "on" | "noop" | "off";
 
 const ACTIVE = `#define QINIT_CC_LINE_BASE __QINIT_CC_LINE_BASE__
 #define CC_PRINT(...) __qinit_cheat_print(__LINE__ - QINIT_CC_LINE_BASE, __VA_ARGS__);
@@ -40,13 +39,15 @@ const NEUTERED = `#define CC_PRINT(...)
  * because injecting this block changes it.
  */
 export function cheatMacros(mode: CheatMode, lineBase: number): string {
-    if (mode === "off") {
+    if (mode === CheatMode.OFF) {
         return "";
     }
 
     // No trailing newline: the caller joins with one, and a spare blank line here would shift every
     // user line by one and land in the diagnostics the remapper reports.
-    const block = mode === "noop" ? NEUTERED : ACTIVE.replace("__QINIT_CC_LINE_BASE__", String(lineBase));
+    const block = mode === CheatMode.NOOP ? NEUTERED : ACTIVE.replace("__QINIT_CC_LINE_BASE__", String(lineBase));
 
     return block.replace(/\n$/, "");
 }
+
+export { CheatMode };

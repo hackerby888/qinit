@@ -1,3 +1,4 @@
+import { CheatMode } from "@qinit/compiler";
 import { useEffect, useState } from "react";
 import { resolve, join, basename } from "node:path";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -91,7 +92,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                     skipVerify: commandArgs.has("skip-verify"),
                     // Production means what Core compiles: no shim at all, and the cheats already gone
                     // from the source. Anything left over is then an undeclared identifier, not a no-op.
-                    cheats: commandArgs.has("production") ? "off" : "on",
+                    cheats: commandArgs.has("production") ? CheatMode.OFF : CheatMode.ON,
                 });
                 const r: ContractBuildResult = project.ok
                     ? project.contracts.at(-1)!.result

@@ -1,3 +1,4 @@
+import { CheatMode } from "@qinit/compiler";
 /// <reference path="../text-assets.d.ts" />
 // Compile a qpi.h-constrained contract .h into a wasm contract module (run by the node's WAMR engine).
 import { mkdir, writeFile, copyFile } from "node:fs/promises";
@@ -76,7 +77,7 @@ export interface ClangBuildOptions {
     corePath: string; // qubic-core-lite root
     outDir: string;
     calleePrelude?: string; // inter-contract: callee type headers + inputType consts (from intercontract.ts)
-    cheats?: "on" | "noop" | "off"; // development cheatcodes; "off" is what Core sees
+    cheats?: CheatMode; // development cheatcodes; OFF is what Core sees
     dynCallees?: Record<string, { header: string; index: number }>; // dynamic (Qinit-deployed) callees
     wasmClang?: string; // clang targeting wasm32-wasi; default env WASM_CLANG / the auto-fetched wasi-sdk
     wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
@@ -125,12 +126,12 @@ export function buildPreamble(): string {
 // The contract is #included, so __LINE__ is already the user's own line and the base is zero. Note the
 // clangd prefix header is this wrapper sliced at the contract include, so the shim reaches the editor
 // with no extension-side change.
-function cheatShim(mode: "on" | "noop" | "off"): string {
-    if (mode === "off") {
+function cheatShim(mode: CheatMode): string {
+    if (mode === CheatMode.OFF) {
         return "";
     }
 
-    if (mode === "noop") {
+    if (mode === CheatMode.NOOP) {
         return ["CC_PRINT(...)", "CC_ASSERT(c)", "CC_PAY(dest, amount)", "CC_DEAL(who, amount)", "CC_WARP_TICK(n)", "CC_WARP_EPOCH(n)", "CC_PRANK(who, reward)", "CC_UNPRANK()"]
             .map((signature) => `#define ${signature}`)
             .join("\n");
@@ -150,7 +151,7 @@ export function generateWasmWrapperSource(o: ClangBuildOptions): string {
 // __contract_index + <Type>_<fn>_inputType consts from the prelude + CONTRACT_INDEX above).
 #include "${CORE_WASM_HEADERS.sdk.intercontractCalls}"
 #include "${CORE_WASM_HEADERS.sdk.qpiSupport}"
-${cheatShim(o.cheats ?? "on")}
+${cheatShim(o.cheats ?? CheatMode.ON)}
 #include "${o.contractPath}"
 // QPI data-structure impls operate on contract-local memory. CAUTION: after the contract.
 #define printf(...) (__builtin_trap(), 0)
