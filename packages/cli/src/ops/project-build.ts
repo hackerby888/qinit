@@ -111,6 +111,8 @@ export async function buildProjectContracts(options: {
     compiler: CompilerBackend;
     outDir: string;
     skipVerify?: boolean;
+    // A production build defines the cheatcodes away, which is what Core compiles.
+    cheats?: "on" | "noop" | "off";
     onContract?: (contract: PlannedProjectContract) => void;
 }): Promise<ProjectBuildOutcome> {
     const byStateType = new Map(options.plan.map((contract) => [contract.stateType, contract]));
@@ -133,6 +135,7 @@ export async function buildProjectContracts(options: {
                       corePath: options.core,
                       outDir: options.outDir,
                       dynCallees: typescriptCallees(dependencies),
+                      cheats: options.cheats,
                   })
                 : await buildContractWithClang({
                       contractPath: contract.sourcePath,
@@ -142,6 +145,7 @@ export async function buildProjectContracts(options: {
                       corePath: options.core,
                       outDir: options.outDir,
                       dynCallees: clangCallees(dependencies),
+                      cheats: options.cheats,
                       skipVerify: options.skipVerify,
                   });
 

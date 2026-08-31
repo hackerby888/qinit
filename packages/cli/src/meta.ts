@@ -166,6 +166,7 @@ const commandMeta = {
         summary: "build a contract",
         usage: "<file.h>",
         options: [
+            booleanOption("production", "build without cheatcodes, as Core will"),
             stringOption("contract", "<file.h>", "contract header"),
             stringOption("contract-name", "<name>", "contract name"),
             stringOption("out", "<dir>", "output directory"),
@@ -190,6 +191,14 @@ const commandMeta = {
             stringOption("slot", "<n>", "contract slot"),
             stringOption("core-dir", "<path>", "Core checkout"),
         ],
+    },
+    strip: {
+        group: "develop",
+        json: true,
+        summary: "remove cheatcodes from a contract",
+        usage: "<file.h>",
+        options: [stringOption("contract", "<file.h>", "contract header"), stringOption("out", "<file.h>", "write here instead of stdout")],
+        examples: ["qinit strip contracts/Mytoken.h --out /tmp/Mytoken.clean.h"],
     },
     verify: {
         group: "develop",

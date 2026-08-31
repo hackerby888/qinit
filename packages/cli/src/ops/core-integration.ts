@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseContractDef } from "@qinit/build/contracts/intercontract";
+import { analyzeCheatcodes, stripCheatcodes } from "@qinit/compiler/analyzer";
 import {
     coreFilePaths,
     descriptions,
@@ -297,7 +298,20 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
             throw new Error("contract source must be outside the Core output checkout");
         }
 
-        const contractSource = readFileSync(contractPath, "utf8");
+        // The only hand-off to Core, so it is the one place cheatcodes must not survive. Violations are
+        // a hard failure here rather than a build diagnostic: analyzer severity gates nothing on this path.
+        const rawSource = readFileSync(contractPath, "utf8");
+        const violations = analyzeCheatcodes(rawSource);
+
+        if (violations.length) {
+            throw new Error(`cheatcode violations in ${sourceFileName}:\n${violations.map((item) => `  line ${item.span.line}: ${item.message}`).join("\n")}`);
+        }
+
+        const contractSource = stripCheatcodes(rawSource);
+
+        if (/\bCC_[A-Z0-9_]/.test(contractSource)) {
+            throw new Error("internal: cheatcode residue after strip");
+        }
         const localTestPath = join(projectRoot, "tests", `${contractName}.test.cpp`);
         const testSource = existsSync(localTestPath) ? readFileSync(localTestPath, "utf8") : undefined;
 

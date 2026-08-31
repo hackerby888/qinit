@@ -13,6 +13,7 @@ import { Build } from "./commands/develop/build";
 import { Gen } from "./commands/develop/gen";
 import { Deploy } from "./commands/deploy-interact/deploy";
 import { Verify } from "./commands/develop/verify";
+import { Strip } from "./commands/develop/strip";
 import { Test } from "./commands/deploy-interact/test";
 import { Gtest } from "./commands/deploy-interact/gtest";
 import { Call } from "./commands/deploy-interact/call";
@@ -152,6 +153,7 @@ const HANDLERS = {
     dev: ({ commandArgs }) => <Dev commandArgs={commandArgs} />,
     build: ({ commandArgs }) => <Build commandArgs={commandArgs} />,
     gen: ({ commandArgs }) => <Gen commandArgs={commandArgs} />,
+    strip: ({ commandArgs }) => <Strip commandArgs={commandArgs} />,
     verify: ({ commandArgs }) => <Verify commandArgs={commandArgs} />,
     deploy: ({ commandArgs }) => <Deploy commandArgs={commandArgs} />,
     call: ({ commandArgs }) => <Call commandArgs={commandArgs} />,

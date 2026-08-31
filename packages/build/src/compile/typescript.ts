@@ -25,6 +25,7 @@ export interface TypeScriptBuildOptions {
     outDir: string;
     dynCallees?: Record<string, TypeScriptCalleeBuildOptions>;
     strict?: boolean; // default true; false keeps fidelity-only findings from failing the build
+    cheats?: "on" | "noop" | "off"; // development cheatcodes; "off" is what Core sees
 }
 
 interface DynamicCalleeSource {
@@ -114,6 +115,7 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         callees: callees.length ? callees : undefined,
         calleeSources: calleeSources.length ? calleeSources : undefined,
         strict: o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(contractPath)),
+        cheats: o.cheats,
     });
     const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
     if (errors.length) {
