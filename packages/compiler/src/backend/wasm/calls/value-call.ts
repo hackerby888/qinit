@@ -1,5 +1,6 @@
 import { AstKind, ContainerEmissionMode, PlatformPrimitiveKind, UnaryOp, WatNodeType } from "../../../shared/enums";
 import { MATH_INTRINSIC_NAMES, SCALAR_SIZE, symbolBaseName } from "../abi/tables";
+import { resolvedScalarName } from "../../../semantics/declaration-index";
 import { addrIr, narrowCastIr } from "../memory/memory-operations";
 import { FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
@@ -125,15 +126,14 @@ export function emitCallValueIr(
     const containerCallText = context.lowering.emitContainerCall(context, expression, true);
     if (containerCallText !== null) return watIr.rawWatNode(containerCallText, WatNodeType.I64, "source-compiled instance method");
     context.lowering.emitQpiCall(context, expression);
-    // Narrow functional scalar casts to the target width.
-    if (expression.callee.kind === AstKind.IDENTIFIER && SCALAR_SIZE[expression.callee.name] !== undefined && expression.callArguments.length === 1) {
-        return narrowCastIr(context.lowering.lowerValueExpression(context, expression.callArguments[0]), expression.callee.name);
-    }
-    // Resolve functional casts through bound template parameters.
+    // Narrow functional scalar casts to the target width. The cast may name its type through an alias, so
+    // the chain is followed first — `N::W(x)` narrows exactly as the scalar it ends at.
     if (expression.callee.kind === AstKind.IDENTIFIER && expression.callArguments.length === 1) {
         const bound = context.thisBind?.types.get(expression.callee.name);
-        if (bound?.kind === AstKind.NAME && SCALAR_SIZE[bound.name] !== undefined) {
-            return narrowCastIr(context.lowering.lowerValueExpression(context, expression.callArguments[0]), bound.name);
+        const calleeName = bound?.kind === AstKind.NAME ? bound.name : expression.callee.name;
+        const scalarName = resolvedScalarName(context.programAnalysis, calleeName);
+        if (SCALAR_SIZE[scalarName] !== undefined) {
+            return narrowCastIr(context.lowering.lowerValueExpression(context, expression.callArguments[0]), scalarName);
         }
     }
     // In the scalar model, a two-argument uint128 constructor yields its low limb.
