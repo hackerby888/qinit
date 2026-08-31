@@ -7,7 +7,6 @@ import { LOG_TERMINATOR_FIELD, logPayloadDefect, logPayloadMessage } from "../ab
 import { addrIr } from "../memory/memory-operations";
 import { resolveExpressionAddress } from "../memory/address-resolution";
 import { CHEAT_OP } from "@qinit/core";
-import { CHEAT_ORDINALS_PER_LINE } from "../../../driver/qpi/cheats";
 import { foldCheatLine } from "../idl/collect-cheats";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";
@@ -53,19 +52,17 @@ export function tryEmitHostIntrinsicCall(context: FunctionEmissionContext, expre
 function emitCheatPrintCall(context: FunctionEmissionContext, expression: CallExpression): void {
     const [lineArgument, ...args] = expression.callArguments;
     const line = foldCheatLine(lineArgument);
-    const callId = line * CHEAT_ORDINALS_PER_LINE;
 
-    if (!args.length) {
-        emitCheat(context, CHEAT_OP.print, watIr.i64Constant(BigInt(callId)), watIr.i64Constant(0n), watIr.i32Constant(0), watIr.i32Constant(0));
-        return;
-    }
+    let emitted = 0;
 
     args.forEach((argument, part) => {
         if (argument.kind === AstKind.STRING_LITERAL) {
             return;
         }
 
-        const tag = watIr.i64Constant(BigInt(callId + part));
+        emitted++;
+
+        const tag = watIr.i64Constant((BigInt(line) << 8n) | BigInt(part));
         const resolved = resolveExpressionAddress(context, argument);
 
         if (resolved?.addr && resolved.size) {
@@ -76,6 +73,11 @@ function emitCheatPrintCall(context: FunctionEmissionContext, expression: CallEx
         // No address to point at, so the value itself rides in the register slot and size stays zero.
         emitCheat(context, CHEAT_OP.print, tag, context.lowering.lowerValueExpression(context, argument), watIr.i32Constant(0), watIr.i32Constant(0));
     });
+
+    // An all-literal print still has to reach the reader, so it sends a marker carrying no bytes.
+    if (!emitted) {
+        emitCheat(context, CHEAT_OP.print, watIr.i64Constant(BigInt(line) << 8n), watIr.i64Constant(0n), watIr.i32Constant(0), watIr.i32Constant(0));
+    }
 }
 
 // The mutating cheatcodes: opcode, one scalar, and an optional 32-byte id.

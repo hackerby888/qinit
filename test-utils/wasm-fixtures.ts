@@ -10,6 +10,7 @@ import DIVIDEND_SOURCE from "../fixtures/Dividend.h" with { type: "text" };
 import HOOKS_SOURCE from "../fixtures/Hooks.h" with { type: "text" };
 import HOST_WRITE_SOURCE from "../fixtures/HostWrite.h" with { type: "text" };
 import INCOMING_LOGGER_SOURCE from "../fixtures/IncomingLogger.h" with { type: "text" };
+import CHEATS_SOURCE from "../fixtures/Cheats.h" with { type: "text" };
 import ORACLE_PROBE_SOURCE from "../fixtures/OracleProbe.h" with { type: "text" };
 import PROXY_SOURCE from "../fixtures/Proxy.h" with { type: "text" };
 import QPI_DUAL_SOURCE from "../fixtures/QpiDual.h" with { type: "text" };
@@ -60,6 +61,7 @@ export const wasmFixtureManifest = {
     ApiProbe: fixture("ApiProbe.h", API_PROBE_SOURCE, "ApiProbe", 29),
     BigState: fixture("BigState.h", BIG_STATE_SOURCE, "BigState", 28),
     CallOutState: fixture("CallOutState.h", CALL_OUT_STATE_SOURCE, "CallOutState", 29, ["Counter"]),
+    Cheats: fixture("Cheats.h", CHEATS_SOURCE, "Cheats", 28),
     Counter: fixture("Counter.h", COUNTER_SOURCE, "Counter", 28),
     Counter1: fixture("Counter.h", COUNTER_SOURCE, "Counter", 1),
     Counter5: fixture("Counter.h", COUNTER_SOURCE, "Counter", 5),

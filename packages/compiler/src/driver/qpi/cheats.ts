@@ -5,8 +5,8 @@
 // wasm: the compiler interns them in the IDL and emits nothing, which is what keeps QPI's string ban
 // intact and works around the backend having no string codegen at all.
 
-/** Argument ordinals per call site, so one line can carry several cheats without their ids colliding. */
-export const CHEAT_ORDINALS_PER_LINE = 8;
+/** Arguments per call, since the ordinal rides in the low byte of the tag the contract sends. */
+export const CHEAT_MAX_PARTS = 255;
 
 /** How a cheat build treats the macros: expand them, define them away, or leave them undeclared. */
 export type CheatMode = "on" | "noop" | "off";

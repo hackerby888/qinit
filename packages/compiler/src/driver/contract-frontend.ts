@@ -23,7 +23,8 @@ export function preprocessContractSource(options: CompileOptions, seedMacros: Pr
     // block's line count does not depend on the number it carries, so one placeholder pass settles it.
     const prelude = [SCAFFOLD_MACROS, `struct ${USER_BOUNDARY} {};`].join("\n");
     const mode = options.cheats ?? "on";
-    const prefixLines = [prelude, cheatMacros(mode, 0)].join("\n").split("\n").length;
+    // +1 because the preprocessor prepends its own newline before this source (preprocessor-core.ts).
+    const prefixLines = [prelude, cheatMacros(mode, 0)].join("\n").split("\n").length + 1;
     const source = [prelude, cheatMacros(mode, prefixLines), sourceWithoutLeadingBom(options.source)].join("\n");
 
     const preprocessedSource = new Preprocessor().preprocess({

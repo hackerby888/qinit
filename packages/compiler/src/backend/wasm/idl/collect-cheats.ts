@@ -7,7 +7,6 @@ import type { CallExpression } from "../calls/call-expression";
 import type { Expression, FunctionDecl, Statement, TypeSpec } from "../../../ast";
 import type { StructLayout } from "../../../semantics/types";
 import type { PreparedContractModule } from "../module/module-analysis";
-import { CHEAT_ORDINALS_PER_LINE } from "../../../driver/qpi/cheats";
 import type { AbiTypeBuilder } from "./abi-type-builder";
 import { collectPayloadRoots, visitStatement, type PayloadRoots } from "../module/log-call-validation";
 
@@ -65,7 +64,7 @@ function cheatFromCall(builder: AbiTypeBuilder, roots: PayloadRoots, call: CallE
     const line = foldCheatLine(lineArgument);
 
     return {
-        id: line * CHEAT_ORDINALS_PER_LINE,
+        id: line,
         line,
         parts: args.map((argument) => partFor(builder, roots, argument)),
     };
