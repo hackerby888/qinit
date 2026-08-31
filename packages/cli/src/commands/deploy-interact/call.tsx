@@ -102,6 +102,10 @@ export function Call({ commandArgs }: { commandArgs: CommandArguments }) {
     if (output.json && !mode) {
         invalidArgs("--json needs --fn or --proc");
     }
+    // Refused before the wizard mounts: its useInput would ask ink for raw mode and throw ink's own message.
+    if (!process.stdin.isTTY && !mode) {
+        invalidArgs("call needs --fn or --proc without a terminal — `qinit ls` lists contracts and their entries");
+    }
     const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
     if (collected) {
         return (

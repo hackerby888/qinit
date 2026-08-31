@@ -39,3 +39,13 @@ test("a picker reports an unknown name with a failing exit status", async () => 
         expect(result.stdout).toContain("bogus");
     }
 });
+
+// The wizard's own useInput asks ink for raw mode as soon as it mounts, so the refusal has to come first
+// — otherwise the user reads ink's "Raw mode is not supported" instead of the two flags that would work.
+test("the call wizard refuses to mount without a terminal and names the flags instead", async () => {
+    const result = await run("call");
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("call needs --fn or --proc without a terminal");
+    expect(result.stdout).not.toContain("Raw mode");
+});
