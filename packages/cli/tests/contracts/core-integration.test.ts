@@ -382,6 +382,64 @@ describe("runCoreIntegration", () => {
         expectTerminalElapsed(updateProgress);
     });
 
+    // integrate is the only hand-off to a Core checkout, so it is the one place a cheatcode must not
+    // survive. These two go through the real integration rather than the strip in isolation.
+    test("strips cheatcodes out of the source it writes into Core", async () => {
+        const root = temporaryDirectory();
+        const repositoryUrl = createCoreRepository(root);
+        const projectRoot = createProject(root);
+        const contractPath = join(projectRoot, "contracts", "Main.h");
+
+        writeFileSync(
+            contractPath,
+            'struct Main { struct StateData { Base::StateData* base; }; };\nPUBLIC_PROCEDURE(P)\n{\n    CC_PRINT("here", input.n);\n    state.mut().n += 1;\n}\n',
+        );
+
+        const result = await runCoreIntegration({
+            projectRoot,
+            contractPath: "contracts/Main.h",
+            contractName: "Main",
+            outputPath: join(root, "Main-core"),
+            assetName: "MAIN",
+            constructionEpoch: 300,
+            destructionEpoch: 10000,
+            repositoryUrl,
+        });
+
+        const written = readFileSync(join(result.corePath, "src", "contracts", "Main.h"), "utf8");
+
+        expect(written).not.toMatch(/CC_/);
+        // The statement is blanked in place rather than deleted, so every following line keeps its
+        // number and a stack trace from Core still points where the dev expects.
+        expect(written).toContain("state.mut().n += 1;");
+        expect(written.replaceAll(CRLF, "\n").split("\n").length).toBe(readFileSync(contractPath, "utf8").split("\n").length);
+    });
+
+    test("refuses a cheatcode it cannot strip safely rather than writing it to Core", async () => {
+        const root = temporaryDirectory();
+        const repositoryUrl = createCoreRepository(root);
+        const projectRoot = createProject(root);
+
+        // An expression-position cheat cannot be blanked without changing the statement around it.
+        writeFileSync(
+            join(projectRoot, "contracts", "Main.h"),
+            "struct Main { struct StateData { Base::StateData* base; }; };\nPUBLIC_PROCEDURE(P)\n{\n    x = CC_PRINT(1);\n}\n",
+        );
+
+        await expect(
+            runCoreIntegration({
+                projectRoot,
+                contractPath: "contracts/Main.h",
+                contractName: "Main",
+                outputPath: join(root, "Main-core"),
+                assetName: "MAIN",
+                constructionEpoch: 300,
+                destructionEpoch: 10000,
+                repositoryUrl,
+            }),
+        ).rejects.toThrow(/cheatcode violations/);
+    });
+
     test("rejects asset aliases and partial registration artifacts", async () => {
         const aliasRoot = temporaryDirectory();
         const aliasRepository = createCoreRepository(aliasRoot, "ALIAS");
