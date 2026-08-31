@@ -28,6 +28,14 @@ const TYPES = new Set([
     "ContractBase",
 ]);
 const MACROS = new Set([
+    "CC_PRINT",
+    "CC_ASSERT",
+    "CC_PAY",
+    "CC_DEAL",
+    "CC_WARP_TICK",
+    "CC_WARP_EPOCH",
+    "CC_PRANK",
+    "CC_UNPRANK",
     "PUBLIC_PROCEDURE",
     "PUBLIC_FUNCTION",
     "REGISTER_USER_FUNCTIONS_AND_PROCEDURES",
@@ -178,7 +186,26 @@ export function Cheat() {
                 <D> the picker fills these from the contract — no-input / known-output ⇒ no prompt.</D>
             </Panel>
 
-            <Panel title="5 · inspect" color={theme.mute}>
+            <Panel title="5 · cheatcodes  (stripped before Core sees the contract)" color={theme.warn}>
+                <Text>
+                    <C>CC_PRINT("balance", state.get().total)</C> <D>any type, any mix; works in functions too</D>
+                </Text>
+                <Text>
+                    <C>CC_ASSERT(cond)</C> <D>abort with the source line</D> <C>CC_PAY(to, amt)</C> <D>procedure only</D>
+                </Text>
+                <Text>
+                    <C>CC_DEAL(id, amt)</C> <C>CC_WARP_TICK(n)</C> <C>CC_WARP_EPOCH(n)</C> <C>CC_PRANK(id, reward)</C> <C>CC_UNPRANK()</C>
+                </Text>
+                <Text>
+                    <D>output shows in </D>
+                    <C>qinit debug</C>
+                    <D>, never in the chain log. </D>
+                    <C>qinit strip {"<file.h>"}</C>
+                    <D> shows what gets submitted.</D>
+                </Text>
+            </Panel>
+
+            <Panel title="6 · inspect" color={theme.mute}>
                 <Text>
                     <C>qinit ls</C> <D>deployed contracts</D> <C>qinit state {"<name>"}</C> <D>decoded state</D> <C>qinit debug</C> <D>live call tracer</D>
                 </Text>

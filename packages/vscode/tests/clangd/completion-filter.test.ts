@@ -193,3 +193,14 @@ test("document identifiers cover what the author already wrote", () => {
     expect(names.has("tick")).toBe(true);
     expect(names.has("uint64")).toBe(true);
 });
+
+test("cheatcodes survive the QPI narrowing", () => {
+    // They are declared in a qinit-owned header outside <core>/src, so the allowed set never sees
+    // them; clangd resolves them from the prefix header and the filter must not throw them away.
+    const allowed = new Set<string>();
+    const inDocument = new Set<string>();
+
+    expect(keepCompletionLabel("CC_PRINT", allowed, inDocument)).toBe(true);
+    expect(keepCompletionLabel("CC_ASSERT", allowed, inDocument)).toBe(true);
+    expect(keepCompletionLabel("SomethingElse", allowed, inDocument)).toBe(false);
+});

@@ -12,6 +12,10 @@ const LEADING_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*/;
 const QUALIFIER_PATTERN = /([A-Za-z_][A-Za-z0-9_]*)\s*::\s*$/;
 
 // std:: is the core headers' own trait spelling — a language namespace, not a QPI name, so it is pinned here.
+// Cheatcodes are declared in a qinit-owned header outside <core>/src, so the include walk below never
+// harvests them even though clangd resolves them. Without this they vanish from completions.
+const CHEAT_PREFIX = /^CC_[A-Z0-9_]*$/;
+
 const NON_QPI_NAMESPACES = new Set(["std"]);
 
 const allowedByCoreSource = new Map<string, ReadonlySet<string>>();
@@ -158,6 +162,9 @@ export function keepCompletionLabel(label: string, allowed: ReadonlySet<string>,
     }
     if (name.startsWith("_") || NON_QPI_NAMESPACES.has(name)) {
         return false;
+    }
+    if (CHEAT_PREFIX.test(name)) {
+        return true;
     }
     return allowed.has(name) || documentNames.has(name);
 }

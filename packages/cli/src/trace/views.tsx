@@ -135,6 +135,16 @@ export function TraceView({
         });
 
     const rows: { label: string; node: React.ReactNode }[] = [];
+    // A separate row kind from `log`: this is dev output that never reached the chain.
+    for (const cheat of view.cheats)
+        rows.push({
+            label: "print",
+            node: (
+                <Text>
+                    <Text dimColor>:{cheat.line}</Text> {truncEnd(cheat.text, cols - 12)}
+                </Text>
+            ),
+        });
     for (const l of view.logs)
         rows.push({
             label: "log",

@@ -38,7 +38,7 @@ export type {
     DynamicContractEntry,
     DynamicContractUploadStatus,
     DebugTrace,
-    DebugEntry,
+    DebugCheat, DebugEntry,
     DebugHostCall,
     DebugStateRegion,
     ExplorerData,

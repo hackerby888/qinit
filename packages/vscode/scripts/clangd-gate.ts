@@ -36,7 +36,7 @@ function entryFor(name: string): { name: string; path: string } | null {
     return null;
 }
 
-const names = requested.length ? requested : ["Counter", "Token", "Bank", "Proxy", "Logger", ...Object.keys(REAL)];
+const names = requested.length ? requested : ["Counter", "Token", "Bank", "Proxy", "Logger", "Cheats", ...Object.keys(REAL)];
 const entries = names.map(entryFor).filter((entry): entry is { name: string; path: string } => entry !== null);
 
 function siblingCallees(source: string): DynCallees {

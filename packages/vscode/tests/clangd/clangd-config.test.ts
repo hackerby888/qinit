@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { generateClangdConfig, generateTestClangdConfig, deriveName, DEFAULT_SLOT, ensureEditorSettings, detectStateType } from "../../src/clangd-config";
 import { writeFileSync } from "node:fs";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
+import { generateWasmWrapperSource } from "@qinit/build/compile/clang";
 
 const COUNTER = resolve("fixtures", "Counter.h");
 const hasFixture = existsSync(COUNTER);
@@ -180,4 +181,33 @@ test.if(hasFixture)("ensureEditorSettings disables cpptools IntelliSense, but re
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }
+});
+
+test("the clangd prefix header carries the cheatcodes, so the editor resolves them", () => {
+    // clangd sees the wrapper sliced at the contract include. Putting the shim before that include is
+    // what makes CC_* resolve in the editor with no extension-side declaration of its own.
+    const wrapper = generateWasmWrapperSource({
+        contractPath: "/tmp/Cheats.h",
+        contractName: "Cheats",
+        slot: 28,
+        corePath: "/tmp/core",
+        outDir: "/tmp/out",
+    });
+    const prefix = wrapper.slice(0, wrapper.indexOf('#include "/tmp/Cheats.h"'));
+
+    expect(prefix).toContain("#define CC_PRINT(...)");
+    expect(prefix).toContain("#define CC_ASSERT(c)");
+});
+
+test("a production wrapper defines no cheatcodes at all", () => {
+    const wrapper = generateWasmWrapperSource({
+        contractPath: "/tmp/Cheats.h",
+        contractName: "Cheats",
+        slot: 28,
+        corePath: "/tmp/core",
+        outDir: "/tmp/out",
+        cheats: "off",
+    });
+
+    expect(wrapper).not.toContain("CC_PRINT");
 });
