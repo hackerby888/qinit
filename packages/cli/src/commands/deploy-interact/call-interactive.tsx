@@ -201,8 +201,10 @@ export function CallInteractive({ rpcBaseUrl, onRun }: { rpcBaseUrl: string; onR
         }
     };
 
+    // The contract and entry stages mount a Select, which owns esc there — binding it here too would pop the
+    // stage and leave its search at the same time. Listed positively so a new Select stage fails inert.
     useInput((_i, key) => {
-        if (key.escape) {
+        if (key.escape && (wizard.stage === "input" || wizard.stage === "output" || wizard.stage === "amount")) {
             back();
         }
     });
@@ -361,7 +363,7 @@ export function CallInteractive({ rpcBaseUrl, onRun }: { rpcBaseUrl: string; onR
             ...(system.length ? [{ label: "system", header: true }, ...system] : []),
         ];
 
-        return wrap(<Select label="Pick a contract:" items={items} onSelect={(contract) => setWizard({ stage: "entry", contract })} />);
+        return wrap(<Select label="Pick a contract:" items={items} onCancel={back} onSelect={(contract) => setWizard({ stage: "entry", contract })} />);
     }
 
     if (wizard.stage === "entry") {
@@ -378,7 +380,14 @@ export function CallInteractive({ rpcBaseUrl, onRun }: { rpcBaseUrl: string; onR
             };
         });
 
-        return wrap(<Select label={`${nameOf(contract)} — pick a function/procedure:`} items={items} onSelect={(entry) => startEntry(contract, entry)} />);
+        return wrap(
+            <Select
+                label={`${nameOf(contract)} — pick a function/procedure:`}
+                items={items}
+                onCancel={back}
+                onSelect={(entry) => startEntry(contract, entry)}
+            />,
+        );
     }
 
     if (wizard.stage === "input") {

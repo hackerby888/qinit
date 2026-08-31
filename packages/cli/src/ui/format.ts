@@ -1,4 +1,4 @@
-// Value formatting and width arithmetic. Pure functions — the widths every component budgets against.
+// Value formatting and width/height arithmetic. Pure functions — the sizes every component budgets against.
 export const fmtMs = (ms?: number) => (ms == null ? "" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 
 export const termCols = () => Math.max(40, process.stdout.columns || 80);
@@ -38,5 +38,13 @@ export const truncMid = (s: string, max: number) => {
     const tail = keep - head;
     return s.slice(0, head) + "…" + s.slice(s.length - tail);
 };
+
+// Slice a list around the selected row. `budget` is the rows left after the caller's own fixed block, so a
+// long list can never grow past the frame and push what sits below it off-screen.
+export function windowOf<T>(rows: T[], selected: number, budget: number): { win: T[]; offset: number } {
+    const size = Math.max(1, budget);
+    const offset = Math.max(0, Math.min(selected - Math.floor(size / 2), rows.length - size));
+    return { win: rows.slice(offset, offset + size), offset: Math.max(0, offset) };
+}
 
 export const sevColor = (severity: string) => (severity === "ERROR" ? "red" : severity === "WARN" ? "yellow" : severity === "INFO" ? "green" : undefined);

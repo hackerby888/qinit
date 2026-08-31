@@ -1,7 +1,8 @@
 // Pure formatting helpers behind the explorer's stat tiles. fmtCompact is the interesting one: it has to
 // stay correct past 2^53, where Number-based scaling silently drifts.
 import { test, expect } from "bun:test";
-import { fmtCompact, fmtMs, truncMid, truncEnd } from "../../src/ui";
+import { fmtCompact, fmtMs, truncMid, truncEnd, windowOf } from "../../src/ui";
+import { filterItems, type SelItem } from "../../src/ui/prompt";
 import { initialView, parseFindQuery } from "../../src/commands/deploy-interact/explorer";
 import { parseCommandInvocation } from "../../src/args";
 import { hintLines } from "../../src/commands/deploy-interact/explorer/chrome";
@@ -190,4 +191,65 @@ test("fmtMs switches to seconds at exactly one second", () => {
     expect(fmtMs(999)).toBe("999ms");
     expect(fmtMs(1000)).toBe("1.0s");
     expect(fmtMs(1949)).toBe("1.9s");
+});
+
+// The pickers budget their height from windowOf, so an off-by-one here is a frame that reaches the
+// terminal height and makes ink clear and reprint on every keystroke.
+test("windowOf slices around the selection and clamps at both ends", () => {
+    const rows = Array.from({ length: 30 }, (_, index) => index);
+
+    expect(windowOf(rows, 15, 5)).toEqual({ win: [13, 14, 15, 16, 17], offset: 13 });
+    expect(windowOf(rows, 0, 5)).toEqual({ win: [0, 1, 2, 3, 4], offset: 0 });
+    expect(windowOf(rows, 29, 5)).toEqual({ win: [25, 26, 27, 28, 29], offset: 25 });
+    // A list shorter than the budget is shown whole rather than padded or re-anchored.
+    expect(windowOf([1, 2], 1, 10)).toEqual({ win: [1, 2], offset: 0 });
+    expect(windowOf([], 0, 5)).toEqual({ win: [], offset: 0 });
+});
+
+test("windowOf still yields a row when the caller's chrome ate the whole terminal", () => {
+    const rows = [1, 2, 3];
+
+    expect(windowOf(rows, 0, 0).win.length).toBe(1);
+    expect(windowOf(rows, 2, -3).win.length).toBe(1);
+});
+
+test("filterItems matches labels case-insensitively and keeps a header only for a surviving row", () => {
+    const items: SelItem<number>[] = [
+        { label: "deployed", header: true },
+        { label: "Counter", value: 1 },
+        { label: "system", header: true },
+        { label: "QVAULT", value: 2 },
+        { label: "QX", value: 3 },
+    ];
+
+    expect(filterItems(items, "")).toBe(items);
+    expect(filterItems(items, "counter")).toEqual([
+        { label: "deployed", header: true },
+        { label: "Counter", value: 1 },
+    ]);
+    expect(filterItems(items, "QV")).toEqual([
+        { label: "system", header: true },
+        { label: "QVAULT", value: 2 },
+    ]);
+    expect(filterItems(items, "q")).toEqual([
+        { label: "system", header: true },
+        { label: "QVAULT", value: 2 },
+        { label: "QX", value: 3 },
+    ]);
+});
+
+test("filterItems drops a header the query matched but whose rows it did not", () => {
+    const items: SelItem<number>[] = [
+        { label: "system", header: true },
+        { label: "Counter", value: 1 },
+        { label: "deployed", header: true },
+    ];
+
+    // The header's own text is not a match — a group only appears because something under it matched.
+    expect(filterItems(items, "system")).toEqual([]);
+    // And a trailing header with nothing after it never reaches the output.
+    expect(filterItems(items, "counter")).toEqual([
+        { label: "system", header: true },
+        { label: "Counter", value: 1 },
+    ]);
 });

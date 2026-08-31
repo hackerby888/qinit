@@ -5,7 +5,8 @@ import { LARGE_STATE_CONTAINER_BYTES, loadStateContainer, readState, stateIsComp
 import { StateView } from "../../trace/views";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
 import { loadContracts, mergeContracts } from "../../contracts/registry";
-import { Header, Spinner, GradLine, Panel, KV, fmtCompact, theme } from "../../ui";
+import { Header, Spinner, Panel, KV, fmtCompact, theme } from "../../ui";
+import { Select, type SelItem } from "../../ui/prompt";
 import { invalidArgs, output, type CommandArguments } from "../../args";
 import { readStateDigest, type StateDigestResult } from "../../contracts/state-digest";
 import { dumpContractState, type StateDumpResult } from "../../contracts/state-dump";
@@ -83,7 +84,6 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
     const [name, setName] = useState("");
     const [contracts, setContracts] = useState<DynamicContractRegistryEntry[]>([]);
     const [userCount, setUserCount] = useState(0); // contracts[0..userCount) deployed, rest system
-    const [i, setI] = useState(0);
     const [phase, setPhase] = useState<Phase>("loading");
     const [digest, setDigest] = useState<DigestOutput | null>(null);
     const [dump, setDump] = useState<DumpOutput | null>(null);
@@ -415,17 +415,9 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
 
     useInput(
         (input, key) => {
+            // Select owns every key while the picker is up, esc included; a branch here would close the
+            // command on the same keypress that was only meant to leave its search.
             if (phase === "pick") {
-                if (input === "q" || key.escape) {
-                    close();
-                } else if (key.upArrow) {
-                    setI((p) => (p - 1 + contracts.length) % contracts.length);
-                } else if (key.downArrow) {
-                    setI((p) => (p + 1) % contracts.length);
-                } else if (key.return) {
-                    add("≡ " + equivCmd(contracts[i]));
-                    load(contracts[i]);
-                }
                 return;
             }
 
@@ -506,6 +498,18 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
         );
     }
 
+    // Same two groups the call wizard's picker shows, so both read the same way.
+    const pickerRow = (c: DynamicContractRegistryEntry): SelItem<DynamicContractRegistryEntry> => ({
+        label: `${(c.name || "—").padEnd(16)} idx ${c.index} · ${c.functions?.length ?? 0}fn/${c.procedures?.length ?? 0}proc`,
+        value: c,
+    });
+    const deployed = contracts.slice(0, userCount);
+    const system = contracts.slice(userCount);
+    const pickerItems: SelItem<DynamicContractRegistryEntry>[] = [
+        ...(deployed.length ? [{ label: "deployed", header: true }, ...deployed.map(pickerRow)] : []),
+        ...(system.length ? [{ label: "system", header: true }, ...system.map(pickerRow)] : []),
+    ];
+
     return (
         <Box flexDirection="column">
             <Header cmd="state" />
@@ -515,45 +519,16 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                 </Text>
             ))}
             {phase === "pick" && (
-                <Box flexDirection="column">
-                    <Text dimColor>↑/↓ select · ↵ show state · q quit</Text>
-                    <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
-                        {(() => {
-                            const row = (c: DynamicContractRegistryEntry, idx: number) => {
-                                const sel = idx === i;
-                                const detail = `idx ${c.index} · ${c.functions?.length ?? 0}fn/${c.procedures?.length ?? 0}proc`;
-                                return sel ? (
-                                    <GradLine key={c.index} text={`▸ ${(c.name || "—").padEnd(16)} ${detail}`} />
-                                ) : (
-                                    <Text key={c.index}>
-                                        {"  "}
-                                        <Text color={theme.brand}>{(c.name || "—").padEnd(16)}</Text> <Text dimColor>{detail}</Text>
-                                    </Text>
-                                );
-                            };
-                            const out: React.ReactNode[] = [];
-                            if (userCount > 0) {
-                                out.push(
-                                    <Text key="hu" color={theme.mute} bold>
-                                        {" "}
-                                        deployed
-                                    </Text>,
-                                );
-                                contracts.slice(0, userCount).forEach((c, k) => out.push(row(c, k)));
-                            }
-                            if (contracts.length > userCount) {
-                                out.push(
-                                    <Text key="hs" color={theme.mute} bold>
-                                        {" "}
-                                        system
-                                    </Text>,
-                                );
-                                contracts.slice(userCount).forEach((c, k) => out.push(row(c, userCount + k)));
-                            }
-                            return out;
-                        })()}
-                    </Box>
-                </Box>
+                <Select
+                    label="Pick a contract:"
+                    reserve={2 + lines.length}
+                    items={pickerItems}
+                    onCancel={close}
+                    onSelect={(contract) => {
+                        add("≡ " + equivCmd(contract));
+                        load(contract);
+                    }}
+                />
             )}
             {phase === "loading" && <Spinner label={progress || "reading state"} />}
             {phase === "browse" ? (

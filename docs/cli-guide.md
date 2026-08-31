@@ -510,6 +510,23 @@ Only one component may own the keyboard at a time, so a view that mounts a
 prompt has to stop handling keys itself while the prompt is up — see the
 `searching` flag in the explorer shell.
 
+`Select` is the strict case: it owns every key while mounted, escape
+included, because `/` opens a filter that escape has to close. Ink delivers
+each keypress to every mounted `useInput`, so a caller that also bound escape
+would pop its own stage on the keypress that was only meant to leave the
+search. Both callers therefore stand down — `call-interactive` narrows its
+handler to the three prompt stages, `state` returns outright while
+`phase === "pick"` — and get escape back through `Select`'s required
+`onCancel`. That is also why `q` no longer quits `state`'s picker: it was an
+alias for escape, and a filter needs the letter.
+
+The list is windowed to `rows - 1 - reserve - 4` (`windowOf` in
+`ui/format.ts`), because ink clears and reprints the whole screen once a frame
+reaches the terminal height — `>=`, not `>`. That budget assumes one terminal
+row per item, so every row carries `wrap="truncate"`; a wrapped row would
+silently cost two. `reserve` is what the caller draws above the picker,
+defaulting to a `Header` and its margin.
+
 `TextPrompt` takes an `isActive` prop for the case where a single screen shows
 several fields at once: every field stays mounted and rendered, but only the
 focused one subscribes to `useInput`. The explorer's wallet is the first form

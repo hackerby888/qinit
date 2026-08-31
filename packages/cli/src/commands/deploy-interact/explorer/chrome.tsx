@@ -274,10 +274,5 @@ export interface ViewProps {
     columns: number;
 }
 
-// Slice a list around the selected row. `budget` is the rows left after the view's own fixed block, so a
-// long list can never grow past the shell and push the control bar off-screen.
-export function windowOf<T>(rows: T[], selected: number, budget: number): { win: T[]; offset: number } {
-    const size = Math.max(1, budget);
-    const offset = Math.max(0, Math.min(selected - Math.floor(size / 2), rows.length - size));
-    return { win: rows.slice(offset, offset + size), offset: Math.max(0, offset) };
-}
+// Lives in the UI kit now that the pickers window too; re-exported so the views keep one import.
+export { windowOf } from "../../../ui";

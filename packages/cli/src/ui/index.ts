@@ -2,7 +2,7 @@
 // not separate public entry points.
 export { THEMES, THEME_NAMES, theme, applyTheme, Grad, GradLine, darken } from "./theme";
 export type { Theme } from "./theme";
-export { fmtMs, termCols, termRows, fmtCompact, truncEnd, truncMid, sevColor } from "./format";
+export { fmtMs, termCols, termRows, fmtCompact, truncEnd, truncMid, sevColor, windowOf } from "./format";
 export { useFrame, useTerminalSize } from "./hooks";
 export { Rule, Header, Banner, Panel, SectionHeader } from "./layout";
 export { Spinner, Badge, Status, Step, StepRow, Bar } from "./feedback";
