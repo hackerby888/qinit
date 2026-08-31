@@ -165,6 +165,7 @@ export class TraceRecorder {
             trap: undefined,
             hostCalls: [],
             logs: [],
+            cheats: [],
         };
         this.stack.push(e);
         return e;
@@ -201,6 +202,14 @@ export class TraceRecorder {
         const e = this.stack[this.stack.length - 1];
         if (e) {
             e.logs.push({ type, size: msg.length, hex: toHex(msg) });
+        }
+    }
+
+    // A CC_PRINT argument. Kept apart from logs: it carries no log id and never reaches the log store.
+    cheat(slot: number, id: number, part: number, value: bigint, bytes: Uint8Array): void {
+        const e = this.stack[this.stack.length - 1];
+        if (e) {
+            e.cheats.push({ slot, id, part, size: bytes.length, value, hex: toHex(bytes) });
         }
     }
 

@@ -1,4 +1,4 @@
-import { ASSET_ENUMERATION_RECORD, LHOST_ABI, type DebugStateRegion, type LhostImportName } from "@qinit/core";
+import { ASSET_ENUMERATION_RECORD, CHEAT_ERR, CHEAT_OP, LHOST_ABI, type DebugStateRegion, type LhostImportName } from "@qinit/core";
 import { k12Bytes, toHex } from "../support/k12";
 import { bytesEqual, rangesEqual, type Id } from "../support/bytes";
 import { noteHostWrite, readJournalHeader, resetJournal, type JournalHeader } from "@qinit/core/wasm/journal";
@@ -175,6 +175,10 @@ export interface HostServices {
     numberOfTickTransactions(): number;
     markDirty(slot: number): void;
     log(slot: number, level: number, msg: Uint8Array): void;
+    // Development channel, deliberately separate from log(): it consumes no log id and never reaches qLogger.
+    cheatPrint(slot: number, id: number, part: number, value: bigint, bytes: Uint8Array): void;
+    cheatDeal(id: Id, amount: bigint): bigint;
+    cheatWarp(ticks: number, epochs: number): bigint;
     pauseLog(): void;
     resumeLog(): void;
     transfer(slot: number, dest: Id, amount: bigint, transferType: number): bigint;
@@ -362,6 +366,8 @@ export class Contract {
     private journalOverflowed = false;
     private dispatchDepth = 0;
     private executionKinds: number[] = [];
+    // What CC_PRANK displaced, so CC_UNPRANK restores the real caller rather than guessing.
+    private prankSaved: { originator: Id; invocator: Id; invocationReward: bigint } | null = null;
     cost = 0n;
     lastCost = 0n;
     private inSizes = new Map<string, number>();
@@ -979,11 +985,63 @@ export class Contract {
                 this.host.log(this.slot, level, payload);
                 this.writeGuest(msgOff, CLEARED_LOG_HEADER_WORD);
             },
+            cheat: (op: number, a: bigint, b: bigint, ptrOff: number, len: number): bigint => this.cheatCall(u8, op, a, b, ptrOff >>> 0, len),
             k12: (inOff: number, len: number, outOff: number) => this.writeGuest(outOff, k12Bytes(u8().slice(inOff, inOff + len))),
             abort: (code: number) => {
                 throw new ContractAbort(code);
             },
         };
+    }
+
+    // `cheat` is deliberately absent from MUTATING_LHOST_IMPORTS: that list is a per-import ban, and it
+    // would block CC_PRINT from every function. The mutating opcodes check the entry kind themselves.
+    private cheatCall(u8: () => Uint8Array, op: number, a: bigint, b: bigint, pointer: number, len: number): bigint {
+        if (op === CHEAT_OP.print) {
+            this.host.cheatPrint(this.slot, Number(a >> 8n), Number(a & 0xffn), b, len ? u8().slice(pointer, pointer + len) : new Uint8Array(0));
+            return 0n;
+        }
+
+        if (this.executionKinds.at(-1) === CONTRACT_ENTRY_KIND.FUNCTION) {
+            return CHEAT_ERR.wrongContext;
+        }
+
+        switch (op) {
+            case CHEAT_OP.deal:
+                return len === 32 ? this.host.cheatDeal(u8().slice(pointer, pointer + 32) as Id, a) : CHEAT_ERR.unknownOp;
+            case CHEAT_OP.warpTick:
+                return this.host.cheatWarp(Number(a), 0);
+            case CHEAT_OP.warpEpoch:
+                return this.host.cheatWarp(0, Number(a));
+            case CHEAT_OP.prank:
+            case CHEAT_OP.unprank:
+                return this.cheatPrank(op === CHEAT_OP.prank ? (u8().slice(pointer, pointer + 32) as Id) : null, a, len);
+            default:
+                return CHEAT_ERR.unknownOp;
+        }
+    }
+
+    // Rewrites the guest's context view only. The engine's own caller attribution is untouched, so a
+    // prank changes what the contract reads and nothing about how the call is accounted.
+    private cheatPrank(caller: Id | null, invocationReward: bigint, len: number): bigint {
+        if (caller && len !== 32) {
+            return CHEAT_ERR.unknownOp;
+        }
+
+        const view = QpiContext.wrap(this.u8(), this.ctxAddr);
+
+        if (!caller) {
+            view.originator = this.prankSaved?.originator ?? view.originator;
+            view.invocator = this.prankSaved?.invocator ?? view.invocator;
+            view.invocationReward = this.prankSaved?.invocationReward ?? view.invocationReward;
+            this.prankSaved = null;
+            return view.invocationReward;
+        }
+
+        this.prankSaved ??= { originator: view.originator, invocator: view.invocator, invocationReward: view.invocationReward };
+        view.originator = caller;
+        view.invocator = caller;
+        view.invocationReward = invocationReward;
+        return invocationReward;
     }
 
     // lhost: tick, epoch, and calendar reads, plus the previous tick's committed digests.

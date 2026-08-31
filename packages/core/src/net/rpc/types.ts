@@ -76,6 +76,14 @@ export interface DebugLog {
     size: number;
     hex: string;
 } // a LOG_* call (numeric struct bytes)
+export interface DebugCheat {
+    slot?: number;
+    id: number;
+    part: number;
+    size: number;
+    value: bigint | number;
+    hex: string;
+} // one CC_PRINT argument; size 0 means the value came by register
 export interface DebugEntry {
     seq: number;
     tick: number;
@@ -96,6 +104,7 @@ export interface DebugEntry {
     trap?: string;
     hostCalls: DebugHostCall[];
     logs: DebugLog[];
+    cheats: DebugCheat[];
 }
 export interface DebugTrace {
     enabled: boolean;

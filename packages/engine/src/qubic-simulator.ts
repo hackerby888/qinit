@@ -171,14 +171,21 @@ export class QubicSimulator {
             nowMs: () => this.nowMs(),
         });
         this.host = {
-            tick: () => this.currentTick,
-            epoch: () => this.currentEpoch,
+            tick: () => this.currentTick + this.cheatTickOffset,
+            epoch: () => this.currentEpoch + this.cheatEpochOffset,
             nowMs: () => this.nowMs(),
             numberOfTickTransactions: () => this.tickTxCount,
             markDirty: (slot) => this.dirty.add(slot),
             log: (slot, level, msg) => {
                 this.recorder.log(level, msg);
                 this.logStore?.log(slot, level, msg, this.currentEpoch);
+            },
+            cheatPrint: (slot, id, part, value, bytes) => this.recorder.cheat(slot, id, part, value, bytes),
+            cheatDeal: (id, amount) => this.cheatDeal(id, amount),
+            cheatWarp: (ticks, epochs) => {
+                this.cheatTickOffset += ticks;
+                this.cheatEpochOffset += epochs;
+                return BigInt(ticks ? this.cheatTickOffset : this.cheatEpochOffset);
             },
             pauseLog: () => this.logStore?.pause(),
             resumeLog: () => this.logStore?.resume(),
@@ -384,6 +391,23 @@ export class QubicSimulator {
     }
 
     // Core has no id-keyed energy read — it resolves a spectrum index first. Kept as a convenience.
+    // Warp offsets shift only what a contract observes; the chain's own tick and epoch are untouched.
+    private cheatTickOffset = 0;
+    private cheatEpochOffset = 0;
+
+    /** Sets a balance outright rather than transferring, which is the point of a deal. */
+    private cheatDeal(id: Id, amount: bigint): bigint {
+        const current = this.balance(id);
+
+        if (current > amount) {
+            this.decreaseEnergy(this.spectrumIndex(id), current - amount);
+        } else if (current < amount) {
+            this.increaseEnergy(id, amount - current);
+        }
+
+        return amount;
+    }
+
     balance(id: Id): bigint {
         return this.spectrum.energy(this.spectrum.spectrumIndex(id));
     }

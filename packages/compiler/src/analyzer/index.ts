@@ -18,7 +18,9 @@ import { buildContractIdl } from "../backend/wasm/idl";
 import { analyzeQpiPolicy, detectQpiContractName } from "./source-policy";
 import { compareDiagnostics } from "./rules/fixes";
 
-export { QPI_BANNED_KEYWORDS } from "./source-policy";
+export { analyzeQpiPolicy, QPI_BANNED_KEYWORDS } from "./source-policy";
+// Lexer-only rule pass, no parse: editors that want the fast character/keyword tier without a full
+// analyzeContract() call consume it directly rather than keeping their own copy.
 export { completeMembersAt, completeMembersOfType, declaredTypeOf, splitReceiver } from "./member-query";
 export type { MemberCompletion, MemberQueryOptions, TypeMemberQueryOptions } from "./member-query";
 export { Lexer, TokenKind } from "../frontend/lexer";

@@ -1,6 +1,6 @@
 // Generated from core-lite Wasm shared ABI headers. Do not edit.
 export const WASM_ABI_METADATA = {
-  "abiVersion": 5,
+  "abiVersion": 6,
   "lhost": [
     {
       "name": "beginFn",
@@ -592,6 +592,19 @@ export const WASM_ABI_METADATA = {
       ],
       "results": [
         "i32"
+      ]
+    },
+    {
+      "name": "cheat",
+      "params": [
+        "i32",
+        "i64",
+        "i64",
+        "i32",
+        "i32"
+      ],
+      "results": [
+        "i64"
       ]
     }
   ],

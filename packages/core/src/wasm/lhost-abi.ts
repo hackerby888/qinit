@@ -40,6 +40,23 @@ export const CONTRACT_ENTRY_POINTS = Object.freeze({
     migrateProcedure: SYSTEM_PROCEDURE_COUNT + 5,
 });
 
+/** Opcodes for the `cheat` import. Mirrors core-lite's `CHEAT_OP_*` in extensions/wasm/shared/abi_types.h. */
+export const CHEAT_OP = Object.freeze({
+    print: 1,
+    deal: 2,
+    warpTick: 3,
+    warpEpoch: 4,
+    prank: 5,
+    unprank: 6,
+});
+
+/** Refusals from the `cheat` import. Negative so a caller can test one comparison, never a trap. */
+export const CHEAT_ERR = Object.freeze({
+    unknownOp: -1n,
+    disabled: -2n,
+    wrongContext: -3n,
+});
+
 /** Contract-visible record written by lhost.assetEnumerate. */
 const assetEntry = WASM_ABI_METADATA.records.AssetEntry;
 export const ASSET_ENUMERATION_RECORD = Object.freeze({

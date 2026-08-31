@@ -337,6 +337,16 @@ describe("__LINE__", () => {
         // source is appended after qpiHeader + "\n", so __LINE__ is a few lines in
         expect(out).toMatch(/[0-9]+/);
     });
+
+    test("__LINE__ expands inside a function-like macro body, per call site", () => {
+        const out = pp("#define M(v) f(__LINE__, v)\nx = M(1);\ny = M(2);").trim();
+        expect(out).toBe("x = f(3, 1);\ny = f(4, 2);");
+    });
+
+    test("__LINE__ expands inside an object-like macro body", () => {
+        const out = pp("#define L __LINE__\nx = L;\ny = L;").trim();
+        expect(out).toBe("x = 3;\ny = 4;");
+    });
 });
 
 // ---- built-in defines ----
