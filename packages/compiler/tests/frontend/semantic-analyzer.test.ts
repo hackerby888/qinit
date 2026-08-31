@@ -149,7 +149,9 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
             expect(ceval(s, bin(iLit("0"), BinaryOp.LOGICAL_OR, iLit("1")))).toBe(1n);
         });
 
-        test("precedence: 2 + 3 * 4 = 14 (not 20)", () => {
+        // Builds the tree by hand, so it pins the evaluator's walk rather than the parser's grouping.
+        // expression-precedence.test.ts covers precedence itself, by parsing the text.
+        test("evaluates a nested multiply before the add above it", () => {
             const s = makeSema();
             const expression = bin(iLit("2"), BinaryOp.ADD, bin(iLit("3"), BinaryOp.MULTIPLY, iLit("4")));
             expect(ceval(s, expression)).toBe(14n);
