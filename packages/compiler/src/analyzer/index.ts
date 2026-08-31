@@ -19,6 +19,7 @@ import { analyzeQpiPolicy, detectQpiContractName } from "./source-policy";
 import { compareDiagnostics } from "./rules/fixes";
 
 export { analyzeQpiPolicy, QPI_BANNED_KEYWORDS } from "./source-policy";
+export { analyzeCheatcodes, cheatArgumentRanges, stripCheatcodes, CHEAT_NAMES } from "./cheatcodes";
 // Lexer-only rule pass, no parse: editors that want the fast character/keyword tier without a full
 // analyzeContract() call consume it directly rather than keeping their own copy.
 export { completeMembersAt, completeMembersOfType, declaredTypeOf, splitReceiver } from "./member-query";

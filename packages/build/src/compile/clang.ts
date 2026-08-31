@@ -12,6 +12,7 @@ import { writeLineMap } from "./line-map";
 import WASM_GTEST_H from "../assets/wasm_gtest.h" with { type: "text" };
 import WASM_CONTRACT_TESTING_H_TEMPLATE from "../assets/wasm_contract_testing.h" with { type: "text" };
 import TEST_UTIL_H from "../assets/test_util.h" with { type: "text" };
+import QINIT_CHEATS_H from "../assets/qinit_cheats.h" with { type: "text" };
 
 const WASM_CONTRACT_TESTING_H = WASM_CONTRACT_TESTING_H_TEMPLATE.replace("__QINIT_CORE_WASM_ABI_METADATA__", CORE_WASM_HEADERS.shared.abiMetadata);
 
@@ -75,6 +76,7 @@ export interface ClangBuildOptions {
     corePath: string; // qubic-core-lite root
     outDir: string;
     calleePrelude?: string; // inter-contract: callee type headers + inputType consts (from intercontract.ts)
+    cheats?: "on" | "noop" | "off"; // development cheatcodes; "off" is what Core sees
     dynCallees?: Record<string, { header: string; index: number }>; // dynamic (Qinit-deployed) callees
     wasmClang?: string; // clang targeting wasm32-wasi; default env WASM_CLANG / the auto-fetched wasi-sdk
     wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
@@ -120,6 +122,23 @@ export function buildPreamble(): string {
 }
 
 // --- wasm contract target (contract compiled TO wasm, run by the node's WAMR engine) ---
+// The contract is #included, so __LINE__ is already the user's own line and the base is zero. Note the
+// clangd prefix header is this wrapper sliced at the contract include, so the shim reaches the editor
+// with no extension-side change.
+function cheatShim(mode: "on" | "noop" | "off"): string {
+    if (mode === "off") {
+        return "";
+    }
+
+    if (mode === "noop") {
+        return ["CC_PRINT(...)", "CC_ASSERT(c)", "CC_PAY(dest, amount)", "CC_DEAL(who, amount)", "CC_WARP_TICK(n)", "CC_WARP_EPOCH(n)", "CC_PRANK(who, reward)", "CC_UNPRANK()"]
+            .map((signature) => `#define ${signature}`)
+            .join("\n");
+    }
+
+    return `#define QINIT_CHEATS\n#define QINIT_CC_LINE_BASE 0\n${QINIT_CHEATS_H}`;
+}
+
 export function generateWasmWrapperSource(o: ClangBuildOptions): string {
     const contractType = o.stateType ?? o.contractName;
     const wrapper = `${buildPreamble()}${o.calleePrelude ?? ""}
@@ -131,6 +150,7 @@ export function generateWasmWrapperSource(o: ClangBuildOptions): string {
 // __contract_index + <Type>_<fn>_inputType consts from the prelude + CONTRACT_INDEX above).
 #include "${CORE_WASM_HEADERS.sdk.intercontractCalls}"
 #include "${CORE_WASM_HEADERS.sdk.qpiSupport}"
+${cheatShim(o.cheats ?? "on")}
 #include "${o.contractPath}"
 // QPI data-structure impls operate on contract-local memory. CAUTION: after the contract.
 #define printf(...) (__builtin_trap(), 0)

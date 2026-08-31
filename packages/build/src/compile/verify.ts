@@ -2,6 +2,7 @@ import { existsSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { cacheRoot, readCurrent } from "@qinit/core";
+import { stripCheatcodes } from "@qinit/compiler/analyzer";
 
 export interface VerifyResult {
     available: boolean;
@@ -24,8 +25,10 @@ export function resolveVerifyTool(): string | null {
     return Bun.which("contractverify");
 }
 
+// Cheatcodes are stripped before Core ever sees the file, so the verifier is shown the same thing:
+// otherwise a CC_PRINT label trips the ban on string literals for code that never ships.
 function concretize(source: string, name: string): string {
-    return source.replaceAll("CONTRACT_STATE2_TYPE", `${name}2`).replaceAll("CONTRACT_STATE_TYPE", name);
+    return stripCheatcodes(source).replaceAll("CONTRACT_STATE2_TYPE", `${name}2`).replaceAll("CONTRACT_STATE_TYPE", name);
 }
 
 export async function verifyContract(file: string, name: string, options?: { oracle?: boolean; allowedPrefixes?: string[] }): Promise<VerifyResult> {
