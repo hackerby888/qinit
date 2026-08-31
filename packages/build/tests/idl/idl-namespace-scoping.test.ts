@@ -2,7 +2,7 @@
 // bare name alone, two namespaces sharing a name collapse into whichever registered last — silently, with
 // the loser's width changing under it. The table below is the invariant: one row per declaration kind.
 import { expect, test } from "bun:test";
-import { extractIdl, parseContractIdl } from "../../src/compile/idl";
+import { AbiScalarKind, extractIdl, parseContractIdl } from "../../src/compile/idl";
 
 const contract = (declarations: string, stateFields: string) => `
 using namespace QPI;
@@ -293,16 +293,16 @@ test("an enum sizes and reports the scalar its underlying alias resolves to", ()
             ["c", 2],
             ["tail", 1],
         ]);
-        expect(idl.enums.find((entry) => entry.name === "Choice")?.underlying).toBe("uint16");
+        expect(idl.enums.find((entry) => entry.name === "Choice")?.underlying).toBe(AbiScalarKind.UINT16);
     }
 });
 
 test("an explicit or absent underlying type is unaffected", () => {
     for (const [underlying, size, reported] of [
-        [" : uint16", 2, "uint16"],
-        [" : sint8", 1, "sint8"],
-        [" : uint64", 8, "uint64"],
-        ["", 4, "sint32"],
+        [" : uint16", 2, AbiScalarKind.UINT16],
+        [" : sint8", 1, AbiScalarKind.SINT8],
+        [" : uint64", 8, AbiScalarKind.UINT64],
+        ["", 4, AbiScalarKind.SINT32],
     ] as const) {
         const idl = enumIdl(`enum class Choice${underlying} { Only };`, "    Choice c;\n    uint8 tail;");
         expect(idl.state.fields[0].size).toBe(size);
@@ -325,5 +325,5 @@ test("an underlying type that is not a scalar still falls back", () => {
         ["c", 4],
         ["tail", 1],
     ]);
-    expect(idl.enums.find((entry) => entry.name === "Choice")?.underlying).toBe("sint32");
+    expect(idl.enums.find((entry) => entry.name === "Choice")?.underlying).toBe(AbiScalarKind.SINT32);
 });
