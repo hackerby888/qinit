@@ -922,7 +922,7 @@ state.
 
 ```text
 no --fn or --proc
-  -> CallInteractive
+  -> CallInteractive -> CollectedCall -> CallOneShot
 
 --fn or --proc
   -> CallOneShot
@@ -1013,13 +1013,26 @@ directory and still has compatible debug artifacts.
 is a state machine:
 
 ```text
-loading -> contract -> entry -> input -> output or amount -> running -> done
+loading -> contract -> entry -> input -> output or amount -> CollectedCall
 ```
 
 It enriches registry entries from local IDL first, then source-derived IDL, then
-falls back to numeric registry metadata. After dispatch it prints the equivalent
-one-shot command, making the interactive path a discoverability layer over the
-same protocol helpers.
+falls back to numeric registry metadata. It never dispatches: the last prompt
+hands a `CollectedCall` to `Call`, which mounts `CallOneShot` with the answers
+overlaid on the typed flags, so both invocation styles render the same result
+view. `done` is now only the terminal state for a wizard that never reached a
+call — an unreadable registry, or no contracts at all — and it exits 1.
+
+Because the overlay layers on the original invocation, `--trace`, `--all`,
+`--rpc`, `--seed`, and `--no-settle` now reach an interactive call; the wizard
+previously hard-coded `confirm: true`. The prompts it does own mask their flags,
+so a typed `--args`, `--in`, `--out`, or `--amount` cannot outlive the answer
+that replaced it. Bare `qinit call --json` is rejected, because the wizard draws
+frames on the stream the JSON document would go to.
+
+The equivalent one-shot command survives as a hint rendered below the shared
+result view, keeping the interactive path a discoverability layer over the same
+protocol helpers.
 
 ## 10. Sparse state decoding
 
@@ -1927,9 +1940,10 @@ These are current behaviors, not desired architectural rules. A maintainer
 should know them before relying on metadata or a successful exit status.
 
 - `META.json` only changes help. `node`, `tick`, `epoch`, `call`, and `state` are
-  advertised as JSON-capable, but only `node run` emits node JSON, and only
-  `state --digest` and `state --dump` emit state JSON. `tick`, `epoch`, and `call`
-  do not currently emit structured JSON.
+  advertised as JSON-capable, but only `node run` emits node JSON, only
+  `state --digest` and `state --dump` emit state JSON, and `call` needs an
+  explicit `--fn`/`--proc`. `tick` and `epoch` do not currently emit structured
+  JSON.
 - `--json` and `--plain` are accepted by the shared parser for every command,
   while `--plain` is not shown in generated usage. `explorer` is the one command
   that rejects `--json` (and a non-TTY stdin) outright, because it has no
@@ -1943,7 +1957,6 @@ should know them before relying on metadata or a successful exit status.
   refusing the name.
 - Several handled UI errors do not set exit code 1, including validation paths
   in `new` and compiler selection and RPC errors in tick/epoch.
-- Interactive call errors are rendered without a failing exit status.
 - `qinit seed <seed>` saves that seed directly; without one and without a TTY the
   picker cannot be driven, so it fails with that hint rather than waiting on input
   that will never arrive.

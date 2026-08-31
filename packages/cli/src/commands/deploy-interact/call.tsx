@@ -11,7 +11,7 @@ import { describeTrace, type DecodedTrace } from "../../trace/format";
 import { fmtVal, formatStateValue } from "../../trace/state-format";
 import { entryLabel } from "../../trace/entry-label";
 import { TraceView } from "../../trace/views";
-import { CallInteractive } from "./call-interactive";
+import { CallInteractive, type CollectedCall } from "./call-interactive";
 import { loadConfig, loadConfiguredQpiHeader, resolveSeed } from "../../config";
 import { resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
 import { loadContracts, resolveContract } from "../../contracts/registry";
@@ -72,7 +72,20 @@ export function callJsonResult(mode: CallMode, contract: string, entryName: stri
 // digits as a number anyway.
 export const bigintText = (_key: string, value: unknown) => (typeof value === "bigint" ? value.toString() : value);
 
+// The wizard's answers as if they had been typed. A key present in `overrides` wins even when its value is
+// undefined, so a stray --args/--out/--amount cannot outlive the prompt that replaced it.
+export function overlayArgs(base: CommandArguments, positionals: string[], overrides: Record<string, string | undefined>): CommandArguments {
+    return {
+        positionals,
+        has: (name) => (name in overrides ? overrides[name] !== undefined : base.has(name)),
+        get: (name) => (name in overrides ? overrides[name] : base.get(name)),
+        getAll: (name) => base.getAll(name),
+    };
+}
+
 export function Call({ commandArgs }: { commandArgs: CommandArguments }) {
+    // Declared before the argument checks so no throw below can skip the hook.
+    const [collected, setCollected] = useState<CollectedCall | null>(null);
     const fn = commandArgs.has("fn");
     const proc = commandArgs.has("proc");
     if (fn && proc) {
@@ -85,9 +98,25 @@ export function Call({ commandArgs }: { commandArgs: CommandArguments }) {
     if (mode && (!contract || !entryName)) {
         invalidArgs(`${mode} requires <contract> and <entry>`);
     }
+    // The wizard draws frames on stdout, which would land in front of the JSON document it produced.
+    if (output.json && !mode) {
+        invalidArgs("--json needs --fn or --proc");
+    }
     const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
+    if (collected) {
+        return (
+            <CallOneShot
+                commandArgs={overlayArgs(commandArgs, [collected.contract, collected.entry], collected.overrides)}
+                mode={collected.mode}
+                contract={collected.contract}
+                entryName={collected.entry}
+                rpcBaseUrl={rpcBaseUrl}
+                cmdHint={collected.hint}
+            />
+        );
+    }
     if (!mode) {
-        return <CallInteractive rpcBaseUrl={rpcBaseUrl} seed={commandArgs.get("seed")} />;
+        return <CallInteractive rpcBaseUrl={rpcBaseUrl} onRun={setCollected} />;
     }
     return <CallOneShot commandArgs={commandArgs} mode={mode} contract={contract!} entryName={entryName!} rpcBaseUrl={rpcBaseUrl} />;
 }
@@ -98,12 +127,14 @@ function CallOneShot({
     contract,
     entryName,
     rpcBaseUrl,
+    cmdHint,
 }: {
     commandArgs: CommandArguments;
     mode: CallMode;
     contract: string;
     entryName: string;
     rpcBaseUrl: string;
+    cmdHint?: string;
 }) {
     const { exit } = useApp();
     const inputJson = commandArgs.get("args");
@@ -139,11 +170,16 @@ function CallOneShot({
                 let contractIdl = localContractIdl;
                 let entries = mode === "fn" ? contractIdl?.functions : contractIdl?.procedures;
                 if ((!entries || entries.length === 0) && rc.source) {
-                    contractIdl = extractIdl(rc.source, rc.name, {
-                        slot: idx,
-                        qpiHeader: loadConfiguredQpiHeader(),
-                    });
-                    entries = mode === "fn" ? contractIdl.functions : contractIdl.procedures;
+                    // Without a core checkout there is no header to derive names from, which leaves numeric entries usable.
+                    try {
+                        contractIdl = extractIdl(rc.source, rc.name, {
+                            slot: idx,
+                            qpiHeader: loadConfiguredQpiHeader(),
+                        });
+                        entries = mode === "fn" ? contractIdl.functions : contractIdl.procedures;
+                    } catch {
+                        contractIdl = localContractIdl;
+                    }
                 }
                 entries ??= [];
                 let entry = Number(entryName);
@@ -226,7 +262,9 @@ function CallOneShot({
                     } catch {}
                     return raw;
                 };
-                const label = `${contract}.${entryIdl?.name ?? (mode === "fn" ? "fn#" : "proc#") + entry}`;
+                // A slot index resolves but reads poorly as a label, so fall back to the built name the way the picker does.
+                const contractName = rc.name === String(idx) ? (localContractIdl?.name ?? rc.name) : rc.name;
+                const label = `${contractName}.${entryIdl?.name ?? (mode === "fn" ? "fn#" : "proc#") + entry}`;
 
                 const entryLabelName = entryIdl?.name ?? String(entry);
 
@@ -380,6 +418,13 @@ function CallOneShot({
                 ) : (
                     <Spinner label="calling" />
                 ))}
+            {cmdHint && result ? (
+                <Box marginTop={1}>
+                    <Text bold color={theme.accent}>
+                        ≡ {cmdHint}
+                    </Text>
+                </Box>
+            ) : null}
         </Box>
     );
 }

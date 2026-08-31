@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, type DynamicContractRegistryEntry } from "@qinit/core";
-import { callFunction, invokeProcedure, encodeInput, checkInputSize, hasOverlappingAbiType, zeroInputFormat, TX_TICK_OFFSET } from "@qinit/proto";
+import { hasOverlappingAbiType, zeroInputFormat } from "@qinit/proto";
 import { AbiTypeKind, type AbiField, type AbiType, type ContractEntry, type ContractIdl, type ContractIdlFile } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
-import { loadConfiguredQpiHeader, resolveSeed } from "../../config";
+import { loadConfiguredQpiHeader } from "../../config";
 import { loadContracts, mergeContracts } from "../../contracts/registry";
 import { contractIdlForSlot, emptyContractIdlFile, loadContractIdlFile } from "../../contracts/idl-file";
-import { fmtVal, formatStateValue } from "../../trace/state-format";
-import { Header, Spinner, Panel, theme } from "../../ui";
+import { Header, Spinner, Panel, Status, theme } from "../../ui";
 import { Select, TextPrompt } from "../../ui/prompt";
 
 export function formatContractPickerRows(
@@ -133,12 +132,20 @@ type Wizard =
     | { stage: "input"; contract: Contract; entry: Entry; draft: Draft }
     | { stage: "output"; contract: Contract; entry: Entry; draft: Draft }
     | { stage: "amount"; contract: Contract; entry: Entry; draft: Draft }
-    | { stage: "running"; contract: Contract; entry: Entry; draft: Draft }
-    | { stage: "done" };
+    | { stage: "done"; error: string };
 
 type Call = { contract: Contract; entry: Entry; draft: Draft };
 
-export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed?: string }) {
+// What the wizard collected, in the shape the one-shot path already takes: two positionals plus option strings.
+export type CollectedCall = {
+    mode: "fn" | "proc";
+    contract: string;
+    entry: string;
+    overrides: Record<string, string | undefined>;
+    hint: string;
+};
+
+export function CallInteractive({ rpcBaseUrl, onRun }: { rpcBaseUrl: string; onRun: (call: CollectedCall) => void }) {
     const { exit } = useApp();
 
     const [qpiHeader] = useState(() => {
@@ -152,11 +159,6 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [userCount, setUserCount] = useState(0);
     const [idlFile, setIdlFile] = useState<ContractIdlFile>(emptyContractIdlFile());
-    const [results, setResults] = useState<string[]>([]);
-    const [status, setStatus] = useState("");
-    const addResult = (result: string) => {
-        setResults((current) => [...current, result]);
-    };
 
     useEffect(() => {
         (async () => {
@@ -165,8 +167,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
                 const { all: combined, userCount: deployed } = mergeContracts(await loadContracts(new LiteRpc(rpcBaseUrl)));
 
                 if (!combined.length) {
-                    addResult("no contracts — deploy one, or run `qinit node run` to load system contracts");
-                    setWizard({ stage: "done" });
+                    setWizard({ stage: "done", error: "no contracts — deploy one, or run `qinit node run` to load system contracts" });
                     return;
                 }
 
@@ -174,21 +175,21 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
                 setUserCount(deployed);
                 setWizard({ stage: "contract" });
             } catch (error: any) {
-                addResult("ERROR: " + String(error?.message ?? error));
-                setWizard({ stage: "done" });
+                setWizard({ stage: "done", error: String(error?.message ?? error) });
             }
         })();
     }, []);
 
+    // The wizard only reaches `done` when it never got as far as a call, so the exit is always a failure.
     useEffect(() => {
         if (wizard.stage === "done") {
+            process.exitCode = 1;
             const timer = setTimeout(() => exit(), 50);
             return () => clearTimeout(timer);
         }
     }, [wizard.stage]);
 
     const back = () => {
-        setStatus("");
         if (wizard.stage === "entry") {
             setWizard({ stage: "contract" });
         } else if (wizard.stage === "input") {
@@ -206,77 +207,20 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
         }
     });
 
-    const runCall = async ({ contract, entry, draft }: Call) => {
-        setWizard({ stage: "running", contract, entry, draft });
+    // The wizard stops here: the one-shot path encodes, dispatches, and renders the answers collected above.
+    const submit = ({ contract, entry, draft }: Call) => {
+        // Only a registry name or a slot index resolves later, so the local IDL name that the picker shows is not usable here.
+        const contractArg = contract.name || String(contract.index);
+        const entryArg = entry.name ?? String(entry.inputType);
 
-        try {
-            try {
-                const encoded = await encodeInput(draft.input ?? "");
-                if (entry.input) {
-                    checkInputSize(entry.input, encoded, entryLabel(entry));
-                }
-            } catch (error: any) {
-                addResult("✗ bad input: " + String(error?.message ?? error));
-                const sample = zeroSample(entry);
-                if (sample) {
-                    addResult("all-zero sample: " + sample);
-                }
-                setWizard({ stage: "done" });
-                return;
-            }
-
-            const rpc = new LiteRpc(rpcBaseUrl);
-            const contractIndex = contract.index;
-            addResult("≡ " + equivCmd(contract, entry, draft));
-
-            if (entry.kind === "fn") {
-                const output = await callFunction(rpc, contractIndex, entry.inputType, draft.input ?? "", entry.output ?? draft.out ?? "");
-                // The IDL type wins over a typed-in format above, and it is the one that names the fields.
-                const shown = entry.output ? formatStateValue(output, entry.output, false, true) : fmtVal(output);
-                addResult(`${labelFor(contract, entry)} -> ${shown}`);
-            } else {
-                const tickInfo = await rpc.tickInfo();
-                const tick = tickInfo.tick + TX_TICK_OFFSET;
-                const procedure = await invokeProcedure({
-                    seed: await resolveSeed(rpc, seed),
-                    rpcBaseUrl: rpcBaseUrl,
-                    contractIndex,
-                    procedureId: entry.inputType,
-                    amount: Number(draft.amount ?? 0),
-                    inputFormat: draft.input ?? "",
-                    tick,
-                    confirm: true,
-                    rpc,
-                    onProgress: ({ tick: net, target }) =>
-                        setStatus(`confirming · tick ${net} → ${target}${net < target ? ` (${target - net} to go)` : " · processing"}`),
-                });
-                setStatus("");
-
-                const verdict = !procedure.ok
-                    ? `FAIL ${procedure.message ?? procedure.code ?? ""}`
-                    : procedure.confirmed && procedure.included
-                      ? "processed ✓"
-                      : procedure.confirmed && !procedure.included
-                        ? "DROPPED — not included"
-                        : "broadcast (unconfirmed — no tx-status addon or timed out)";
-                let contractError = "";
-
-                try {
-                    const deployed = (await rpc.dynRegistry()).contracts?.find((candidate) => candidate.index === contractIndex);
-                    if (deployed?.lastError) {
-                        contractError = ` · contract error: ${deployed.lastError}`;
-                    }
-                } catch {
-                    // The procedure verdict remains useful if the registry is unavailable.
-                }
-
-                addResult(`${labelFor(contract, entry)} @tick ${tick}: ${verdict}  ${procedure.txId ?? ""}${contractError}`);
-            }
-        } catch (error: any) {
-            addResult("ERROR: " + String(error?.message ?? error));
-        }
-
-        setWizard({ stage: "done" });
+        onRun({
+            mode: entry.kind,
+            contract: contractArg,
+            entry: entryArg,
+            // Every key is present so a flag typed alongside the bare command cannot outlive the prompt that replaced it.
+            overrides: { args: undefined, in: draft.input ?? "", out: draft.out, amount: draft.amount },
+            hint: equivCmd(contractArg, entryArg, entry, draft),
+        });
     };
 
     const noInput = (entry: Entry) => entry.input?.kind === AbiTypeKind.STRUCT && entry.input.fields.length === 0;
@@ -294,17 +238,15 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
         if (next.entry.kind !== "fn") {
             setWizard({ ...next, stage: "amount" });
         } else if (next.entry.output !== undefined) {
-            runCall(next);
+            submit(next);
         } else {
             setWizard({ ...next, stage: "output" });
         }
     };
 
-    const labelFor = (contract: Contract, entry: Entry) => `${nameOf(contract)}.${entry.name ?? entry.kind + "#" + entry.inputType}`;
-
-    const equivCmd = (contract: Contract, entry: Entry, draft: Draft) => {
-        const entryName = entry.name ?? entry.inputType;
-        const parts = ["qinit call", entry.kind === "fn" ? "--fn" : "--proc", String(nameOf(contract)), String(entryName)];
+    // Takes the resolvable positionals rather than the display name, so the echoed command is one the user can rerun.
+    const equivCmd = (contractArg: string, entryArg: string, entry: Entry, draft: Draft) => {
+        const parts = ["qinit call", entry.kind === "fn" ? "--fn" : "--proc", contractArg, entryArg];
 
         const input = (draft.input ?? "").trim();
         if (input) {
@@ -388,27 +330,14 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
     if (wizard.stage === "loading") {
         return wrap(<Spinner label="loading registry" />);
     }
-    if (wizard.stage === "running") {
-        return wrap(<Spinner label={status || "calling"} />);
-    }
     if (wizard.stage === "done") {
         return wrap(
-            <Panel title="result" color={theme.ok}>
-                {results.map((line, index) => (
-                    <Text
-                        key={index}
-                        color={
-                            line.startsWith("ERROR") || line.startsWith("✗") || line.includes("FAIL")
-                                ? theme.err
-                                : line.includes("->") || line.includes(": ok")
-                                  ? theme.ok
-                                  : undefined
-                        }
-                    >
-                        {line}
-                    </Text>
-                ))}
-            </Panel>,
+            <Box flexDirection="column">
+                <Status ok={false} label="call" pad={14} />
+                <Box marginLeft={2}>
+                    <Text color={theme.err}>{wizard.error}</Text>
+                </Box>
+            </Box>,
         );
     }
 
@@ -482,7 +411,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
                     initial={entry.output?.format ?? ""}
                     placeholder={structFields?.length ? structFields.map((field) => field.type.format).join(", ") : entry.output?.format}
                     complete={completerFor(structFields)}
-                    onSubmit={(out) => runCall({ ...wizard, draft: { ...draft, out } })}
+                    onSubmit={(out) => submit({ ...wizard, draft: { ...draft, out } })}
                 />
             </Box>,
         );
@@ -492,7 +421,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
         const { draft } = wizard;
 
         return wrap(
-            <TextPrompt label="amount (qus)" initial={draft.amount ?? "0"} onSubmit={(amount) => runCall({ ...wizard, draft: { ...draft, amount } })} />,
+            <TextPrompt label="amount (qus)" initial={draft.amount ?? "0"} onSubmit={(amount) => submit({ ...wizard, draft: { ...draft, amount } })} />,
         );
     }
 

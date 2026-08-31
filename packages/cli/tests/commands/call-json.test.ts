@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { bigintText, callJsonResult } from "../../src/commands/deploy-interact/call";
+import { bigintText, callJsonResult, overlayArgs } from "../../src/commands/deploy-interact/call";
+import { parseArgs } from "../../src/args";
 
 const TRACE = {
     e: { tick: 4738, execNs: 521030 },
@@ -60,4 +61,22 @@ test("call JSON without a trace omits the trace keys and falls back to the reque
         error: "no contract 'Counter'",
     });
     expect(Object.keys(result)).not.toContain("state");
+});
+
+test("wizard answers override the typed flags and mask the ones its prompts replaced", () => {
+    const base = parseArgs(["--fn", "Counter", "Get", "--args", '{"a":1}', "--out", "uint32", "--trace", "--rpc", "http://node"], {
+        strings: ["args", "in", "out", "amount", "rpc"],
+        booleans: ["fn", "trace"],
+    });
+    const merged = overlayArgs(base, ["Counter", "Inc"], { args: undefined, in: "5uint64", out: undefined, amount: "10" });
+
+    expect(merged.positionals).toEqual(["Counter", "Inc"]);
+    expect(merged.get("in")).toBe("5uint64");
+    expect(merged.get("amount")).toBe("10");
+    // A prompt the wizard skipped masks the flag rather than letting it through.
+    expect(merged.has("args")).toBe(false);
+    expect(merged.get("out")).toBeUndefined();
+    // Anything the wizard never asks about still comes from the original invocation.
+    expect(merged.has("trace")).toBe(true);
+    expect(merged.get("rpc")).toBe("http://node");
 });
