@@ -121,3 +121,37 @@ test("containers nested inside containers keep the layout proto computes for the
         );
     }
 });
+
+// A typedef a struct declares itself names its type only inside that struct: the layout binds it while sizing
+// the members, but the field type is read back downstream without those bindings. Stored as written, the IDL
+// re-resolves a name nothing declares and falls back to an assumed width — the size stays right while the
+// scalar it reports does not, so these rows pin the reported type, not only the byte count.
+const MEMBER_TYPEDEF_SOURCE = `
+using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Rec { typedef uint8 W; W v; W row[2]; Array<W, 2> xs; uint8 z; };
+  union Alt { typedef uint16 U; U small; uint64 wide; };
+  struct StateData { Rec rec; Alt alt; };
+  INITIALIZE() {}
+};`;
+
+test("a struct's own typedef reaches the IDL as the type it names", () => {
+    const idl = extractIdl(MEMBER_TYPEDEF_SOURCE, "MemberTypedef", { slot: 21 });
+    expect(() => parseContractIdl(idl)).not.toThrow();
+
+    const rec = idl.state.fields[0].type;
+    if (rec.kind !== AbiTypeKind.STRUCT) throw new Error("rec must be a struct");
+    expect(rec.fields.map((field) => [field.name, field.size, formatAbiType(field.type)])).toEqual([
+        ["v", 1, "uint8"],
+        ["row", 2, "[2;uint8]"],
+        ["xs", 2, "[2;uint8]"],
+        ["z", 1, "uint8"],
+    ]);
+
+    const alt = idl.state.fields[1].type;
+    if (alt.kind !== AbiTypeKind.STRUCT) throw new Error("alt must be a struct");
+    expect(alt.fields.map((field) => [field.name, field.size, formatAbiType(field.type)])).toEqual([
+        ["small", 2, "uint16"],
+        ["wide", 8, "uint64"],
+    ]);
+});

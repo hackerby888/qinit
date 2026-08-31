@@ -1,6 +1,6 @@
 import { AstKind } from "../shared/enums";
 import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout } from "./types";
-import type { TypeSpec, Declaration, StructDecl, VariableDecl } from "../ast";
+import type { TypeSpec, Declaration, StructDecl, TypedefDeclNode, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
 import { followScopedTypedef, qualifyNamesInScope } from "./declaration-index";
 
@@ -163,6 +163,47 @@ export function bindingSig(programAnalysis: ProgramAnalysis, templateBindings: T
     return `|${typeBindingSignature}|${valueBindingSignature}|${structBindingSignature}`;
 }
 
+/** A typedef a member list declares itself binds that name for the members around it, unions included. */
+function withMemberTypedefs(templateBindings: TemplateBindings, members: Declaration[]): TemplateBindings {
+    let types = templateBindings.types;
+    for (const member of members) {
+        if (member.kind !== AstKind.TYPEDEF_DECL) continue;
+        const typedefDeclaration = member as TypedefDeclNode;
+        if (types === templateBindings.types) types = new Map(templateBindings.types);
+        if (!types.has(typedefDeclaration.name)) types.set(typedefDeclaration.name, typedefDeclaration.type);
+    }
+    return types === templateBindings.types ? templateBindings : { types, values: templateBindings.values, structs: templateBindings.structs };
+}
+
+/**
+ * What a name means here, substituted before the field records it: a member typedef or a template parameter binds
+ * the name only inside this member list, and everything downstream reads the field type back without those
+ * bindings — where the name reaches no declaration at all and falls back to an assumed width.
+ */
+function boundMemberType(type: TypeSpec, templateBindings: TemplateBindings, depth = 0): TypeSpec {
+    if (depth > 24) return type;
+
+    if (type.kind === AstKind.NAME) {
+        const bound = templateBindings.types.get(type.name);
+        const substitutable = bound && !(bound.kind === AstKind.NAME && bound.name === type.name);
+        return substitutable ? boundMemberType(bound, templateBindings, depth + 1) : type;
+    }
+
+    if (type.kind === AstKind.ARRAY) {
+        return { ...type, element: boundMemberType(type.element, templateBindings, depth + 1) };
+    }
+
+    if (type.kind === AstKind.CONST) {
+        return { ...type, valueType: boundMemberType(type.valueType, templateBindings, depth + 1) };
+    }
+
+    if (type.kind === AstKind.TEMPLATE_INSTANCE) {
+        return { ...type, callArguments: type.callArguments.map((argument) => boundMemberType(argument, templateBindings, depth + 1)) };
+    }
+
+    return type;
+}
+
 export function layoutOfMembers(
     programAnalysis: ProgramAnalysis,
     members: Declaration[],
@@ -181,7 +222,7 @@ export function layoutOfMembers(
         programAnalysis.inProgress.add(key);
     }
     try {
-        const templateBindings = programAnalysis.withLocalStructs(members, bIn);
+        const templateBindings = withMemberTypedefs(programAnalysis.withLocalStructs(members, bIn), members);
         const fields = new Map<string, FieldLayout>();
         let offset = 0;
         let maxAlign = 1;
@@ -197,7 +238,7 @@ export function layoutOfMembers(
                         name: variableDeclaration.name,
                         offset: 0,
                         size: byteSize,
-                        type: programAnalysis.inlineNestedStruct(variableDeclaration.type, templateBindings),
+                        type: programAnalysis.inlineNestedStruct(boundMemberType(variableDeclaration.type, templateBindings), templateBindings),
                     });
                     if (byteSize > max) max = byteSize;
                     if (align > maxAlign) maxAlign = align;
@@ -244,18 +285,10 @@ export function layoutOfMembers(
                     if (!memberVals.has(baseConstName)) memberVals.set(baseConstName, baseConstValue);
             }
         }
-        // Add nested typedefs to the member binding scope.
-        let memberTypes = templateBindings.types;
-        for (const member of members) {
-            if (member.kind !== AstKind.TYPEDEF_DECL) continue;
-            const td = member as any;
-            if (memberTypes === templateBindings.types) memberTypes = new Map(templateBindings.types);
-            if (!memberTypes.has(td.name)) memberTypes.set(td.name, td.type);
-        }
         const bMem =
-            memberVals === templateBindings.values && memberTypes === templateBindings.types
+            memberVals === templateBindings.values
                 ? templateBindings
-                : { types: memberTypes, values: memberVals, structs: templateBindings.structs };
+                : { types: templateBindings.types, values: memberVals, structs: templateBindings.structs };
         for (const memberDeclaration of members) {
             // Promote anonymous struct and union members at the current offset.
             if (memberDeclaration.kind === AstKind.STRUCT && !(memberDeclaration as StructDecl).name) {
@@ -284,7 +317,7 @@ export function layoutOfMembers(
                 name: variableDeclaration.name,
                 offset,
                 size: byteSize,
-                type: programAnalysis.inlineNestedStruct(variableDeclaration.type, bMem),
+                type: programAnalysis.inlineNestedStruct(boundMemberType(variableDeclaration.type, bMem), bMem),
             });
             offset += byteSize;
             if (align > maxAlign) maxAlign = align;
