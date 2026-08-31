@@ -136,12 +136,13 @@ export function analyzeCheatcodes(source: string): SourceAnalysisDiagnostic[] {
             continue;
         }
 
-        if (tokens[index + 1]?.kind !== TokenKind.L_PAREN || matchingToken(tokens, index + 1, TokenKind.L_PAREN, TokenKind.R_PAREN) < 0) {
+        const close = tokens[index + 1]?.kind === TokenKind.L_PAREN ? matchingToken(tokens, index + 1, TokenKind.L_PAREN, TokenKind.R_PAREN) : -1;
+
+        if (close < 0) {
             diagnostics.push(diagnostic("cheat/needs-parens", `${token.text} needs a balanced argument list.`, token));
             continue;
         }
 
-        const close = matchingToken(tokens, index + 1, TokenKind.L_PAREN, TokenKind.R_PAREN);
         const previous = tokens[index - 1];
 
         if (previous && !STATEMENT_START.has(previous.kind)) {
