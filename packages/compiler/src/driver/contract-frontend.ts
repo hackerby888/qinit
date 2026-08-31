@@ -4,6 +4,7 @@ import { Parser, type ParserDiagnostic } from "../frontend/parser";
 import { Preprocessor } from "../frontend/preprocessor";
 import { validateAndDesugar } from "../frontend/validation";
 import { SCAFFOLD_MACROS } from "./qpi/scaffold";
+import { cheatMacros } from "./qpi/cheats";
 import { makeUserDiagnosticRemapper, sourceWithoutLeadingBom, USER_BOUNDARY } from "./diagnostics";
 import type { CompileOptions } from "./types";
 
@@ -17,7 +18,13 @@ export interface PreprocessedContractSource {
 }
 
 export function preprocessContractSource(options: CompileOptions, seedMacros: PreprocessorInput["seedMacros"]): PreprocessedContractSource {
-    const source = [SCAFFOLD_MACROS, `struct ${USER_BOUNDARY} {};`, sourceWithoutLeadingBom(options.source)].join("\n");
+    // `__LINE__` counts physical lines, directives included, so the base is measured from the real
+    // prefix rather than assumed: the macro block shifts user code down by its own length too. The
+    // block's line count does not depend on the number it carries, so one placeholder pass settles it.
+    const prelude = [SCAFFOLD_MACROS, `struct ${USER_BOUNDARY} {};`].join("\n");
+    const mode = options.cheats ?? "on";
+    const prefixLines = [prelude, cheatMacros(mode, 0)].join("\n").split("\n").length;
+    const source = [prelude, cheatMacros(mode, prefixLines), sourceWithoutLeadingBom(options.source)].join("\n");
 
     const preprocessedSource = new Preprocessor().preprocess({
         source,

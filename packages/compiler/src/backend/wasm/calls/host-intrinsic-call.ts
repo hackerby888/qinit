@@ -2,8 +2,13 @@ import { AstKind, LogPayloadDefect, UnaryOp, WatNodeType } from "../../../shared
 import { QUBIC_LOG_TYPE } from "@qinit/proto";
 import type { Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
+import type { WatNode } from "../wat-ir";
 import { LOG_TERMINATOR_FIELD, logPayloadDefect, logPayloadMessage } from "../abi/log-payload";
 import { addrIr } from "../memory/memory-operations";
+import { resolveExpressionAddress } from "../memory/address-resolution";
+import { CHEAT_OP } from "@qinit/core";
+import { CHEAT_ORDINALS_PER_LINE } from "../../../driver/qpi/cheats";
+import { foldCheatLine } from "../idl/collect-cheats";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";
 
@@ -29,7 +34,68 @@ export function tryEmitHostIntrinsicCall(context: FunctionEmissionContext, expre
         return true;
     }
 
+    if (expression.callee.name === "__qinit_cheat_print") {
+        emitCheatPrintCall(context, expression);
+        return true;
+    }
+
+    if (expression.callee.name === "__qinit_cheat_call") {
+        emitCheatOpCall(context, expression);
+        return true;
+    }
+
     return false;
+}
+
+// CC_PRINT. String literals are interned into the IDL by collect-cheats and emit nothing here, which
+// is what keeps them out of the wasm; every other argument ships its bytes with its ordinal, so the
+// reader can pair them with the types the IDL recorded for the same call site.
+function emitCheatPrintCall(context: FunctionEmissionContext, expression: CallExpression): void {
+    const [lineArgument, ...args] = expression.callArguments;
+    const line = foldCheatLine(lineArgument);
+    const callId = line * CHEAT_ORDINALS_PER_LINE;
+
+    if (!args.length) {
+        emitCheat(context, CHEAT_OP.print, watIr.i64Constant(BigInt(callId)), watIr.i64Constant(0n), watIr.i32Constant(0), watIr.i32Constant(0));
+        return;
+    }
+
+    args.forEach((argument, part) => {
+        if (argument.kind === AstKind.STRING_LITERAL) {
+            return;
+        }
+
+        const tag = watIr.i64Constant(BigInt(callId + part));
+        const resolved = resolveExpressionAddress(context, argument);
+
+        if (resolved?.addr && resolved.size) {
+            emitCheat(context, CHEAT_OP.print, tag, watIr.i64Constant(0n), addrIr(resolved.addr), watIr.i32Constant(resolved.size));
+            return;
+        }
+
+        // No address to point at, so the value itself rides in the register slot and size stays zero.
+        emitCheat(context, CHEAT_OP.print, tag, context.lowering.lowerValueExpression(context, argument), watIr.i32Constant(0), watIr.i32Constant(0));
+    });
+}
+
+// The mutating cheatcodes: opcode, one scalar, and an optional 32-byte id.
+function emitCheatOpCall(context: FunctionEmissionContext, expression: CallExpression): void {
+    const [opArgument, amount, , target] = expression.callArguments;
+    const op = opArgument?.kind === AstKind.INT_LITERAL ? Number(opArgument.value) : 0;
+    const address = target ? context.lowering.emitAddress(context, target) : null;
+
+    emitCheat(
+        context,
+        op,
+        amount ? context.lowering.lowerValueExpression(context, amount) : watIr.i64Constant(0n),
+        watIr.i64Constant(0n),
+        address ? addrIr(address) : watIr.i32Constant(0),
+        watIr.i32Constant(address ? 32 : 0),
+    );
+}
+
+function emitCheat(context: FunctionEmissionContext, op: number, a: WatNode, b: WatNode, pointer: WatNode, size: WatNode): void {
+    context.lines.push(`    ${watIr.serializeWatNode(watIr.operation("drop", watIr.functionCall("$qpi_cheat", watIr.i32Constant(op), a, b, pointer, size)))}`);
 }
 
 function emitKangarooTwelveCall(context: FunctionEmissionContext, expression: CallExpression): void {

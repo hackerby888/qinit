@@ -15,7 +15,7 @@ const QPI_FUNCTION_CONTEXT = "QpiContextFunctionCall";
 const LOG_INTRINSICS: ReadonlySet<string> = new Set(["__qinit_log_error", "__qinit_log_warning", "__qinit_log_info", "__qinit_log_debug"]);
 
 // The magic names a payload can be rooted at, bound the way function emission binds them.
-interface PayloadRoots {
+export interface PayloadRoots {
     locals: StructLayout;
     input: StructLayout;
     output: StructLayout;
@@ -79,7 +79,7 @@ function logsCannotReachTheChain(prepared: PreparedContractModule, declaration: 
 
 // Helper functions are deliberately absent: emission binds them empty layouts, so their bodies
 // carry no resolvable payload root.
-function collectPayloadRoots(prepared: PreparedContractModule): Map<string, PayloadRoots> {
+export function collectPayloadRoots(prepared: PreparedContractModule): Map<string, PayloadRoots> {
     const layouts = prepared.layouts;
     const state = prepared.stateLayout;
     const rootsByFunction = new Map<string, PayloadRoots>();
@@ -242,7 +242,7 @@ function scalarPayloadDefect(type: TypeSpec | null): LogPayloadDefect | null {
     return LogPayloadDefect.NOT_A_STRUCT;
 }
 
-function visitStatement(statement: Statement, visit: (statement: Statement) => void): void {
+export function visitStatement(statement: Statement, visit: (statement: Statement) => void): void {
     visit(statement);
 
     switch (statement.kind) {

@@ -7,6 +7,7 @@ import { findMemberFn } from "../module/contract-discovery";
 import { USER_FUNCTION_KIND } from "../../../shared/entry-abi";
 import { AbiTypeBuilder } from "./abi-type-builder";
 import { contractEnums, contractLogs } from "./enums-and-logs";
+import { collectContractCheats } from "./collect-cheats";
 
 export interface BuildContractIdlOptions {
     contractName: string;
@@ -78,6 +79,7 @@ export function buildContractIdl(prepared: PreparedContractModule, options: Buil
         sysprocMask: systemProcedureMask(prepared),
         enums: contractEnums(prepared),
         logs: contractLogs(prepared, builder),
+        cheats: collectContractCheats(prepared, builder),
         migration,
         dependencies: uniqueNames(options.dependencies ?? []),
     };

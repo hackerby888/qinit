@@ -13,7 +13,7 @@ import {
     linkedListGeometry,
 } from "./qpi-layout";
 
-export const QINIT_IDL_VERSION = 4 as const;
+export const QINIT_IDL_VERSION = 5 as const;
 
 export enum AbiTypeKind {
     SCALAR = "scalar",
@@ -134,6 +134,22 @@ export interface ContractLog {
     type: AbiStruct;
 }
 
+// One argument of a CC_PRINT call. A literal part carries its text and emits no code; a value part
+// carries the type the bytes on the wire decode as, plus the argument's own source text as its label.
+export interface ContractCheatPart {
+    lit?: string;
+    type?: AbiType;
+    expr?: string;
+}
+
+// A CC_PRINT call site. `id` is what the contract puts on the wire, so the two compilers agree without
+// sharing a counter: the user line, times eight, plus the call's ordinal on that line.
+export interface ContractCheat {
+    id: number;
+    line: number;
+    parts: ContractCheatPart[];
+}
+
 export interface ContractMigration {
     oldState: AbiStruct;
 }
@@ -148,6 +164,7 @@ export interface ContractIdl {
     sysprocMask: number;
     enums: ContractEnum[];
     logs: ContractLog[];
+    cheats: ContractCheat[];
     migration?: ContractMigration;
     dependencies: string[];
 }
@@ -265,6 +282,7 @@ function parseContract(value: unknown, label: string): ContractIdl {
     const sysprocMask = uintValue(contract.sysprocMask, `${label} sysprocMask`);
     const enums = arrayValue(contract.enums, `${label} enums`).map((item, index) => contractEnum(item, `${label} enum ${index}`));
     const logs = arrayValue(contract.logs, `${label} logs`).map((item, index) => contractLog(item, `${label} log ${index}`));
+    const cheats = arrayValue(contract.cheats, `${label} cheats`).map((item, index) => contractCheat(item, `${label} cheat ${index}`));
     const dependencies = arrayValue(contract.dependencies, `${label} dependencies`).map((item, index) => stringValue(item, `${label} dependency ${index}`));
     const migration = contract.migration === undefined ? undefined : contractMigration(contract.migration, `${label} migration`);
 
@@ -278,6 +296,7 @@ function parseContract(value: unknown, label: string): ContractIdl {
         sysprocMask,
         enums,
         logs,
+        cheats,
         migration,
         dependencies,
     };
@@ -359,6 +378,20 @@ function contractLog(value: unknown, label: string): ContractLog {
     return {
         name: stringValue(entry.name, `${label} name`),
         type: abiStruct(entry.type, `${label} type`, true),
+    };
+}
+
+function contractCheat(value: unknown, label: string): ContractCheat {
+    const entry = objectValue(value, label);
+    return {
+        id: uintValue(entry.id, `${label} id`),
+        line: uintValue(entry.line, `${label} line`),
+        parts: arrayValue(entry.parts, `${label} parts`).map((item, index) => {
+            const part = objectValue(item, `${label} part ${index}`);
+            return part.lit === undefined
+                ? { type: abiType(part.type, `${label} part ${index} type`, true), expr: stringValue(part.expr, `${label} part ${index} expr`) }
+                : { lit: stringValue(part.lit, `${label} part ${index} lit`) };
+        }),
     };
 }
 

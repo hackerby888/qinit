@@ -1,4 +1,5 @@
 import type { ParserDiagnostic } from "../frontend/parser";
+import type { CheatMode } from "./qpi/cheats";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 
 export type { ContractIdl } from "@qinit/proto/contract-idl";
@@ -22,6 +23,9 @@ export interface CompileOptions {
     onPhase?: (phase: string) => void | Promise<void>;
     strict?: boolean;
     constructionEpoch?: number;
+    // Cheatcodes are on for ordinary builds. "noop" is the reference build the strip is proved
+    // against; "off" injects nothing at all, which is what Core sees.
+    cheats?: CheatMode;
 }
 
 export interface CompileResult {

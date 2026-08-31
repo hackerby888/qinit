@@ -19,6 +19,7 @@ const idl: ContractIdl = {
     sysprocMask: 0,
     enums: [],
     logs: [],
+        cheats: [],
     dependencies: [],
 };
 
@@ -484,13 +485,13 @@ test("accepts a log size that omits tail padding", () => {
     expect(parsed.logs[1].type.size).toBe(0);
 });
 
-test("rejects v3, zero-byte empty structs, and inconsistent entry sizes", () => {
+test("rejects v4, zero-byte empty structs, and inconsistent entry sizes", () => {
     expect(() =>
         parseContractIdl({
             ...idl,
-            version: 3,
+            version: 4,
         }),
-    ).toThrow(/version must be 4/);
+    ).toThrow(/version must be 5/);
     expect(() =>
         parseContractIdl({
             ...idl,

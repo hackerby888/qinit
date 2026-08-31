@@ -139,7 +139,7 @@ export const bit = sc(K.BIT);
 
 export function contractIdl(state: AbiStruct, extra: Partial<ContractIdl> = {}): unknown {
     return {
-        version: 4,
+        version: 5,
         name: "Fixture",
         slot: 1,
         functions: [],
@@ -148,6 +148,7 @@ export function contractIdl(state: AbiStruct, extra: Partial<ContractIdl> = {}):
         sysprocMask: 0,
         enums: [],
         logs: [],
+        cheats: [],
         dependencies: [],
         ...extra,
     };

@@ -152,6 +152,7 @@ export const CALL_SIG: Record<string, WatCallSignature> = {
     $qpi_abort: sig([I32], WatNodeType.VOID),
     $qpi_markDirty: sig([I32], WatNodeType.VOID),
     $qpi_logBytes: sig([I32, I32, I32, I32], WatNodeType.VOID),
+    $qpi_cheat: sig([I32, I64, I64, I32, I32], I64),
 
     // non-import bridges used directly by generated code
     $liteCallFunction: sig([I32, I32, I32, I32, I32, I32], I32),

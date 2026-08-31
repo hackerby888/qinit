@@ -23,6 +23,7 @@ const contract: ContractIdlArtifact = {
     sysprocMask: 0,
     enums: [],
     logs: [],
+        cheats: [],
     dependencies: [],
     codeHash: "abcd",
 };

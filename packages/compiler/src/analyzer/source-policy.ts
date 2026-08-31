@@ -6,6 +6,7 @@ import type { SourceAnalysisDiagnostic } from "./index";
 import { USER_FUNCTION_KIND } from "../shared/entry-abi";
 import { findEntryFunctions, findLocalDeclarations, findNext, isUsingNamespaceQpi, matchingToken, type EntryFunction } from "./rules/tokens";
 import { arrayFix, compareDiagnostics, diagnostic, divModFix, moveLocalToWithLocalsEdits, sourceFix } from "./rules/fixes";
+import { analyzeCheatcodes, cheatArgumentRanges } from "./cheatcodes";
 
 const KEYWORD_RULES: Record<string, { code: string; message: string }> = {
     float: {
@@ -35,11 +36,16 @@ export const QPI_BANNED_KEYWORDS: readonly string[] = Object.keys(KEYWORD_RULES)
 
 const FORBIDDEN_PUBLIC_TYPE_NAMES = new Set(["Collection", "LinkedList", "HashMap", "HashSet"]);
 
+function inCheatArgument(ranges: Array<{ start: number; end: number }>, token: Token): boolean {
+    return ranges.some((range) => token.span.start >= range.start && token.span.end <= range.end);
+}
+
 export function analyzeQpiPolicy(source: string, registrations?: readonly ContractRegistration[], idl?: ContractIdl): SourceAnalysisDiagnostic[] {
     const tokens = new Lexer(source).tokenize();
     const entries = findEntryFunctions(tokens);
     const diagnostics = [
-        ...forbiddenConstructs(source, tokens),
+        ...analyzeCheatcodes(source),
+        ...forbiddenConstructs(source, tokens, cheatArgumentRanges(source)),
         ...localDiagnostics(source, tokens, entries),
         ...localsFormDiagnostics(tokens, entries),
         ...idlDiagnostics(tokens, entries, registrations, idl),
@@ -114,7 +120,7 @@ export function detectQpiContractName(source: string): string | undefined {
     return undefined;
 }
 
-function forbiddenConstructs(source: string, tokens: Token[]): SourceAnalysisDiagnostic[] {
+function forbiddenConstructs(source: string, tokens: Token[], cheatRanges: Array<{ start: number; end: number }>): SourceAnalysisDiagnostic[] {
     const diagnostics: SourceAnalysisDiagnostic[] = [];
     let braceDepth = 0;
     let skipUntil = -1;
@@ -163,7 +169,10 @@ function forbiddenConstructs(source: string, tokens: Token[]): SourceAnalysisDia
         }
 
         if (token.kind === TokenKind.STRING_LITERAL) {
-            diagnostics.push(diagnostic("qpi/no-string", 'String literals (`"`) are forbidden in QPI — they can address arbitrary memory.', token.span));
+            // A literal inside a cheat argument is interned into the IDL and never reaches memory.
+            if (!inCheatArgument(cheatRanges, token)) {
+                diagnostics.push(diagnostic("qpi/no-string", 'String literals (`"`) are forbidden in QPI — they can address arbitrary memory.', token.span));
+            }
             continue;
         }
         if (token.kind === TokenKind.CHAR_LITERAL) {

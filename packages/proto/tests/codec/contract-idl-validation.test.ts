@@ -86,18 +86,18 @@ test("dependencies must be strings and field names must be unique", () => {
 test("the registry file keys contracts by slot and validates its artifact strings", () => {
     const one = contractIdl(STATE) as Record<string, unknown>;
 
-    expect(() => parseContractIdlFile({ version: 3, contracts: {} })).toThrow("IDL file version must be 4");
-    expect(() => parseContractIdlFile({ version: 4, contracts: [] })).toThrow("IDL file contracts must be an object");
-    expect(() => parseContractIdlFile({ version: 4, contracts: { abc: one } })).toThrow("IDL file contract key 'abc' is not a slot");
-    expect(() => parseContractIdlFile({ version: 4, contracts: { "01": one } })).toThrow("IDL file contract key '01' is not a slot");
-    expect(() => parseContractIdlFile({ version: 4, contracts: { "-1": one } })).toThrow("IDL file contract key '-1' is not a slot");
-    expect(() => parseContractIdlFile({ version: 4, contracts: { "5": one } })).toThrow("IDL contract 5 stores slot 1");
+    expect(() => parseContractIdlFile({ version: 4, contracts: {} })).toThrow("IDL file version must be 5");
+    expect(() => parseContractIdlFile({ version: 5, contracts: [] })).toThrow("IDL file contracts must be an object");
+    expect(() => parseContractIdlFile({ version: 5, contracts: { abc: one } })).toThrow("IDL file contract key 'abc' is not a slot");
+    expect(() => parseContractIdlFile({ version: 5, contracts: { "01": one } })).toThrow("IDL file contract key '01' is not a slot");
+    expect(() => parseContractIdlFile({ version: 5, contracts: { "-1": one } })).toThrow("IDL file contract key '-1' is not a slot");
+    expect(() => parseContractIdlFile({ version: 5, contracts: { "5": one } })).toThrow("IDL contract 5 stores slot 1");
 
     for (const key of ["codeHash", "debugWasm", "linesJson"]) {
-        expect(() => parseContractIdlFile({ version: 4, contracts: { "1": { ...one, [key]: 7 } } })).toThrow(`IDL artifact ${key} must be a string`);
+        expect(() => parseContractIdlFile({ version: 5, contracts: { "1": { ...one, [key]: 7 } } })).toThrow(`IDL artifact ${key} must be a string`);
     }
 
-    const parsed = parseContractIdlFile({ version: 4, contracts: { "1": { ...one, codeHash: "aa", debugWasm: "bb", linesJson: "cc" } } });
+    const parsed = parseContractIdlFile({ version: 5, contracts: { "1": { ...one, codeHash: "aa", debugWasm: "bb", linesJson: "cc" } } });
     expect([parsed.contracts["1"].codeHash, parsed.contracts["1"].debugWasm, parsed.contracts["1"].linesJson]).toEqual(["aa", "bb", "cc"]);
 });
 
