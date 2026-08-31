@@ -327,3 +327,173 @@ test("an underlying type that is not a scalar still falls back", () => {
     ]);
     expect(idl.enums.find((entry) => entry.name === "Choice")?.underlying).toBe(AbiScalarKind.SINT32);
 });
+
+// A name written unqualified inside a namespace means that namespace's declaration. Resolved from the bare
+// name instead, a sibling's or the global's width silently takes its place — the layout is wrong and every
+// path agrees on it, so the table below states the C++ size for one row per declaration kind.
+const UNQUALIFIED_CASES: { kind: string; declarations: string; stateFields: string; sizes: [string, number][] }[] = [
+    {
+        kind: "typedef shadowing a global one",
+        declarations: "typedef uint64 W;\nnamespace Alpha { typedef uint8 W; struct R { W v; }; }",
+        stateFields: "    Alpha::R a;",
+        sizes: [["a", 1]],
+    },
+    {
+        kind: "sibling typedefs",
+        declarations: "namespace Alpha { typedef uint8 W; struct R { W v; }; }\nnamespace Beta { typedef uint64 W; struct R { W v; }; }",
+        stateFields: "    Alpha::R a;\n    Beta::R b;",
+        sizes: [
+            ["a", 1],
+            ["b", 8],
+        ],
+    },
+    {
+        kind: "sibling struct members",
+        declarations:
+            "namespace Alpha { struct Base { uint8 v; }; struct M { Base b; uint8 e; }; }\nnamespace Beta { struct Base { uint64 a; uint64 b; }; struct M { Base b; uint8 e; }; }",
+        stateFields: "    Alpha::M a;\n    Beta::M b;",
+        sizes: [
+            ["a", 2],
+            ["b", 24],
+        ],
+    },
+    {
+        kind: "sibling enums",
+        declarations: "namespace Alpha { enum class C : uint8 { X }; struct R { C v; }; }\nnamespace Beta { enum class C : uint64 { X }; struct R { C v; }; }",
+        stateFields: "    Alpha::R a;\n    Beta::R b;",
+        sizes: [
+            ["a", 1],
+            ["b", 8],
+        ],
+    },
+    {
+        kind: "sibling constants as a template argument",
+        declarations:
+            "namespace Alpha { constexpr uint64 N = 2; struct R { Array<uint64, N> v; }; }\nnamespace Beta { constexpr uint64 N = 8; struct R { Array<uint64, N> v; }; }",
+        stateFields: "    Alpha::R a;\n    Beta::R b;",
+        sizes: [
+            ["a", 16],
+            ["b", 64],
+        ],
+    },
+    {
+        kind: "sibling constants as a C array bound",
+        declarations:
+            "namespace Alpha { constexpr uint64 N = 2; struct R { uint64 v[N]; }; }\nnamespace Beta { constexpr uint64 N = 8; struct R { uint64 v[N]; }; }",
+        stateFields: "    Alpha::R a;\n    Beta::R b;",
+        sizes: [
+            ["a", 16],
+            ["b", 64],
+        ],
+    },
+    {
+        kind: "sibling constants inside a bound expression",
+        declarations:
+            "namespace Alpha { constexpr uint64 N = 2; struct R { uint64 v[N * 2]; }; }\nnamespace Beta { constexpr uint64 N = 8; struct R { uint64 v[N * 2]; }; }",
+        stateFields: "    Alpha::R a;\n    Beta::R b;",
+        sizes: [
+            ["a", 32],
+            ["b", 128],
+        ],
+    },
+    {
+        kind: "sibling class templates",
+        declarations:
+            "namespace Alpha { template<typename T> struct Box { T v; }; struct R { Box<uint64> v; }; }\nnamespace Beta { template<typename T> struct Box { T v; T w; }; struct R { Box<uint64> v; }; }",
+        stateFields: "    Alpha::R a;\n    Beta::R b;",
+        sizes: [
+            ["a", 8],
+            ["b", 16],
+        ],
+    },
+    {
+        kind: "sibling container element types",
+        declarations:
+            "namespace Alpha { struct Rec { uint8 v; }; struct R { Array<Rec, 2> v; }; }\nnamespace Beta { struct Rec { uint64 v; }; struct R { Array<Rec, 2> v; }; }",
+        stateFields: "    Alpha::R a;\n    Beta::R b;",
+        sizes: [
+            ["a", 2],
+            ["b", 16],
+        ],
+    },
+    {
+        kind: "sibling nested struct members",
+        declarations:
+            "namespace Alpha { struct Inner { uint8 v; }; struct Outer { Inner i; }; }\nnamespace Beta { struct Inner { uint64 v; }; struct Outer { Inner i; }; }",
+        stateFields: "    Alpha::Outer a;\n    Beta::Outer b;",
+        sizes: [
+            ["a", 1],
+            ["b", 8],
+        ],
+    },
+    {
+        kind: "a struct named like a qpi.h type",
+        declarations: "namespace Alpha { struct Entity { uint8 v; }; struct R { Entity e; }; }",
+        stateFields: "    Alpha::R a;",
+        sizes: [["a", 1]],
+    },
+    {
+        kind: "member types of a class template",
+        declarations:
+            "namespace Alpha { struct Rec { uint8 v; }; template<typename T> struct Box { Rec r; T v; }; }\nnamespace Beta { struct Rec { uint64 v; }; template<typename T> struct Box { Rec r; T v; }; }",
+        stateFields: "    Alpha::Box<uint8> a;\n    Beta::Box<uint8> b;",
+        sizes: [
+            ["a", 2],
+            ["b", 16],
+        ],
+    },
+];
+
+for (const unqualified of UNQUALIFIED_CASES) {
+    test(`an unqualified reference inside a namespace resolves there: ${unqualified.kind}`, () => {
+        expect(sizesOf(unqualified.declarations, unqualified.stateFields)).toEqual(unqualified.sizes);
+    });
+}
+
+// The other half of the same rule: a name an inner scope declares itself still wins there. Re-pointing one
+// of these at the namespace breaks the exact-name lookups template bindings and member typedefs rely on.
+const SHADOWING_CONTROLS: { kind: string; declarations: string; stateFields: string; sizes: [string, number][] }[] = [
+    {
+        kind: "a namespace declaring no such name leaves the global one",
+        declarations: "typedef uint64 W;\nnamespace Alpha { struct R { W v; }; }",
+        stateFields: "    Alpha::R a;",
+        sizes: [["a", 8]],
+    },
+    {
+        kind: "a nested member struct shadows the namespace struct",
+        declarations: "namespace Alpha { struct Rec { uint64 a; uint64 b; }; struct R { struct Rec { uint8 v; }; Rec r; }; }",
+        stateFields: "    Alpha::R a;",
+        sizes: [["a", 1]],
+    },
+    {
+        kind: "a template type parameter shadows a namespace type",
+        declarations: "namespace Alpha { struct T { uint64 a; uint64 b; }; template<typename T> struct Box { T v; }; }",
+        stateFields: "    Alpha::Box<uint8> a;",
+        sizes: [["a", 1]],
+    },
+    {
+        kind: "a template non-type parameter shadows a namespace constant",
+        declarations: "namespace Alpha { constexpr uint64 N = 8; template<uint64 N> struct Buf { uint64 v[N]; }; }",
+        stateFields: "    Alpha::Buf<2> a;",
+        sizes: [["a", 16]],
+    },
+];
+
+for (const control of SHADOWING_CONTROLS) {
+    test(`a name declared closer in still wins: ${control.kind}`, () => {
+        expect(sizesOf(control.declarations, control.stateFields)).toEqual(control.sizes);
+    });
+}
+
+test("an enum in a namespace sizes and reports the alias its own namespace declares", () => {
+    const declarations = `
+namespace Alpha { typedef uint8 W; enum class C : W { X }; }
+namespace Beta { typedef uint64 W; enum class C : W { X }; }`;
+
+    const idl = enumIdl(declarations, "    Alpha::C a;\n    Beta::C b;");
+    expect(idl.state.fields.map((field) => [field.name, field.size])).toEqual([
+        ["a", 1],
+        ["b", 8],
+    ]);
+    expect(idl.enums.filter((entry) => entry.name === "C").map((entry) => entry.underlying)).toEqual([AbiScalarKind.UINT8, AbiScalarKind.UINT64]);
+});

@@ -160,6 +160,11 @@ export function registerModuleDeclarations(
     for (const callee of calleeTranslationUnits ?? []) {
         programAnalysis.registerCalleeContractDeclarations(callee.contractName, callee.declarations);
     }
+
+    // Last, so a name written before the declaration it means still resolves. Enum members are evaluated while
+    // registering, which can lay out a namespaced struct under its pre-qualification names, so that goes too.
+    programAnalysis.qualifyDeclarationsInScope(declarations);
+    programAnalysis.layoutCache.clear();
 }
 
 export function prepareContractState(

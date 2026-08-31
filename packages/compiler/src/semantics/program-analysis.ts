@@ -98,6 +98,11 @@ export class ProgramAnalysis {
     registerTopLevelDeclarations(declarations: Declaration[], nsPrefix = "", inheritedUsing: string[] = []): void {
         return declarationIndex.registerTopLevelDeclarations(this, declarations, nsPrefix, inheritedUsing);
     }
+    // Point the names a namespace's declarations write unqualified at that namespace, once every declaration
+    // they could name is registered.
+    qualifyDeclarationsInScope(declarations: Declaration[]): void {
+        return declarationIndex.qualifyDeclarationsInScope(this, declarations);
+    }
     captureMemberNamespaceContexts(members: Declaration[], context: NamespaceLookupContext): void {
         return declarationIndex.captureMemberNamespaceContexts(this, members, context);
     }

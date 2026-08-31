@@ -1,7 +1,19 @@
 import { AstKind, BareNamePolicy, UnsupportedFeature } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { EMPTY_TEMPLATE_BINDINGS, NamespaceLookupContext } from "./types";
-import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl } from "../ast";
+import type {
+    TypeSpec,
+    Expression,
+    ClassTemplateDecl,
+    Declaration,
+    ExternBlockDecl,
+    NamespaceDecl,
+    StructDecl,
+    FunctionDecl,
+    FunctionTemplateDecl,
+    TypedefDeclNode,
+    VariableDecl,
+} from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
 import { raiseUnsupported } from "./unsupported";
 
@@ -398,9 +410,11 @@ export function collectEnum(
         }
     }
     if (type.name && type.underlyingType?.kind === AstKind.NAME) {
-        // An aliased underlying type is stored resolved, so every consumer sees the scalar it really is.
-        const scalarName = resolvedScalarName(programAnalysis, type.underlyingType.name);
-        const underlyingType = scalarName === type.underlyingType.name ? type.underlyingType : { ...type.underlyingType, name: scalarName };
+        // An aliased underlying type is stored resolved, so every consumer sees the scalar it really is, and the
+        // alias is read from the scope the enum was written in — `namespace N { typedef uint8 W; enum class C : W }`.
+        const declaredName = resolvedKeyInScope(programAnalysis, type.underlyingType.name, scopePrefix, NO_SHADOWED_NAMES) ?? type.underlyingType.name;
+        const scalarName = resolvedScalarName(programAnalysis, declaredName);
+        const underlyingType = scalarName === declaredName ? type.underlyingType : { ...type.underlyingType, name: scalarName };
         const byteSize = SCALAR_SIZE[scalarName];
         if (byteSize !== undefined) registerScoped(programAnalysis.enumSize, scopePrefix, type.name, byteSize, barePolicy);
         registerScoped(programAnalysis.enumUnderlying, scopePrefix, type.name, underlyingType, barePolicy);
@@ -435,47 +449,195 @@ export function typedefTarget(programAnalysis: ProgramAnalysis, key: string): Ty
     return target && scope ? qualifyNamesInScope(programAnalysis, target, scope) : target;
 }
 
-// Is this name declared inside that scope? Only then does the scope get to claim it.
-function declaredInScope(programAnalysis: ProgramAnalysis, scope: string, name: string): boolean {
-    const scoped = `${scope}${name}`;
+const NO_SHADOWED_NAMES: ReadonlySet<string> = new Set();
+
+// Does any declaration table hold this key? One combined test rather than one per kind: C++ looks up names,
+// and a template argument can name a type or a constant with nothing here telling the two apart.
+function declaresName(programAnalysis: ProgramAnalysis, key: string): boolean {
     return (
-        programAnalysis.typedefs.has(scoped) ||
-        programAnalysis.globalStructs.has(scoped) ||
-        programAnalysis.enumSize.has(scoped) ||
-        programAnalysis.templates.has(scoped)
+        programAnalysis.typedefs.has(key) ||
+        programAnalysis.globalStructs.has(key) ||
+        programAnalysis.enumSize.has(key) ||
+        programAnalysis.enumNames.has(key) ||
+        programAnalysis.templates.has(key) ||
+        programAnalysis.constexprInit.has(key) ||
+        programAnalysis.enumConst.has(key)
     );
 }
 
 /**
- * Re-point every unqualified name a type carries at the scope it was written in, wherever the name sits in the
- * shape: the type itself, an array's element, a template's arguments. A name that scope does not declare is left
- * alone, so an outer or global one still resolves the way it always did.
+ * The key a name written in this scope really means, or null to leave the spelling alone. C++ looks outward from
+ * the innermost scope, so a namespace's own declaration wins over a same-named one further out; a name an inner
+ * scope declares itself is shadowed and never re-pointed.
  */
-export function qualifyNamesInScope(programAnalysis: ProgramAnalysis, type: TypeSpec, scope: string): TypeSpec {
+function resolvedKeyInScope(programAnalysis: ProgramAnalysis, name: string, scope: string, shadowed: ReadonlySet<string>): string | null {
+    if (!scope || name.includes("::") || shadowed.has(name)) {
+        return null;
+    }
+
+    const context: NamespaceLookupContext = { sourceNamespace: scope.endsWith("::") ? scope.slice(0, -2) : scope, usingNamespaces: [] };
+    for (const key of unqualifiedLookupKeys(name, context)) {
+        // The bare name comes after every enclosing scope, so reaching it means nothing closer declared one.
+        if (key === name) return null;
+        if (declaresName(programAnalysis, key)) return key;
+    }
+    return null;
+}
+
+/**
+ * Re-point every unqualified name a type carries at the scope it was written in, wherever the name sits in the
+ * shape: the type itself, an array's element and bound, a template's name and arguments. A name that scope does
+ * not declare is left alone, so an outer or global one still resolves the way it always did.
+ */
+export function qualifyNamesInScope(
+    programAnalysis: ProgramAnalysis,
+    type: TypeSpec,
+    scope: string,
+    shadowed: ReadonlySet<string> = NO_SHADOWED_NAMES,
+): TypeSpec {
     if (!scope) {
         return type;
     }
 
     if (type.kind === AstKind.NAME) {
-        return !type.name.includes("::") && declaredInScope(programAnalysis, scope, type.name) ? { ...type, name: `${scope}${type.name}` } : type;
+        const key = resolvedKeyInScope(programAnalysis, type.name, scope, shadowed);
+        return key ? { ...type, name: key } : type;
     }
 
     if (type.kind === AstKind.ARRAY) {
-        return { ...type, element: qualifyNamesInScope(programAnalysis, type.element, scope) };
-    }
-
-    if (type.kind === AstKind.CONST) {
-        return { ...type, valueType: qualifyNamesInScope(programAnalysis, type.valueType, scope) };
-    }
-
-    if (type.kind === AstKind.TEMPLATE_INSTANCE) {
         return {
             ...type,
-            callArguments: type.callArguments.map((argument) => qualifyNamesInScope(programAnalysis, argument, scope)),
+            element: qualifyNamesInScope(programAnalysis, type.element, scope, shadowed),
+            size: qualifyConstantIdentifiers(programAnalysis, type.size, scope, shadowed),
         };
     }
 
+    if (type.kind === AstKind.CONST) {
+        return { ...type, valueType: qualifyNamesInScope(programAnalysis, type.valueType, scope, shadowed) };
+    }
+
+    if (type.kind === AstKind.TEMPLATE_INSTANCE) {
+        const key = resolvedKeyInScope(programAnalysis, type.name, scope, shadowed);
+        return {
+            ...type,
+            name: key ?? type.name,
+            callArguments: type.callArguments.map((argument) => qualifyNamesInScope(programAnalysis, argument, scope, shadowed)),
+        };
+    }
+
+    if (type.kind === AstKind.EXPR_VALUE) {
+        return { ...type, expression: qualifyConstantIdentifiers(programAnalysis, type.expression, scope, shadowed) };
+    }
+
     return type;
+}
+
+/**
+ * The same re-pointing for the names an integral constant expression reads — `uint64 v[N]` and `v[N * 2]` name
+ * their bound from the scope they were written in too. Returns a new node rather than editing in place: the
+ * expressions in `constexprInit` are shared.
+ */
+function qualifyConstantIdentifiers(programAnalysis: ProgramAnalysis, expression: Expression, scope: string, shadowed: ReadonlySet<string>): Expression {
+    if (expression.kind === AstKind.IDENTIFIER) {
+        const key = resolvedKeyInScope(programAnalysis, expression.name, scope, shadowed);
+        return key ? { ...expression, name: key } : expression;
+    }
+
+    if (expression.kind === AstKind.PAREN) {
+        return { ...expression, expression: qualifyConstantIdentifiers(programAnalysis, expression.expression, scope, shadowed) };
+    }
+
+    if (expression.kind === AstKind.UNARY_OP) {
+        return { ...expression, argument: qualifyConstantIdentifiers(programAnalysis, expression.argument, scope, shadowed) };
+    }
+
+    if (expression.kind === AstKind.BINARY_OP) {
+        return {
+            ...expression,
+            left: qualifyConstantIdentifiers(programAnalysis, expression.left, scope, shadowed),
+            right: qualifyConstantIdentifiers(programAnalysis, expression.right, scope, shadowed),
+        };
+    }
+
+    if (expression.kind === AstKind.TERNARY) {
+        return {
+            ...expression,
+            condition: qualifyConstantIdentifiers(programAnalysis, expression.condition, scope, shadowed),
+            then: qualifyConstantIdentifiers(programAnalysis, expression.then, scope, shadowed),
+            else_: qualifyConstantIdentifiers(programAnalysis, expression.else_, scope, shadowed),
+        };
+    }
+
+    return expression;
+}
+
+/**
+ * Re-point the names every declaration in a namespace writes unqualified at the scope it was written in, so a
+ * namespace's own type or constant wins over a same-named one elsewhere. Runs over the contract's own
+ * translation unit only: the qpi.h AST is parsed once and shared, and keeps the bare spellings it was indexed
+ * under. Idempotent — an already-qualified name is skipped — so re-running over the same AST changes nothing.
+ */
+export function qualifyDeclarationsInScope(
+    programAnalysis: ProgramAnalysis,
+    declarations: Declaration[],
+    scope = "",
+    shadowed: ReadonlySet<string> = NO_SHADOWED_NAMES,
+): void {
+    for (const declaration of declarations) {
+        if (declaration.kind === AstKind.NAMESPACE) {
+            const namespaceDeclaration = declaration as NamespaceDecl;
+            qualifyDeclarationsInScope(programAnalysis, namespaceDeclaration.body, `${scope}${namespaceDeclaration.name}::`, shadowed);
+        } else if (declaration.kind === AstKind.EXTERN_BLOCK) {
+            qualifyDeclarationsInScope(programAnalysis, (declaration as ExternBlockDecl).body, scope, shadowed);
+        } else if (scope && (declaration.kind === AstKind.STRUCT || declaration.kind === AstKind.CLASS_TEMPLATE)) {
+            qualifyRecordInScope(programAnalysis, declaration as StructDecl | ClassTemplateDecl, scope, shadowed);
+        }
+    }
+}
+
+function qualifyRecordInScope(
+    programAnalysis: ProgramAnalysis,
+    record: StructDecl | ClassTemplateDecl,
+    scope: string,
+    outerShadowed: ReadonlySet<string>,
+): void {
+    const shadowed = shadowedNames(record, outerShadowed);
+    record.bases = record.bases.map((base) => qualifyNamesInScope(programAnalysis, base, scope, shadowed));
+
+    for (const member of record.members) {
+        if (member.kind === AstKind.VARIABLE) {
+            const variableDeclaration = member as VariableDecl;
+            variableDeclaration.type = qualifyNamesInScope(programAnalysis, variableDeclaration.type, scope, shadowed);
+            if (variableDeclaration.type.kind === AstKind.INLINE_STRUCT) {
+                qualifyRecordInScope(programAnalysis, variableDeclaration.type.struct, scope, shadowed);
+            }
+        } else if (member.kind === AstKind.TYPEDEF_DECL) {
+            const typedefDeclaration = member as TypedefDeclNode;
+            typedefDeclaration.type = qualifyNamesInScope(programAnalysis, typedefDeclaration.type, scope, shadowed);
+        } else if (member.kind === AstKind.STRUCT || member.kind === AstKind.CLASS_TEMPLATE) {
+            qualifyRecordInScope(programAnalysis, member as StructDecl | ClassTemplateDecl, scope, shadowed);
+        }
+    }
+}
+
+/**
+ * The names that keep their own meaning inside a record: what it declares itself and what it binds as a template
+ * parameter. Template bindings and member typedefs are matched by exact name, so qualifying one of these would
+ * point it away from the declaration that is actually closer.
+ */
+function shadowedNames(record: StructDecl | ClassTemplateDecl, outerShadowed: ReadonlySet<string>): ReadonlySet<string> {
+    const shadowed = new Set(outerShadowed);
+    if (record.kind === AstKind.CLASS_TEMPLATE) {
+        for (const parameter of record.params) shadowed.add(parameter.name);
+    }
+
+    for (const member of record.members) {
+        const declaresType =
+            member.kind === AstKind.TYPEDEF_DECL || member.kind === AstKind.STRUCT || member.kind === AstKind.CLASS_TEMPLATE || member.kind === AstKind.ENUM;
+        const name = declaresType ? (member as { name?: string }).name : undefined;
+        if (name) shadowed.add(name);
+    }
+    return shadowed;
 }
 
 // The typedef a name reaches, followed from the scope that declared it.

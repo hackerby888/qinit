@@ -352,6 +352,11 @@ function queryProgramAnalysis(compileOptions: CompileOptions, qpiContext: QpiCon
     for (const callee of callees.calleeTranslationUnits) {
         programAnalysis.registerCalleeContractDeclarations(callee.contractName, callee.declarations);
     }
+    // Same normalization codegen runs, so the language server resolves a namespace's names the way it does.
+    if (own) {
+        programAnalysis.qualifyDeclarationsInScope(own);
+        programAnalysis.layoutCache.clear();
+    }
     return programAnalysis;
 }
 
