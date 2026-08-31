@@ -497,3 +497,14 @@ namespace Beta { typedef uint64 W; enum class C : W { X }; }`;
     ]);
     expect(idl.enums.filter((entry) => entry.name === "C").map((entry) => entry.underlying)).toEqual([AbiScalarKind.UINT8, AbiScalarKind.UINT64]);
 });
+
+// An enum nested in a struct is keyed under that struct, so reporting it from the namespace key alone loses
+// its width — the reported kind has to reach the same scalar the field lays out at.
+test("an enum nested in a namespaced struct still reports its underlying scalar", () => {
+    const idl = enumIdl("namespace Alpha { struct Holder { enum class Choice : uint16 { Only }; }; }", "    Alpha::Holder::Choice c;\n    uint8 tail;");
+    expect(idl.state.fields.map((field) => [field.name, field.size])).toEqual([
+        ["c", 2],
+        ["tail", 1],
+    ]);
+    expect(idl.enums.find((entry) => entry.name === "Choice")?.underlying).toBe(AbiScalarKind.UINT16);
+});
