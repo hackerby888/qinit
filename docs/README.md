@@ -11,6 +11,7 @@ Sections are numbered, so jump with `grep -n '^## ' docs/<file>.md` rather than 
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
 | [cli-guide.md](./cli-guide.md)                       | `packages/cli` end to end: routing, arguments, config, contracts/IDL, deploy, calls, state and trace decoding, explorer, node lifecycle, tests, RPC surface, sharp edges | Changing a command, an option, deployment, decoding, or node startup           | Compiler internals; anything inside `packages/compiler`            |
 | [compiler-walkthrough.md](./compiler-walkthrough.md) | `packages/compiler`, the `typescript` backend: preprocess → lex → parse → analyze → layout → WAT → Wasm, 25 numbered stages                                              | Changing code generation, memory layout, the QPI snapshot, or runtime dispatch | The `clang` backend (`packages/build`); how the CLI drives a build |
+| [cheatcodes.md](./cheatcodes.md)                     | The `CC_*` macros: the private host channel they ride, how each backend lowers them, the scanner rules, and the strip that removes them before Core                     | Adding a cheatcode, changing the strip, or working out why one is not showing up | The two testing systems; anything that belongs in a test file |
 | [browser-packaging.md](./browser-packaging.md)       | `@qinit/compiler/browser`: what the bundle embeds, snapshot ownership, local build, verification                                                                         | Changing the browser entry or regenerating the QPI snapshot                    | Compiler internals; CLI behavior                                   |
 
 ## Where to look
@@ -37,6 +38,7 @@ Sections are numbered, so jump with `grep -n '^## ' docs/<file>.md` rather than 
 | Is this behavior a bug or a known wart?                                       | cli-guide §19 (sharp edges)                          |
 | What differs in the compiled binary versus `bun run dev`?                     | cli-guide §20                                        |
 | Which compiler stage owns this?                                               | compiler-walkthrough §1–25                           |
+| Why is my `CC_PRINT` not showing? What removes cheatcodes before Core?        | cheatcodes §2, §5                                    |
 | Why does the user-boundary struct exist? Why is every layer needed?           | compiler-walkthrough §5, "Why every layer is needed" |
 | How do I regenerate or verify the QPI snapshot?                               | browser-packaging, "Snapshot ownership"              |
 
