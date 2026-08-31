@@ -274,3 +274,56 @@ namespace Beta { struct Base { uint64 a; uint64 b; }; struct D : public Base { u
         ["b", 24],
     ]);
 });
+
+// An enum's underlying type can be named through an alias, and both the width it lays out at and the scalar
+// the IDL reports come from separate lookups — so the table pins each spelling on both, and the last row
+// keeps the fallback honest for an underlying type that is not a scalar at all.
+const enumIdl = (declarations: string, stateFields: string) => {
+    const idl = extractIdl(contract(declarations, stateFields), "Scoped", { slot: 31 });
+    expect(() => parseContractIdl(idl)).not.toThrow();
+    return idl;
+};
+
+const ALIASES = "namespace Widths { typedef uint16 W; typedef W W2; }";
+
+test("an enum sizes and reports the scalar its underlying alias resolves to", () => {
+    for (const underlying of ["Widths::W", "Widths::W2"]) {
+        const idl = enumIdl(`${ALIASES}\nenum class Choice : ${underlying} { Only };`, "    Choice c;\n    uint8 tail;");
+        expect(idl.state.fields.map((field) => [field.name, field.size])).toEqual([
+            ["c", 2],
+            ["tail", 1],
+        ]);
+        expect(idl.enums.find((entry) => entry.name === "Choice")?.underlying).toBe("uint16");
+    }
+});
+
+test("an explicit or absent underlying type is unaffected", () => {
+    for (const [underlying, size, reported] of [
+        [" : uint16", 2, "uint16"],
+        [" : sint8", 1, "sint8"],
+        [" : uint64", 8, "uint64"],
+        ["", 4, "sint32"],
+    ] as const) {
+        const idl = enumIdl(`enum class Choice${underlying} { Only };`, "    Choice c;\n    uint8 tail;");
+        expect(idl.state.fields[0].size).toBe(size);
+        expect(idl.enums.find((entry) => entry.name === "Choice")?.underlying).toBe(reported);
+    }
+});
+
+test("an aliased enum keeps its width inside a struct and an array", () => {
+    const declarations = `${ALIASES}\nenum class Choice : Widths::W { Only };`;
+    expect(enumIdl(declarations, "    struct Inner { Choice c; uint8 t; } inner;").state.fields[0].size).toBe(4);
+    expect(enumIdl(declarations, "    Array<Choice, 4> xs;").state.fields[0].size).toBe(8);
+});
+
+test("an underlying type that is not a scalar still falls back", () => {
+    const idl = enumIdl(
+        "namespace Widths { struct NotScalar { uint8 v; }; }\nenum class Choice : Widths::NotScalar { Only };",
+        "    Choice c;\n    uint8 tail;",
+    );
+    expect(idl.state.fields.map((field) => [field.name, field.size])).toEqual([
+        ["c", 4],
+        ["tail", 1],
+    ]);
+    expect(idl.enums.find((entry) => entry.name === "Choice")?.underlying).toBe("sint32");
+});

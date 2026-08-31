@@ -398,9 +398,12 @@ export function collectEnum(
         }
     }
     if (type.name && type.underlyingType?.kind === AstKind.NAME) {
-        const byteSize = SCALAR_SIZE[type.underlyingType.name];
+        // An aliased underlying type is stored resolved, so every consumer sees the scalar it really is.
+        const scalarName = resolvedScalarName(programAnalysis, type.underlyingType.name);
+        const underlyingType = scalarName === type.underlyingType.name ? type.underlyingType : { ...type.underlyingType, name: scalarName };
+        const byteSize = SCALAR_SIZE[scalarName];
         if (byteSize !== undefined) registerScoped(programAnalysis.enumSize, scopePrefix, type.name, byteSize, barePolicy);
-        registerScoped(programAnalysis.enumUnderlying, scopePrefix, type.name, type.underlyingType, barePolicy);
+        registerScoped(programAnalysis.enumUnderlying, scopePrefix, type.name, underlyingType, barePolicy);
     }
     const enumType: TypeSpec = type.underlyingType ?? { kind: AstKind.NAME, name: "sint32" };
     let next = 0n;
@@ -499,4 +502,27 @@ export function namesAType(programAnalysis: ProgramAnalysis, name: string): bool
             programAnalysis.enumNames.has(key) ||
             programAnalysis.templates.has(key),
     );
+}
+
+/**
+ * The scalar name an alias chain ends at, followed from each link's own scope: `enum class C : N::W` has to
+ * size as N's W does. Returns the name unchanged when it never reaches a scalar, so callers keep their own
+ * fallback for a name that is not an alias at all.
+ */
+export function resolvedScalarName(programAnalysis: ProgramAnalysis, name: string): string {
+    let current = name;
+
+    for (let depth = 0; depth < 8; depth++) {
+        const scalarKey = scopedLookupKeys(current).find((key) => SCALAR_SIZE[key] !== undefined);
+        if (scalarKey) {
+            return scalarKey;
+        }
+
+        const target = followScopedTypedef(programAnalysis, current);
+        if (!target || target.kind !== AstKind.NAME || target.name === current) {
+            return current;
+        }
+        current = target.name;
+    }
+    return current;
 }

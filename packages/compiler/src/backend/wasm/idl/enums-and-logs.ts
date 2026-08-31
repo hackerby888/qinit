@@ -5,6 +5,7 @@ import type { Declaration, EnumDecl, StructDecl, VariableDecl } from "../../../a
 import { LOG_TERMINATOR_FIELD } from "../abi/log-payload";
 import type { PreparedContractModule } from "../module/module-analysis";
 import { scalarKindForName } from "./scalars";
+import { resolvedScalarName } from "../../../semantics/declaration-index";
 import type { AbiTypeBuilder } from "./abi-type-builder";
 
 export function contractEnums(prepared: PreparedContractModule): ContractEnum[] {
@@ -21,7 +22,9 @@ export function contractEnums(prepared: PreparedContractModule): ContractEnum[] 
         if (!name) {
             continue;
         }
-        const underlyingName = enumDeclaration.underlyingType?.kind === AstKind.NAME ? enumDeclaration.underlyingType.name : "sint32";
+        const declaredName = enumDeclaration.underlyingType?.kind === AstKind.NAME ? enumDeclaration.underlyingType.name : "sint32";
+        // `enum class C : N::W` names its width through an alias, so the chain is followed before the lookup.
+        const underlyingName = resolvedScalarName(prepared.programAnalysis, declaredName);
         const underlying = scalarKindForName(underlyingName) ?? AbiScalarKind.SINT32;
         const members: Record<string, string> = {};
 
