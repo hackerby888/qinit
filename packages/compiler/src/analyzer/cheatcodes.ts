@@ -58,6 +58,7 @@ interface CheatCall {
     open: number;
     close: number;
     token: Token;
+    end: number;
 }
 
 /** Every well-formed cheat call in the source, in order. */
@@ -81,7 +82,7 @@ function cheatCalls(tokens: Token[]): CheatCall[] {
             continue;
         }
 
-        calls.push({ name: token.text, open: index, close, token });
+        calls.push({ name: token.text, open: index, close, token, end: tokens[close].span.end });
         index = close;
     }
 
@@ -104,30 +105,29 @@ function diagnostic(code: string, message: string, token: Token): SourceAnalysis
     return { code, message, severity: DiagnosticSeverity.ERROR, span: token.span } as SourceAnalysisDiagnostic;
 }
 
-/** True while `index` sits inside a body that QPI dispatches as a read-only function. */
-function insideFunctionBody(tokens: Token[], index: number): boolean {
-    let entry = "";
-
-    for (let scan = 0; scan < index; scan++) {
-        const text = tokens[scan].text;
-
-        if (tokens[scan].kind === TokenKind.IDENTIFIER && (text.endsWith("_FUNCTION") || text.endsWith("_PROCEDURE") || text.endsWith("_WITH_LOCALS"))) {
-            entry = text;
-        }
-    }
-
-    return entry.includes("_FUNCTION");
+/** True when an entry macro names a body QPI dispatches as a read-only function. */
+function isFunctionEntry(text: string): boolean {
+    return text.includes("_FUNCTION") && (text.endsWith("_FUNCTION") || text.endsWith("_WITH_LOCALS"));
 }
 
 export function analyzeCheatcodes(source: string): SourceAnalysisDiagnostic[] {
     const tokens = new Lexer(source).tokenize();
     const diagnostics: SourceAnalysisDiagnostic[] = [];
     const perLine = new Map<number, number>();
+    let entry = "";
 
     for (let index = 0; index < tokens.length; index++) {
         const token = tokens[index];
 
-        if (token.kind !== TokenKind.IDENTIFIER || !CHEAT_PREFIX.test(token.text)) {
+        if (token.kind !== TokenKind.IDENTIFIER) {
+            continue;
+        }
+
+        if (token.text.endsWith("_FUNCTION") || token.text.endsWith("_PROCEDURE") || token.text.endsWith("_WITH_LOCALS")) {
+            entry = token.text;
+        }
+
+        if (!CHEAT_PREFIX.test(token.text)) {
             continue;
         }
 
@@ -160,7 +160,7 @@ export function analyzeCheatcodes(source: string): SourceAnalysisDiagnostic[] {
             );
         }
 
-        if (MUTATING_CHEATS.has(token.text) && insideFunctionBody(tokens, index)) {
+        if (MUTATING_CHEATS.has(token.text) && isFunctionEntry(entry)) {
             diagnostics.push(diagnostic("cheat/mutator-in-function", `${token.text} changes state, so it cannot run inside a function.`, token));
         }
 
@@ -214,10 +214,7 @@ export function stripCheatcodes(source: string): string {
     const characters = [...source];
 
     for (const call of cheatCalls(new Lexer(source).tokenize())) {
-        const end = call.close;
-        const tokens = new Lexer(source).tokenize();
-
-        for (let position = call.token.span.start; position < tokens[end].span.end; position++) {
+        for (let position = call.token.span.start; position < call.end; position++) {
             if (characters[position] !== "\n") {
                 characters[position] = " ";
             }
