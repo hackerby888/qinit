@@ -59,7 +59,69 @@ test("a nested struct keeps its own name and layout beside the format", () => {
     expect(box.align).toBe(4);
 });
 
-test("a plain C scalar keeps the width and signedness the ABI maps it to", () => {
+// One row per native C spelling the compiler accepts. A spelling the kind map misses falls through to
+// scalarKindForSize, which answers unsigned for every width — so asserting `size` alone would pass on a
+// field that silently lost its sign. Every row pins `format`, which is the only place signedness shows.
+// Widths are wasm32's (ILP32): long, unsigned long and size_t are 4 bytes, only long long is 8.
+const NATIVE_SCALARS: [string, string][] = [
+    ["bool", "uint8"],
+    ["char", "sint8"],
+    ["signed char", "sint8"],
+    ["unsigned char", "uint8"],
+    ["short", "sint16"],
+    ["short int", "sint16"],
+    ["signed short", "sint16"],
+    ["signed short int", "sint16"],
+    ["unsigned short", "uint16"],
+    ["unsigned short int", "uint16"],
+    ["int", "sint32"],
+    ["signed", "sint32"],
+    ["signed int", "sint32"],
+    ["unsigned", "uint32"],
+    ["unsigned int", "uint32"],
+    ["long", "sint32"],
+    ["long int", "sint32"],
+    ["signed long", "sint32"],
+    ["signed long int", "sint32"],
+    ["unsigned long", "uint32"],
+    ["unsigned long int", "uint32"],
+    ["size_t", "uint32"],
+    ["wchar_t", "sint32"],
+    ["long long", "sint64"],
+    ["signed long long", "sint64"],
+    ["unsigned long long", "uint64"],
+];
+
+const SCALAR_WIDTH: Record<string, number> = {
+    uint8: 1,
+    sint8: 1,
+    uint16: 2,
+    sint16: 2,
+    uint32: 4,
+    sint32: 4,
+    uint64: 8,
+    sint64: 8,
+};
+
+test("every native C spelling keeps the width and signedness the ABI maps it to", () => {
+    for (const [spelling, expected] of NATIVE_SCALARS) {
+        const source = `
+using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { ${spelling} value; };
+  INITIALIZE() {}
+};`;
+
+        const field = extractIdl(source, "Native", { slot: 5 }).state.fields[0];
+        expect({ spelling, format: field.type.format, size: field.type.size }).toEqual({
+            spelling,
+            format: expected,
+            size: SCALAR_WIDTH[expected],
+        });
+    }
+});
+
+test("native scalars pack together at the offsets their own widths imply", () => {
     const source = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -68,6 +130,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     unsigned char byte;
     bool flag;
     unsigned short small;
+    long native;
+    size_t count;
     long long wide;
   };
   INITIALIZE() {}
@@ -79,7 +143,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         ["byte", "uint8", 1],
         ["flag", "uint8", 2],
         ["small", "uint16", 4],
-        ["wide", "sint64", 8],
+        ["native", "sint32", 8],
+        ["count", "uint32", 12],
+        ["wide", "sint64", 16],
     ]);
-    expect(state.size).toBe(16);
+    expect(state.size).toBe(24);
 });
