@@ -1939,24 +1939,27 @@ Record<CommandName, CommandHandler>` constraint fails the build otherwise.
 These are current behaviors, not desired architectural rules. A maintainer
 should know them before relying on metadata or a successful exit status.
 
-- `META.json` only changes help. `node`, `tick`, `epoch`, `call`, and `state` are
-  advertised as JSON-capable, but only `node run` emits node JSON, only
-  `state --digest` and `state --dump` emit state JSON, and `call` needs an
-  explicit `--fn`/`--proc`. `tick` and `epoch` do not currently emit structured
-  JSON.
+- Every command `META` advertises as JSON-capable emits a document: `node run` and
+  `node status|stop|get`, `tick`, `epoch`, `call`, `state` (a decoded target as well
+  as `--digest` and `--dump`), plus `build`, `verify`, `deploy`, `ls`, `ext`, `info`,
+  and `version`. An argument error or a crash also emits `{ok, error}` when `--json`
+  is set, so a machine caller never has to parse a rendered frame.
 - `--json` and `--plain` are accepted by the shared parser for every command,
-  while `--plain` is not shown in generated usage. `explorer` is the one command
-  that rejects `--json` (and a non-TTY stdin) outright, because it has no
-  structured form.
+  while `--plain` is not shown in generated usage. Three commands reject `--json`
+  rather than emit: `explorer` outright (it has no structured form, and it also
+  refuses a non-TTY stdin), `call` without `--fn`/`--proc`, and `state` without a
+  target — the latter two because a prompt would otherwise draw in front of the
+  document.
 - An unresolved command renders help plus a suggestion and exits 1. A dash-prefixed token is not
   announced as an unknown command name, but it fails the same way.
 - An unknown subcommand is only rejected when `--help` is also present.
   Otherwise it stays a positional: `qinit node bogus` reaches `Node` with
   `subcommand: undefined`, and the component falls back to
-  `commandArgs.positionals[0]`, so it renders a `bogus` phase rather than
-  refusing the name.
-- Several handled UI errors do not set exit code 1, including validation paths
-  in `new` and compiler selection and RPC errors in tick/epoch.
+  `commandArgs.positionals[0]` — which refuses the name, rendering
+  `unknown: node bogus` and exiting 1.
+- `dev` is a watch session, so its exit status reflects the _last_ redeploy rather
+  than the whole run: a failure you have since fixed does not outlive itself, and
+  the status is only meaningful at the moment you quit.
 - `qinit seed <seed>` saves that seed directly; without one and without a TTY the
   picker cannot be driven, so it fails with that hint rather than waiting on input
   that will never arrive.
@@ -1972,8 +1975,11 @@ should know them before relying on metadata or a successful exit status.
   same path are not observed in that process.
 - `clean` and `uninstall` preserve user config, including the saved seed.
 - Debug capture is a global node toggle, so concurrent clients can interfere.
-- There is no direct rendered-command coverage for node status/get/stop,
-  doctor, clean, self-update, uninstall, or system selection persistence.
+- There is no direct rendered-command coverage for doctor, clean, self-update,
+  uninstall, or system selection persistence. The `node`/`tick`/`epoch`/`state`
+  JSON documents are covered as pure builders
+  (`tests/commands/node-json.test.ts`, `state-json.test.ts`), not as rendered
+  commands.
   `self-update` is the closest: `tests/commands/update.test.ts` covers the
   download-and-replace helpers thoroughly, but not the Ink command around them.
 

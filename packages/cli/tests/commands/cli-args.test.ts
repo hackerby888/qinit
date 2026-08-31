@@ -176,3 +176,22 @@ test("prototype-shaped command names stay unknown", async () => {
         expect(result.stderr).toBe("");
     }
 });
+
+test("a --json caller gets an argument error as a document, not a frame", async () => {
+    const result = await run("call", "--json");
+
+    expect(result.code).toBe(1);
+    expect(JSON.parse(result.stdout)).toEqual({
+        ok: false,
+        error: "invalid arguments: --json needs --fn or --proc",
+    });
+    expect(result.stderr).toBe("");
+});
+
+test("a --json caller gets an unknown command as a document", async () => {
+    const result = await run("bogus-cmd", "--json");
+
+    expect(result.code).toBe(1);
+    expect(JSON.parse(result.stdout).error).toBe("unknown command: bogus-cmd");
+    expect(result.stdout).not.toContain("qinit");
+});

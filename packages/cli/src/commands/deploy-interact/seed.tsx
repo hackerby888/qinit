@@ -117,6 +117,9 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
                     add("identity: " + s.id);
                 } catch (e: any) {
                     add("ERROR: " + String(e?.message ?? e));
+                    process.exitCode = 1;
+                    setPhase("err");
+                    return;
                 }
                 setPhase("done");
             }

@@ -80,6 +80,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
             );
         } catch (e: any) {
             setNotes((n) => [...n, "ERROR: " + String(e?.message ?? e)]);
+            setResult({ ok: false, deployments: [], error: String(e?.message ?? e) });
         }
         try {
             setContracts(await nodeContracts(rpcBaseUrl));
@@ -164,6 +165,11 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     useEffect(() => {
         if (coreErr) process.exitCode = 1;
     }, [coreErr]);
+    // The session reports its last redeploy. `result` is null only mid-rebuild, which holds the
+    // previous outcome rather than flickering to success.
+    useEffect(() => {
+        if (result) process.exitCode = result.ok ? 0 : 1;
+    }, [result]);
 
     if (coreErr)
         return (

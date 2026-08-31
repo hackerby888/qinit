@@ -35,7 +35,7 @@ import { New } from "./commands/develop/new";
 import { Integrate } from "./commands/develop/integrate";
 import { Help, Usage } from "./commands/misc/help";
 import { Version } from "./commands/misc/version";
-import { invalidArgs, nearest, parseCommandInvocation, type CommandInvocation } from "./args";
+import { invalidArgs, nearest, output, parseCommandInvocation, type CommandInvocation } from "./args";
 import { META, COMMANDS, isCommandName, type CommandMeta, type CommandName } from "./meta";
 
 // Catch a render-time throw so the CLI exits cleanly instead of leaving Ink in raw mode.
@@ -44,16 +44,21 @@ function Crash({ err, command }: { err: Error; command: string }) {
     const code = (err as Error & { code?: string }).code;
     const invalidArgs = code?.startsWith("ERR_PARSE_ARGS_") ?? false;
     const message = err.message.split("\n")[0];
+    const text = invalidArgs ? `invalid arguments: ${message}` : `qinit crashed: ${message}`;
 
     useEffect(() => {
+        // A --json caller gets the failure as a document too, rather than a frame on the same stream.
+        if (output.json) process.stdout.write(JSON.stringify({ ok: false, error: text }) + "\n");
         process.exitCode = 1;
         const t = setTimeout(() => exit(), 30);
         return () => clearTimeout(t);
     }, []);
 
+    if (output.json) return null;
+
     return (
         <Box flexDirection="column">
-            <Text color="red">✗ {invalidArgs ? `invalid arguments: ${message}` : `qinit crashed: ${message}`}</Text>
+            <Text color="red">✗ {text}</Text>
             {invalidArgs ? <Text dimColor>run `qinit {command} --help`</Text> : null}
         </Box>
     );

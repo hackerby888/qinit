@@ -3,6 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { VERSION } from "../../version";
 import { Banner, Header, theme } from "../../ui";
 import { META, GROUP_ORDER, COMMANDS, commandOptions, optionSyntax, type OptionMeta, type CommandMeta, type CommandName } from "../../meta";
+import { output } from "../../args";
 
 // Global help — grouped by workflow stage (from meta.ts) so it reads top-to-bottom as you'd use qinit.
 export function Help({ unknown, command, suggestion }: { unknown?: boolean; command?: string; suggestion?: string }) {
@@ -10,8 +11,17 @@ export function Help({ unknown, command, suggestion }: { unknown?: boolean; comm
     useEffect(() => {
         // An invocation qinit could not resolve has to fail, so a typo in a script is not a success.
         if (unknown) process.exitCode = 1;
+        // A help page has no structured form, but the name that could not be resolved does.
+        if (unknown && output.json) {
+            process.stdout.write(JSON.stringify({ ok: false, error: `unknown command: ${command}`, suggestion: suggestion ?? null }) + "\n");
+        }
         exit();
     }, [exit, unknown]);
+
+    if (unknown && output.json) {
+        return null;
+    }
+
     const listed = COMMANDS.filter((c) => !META[c].hidden);
     const w = Math.max(...listed.map((c) => c.length)) + 2; // align descriptions across all groups
     const pad = "  " + " ".repeat(w); // indent for example/note lines

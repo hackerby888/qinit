@@ -42,7 +42,9 @@ export function ThemeCmd({ commandArgs }: { commandArgs: CommandArguments }) {
         setI(sel.current);
     };
     const [msg, setMsg] = useState<string[]>([]);
-    const [phase, setPhase] = useState<"pick" | "done">(o.name || o.show ? "done" : "pick");
+    // Starting in "done" without a terminal keeps the picker frame off a piped stream entirely.
+    const interactive = Boolean(process.stdin.isTTY);
+    const [phase, setPhase] = useState<"pick" | "done">(o.name || o.show || !interactive ? "done" : "pick");
     const add = (s: string) => setMsg((m) => [...m, s]);
 
     useEffect(() => {
@@ -53,11 +55,17 @@ export function ThemeCmd({ commandArgs }: { commandArgs: CommandArguments }) {
         if (o.name) {
             if (!THEMES[o.name]) {
                 add(`✗ unknown theme '${o.name}' — pick: ${THEME_NAMES.join(", ")}`);
+                process.exitCode = 1;
                 return;
             }
             setSavedTheme(o.name);
             applyTheme(o.name);
             add(`✓ theme set: ${o.name}`);
+            return;
+        }
+        if (!interactive) {
+            add("✗ no terminal to pick in — pass the name instead: qinit theme <name>");
+            process.exitCode = 1;
         }
     }, []);
     useEffect(() => {
@@ -84,7 +92,7 @@ export function ThemeCmd({ commandArgs }: { commandArgs: CommandArguments }) {
                 setPhase("done");
             }
         },
-        { isActive: Boolean(process.stdin.isTTY) },
+        { isActive: interactive },
     );
 
     // Live preview applied synchronously during render (not in a post-render effect) so the header + preview

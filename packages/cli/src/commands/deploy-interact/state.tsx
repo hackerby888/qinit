@@ -27,6 +27,33 @@ function parseContainerIndexes(values: readonly string[]): Set<number> {
     return indexes;
 }
 
+// What --json reports for a decoded target: the same values the view renders, minus each container's
+// `sourceField`, which carries the whole recursive ABI layout and belongs in the contract's IDL file.
+export function stateJsonResult(contract: string, slot: number | null, state: DecodedState | null, error: string) {
+    return {
+        ok: !error && state?.complete === true,
+        contract: contract || null,
+        slot,
+        complete: state?.complete ?? null,
+        fields: state?.fields.map((field) => ({ name: field.name, value: field.value })) ?? [],
+        containers:
+            state?.containers.map((container) => ({
+                index: container.index,
+                name: container.name,
+                kind: container.kind,
+                size: container.size,
+                // A "collapsed" container is the only signal that the read was partial — rerun with --container.
+                status: container.status,
+                capacity: container.capacity,
+                occupiedSlots: container.occupiedSlots,
+                totalEntries: container.totalEntries,
+                lines: container.lines.map((line) => ({ label: line.label, text: line.text, filled: line.filled })),
+                error: container.error ?? null,
+            })) ?? [],
+        error: error || null,
+    };
+}
+
 export function State({ commandArgs }: { commandArgs: CommandArguments }) {
     const containerIndexes = parseContainerIndexes(commandArgs.getAll("container"));
     const o = {
@@ -50,6 +77,8 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
     const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
     const { exit } = useApp();
     const [lines, setLines] = useState<string[]>([]);
+    // Kept beside the rendered ERROR line so --json carries the message without reparsing the prefix.
+    const [errorText, setErrorText] = useState("");
     const [decodedState, setDecodedState] = useState<DecodedState | null>(null);
     const [name, setName] = useState("");
     const [contracts, setContracts] = useState<DynamicContractRegistryEntry[]>([]);
@@ -176,6 +205,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                 return;
             }
             add("ERROR: " + message);
+            setErrorText(message);
             setPhase("done");
         }
     };
@@ -348,6 +378,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                     return;
                 }
                 add("ERROR: " + String(e?.message ?? e));
+                setErrorText(String(e?.message ?? e));
                 setPhase("done");
             }
         })();
@@ -366,13 +397,14 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
             return () => clearTimeout(t);
         }
         if (!o.digest && !o.dump && (phase === "show" || phase === "done")) {
+            if (output.json) process.stdout.write(JSON.stringify(stateJsonResult(name, contractIndexRef.current, decodedState, errorText)) + "\n");
             if (lines.some((l) => l.startsWith("ERROR")) || decodedState?.complete === false) {
                 process.exitCode = 1;
             }
             const t = setTimeout(() => exit(), 50);
             return () => clearTimeout(t);
         }
-    }, [phase, digest, dump, decodedState]);
+    }, [phase, digest, dump, decodedState, errorText]);
     useEffect(() => {
         exitingRef.current = false;
         return () => {
@@ -419,7 +451,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
         { isActive: Boolean(process.stdin.isTTY) },
     );
 
-    if ((o.digest || o.dump) && output.json) return null;
+    if (output.json) return null;
     if (o.dump && phase !== "pick") {
         return (
             <Box flexDirection="column">

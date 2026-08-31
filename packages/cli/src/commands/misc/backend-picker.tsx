@@ -28,7 +28,9 @@ export function BackendPicker<Backend extends string>({
     const [selection, setSelection] = useState(Math.max(0, backends.indexOf(current)));
     const selectionRef = useRef(selection);
     const [messages, setMessages] = useState<string[]>([]);
-    const [phase, setPhase] = useState<"pick" | "done">(requested || show ? "done" : "pick");
+    // Starting in "done" without a terminal keeps the picker frame off a piped stream entirely.
+    const interactive = Boolean(process.stdin.isTTY);
+    const [phase, setPhase] = useState<"pick" | "done">(requested || show || !interactive ? "done" : "pick");
 
     const add = (message: string) => {
         setMessages((currentMessages) => [...currentMessages, message]);
@@ -44,10 +46,15 @@ export function BackendPicker<Backend extends string>({
             return;
         }
         if (!requested) {
+            if (!interactive) {
+                add(`✗ no terminal to pick in — pass the ${label} instead: qinit ${command} <${label}>`);
+                process.exitCode = 1;
+            }
             return;
         }
         if (!backends.includes(requested as Backend)) {
             add(`✗ unknown ${label} '${requested}' — pick: ${backends.join(", ")}`);
+            process.exitCode = 1;
             return;
         }
         save(requested as Backend);
@@ -79,7 +86,7 @@ export function BackendPicker<Backend extends string>({
                 setPhase("done");
             }
         },
-        { isActive: Boolean(process.stdin.isTTY) },
+        { isActive: interactive },
     );
 
     return (

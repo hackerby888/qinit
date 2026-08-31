@@ -3,12 +3,27 @@ import { Box, useApp } from "ink";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { DEFAULT_RPC_BASE, readCurrent, LiteRpc } from "@qinit/core";
 import { ensureNodeBinary, killNode, nodeAlive, nodeStatus } from "../../ops/node";
-import type { CommandArguments } from "../../args";
+import { output, type CommandArguments } from "../../args";
 const dlLabel = (recv: number, total: number) =>
     total ? `downloading node ${(recv / 1e6).toFixed(0)}/${(total / 1e6).toFixed(0)} MB` : `downloading node ${(recv / 1e6).toFixed(0)} MB`;
 
 type Line = { t: string; ok?: boolean };
-type State = { phase: "run"; spin: string } | { phase: "done"; title: string; color: string; lines: Line[]; rows?: [string, string][] };
+// The rendered rows fuse values into display strings — `epoch last tick` carries `ticksLeft` in
+// parentheses and `contracts` is joined — so --json reports the facts each sub-path actually saw.
+type NodeFacts = Record<string, unknown>;
+type State = { phase: "run"; spin: string } | { phase: "done"; title: string; color: string; lines: Line[]; rows?: [string, string][]; facts?: NodeFacts };
+
+// Absent keys mean "this sub-path never looked", the way a call without --trace omits its trace keys.
+export function nodeJsonResult(action: string, lines: Line[], facts: NodeFacts | undefined) {
+    const failed = lines.find((line) => line.ok === false);
+    return {
+        ok: !failed,
+        action,
+        lines: lines.map((line) => ({ text: line.t, ok: line.ok ?? null })),
+        ...(facts ?? {}),
+        error: failed ? failed.t : null,
+    };
+}
 
 export function Node({ commandArgs, subcommand }: { commandArgs: CommandArguments; subcommand?: string }) {
     const { exit } = useApp();
@@ -25,7 +40,7 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                     const st = await nodeStatus(rpcBaseUrl);
                     if (!st.up) {
                         add("rpc: down (node not reachable)", false);
-                        setS({ phase: "done", title: "node down", color: theme.err, lines });
+                        setS({ phase: "done", title: "node down", color: theme.err, lines, facts: { up: false } });
                         return;
                     }
                     add(st.ticking ? "rpc: up, ticking" : "rpc: up, not yet ticking", st.ticking);
@@ -34,8 +49,12 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                         ["epoch", String(st.epoch)],
                         ["dyn slots", `${st.armed} armed / ${st.slotCount}`],
                     ];
+                    let epochLastTick: number | null = null;
+                    let ticksLeft: number | null = null;
                     try {
                         const ei = await new LiteRpc(rpcBaseUrl).epochInfo();
+                        epochLastTick = ei.epochLastTick;
+                        ticksLeft = ei.ticksLeft;
                         rows.splice(2, 0, ["epoch last tick", `${ei.epochLastTick}  (${ei.ticksLeft} left)`]);
                     } catch {}
                     if (st.contracts.length) rows.push(["contracts", st.contracts.join(", ")]);
@@ -50,6 +69,20 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                         color: st.ticking ? theme.ok : theme.warn,
                         lines,
                         rows,
+                        facts: {
+                            up: true,
+                            ticking: st.ticking,
+                            tick: st.tick,
+                            epoch: st.epoch,
+                            epochLastTick,
+                            ticksLeft,
+                            armed: st.armed,
+                            slotCount: st.slotCount,
+                            contracts: st.contracts,
+                            headersVersion: cur?.headersVersion ?? null,
+                            nodeVersion: cur?.nodeVersion ?? null,
+                            versionDrift: Boolean(cur?.headersVersion && cur?.nodeVersion && cur.headersVersion !== cur.nodeVersion),
+                        },
                     });
                     return;
                 }
@@ -57,7 +90,7 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                 if (sub === "stop") {
                     if (!nodeAlive()) {
                         add("no node running", true);
-                        setS({ phase: "done", title: "stopped", color: theme.info, lines });
+                        setS({ phase: "done", title: "stopped", color: theme.info, lines, facts: { stopped: true, wasRunning: false } });
                         return;
                     }
                     await killNode();
@@ -68,6 +101,7 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                         title: dead ? "stopped ✓" : "stop failed",
                         color: dead ? theme.ok : theme.err,
                         lines,
+                        facts: { stopped: dead, wasRunning: true },
                     });
                     return;
                 }
@@ -86,6 +120,7 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                             ["version", version],
                             ["binary", nodeBinaryPath],
                         ],
+                        facts: { version, binary: nodeBinaryPath, cached },
                     });
                     return;
                 }
@@ -100,10 +135,13 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
     }, []);
     useEffect(() => {
         if (s.phase === "done") {
+            if (output.json) process.stdout.write(JSON.stringify(nodeJsonResult(sub, s.lines, s.facts)) + "\n");
             process.exitCode = s.lines.some((l) => l.ok === false) ? 1 : 0;
             exit();
         }
     }, [s, exit]);
+
+    if (output.json) return null;
 
     return (
         <Box flexDirection="column">
