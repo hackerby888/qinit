@@ -65,9 +65,10 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         expect(logs.every((l) => l.hex.length === 34)).toBe(true);
     });
 
-    // The wasm SDK hands the payload to lh_logBytes untouched, so everything the contract wrote has
-    // to survive being logged. Only the leading word moves, and only because the host owns it.
-    test("the trace keeps the leading word the contract wrote, then reads back the host's zero", async () => {
+    // Core stamps the contract index into the payload before logging and its `logMessage` copies from
+    // that pointer, so the recorded bytes — and the log digest taken over them — carry the index, not
+    // whatever the contract left there. Everything behind that word is the contract's and must survive.
+    test("every record carries the stamped contract index, whatever the contract wrote there", async () => {
         const source = SOURCE.replace("locals.message._type = 9;", "locals.message._contractIndex = 7;\n    locals.message._type = 9;");
         const result = await compileContractWithTypeScript({
             source,
@@ -85,9 +86,9 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         const logs = sim.getTrace().entries.at(-1)?.logs ?? [];
 
         expect(logs).toHaveLength(5);
-        // Core traces the payload before it stamps the index, so only the first record sees the 7; the
-        // clear that follows every log is what leaves the rest at zero.
-        expect(logs.map((l) => l.hex.slice(0, 8))).toEqual(["07000000", "00000000", "00000000", "00000000", "00000000"]);
+        // Slot 28 little-endian. The contract's own 7 never reaches a record: the stamp overwrites it on
+        // every call, which is exactly why core clears the word afterwards.
+        expect(logs.map((l) => l.hex.slice(0, 8))).toEqual(["1c000000", "1c000000", "1c000000", "1c000000", "1c000000"]);
         // Everything behind the header word is the contract's and has to survive all five logs.
         expect(new Set(logs.map((l) => l.hex.slice(8))).size).toBe(1);
     });
@@ -114,9 +115,10 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         const logs = sim.getTrace().entries.at(-1)?.logs ?? [];
 
         expect(logs).toHaveLength(5);
-        // LOG_ERROR traces the contract's own 7, and `seen` sits right behind the header word holding
-        // what the clear left there — a 7 here would mean the host never cleared the word.
-        expect(logs[0]!.hex.slice(0, 8)).toBe("07000000");
+        // The record carries the stamp, never the contract's 7.
+        expect(logs[0]!.hex.slice(0, 8)).toBe("1c000000");
+        // `seen` is read from the header word inside the contract, between the two logs: it holds what the
+        // clear left behind. A 7 — or the stamp — here would mean the word was never cleared.
         expect(logs[1]!.hex.slice(8, 16)).toBe("00000000");
     });
 

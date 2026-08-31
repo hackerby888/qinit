@@ -970,11 +970,12 @@ export class Contract {
                 }
             },
             logBytes: (_ci: number, level: number, msgOff: number, size: number) => {
-                // Core takes the trace record before it stamps the contract index over the payload's leading
-                // word, logs the stamped payload, then clears the word again; the log store stamps its own
-                // copy, so the trace is the only reader that wants the bytes the contract left.
-                const payload = u8().slice(msgOff, msgOff + size);
+                // Core stamps the contract index over the payload's leading word, logs, then clears it
+                // (logging.h `__logContract*Message`). Its `logMessage` copies from the pointer it is given,
+                // so the bytes that reach the record — and the log digest taken over them — are the stamped
+                // ones. Reading the payload after the stamp is what keeps every reader agreeing with core.
                 this.writeGuest(msgOff, contractIndexWord(this.slot));
+                const payload = u8().slice(msgOff, msgOff + size);
                 this.host.log(this.slot, level, payload);
                 this.writeGuest(msgOff, CLEARED_LOG_HEADER_WORD);
             },
