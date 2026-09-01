@@ -57,7 +57,9 @@ export async function describeTrace(
                 : undefined);
 
         if (idl) {
-            const registered = entry.kind === 0 ? idl.functions : idl.procedures;
+            // A caller may hold only part of an IDL — the browser IDE has the cheat table and little
+            // else — so every section is optional rather than assumed present.
+            const registered = (entry.kind === 0 ? idl.functions : idl.procedures) ?? [];
             const metadata = registered.find((candidate) => candidate.inputType === entry.entry);
 
             if (metadata && entry.inHex) {
@@ -69,16 +71,17 @@ export async function describeTrace(
                 output = formatStateValue(decoded, metadata.output, false, true);
             }
 
-            fields = stateFieldsOf(idl);
-            stateDiff = await stateDiffLines(fields, entry.stateDiff);
-            const enumNames = enumMap(idl);
+            if (idl.state) {
+                fields = stateFieldsOf(idl);
+                stateDiff = await stateDiffLines(fields, entry.stateDiff);
+            }
 
-            if (entry.logs?.length) {
-                logs = await Promise.all(entry.logs.map((log) => decodeLog(log.type, log.size, log.hex, idl.logs, enumNames)));
+            if (entry.logs?.length && idl.logs) {
+                logs = await Promise.all(entry.logs.map((log) => decodeLog(log.type, log.size, log.hex, idl.logs, enumMap(idl))));
             }
 
             if (entry.cheats?.length) {
-                cheats = await decodeCheats(entry.cheats, idl.cheats);
+                cheats = await decodeCheats(entry.cheats, idl.cheats ?? []);
             }
         }
     } catch {
