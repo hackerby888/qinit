@@ -1,5 +1,6 @@
 import { AstKind, WatNodeType } from "../../../shared/enums";
 import { SCALAR_SIZE } from "../abi/tables";
+import { SIGNED_SCALARS } from "../../../shared/scalar-sizes";
 import { ProgramAnalysis } from "../../../semantics/program-analysis";
 import { FunctionEmissionContext } from "../types";
 import type { TypeSpec, Expression } from "../../../ast";
@@ -82,29 +83,7 @@ export function lowerScalarLoad(addr: string, size: number, signed = false): wat
 export function addrIr(addressText: string): watIr.WatNode {
     return watIr.rawWatNode(addressText, WatNodeType.I32, "lvalue address channel");
 }
-export const SIGNED_SCALARS = new Set([
-    "sint8",
-    "sint16",
-    "sint32",
-    "sint64",
-    "signed char",
-    "signed short",
-    "signed int",
-    "signed long long",
-    "long long",
-    "int",
-    "short",
-    // plain `char` and `wchar_t` are signed on wasm32-wasi, per static_assert against the SDK
-    "char",
-    "wchar_t",
-    "signed",
-    "short int",
-    "signed short int",
-    "long",
-    "long int",
-    "signed long",
-    "signed long int",
-]);
+export { SIGNED_SCALARS };
 export function isSignedScalarType(type: TypeSpec | null | undefined, programAnalysis?: ProgramAnalysis): boolean {
     if (!type) return false;
     if (type.kind === AstKind.CONST) return isSignedScalarType(type.valueType, programAnalysis);

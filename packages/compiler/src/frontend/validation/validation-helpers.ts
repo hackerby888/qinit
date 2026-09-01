@@ -1,8 +1,8 @@
-import { AstKind, BinaryOp, UnaryOp } from "../../shared/enums";
+import { AstKind, BinaryOp, UnaryOp, CAST_TEMPLATE_NAMES, VALUE_CONVERTING_CAST } from "../../shared/enums";
 // Validation runs after parse and before codegen.
 import type { FunctionDecl, Expression, TypeSpec } from "../../ast";
 import { parseIntLiteral } from "../lexer";
-import { SCALAR_SIZE } from "../../shared/scalar-sizes";
+import { SCALAR_SIZE, narrowConstant } from "../../shared/scalar-sizes";
 
 // Strip const/reference wrappers down to the underlying type.
 export function unwrapType(type: TypeSpec): TypeSpec {
@@ -71,6 +71,14 @@ export function isLiteral(expression: Expression): boolean {
         expression.kind === AstKind.CHAR_LITERAL ||
         expression.kind === AstKind.STRING_LITERAL
     );
+}
+
+// The scalar name a cast narrows to, or undefined when it is not a plain scalar — narrowConstant then
+// leaves the value alone, matching the emitter, which also only narrows resolvable scalar targets.
+function scalarTypeName(type: TypeSpec | undefined): string | undefined {
+    if (!type) return undefined;
+    const unwrapped = unwrapType(type);
+    return unwrapped.kind === AstKind.NAME ? unwrapped.name : undefined;
 }
 
 // Evaluate integral constants; unresolved identifiers return null.
@@ -154,6 +162,13 @@ export function evalIntegralConst(expression: Expression, resolve?: (name: strin
                 const callee = expression.callee;
                 const name = callee.kind === AstKind.IDENTIFIER || callee.kind === AstKind.QUALIFIED_NAME ? callee.name : null;
                 if (!name) return null;
+                if (CAST_TEMPLATE_NAMES.has(name)) {
+                    const operand = expression.callArguments[0];
+                    const inner = operand ? evalIntegralConst(operand, resolve) : null;
+                    if (inner === null || name !== VALUE_CONVERTING_CAST) return inner;
+                    const target = expression.kind === AstKind.TEMPLATE_CALL ? expression.templateArguments?.[0] : undefined;
+                    return narrowConstant(inner, scalarTypeName(target));
+                }
                 const values: bigint[] = [];
                 for (const argument of expression.callArguments) {
                     const value = evalIntegralConst(argument, resolve);
@@ -176,8 +191,10 @@ export function evalIntegralConst(expression: Expression, resolve?: (name: strin
                 }
             }
             case AstKind.C_CAST:
-            case AstKind.STATIC_CAST:
-                return evalIntegralConst(expression.expression, resolve);
+            case AstKind.STATIC_CAST: {
+                const inner = evalIntegralConst(expression.expression, resolve);
+                return inner === null ? null : narrowConstant(inner, scalarTypeName(expression.type));
+            }
             case AstKind.SIZEOF_TYPE: {
                 const type = unwrapType(expression.type);
                 if (type.kind !== AstKind.NAME) {
