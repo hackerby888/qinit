@@ -85,7 +85,7 @@ export function analyzeContract(options: AnalyzeContractOptions): SourceAnalysis
     const diagnostics = compilerResult.diagnostics;
 
     try {
-        diagnostics.push(...analyzeQpiPolicy(options.source, compilerResult.registrations, compilerResult.idl));
+        diagnostics.push(...analyzeQpiPolicy(options.source, compilerResult.registrations, compilerResult.idl, calls));
     } catch (error: any) {
         diagnostics.push(internalDiagnostic(error));
     }

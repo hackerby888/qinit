@@ -11,10 +11,16 @@ const CALL_KINDS = new Map<string, QpiContextKind>([
     ["INVOKE_OTHER_CONTRACT_PROCEDURE_E", QpiContextKind.PROCEDURE],
 ]);
 
+// The name the non-_E macros give their error variable, in the caller's own scope (qpi_macros.h).
+export const DEFAULT_CALL_ERROR_VAR = "interContractCallError";
+
 export interface SourceContractCall {
     kind: QpiContextKind;
+    // The macro as written: the _E variants take an explicit error variable, the plain ones do not.
+    macro: string;
     callee: string;
     entry: string;
+    errorVar?: string;
     span: Span;
 }
 
@@ -46,8 +52,10 @@ export function collectSourceContractCalls(source: string, contractName: string,
 
         calls.push({
             kind,
+            macro: macro.text,
             callee,
             entry,
+            errorVar: macro.text.endsWith("_E") ? firstIdentifier(invocation.arguments[invocation.arguments.length - 1]) : DEFAULT_CALL_ERROR_VAR,
             span: {
                 ...macro.span,
                 end: invocation.close.span.end,

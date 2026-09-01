@@ -433,3 +433,102 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         ).toEqual([]);
     });
 });
+
+describe("inter-contract error variables", () => {
+    const CALL_ERROR_RULE = "qpi/duplicate-call-error-var";
+
+    function callErrors(source: string) {
+        return qpiDiagnostics(source).filter((item) => item.code === CALL_ERROR_RULE);
+    }
+
+    test("two default-form calls in one scope collide on interContractCallError", () => {
+        const source = procedure(`
+    INVOKE_OTHER_CONTRACT_PROCEDURE(Callee, Inc, locals.incInput, locals.incOutput, 1);
+    CALL_OTHER_CONTRACT_FUNCTION(Callee, Get, locals.getInput, locals.getOutput);`);
+        const diagnostics = callErrors(source);
+
+        expect(diagnostics).toHaveLength(1);
+        expect(diagnostics[0].severity).toBe(DiagnosticSeverity.ERROR);
+        expect(diagnostics[0].message).toContain("interContractCallError");
+        expect(diagnostics[0].message).toContain("incError");
+        expect(diagnostics[0].message).toContain("getError");
+        // The first call is fine on its own; the redefinition starts at the second.
+        expect(source.slice(diagnostics[0].span.start, diagnostics[0].span.end)).toStartWith("CALL_OTHER_CONTRACT_FUNCTION(");
+    });
+
+    test("the fix rewrites every colliding call to its _E form and clears the rule", () => {
+        const source = procedure(`
+    INVOKE_OTHER_CONTRACT_PROCEDURE(Callee, Inc, locals.incInput, locals.incOutput, 1);
+    CALL_OTHER_CONTRACT_FUNCTION(Callee, Get, locals.getInput, locals.getOutput);`);
+        const fixed = applyEdits(source, callErrors(source)[0].fixes![0].edits);
+
+        expect(fixed).toContain("INVOKE_OTHER_CONTRACT_PROCEDURE_E(Callee, Inc, locals.incInput, locals.incOutput, 1, incError)");
+        expect(fixed).toContain("CALL_OTHER_CONTRACT_FUNCTION_E(Callee, Get, locals.getInput, locals.getOutput, getError)");
+        expect(callErrors(fixed)).toHaveLength(0);
+    });
+
+    test("accepts the forms that already give each call its own error variable", () => {
+        const braced = procedure(`
+    { INVOKE_OTHER_CONTRACT_PROCEDURE(Callee, Inc, locals.incInput, locals.incOutput, 1); }
+    { CALL_OTHER_CONTRACT_FUNCTION(Callee, Get, locals.getInput, locals.getOutput); }`);
+        const mixed = procedure(`
+    INVOKE_OTHER_CONTRACT_PROCEDURE(Callee, Inc, locals.incInput, locals.incOutput, 1);
+    CALL_OTHER_CONTRACT_FUNCTION_E(Callee, Get, locals.getInput, locals.getOutput, getError);`);
+        const explicit = procedure(`
+    INVOKE_OTHER_CONTRACT_PROCEDURE_E(Callee, Inc, locals.incInput, locals.incOutput, 1, incError);
+    CALL_OTHER_CONTRACT_FUNCTION_E(Callee, Get, locals.getInput, locals.getOutput, getError);`);
+
+        expect(callErrors(braced)).toHaveLength(0);
+        expect(callErrors(mixed)).toHaveLength(0);
+        expect(callErrors(explicit)).toHaveLength(0);
+    });
+
+    test("two _E calls that spell the same error variable collide as well", () => {
+        const source = procedure(`
+    INVOKE_OTHER_CONTRACT_PROCEDURE_E(Callee, Inc, locals.incInput, locals.incOutput, 1, callError);
+    CALL_OTHER_CONTRACT_FUNCTION_E(Callee, Get, locals.getInput, locals.getOutput, callError);`);
+        const diagnostics = callErrors(source);
+
+        expect(diagnostics).toHaveLength(1);
+        expect(diagnostics[0].message).toContain("callError");
+
+        const fixed = applyEdits(source, diagnostics[0].fixes![0].edits);
+        expect(fixed).toContain("1, incError)");
+        expect(fixed).toContain("locals.getOutput, getError)");
+        expect(callErrors(fixed)).toHaveLength(0);
+    });
+
+    test("calls in separate entries never collide", () => {
+        const source = `
+using namespace QPI;
+struct Contract : public ContractBase {
+  struct A_input {}; struct A_output {};
+  struct B_input {}; struct B_output {};
+  PUBLIC_PROCEDURE(A) {
+    INVOKE_OTHER_CONTRACT_PROCEDURE(Callee, Inc, locals.incInput, locals.incOutput, 1);
+  }
+  PUBLIC_PROCEDURE(B) {
+    CALL_OTHER_CONTRACT_FUNCTION(Callee, Get, locals.getInput, locals.getOutput);
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_PROCEDURE(A, 1);
+    REGISTER_USER_PROCEDURE(B, 2);
+  }
+};`;
+
+        expect(callErrors(source)).toHaveLength(0);
+    });
+
+    test("suggested names avoid each other and names the source already spells", () => {
+        const sameEntry = procedure(`
+    CALL_OTHER_CONTRACT_FUNCTION(Callee, Get, locals.firstInput, locals.firstOutput);
+    CALL_OTHER_CONTRACT_FUNCTION(Other, Get, locals.secondInput, locals.secondOutput);`);
+        const taken = procedure(`
+    uint64 incError = 0;
+    INVOKE_OTHER_CONTRACT_PROCEDURE(Callee, Inc, locals.incInput, locals.incOutput, 1);
+    CALL_OTHER_CONTRACT_FUNCTION(Callee, Get, locals.getInput, locals.getOutput);`);
+
+        expect(applyEdits(sameEntry, callErrors(sameEntry)[0].fixes![0].edits)).toContain("locals.secondOutput, getError2)");
+        expect(applyEdits(taken, callErrors(taken)[0].fixes![0].edits)).toContain("1, incError2)");
+    });
+});

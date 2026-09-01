@@ -53,6 +53,8 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         (diagnostic) =>
             diagnostic.message.includes(" is forbidden in registered entry") ||
             diagnostic.code === "qpi/public-complex-type" ||
+            // clang reports this as a bare `redefinition of 'interContractCallError'` from inside the macro.
+            diagnostic.code === "qpi/duplicate-call-error-var" ||
             (rejectsLogHeader && diagnostic.message.includes(LOG_HEADER_WORD_HINT)),
     );
     if (protocolDiagnostics.length) {

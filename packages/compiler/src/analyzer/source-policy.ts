@@ -2,8 +2,9 @@ import { BinaryOp, DiagnosticSeverity, QpiMacroKind, TokenKind } from "../shared
 import { AbiTypeKind, type AbiType, type ContractIdl } from "@qinit/proto/contract-idl";
 import type { ContractRegistration } from "../backend/wasm/module/registrations";
 import { Lexer, type Token } from "../frontend/lexer";
-import type { SourceAnalysisDiagnostic } from "./index";
+import type { SourceAnalysisDiagnostic, SourceFix } from "./index";
 import { USER_FUNCTION_KIND } from "../shared/entry-abi";
+import { DEFAULT_CALL_ERROR_VAR, type SourceContractCall } from "../driver/semantic-calls";
 import { findEntryFunctions, findLocalDeclarations, findNext, isUsingNamespaceQpi, matchingToken, type EntryFunction } from "./rules/tokens";
 import { arrayFix, compareDiagnostics, diagnostic, divModFix, moveLocalToWithLocalsEdits, sourceFix } from "./rules/fixes";
 import { analyzeCheatcodes, cheatArgumentRanges } from "./cheatcodes";
@@ -40,7 +41,12 @@ function inCheatArgument(ranges: Array<{ start: number; end: number }>, token: T
     return ranges.some((range) => token.span.start >= range.start && token.span.end <= range.end);
 }
 
-export function analyzeQpiPolicy(source: string, registrations?: readonly ContractRegistration[], idl?: ContractIdl): SourceAnalysisDiagnostic[] {
+export function analyzeQpiPolicy(
+    source: string,
+    registrations?: readonly ContractRegistration[],
+    idl?: ContractIdl,
+    calls: readonly SourceContractCall[] = [],
+): SourceAnalysisDiagnostic[] {
     const tokens = new Lexer(source).tokenize();
     const entries = findEntryFunctions(tokens);
     const diagnostics = [
@@ -50,9 +56,138 @@ export function analyzeQpiPolicy(source: string, registrations?: readonly Contra
         ...localsFormDiagnostics(tokens, entries),
         ...idlDiagnostics(tokens, entries, registrations, idl),
         ...contractNameDiagnostics(tokens),
+        ...interContractErrorVarDiagnostics(source, tokens, calls),
     ];
 
     return diagnostics.sort(compareDiagnostics);
+}
+
+// Every inter-contract macro declares its error variable in the caller's own scope, so two calls sharing
+// one error name in one block are a C++ redefinition — which clang reports from inside the macro.
+function interContractErrorVarDiagnostics(source: string, tokens: readonly Token[], calls: readonly SourceContractCall[]): SourceAnalysisDiagnostic[] {
+    const diagnostics: SourceAnalysisDiagnostic[] = [];
+
+    for (const scope of callScopes(tokens, calls).values()) {
+        for (const [errorVar, colliding] of collidingCalls(scope)) {
+            const renamed = errorVarNames(colliding, source);
+            const fixes = rewriteToExplicitErrorVars(source, colliding, renamed);
+            const entries = colliding.map((call) => call.entry).join(", ");
+            const suggested = colliding.map((call, index) => `${explicitMacro(call)}(…, ${renamed[index]})`).join(" and ");
+            const message =
+                `${colliding.length} inter-contract calls in this scope (${entries}) all declare \`${errorVar}\`, which is a redefinition. ` +
+                `Use the \`_E\` variants with distinct error variables — ${suggested} — or wrap each call in its own \`{ }\`.`;
+
+            // The first call is blameless on its own; the collision starts at the second one.
+            for (const call of colliding.slice(1)) {
+                diagnostics.push(diagnostic("qpi/duplicate-call-error-var", message, call.span, DiagnosticSeverity.ERROR, fixes));
+            }
+        }
+    }
+
+    return diagnostics;
+}
+
+function explicitMacro(call: SourceContractCall): string {
+    return call.macro.endsWith("_E") ? call.macro : `${call.macro}_E`;
+}
+
+function collidingCalls(scope: readonly SourceContractCall[]): Map<string, SourceContractCall[]> {
+    const byErrorVar = new Map<string, SourceContractCall[]>();
+
+    for (const call of scope) {
+        const errorVar = call.errorVar ?? DEFAULT_CALL_ERROR_VAR;
+        const sharing = byErrorVar.get(errorVar) ?? [];
+        sharing.push(call);
+        byErrorVar.set(errorVar, sharing);
+    }
+
+    for (const [errorVar, sharing] of byErrorVar) {
+        if (sharing.length < 2) {
+            byErrorVar.delete(errorVar);
+        }
+    }
+
+    return byErrorVar;
+}
+
+// Group the calls by the offset of their innermost enclosing `{`. Calls arrive in source order and carry
+// raw-source spans, so one pass over the tokens with a brace stack places every one of them.
+function callScopes(tokens: readonly Token[], calls: readonly SourceContractCall[]): Map<number, SourceContractCall[]> {
+    const scopes = new Map<number, SourceContractCall[]>();
+    const openBraces: number[] = [];
+    let next = 0;
+
+    const placeCallsBefore = (offset: number): void => {
+        while (next < calls.length && calls[next].span.start <= offset) {
+            const scope = openBraces[openBraces.length - 1] ?? -1;
+            const placed = scopes.get(scope) ?? [];
+            placed.push(calls[next]);
+            scopes.set(scope, placed);
+            next++;
+        }
+    };
+
+    for (const token of tokens) {
+        placeCallsBefore(token.span.start);
+
+        if (token.kind === TokenKind.L_BRACE) {
+            openBraces.push(token.span.start);
+        } else if (token.kind === TokenKind.R_BRACE) {
+            openBraces.pop();
+        }
+    }
+    placeCallsBefore(Number.MAX_SAFE_INTEGER);
+
+    return scopes;
+}
+
+// `Inc` -> `incError`, kept clear of each other and of every name the source already spells.
+function errorVarNames(calls: readonly SourceContractCall[], source: string): string[] {
+    const taken = new Set<string>();
+    const names: string[] = [];
+
+    for (const call of calls) {
+        const base = `${call.entry.charAt(0).toLowerCase()}${call.entry.slice(1)}Error`;
+        let candidate = base;
+
+        for (let suffix = 2; taken.has(candidate) || new RegExp(`\\b${candidate}\\b`).test(source); suffix++) {
+            candidate = `${base}${suffix}`;
+        }
+
+        taken.add(candidate);
+        names.push(candidate);
+    }
+
+    return names;
+}
+
+// Rewrite every colliding call, the first one included: renaming only the later calls would leave the
+// first still owning the shared name, which reads as an arbitrary split.
+function rewriteToExplicitErrorVars(source: string, calls: readonly SourceContractCall[], names: readonly string[]): SourceFix[] | undefined {
+    const edits: Array<{ start: number; end: number; newText: string }> = [];
+
+    for (const [index, call] of calls.entries()) {
+        if (source[call.span.end - 1] !== ")") {
+            return undefined;
+        }
+
+        if (!call.macro.endsWith("_E")) {
+            edits.push({ start: call.span.start, end: call.span.start + call.macro.length, newText: explicitMacro(call) });
+            edits.push({ start: call.span.end - 1, end: call.span.end - 1, newText: `, ${names[index]}` });
+            continue;
+        }
+
+        // An _E call already has the argument slot, so only the name it spells there changes.
+        const errorVar = call.errorVar ?? DEFAULT_CALL_ERROR_VAR;
+        const argument = source.lastIndexOf(errorVar, call.span.end);
+        if (argument < call.span.start) {
+            return undefined;
+        }
+
+        edits.push({ start: argument, end: argument + errorVar.length, newText: names[index] });
+    }
+
+    return [sourceFix("Use the _E variants with distinct error variables", source, edits, true)];
 }
 
 // Core wraps every contract include in `#define CONTRACT_STATE_TYPE <Name>` / `#undef`, so a struct that
