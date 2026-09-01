@@ -1,11 +1,15 @@
 import { AstKind, BinaryOp, WatNodeType } from "../../../shared/enums";
-import type { Expression, FunctionTemplateDecl, StructDecl, TypeSpec } from "../../../ast";
+import type { Expression, FunctionDecl, FunctionTemplateDecl, StructDecl, TypeSpec } from "../../../ast";
 import * as watIr from "../wat-ir";
-import { EMPTY_TEMPLATE_BINDINGS, type FunctionEmissionContext } from "../types";
+import { EMPTY_TEMPLATE_BINDINGS, type CompiledHelperMetadata, type FunctionEmissionContext } from "../types";
+import { addrIr, narrowCastIr } from "../memory/memory-operations";
+import { compileLibraryFunction } from "../calls/library-function-compiler";
 
 // C++ resolves every operator through overload resolution, so the lowering asks the type what it
-// declared rather than assuming a representation. Only member candidates are considered: qpi's
-// free-function operators belong to m256i, whose bodies are x86 intrinsics the caller substitutes.
+// declared rather than assuming a representation. Member candidates are asked first, then non-member
+// ones — at namespace scope or declared `friend` — since a type you do not own can only be given an
+// operator from outside it. m256i is the exception: its operators are declared at namespace scope too,
+// but their bodies are x86 intrinsics the caller substitutes for instead of lowering.
 
 // Walk typedefs and template bindings to the type a member lookup can use — `id` to `m256i`, and a
 // container's `KeyT` to whatever the instantiation bound it to.
@@ -113,6 +117,21 @@ export function classOperandName(context: FunctionEmissionContext, expression: E
     return operand ? operand.name : null;
 }
 
+// $memeq/$m256_lt stand in for m256.h's operators, so they key on the type rather than on a 32-byte
+// size — a user struct of the same width gets its own declared operator instead.
+export function isM256Operand(context: FunctionEmissionContext, expression: Expression): boolean {
+    const name = classOperandName(context, expression);
+
+    if (!name) {
+        return false;
+    }
+
+    const separator = name.lastIndexOf("::");
+    const unqualified = separator >= 0 ? name.slice(separator + 2) : name;
+
+    return unqualified === "m256i" || unqualified === "id";
+}
+
 /**
  * The class an operand belongs to, with its template arguments intact.
  *
@@ -215,13 +234,7 @@ export function operatorOwner(context: FunctionEmissionContext, className: strin
  * The base is returned as the type the derived class names, template arguments included, because the
  * body belongs to that instantiation and has to be compiled against its bindings.
  */
-function operatorDeclarer(
-    context: FunctionEmissionContext,
-    declaration: StructDecl,
-    operatorName: string,
-    arity: number,
-    depth: number,
-): TypeSpec | null {
+function operatorDeclarer(context: FunctionEmissionContext, declaration: StructDecl, operatorName: string, arity: number, depth: number): TypeSpec | null {
     const methods = context.programAnalysis.methodsByDeclaration.get(declaration);
 
     if (methods && (methods.has(`${operatorName}/${arity}`) || methods.has(operatorName))) {
@@ -279,10 +292,7 @@ function callOperator(
 
     const owner: TypeSpec & {
         kind: AstKind.TEMPLATE_INSTANCE;
-    } =
-        ownerType.kind === AstKind.TEMPLATE_INSTANCE
-            ? ownerType
-            : { kind: AstKind.TEMPLATE_INSTANCE, name: ownerType.name, callArguments: [] };
+    } = ownerType.kind === AstKind.TEMPLATE_INSTANCE ? ownerType : { kind: AstKind.TEMPLATE_INSTANCE, name: ownerType.name, callArguments: [] };
     const compiled = context.lowering.callCompiled(context, owner, operatorName, selfAddress, operands);
 
     if (!compiled) {
@@ -382,6 +392,161 @@ function equalityReturnsBool(context: FunctionEmissionContext, className: string
  *
  * Returns null when no candidate applies, leaving the caller to fall back or report.
  */
+/**
+ * Whether a declared parameter accepts an operand of this class, comparing the types each side
+ * actually resolves to so a typedef (`id` for `m256i`) still matches. A scalar operand carries no
+ * class and only fits a parameter that is not an aggregate.
+ */
+function parameterAccepts(context: FunctionEmissionContext, parameterType: TypeSpec, operandClass: string | null): boolean {
+    const declared = concreteType(context, context.programAnalysis.derefType(parameterType));
+
+    if (declared?.kind !== AstKind.NAME) {
+        return false;
+    }
+
+    if (!operandClass) {
+        return !context.programAnalysis.isAggregateType(declared);
+    }
+
+    const operand = concreteType(context, { kind: AstKind.NAME, name: operandClass });
+
+    return declared.name === operandClass || (operand?.kind === AstKind.NAME && declared.name === operand.name);
+}
+
+/**
+ * A non-member operator — `operator==(const Asset&, const Asset&)` at namespace scope, the only way to
+ * give a comparison to a type you do not own. C++ finds it by ordinary lookup plus ADL; its operands
+ * are the arguments and there is no `this`, so candidate keys, lazy compilation and argument lowering
+ * all come from the free-function call path rather than a second implementation of them here.
+ *
+ * The candidates are filtered by parameter type instead of ranked. `operator==` is declared many times
+ * over at global scope — m256i alone contributes four — and a ranking that never rejects a non-viable
+ * candidate answers a two-word struct with the 32-byte comparison, which compiles and is always false.
+ */
+function freeOperatorDeclaration(
+    context: FunctionEmissionContext,
+    operatorName: string,
+    operands: Expression[],
+): { key: string; declaration: FunctionDecl; owner?: StructDecl } | null {
+    const programAnalysis = context.programAnalysis;
+    const operandClasses = operands.map((operand) => classOperandName(context, operand));
+
+    // Only a class operand can name a user-declared operator; an all-scalar expression is the built-in.
+    if (!operandClasses.some((name) => name !== null)) {
+        return null;
+    }
+
+    // m256.h declares its operators at namespace scope too, but their bodies are x86 intrinsics this
+    // backend substitutes for rather than lowers. Claiming one here would call the body it stands in
+    // for, which compiles and answers nothing.
+    if (operands.some((operand) => isM256Operand(context, operand))) {
+        return null;
+    }
+
+    for (const key of programAnalysis.namespaceCandidates(operatorName, context.sourceNamespace, context.usingNamespaces)) {
+        const declarations = programAnalysis.libFnOverloads.get(key) ?? (programAnalysis.libFns.has(key) ? [programAnalysis.libFns.get(key)!] : []);
+
+        for (const declaration of declarations) {
+            if (declaration.params.length !== operands.length) {
+                continue;
+            }
+
+            if (declaration.params.every((parameter, index) => parameterAccepts(context, parameter.type, operandClasses[index]))) {
+                return { key, declaration };
+            }
+        }
+    }
+
+    // A `friend` operator is written inside the class but is still a non-member: it takes both operands
+    // as arguments and has no `this`. It is kept as a member of the class that befriended it, wrapping
+    // the function it declares.
+    for (const operandClass of operandClasses) {
+        const owner = operandClass ? context.programAnalysis.structByName(operandClass, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS) : undefined;
+
+        for (const member of owner?.members ?? []) {
+            if (member.kind !== AstKind.FRIEND || member.declaration.kind !== AstKind.FUNCTION) {
+                continue;
+            }
+
+            const declaration = member.declaration;
+
+            if (declaration.name !== operatorName || declaration.params.length !== operands.length || !declaration.body) {
+                continue;
+            }
+
+            if (declaration.params.every((parameter, index) => parameterAccepts(context, parameter.type, operandClasses[index]))) {
+                return { key: `${operandClass}::${operatorName}`, declaration, owner };
+            }
+        }
+    }
+
+    return null;
+}
+
+// Whether the non-member equality chosen for these operands yields bool, the same condition the member
+// path checks before rewriting `!=`.
+function freeEqualityReturnsBool(context: FunctionEmissionContext, operands: Expression[]): boolean {
+    const found = freeOperatorDeclaration(context, "operator==", operands);
+    const returned = found ? context.programAnalysis.derefType(found.declaration.returnType) : null;
+
+    return returned?.kind === AstKind.NAME && returned.name === "bool";
+}
+
+// The library compiler takes a free function; a friend already is one, so this only restates it in the
+// shape that path expects.
+function friendDefinition(name: string, declaration: FunctionDecl): FunctionTemplateDecl {
+    return {
+        kind: AstKind.FUNCTION_TEMPLATE,
+        name,
+        params: [],
+        functionParameters: declaration.params,
+        returnType: declaration.returnType,
+        body: declaration.body,
+        isConstexpr: declaration.isConstexpr,
+        span: declaration.span,
+    } as FunctionTemplateDecl;
+}
+
+// The operands as the call's arguments: an aggregate parameter takes an address, a scalar one the value
+// narrowed to its declared width, which is what the library call path does for an ordinary call.
+function operatorArgumentNodes(context: FunctionEmissionContext, info: CompiledHelperMetadata, operands: Expression[]): watIr.WatNode[] {
+    return info.params.map((parameter, index) => {
+        const argument = operands[index];
+
+        if (parameter.isAddr) {
+            const size = context.programAnalysis.sizeOfType(parameter.type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
+
+            return addrIr(context.lowering.argAddr(context, argument, size, parameter.type, false, true));
+        }
+
+        const declared = context.programAnalysis.derefType(parameter.type);
+        const value = narrowCastIr(context.lowering.lowerValueExpression(context, argument), declared.kind === AstKind.NAME ? declared.name : undefined);
+
+        return parameter.wasmType === WatNodeType.I32 ? watIr.operation("i32.wrap_i64", value) : value;
+    });
+}
+
+function tryLowerFreeOperator(context: FunctionEmissionContext, operatorName: string, operands: Expression[]): watIr.WatNode | null {
+    const found = freeOperatorDeclaration(context, operatorName, operands);
+
+    if (found) {
+        const info = found.owner
+            ? context.lowering.compileLibraryFunctionInstance(context, friendDefinition(found.key, found.declaration), operands)
+            : compileLibraryFunction(context.programAnalysis, found.key, found.declaration, `${found.key}@${found.declaration.span?.line ?? 0}`);
+
+        // An operator in an expression has to produce a value; an aggregate return is an address
+        // and belongs on the address path, which asks separately.
+        if (info && !info.retAgg && info.retIsValue) {
+            // A library function returns on the i64 value channel, so the operator's result is one too.
+            const signature = { params: info.params.map((parameter) => parameter.wasmType), res: WatNodeType.I64 };
+
+            return watIr.functionCallWithSignature(signature, info.label, ...operatorArgumentNodes(context, info, operands));
+        }
+    }
+
+    return null;
+}
+
 export function tryLowerOverloadedOperator(context: FunctionEmissionContext, operatorName: string, left: Expression, right?: Expression): watIr.WatNode | null {
     const operands = right ? [right] : [];
     const owner = operatorTarget(context, operatorName, left, operands.length);
@@ -396,13 +561,22 @@ export function tryLowerOverloadedOperator(context: FunctionEmissionContext, ope
         return result && !called?.aggregate && result.ty === WatNodeType.I32 ? watIr.operation("i64.extend_i32_u", result) : result;
     }
 
+    // No member candidate: a non-member operator is an ordinary namespace function, so resolve and
+    // call it exactly like one. Only reached once member lookup has missed, so this cannot change how
+    // an expression that already resolves is lowered.
+    const free = tryLowerFreeOperator(context, operatorName, right ? [left, right] : [left]);
+
+    if (free) {
+        return free;
+    }
+
     if (!right) {
         return null;
     }
 
     // C++20 rewrites `a != b` to `!(a == b)`, so a type declaring equality alone still compares both
     // ways — but only when that operator== returns bool, not merely something convertible to it.
-    if (operatorName === "operator!=" && equalityReturnsBool(context, classOperandName(context, left))) {
+    if (operatorName === "operator!=" && (equalityReturnsBool(context, classOperandName(context, left)) || freeEqualityReturnsBool(context, [left, right]))) {
         const equality = tryLowerOverloadedOperator(context, "operator==", left, right);
 
         if (equality) {

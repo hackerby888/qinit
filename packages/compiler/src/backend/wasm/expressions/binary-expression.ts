@@ -2,21 +2,7 @@ import { AstKind, BinaryOp, WatNodeType } from "../../../shared/enums";
 import { FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
-import { classOperandName, tryLowerOverloadedOperator } from "./operator-overload";
-// $memeq/$m256_lt stand in for m256.h's operators, so they key on the type rather than on a 32-byte
-// size — a user struct of the same width gets its own declared operator instead.
-function isM256Operand(context: FunctionEmissionContext, expression: Expression): boolean {
-    const name = classOperandName(context, expression);
-
-    if (!name) {
-        return false;
-    }
-
-    const separator = name.lastIndexOf("::");
-    const unqualified = separator >= 0 ? name.slice(separator + 2) : name;
-
-    return unqualified === "m256i" || unqualified === "id";
-}
+import { classOperandName, isM256Operand, tryLowerOverloadedOperator } from "./operator-overload";
 
 // The byte-wise intrinsics stand in for m256.h's operators. They apply when an operand is known to
 // be m256i, and also when neither operand's type can be inferred — a by-value `id::zero()` has no
