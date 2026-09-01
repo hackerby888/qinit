@@ -39,7 +39,7 @@ One opcode-dispatched row rather than one row per cheat, so a later cheatcode co
 further ABI bump.
 
 `CHEAT_OP_PRINT` records against the debug trace and nothing else — no log id, no qLogger, no tick log
-range, no entry in `idl.logs`. The trace already reaches both runtimes over `/live/v1/debug-trace`, so
+range, no entry in `idl.logs`. Both runtimes already serve `/live/v1/debug-trace`, so
 `qinit debug` shows cheat rows beside log rows without either interfering with the other.
 
 Refusal is always a negative return, never a trap:
@@ -129,7 +129,31 @@ compile anyway, since Core's headers never define it.
 interned rather than lowered. Aliasing needs no rule: `qpi/no-preprocessor` already forbids `#define` in
 contract source.
 
-## 7. What is deliberately absent
+## 7. What has actually been exercised
+
+The claim that cheatcodes behave the same everywhere is only tested for half the matrix. Be precise
+about which half before relying on it.
+
+| | simulator | core node |
+|---|---|---|
+| TypeScript backend | executed end to end | **not executed** |
+| clang backend | executed end to end | **not executed** |
+
+`cheat-parity.test.ts` runs *both* backends' wasm through the engine and asserts identical
+`(id, part, bytes)`, so the simulator column is genuinely covered.
+
+For the core node, what is verified is that a node built from the cheat branch compiles, links,
+registers `cheat` among its lhost native symbols, carries `cheats` in the debug-trace serializer, and
+ticks. What has **not** happened is a cheat call executing under WAMR: deploying to a local node needs a
+funded identity, and a node started without a spectrum snapshot funds nobody. The self-funding
+`LONG_RUN_LOCAL_TESTNET` build does not compile on this tree — `revenue.h:427` asserts a fixed layout
+that the struct's tail padding breaks whenever `5 * (TESTNET_EPOCH_DURATION + 3) * 2` is not 8-aligned,
+which is a pre-existing core-lite bug unrelated to cheatcodes.
+
+So the remaining step, for anyone with a funded node: deploy a cheat-carrying contract with
+`--runtime core`, call it, and check `/live/v1/debug-trace` carries the `cheats` array.
+
+## 8. What is deliberately absent
 
 - **Wall-clock warp.** `CHEAT_OP_WARP_TIME` is reserved. `now()` reads seven separate `etalonTick`
   fields and core-lite has no inverse of `dayIndex()`, so shifting the calendar is real date arithmetic
