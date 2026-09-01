@@ -131,27 +131,27 @@ contract source.
 
 ## 7. What has actually been exercised
 
-The claim that cheatcodes behave the same everywhere is only tested for half the matrix. Be precise
-about which half before relying on it.
+Both compilers, both runtimes. `cheat-parity.test.ts` runs each backend's wasm through the engine and
+asserts identical `(id, part, bytes)`; a cheat-carrying contract has also been deployed to a real
+core-lite node and called, with the printed values read back off `/live/v1/debug-trace` and the
+protocol log left empty.
 
-| | simulator | core node |
-|---|---|---|
-| TypeScript backend | executed end to end | **not executed** |
-| clang backend | executed end to end | **not executed** |
+That live run was worth doing, because it found a bug the simulator structurally could not.
+`w_cheat` treated a zero guest offset as "no payload" — but offset 0 is an ordinary linear-memory
+address and contract state sits there, so every `CC_PRINT` of a state read arrived with no bytes. The
+engine's import keys on the length instead, and slicing a JS array at 0 is fine, so every simulator
+test passed while the native path silently dropped exactly the reads worth printing.
 
-`cheat-parity.test.ts` runs *both* backends' wasm through the engine and asserts identical
-`(id, part, bytes)`, so the simulator column is genuinely covered.
+Two lessons worth keeping: **assert the bytes, not their length** — a dropped payload still reports the
+size it was asked for — and a cross-runtime feature needs at least one run on each runtime, because
+this class of defect lives in the gap between them and nowhere else.
 
-For the core node, what is verified is that a node built from the cheat branch compiles, links,
-registers `cheat` among its lhost native symbols, carries `cheats` in the debug-trace serializer, and
-ticks. What has **not** happened is a cheat call executing under WAMR: deploying to a local node needs a
-funded identity, and a node started without a spectrum snapshot funds nobody. The self-funding
-`LONG_RUN_LOCAL_TESTNET` build does not compile on this tree — `revenue.h:427` asserts a fixed layout
-that the struct's tail padding breaks whenever `5 * (TESTNET_EPOCH_DURATION + 3) * 2` is not 8-aligned,
-which is a pre-existing core-lite bug unrelated to cheatcodes.
-
-So the remaining step, for anyone with a funded node: deploy a cheat-carrying contract with
-`--runtime core`, call it, and check `/live/v1/debug-trace` carries the `cheats` array.
+Reproducing the live leg is fiddly rather than hard. A node with no spectrum snapshot funds nobody, and
+computors are only paid at an epoch boundary, so it needs a `LONG_RUN_LOCAL_TESTNET` build with a short
+`LONG_RUN_EPOCH_TICK_CAPACITY`, run until the epoch rolls. Note that build does not compile as shipped:
+`revenue.h:427` asserts a fixed layout that the struct's tail padding breaks whenever
+`5 * (TESTNET_EPOCH_DURATION + 3) * 2` is not 8-aligned. That is a pre-existing core-lite bug, unrelated
+to cheatcodes, and worth reporting separately.
 
 ## 8. What is deliberately absent
 

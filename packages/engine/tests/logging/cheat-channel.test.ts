@@ -52,6 +52,10 @@ test("each printed value carries its own ordinal, and a literal contributes none
     // literals emit nothing, so only the two values reach the wire, each at ordinal 1 of its call.
     expect(entry.cheats).toHaveLength(2);
     expect(entry.cheats.map((cheat) => cheat.part)).toEqual([1, 1]);
-    expect(entry.cheats.map((cheat) => cheat.size)).toEqual([8, 8]);
     expect(new Set(entry.cheats.map((cheat) => cheat.id)).size).toBe(2);
+
+    // Assert the bytes, not just their length. A payload dropped on the way to the host still reports
+    // the size it was asked for, so size alone cannot tell a real read from a lost one — which is how
+    // a native-side bug reading state at guest offset 0 survived every simulator test.
+    expect(entry.cheats.map((cheat) => cheat.hex)).toEqual(["0700000000000000", "0700000000000000"]);
 });
