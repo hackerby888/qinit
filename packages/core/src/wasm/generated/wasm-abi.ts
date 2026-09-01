@@ -122,6 +122,13 @@ export const WASM_ABI_METADATA = {
       ]
     },
     {
+      "name": "initialTick",
+      "params": [],
+      "results": [
+        "i32"
+      ]
+    },
+    {
       "name": "numberOfTickTransactions",
       "params": [],
       "results": [

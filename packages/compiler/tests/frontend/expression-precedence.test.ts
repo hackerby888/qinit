@@ -571,7 +571,8 @@ describe.skipIf(CLANG === null)("precedence — generated expressions against cl
 
         try {
             const source = join(directory, "oracle.c");
-            const binary = join(directory, "oracle");
+            // Windows links to oracle.exe, and spawning the extensionless path there fails outright.
+            const binary = join(directory, process.platform === "win32" ? "oracle.exe" : "oracle");
             const body = GENERATED.map(({ minimal }) => `  printf("%lld\\n", (long long)(${minimal}));`).join("\n");
 
             // -Wno-parentheses, not -w: chained comparisons are a hard error by default and -w does not
@@ -582,7 +583,8 @@ describe.skipIf(CLANG === null)("precedence — generated expressions against cl
 
             const run = Bun.spawnSync([binary]);
             expect(run.success).toBe(true);
-            const values = run.stdout.toString().trim().split("\n");
+            // printf ends its lines with \r\n on Windows; BigInt tolerates the stray \r, the split reads better without it.
+            const values = run.stdout.toString().trim().split(/\r?\n/);
             expect(values.length).toBe(GENERATED.length);
 
             for (const [index, { seed, minimal }] of GENERATED.entries()) {
@@ -591,5 +593,6 @@ describe.skipIf(CLANG === null)("precedence — generated expressions against cl
         } finally {
             rmSync(directory, { recursive: true, force: true });
         }
-    });
+        // Compiling and linking the oracle does not fit bun's 5s default on a cold Windows runner.
+    }, 120000);
 });

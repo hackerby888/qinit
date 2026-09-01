@@ -172,6 +172,9 @@ export class QubicSimulator {
         });
         this.host = {
             tick: () => this.currentTick + this.cheatTickOffset,
+            // Deliberately unshifted: a warp moves where the contract thinks it is within the epoch,
+            // not where the epoch began, so `tick - initialTick` still reads as ticks elapsed.
+            initialTick: () => this.currentEpoch * this.epochLength,
             epoch: () => this.currentEpoch + this.cheatEpochOffset,
             nowMs: () => this.nowMs(),
             numberOfTickTransactions: () => this.tickTxCount,

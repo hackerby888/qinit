@@ -170,6 +170,7 @@ export interface Entity {
 
 export interface HostServices {
     tick(): number;
+    initialTick(): number;
     epoch(): number;
     nowMs(): number;
     numberOfTickTransactions(): number;
@@ -1050,6 +1051,7 @@ export class Contract {
             // time / tick (read-only)
             epoch: () => this.host.epoch() & 0xffff,
             tick: () => this.host.tick() >>> 0,
+            initialTick: () => this.host.initialTick() >>> 0,
             numberOfTickTransactions: () => this.host.numberOfTickTransactions(),
             // Date accessors use Qubic's two-digit year; now() packs the full year.
             day: () => dateFields(this.host.nowMs()).day,

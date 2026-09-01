@@ -1,4 +1,4 @@
-import { AstKind, UnaryOp, UnsupportedFeature, WatNodeType } from "../../../shared/enums";
+import { AstKind, UnaryOp, UnsupportedFeature, WatNodeType, CAST_TEMPLATE_NAMES, VALUE_CONVERTING_CAST } from "../../../shared/enums";
 import { SCALAR_SIZE } from "../abi/tables";
 import { describeShape } from "../calls/call-shape";
 import { narrowCastIr, lowerScalarLoad, isSignedScalarType } from "../memory/memory-operations";
@@ -186,10 +186,10 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             if (expression.callee.kind === AstKind.IDENTIFIER) {
                 const name = expression.callee.name;
                 // Narrow static casts; keep pointer reinterpret casts on the address path.
-                if ((name === "static_cast" || name === "reinterpret_cast" || name === "const_cast") && expression.callArguments[0]) {
+                if (CAST_TEMPLATE_NAMES.has(name) && expression.callArguments[0]) {
                     const inner = lowerValueExpression(context, expression.callArguments[0]);
                     const tgt = expression.templateArguments?.[0];
-                    return name === "static_cast" ? narrowCastIr(inner, castTypeName(context, tgt)) : inner;
+                    return name === VALUE_CONVERTING_CAST ? narrowCastIr(inner, castTypeName(context, tgt)) : inner;
                 }
                 const helper = context.lowering.emitHelperCall(
                     context,

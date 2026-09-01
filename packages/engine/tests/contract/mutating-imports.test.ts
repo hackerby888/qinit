@@ -39,12 +39,14 @@ test("every mutating import exists in the generated host ABI", () => {
 
 // A new import lands unguarded by default, so the count is pinned too — it moves only with EXPECTED.
 test("the host ABI has not grown past the reviewed import set", () => {
-    expect(Object.keys(LHOST_ABI)).toHaveLength(63);
+    expect(Object.keys(LHOST_ABI)).toHaveLength(64);
 });
 
-// `cheat` is reviewed and deliberately left off EXPECTED. The list is a per-import ban, and CC_PRINT
-// has to work inside a function; its mutating opcodes check the entry kind themselves instead.
+// Both reviewed and deliberately left off EXPECTED: initialTick is a read, and `cheat` is excluded
+// because the list is a per-import ban and CC_PRINT has to work inside a function — its mutating
+// opcodes check the entry kind themselves instead.
 test("cheat is unguarded on purpose, and its mutating opcodes are refused in a function", () => {
     expect(MUTATING_LHOST_IMPORTS).not.toContain("cheat");
     expect("cheat" in LHOST_ABI).toBe(true);
+    expect("initialTick" in LHOST_ABI).toBe(true);
 });

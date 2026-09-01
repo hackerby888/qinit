@@ -1,4 +1,4 @@
-import { AstKind, BinaryOp, UnaryOp } from "../shared/enums";
+import { AstKind, BinaryOp, UnaryOp, CAST_TEMPLATE_NAMES, VALUE_CONVERTING_CAST } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { EMPTY_TEMPLATE_BINDINGS, NamespaceLookupContext, TemplateBindings } from "./types";
 import type { TypeSpec, Expression } from "../ast";
@@ -201,6 +201,12 @@ export function evalConstBig(programAnalysis: ProgramAnalysis, expression: Expre
             // QPI safe-math helpers appear in constexpr contexts (e.g. QUTIL_MAX_NEW_POLL = div(MAX_POLL, 4)).
             const callee = expression.callee;
             const fn = callee.kind === AstKind.IDENTIFIER ? callee.name : callee.kind === AstKind.QUALIFIED_NAME ? callee.name : null;
+            if (fn && CAST_TEMPLATE_NAMES.has(fn)) {
+                const operand = expression.callArguments[0];
+                const inner = operand ? programAnalysis.evalConstBig(operand, templateBindings) : 0n;
+                const target = expression.kind === AstKind.TEMPLATE_CALL ? expression.templateArguments?.[0] : undefined;
+                return fn === VALUE_CONVERTING_CAST && target ? programAnalysis.normalizeConst(inner, target) : inner;
+            }
             if (fn) {
                 const numericValue = expression.callArguments.map((argument) => programAnalysis.evalConstBig(argument, templateBindings));
                 switch (fn) {

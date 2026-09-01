@@ -42,3 +42,38 @@ export const SCALAR_SIZE: Record<string, number> = {
     size_t: 4,
     wchar_t: 4,
 };
+
+export const SIGNED_SCALARS = new Set([
+    "sint8",
+    "sint16",
+    "sint32",
+    "sint64",
+    "signed char",
+    "signed short",
+    "signed int",
+    "signed long long",
+    "long long",
+    "int",
+    "short",
+    // plain `char` and `wchar_t` are signed on wasm32-wasi, per static_assert against the SDK
+    "char",
+    "wchar_t",
+    "signed",
+    "short int",
+    "signed short int",
+    "long",
+    "long int",
+    "signed long",
+    "signed long int",
+]);
+
+// Constant-fold mirror of the backend's narrowCastIr: same widths, same signedness, over bigints. The two
+// must agree or a folded constant disagrees with the value the emitter produces for the same cast.
+export function narrowConstant(value: bigint, typeName: string | undefined): bigint {
+    if (!typeName) return value;
+    const byteWidth = SCALAR_SIZE[typeName];
+    if (byteWidth === undefined || byteWidth >= 8) return value;
+    if (typeName === "bit" || typeName === "bool") return value === 0n ? 0n : 1n;
+    const bits = byteWidth * 8;
+    return SIGNED_SCALARS.has(typeName) ? BigInt.asIntN(bits, value) : BigInt.asUintN(bits, value);
+}

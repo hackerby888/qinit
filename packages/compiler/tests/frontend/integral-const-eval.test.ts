@@ -15,6 +15,9 @@ const unary = (operator: UnaryOp, argument: Expression): Expression => ({ kind: 
 const call = (callee: string, callArguments: Expression[]): Expression =>
     ({ kind: AstKind.CALL, callee: identifier(callee), callArguments, span: SPAN }) as Expression;
 const named = (name: string): TypeSpec => ({ kind: AstKind.NAME, name, span: SPAN }) as TypeSpec;
+// There is no static_cast keyword, so the parser hands casts to the folder in this shape.
+const templateCast = (castName: string, target: string, argument: Expression): Expression =>
+    ({ kind: AstKind.TEMPLATE_CALL, callee: identifier(castName), templateArguments: [named(target)], callArguments: [argument], span: SPAN }) as Expression;
 
 const BINARY_CASES: Record<string, { operator: BinaryOp; left: string; right: string; expected: bigint | null }> = {
     add: { operator: BinaryOp.ADD, left: "1", right: "2", expected: 3n },
@@ -110,9 +113,44 @@ describe("integral constant evaluation", () => {
         expect(evalIntegralConst(call("min", [int("1"), identifier("FOO")]))).toBeNull();
     });
 
-    test("a cast evaluates its operand without narrowing", () => {
-        const cast = { kind: AstKind.C_CAST, type: named("uint8"), expression: int("300"), span: SPAN } as Expression;
-        expect(evalIntegralConst(cast)).toBe(300n);
+    // A folded cast has to land on the value the emitter's narrowCastIr produces for the same cast, or a
+    // constant disagrees with the runtime expression it was folded from.
+    test("a C-style cast narrows to its target type", () => {
+        const cast = (type: string, value: string): Expression =>
+            ({ kind: AstKind.C_CAST, type: named(type), expression: int(value), span: SPAN }) as Expression;
+        expect(evalIntegralConst(cast("uint8", "300"))).toBe(44n);
+        expect(evalIntegralConst(cast("sint8", "200"))).toBe(-56n);
+        expect(evalIntegralConst(cast("uint64", "300"))).toBe(300n);
+    });
+
+    test("static_cast reaches the folder as a template call and narrows", () => {
+        expect(evalIntegralConst(templateCast("static_cast", "uint8", int("300")))).toBe(44n);
+        expect(evalIntegralConst(templateCast("static_cast", "sint8", int("200")))).toBe(-56n);
+        expect(evalIntegralConst(templateCast("static_cast", "bool", int("7")))).toBe(1n);
+    });
+
+    test("a nested static_cast narrows at each step", () => {
+        expect(evalIntegralConst(templateCast("static_cast", "uint16", templateCast("static_cast", "uint8", int("300"))))).toBe(44n);
+    });
+
+    test("static_cast folds a resolved enum member and composes with arithmetic", () => {
+        const member = identifier("E::Inc");
+        const resolve = (name: string) => (name === "E::Inc" ? 5n : null);
+        expect(evalIntegralConst(templateCast("static_cast", "uint16", member), resolve)).toBe(5n);
+        expect(evalIntegralConst(bin(BinaryOp.ADD, templateCast("static_cast", "uint16", member), int("1")), resolve)).toBe(6n);
+    });
+
+    test("casts that only change the type leave the value alone", () => {
+        expect(evalIntegralConst(templateCast("reinterpret_cast", "uint8", int("300")))).toBe(300n);
+        expect(evalIntegralConst(templateCast("const_cast", "uint8", int("300")))).toBe(300n);
+    });
+
+    test("a static_cast to an unresolvable target does not narrow", () => {
+        expect(evalIntegralConst(templateCast("static_cast", "SomeEnum", int("300")))).toBe(300n);
+    });
+
+    test("a static_cast with an unresolvable operand yields null", () => {
+        expect(evalIntegralConst(templateCast("static_cast", "uint8", identifier("FOO")))).toBeNull();
     });
 
     test("sizeof resolves scalar names and rejects record names", () => {
