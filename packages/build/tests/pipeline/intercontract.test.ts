@@ -195,3 +195,68 @@ test("buildCalleePrelude does not reinclude the root through a callee", () => {
         rmSync(root, { recursive: true, force: true });
     }
 });
+
+test("buildCalleePrelude includes unreferenced dynamic callees only when the editor asks for them", () => {
+    const root = mkdtempSync(join(tmpdir(), "ic-unreferenced-"));
+    try {
+        mkdirSync(join(root, "src", "contract_core"), { recursive: true });
+        writeFileSync(join(root, "src", "contract_core", "contract_def.h"), "// empty registry\n");
+        const callee = join(root, "Calle.h");
+        writeFileSync(
+            callee,
+            `struct CONTRACT_STATE_TYPE : public ContractBase {
+      struct Get_input {}; struct Get_output {};
+      PUBLIC_FUNCTION(Get) {}
+      REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+    };`,
+        );
+        const dynamicCallees = { Calle: { header: callee, index: 1 } };
+        const source = "state.mut().counter += 1;";
+
+        expect(buildCalleePrelude(root, source, dynamicCallees, "Counter")).not.toContain("Calle_Get_inputType");
+
+        const editorPrelude = buildCalleePrelude(root, source, dynamicCallees, "Counter", true);
+        expect(editorPrelude).toContain(`#include "${callee}"`);
+        expect(editorPrelude).toContain("Calle_Get_inputType = 1");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("an unreferenced callee that fails to analyze drops instead of failing the contract being edited", () => {
+    const root = mkdtempSync(join(tmpdir(), "ic-broken-sibling-"));
+    try {
+        mkdirSync(join(root, "src", "contract_core"), { recursive: true });
+        writeFileSync(join(root, "src", "contract_core", "contract_def.h"), "// empty registry\n");
+        const broken = join(root, "Broken.h");
+        writeFileSync(broken, "struct CONTRACT_STATE_TYPE : public ContractBase { PUBLIC_FUNCTION(Get) {");
+
+        const prelude = buildCalleePrelude(root, "state.mut().counter += 1;", { Broken: { header: broken, index: 1 } }, "Counter", true);
+
+        expect(prelude).not.toContain("Broken.h");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("the prelude leaves the inter-contract SDK include to the wasm wrapper", () => {
+    const root = mkdtempSync(join(tmpdir(), "ic-sdk-include-"));
+    try {
+        mkdirSync(join(root, "src", "contract_core"), { recursive: true });
+        writeFileSync(join(root, "src", "contract_core", "contract_def.h"), "// empty registry\n");
+        const callee = join(root, "QX.h");
+        writeFileSync(
+            callee,
+            `struct CONTRACT_STATE_TYPE : public ContractBase {
+      struct Get_input {}; struct Get_output {};
+      PUBLIC_FUNCTION(Get) {}
+      REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+    };`,
+        );
+        const prelude = buildCalleePrelude(root, "CALL_OTHER_CONTRACT_FUNCTION(QX, Get, in, out);", { QX: { header: callee, index: 1 } });
+
+        expect(prelude).not.toContain("intercontract_calls.h");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});

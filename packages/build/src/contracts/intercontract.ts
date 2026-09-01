@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { analyzeContract, DiagnosticSeverity, Lexer, TokenKind, type AnalyzeContractOptions } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
 import { parseContractDefinitionSource, type ParsedContractDefinitionSource } from "./contract-def";
@@ -118,7 +117,14 @@ export function contractIndexDefines(corePath: string): string {
     }
 }
 
-export function buildCalleePrelude(corePath: string, contractSource: string, dynamicCallees: DynCallees = {}, selfType?: string): string {
+export function buildCalleePrelude(
+    corePath: string,
+    contractSource: string,
+    dynamicCallees: DynCallees = {},
+    selfType?: string,
+    // Editors index every sibling contract, so a callee the source has not referenced yet still resolves.
+    includeUnreferencedCallees = false,
+): string {
     let indexBlock = "";
     let definitions = new Map<string, CalleeDef>();
 
@@ -131,7 +137,8 @@ export function buildCalleePrelude(corePath: string, contractSource: string, dyn
     }
 
     const knownCallees = new Set([...definitions.keys(), ...Object.keys(dynamicCallees)]);
-    let wanted = scanCallees(contractSource, { contractName: selfType }, knownCallees);
+    const unreferenced = includeUnreferencedCallees ? Object.keys(dynamicCallees).filter((type) => type !== selfType) : [];
+    let wanted = new Set([...scanCallees(contractSource, { contractName: selfType }, knownCallees), ...unreferenced]);
 
     if (wanted.size === 0) {
         return indexBlock;
@@ -151,13 +158,14 @@ export function buildCalleePrelude(corePath: string, contractSource: string, dyn
         name: selfType,
         qpiHeader,
     };
-    wanted = scanCallees(contractSource, sourceOptions, knownCallees);
+    wanted = new Set([...scanCallees(contractSource, sourceOptions, knownCallees), ...unreferenced]);
 
     interface ResolvedCallee {
         type: string;
         index: number;
         include: string;
         src: string;
+        registrations: { fn: string; n: number }[];
     }
 
     const resolved = new Map<string, ResolvedCallee>();
@@ -177,6 +185,7 @@ export function buildCalleePrelude(corePath: string, contractSource: string, dyn
                 index: dynamicCallees[type].index,
                 include: dynamicCallees[type].header,
                 src: readFileSync(dynamicCallees[type].header, "utf8"),
+                registrations: [],
             };
         } else if (definitions.has(type)) {
             const definition = definitions.get(type)!;
@@ -185,11 +194,17 @@ export function buildCalleePrelude(corePath: string, contractSource: string, dyn
                 index: definition.index,
                 include: definition.include,
                 src: readFileSync(join(corePath, "src", definition.include), "utf8"),
+                registrations: [],
             };
         } else {
             throw new Error(`inter-contract: unknown callee '${type}' (not in contract_def.h, not a declared dynamic callee)`);
         }
 
+        callee.registrations = parseRegisters(callee.src, {
+            contractName: type,
+            slot: callee.index,
+            qpiHeader,
+        });
         resolved.set(type, callee);
 
         const nestedCallees = scanCallees(
@@ -207,7 +222,21 @@ export function buildCalleePrelude(corePath: string, contractSource: string, dyn
     };
 
     for (const calleeType of wanted) {
-        resolveCallee(calleeType);
+        if (!unreferenced.includes(calleeType)) {
+            resolveCallee(calleeType);
+            continue;
+        }
+
+        // A sibling the source never mentions is offered for completion only, so a broken one drops
+        // with whatever subtree it pulled in rather than failing the contract being edited.
+        const before = new Set(resolved.keys());
+        try {
+            resolveCallee(calleeType);
+        } catch {
+            for (const type of [...resolved.keys()].filter((type) => !before.has(type))) {
+                resolved.delete(type);
+            }
+        }
     }
 
     const callees = [...resolved.values()].sort((left, right) => left.index - right.index);
@@ -226,16 +255,11 @@ export function buildCalleePrelude(corePath: string, contractSource: string, dyn
 
     output += "// ---- generated <Type>_<fn>_inputType constants ----\n";
     for (const callee of callees) {
-        const registrations = parseRegisters(callee.src, {
-            contractName: callee.type,
-            slot: callee.index,
-            qpiHeader,
-        });
-        for (const registration of registrations) {
+        for (const registration of callee.registrations) {
             output += `static constexpr unsigned short ${callee.type}_${registration.fn}_inputType = ${registration.n};\n`;
         }
     }
 
-    output += `#include "${CORE_WASM_HEADERS.sdk.intercontractCalls}"\n`;
+    // The wrapper includes the inter-contract SDK header itself, after CONTRACT_INDEX is defined.
     return indexBlock + output;
 }

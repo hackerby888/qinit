@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { loadQpiHeader } from "@qinit/compiler";
+import { detectContractName } from "@qinit/compiler/analyzer";
 import { scanCallees } from "./intercontract";
 import { systemContracts, type SystemContract } from "./system-contracts";
 
@@ -17,6 +18,8 @@ export interface ProjectContractNode {
     source: string;
     index?: number;
     dependencies: string[];
+    // Pulled in by includeWorkspaceSiblings rather than by a reference from the contract being resolved.
+    eager?: boolean;
 }
 
 export interface ResolveProjectDependenciesOptions {
@@ -27,6 +30,8 @@ export interface ResolveProjectDependenciesOptions {
     contractIndex?: number;
     explicitCallees?: Readonly<Record<string, ProjectCalleeInput>>;
     additionalRootSource?: string;
+    // Editors want every contract in the workspace, not only the ones the root already references.
+    includeWorkspaceSiblings?: boolean;
 }
 
 function headerPaths(directory: string): string[] {
@@ -213,5 +218,56 @@ export function resolveProjectDependencies(options: ResolveProjectDependenciesOp
     };
 
     visit(root);
+
+    if (options.includeWorkspaceSiblings) {
+        visitWorkspaceSiblings({ headers, nodes, visitState, stack, ordered, visit, reservedSystemNames });
+    }
+
     return ordered;
+}
+
+interface SiblingVisit {
+    headers: Map<string, string[]>;
+    nodes: Map<string, ProjectContractNode>;
+    visitState: Map<string, "visiting" | "visited">;
+    stack: string[];
+    ordered: ProjectContractNode[];
+    visit: (node: ProjectContractNode) => void;
+    reservedSystemNames: Map<string, SystemContract>;
+}
+
+// Append every workspace contract the root never referenced, after the reachable set so slot planning
+// leaves the reachable contracts where they were. A sibling that fails to resolve is rolled back whole.
+function visitWorkspaceSiblings(o: SiblingVisit): void {
+    for (const [name, paths] of [...o.headers].sort(([left], [right]) => left.localeCompare(right))) {
+        if (paths.length !== 1 || o.nodes.has(name) || o.reservedSystemNames.has(name.toLowerCase())) {
+            continue;
+        }
+
+        const knownNodes = new Set(o.nodes.keys());
+        const knownVisits = new Set(o.visitState.keys());
+        const orderedLength = o.ordered.length;
+
+        try {
+            const sibling = readCustomNode(name, paths[0]);
+            // A plain helper header under contracts/ is not a contract and must not take a slot.
+            if (!detectContractName(sibling.source)) {
+                continue;
+            }
+            o.nodes.set(sibling.stateType, sibling);
+            o.visit(sibling);
+            for (const node of o.ordered.slice(orderedLength)) {
+                node.eager = true;
+            }
+        } catch {
+            o.stack.length = 0;
+            o.ordered.length = orderedLength;
+            for (const key of [...o.nodes.keys()].filter((key) => !knownNodes.has(key))) {
+                o.nodes.delete(key);
+            }
+            for (const key of [...o.visitState.keys()].filter((key) => !knownVisits.has(key))) {
+                o.visitState.delete(key);
+            }
+        }
+    }
 }

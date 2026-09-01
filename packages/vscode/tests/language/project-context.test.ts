@@ -109,3 +109,63 @@ test.if(hasCore)("Proxy resolves Counter from contracts and configures clangd wi
         rmSync(workspace, { recursive: true, force: true });
     }
 });
+
+test.if(hasCore)("an unreferenced sibling contract is indexed so `Sibling::` resolves before the first call", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "qpi-eager-siblings-"));
+    try {
+        const contracts = join(workspace, "contracts");
+        mkdirSync(contracts);
+        const proxyPath = join(contracts, "Proxy.h");
+        const counterPath = join(contracts, "Counter.h");
+        const siblingPath = join(contracts, "Sibling.h");
+        writeFileSync(proxyPath, readFileSync(PROXY, "utf8"));
+        writeFileSync(counterPath, readFileSync(COUNTER, "utf8"));
+        writeFileSync(
+            siblingPath,
+            `using namespace QPI;
+struct Sibling : public ContractBase {
+  struct StateData { uint64 counter; };
+  struct Ping_input {}; struct Ping_output { uint64 value; };
+  PUBLIC_FUNCTION(Ping) { output.value = state.get().counter; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Ping, 1); }
+};`,
+        );
+        // A helper header and a broken contract must not take the edited document down with them.
+        writeFileSync(join(contracts, "helpers.h"), "static constexpr unsigned int SHARED_LIMIT = 4;");
+        writeFileSync(join(contracts, "Broken.h"), "struct Broken : public ContractBase { PUBLIC_FUNCTION(Get) {");
+        writeFileSync(
+            join(workspace, "qinit.json"),
+            JSON.stringify({
+                contractName: "Proxy",
+                contract: "contracts/Proxy.h",
+                coreDir: CORE,
+            }),
+        );
+
+        const details = resolveProjectSourceDetails({ filePath: proxyPath, workspaceRoot: workspace });
+        const layout = loadCoreWasmSlotLayout(CORE);
+
+        // Proxy still calls only Counter, so the slots it builds with are unchanged.
+        expect(details.slot).toBe(layout.slotBase + 1);
+        expect(details.dynCallees.Counter?.index).toBe(layout.slotBase);
+        expect(details.dynCallees.Sibling).toBeDefined();
+        expect(details.analysis.calleeSources?.map((callee) => callee.name)).toContain("Sibling");
+
+        const clangd = generateClangdConfig({
+            contractPath: proxyPath,
+            corePath: CORE,
+            workspaceRoot: workspace,
+            name: details.name,
+            slot: details.slot,
+            dynCallees: details.dynCallees,
+            wasiSysrootPath: details.wasiSysrootPath,
+        });
+        expect(readFileSync(clangd.prefixPath, "utf8")).toContain(`#include "${siblingPath.replace(/\\/g, "/")}"`);
+
+        const { cacheKey: _cacheKey, ...analysisOptions } = details.analysis;
+        const analysis = analyzeContract({ source: readFileSync(proxyPath, "utf8"), ...analysisOptions });
+        expect(analysis.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+    } finally {
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});

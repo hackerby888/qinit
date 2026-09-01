@@ -36,6 +36,22 @@ export function planEditorProjectSlots(nodes: readonly ProjectContractNode[], la
     return planProjectSlots(nodes, layout);
 }
 
+// Eagerly indexed siblings take slots too, so a workspace with more contracts than the dynamic window
+// would stop planning altogether. Drop them and keep the contracts the project actually builds.
+function planWithSiblings(nodes: readonly ProjectContractNode[], layout: { slotBase: number; slotCount: number }): PlannedProjectNode[] {
+    try {
+        return planEditorProjectSlots(nodes, layout);
+    } catch (error) {
+        if (!nodes.some((node) => node.eager)) {
+            throw error;
+        }
+        return planEditorProjectSlots(
+            nodes.filter((node) => !node.eager),
+            layout,
+        );
+    }
+}
+
 function transitiveDependencies(contract: PlannedProjectNode, nodes: readonly PlannedProjectNode[]): PlannedProjectNode[] {
     const byStateType = new Map(nodes.map((node) => [node.stateType, node]));
     const wanted = new Set<string>();
@@ -73,8 +89,19 @@ function catalogIdl(node: PlannedProjectNode, catalog: readonly SystemContract[]
     };
 }
 
-function analysisContext(contract: PlannedProjectNode, nodes: readonly PlannedProjectNode[], corePath: string): ProjectAnalysisContext {
+// Every project contract the edited one could name: the ones it already calls, plus the siblings the
+// editor indexed eagerly so `Sibling::` resolves before the first reference is written.
+function visibleDependencies(contract: PlannedProjectNode, nodes: readonly PlannedProjectNode[]): PlannedProjectNode[] {
     const dependencies = transitiveDependencies(contract, nodes);
+    const referenced = new Set(dependencies.map((node) => node.stateType));
+    const siblings = nodes.filter((node) => node.kind === "custom" && node.stateType !== contract.stateType && !referenced.has(node.stateType));
+
+    return [...dependencies, ...siblings];
+}
+
+function analysisContext(contract: PlannedProjectNode, nodes: readonly PlannedProjectNode[], corePath: string): ProjectAnalysisContext {
+    const dependencies = visibleDependencies(contract, nodes);
+    const referenced = new Set(transitiveDependencies(contract, nodes).map((node) => node.stateType));
     const qpiHeader = loadQpiHeader(corePath);
     const catalog = systemContracts(corePath);
     const callees: ContractIdl[] = [];
@@ -95,6 +122,11 @@ function analysisContext(contract: PlannedProjectNode, nodes: readonly PlannedPr
             });
             idl = result.idl;
             if (!idl) {
+                // A sibling this contract does not call is offered for completion only, so its own
+                // errors belong on its own document rather than on the one being edited.
+                if (!referenced.has(dependency.stateType)) {
+                    continue;
+                }
                 const errors = result.diagnostics
                     .filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)
                     .map((diagnostic) => diagnostic.message)
@@ -186,15 +218,16 @@ export function resolveProjectSourceDetails(options: { filePath: string; workspa
         contractName: mainName,
         contractPath: mainPath,
         contractIndex: config.slot,
+        includeWorkspaceSiblings: true,
     });
-    const planned = planEditorProjectSlots(nodes, loadCoreWasmSlotLayout(corePath));
+    const planned = planWithSiblings(nodes, loadCoreWasmSlotLayout(corePath));
     const contract = planned.find((node) => resolve(node.sourcePath) === filePath);
 
     if (!contract || contract.kind !== "custom") {
         return standaloneDetails(filePath, projectRoot, corePath, availableWasiSysroot);
     }
 
-    const dependencies = transitiveDependencies(contract, planned);
+    const dependencies = visibleDependencies(contract, planned);
     const dynCallees = Object.fromEntries(
         dependencies
             .filter((dependency) => dependency.kind === "custom")

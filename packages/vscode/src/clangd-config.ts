@@ -119,7 +119,8 @@ function sourceDetails(o: ClangdInputs): {
     const dir = join(o.dataRoot ?? join(o.workspaceRoot, ".qpi"), "clangd");
     mkdirSync(dir, { recursive: true });
 
-    const calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, name);
+    // Editor-only: index every sibling contract so `Sibling::` resolves before the first reference exists.
+    const calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, name, true);
 
     const options: ClangBuildOptions = {
         contractPath: contractFile,

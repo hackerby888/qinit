@@ -249,3 +249,60 @@ test.skipIf(!HAS_CORE)("rejects explicit and main contract system-name overrides
         },
     );
 });
+
+function contract(name: string, body = ""): string {
+    return `struct ${name} : public ContractBase {
+  struct StateData {};
+  struct Get_input {}; struct Get_output {};
+  PUBLIC_FUNCTION(Get) {}
+  ${body}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+};`;
+}
+
+test.skipIf(!HAS_CORE)("includeWorkspaceSiblings appends unreferenced contracts after the reachable ones", () => {
+    project(
+        {
+            "contracts/Main.h": contract("Main", calls("Leaf")),
+            "contracts/Leaf.h": contract("Leaf"),
+            "contracts/Sibling.h": contract("Sibling"),
+        },
+        (root) => {
+            const options = {
+                projectRoot: root,
+                corePath: CORE,
+                contractName: "Main",
+                contractPath: "contracts/Main.h",
+            };
+            const reachable = resolveProjectDependencies(options);
+            const widened = resolveProjectDependencies({ ...options, includeWorkspaceSiblings: true });
+
+            expect(reachable.map((node) => node.stateType)).toEqual(["Leaf", "Main"]);
+            expect(widened.map((node) => node.stateType)).toEqual(["Leaf", "Main", "Sibling"]);
+            expect(widened.filter((node) => node.eager).map((node) => node.stateType)).toEqual(["Sibling"]);
+            // The sibling is offered for completion, not called, so it must not become a dependency.
+            expect(widened.find((node) => node.stateType === "Main")?.dependencies).toEqual(["Leaf"]);
+        },
+    );
+});
+
+test.skipIf(!HAS_CORE)("a broken or non-contract sibling is skipped instead of failing resolution", () => {
+    project(
+        {
+            "contracts/Main.h": contract("Main"),
+            "contracts/Broken.h": contract("Broken", calls("Missing")),
+            "contracts/helpers.h": "static constexpr unsigned int SHARED_LIMIT = 4;",
+        },
+        (root) => {
+            const graph = resolveProjectDependencies({
+                projectRoot: root,
+                corePath: CORE,
+                contractName: "Main",
+                contractPath: "contracts/Main.h",
+                includeWorkspaceSiblings: true,
+            });
+
+            expect(graph.map((node) => node.stateType)).toEqual(["Main"]);
+        },
+    );
+});
