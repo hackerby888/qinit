@@ -1,3 +1,4 @@
+import { CheatMode } from "@qinit/compiler";
 import { useEffect, useState } from "react";
 import { resolve, basename } from "node:path";
 import { Box, Text, useApp } from "ink";
@@ -50,6 +51,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                         slotOverride,
                         skipVerify: commandArgs.has("skip-verify"),
                         compiler: resolveCompilerBackend(commandArgs.get("compiler")),
+                        cheats: commandArgs.has("production") ? CheatMode.OFF : CheatMode.ON,
                     },
                     emit,
                 );

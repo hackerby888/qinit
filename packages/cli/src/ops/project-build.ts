@@ -1,6 +1,8 @@
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { analyzeCheatcodes, stripCheatcodes } from "@qinit/compiler/analyzer";
 import { CheatMode } from "@qinit/compiler";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import {
     buildContractWithTypeScript,
     buildContractWithClang,
@@ -106,6 +108,24 @@ function typescriptCallees(dependencies: readonly PlannedProjectContract[]): Rec
     );
 }
 
+/**
+ * A production build compiles what Core will receive: the cheatcodes stripped, and no shim to define
+ * them. The stripped copy goes to a scratch file — a build never rewrites the contract being worked on.
+ */
+function productionSource(sourcePath: string): string {
+    const raw = readFileSync(sourcePath, "utf8");
+    const violations = analyzeCheatcodes(raw);
+
+    if (violations.length) {
+        throw new Error(`${basename(sourcePath)}:\n${violations.map((item) => `  line ${item.span.line}: ${item.message}`).join("\n")}`);
+    }
+
+    const target = join(mkdtempSync(join(tmpdir(), "qinit-production-")), basename(sourcePath));
+    writeFileSync(target, stripCheatcodes(raw));
+
+    return target;
+}
+
 export async function buildProjectContracts(options: {
     plan: readonly PlannedProjectContract[];
     core: string;
@@ -126,10 +146,11 @@ export async function buildProjectContracts(options: {
 
         options.onContract?.(contract);
         const dependencies = transitiveDependencies(contract, byStateType);
+        const sourcePath = options.cheats === CheatMode.OFF ? productionSource(contract.sourcePath) : contract.sourcePath;
         const result =
             options.compiler === "typescript"
                 ? await buildContractWithTypeScript({
-                      contractPath: contract.sourcePath,
+                      contractPath: sourcePath,
                       contractName: contract.name,
                       stateType: contract.stateType,
                       slot: contract.index,
@@ -139,7 +160,7 @@ export async function buildProjectContracts(options: {
                       cheats: options.cheats,
                   })
                 : await buildContractWithClang({
-                      contractPath: contract.sourcePath,
+                      contractPath: sourcePath,
                       contractName: contract.name,
                       stateType: contract.stateType,
                       slot: contract.index,

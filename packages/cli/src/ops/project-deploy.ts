@@ -1,3 +1,4 @@
+import { CheatMode } from "@qinit/compiler";
 import { resolve } from "node:path";
 import type { ProjectCalleeInput } from "@qinit/build";
 import { LiteRpc, k12Hex, type DynamicContractRegistryEntry, type NodeBackendIdentity } from "@qinit/core";
@@ -67,6 +68,8 @@ export async function deployProjectContracts(
         outDir?: string;
         skipVerify?: boolean;
         compiler: CompilerBackend;
+        // Deploying is not submitting to Core, so cheatcodes stay on unless the caller says otherwise.
+        cheats?: CheatMode;
         rpc?: LiteRpc;
     },
     emit: (event: DeploymentEvent) => void,
@@ -106,6 +109,7 @@ export async function deployProjectContracts(
         compiler: options.compiler,
         outDir: resolve(options.outDir ?? "dist/contracts"),
         skipVerify: options.skipVerify,
+        cheats: options.cheats,
         onContract: (contract) => dependencyEvent(emit, `building ${contract.name} @ slot ${contract.index}`),
     });
     if (!projectBuild.ok) {

@@ -1,9 +1,7 @@
 import { CheatMode } from "@qinit/compiler";
 import { useEffect, useState } from "react";
 import { resolve, join, basename } from "node:path";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { analyzeCheatcodes, stripCheatcodes } from "@qinit/compiler/analyzer";
+import { writeFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import type { ContractBuildResult } from "@qinit/build";
 import { DEFAULT_RPC_BASE, autoUpdateVerifyTool, LiteRpc, loadCoreWasmSlotLayout } from "@qinit/core";
@@ -15,21 +13,6 @@ import { parseContractSlot } from "../../contracts/registry";
 import { buildProjectContracts, resolveProjectPlan } from "../../ops/project-build";
 
 type State = { phase: "run" } | { phase: "done"; r: ContractBuildResult };
-
-/** Writes the cheat-free source beside the build output and hands back its path. */
-function productionCopy(sourcePath: string): string {
-    const raw = readFileSync(sourcePath, "utf8");
-    const violations = analyzeCheatcodes(raw);
-
-    if (violations.length) {
-        throw new Error(violations.map((item) => `line ${item.span.line}: ${item.message}`).join("\n"));
-    }
-
-    const target = join(mkdtempSync(join(tmpdir(), "qinit-production-")), basename(sourcePath));
-    writeFileSync(target, stripCheatcodes(raw));
-
-    return target;
-}
 
 export function buildJsonResult(r: ContractBuildResult, compiler: string) {
     return {
@@ -55,10 +38,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
             try {
                 const cfg = loadConfig();
                 const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
-                const sourcePath = resolve(commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract ?? "fixtures/Counter.h");
-                // A production build compiles what Core will receive. The stripped copy goes to a
-                // scratch file: a build must never rewrite the contract the dev is working on.
-                const contractPath = commandArgs.has("production") ? productionCopy(sourcePath) : sourcePath;
+                const contractPath = resolve(commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract ?? "fixtures/Counter.h");
                 const name = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
                 const outDir = resolve(commandArgs.get("out") ?? "dist/contracts");
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;

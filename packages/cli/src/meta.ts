@@ -230,6 +230,7 @@ const commandMeta = {
             stringOption("callee", "<n>=<hdr>[@<i>]", "callee header and optional slot", {
                 multiple: true,
             }),
+            booleanOption("production", "build without cheatcodes, as Core will"),
             stringOption("compiler", "<clang|typescript>", "compiler for this run"),
             booleanOption("skip-verify", "skip compatibility checks (development only)"),
         ],
