@@ -591,5 +591,6 @@ describe.skipIf(CLANG === null)("precedence — generated expressions against cl
         } finally {
             rmSync(directory, { recursive: true, force: true });
         }
-    });
+        // Compiling and linking the oracle does not fit bun's 5s default on a cold Windows runner.
+    }, 120000);
 });
