@@ -144,7 +144,7 @@ const commandMeta = {
     },
     dev: {
         group: "develop",
-        summary: "rebuild and redeploy on source changes",
+        summary: "watch and redeploy on source changes",
         usage: "[<file.h>]",
         options: [
             stringOption("contract", "<file.h>", "contract header"),

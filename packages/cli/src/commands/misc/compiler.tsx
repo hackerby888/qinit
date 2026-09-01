@@ -4,7 +4,7 @@ import { BackendPicker } from "./backend-picker";
 
 const DESC: Record<CompilerBackend, string> = {
     clang: "clang / wasi-sdk (bit-exact; needs the toolchain installed)",
-    typescript: "in-process TypeScript compiler (no toolchain; instant)",
+    typescript: "BETA qinit typescript compiler (no toolchain; instant)",
 };
 
 export function CompilerCmd({ commandArgs }: { commandArgs: CommandArguments }) {
