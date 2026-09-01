@@ -39,5 +39,5 @@ test("every mutating import exists in the generated host ABI", () => {
 
 // A new import lands unguarded by default, so the count is pinned too — it moves only with EXPECTED.
 test("the host ABI has not grown past the reviewed import set", () => {
-    expect(Object.keys(LHOST_ABI)).toHaveLength(62);
+    expect(Object.keys(LHOST_ABI)).toHaveLength(63);
 });

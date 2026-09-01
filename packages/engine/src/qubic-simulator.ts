@@ -172,6 +172,7 @@ export class QubicSimulator {
         });
         this.host = {
             tick: () => this.currentTick,
+            initialTick: () => this.currentEpoch * this.epochLength,
             epoch: () => this.currentEpoch,
             nowMs: () => this.nowMs(),
             numberOfTickTransactions: () => this.tickTxCount,
