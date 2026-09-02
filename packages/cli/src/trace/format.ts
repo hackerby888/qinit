@@ -1,9 +1,8 @@
 // Decodes one debug trace entry into the strings the trace views render.
 import { decodeOutput, decodeLog, type DecodedLog } from "@qinit/proto";
-import type { ContractCheat } from "@qinit/proto/contract-idl";
+import { AbiTypeKind, type AbiType, type ContractCheat, type ContractIdl } from "@qinit/proto/contract-idl";
 import type { DebugCheat } from "@qinit/core";
 import { extractIdl } from "@qinit/build";
-import type { ContractIdl } from "@qinit/proto/contract-idl";
 import { stateDiffLines, type StateDiffLine } from "./state-diff";
 import { enumMap, formatStateValue, stateFieldsOf, type StateField } from "./state-format";
 import { bytesToIdentity, hexToBytes, type DebugEntry } from "@qinit/core";
@@ -41,52 +40,45 @@ export async function describeTrace(
         }
     }
 
+    const idl = contractIdl ?? idlFromSource(source, name, entry.index, qpiHeader);
+
     let fields: StateField[] = [];
     let stateDiff: StateDiffLine[] = [];
     let logs: DecodedLog[] = [];
-    let cheats: DecodedCheat[] = [];
 
-    try {
-        const idl =
-            contractIdl ??
-            (source
-                ? extractIdl(source, name, {
-                      slot: entry.index,
-                      qpiHeader,
-                  })
-                : undefined);
+    // Every section decodes on its own, so a payload one section cannot read leaves the others intact.
+    // Raw trace bytes remain available wherever decoding fails.
+    if (idl) {
+        // A caller may hold only part of an IDL — the browser IDE has the cheat table and little
+        // else — so every section is optional rather than assumed present.
+        const registered = (entry.kind === 0 ? idl.functions : idl.procedures) ?? [];
+        const metadata = registered.find((candidate) => candidate.inputType === entry.entry);
 
-        if (idl) {
-            // A caller may hold only part of an IDL — the browser IDE has the cheat table and little
-            // else — so every section is optional rather than assumed present.
-            const registered = (entry.kind === 0 ? idl.functions : idl.procedures) ?? [];
-            const metadata = registered.find((candidate) => candidate.inputType === entry.entry);
-
-            if (metadata && entry.inHex) {
-                const decoded = await decodeOutput(hexToBytes(entry.inHex), metadata.input);
-                input = formatStateValue(decoded, metadata.input, false, true);
-            }
-            if (metadata && entry.outHex) {
-                const decoded = await decodeOutput(hexToBytes(entry.outHex), metadata.output);
-                output = formatStateValue(decoded, metadata.output, false, true);
-            }
-
-            if (idl.state) {
-                fields = stateFieldsOf(idl);
-                stateDiff = await stateDiffLines(fields, entry.stateDiff);
-            }
-
-            if (entry.logs?.length && idl.logs) {
-                logs = await Promise.all(entry.logs.map((log) => decodeLog(log.type, log.size, log.hex, idl.logs, enumMap(idl))));
-            }
-
-            if (entry.cheats?.length) {
-                cheats = await decodeCheats(entry.cheats, idl.cheats ?? []);
-            }
+        if (metadata && entry.inHex) {
+            input = await orElse(input, async () => formatStateValue(await decodeOutput(hexToBytes(entry.inHex), metadata.input), metadata.input, false, true));
         }
-    } catch {
-        // Raw trace bytes remain available when decoding fails.
+        if (metadata && entry.outHex) {
+            output = await orElse(output, async () =>
+                formatStateValue(await decodeOutput(hexToBytes(entry.outHex), metadata.output), metadata.output, false, true),
+            );
+        }
+
+        if (idl.state) {
+            const state = await orElse({ fields, stateDiff }, async () => {
+                const decodedFields = stateFieldsOf(idl);
+                return { fields: decodedFields, stateDiff: await stateDiffLines(decodedFields, entry.stateDiff) };
+            });
+            fields = state.fields;
+            stateDiff = state.stateDiff;
+        }
+
+        if (entry.logs?.length && idl.logs) {
+            logs = await orElse(logs, () => Promise.all(entry.logs.map((log) => decodeLog(log.type, log.size, log.hex, idl.logs, enumMap(idl)))));
+        }
     }
+
+    // Prints are shown even without an IDL: the raw bytes still tell the dev the call was reached.
+    const cheats = entry.cheats?.length ? await decodeCheats(entry.cheats, idl?.cheats ?? []) : [];
 
     return {
         inDecoded: input,
@@ -97,6 +89,26 @@ export async function describeTrace(
         logs,
         cheats,
     };
+}
+
+function idlFromSource(source: string | undefined, name: string, slot: number, qpiHeader: string | undefined): ContractIdl | undefined {
+    if (!source) {
+        return undefined;
+    }
+
+    try {
+        return extractIdl(source, name, { slot, qpiHeader });
+    } catch {
+        return undefined;
+    }
+}
+
+async function orElse<T>(fallback: T, work: () => Promise<T>): Promise<T> {
+    try {
+        return await work();
+    } catch {
+        return fallback;
+    }
 }
 
 export interface DecodedCheat {
@@ -110,21 +122,21 @@ export interface DecodedCheat {
  * when no literal precedes it.
  */
 async function decodeCheats(records: readonly DebugCheat[], sites: readonly ContractCheat[]): Promise<DecodedCheat[]> {
-    const byLine = new Map<number, ContractCheat>(sites.map((site) => [site.line, site]));
+    // Both runtimes unpack the wire tag before it reaches the trace, so a record's id is already the line.
+    const bySite = new Map<number, ContractCheat>(sites.map((site) => [site.id, site]));
     const grouped = new Map<number, DebugCheat[]>();
 
     for (const record of records) {
-        const line = record.id >>> 8 || record.id;
-        grouped.set(line, [...(grouped.get(line) ?? []), record]);
+        grouped.set(record.id, [...(grouped.get(record.id) ?? []), record]);
     }
 
     const decoded: DecodedCheat[] = [];
 
-    for (const [line, group] of grouped) {
-        const site = byLine.get(line);
+    for (const [id, group] of grouped) {
+        const site = bySite.get(id);
 
         if (!site) {
-            decoded.push({ line, text: group.map((record) => record.hex || String(record.value)).join(" ") });
+            decoded.push({ line: id, text: group.map(rawCheatValue).join(" ") });
             continue;
         }
 
@@ -136,20 +148,52 @@ async function decodeCheats(records: readonly DebugCheat[], sites: readonly Cont
                 continue;
             }
 
-            const record = group.find((candidate) => (candidate.part ?? 0) === index);
+            const record = group.find((candidate) => candidate.part === index);
 
             if (!record) {
                 continue;
             }
 
-            const value = record.size && part.type ? formatStateValue(await decodeOutput(hexToBytes(record.hex), part.type), part.type, false, true) : String(record.value);
+            const value = part.type ? await cheatValue(record, part.type) : rawCheatValue(record);
             const labelled = site.parts[index - 1]?.lit === undefined && part.expr ? `${part.expr}=${value}` : value;
 
             pieces.push(labelled);
         }
 
-        decoded.push({ line, text: pieces.join(" ") });
+        decoded.push({ line: site.line, text: pieces.join(" ") });
     }
 
     return decoded;
+}
+
+// A value decodes only when the bytes are exactly its type's size. Anything else is shown raw with both
+// sizes rather than dropped, so a stale IDL or a shape the compiler could not type still reads back.
+async function cheatValue(record: DebugCheat, type: AbiType): Promise<string> {
+    try {
+        if (record.size === type.size) {
+            return formatStateValue(await decodeOutput(hexToBytes(record.hex), type), type, false, true);
+        }
+
+        if (record.size === 0 && type.kind === AbiTypeKind.SCALAR && type.size <= 8) {
+            return formatStateValue(await decodeOutput(registerBytes(record.value).subarray(0, type.size), type), type, false, true);
+        }
+    } catch {
+        // Shown raw below.
+    }
+
+    return record.size === 0 ? rawCheatValue(record) : `${rawCheatValue(record)} (${record.size} bytes, expected ${type.size})`;
+}
+
+// The register carries a wasm i64: the engine sends it signed, core-lite unsigned. Both name the same
+// eight bytes, so the recorded type decides the sign rather than the runtime.
+function registerBytes(value: number | string): Uint8Array {
+    const bytes = new Uint8Array(8);
+
+    new DataView(bytes.buffer).setBigUint64(0, BigInt.asUintN(64, BigInt(value)), true);
+
+    return bytes;
+}
+
+function rawCheatValue(record: DebugCheat): string {
+    return record.size ? "0x" + record.hex : String(record.value);
 }

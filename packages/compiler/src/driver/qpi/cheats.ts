@@ -7,13 +7,10 @@
 
 import { CheatMode } from "../../shared/enums";
 
-/** Arguments per call, since the ordinal rides in the low byte of the tag the contract sends. */
-export const CHEAT_MAX_PARTS = 255;
-
 const ACTIVE = `#define QINIT_CC_LINE_BASE __QINIT_CC_LINE_BASE__
-#define CC_PRINT(...) __qinit_cheat_print(__LINE__ - QINIT_CC_LINE_BASE, __VA_ARGS__);
+#define CC_PRINT(...) __qinit_cheat_print(__LINE__ - QINIT_CC_LINE_BASE, __VA_ARGS__)
 #define CC_ASSERT(c) if (!(c)) { qpi.__qpiAbort(0xCC000000u | (__LINE__ - QINIT_CC_LINE_BASE)); }
-#define CC_PAY(dest, amount) qpi.transfer(dest, amount);
+#define CC_PAY(dest, amount) qpi.transfer(dest, amount)
 #define CC_DEAL(who, amount) __qinit_cheat_call(2u, (uint64)(amount), 0, who);
 #define CC_WARP_TICK(n) __qinit_cheat_call(3u, (uint64)(n), 0, NULL_ID);
 #define CC_WARP_EPOCH(n) __qinit_cheat_call(4u, (uint64)(n), 0, NULL_ID);

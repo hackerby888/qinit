@@ -66,9 +66,24 @@ because a literal is never lowered: the compiler interns it in the IDL and emits
 cheats: [{ id: 33, line: 33, parts: [{ lit: "adding" }, { type: <uint64>, expr: "input.amount" }] }]
 ```
 
-The contract sends only `(line << 8 | ordinal, bytes)`. The reader joins the two back together. A value
-with no literal in front is labelled with `expr` — the argument's own source text, captured at compile
-time, which is more accurate than a hand-written label and costs nothing at runtime.
+The contract sends only `(line << 8 | ordinal, bytes)`, and both runtimes unpack that into `(line,
+part)` before it reaches the trace. The reader joins the two back together. A value with no literal in
+front is labelled with `expr` — the argument's own source text, captured at compile time, which is more
+accurate than a hand-written label and costs nothing at runtime.
+
+Because the tag is the line, **a line holds at most one `CC_PRINT`** (`cheat/too-many-per-line`); an
+assert may share it.
+
+What a value part carries depends on whether the argument has an address:
+
+| Argument | Wire | IDL type |
+|---|---|---|
+| anything addressable — `input`, `locals.abc.ab`, `state.get().items.get(0)`, `qpi.invocator()` | its bytes, at the layout's size (an empty struct is one byte) | the declared type, so the reader decodes it |
+| a scalar temporary — `output.value + 2`, `qpi.tick()` | the value in the register slot, no bytes | `uint64`; a signed expression prints unsigned, so print the lvalue when the sign matters |
+
+The reader decodes a value only when the bytes are exactly its type's size. Anything else — a stale IDL,
+a shape the compiler could not type — is shown raw with both sizes rather than dropped, and each part
+and each section of the trace decodes on its own, so one unreadable value never blanks the rest.
 
 `"a" + value` is not supported and never will be: it fails to lower in one backend and is pointer
 arithmetic in the other. Use the comma form.
@@ -78,11 +93,16 @@ arithmetic in the other. Use the comma form.
 | | TypeScript backend | clang backend |
 |---|---|---|
 | Shim | `driver/qpi/cheats.ts`, injected in `contract-frontend.ts` | `assets/qinit_cheats.h`, injected in `generateWasmWrapperSource` |
-| `CC_PRINT` | `__qinit_cheat_print` intrinsic in `host-intrinsic-call.ts` | parameter pack with an `if constexpr` literal test |
+| `CC_PRINT` | `__qinit_cheat_print` intrinsic in `host-intrinsic-call.ts`: addressable → bytes, else register | forwarding-reference pack: an lvalue ships bytes, an integral temporary rides the register, a literal is skipped |
+| mutator refused | `if (result < 0) abort(0xCC1E0000 \| op)` around the call | the same abort in the macro |
 | `__LINE__` base | derived from the real prelude, never pinned | 0 — the contract is `#include`d |
 
-The two shim texts differ; `cheat-parity.test.ts` is what holds them to the same `(id, part, bytes)` on
-the wire. It is the test that caught the base being off by one, so do not delete it.
+The two shim texts differ; `cheat-parity.test.ts` is what holds them to the same `(id, part, size, hex)`
+on the wire, over `fixtures/Cheats.h` and every shape in `fixtures/CheatShapes.h`. It is the test that
+caught the base being off by one, so do not delete it.
+
+Neither macro ends in a `;` of its own: the user's semicolon closes the statement, so
+`if (c) CC_PRINT(x); else f();` parses, and the strip (which keeps that `;`) matches the neutered build.
 
 The clang placement matters twice: `clangd-config.ts:176-183` builds the editor's prefix header by
 slicing the wrapper at the contract include, so a shim before that include reaches clangd with no
@@ -123,7 +143,7 @@ compile anyway, since Core's headers never define it.
 | `cheat/statement-only` | Blanking must never change an expression; this is also why a snapshot handle can never be returned |
 | `cheat/no-side-effects` | The gate cannot catch this — a neutered build and a stripped build both drop the side effect, so only dev-versus-production diverges |
 | `cheat/mutator-in-function` | Caught at compile time rather than left to the host's `-3` |
-| `cheat/too-many-per-line` | Keeps the id readable |
+| `cheat/too-many-per-line` | The wire tags a print by its line alone, so a second `CC_PRINT` there would read back as the first |
 
 `qpi/no-string` and `qpi/no-char` are suppressed inside a cheat argument, since those literals are
 interned rather than lowered. Aliasing needs no rule: `qpi/no-preprocessor` already forbids `#define` in
@@ -132,9 +152,23 @@ contract source.
 ## 7. What has actually been exercised
 
 Both compilers, both runtimes. `cheat-parity.test.ts` runs each backend's wasm through the engine and
-asserts identical `(id, part, bytes)`; a cheat-carrying contract has also been deployed to a real
+asserts identical `(id, part, size, hex)`; a cheat-carrying contract has also been deployed to a real
 core-lite node and called, with the printed values read back off `/live/v1/debug-trace` and the
 protocol log left empty.
+
+`fixtures/CheatShapes.h` is the argument matrix: a bare `input` (empty) and `output`, a nested struct
+and a field inside it, `uint16`/`sint32`/`bit`, `Array` whole and by `get`, `id` from state and from
+`qpi.invocator()`, a `HashMap`, an rvalue, values at ordinal 0 and 5, and a print on each side of an
+unbraced `else`. Four layers read it: `cheat-idl-types.test.ts` pins the IDL type of every part,
+`cheat-channel.test.ts` checks every wire record is exactly its IDL type's size (the arbiter — an
+argument the typer misses ships its real bytes against a `uint64` and fails here), `cheat-parity` holds
+both backends to the same records, and `cheat-end-to-end.test.ts` reads the text back, once through the
+IDL file a deploy writes. `cheat-decode.test.ts` covers what the IDL cannot explain: a size mismatch,
+an unknown site, no IDL at all, a corrupt sibling section, a line past 255.
+
+That matrix exists because a `CC_PRINT(input)` on an empty struct once lost every print row of its
+call: the IDL typed a bare root as `uint64`, the wire carried one byte, the decode threw, and a single
+`catch` around the whole trace swallowed it. Neither backend was at fault and both were affected.
 
 That live run was worth doing, because it found a bug the simulator structurally could not.
 `w_cheat` treated a zero guest offset as "no payload" — but offset 0 is an ordinary linear-memory

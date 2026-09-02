@@ -65,7 +65,9 @@ function emitCheatPrintCall(context: FunctionEmissionContext, expression: CallEx
         const tag = watIr.i64Constant((BigInt(line) << 8n) | BigInt(part));
         const resolved = resolveExpressionAddress(context, argument);
 
-        if (resolved?.addr && resolved.size) {
+        // Anything with an address ships its bytes, an empty layout included: its zero-length record still
+        // carries the ordinal, and the reader renders it from the type.
+        if (resolved?.addr) {
             emitCheat(context, CHEAT_OP.print, tag, watIr.i64Constant(0n), addrIr(resolved.addr), watIr.i32Constant(resolved.size));
             return;
         }
@@ -80,19 +82,27 @@ function emitCheatPrintCall(context: FunctionEmissionContext, expression: CallEx
     }
 }
 
+// Abort codes for a refused mutation, one per opcode, shared with the clang shim.
+const CHEAT_ABORT_BASE = 0xcc1e0000;
+
 // The mutating cheatcodes: opcode, one scalar, and an optional 32-byte id.
 function emitCheatOpCall(context: FunctionEmissionContext, expression: CallExpression): void {
     const [opArgument, amount, , target] = expression.callArguments;
     const op = opArgument?.kind === AstKind.INT_LITERAL ? Number(opArgument.value) : 0;
     const address = target ? context.lowering.emitAddress(context, target) : null;
 
-    emitCheat(
-        context,
-        op,
+    const call = watIr.functionCall(
+        "$qpi_cheat",
+        watIr.i32Constant(op),
         amount ? context.lowering.lowerValueExpression(context, amount) : watIr.i64Constant(0n),
         watIr.i64Constant(0n),
         address ? addrIr(address) : watIr.i32Constant(0),
         watIr.i32Constant(address ? 32 : 0),
+    );
+
+    // A refused mutation aborts with its opcode, as the clang shim's macros do, rather than passing silently.
+    context.lines.push(
+        `    (if (i64.lt_s ${watIr.serializeWatNode(call)} (i64.const 0)) (then (call $qpi_abort (i32.const ${(CHEAT_ABORT_BASE + op) >>> 0}))))`,
     );
 }
 

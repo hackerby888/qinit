@@ -1,4 +1,4 @@
-// Cheatcode fixture: exercises CC_PRINT with literals and values, plus the assert and pay forms.
+// Cheatcode fixture: exercises CC_PRINT with literals and values, plus the assert form.
 // Every CC_* here must vanish under `strip`, leaving a contract byte-identical to a cheat-free build.
 using namespace QPI;
 

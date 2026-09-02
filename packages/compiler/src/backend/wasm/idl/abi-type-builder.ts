@@ -43,7 +43,7 @@ export class AbiTypeBuilder {
         };
     }
 
-    namedStruct(name: string, layout: StructLayout, root: boolean, declaration?: StructDecl): AbiStruct {
+    namedStruct(name: string | undefined, layout: StructLayout, root: boolean, declaration?: StructDecl): AbiStruct {
         return this.struct(name, layout, root, EMPTY_TEMPLATE_BINDINGS, declaration);
     }
 

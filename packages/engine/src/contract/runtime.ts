@@ -1038,7 +1038,9 @@ export class Contract {
             return view.invocationReward;
         }
 
-        this.prankSaved ??= { originator: view.originator, invocator: view.invocator, invocationReward: view.invocationReward };
+        // The context accessors hand back views into guest memory, so what is saved must be a copy,
+        // or the prank's own overwrite rewrites the values an unprank is meant to restore.
+        this.prankSaved ??= { originator: view.originator.slice() as Id, invocator: view.invocator.slice() as Id, invocationReward: view.invocationReward };
         view.originator = caller;
         view.invocator = caller;
         view.invocationReward = invocationReward;

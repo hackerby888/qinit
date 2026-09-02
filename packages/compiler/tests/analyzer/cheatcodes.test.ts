@@ -58,3 +58,11 @@ test("CC_ inside a comment is not a call, so the lexer decides rather than a reg
     expect(codes(source)).toEqual([]);
     expect(stripCheatcodes(source)).toBe(source);
 });
+
+test("two prints on one line are refused, since the wire tags a print by its line", () => {
+    expect(codes(`PUBLIC_PROCEDURE(P) { CC_PRINT("a"); CC_PRINT("b"); }`)).toEqual(["cheat/too-many-per-line"]);
+});
+
+test("an assert and a print may share a line, since only prints are tagged by it", () => {
+    expect(codes(`PUBLIC_PROCEDURE(P) { CC_ASSERT(input.n > 0); CC_PRINT("n", input.n); }`)).toEqual([]);
+});

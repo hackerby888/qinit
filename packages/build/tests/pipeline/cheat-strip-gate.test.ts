@@ -7,28 +7,37 @@ import { stripCheatcodes } from "@qinit/compiler/analyzer";
 import { CheatMode, compileContractWithTypeScript, loadQpiHeader } from "@qinit/compiler";
 import { HAS_CORE } from "../../../../test-utils/paths";
 
-const SOURCE = readFileSync(join(import.meta.dir, "../../../../fixtures/Cheats.h"), "utf8");
+const FIXTURES = join(import.meta.dir, "../../../../fixtures");
 
-test.if(HAS_CORE)("stripped source compiles with no shim at all, and matches the neutered build byte for byte", async () => {
-    const qpiHeader = loadQpiHeader();
-    const options = { contractName: "Cheats", slot: 28, qpiHeader };
+// Every cheat fixture: the one that only prints, every print shape, and every mutating macro.
+const CONTRACTS = ["Cheats", "CheatShapes", "CheatOps"];
 
-    // Half one: with no shim, a cheat the stripper missed is an undeclared identifier. This is what
-    // Core does, so a clean compile here is what proves nothing was left behind.
-    const stripped = await compileContractWithTypeScript({ ...options, source: stripCheatcodes(SOURCE), cheats: CheatMode.OFF });
+function sourceOf(contractName: string): string {
+    return readFileSync(join(FIXTURES, `${contractName}.h`), "utf8");
+}
 
-    expect(stripped.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+for (const contractName of CONTRACTS) {
+    test.if(HAS_CORE)(`stripped ${contractName} compiles with no shim at all, and matches the neutered build byte for byte`, async () => {
+        const source = sourceOf(contractName);
+        const options = { contractName, slot: 28, qpiHeader: loadQpiHeader() };
 
-    // Half two: the same contract built with the cheats defined away. Equal bytes prove the strip
-    // removed only cheat text and perturbed nothing else.
-    const neutered = await compileContractWithTypeScript({ ...options, source: SOURCE, cheats: CheatMode.NOOP });
+        // Half one: with no shim, a cheat the stripper missed is an undeclared identifier. This is what
+        // Core does, so a clean compile here is what proves nothing was left behind.
+        const stripped = await compileContractWithTypeScript({ ...options, source: stripCheatcodes(source), cheats: CheatMode.OFF });
 
-    expect(Buffer.from(stripped.wasm).equals(Buffer.from(neutered.wasm))).toBe(true);
-});
+        expect(stripped.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+
+        // Half two: the same contract built with the cheats defined away. Equal bytes prove the strip
+        // removed only cheat text and perturbed nothing else.
+        const neutered = await compileContractWithTypeScript({ ...options, source, cheats: CheatMode.NOOP });
+
+        expect(Buffer.from(stripped.wasm).equals(Buffer.from(neutered.wasm))).toBe(true);
+    });
+}
 
 test.if(HAS_CORE)("a cheat left behind fails the no-shim build, which is what makes half one meaningful", async () => {
     const result = await compileContractWithTypeScript({
-        source: SOURCE,
+        source: sourceOf("Cheats"),
         contractName: "Cheats",
         slot: 28,
         qpiHeader: loadQpiHeader(),

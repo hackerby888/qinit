@@ -57,6 +57,12 @@ test("reports the native QPI source restrictions", () => {
     }
 });
 
+// A literal inside a cheat argument is interned into the IDL, never lowered, so the string ban does not apply.
+test("a string literal inside a CC_PRINT is not a QPI violation", () => {
+    expect(rules('CC_PRINT("text", input.n);')).not.toContain("qpi/no-string");
+    expect(rules('auto value = "text"; CC_PRINT("text");')).toContain("qpi/no-string");
+});
+
 test("ignores comments, static assertions, digit separators, and the qpi.h include", () => {
     const source = `
 #include "qpi.h"

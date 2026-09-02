@@ -12,6 +12,7 @@ import HOST_WRITE_SOURCE from "../fixtures/HostWrite.h" with { type: "text" };
 import INCOMING_LOGGER_SOURCE from "../fixtures/IncomingLogger.h" with { type: "text" };
 import CHEATS_SOURCE from "../fixtures/Cheats.h" with { type: "text" };
 import CHEAT_OPS_SOURCE from "../fixtures/CheatOps.h" with { type: "text" };
+import CHEAT_SHAPES_SOURCE from "../fixtures/CheatShapes.h" with { type: "text" };
 import ORACLE_PROBE_SOURCE from "../fixtures/OracleProbe.h" with { type: "text" };
 import PROXY_SOURCE from "../fixtures/Proxy.h" with { type: "text" };
 import QPI_DUAL_SOURCE from "../fixtures/QpiDual.h" with { type: "text" };
@@ -63,6 +64,7 @@ export const wasmFixtureManifest = {
     BigState: fixture("BigState.h", BIG_STATE_SOURCE, "BigState", 28),
     CallOutState: fixture("CallOutState.h", CALL_OUT_STATE_SOURCE, "CallOutState", 29, ["Counter"]),
     CheatOps: fixture("CheatOps.h", CHEAT_OPS_SOURCE, "CheatOps", 28),
+    CheatShapes: fixture("CheatShapes.h", CHEAT_SHAPES_SOURCE, "CheatShapes", 28),
     Cheats: fixture("Cheats.h", CHEATS_SOURCE, "Cheats", 28),
     Counter: fixture("Counter.h", COUNTER_SOURCE, "Counter", 28),
     Counter1: fixture("Counter.h", COUNTER_SOURCE, "Counter", 1),
@@ -176,4 +178,9 @@ async function compileFixtureUncached(name: WasmFixtureName): Promise<CompileRes
 export async function loadWasmFixture(name: WasmFixtureName): Promise<Uint8Array> {
     const result = await compileFixture(name);
     return Uint8Array.from(result.wasm);
+}
+
+// The IDL of the same cached compile, for tests that read the wire back against it.
+export async function loadWasmFixtureIdl(name: WasmFixtureName): Promise<ContractIdl> {
+    return toCalleeIdl(wasmFixtureManifest[name], await compileFixture(name));
 }

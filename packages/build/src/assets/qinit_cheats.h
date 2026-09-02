@@ -19,9 +19,29 @@ __attribute__((import_module("lhost"), import_name("cheat"))) long long lh_cheat
 namespace QinitCheats
 {
 
+template <typename T> struct RemoveRef
+{
+    typedef T Type;
+};
+
+template <typename T> struct RemoveRef<T&>
+{
+    typedef T Type;
+};
+
+template <typename T> struct RemoveRef<T&&>
+{
+    typedef T Type;
+};
+
 template <typename T> struct IsLiteral
 {
     static constexpr bool value = false;
+};
+
+template <unsigned long N> struct IsLiteral<const char[N]>
+{
+    static constexpr bool value = true;
 };
 
 template <unsigned long N> struct IsLiteral<char[N]>
@@ -29,25 +49,38 @@ template <unsigned long N> struct IsLiteral<char[N]>
     static constexpr bool value = true;
 };
 
-template <typename T> static void printOne(unsigned long long id, unsigned int& part, unsigned int& emitted, const T& value)
+// An lvalue ships the bytes at its address. A scalar temporary has no address worth pointing at, so it
+// rides in the register slot — the same split the other backend makes by addressability, so both put
+// the same record on the wire for the same argument.
+template <typename T> static void printOne(unsigned long long id, unsigned int& part, unsigned int& emitted, T&& value)
 {
+    typedef typename RemoveRef<T>::Type Value;
+
     // A literal is already interned in the IDL, so it carries nothing on the wire — but it still
     // occupies an ordinal, so both backends number the parts the same way.
-    if constexpr (!IsLiteral<T>::value)
+    if constexpr (!IsLiteral<Value>::value)
     {
-        lh_cheat(QINIT_CC_OP_PRINT, id + part, 0ull, (void*)&value, (unsigned int)sizeof(T));
+        if constexpr (!__is_reference(T) && (__is_integral(Value) || __is_enum(Value)) && sizeof(Value) <= 8)
+        {
+            lh_cheat(QINIT_CC_OP_PRINT, id + part, (unsigned long long)value, 0, 0u);
+        }
+        else
+        {
+            lh_cheat(QINIT_CC_OP_PRINT, id + part, 0ull, (void*)&value, (unsigned int)sizeof(Value));
+        }
+
         emitted++;
     }
 
     part++;
 }
 
-template <typename... Ts> static void printAll(unsigned long long id, const Ts&... values)
+template <typename... Ts> static void printAll(unsigned long long id, Ts&&... values)
 {
     unsigned int part = 0;
     unsigned int emitted = 0;
 
-    (printOne(id, part, emitted, values), ...);
+    (printOne(id, part, emitted, static_cast<Ts&&>(values)), ...);
 
     // An all-literal print still has to reach the reader, so it sends a marker carrying no bytes.
     if (emitted == 0u)
@@ -58,9 +91,9 @@ template <typename... Ts> static void printAll(unsigned long long id, const Ts&.
 
 } // namespace QinitCheats
 
-#define CC_PRINT(...) QinitCheats::printAll(((unsigned long long)(__LINE__ - QINIT_CC_LINE_BASE)) << 8, __VA_ARGS__);
+#define CC_PRINT(...) QinitCheats::printAll(((unsigned long long)(__LINE__ - QINIT_CC_LINE_BASE)) << 8, __VA_ARGS__)
 #define CC_ASSERT(c) if (!(c)) { qpi.__qpiAbort(0xCC000000u | (__LINE__ - QINIT_CC_LINE_BASE)); }
-#define CC_PAY(dest, amount) qpi.transfer(dest, amount);
+#define CC_PAY(dest, amount) qpi.transfer(dest, amount)
 #define CC_DEAL(who, amount) { QPI::id __qcw = (who); if (lh_cheat(2u, (unsigned long long)(amount), 0ull, &__qcw, 32u) < 0) qpi.__qpiAbort(0xCC1E0002u); }
 #define CC_WARP_TICK(n) { if (lh_cheat(3u, (unsigned long long)(n), 0ull, 0, 0u) < 0) qpi.__qpiAbort(0xCC1E0003u); }
 #define CC_WARP_EPOCH(n) { if (lh_cheat(4u, (unsigned long long)(n), 0ull, 0, 0u) < 0) qpi.__qpiAbort(0xCC1E0004u); }

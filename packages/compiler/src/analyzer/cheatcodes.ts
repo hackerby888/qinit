@@ -40,7 +40,6 @@ const MUTATING_OPERATORS: ReadonlySet<TokenKind> = new Set([
 ]);
 
 const CHEAT_PREFIX = /^CC_[A-Z0-9_]*$/;
-const MAX_CHEATS_PER_LINE = 8;
 
 // A cheat statement may follow any of these, which is what makes `if (x) CC_PRINT(y); else f();` safe
 // to blank: the `else` still finds its `;`.
@@ -165,12 +164,17 @@ export function analyzeCheatcodes(source: string): SourceAnalysisDiagnostic[] {
             diagnostics.push(diagnostic("cheat/mutator-in-function", `${token.text} changes state, so it cannot run inside a function.`, token));
         }
 
-        const line = token.span.line;
-        const seen = (perLine.get(line) ?? 0) + 1;
-        perLine.set(line, seen);
+        // The wire tags a print by its line alone, so a second print there would read back as the first.
+        if (token.text === "CC_PRINT") {
+            const line = token.span.line;
+            const seen = (perLine.get(line) ?? 0) + 1;
+            perLine.set(line, seen);
 
-        if (seen > MAX_CHEATS_PER_LINE) {
-            diagnostics.push(diagnostic("cheat/too-many-per-line", `At most ${MAX_CHEATS_PER_LINE} cheatcodes may share a line.`, token));
+            if (seen > 1) {
+                diagnostics.push(
+                    diagnostic("cheat/too-many-per-line", "Only one CC_PRINT may stand on a line, since the wire tags a print by its line.", token),
+                );
+            }
         }
 
         index = close;

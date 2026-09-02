@@ -142,8 +142,8 @@ export interface ContractCheatPart {
     expr?: string;
 }
 
-// A CC_PRINT call site. `id` is what the contract puts on the wire, so the two compilers agree without
-// sharing a counter: the user line, times eight, plus the call's ordinal on that line.
+// A CC_PRINT call site. `id` is the line the contract tags its records with, so the two compilers agree
+// without sharing a counter; a line therefore holds at most one print.
 export interface ContractCheat {
     id: number;
     line: number;
