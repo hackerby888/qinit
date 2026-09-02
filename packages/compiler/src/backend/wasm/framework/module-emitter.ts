@@ -33,7 +33,7 @@ export function emitModule(spec: ModuleSpecification): string {
         emitExportList(),
         emitMemOps(),
         emitAllocators(),
-        emitForwarders(spec.contextLayout),
+        emitForwarders(spec.contextLayout, spec.lhostAbi),
         emitIntrinsics(capacity, spec),
         emitMetadata(capacity, spec, sysprocMask),
         spec.userFunctionsWat,

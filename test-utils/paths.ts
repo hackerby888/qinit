@@ -23,3 +23,15 @@ export function requireCorePath(): string {
     }
     return CORE_PATH;
 }
+
+/**
+ * The live qpi.h with the `cheat` host import removed, standing in for core headers that predate the
+ * cheatcodes. Both halves have to go: dropping one alone trips the canonical-ABI check on the other.
+ */
+export function qpiHeaderWithoutCheatImport(header: string): string {
+    return header
+        .split("\n")
+        .filter((line) => !line.includes("__lhost_cheat"))
+        .join("\n")
+        .replace(',{"name":"cheat","params":["i32","i64","i64","i32","i32"],"results":["i64"]}', "");
+}

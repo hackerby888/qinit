@@ -5,6 +5,7 @@ import { emitModule, type ModuleSpecification } from "../framework";
 import { emitFunction, emitHelperFunction } from "../functions/function-emitter";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 import { type GeneratedContractMetadata, type LibrarySymbolIndex } from "./library-index";
+import { validateCheatCalls } from "./cheat-call-validation";
 import { prepareContractModule, type CalleeTranslationUnit } from "./module-analysis";
 import { copyProgramDiagnostics, applyGeneratedContractMetadata } from "./module-output";
 import { emitRegisteredEntries } from "./registrations";
@@ -41,6 +42,9 @@ export function generateWasmModule(request: ModuleGenerationRequest): string {
         gtestMode: request.gtestMode,
         procedureDeclLines: request.procedureDeclLines,
     });
+
+    validateCheatCalls(prepared);
+
     const { programAnalysis, contract, stateLayout, layouts, registrations, callables, systemProcedureIndex, contextLayout, lhostAbi } = prepared;
     if (request.metadataOutput) {
         request.metadataOutput.idl = buildContractIdl(prepared, {

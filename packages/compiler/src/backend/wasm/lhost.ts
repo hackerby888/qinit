@@ -26,6 +26,14 @@ export const LHOST_CALL_SIG = Object.freeze(
     ),
 );
 
+// Core headers that predate an import never declare it, and `emitLhostImports` treats an absent spec
+// as the generated default — so every caller asking "can the module call this?" must ask through here.
+export function hasLhostImport(abi: LhostAbiSpec | undefined, name: string): boolean {
+    const resolved: LhostAbiSpec = abi ?? LHOST_ABI;
+
+    return resolved[name] !== undefined;
+}
+
 export function emitLhostImports(abi: LhostAbiSpec = LHOST_ABI): string {
     return Object.entries(abi)
         .map(([name, abi]) => {
