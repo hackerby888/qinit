@@ -135,16 +135,45 @@ export function TraceView({
         });
 
     const rows: { label: string; node: React.ReactNode }[] = [];
-    // A separate row kind from `log`: this is dev output that never reached the chain.
-    for (const cheat of view.cheats)
+    // A separate row kind from `log`: this is dev output that never reached the chain. It is never cut
+    // short — a print exists to be read — and a block sits under its head, one row per line.
+    for (const cheat of view.cheats) {
         rows.push({
             label: "print",
             node: (
                 <Text>
-                    <Text dimColor>:{cheat.line}</Text> {truncEnd(cheat.text, cols - 12)}
+                    <Text dimColor>:{cheat.line}</Text> {cheat.text}
                 </Text>
             ),
         });
+        const indent = " ".repeat(String(cheat.line).length + 2);
+        // A bounded pane cannot scroll a block, and Ink cannot erase rows past the screen, so it gets a count.
+        if (bounded && cheat.block) {
+            rows.push({
+                label: "",
+                node: (
+                    <Text color={theme.mute} dimColor>
+                        {indent}⋯ {cheat.block.length} rows · qinit call --trace
+                    </Text>
+                ),
+            });
+            continue;
+        }
+        const width = Math.max(1, ...(cheat.block ?? []).map((line) => line.label.length));
+        for (const line of cheat.block ?? [])
+            rows.push({
+                label: "",
+                node: (
+                    <Text dimColor={!line.filled}>
+                        {indent}
+                        <Text color={line.filled ? theme.accent : undefined} bold={line.filled}>
+                            {line.label.padEnd(width)}
+                        </Text>{" "}
+                        {line.text}
+                    </Text>
+                ),
+            });
+    }
     for (const l of view.logs)
         rows.push({
             label: "log",

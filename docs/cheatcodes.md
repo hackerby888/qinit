@@ -82,8 +82,17 @@ What a value part carries depends on whether the argument has an address:
 | a scalar temporary — `output.value + 2`, `qpi.tick()` | the value in the register slot, no bytes | `uint64`; a signed expression prints unsigned, so print the lvalue when the sign matters |
 
 The reader decodes a value only when the bytes are exactly its type's size. Anything else — a stale IDL,
-a shape the compiler could not type — is shown raw with both sizes rather than dropped, and each part
+a shape the compiler could not type, bytes that contradict themselves — is shown raw with both sizes
+(or marked undecodable) rather than dropped, and each part
 and each section of the trace decodes on its own, so one unreadable value never blanks the rest.
+
+A print is never cut short or elided: no terminal-width truncation, no `… +N more` cap. A print of
+**one value that holds a container** — `state.get()`, `input` with an `Array` in it, a bare `HashMap`
+— renders as a block under its head, in the rows `qinit state` draws: one per scalar field, a
+container as its own lines with zero runs and unoccupied slots collapsed. Two ceilings: a print with
+several values stays inline (`"nums", state.get().nums, "second", …` is one line), and a nested
+struct's container prints as JSON inside its field, as it does in `qinit state`. The `qinit debug`
+pane cannot scroll a block, so it shows the row count and points at `qinit call --trace`.
 
 `"a" + value` is not supported and never will be: it fails to lower in one backend and is pointer
 arithmetic in the other. Use the comma form.
@@ -156,7 +165,7 @@ asserts identical `(id, part, size, hex)`; a cheat-carrying contract has also be
 core-lite node and called, with the printed values read back off `/live/v1/debug-trace` and the
 protocol log left empty.
 
-`fixtures/CheatShapes.h` is the argument matrix: a bare `input` (empty) and `output`, a nested struct
+`fixtures/CheatShapes.h` is the argument matrix: a bare `input` (empty), `output` and `state.get()`, a nested struct
 and a field inside it, `uint16`/`sint32`/`bit`, `Array` whole and by `get`, `id` from state and from
 `qpi.invocator()`, a `HashMap`, an rvalue, values at ordinal 0 and 5, and a print on each side of an
 unbraced `else`. Four layers read it: `cheat-idl-types.test.ts` pins the IDL type of every part,

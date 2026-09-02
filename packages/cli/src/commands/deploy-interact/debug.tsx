@@ -413,6 +413,7 @@ function Detail({
         2 + // the status line and the state block's own header
         1 + // the state block's ⋯ tail
         (e.kind === 1 ? 3 : 2) + // in, out, and a proc's caller
+        (v?.cheats.reduce((count, cheat) => count + (cheat.block ? 2 : 1), 0) ?? 0) + // a print, and a block's one-line count
         (v?.logs.length ?? 0) +
         e.hostCalls.length +
         (e.trap ? 1 : 0);

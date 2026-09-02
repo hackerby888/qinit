@@ -106,7 +106,7 @@ test("every record is exactly its IDL type's size, or a register-borne scalar", 
     const records = sim.getTrace().entries.flatMap((entry) => entry.cheats);
 
     // Fifteen values across the two entries, plus the marker of the all-literal print the flag selects.
-    expect(records).toHaveLength(16);
+    expect(records).toHaveLength(17);
 
     for (const record of records) {
         const part = sites.get(record.id)?.parts[record.part];

@@ -1,10 +1,19 @@
 // Reads a contract's state over an RPC client and hands the decoded bytes to the pure formatters.
-import { decodeOutput, createQpiContainerView, QpiContainerConsistencyError, QpiIncompleteReadError, type QpiByteSource } from "@qinit/proto";
-import { AbiTypeKind } from "@qinit/proto/contract-idl";
+import {
+    decodeOutput,
+    createQpiContainerView,
+    qpiSnapshotSource,
+    QpiContainerConsistencyError,
+    QpiIncompleteReadError,
+    type QpiByteSource,
+} from "@qinit/proto";
+import { AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { hexToBytes } from "@qinit/core";
 import {
+    containerLayoutOf,
     containerLines,
+    flatLine,
     fmtVal,
     formatStateValue,
     keyLabel,
@@ -206,6 +215,40 @@ async function formatContainerView(field: StateField, source: QpiByteSource, ful
         default:
             throw new Error(`${field.name} is not a state container`);
     }
+}
+
+// A value already in hand, in the rows `qinit state` draws: one per scalar field, a container as its
+// block. Only a value that holds a container gets one; anything smaller reads better inline.
+export async function valueBlock(bytes: Uint8Array, type: AbiType): Promise<StateLine[] | undefined> {
+    const container = containerLayoutOf(type);
+    const fields: StateField[] =
+        type.kind === AbiTypeKind.STRUCT
+            ? stateFieldsOf({ state: type })
+            : container
+              ? [{ name: "", off: 0, size: type.size, type: type.format, abi: type, container }]
+              : [];
+
+    if (!fields.some((field) => field.container)) {
+        return undefined;
+    }
+
+    const lines: StateLine[] = [];
+
+    for (const field of fields) {
+        const slice = bytes.subarray(field.off, field.off + field.size);
+
+        if (!field.container) {
+            lines.push({ label: field.name, text: formatStateValue(await decodeOutput(slice, field.abi!), field.abi!, true, true), filled: true });
+            continue;
+        }
+
+        const { stateLines } = await formatContainerView(field, qpiSnapshotSource(slice), true);
+        const rows = stateLines.length ? stateLines : [{ label: "", text: "empty", filled: false }];
+
+        lines.push(...rows.map((line, index) => ({ label: index ? "" : field.name, text: flatLine(line), filled: line.filled })));
+    }
+
+    return lines;
 }
 
 async function readContainerBlock(

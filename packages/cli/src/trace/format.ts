@@ -4,7 +4,8 @@ import { AbiTypeKind, type AbiType, type ContractCheat, type ContractIdl } from 
 import type { DebugCheat } from "@qinit/core";
 import { extractIdl } from "@qinit/build";
 import { stateDiffLines, type StateDiffLine } from "./state-diff";
-import { enumMap, formatStateValue, stateFieldsOf, type StateField } from "./state-format";
+import { enumMap, formatStateValue, stateFieldsOf, type StateField, type StateLine } from "./state-format";
+import { valueBlock } from "./state-read";
 import { bytesToIdentity, hexToBytes, type DebugEntry } from "@qinit/core";
 
 export interface DecodedTrace {
@@ -114,12 +115,15 @@ async function orElse<T>(fallback: T, work: () => Promise<T>): Promise<T> {
 export interface DecodedCheat {
     line: number;
     text: string;
+    /** A container, or a struct holding one, as the rows `qinit state` draws; `text` is then its head. */
+    block?: StateLine[];
 }
 
 /**
  * Rebuilds one CC_PRINT line. Literal parts come straight from the IDL and carry no bytes; a value
  * part is decoded against the type recorded for that argument, and labelled with its source text
- * when no literal precedes it.
+ * when no literal precedes it. A print of one value that holds a container becomes a block instead,
+ * since a whole state on one line reads as nothing at any width.
  */
 async function decodeCheats(records: readonly DebugCheat[], sites: readonly ContractCheat[]): Promise<DecodedCheat[]> {
     // Both runtimes unpack the wire tag before it reaches the trace, so a record's id is already the line.
@@ -141,6 +145,8 @@ async function decodeCheats(records: readonly DebugCheat[], sites: readonly Cont
         }
 
         const pieces: string[] = [];
+        const lone = site.parts.filter((part) => part.lit === undefined).length === 1;
+        let block: StateLine[] | undefined;
 
         for (const [index, part] of site.parts.entries()) {
             if (part.lit !== undefined) {
@@ -154,34 +160,62 @@ async function decodeCheats(records: readonly DebugCheat[], sites: readonly Cont
                 continue;
             }
 
-            const value = part.type ? await cheatValue(record, part.type) : rawCheatValue(record);
-            const labelled = site.parts[index - 1]?.lit === undefined && part.expr ? `${part.expr}=${value}` : value;
+            const unlabelled = site.parts[index - 1]?.lit === undefined && part.expr;
+            block = lone && part.type ? await cheatBlock(record, part.type) : undefined;
 
-            pieces.push(labelled);
+            if (block) {
+                if (unlabelled) {
+                    pieces.push(unlabelled);
+                }
+                continue;
+            }
+
+            const value = part.type ? await cheatValue(record, part.type) : rawCheatValue(record);
+
+            pieces.push(unlabelled ? `${part.expr}=${value}` : value);
         }
 
-        decoded.push({ line: site.line, text: pieces.join(" ") });
+        decoded.push({ line: site.line, text: pieces.join(" "), ...(block ? { block } : {}) });
     }
 
     return decoded;
 }
 
+// Undefined for anything that is not a container-bearing value at exactly its size; the inline path
+// then decides between a decoded value and the raw bytes.
+async function cheatBlock(record: DebugCheat, type: AbiType): Promise<StateLine[] | undefined> {
+    if (record.size !== type.size) {
+        return undefined;
+    }
+
+    try {
+        return await valueBlock(hexToBytes(record.hex), type);
+    } catch {
+        return undefined;
+    }
+}
+
 // A value decodes only when the bytes are exactly its type's size. Anything else is shown raw with both
 // sizes rather than dropped, so a stale IDL or a shape the compiler could not type still reads back.
+// A print is the dev asking for the value, so nothing in it is elided.
 async function cheatValue(record: DebugCheat, type: AbiType): Promise<string> {
     try {
         if (record.size === type.size) {
-            return formatStateValue(await decodeOutput(hexToBytes(record.hex), type), type, false, true);
+            return formatStateValue(await decodeOutput(hexToBytes(record.hex), type), type, true, true);
         }
 
         if (record.size === 0 && type.kind === AbiTypeKind.SCALAR && type.size <= 8) {
-            return formatStateValue(await decodeOutput(registerBytes(record.value).subarray(0, type.size), type), type, false, true);
+            return formatStateValue(await decodeOutput(registerBytes(record.value).subarray(0, type.size), type), type, true, true);
         }
     } catch {
         // Shown raw below.
     }
 
-    return record.size === 0 ? rawCheatValue(record) : `${rawCheatValue(record)} (${record.size} bytes, expected ${type.size})`;
+    if (record.size === 0) {
+        return rawCheatValue(record);
+    }
+
+    return `${rawCheatValue(record)} (${record.size} bytes, ${record.size === type.size ? "undecodable" : `expected ${type.size}`})`;
 }
 
 // The register carries a wasm i64: the engine sends it signed, core-lite unsigned. Both name the same

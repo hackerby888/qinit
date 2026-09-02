@@ -119,7 +119,7 @@ function formatBits(bitCount: number, valueAt: (index: number) => number, full: 
 }
 
 // A block row collapsed back to the one-line form the trace views and nested container values use.
-const flatLine = (line: StateLine) => `${line.label} ${line.text}`;
+export const flatLine = (line: StateLine) => `${line.label} ${line.text}`;
 
 export function linkedListValueLines(value: { slot: number; value: unknown }[], valueType: AbiType, capacity: number, full: boolean): StateLine[] {
     const logical = value.map((entry, index) => ({
@@ -229,7 +229,7 @@ export function unoccupiedSlotLines(capacity: number, occupied: number[]): State
     return lines;
 }
 
-function containerLayoutOf(type: AbiType): StateContainerLayout | undefined {
+export function containerLayoutOf(type: AbiType): StateContainerLayout | undefined {
     switch (type.kind) {
         case AbiTypeKind.ARRAY:
             return {

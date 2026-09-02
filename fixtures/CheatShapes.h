@@ -48,6 +48,7 @@ struct CheatShapes : public ContractBase
         CC_PRINT("Counter is", output.value + 2, "after adding 2");
         CC_PRINT(input);
         CC_PRINT(output);
+        CC_PRINT(state.get());
     }
 
     PUBLIC_PROCEDURE(Put)
