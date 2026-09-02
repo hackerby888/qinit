@@ -22,6 +22,12 @@ export function loadContractIdlFile(path = DEFAULT_IDL_PATH): ContractIdlFile {
         throw new Error(`${path}: ${String(error?.message ?? error)}`);
     }
 
+    // A file from an older Qinit is a stale cache, not an error: drop it so readers fall back to the
+    // contract source and the next deploy writes it back at the current version.
+    if (!value || typeof value !== "object" || (value as { version?: unknown }).version !== QINIT_IDL_VERSION) {
+        return emptyContractIdlFile();
+    }
+
     try {
         return parseContractIdlFile(value);
     } catch (error: any) {
