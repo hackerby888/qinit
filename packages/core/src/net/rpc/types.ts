@@ -81,7 +81,7 @@ export interface DebugCheat {
     id: number;
     part: number;
     size: number;
-    value: bigint | number;
+    value: number | string;
     hex: string;
 } // one CC_PRINT argument; size 0 means the value came by register
 export interface DebugEntry {

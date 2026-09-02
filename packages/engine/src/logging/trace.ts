@@ -205,11 +205,12 @@ export class TraceRecorder {
         }
     }
 
-    // A CC_PRINT argument. Kept apart from logs: it carries no log id and never reaches the log store.
+    // A CC_PRINT argument. Kept apart from logs: no log id, never reaches the log store. `value` is decimal
+    // text because the entry crosses /debug-trace as JSON, and a register-passed scalar has no bytes to fall back on.
     cheat(slot: number, id: number, part: number, value: bigint, bytes: Uint8Array): void {
         const e = this.stack[this.stack.length - 1];
         if (e) {
-            e.cheats.push({ slot, id, part, size: bytes.length, value, hex: toHex(bytes) });
+            e.cheats.push({ slot, id, part, size: bytes.length, value: value.toString(), hex: toHex(bytes) });
         }
     }
 

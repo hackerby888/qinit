@@ -59,3 +59,13 @@ test("each printed value carries its own ordinal, and a literal contributes none
     // a native-side bug reading state at guest offset 0 survived every simulator test.
     expect(entry.cheats.map((cheat) => cheat.hex)).toEqual(["0700000000000000", "0700000000000000"]);
 });
+
+// The trace leaves the node as JSON on /live/v1/debug-trace, so a bigint anywhere in an entry is a 500
+// for every caller of that route — and cheats are the only part of an entry a plain contract can't reach.
+test("a trace carrying a CC_PRINT survives the JSON the debug-trace route sends", async () => {
+    const { sim } = await deployCheats();
+
+    sim.procedure(28, ADD, new Uint8Array(new BigUint64Array([7n]).buffer));
+
+    expect(() => JSON.stringify(sim.getTrace())).not.toThrow();
+});

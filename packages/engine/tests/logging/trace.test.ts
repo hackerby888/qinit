@@ -211,3 +211,28 @@ test("a write far past the old snapshot cap still reaches the diff", async () =>
     expect(entry.stateTruncated).toBe(false);
     expect(entry.stateDiff.map((region) => region.off)).toEqual([0, 60_000_000]);
 });
+
+// A register-passed argument has no bytes to fall back on, so `value` is the only record of what the
+// contract printed. Widening it to a Number would round exactly the ids and hashes worth printing.
+test("a printed value past 2^53 keeps every digit across the wire", () => {
+    const recorder = new TraceRecorder();
+    recorder.setEnabled(true);
+    const state = new Uint8Array(8);
+
+    const entry = recorder.begin({
+        tick: 0,
+        index: 2,
+        entry: 0,
+        kind: 2,
+        invocator: undefined,
+        invocationReward: 0n,
+        input: new Uint8Array(0),
+        stateSize: 8,
+        stateBefore: state,
+    });
+    recorder.cheat(28, 1, 0, 2n ** 60n + 1n, new Uint8Array(0));
+    recorder.end(entry, { output: new Uint8Array(0), ok: true, stateBefore: state, stateAfter: state, execNs: 1 });
+
+    const wire = JSON.parse(JSON.stringify(recorder.trace())) as { entries: { cheats: { value: unknown }[] }[] };
+    expect(wire.entries[0]!.cheats[0]!.value).toBe("1152921504606846977");
+});

@@ -50,7 +50,7 @@ function entryWith(cheats: DebugEntry["cheats"]): DebugEntry {
 
 test("a literal and a value are rejoined into one printed line", async () => {
     const view = await describeTrace(
-        entryWith([{ id: (33 << 8) | 1, part: 1, size: 8, value: 0n, hex: "0700000000000000" }]),
+        entryWith([{ id: (33 << 8) | 1, part: 1, size: 8, value: "0", hex: "0700000000000000" }]),
         undefined,
         "Cheats",
         undefined,
@@ -63,14 +63,14 @@ test("a literal and a value are rejoined into one printed line", async () => {
 });
 
 test("an all-literal print still reads back, though it carries no bytes", async () => {
-    const view = await describeTrace(entryWith([{ id: 41 << 8, part: 0, size: 0, value: 0n, hex: "" }]), undefined, "Cheats", undefined, idl);
+    const view = await describeTrace(entryWith([{ id: 41 << 8, part: 0, size: 0, value: "0", hex: "" }]), undefined, "Cheats", undefined, idl);
 
     expect(view.cheats[0].text).toBe("reading total");
 });
 
 test("a value with no literal in front is labelled with its own source text", async () => {
     const bare: ContractIdl = { ...idl, cheats: [{ id: 33, line: 33, parts: [{ type: UINT64, expr: "input.amount" }] }] };
-    const view = await describeTrace(entryWith([{ id: 33 << 8, part: 0, size: 8, value: 0n, hex: "0700000000000000" }]), undefined, "Cheats", undefined, bare);
+    const view = await describeTrace(entryWith([{ id: 33 << 8, part: 0, size: 8, value: "0", hex: "0700000000000000" }]), undefined, "Cheats", undefined, bare);
 
     expect(view.cheats[0].text).toBe("input.amount=7");
 });
