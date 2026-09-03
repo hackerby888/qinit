@@ -41,6 +41,7 @@ async function boot() {
     return { run, stop };
 }
 
+// Each case spawns the CLI twice, which on a Windows runner alone outlasts the default test timeout.
 test("an unregistered fn number fails, an unregistered proc number warns and still sends", async () => {
     const { run, stop } = await boot();
     try {
@@ -55,7 +56,7 @@ test("an unregistered fn number fails, an unregistered proc number warns and sti
     } finally {
         stop();
     }
-});
+}, 60_000);
 
 test("an --out that disagrees with the IDL warns but still prints, and one wider than the answer names both sizes", async () => {
     const { run, stop } = await boot();
@@ -71,4 +72,4 @@ test("an --out that disagrees with the IDL warns but still prints, and one wider
     } finally {
         stop();
     }
-});
+}, 60_000);
