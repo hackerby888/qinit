@@ -11,9 +11,15 @@ const TRANSFER_COLS: Column[] = [
     { header: "dir", max: 4 },
     { header: "hash", max: 16 },
     { header: "peer", max: 22 },
-    { header: "amount", align: "right", max: 18 },
+    { header: "amount", align: "right", max: 30 },
     { header: "timestamp", max: 20 },
 ];
+
+// moneyFlew is the net energy delta of the transaction, so only a non-zero amount that stayed put says
+// anything; a zero-amount call reports false too and is not a failure.
+export function unmoved(t: IdentityTransfer): boolean {
+    return t.amount !== "0" && !t.moneyFlew;
+}
 
 export function IdentityView({
     rpc,
@@ -132,19 +138,20 @@ export function IdentityView({
                         rows={win.map((t) => {
                             const peer = t.direction === "in" ? t.source : t.destination;
                             const label = contractLabel(peer, contractNames);
-                            // A zero-amount call is neither a credit nor a debit — don't sign it.
-                            const sign = t.amount === "0" ? "" : t.direction === "in" ? "+" : "-";
+                            // A zero-amount call is neither a credit nor a debit — don't sign it. Nor is an
+                            // amount the node accepted and never moved: show what was attempted, unsigned.
+                            const sign = t.amount === "0" || !t.moneyFlew ? "" : t.direction === "in" ? "+" : "-";
                             return [
                                 String(t.tickNumber),
                                 t.direction === "in" ? "IN" : "OUT",
                                 t.hash,
                                 label ?? peer,
-                                `${sign}${fmtAmount(t.amount)}`,
+                                `${sign}${fmtAmount(t.amount)}${unmoved(t) ? "  ◌ not moved" : ""}`,
                                 fmtTime(t.timestamp),
                             ];
                         })}
                         selected={selected - offset}
-                        rowColor={(i) => (win[i].direction === "in" ? theme.ok : theme.warn)}
+                        rowColor={(i) => (unmoved(win[i]) ? theme.err : win[i].direction === "in" ? theme.ok : theme.warn)}
                         width={sectionTableWidth(columns)}
                     />
                 )}
