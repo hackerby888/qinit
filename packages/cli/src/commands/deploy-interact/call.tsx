@@ -360,9 +360,6 @@ function CallOneShot({
                             view: await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl),
                         });
                     else setNote("(no trace captured — is the debug toggle available on this node?)");
-                    try {
-                        await rpc.setDebug(false);
-                    } catch {}
                 }
                 setDone(true);
             } catch (e: any) {
