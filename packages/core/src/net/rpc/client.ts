@@ -42,8 +42,10 @@ export class LiteRpc implements NodeTransport {
 
     constructor(private base = DEFAULT_RPC_BASE) {}
 
-    // GETs are idempotent reads: a connect/timeout failure is retried (bounded, backoff) so a momentary
-    // blip during node boot/load doesn't fail the command. An HTTP non-2xx is a real answer -> not retried.
+    // GETs are reads: a connect/timeout failure is retried (bounded, backoff) so a momentary blip during
+    // node boot/load doesn't fail the command. An HTTP non-2xx is a real answer -> not retried. The two dev
+    // routes that move the chain by a relative amount pass tries=1: a timed-out advance may well have run,
+    // and re-sending it advances again.
     private async get<T = unknown>(path: string, tries = 3): Promise<T> {
         for (let a = 0; ; a++) {
             let r: Response;
@@ -199,7 +201,7 @@ export class LiteRpc implements NodeTransport {
             reached: number;
             epochLastTick: number;
             cappedAtEpochEnd: boolean;
-        }>(`/live/v1/dev/advance-tick?n=${n}`);
+        }>(`/live/v1/dev/advance-tick?n=${n}`, 1);
     }
     // Testnet-only: pull the chain to `target` rather than wait out its cadence, and answer with the tick
     // reached (0 when it cannot). Never throws, and refuses spans past maxSpan — those mean a stale read.
@@ -260,7 +262,7 @@ export class LiteRpc implements NodeTransport {
             tick: number;
             initialTick: number;
             switched: boolean;
-        }>("/live/v1/dev/advance-epoch");
+        }>("/live/v1/dev/advance-epoch", 1);
     }
     /** Set the simulator tick interval without restarting it. */
     setTickMs(ms: number) {
