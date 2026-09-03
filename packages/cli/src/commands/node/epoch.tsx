@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadConfig } from "../../config";
-import { advanceTo } from "./tick";
-import { describeFault, readFault } from "../../ops/fault";
+import { advanceTo, haltedNodeError } from "./tick";
 import { Header, Spinner, Bar, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 
@@ -37,16 +36,12 @@ export function epochJsonResult(action: string, facts: EpochFacts | null, error:
     };
 }
 
-// The boundary transition hits the same halted-node 503 the tick advance does.
+// The boundary transition fails the same way the tick advance does on a halted node.
 async function advanceEpochOrFault(rpc: LiteRpc) {
     try {
         return await rpc.advanceEpoch();
     } catch (error) {
-        if ((error as { status?: number }).status !== 503) {
-            throw error;
-        }
-        const fault = await readFault(rpc);
-        throw fault ? new Error(await describeFault(rpc, fault)) : error;
+        throw (await haltedNodeError(rpc)) ?? error;
     }
 }
 

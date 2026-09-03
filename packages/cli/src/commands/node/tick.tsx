@@ -40,16 +40,22 @@ function nextChunk(chunk: number, elapsedMs: number): number {
     return Math.max(1, Math.min(2048, Math.round(scaled)));
 }
 
-// A halted node answers the advance route with 503, and the tick number alone would say nothing.
+// A halted node answers the advance route with 503, or on a core node never answers it at all, and the
+// tick number alone would say nothing. Whatever the failure, the fault route is asked once first.
 export async function advanceChunk(rpc: LiteRpc, span: number) {
     try {
         return await rpc.advanceTick(span);
     } catch (error) {
-        if ((error as { status?: number }).status !== 503) {
-            throw error;
-        }
+        throw (await haltedNodeError(rpc)) ?? error;
+    }
+}
+
+export async function haltedNodeError(rpc: LiteRpc): Promise<Error | null> {
+    try {
         const fault = await readFault(rpc);
-        throw fault ? new Error(await describeFault(rpc, fault)) : error;
+        return fault ? new Error(await describeFault(rpc, fault)) : null;
+    } catch {
+        return null;
     }
 }
 
