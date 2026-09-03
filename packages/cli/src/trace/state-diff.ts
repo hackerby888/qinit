@@ -13,7 +13,7 @@ import {
     type WordType,
 } from "@qinit/proto/qpi-layout";
 import type { DebugStateRegion } from "@qinit/core";
-import { formatStateValue, keyLabel, type StateField, type StateLine } from "./state-format";
+import { holdsContainer, keyLabel, scalarText, type StateField, type StateLine } from "./state-format";
 import { hexToBytes } from "@qinit/core";
 
 // A diff row keeps both label forms: `label` is what the default view shows, `detail` the full resolved
@@ -59,10 +59,14 @@ type KeyedLeaf = {
     keyType: AbiType;
 };
 
+// The flags run of a keyed container, with the record geometry that lets a flag name the entry it
+// belongs to when nothing else in the window does.
+type Owner = { container: string; containerPath: string; recordsOff: number; stride: number; keyOff: number; keyType: AbiType };
+
 // A decodable value at an absolute state offset, or packed bits to report one changed index at a time.
 // `keyed` marks a value inside a keyed container's record, `owner` the flags run that says whether those
 // records gained or lost an entry.
-type Leaf = Names & { keyed?: KeyedLeaf; owner?: { container: string; containerPath: string } } & (
+type Leaf = Names & { keyed?: KeyedLeaf; owner?: Owner } & (
         | { kind: "value"; cls: LeafClass; off: number; type: AbiType }
         | {
               kind: "bits";
@@ -88,8 +92,12 @@ type EntrySite = {
     before: string;
     after: string;
 };
-type FlagSite = { part: "flag"; containerPath: string; slot: number; from: number; to: number };
+// `key` is set only for a flag that opened or closed an entry whose record sat in the same window.
+type FlagSite = { part: "flag"; container: string; containerPath: string; slot: number; from: number; to: number; key?: string };
 type RowSite = EntrySite | FlagSite;
+
+// What identifies a keyed record's entry; the before and after images are the row's own.
+type EntryBase = Omit<EntrySite, "before" | "after">;
 
 type SitedRow = StateDiffLine & { site?: RowSite };
 
@@ -106,13 +114,15 @@ const at = (names: Names, off: number, type: AbiType, cls: LeafClass = "payload"
 function leafAt(names: Names, base: number, type: AbiType, offset: number, covered: (off: number, size: number) => boolean): Leaf {
     switch (type.kind) {
         case AbiTypeKind.STRUCT: {
-            if (covered(base, type.size)) {
+            // A struct holding a container is never one row: the container's members say what moved.
+            if (!holdsContainer(type) && covered(base, type.size)) {
                 return at(names, base, type);
             }
 
             const field = type.fields.find((candidate) => offset >= candidate.offset && offset < candidate.offset + candidate.size);
             if (!field) {
-                return at(names, base, type);
+                // Padding inside the struct names nothing; a zero-count bits leaf moves the walk to its end.
+                return bitsLeaf(names, base + offset, type.size - offset, 1, 0, "internal");
             }
             return leafAt(child(names, `.${field.name}`), base + field.offset, field.type, offset - field.offset, covered);
         }
@@ -168,12 +178,26 @@ function memberLeaf(
     covered: (off: number, size: number) => boolean,
 ): Leaf {
     const region = regions.find((candidate) => offset < candidate.end) ?? regions[regions.length - 1];
-    // Only a keyed container has anything better to label a record by than the bucket it hashed into.
-    const keyedContainer = regions.some((candidate) => candidate.kind === "records" && candidate.members.some((member) => member.type === "key"));
 
     if (region.kind === "flags") {
         const bits = bitsLeaf(child(names, region.path), base + region.off, region.end - region.off, region.bitsPer, region.count, "internal");
-        return keyedContainer ? { ...bits, owner: { container: names.short, containerPath: names.path } } : bits;
+        // Only a keyed container has anything better to label a record by than the bucket it hashed into.
+        const records = regions.find((candidate): candidate is Extract<ContainerRegion, { kind: "records" }> => candidate.kind === "records");
+        const keyMember = records?.members.find((member) => member.type === "key");
+        if (!records || !keyMember) {
+            return bits;
+        }
+        return {
+            ...bits,
+            owner: {
+                container: names.short,
+                containerPath: names.path,
+                recordsOff: base + records.off,
+                stride: records.stride,
+                keyOff: keyMember.off,
+                keyType: idlType("key"),
+            },
+        };
     }
 
     if (region.kind === "word") {
@@ -236,14 +260,20 @@ async function renderValue(bytes: Uint8Array, type: AbiType): Promise<string> {
         return "0"; // matches how `qinit state` collapses an untouched element
     }
 
-    const decoded = await decodeOutput(bytes, type);
-    return typeof decoded === "object" && decoded !== null ? formatStateValue(decoded, type, true, true) : String(decoded);
+    return scalarText(await decodeOutput(bytes, type), type);
 }
 
 // Occupation flags and BitArrays are packed, so report the indices that moved, not the raw words.
 // `firstIndex` is the index the visible slice starts at, so a window opening inside the flags reports too.
-function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, after: Uint8Array, firstIndex: number): SitedRow[] {
+// `entry` is the record a packed value belongs to, so each of its bits reads by the entry's key.
+function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, after: Uint8Array, firstIndex: number, entry?: EntryBase): SitedRow[] {
     const rows: SitedRow[] = [];
+    const siteOf = (index: number, from: number, to: number): { site: RowSite } | Record<never, never> => {
+        if (leaf.owner) {
+            return { site: { part: "flag", container: leaf.owner.container, containerPath: leaf.owner.containerPath, slot: index, from, to } };
+        }
+        return entry ? { site: { ...entry, suffix: `${entry.suffix}[${index}]`, before: String(from), after: String(to) } } : {};
+    };
     const valueAt = (bytes: Uint8Array, index: number) => {
         const bit = (index - firstIndex) * leaf.bitsPer;
         const byte = bytes[bit >> 3];
@@ -271,7 +301,7 @@ function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, afte
             text: `${from} → ${to}`,
             filled: true,
             internal: leaf.cls === "internal",
-            ...(leaf.owner ? { site: { part: "flag" as const, containerPath: leaf.owner.containerPath, slot: index, from, to } } : {}),
+            ...siteOf(index, from, to),
         });
     }
 
@@ -301,6 +331,7 @@ function entryText(site: EntrySite, flag: FlagSite | undefined): string {
 function collapseEntries(rows: SitedRow[]): StateDiffLine[] {
     const flags = new Map<string, FlagSite>();
     const valued = new Set<string>();
+    const keyRows = new Set<string>();
     const collapsed = new Set<string>();
 
     for (const { site } of rows) {
@@ -308,6 +339,8 @@ function collapseEntries(rows: SitedRow[]): StateDiffLine[] {
             flags.set(groupOf(site), site);
         } else if (site?.part === "value") {
             valued.add(groupOf(site));
+        } else if (site?.part === "key") {
+            keyRows.add(groupOf(site));
         }
     }
 
@@ -318,11 +351,20 @@ function collapseEntries(rows: SitedRow[]): StateDiffLine[] {
     }
 
     return rows.map(({ site, ...line }) => {
-        if (!site || site.part === "flag") {
+        if (!site) {
             return line;
         }
 
         const group = groupOf(site);
+
+        if (site.part === "flag") {
+            // An entry whose key and value both stayed zero left only its flag, which then names it.
+            if (site.key !== undefined && !valued.has(group) && !keyRows.has(group)) {
+                return { ...line, label: `${site.container}[${site.key}]`, text: site.to === 1 ? "(new)" : "(removed)", internal: false };
+            }
+            return line;
+        }
+
         const flag = flags.get(group);
         const key = labelKey(site, flag);
         const labelled = key === undefined ? line.label : `${site.container}[${key}]${site.suffix}`;
@@ -373,14 +415,15 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
         const end = region.off + Math.min(before.length, after.length);
         const slice = (bytes: Uint8Array, from: number, to: number) => bytes.slice(from - region.off, to - region.off);
 
+        const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeOutput(bytes, type), type);
+
         // The key labelling a record is read from the window rather than from the rows: an update leaves the
         // key bytes alone, so it never produces a row of its own.
-        const entrySiteOf = async (keyed: KeyedLeaf, short: string, valueBefore: string, valueAfter: string): Promise<EntrySite | undefined> => {
+        const entrySiteOf = async (keyed: KeyedLeaf, short: string): Promise<EntryBase | undefined> => {
             const keyEnd = keyed.keyOff + keyed.keyType.size;
             if (keyed.keyOff < region.off || keyEnd > end) {
                 return undefined;
             }
-            const rendered = async (bytes: Uint8Array) => keyLabel(await decodeOutput(bytes, keyed.keyType), keyed.keyType);
 
             return {
                 part: keyed.part,
@@ -388,12 +431,28 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
                 containerPath: keyed.containerPath,
                 slot: keyed.slot,
                 suffix: short.slice(keyed.member.length),
-                keyBefore: await rendered(slice(before, keyed.keyOff, keyEnd)),
-                keyAfter: await rendered(slice(after, keyed.keyOff, keyEnd)),
-                before: valueBefore,
-                after: valueAfter,
+                keyBefore: await keyText(slice(before, keyed.keyOff, keyEnd), keyed.keyType),
+                keyAfter: await keyText(slice(after, keyed.keyOff, keyEnd), keyed.keyType),
             };
         };
+
+        // A flag that opened or closed an entry carries its key when the record is in the window, which is
+        // the only name an entry whose key and value are both zero can ever get.
+        const namedFlags = (flagged: SitedRow[], owner: Owner): Promise<SitedRow[]> =>
+            Promise.all(
+                flagged.map(async (row) => {
+                    const site = row.site;
+                    if (site?.part !== "flag" || (site.to !== 1 && site.to !== 2)) {
+                        return row;
+                    }
+                    const keyStart = owner.recordsOff + site.slot * owner.stride + owner.keyOff;
+                    const keyEnd = keyStart + owner.keyType.size;
+                    if (keyStart < region.off || keyEnd > end) {
+                        return row;
+                    }
+                    return { ...row, site: { ...site, key: await keyText(slice(site.to === 1 ? after : before, keyStart, keyEnd), owner.keyType) } };
+                }),
+            );
 
         let position = region.off;
 
@@ -447,7 +506,9 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
                 const visibleStart = Math.max(leaf.off, region.off);
                 const visibleEnd = Math.min(leaf.off + leaf.size, end);
                 const firstIndex = ((visibleStart - leaf.off) * 8) / leaf.bitsPer;
-                rows.push(...bitRows(leaf, slice(before, visibleStart, visibleEnd), slice(after, visibleStart, visibleEnd), firstIndex));
+                const entry = leaf.keyed ? await entrySiteOf(leaf.keyed, leaf.short) : undefined;
+                const flagged = bitRows(leaf, slice(before, visibleStart, visibleEnd), slice(after, visibleStart, visibleEnd), firstIndex, entry);
+                rows.push(...(leaf.owner ? await namedFlags(flagged, leaf.owner) : flagged));
                 position = visibleEnd;
                 continue;
             }
@@ -465,7 +526,8 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
                     const renderedBefore = await renderValue(beforeBytes, leaf.type);
                     const renderedAfter = await renderValue(afterBytes, leaf.type);
                     const change = `${renderedBefore} → ${renderedAfter}`;
-                    const site = leaf.keyed ? await entrySiteOf(leaf.keyed, leaf.short, renderedBefore, renderedAfter) : undefined;
+                    const entry = leaf.keyed ? await entrySiteOf(leaf.keyed, leaf.short) : undefined;
+                    const site = entry ? { ...entry, before: renderedBefore, after: renderedAfter } : undefined;
                     rows.push({
                         label: leaf.short,
                         detail: leaf.path,

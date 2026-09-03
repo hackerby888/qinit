@@ -22,6 +22,7 @@ import SHARE_APPROVER_SOURCE from "../fixtures/ShareApprover.h" with { type: "te
 import SHARE_MANAGER_SOURCE from "../fixtures/ShareManager.h" with { type: "text" };
 import SHARE_PROPOSER_SOURCE from "../fixtures/ShareProposer.h" with { type: "text" };
 import SHARE_RECEIVER_SOURCE from "../fixtures/ShareReceiver.h" with { type: "text" };
+import STATE_ZOO_SOURCE from "../fixtures/StateZoo.h" with { type: "text" };
 import TOKEN_SOURCE from "../fixtures/Token.h" with { type: "text" };
 import TRAP_SOURCE from "../fixtures/Trap.h" with { type: "text" };
 import VAULT_SOURCE from "../fixtures/Vault.h" with { type: "text" };
@@ -89,6 +90,7 @@ export const wasmFixtureManifest = {
     ShareManager: fixture("ShareManager.h", SHARE_MANAGER_SOURCE, "ShareManager", 29),
     ShareProposer: fixture("ShareProposer.h", SHARE_PROPOSER_SOURCE, "ShareProposer", 29),
     ShareReceiver: fixture("ShareReceiver.h", SHARE_RECEIVER_SOURCE, "ShareReceiver", 28),
+    StateZoo: fixture("StateZoo.h", STATE_ZOO_SOURCE, "StateZoo", 28),
     Token: fixture("Token.h", TOKEN_SOURCE, "Token", 28),
     Trap: fixture("Trap.h", TRAP_SOURCE, "Trap", 28),
     Vault: fixture("Vault.h", VAULT_SOURCE, "Vault", 28),

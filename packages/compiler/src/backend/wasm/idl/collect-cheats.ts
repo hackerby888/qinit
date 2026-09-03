@@ -17,7 +17,7 @@ export const CHEAT_PRINT_INTRINSIC = "__qinit_cheat_print";
 // Where each payload root sits in an entry's parameter list: (qpi, state, input, output, locals).
 const ROOT_PARAMETER: Record<string, number> = { input: 2, output: 3, locals: 4 };
 
-const ARRAY_TEMPLATES = new Set(["Array", "SlowAnySizeArray"]);
+const CONTAINER_TEMPLATES = new Set(["Array", "SlowAnySizeArray", "BitArray", "HashMap", "HashSet", "Collection", "LinkedList"]);
 
 interface CheatScope {
     programAnalysis: ProgramAnalysis;
@@ -136,18 +136,38 @@ function argumentType(scope: CheatScope, expression: Expression): TypeSpec | und
             return qpiReturnType(scope, member);
         }
 
-        // `Array<T, N>::get(i)` hands back one element by reference, so the element's bytes ship.
-        if (member === "get" && !rootLayout(scope.roots, object)) {
+        if (!rootLayout(scope.roots, object)) {
             const owner = argumentType(scope, object);
-            const resolved = owner ? scope.programAnalysis.resolveType(owner, EMPTY_TEMPLATE_BINDINGS) : undefined;
-
-            if (resolved?.kind === AstKind.TEMPLATE_INSTANCE && ARRAY_TEMPLATES.has(resolved.name)) {
-                return resolved.callArguments[0];
-            }
+            return owner ? containerMethodType(scope, owner, member) : undefined;
         }
     }
 
     return undefined;
+}
+
+// A container method's declared return type under the instance's bindings: the element `Array::get`
+// and `Collection::element` hand back, the key `HashMap::key` does, the `sint64` of a `priority`, the
+// `bit` a BitArray holds. A struct the method returns by value is still materialised, so its bytes ship.
+function containerMethodType(scope: CheatScope, owner: TypeSpec, method: string): TypeSpec | undefined {
+    const resolved = scope.programAnalysis.resolveType(owner, EMPTY_TEMPLATE_BINDINGS);
+
+    if (resolved.kind !== AstKind.TEMPLATE_INSTANCE || !CONTAINER_TEMPLATES.has(resolved.name)) {
+        return undefined;
+    }
+
+    const found = scope.programAnalysis.resolveSourceMethodDefinition(resolved.name, resolved.callArguments, method);
+
+    if (!found) {
+        return undefined;
+    }
+
+    // A concrete name stays as declared: `id` must not resolve through its typedef to m256i, which
+    // would print a PoV as hex rather than as an identity.
+    const declared = stripPtrRefConst(found.definition.returnType);
+
+    return declared.kind === AstKind.NAME && !found.ownerBindings.types.has(declared.name)
+        ? declared
+        : scope.programAnalysis.resolveType(declared, found.ownerBindings);
 }
 
 // `qpi.<method>()` carries the return type the context declares, searched through its bases the way

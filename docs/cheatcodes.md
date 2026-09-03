@@ -4,7 +4,7 @@
 > and how they are removed before a contract is submitted to Qubic Core.
 > **Read when** — adding a cheatcode, changing the strip, or working out why one is not showing up.
 > **Related** — [compiler walkthrough](./compiler-walkthrough.md) for the stages the shim sits between;
-> [cli guide §14](./cli-guide.md) for the two testing systems these do *not* replace.
+> [cli guide §14](./cli-guide.md) for the two testing systems these do _not_ replace.
 
 Cheatcodes are development scaffolding written inside contract source. Qinit strips them before the
 contract reaches a Core checkout, so what ships is clean and its wasm is unchanged.
@@ -44,11 +44,11 @@ range, no entry in `idl.logs`. Both runtimes already serve `/live/v1/debug-trace
 
 Refusal is always a negative return, never a trap:
 
-| Code | Meaning |
-|---|---|
+| Code | Meaning                                               |
+| ---- | ----------------------------------------------------- |
 | `-1` | unknown opcode — a newer client against an older node |
-| `-2` | cheats not compiled in (a non-`TESTNET` build) |
-| `-3` | a mutating opcode called from a function |
+| `-2` | cheats not compiled in (a non-`TESTNET` build)        |
+| `-3` | a mutating opcode called from a function              |
 
 The row is deliberately **not** in `MUTATING_LHOST_IMPORTS`. That list is a per-import ban and would
 block `CC_PRINT` from every function, so the mutating opcodes check the entry kind themselves instead.
@@ -72,14 +72,16 @@ front is labelled with `expr` — the argument's own source text, captured at co
 accurate than a hand-written label and costs nothing at runtime.
 
 Because the tag is the line, **a line holds at most one `CC_PRINT`** (`cheat/too-many-per-line`); an
-assert may share it.
+assert may share it. A print that runs more than once — inside a loop — shows once per run, in order:
+the records of one run sit together in the trace, so the reader starts a new line where a part ordinal
+repeats.
 
 What a value part carries depends on whether the argument has an address:
 
-| Argument | Wire | IDL type |
-|---|---|---|
-| anything addressable — `input`, `locals.abc.ab`, `state.get().items.get(0)`, `qpi.invocator()` | its bytes, at the layout's size (an empty struct is one byte) | the declared type, so the reader decodes it |
-| a scalar temporary — `output.value + 2`, `qpi.tick()` | the value in the register slot, no bytes | `uint64`; a signed expression prints unsigned, so print the lvalue when the sign matters |
+| Argument                                                                                                                        | Wire                                                          | IDL type                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| anything addressable — `input`, `locals.abc.ab`, `state.get().items.get(0)`, `state.get().orders.element(i)`, `qpi.invocator()` | its bytes, at the layout's size (an empty struct is one byte) | the declared type — a container accessor's element, key or PoV under the instance's template arguments — so the reader decodes it                                        |
+| a scalar temporary — `output.value + 2`, `qpi.tick()`, `orders.priority(i)`, `bits.get(i)`                                      | the value in the register slot, no bytes                      | a method's declared return type (`sint64`, `bit`), so a priority reads signed; `uint64` for arithmetic, which prints unsigned, so print the lvalue when the sign matters |
 
 The reader decodes a value only when the bytes are exactly its type's size. Anything else — a stale IDL,
 a shape the compiler could not type, bytes that contradict themselves — is shown raw with both sizes
@@ -94,7 +96,7 @@ container under its own header with its counts, zero runs and unoccupied slots c
 reached through struct fields is named for the path to it (`test_struct.map`) and gets a block of its
 own, which is where `qinit state` picked up the same fix. Blocks in a print carry no `[n]` badge: there
 is no `--container` to load them with. Two ceilings: a print with several values stays inline
-(`"nums", state.get().nums, "second", …` is one line), and a container below a *container's element*
+(`"nums", state.get().nums, "second", …` is one line), and a container below a _container's element_
 (`Array<TestStruct, 8>`) stays JSON, since a block per element would bury the container it lives in.
 The `qinit debug` pane cannot scroll a block, so it shows the row count and points at `qinit call --trace`.
 
@@ -103,12 +105,12 @@ arithmetic in the other. Use the comma form.
 
 ## 4. Both backends
 
-| | TypeScript backend | clang backend |
-|---|---|---|
-| Shim | `driver/qpi/cheats.ts`, injected in `contract-frontend.ts` | `assets/qinit_cheats.h`, injected in `generateWasmWrapperSource` |
-| `CC_PRINT` | `__qinit_cheat_print` intrinsic in `host-intrinsic-call.ts`: addressable → bytes, else register | forwarding-reference pack: an lvalue ships bytes, an integral temporary rides the register, a literal is skipped |
-| mutator refused | `if (result < 0) abort(0xCC1E0000 \| op)` around the call | the same abort in the macro |
-| `__LINE__` base | derived from the real prelude, never pinned | 0 — the contract is `#include`d |
+|                 | TypeScript backend                                                                              | clang backend                                                                                                    |
+| --------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Shim            | `driver/qpi/cheats.ts`, injected in `contract-frontend.ts`                                      | `assets/qinit_cheats.h`, injected in `generateWasmWrapperSource`                                                 |
+| `CC_PRINT`      | `__qinit_cheat_print` intrinsic in `host-intrinsic-call.ts`: addressable → bytes, else register | forwarding-reference pack: an lvalue ships bytes, an integral temporary rides the register, a literal is skipped |
+| mutator refused | `if (result < 0) abort(0xCC1E0000 \| op)` around the call                                       | the same abort in the macro                                                                                      |
+| `__LINE__` base | derived from the real prelude, never pinned                                                     | 0 — the contract is `#include`d                                                                                  |
 
 The two shim texts differ; `cheat-parity.test.ts` is what holds them to the same `(id, part, size, hex)`
 on the wire, over `fixtures/Cheats.h` and every shape in `fixtures/CheatShapes.h`. It is the test that
@@ -136,7 +138,7 @@ otherwise fail a check for code that never ships.
 
 ### The gate
 
-Two halves, and the second alone would be a tautology, because a neutered build erases a *missed*
+Two halves, and the second alone would be a tautology, because a neutered build erases a _missed_
 cheatcode too:
 
 1. `compile(strip(s), cheats: "off")` **succeeds** — with no shim, anything left behind is an undeclared
@@ -150,13 +152,13 @@ compile anyway, since Core's headers never define it.
 
 `analyzer/cheatcodes.ts` enforces the properties that make blanking a call provably harmless.
 
-| Rule | Why |
-|---|---|
-| `cheat/reserved-prefix` | The analyzer resolves no call targets, so nothing else catches a typo'd cheat name |
-| `cheat/statement-only` | Blanking must never change an expression; this is also why a snapshot handle can never be returned |
-| `cheat/no-side-effects` | The gate cannot catch this — a neutered build and a stripped build both drop the side effect, so only dev-versus-production diverges |
-| `cheat/mutator-in-function` | Caught at compile time rather than left to the host's `-3` |
-| `cheat/too-many-per-line` | The wire tags a print by its line alone, so a second `CC_PRINT` there would read back as the first |
+| Rule                        | Why                                                                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `cheat/reserved-prefix`     | The analyzer resolves no call targets, so nothing else catches a typo'd cheat name                                                   |
+| `cheat/statement-only`      | Blanking must never change an expression; this is also why a snapshot handle can never be returned                                   |
+| `cheat/no-side-effects`     | The gate cannot catch this — a neutered build and a stripped build both drop the side effect, so only dev-versus-production diverges |
+| `cheat/mutator-in-function` | Caught at compile time rather than left to the host's `-3`                                                                           |
+| `cheat/too-many-per-line`   | The wire tags a print by its line alone, so a second `CC_PRINT` there would read back as the first                                   |
 
 `qpi/no-string` and `qpi/no-char` are suppressed inside a cheat argument, since those literals are
 interned rather than lowered. Aliasing needs no rule: `qpi/no-preprocessor` already forbids `#define` in
@@ -208,5 +210,5 @@ to cheatcodes, and worth reporting separately.
 - **Snapshot and revert.** Numbers reserved. Neither runtime has a world-snapshot primitive, and honest
   scope is spectrum plus universe plus every contract state plus the log store, twice over.
 - **Anything that belongs in a test file.** The in-contract mutators exist for mutations that must happen
-  *mid-execution*. Everything you can do between invocations already works from `.test.ts` against a real
+  _mid-execution_. Everything you can do between invocations already works from `.test.ts` against a real
   node, and from `wasm_contract_testing.h` in gtest.

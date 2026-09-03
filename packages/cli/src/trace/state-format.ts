@@ -172,6 +172,15 @@ export function formatStateValue(value: unknown, type: AbiType, full: boolean, t
     }
 }
 
+// A value on its own: a string (an id, an m256i) reads bare, and anything nested keeps the quoted form
+// `fmtVal` gives it, so a whole field, a print and a diff row all agree.
+export function scalarText(value: unknown, type: AbiType): string {
+    if (typeof value === "string") {
+        return value;
+    }
+    return typeof value === "object" && value !== null ? formatStateValue(value, type, true, true) : String(value);
+}
+
 // A struct key has to read like the value beside it, which takes the type — decoded structs are positional.
 export const keyLabel = (key: unknown, type?: AbiType) => (typeof key === "string" ? key : type ? formatStateValue(key, type, false) : jstr(key));
 
@@ -270,6 +279,15 @@ export function containerLayoutOf(type: AbiType): StateContainerLayout | undefin
         default:
             return undefined;
     }
+}
+
+// A container reached through plain struct fields still deserves its own block. One inside a container's
+// element does not: a block per element would bury the container it lives in, so those stay inline.
+export function holdsContainer(type: AbiType): boolean {
+    if (containerLayoutOf(type)) {
+        return true;
+    }
+    return type.kind === AbiTypeKind.STRUCT && type.fields.some((field) => holdsContainer(field.type));
 }
 
 export function stateFieldsOf(idl: Pick<ContractIdl, "state">): StateField[] {

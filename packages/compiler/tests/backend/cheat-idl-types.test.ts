@@ -3,6 +3,7 @@
 // print a dev cannot read.
 import { expect, test } from "bun:test";
 import { AbiTypeKind, type ContractCheat } from "@qinit/proto/contract-idl";
+import { compileContractWithTypeScript } from "@qinit/compiler/browser";
 import { loadWasmFixtureIdl } from "../../../../test-utils/wasm-fixtures";
 
 function valueParts(cheats: readonly ContractCheat[]): [string, string, number][] {
@@ -52,4 +53,43 @@ test("a literal occupies an ordinal but carries no type, and an all-literal prin
 
     expect(mixed.parts.map((part) => (part.lit !== undefined ? "lit" : "value"))).toEqual(["lit", "value", "lit"]);
     expect(marker.parts).toEqual([{ lit: "flag set" }]);
+});
+
+// Every container accessor, printed. A by-reference or by-value element ships its bytes and must be
+// typed as that element; a scalar the accessor returns rides the register and keeps its declared
+// width and sign, so a priority reads negative, a bit reads as one and a bool as the byte it is.
+test("a container accessor prints as what it hands back", async () => {
+    const source = `using namespace QPI;
+struct Acc2 {};
+struct Acc : public ContractBase {
+    struct Order { id entity; sint64 amount; };
+    struct StateData {
+        Array<uint64, 4> nums; BitArray<64> bits; HashMap<uint64, Order, 4> map; HashSet<uint16, 4> set;
+        Collection<Order, 4> orders; LinkedList<Order, 4> list;
+    };
+    struct Get_input { sint64 i; };
+    struct Get_output { uint64 v; };
+    PUBLIC_FUNCTION(Get) {
+        CC_PRINT(state.get().nums.get(input.i), state.get().bits.get(input.i), state.get().map.key(input.i), state.get().map.value(input.i));
+        CC_PRINT(state.get().set.key(input.i), state.get().orders.element(input.i), state.get().orders.priority(input.i), state.get().orders.pov(input.i));
+        CC_PRINT(state.get().list.element(input.i), state.get().orders.population(), state.get().map.get(input.i, output.v));
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+};`;
+    const compiled = await compileContractWithTypeScript({ source, contractName: "Acc", slot: 28, arenaSizeBytes: 1024 * 1024 });
+
+    expect(compiled.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(valueParts(compiled.idl!.cheats)).toEqual([
+        ["state.get().nums.get(input.i)", "uint64", 8],
+        ["state.get().bits.get(input.i)", "bit", 1],
+        ["state.get().map.key(input.i)", "uint64", 8],
+        ["state.get().map.value(input.i)", "{ id, sint64 }", 40],
+        ["state.get().set.key(input.i)", "uint16", 2],
+        ["state.get().orders.element(input.i)", "{ id, sint64 }", 40],
+        ["state.get().orders.priority(input.i)", "sint64", 8],
+        ["state.get().orders.pov(input.i)", "id", 32],
+        ["state.get().list.element(input.i)", "{ id, sint64 }", 40],
+        ["state.get().orders.population()", "uint64", 8],
+        ["state.get().map.get(input.i, output.v)", "uint8", 1],
+    ]);
 });

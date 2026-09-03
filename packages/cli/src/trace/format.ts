@@ -4,9 +4,9 @@ import { AbiTypeKind, type AbiType, type ContractCheat, type ContractIdl } from 
 import type { DebugCheat } from "@qinit/core";
 import { extractIdl } from "@qinit/build";
 import { stateDiffLines, type StateDiffLine } from "./state-diff";
-import { enumMap, formatStateValue, stateFieldsOf, type StateField } from "./state-format";
+import { enumMap, formatStateValue, holdsContainer, scalarText, stateFieldsOf, type StateField } from "./state-format";
 import { MIGRATE } from "./entry-label";
-import { decodeValueBlocks, holdsContainer, type ValueBlocks } from "./state-read";
+import { decodeValueBlocks, type ValueBlocks } from "./state-read";
 import { bytesToIdentity, hexToBytes, type DebugEntry } from "@qinit/core";
 
 export interface DecodedTrace {
@@ -67,13 +67,10 @@ export async function describeTrace(
             );
         }
 
+        // The fields stand on their own: a diff that cannot be read must not make the state look absent.
         if (idl.state) {
-            const state = await orElse({ fields, stateDiff }, async () => {
-                const decodedFields = stateFieldsOf(idl);
-                return { fields: decodedFields, stateDiff: await stateDiffLines(decodedFields, entry.stateDiff) };
-            });
-            fields = state.fields;
-            stateDiff = state.stateDiff;
+            fields = await orElse(fields, async () => stateFieldsOf(idl));
+            stateDiff = await orElse(stateDiff, () => stateDiffLines(fields, entry.stateDiff));
         }
 
         if (entry.logs?.length && idl.logs) {
@@ -131,57 +128,69 @@ export interface DecodedCheat {
 async function decodeCheats(records: readonly DebugCheat[], sites: readonly ContractCheat[]): Promise<DecodedCheat[]> {
     // Both runtimes unpack the wire tag before it reaches the trace, so a record's id is already the line.
     const bySite = new Map<number, ContractCheat>(sites.map((site) => [site.id, site]));
-    const grouped = new Map<number, DebugCheat[]>();
-
-    for (const record of records) {
-        grouped.set(record.id, [...(grouped.get(record.id) ?? []), record]);
-    }
-
     const decoded: DecodedCheat[] = [];
 
-    for (const [id, group] of grouped) {
-        const site = bySite.get(id);
-
-        if (!site) {
-            decoded.push({ line: id, text: group.map(rawCheatValue).join(" ") });
-            continue;
-        }
-
-        const pieces: string[] = [];
-        const lone = site.parts.filter((part) => part.lit === undefined).length === 1;
-        let blocks: ValueBlocks | undefined;
-
-        for (const [index, part] of site.parts.entries()) {
-            if (part.lit !== undefined) {
-                pieces.push(part.lit);
-                continue;
-            }
-
-            const record = group.find((candidate) => candidate.part === index);
-
-            if (!record) {
-                continue;
-            }
-
-            const unlabelled = site.parts[index - 1]?.lit === undefined && part.expr;
-            blocks = lone && part.type ? await cheatBlocks(record, part.type) : undefined;
-
-            if (blocks) {
-                if (unlabelled) {
-                    pieces.push(unlabelled);
-                }
-                continue;
-            }
-
-            const value = part.type ? await cheatValue(record, part.type) : rawCheatValue(record);
-
-            pieces.push(unlabelled ? `${part.expr}=${value}` : value);
-        }
-
-        decoded.push({ line: site.line, text: pieces.join(" "), ...(blocks ? { blocks } : {}) });
+    for (const group of printInstances(records)) {
+        decoded.push(await decodePrint(group, bySite.get(group[0].id)));
     }
 
     return decoded;
+}
+
+// The records of one print sit together in the trace, so a line's next print starts where a part
+// ordinal repeats: a print in a loop keeps every iteration, whatever order a backend emits parts in.
+function printInstances(records: readonly DebugCheat[]): DebugCheat[][] {
+    const instances: DebugCheat[][] = [];
+    let current: DebugCheat[] = [];
+
+    for (const record of records) {
+        if (current.length && (current[0].id !== record.id || current.some((seen) => seen.part === record.part))) {
+            instances.push(current);
+            current = [];
+        }
+        current.push(record);
+    }
+
+    return current.length ? [...instances, current] : instances;
+}
+
+async function decodePrint(group: DebugCheat[], site: ContractCheat | undefined): Promise<DecodedCheat> {
+    if (!site) {
+        return { line: group[0].id, text: group.map(rawCheatValue).join(" ") };
+    }
+
+    const pieces: string[] = [];
+    const lone = site.parts.filter((part) => part.lit === undefined).length === 1;
+    let blocks: ValueBlocks | undefined;
+
+    for (const [index, part] of site.parts.entries()) {
+        if (part.lit !== undefined) {
+            pieces.push(part.lit);
+            continue;
+        }
+
+        const record = group.find((candidate) => candidate.part === index);
+
+        if (!record) {
+            continue;
+        }
+
+        const unlabelled = site.parts[index - 1]?.lit === undefined && part.expr;
+        blocks = lone && part.type ? await cheatBlocks(record, part.type) : undefined;
+
+        if (blocks) {
+            if (unlabelled) {
+                pieces.push(unlabelled);
+            }
+            continue;
+        }
+
+        const value = part.type ? await cheatValue(record, part.type) : rawCheatValue(record);
+
+        pieces.push(unlabelled ? `${part.expr}=${value}` : value);
+    }
+
+    return { line: site.line, text: pieces.join(" "), ...(blocks ? { blocks } : {}) };
 }
 
 // Undefined for anything that is not a container-bearing value at exactly its size; the inline path
@@ -204,11 +213,11 @@ async function cheatBlocks(record: DebugCheat, type: AbiType): Promise<ValueBloc
 async function cheatValue(record: DebugCheat, type: AbiType): Promise<string> {
     try {
         if (record.size === type.size) {
-            return formatStateValue(await decodeOutput(hexToBytes(record.hex), type), type, true, true);
+            return scalarText(await decodeOutput(hexToBytes(record.hex), type), type);
         }
 
         if (record.size === 0 && type.kind === AbiTypeKind.SCALAR && type.size <= 8) {
-            return formatStateValue(await decodeOutput(registerBytes(record.value).subarray(0, type.size), type), type, true, true);
+            return scalarText(await decodeOutput(registerBytes(record.value).subarray(0, type.size), type), type);
         }
     } catch {
         // Shown raw below.

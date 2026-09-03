@@ -14,9 +14,10 @@ import {
     containerLayoutOf,
     containerLines,
     flatLine,
-    fmtVal,
     formatStateValue,
+    holdsContainer,
     keyLabel,
+    scalarText,
     stateFieldsOf,
     linkedListValueLines,
     type StateContainerLayout,
@@ -254,15 +255,6 @@ export async function valueBlock(bytes: Uint8Array, type: AbiType): Promise<Stat
 /** The scalar rows and container blocks of one value, in the shape `qinit state` renders. */
 export type ValueBlocks = { fields: { name: string; value: string }[]; containers: StateContainer[] };
 
-// A container reached through plain struct fields still deserves its own block. One inside a container's
-// element does not: a block per element would bury the container it lives in, so those stay inline.
-export function holdsContainer(type: AbiType): boolean {
-    if (containerLayoutOf(type)) {
-        return true;
-    }
-    return type.kind === AbiTypeKind.STRUCT && type.fields.some((field) => holdsContainer(field.type));
-}
-
 function fieldsOfValue(type: AbiType): StateField[] {
     const container = containerLayoutOf(type);
 
@@ -309,7 +301,7 @@ export async function decodeValueBlocks(bytes: Uint8Array, type: AbiType, prefix
             continue;
         }
 
-        blocks.fields.push({ name, value: formatStateValue(await decodeOutput(slice, field.abi!), field.abi!, true, true) });
+        blocks.fields.push({ name, value: scalarText(await decodeOutput(slice, field.abi!), field.abi!) });
     }
 
     return blocks;
@@ -563,13 +555,7 @@ export async function readState(
                         return;
                     }
 
-                    const decoded = await decodeOutput(bytes, field.abi ?? field.type);
-                    slot.value =
-                        typeof decoded === "object" && decoded !== null
-                            ? field.abi
-                                ? formatStateValue(decoded, field.abi, true, true)
-                                : fmtVal(decoded, true)
-                            : String(decoded);
+                    slot.value = scalarText(await decodeOutput(bytes, field.abi!), field.abi!);
                 } catch (error) {
                     slot.value = `(read failed: ${stateReadError(error)})`;
                 }

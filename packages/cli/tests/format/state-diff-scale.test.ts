@@ -1,50 +1,15 @@
 // The resolver had only ever met containers small enough to fit in one or two 256-byte windows. Real
 // contracts run to hundreds of megabytes, where the occupation flags alone span thousands of them.
 import { test, expect } from "bun:test";
-import { extractIdl } from "@qinit/build";
 import type { DebugStateRegion } from "@qinit/core";
 import { collectionGeometry, hashMapGeometry, hashSetGeometry, linkedListGeometry } from "@qinit/proto/qpi-layout";
 import { systemContracts } from "@qinit/build/contracts/system-contracts";
 import { stateFieldsOf, type StateField } from "../../src/trace/state-format";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { stateDiffLines } from "../../src/trace/state-diff";
+import { diffWindow, fieldsOf, hex, offsetOf, writeLe } from "./diff-window";
 
 const U64 = { size: 8, align: 8 };
-
-const hex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-
-function writeLe(bytes: Uint8Array, offset: number, value: number, width = 8) {
-    let rest = BigInt(value);
-    for (let index = 0; index < width; index++) {
-        bytes[offset + index] = Number(rest & 0xffn);
-        rest >>= 8n;
-    }
-}
-
-// A window carries its own bytes, so a case can sit anywhere in a 545 MB state without allocating one.
-// `seed` fills the before image and `write` the after image, both at offsets relative to the window.
-function diffWindow(off: number, length: number, seed?: (bytes: Uint8Array) => void, write?: (bytes: Uint8Array) => void): DebugStateRegion {
-    const before = new Uint8Array(length);
-    seed?.(before);
-
-    const after = before.slice();
-    write?.(after);
-
-    return { off, before: hex(before), after: hex(after) };
-}
-
-function fieldsOf(name: string, members: string): StateField[] {
-    const source = `using namespace QPI;
-struct CONTRACT_STATE2_TYPE {};
-struct CONTRACT_STATE_TYPE : public ContractBase {
-  struct StateData { ${members} };
-  INITIALIZE() {}
-};`;
-
-    return stateFieldsOf(extractIdl(source, name, { slot: 7 }));
-}
-
-const offsetOf = (fields: StateField[], name: string) => fields.find((field) => field.name === name)!.off;
 
 const rowsFor = async (fields: StateField[], regions: DebugStateRegion[]) =>
     (await stateDiffLines(fields, regions)).map((line) => `${line.label} ${line.text}`);
@@ -491,7 +456,8 @@ test("a BitArray held as a map value reports the bit that flipped", async () => 
         bytes[NESTED.valueOffset] = 1 << 3;
     });
 
-    expect(await rowsFor(NESTED_FIELDS, [window])).toEqual([`nested.slot[${slot}].key 0 → 11`, `nested.slot[${slot}].value[3] 0 → 1`]);
+    // The bit reads by the entry's key like any other value; the key row then only repeats it.
+    expect(await rowsFor(NESTED_FIELDS, [window])).toEqual([`nested.slot[${slot}].key 0 → 11`, `nested[11][3] 0 → 1`]);
 });
 
 // A wide write reports one row per changed byte and nothing caps that. 64 KiB is the affordable slice of

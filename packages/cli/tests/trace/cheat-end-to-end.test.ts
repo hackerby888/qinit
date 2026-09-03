@@ -24,7 +24,7 @@ const ADD = 1;
 const REPORTED_LINES = ["Counter is 0", "Counter is 2 after adding 2", "input={}", "output=0", "state.get()"];
 // The whole state under its head, in the rows `qinit state` draws: every container empty, the owner an
 // all-zero id, and the HashMap inside `inner` a block of its own rather than a line of JSON.
-const STATE_SCALARS = [expect.stringMatching(/^counter \d+$/), expect.stringMatching(/^owner "[A-Z]{60}"$/), expect.stringMatching(/^inner\.value \d+$/)];
+const STATE_SCALARS = [expect.stringMatching(/^counter \d+$/), expect.stringMatching(/^owner [A-Z]{60}$/), expect.stringMatching(/^inner\.value \d+$/)];
 const STATE_BLOCKS = ["nums", "items", "balances", "inner.map"];
 
 // A state large enough that no single line could hold it, printed whole.
@@ -120,7 +120,7 @@ test("every argument shape reads back as its value", async () => {
 
     expect(texts[0]).toBe("input.abc={a: 5, b: 7} input.abc.b=7 input.neg=-3 input.flag=1");
     expect(texts[1]).toBe("nums [0, 0, 0, 0] second 0 item {a: 0, b: 0}");
-    expect(texts[2]).toMatch(/^owner "[A-Z]{60}" caller "[A-Z]{60}"$/);
+    expect(texts[2]).toMatch(/^owner [A-Z]{60} caller [A-Z]{60}$/);
     expect(texts[3]).toBe("state.get().balances");
     expect(blocks[3]).toEqual([""]);
     expect(rows[3]).toEqual([["slots[0..3] (unoccupied ×4; skipped)"]]);
