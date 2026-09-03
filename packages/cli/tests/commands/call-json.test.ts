@@ -80,3 +80,14 @@ test("wizard answers override the typed flags and mask the ones its prompts repl
     expect(merged.has("trace")).toBe(true);
     expect(merged.get("rpc")).toBe("http://node");
 });
+
+test("call JSON fails a call whose traced frame trapped and names the trap", () => {
+    const trapped = { ...TRACE, e: { ...TRACE.e, ok: false, trap: "abort(3422552174)" } };
+    const facts = { contract: "Probe", slot: 30, entry: "Assert", tick: 3111, tx: "abc" };
+    const result = callJsonResult("proc", "Probe", "Assert", { ok: true, label: "Probe.Assert" }, facts, trapped);
+
+    expect(result.ok).toBe(false);
+    expect(result.trap).toBe("abort(3422552174)");
+    // A healthy frame carries no trap key, so a consumer can tell "no trap" from "unknown".
+    expect(Object.keys(callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, null, TRACE))).not.toContain("trap");
+});

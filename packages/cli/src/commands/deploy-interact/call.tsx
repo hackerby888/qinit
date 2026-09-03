@@ -24,6 +24,7 @@ import { TraceView } from "../../trace/views";
 import { CallInteractive, type CollectedCall } from "./call-interactive";
 import { loadConfig, loadConfiguredQpiHeader, resolveSeed } from "../../config";
 import { resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
+import { formatFault, readFault } from "../../ops/fault";
 import { loadContracts, mergeContracts, resolveContract } from "../../contracts/registry";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { loadContractIdls } from "../../contracts/idl-lookup";
@@ -51,8 +52,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // consumer can tell "nothing changed" from "never captured"; internal rows come through tagged, not
 // dropped, which is what --trace-full toggles in the view.
 export function callJsonResult(mode: CallMode, contract: string, entryName: string, result: Result | null, facts: CallFacts | null, trace: Trace | null) {
+    const trapped = trace?.e.ok === false;
     return {
-        ok: result?.ok ?? false,
+        ok: trapped ? false : (result?.ok ?? false),
         contract: facts?.contract ?? contract,
         slot: facts?.slot ?? null,
         entry: facts?.entry ?? entryName,
@@ -61,6 +63,7 @@ export function callJsonResult(mode: CallMode, contract: string, entryName: stri
         tx: facts?.tx ?? null,
         out: facts?.out ?? trace?.view.outDecoded ?? null,
         error: result?.err ?? null,
+        ...(trapped ? { trap: trace?.e.trap ?? null } : {}),
         ...(trace
             ? {
                   execNs: trace.e.execNs,
@@ -427,6 +430,13 @@ function CallOneShot({
                             view,
                         });
                     } else addNote("(no trace captured — is the debug toggle available on this node?)");
+                }
+
+                // A halted node accepts a transaction and never runs it, so a broadcast that looks fine
+                // here is not one. Reported last: the fault is only knowable after the call was attempted.
+                const fault = await readFault(rpc);
+                if (fault) {
+                    setResult((r) => ({ ...(r ?? { label }), ok: false, err: formatFault(fault, fault.slot === idx ? rc.name : undefined) }));
                 }
                 setDone(true);
             } catch (e: any) {

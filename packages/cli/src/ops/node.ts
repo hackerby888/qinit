@@ -15,6 +15,7 @@ import {
     atomicWrite,
     debug,
     type AssetRef,
+    type EngineFaultInfo,
     type Manifest,
 } from "@qinit/core";
 
@@ -340,6 +341,8 @@ export async function nodeContracts(rpcBaseUrl: string): Promise<string[]> {
 export interface NodeStatus {
     up: boolean;
     ticking: boolean;
+    /** Set when the node stopped on a contract trap, which reads as "not ticking" without it. */
+    fault: EngineFaultInfo | null;
     tick: number;
     epoch: number;
     armed: number;
@@ -361,6 +364,7 @@ export async function nodeStatus(rpcBaseUrl: string): Promise<NodeStatus> {
         return {
             up: true,
             ticking: secondTick > firstTick,
+            fault: secondTickInfo.fault ?? null,
             tick: secondTick,
             epoch: secondTickInfo.epoch ?? 0,
             armed: armedContracts.length,
@@ -372,6 +376,7 @@ export async function nodeStatus(rpcBaseUrl: string): Promise<NodeStatus> {
         return {
             up: false,
             ticking: false,
+            fault: null,
             tick: 0,
             epoch: 0,
             armed: 0,

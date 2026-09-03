@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadConfig } from "../../config";
+import { formatFault, readFault } from "../../ops/fault";
 import { Header, Spinner, Bar, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 
@@ -11,9 +12,12 @@ import { output, type CommandArguments } from "../../args";
 export async function advanceTo(rpc: LiteRpc, target: number, from: number, onProgress: (cur: number) => void): Promise<{ cur: number; capped: boolean }> {
     let cur = from,
         stalls = 0,
-        capped = false;
+        capped = false,
+        chunk = FIRST_CHUNK_TICKS;
     while (cur < target) {
-        const r = await rpc.advanceTick(target - cur);
+        const startedAt = Date.now();
+        const r = await advanceChunk(rpc, Math.min(chunk, target - cur));
+        chunk = nextChunk(chunk, Date.now() - startedAt);
         capped = r.cappedAtEpochEnd;
         if (r.reached <= cur) {
             if (++stalls >= 3) break;
@@ -23,6 +27,30 @@ export async function advanceTo(rpc: LiteRpc, target: number, from: number, onPr
         if (capped && cur >= r.epochLastTick) break;
     }
     return { cur, capped };
+}
+
+// A tick costs whatever the deployed contracts make it cost, so the span is sized from the last round
+// trip: small enough to stay well inside the client's timeout, large enough not to crawl.
+const FIRST_CHUNK_TICKS = 32;
+const CHUNK_TARGET_MS = 3000;
+
+function nextChunk(chunk: number, elapsedMs: number): number {
+    const scaled = elapsedMs > 0 ? (chunk * CHUNK_TARGET_MS) / elapsedMs : chunk * 2;
+
+    return Math.max(1, Math.min(2048, Math.round(scaled)));
+}
+
+// A halted node answers the advance route with 503, and the tick number alone would say nothing.
+export async function advanceChunk(rpc: LiteRpc, span: number) {
+    try {
+        return await rpc.advanceTick(span);
+    } catch (error) {
+        if ((error as { status?: number }).status !== 503) {
+            throw error;
+        }
+        const fault = await readFault(rpc);
+        throw fault ? new Error(formatFault(fault)) : error;
+    }
 }
 
 // The rendered rows are display strings — `tick` reads "120 → 145" after an advance and "145" otherwise —

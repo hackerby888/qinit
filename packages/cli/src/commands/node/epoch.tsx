@@ -3,6 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadConfig } from "../../config";
 import { advanceTo } from "./tick";
+import { formatFault, readFault } from "../../ops/fault";
 import { Header, Spinner, Bar, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 
@@ -34,6 +35,19 @@ export function epochJsonResult(action: string, facts: EpochFacts | null, error:
         duration: facts?.duration ?? null,
         error: error || null,
     };
+}
+
+// The boundary transition hits the same halted-node 503 the tick advance does.
+async function advanceEpochOrFault(rpc: LiteRpc) {
+    try {
+        return await rpc.advanceEpoch();
+    } catch (error) {
+        if ((error as { status?: number }).status !== 503) {
+            throw error;
+        }
+        const fault = await readFault(rpc);
+        throw fault ? new Error(formatFault(fault)) : error;
+    }
 }
 
 const NO_EPOCH_FACTS: EpochFacts = {
@@ -75,8 +89,8 @@ export function Epoch({ commandArgs }: { commandArgs: CommandArguments }) {
                     await advanceTo(rpc, target, e.tick, (c) => setProg((p) => p && { ...p, cur: c }));
                     setProg(null);
                     setBusy("transitioning to the next epoch");
-                    let r = await rpc.advanceEpoch();
-                    for (let i = 0; i < 3 && !r.switched; i++) r = await rpc.advanceEpoch(); // a few nudges if the boundary needs more ticks
+                    let r = await advanceEpochOrFault(rpc);
+                    for (let i = 0; i < 3 && !r.switched; i++) r = await advanceEpochOrFault(rpc); // a few nudges if the boundary needs more ticks
                     if (!r.switched) throw new Error(`epoch did not switch (still ${r.toEpoch}, tick ${r.tick}) — node may have timed out`);
                     factsRef.current = {
                         ...NO_EPOCH_FACTS,
