@@ -51,7 +51,15 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // --json: the rendered rows as data. Trace keys are absent without --trace rather than empty, so a
 // consumer can tell "nothing changed" from "never captured"; internal rows come through tagged, not
 // dropped, which is what --trace-full toggles in the view.
-export function callJsonResult(mode: CallMode, contract: string, entryName: string, result: Result | null, facts: CallFacts | null, trace: Trace | null) {
+export function callJsonResult(
+    mode: CallMode,
+    contract: string,
+    entryName: string,
+    result: Result | null,
+    facts: CallFacts | null,
+    trace: Trace | null,
+    warnings: readonly string[] = [],
+) {
     const trapped = trace?.e.ok === false;
     return {
         ok: trapped ? false : (result?.ok ?? false),
@@ -64,6 +72,7 @@ export function callJsonResult(mode: CallMode, contract: string, entryName: stri
         out: facts?.out ?? trace?.view.outDecoded ?? null,
         error: result?.err ?? null,
         ...(trapped ? { trap: trace?.e.trap ?? null } : {}),
+        ...(warnings.length ? { warnings: [...warnings] } : {}),
         ...(trace
             ? {
                   execNs: trace.e.execNs,
@@ -284,6 +293,8 @@ function CallOneShot({
                 // --trace: capture the call in the node debug ring. Enable + note the latest seq BEFORE dispatch.
                 // Entry seq is 1-based on both backends, so 0 means "everything captured from here on".
                 let sinceSeq = 0;
+                // Remembered past the dispatch so an empty trace can name the real reason.
+                let unfundedSigner = false;
                 const traceSrc = rc.source;
                 const traceName = rc.name;
                 if (wantTrace) {
@@ -354,6 +365,10 @@ function CallOneShot({
                     if (signer.switched) {
                         addNote(`⚠ seed unfunded here — signing as ${signer.identity}`);
                     }
+                    // Said before signing: the node will accept this tx and never run it.
+                    if (signer.unfunded) {
+                        addNote(`⚠ ${unfundedSignerMessage(signer.identity)}`);
+                    }
                     const r = await invokeProcedure({
                         seed: signer.seed,
                         rpcBaseUrl: rpcBaseUrl,
@@ -380,6 +395,7 @@ function CallOneShot({
                     const ok = !r.ok ? false : r.confirmed && !r.included ? false : true;
                     // An empty signer is the usual reason a broadcast tx never makes it into a tick.
                     const dropped = r.ok && r.confirmed && !r.included;
+                    unfundedSigner = Boolean(signer.unfunded);
                     setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, tick, tx: r.txId || undefined });
                     setResult({
                         ok,
@@ -429,6 +445,8 @@ function CallOneShot({
                             entry: entryLabel(mode === "fn" ? 0 : 1, entry, entryIdl?.name),
                             view,
                         });
+                    } else if (unfundedSigner) {
+                        addNote("(no trace: the procedure never ran, because the signer has no balance)");
                     } else addNote("(no trace captured — is the debug toggle available on this node?)");
                 }
 
@@ -447,7 +465,7 @@ function CallOneShot({
     }, []);
     useEffect(() => {
         if (done) {
-            if (output.json) process.stdout.write(JSON.stringify(callJsonResult(mode, contract, entryName, result, facts, trace), bigintText) + "\n");
+            if (output.json) process.stdout.write(JSON.stringify(callJsonResult(mode, contract, entryName, result, facts, trace, notes), bigintText) + "\n");
             if (result?.ok === false) process.exitCode = 1;
             exit();
         }

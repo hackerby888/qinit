@@ -5,7 +5,7 @@ import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/support/k12";
 import { VirtualNode } from "../../src/transport";
 import { EngineServer } from "../../src/server";
-import { deriveIdentity, LiteRpc } from "@qinit/core";
+import { deriveIdentity, LiteRpc, TESTNET_FUNDED_SEEDS } from "@qinit/core";
 
 beforeAll(async () => {
     await initK12();
@@ -167,7 +167,7 @@ test("the funded-seed faucet account is pre-funded", async () => {
     const { base, stop } = await serve();
     try {
         const seed = (await (await fetch(`${base}/live/v1/dev/funded-seed`)).json()).seed;
-        expect(seed).toBe("a".repeat(55));
+        expect(seed).toBe(TESTNET_FUNDED_SEEDS[0]); // the seed a testnet node funds too, so it works on either
 
         const { identity } = await deriveIdentity(seed);
         const j = await (await fetch(`${base}/live/v1/balances/${identity}`)).json();

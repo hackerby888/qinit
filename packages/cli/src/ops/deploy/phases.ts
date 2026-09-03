@@ -1,7 +1,7 @@
 // Self-contained deploy phases, each answering with its product or the DeployResult the caller should
 // return — so deployContract stays a sequence of awaits.
 import { readFileSync } from "node:fs";
-import { LiteRpc, readCurrent, autoUpdateVerifyTool } from "@qinit/core";
+import { DEFAULT_FUNDED_SEED, LiteRpc, readCurrent, autoUpdateVerifyTool } from "@qinit/core";
 import { systemNames } from "@qinit/build";
 import { savedSeed, resolveCoreDir } from "../../config";
 import { tickFailureMessage, type DeploymentEvent } from "./steps";
@@ -113,7 +113,7 @@ export async function resolveSigningSeed(rpc: LiteRpc, explicitSeed: string | un
         return funded;
     }
 
-    return "a".repeat(55);
+    return DEFAULT_FUNDED_SEED;
 }
 
 // Upload spends a transaction per tick, so a crawling chain fails slowly — only worth measuring on a node we

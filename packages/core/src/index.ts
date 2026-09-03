@@ -26,6 +26,7 @@ export {
 export { initK12, signSync } from "./crypto/sign-sync";
 export type { IdentityResult, CryptoSmokeResult, KeyPair } from "./crypto/qubic";
 export { buildSignedTx, assertSeed, LITE_DEPLOY_ADDRESS } from "./crypto/tx";
+export { TESTNET_FUNDED_SEEDS, DEFAULT_FUNDED_SEED } from "./crypto/testnet-seeds";
 export type { SignedTx, TxInput } from "./crypto/tx";
 export { LiteRpc } from "./net/rpc/client";
 export type {

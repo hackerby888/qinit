@@ -91,3 +91,11 @@ test("call JSON fails a call whose traced frame trapped and names the trap", () 
     // A healthy frame carries no trap key, so a consumer can tell "no trap" from "unknown".
     expect(Object.keys(callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, null, TRACE))).not.toContain("trap");
 });
+
+test("call JSON carries warnings only when there are some", () => {
+    const facts = { contract: "Counter", slot: 29, entry: "Inc", tick: 1, tx: "abc" };
+    const warned = callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, facts, null, ["⚠ signer X has no balance on this node"]);
+
+    expect(warned.warnings).toEqual(["⚠ signer X has no balance on this node"]);
+    expect(Object.keys(callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, facts, null))).not.toContain("warnings");
+});

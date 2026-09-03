@@ -13,7 +13,7 @@ import type {
     EntityInfo,
     TxInfo,
 } from "@qinit/core";
-import { bytesToIdentity, identityToBytes, DEFAULT_WASM_SLOT_LAYOUT, LITE_DEPLOY_ADDRESS, WASM_ABI_VERSION, hexToBytes } from "@qinit/core";
+import { bytesToIdentity, identityToBytes, DEFAULT_WASM_SLOT_LAYOUT, LITE_DEPLOY_ADDRESS, TESTNET_FUNDED_SEEDS, WASM_ABI_VERSION, hexToBytes } from "@qinit/core";
 import { LITE_TX, CHUNK_DATA_MAX, MAX_INPUT_SIZE, UploadBegin, UploadChunkHeader, DeployMessage } from "@qinit/proto";
 import { QubicSimulator, EngineFaultedError, type AssetSnapshot, type FeeMode, type ProcedureCallOptions } from "./qubic-simulator";
 import type { LogSink } from "./logging/log";
@@ -741,8 +741,10 @@ export class VirtualNode implements NodeTransport {
         if (this.fundedSeedPool) {
             return this.fundedSeedPool;
         }
+        // The testnet seeds come first so a picker offers one that works on a real testnet node too; the
+        // derived pool behind them keeps the arbitrator seed and the rest of the old accounts funded.
         const encoder = new TextEncoder();
-        const seeds = ["a".repeat(55)];
+        const seeds = [...TESTNET_FUNDED_SEEDS, "a".repeat(55)];
 
         for (let seedIndex = 1; seedIndex < VirtualNode.FUNDED_POOL_SIZE; seedIndex++) {
             const bytes = [...k12Bytes(encoder.encode("qinit/funded-seed/" + seedIndex)), ...k12Bytes(encoder.encode("qinit/funded-seed/" + seedIndex + "#"))];

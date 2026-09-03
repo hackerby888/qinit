@@ -6,7 +6,7 @@ import { loadConfig, resolveCompilerBackend, resolveCoreDir, resolveRuntime } fr
 import type { DeploymentEvent } from "../../ops/deploy";
 import { deployProjectContracts } from "../../ops/project-deploy";
 import { activeNodeScratchDir, ensureNodeBinary, killNode, launchNode, waitTicking } from "../../ops/node";
-import { DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
+import { DEFAULT_FUNDED_SEED, DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
 import { testRuntimeSource, generateClient, extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import { EngineServer } from "@qinit/engine/server";
@@ -199,7 +199,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                 pkg.type ??= "module";
                 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 
-                const testSeed = seed || (await new LiteRpc(activeRpc).fundedSeed()) || "a".repeat(55);
+                const testSeed = seed || (await new LiteRpc(activeRpc).fundedSeed()) || DEFAULT_FUNDED_SEED;
                 setS({ phase: "testing", lines: [...lines] });
                 const env = {
                     ...process.env,

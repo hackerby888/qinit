@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import { assertSeed, loadConfig, resolveCoreDir } from "@qinit/core";
+import { DEFAULT_FUNDED_SEED, assertSeed, loadConfig, resolveCoreDir } from "@qinit/core";
 import { loadQpiHeader } from "@qinit/compiler";
 import { invalidArgs } from "./args";
 
@@ -150,5 +150,5 @@ export async function resolveSeed(rpc: { fundedSeed(): Promise<string | undefine
     }
 
     const funded = await rpc.fundedSeed();
-    return funded ?? "a".repeat(55);
+    return funded ?? DEFAULT_FUNDED_SEED;
 }

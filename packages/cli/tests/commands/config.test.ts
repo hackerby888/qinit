@@ -1,6 +1,7 @@
 // Project config + global seed/theme stores + resolution precedence. A bug here silently signs with the
 // wrong seed or builds against the wrong core, so every path is asserted (incl. the validation/throw edges).
 import { test, expect, afterEach } from "bun:test";
+import { DEFAULT_FUNDED_SEED } from "@qinit/core";
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -115,7 +116,7 @@ test("resolveSeed precedence: explicit > saved > funded > default", async () => 
     expect(await resolveSeed(withFunded)).toBe("d".repeat(55)); // saved over funded
     clearSavedSeed();
     expect(await resolveSeed(withFunded)).toBe("f".repeat(55)); // funded over default
-    expect(await resolveSeed(noFunded)).toBe("a".repeat(55)); // dev default
+    expect(await resolveSeed(noFunded)).toBe(DEFAULT_FUNDED_SEED); // dev default, funded on both runtimes
 });
 
 test("resolveCoreDir: explicit precedence -> absolute; throws when unresolved", () => {

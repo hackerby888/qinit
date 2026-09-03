@@ -1,7 +1,7 @@
 // Exercise the simulator through the LiteRpc and protocol helpers used for core nodes.
 import { test, expect, beforeAll } from "bun:test";
 import { EngineServer } from "@qinit/engine/server";
-import { initK12, LiteRpc, deriveIdentity, identityToBytes } from "@qinit/core";
+import { initK12, LiteRpc, TESTNET_FUNDED_SEEDS, deriveIdentity, identityToBytes } from "@qinit/core";
 import { callFunction, invokeProcedure, sendTransfer, TX_TICK_OFFSET } from "@qinit/proto";
 import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
 import { portFromRpc } from "../../src/ops/serve";
@@ -175,8 +175,9 @@ test("funded-seeds returns a pool of spendable seeds (qinit seed)", async () => 
     const { rpc, stop } = await bootCounter();
     try {
         const r = await rpc.fundedSeeds(32);
-        expect(r.count).toBe(16);
-        expect(r.seeds[0]).toBe(SEED); // pool[0] = the universal default "a"*55
+        expect(r.count).toBe(TESTNET_FUNDED_SEEDS.length + 16);
+        expect(r.seeds[0]).toBe(TESTNET_FUNDED_SEEDS[0]); // pool[0] = a seed a testnet node funds as well
+        expect(r.seeds).toContain(SEED); // the arbitrator's "a"*55 stays funded behind them
         // every returned seed must be a real, funded account — not just listed
         for (const seed of r.seeds) {
             const { identity } = await deriveIdentity(seed);
