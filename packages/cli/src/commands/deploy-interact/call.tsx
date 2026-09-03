@@ -25,7 +25,7 @@ import { CallInteractive, type CollectedCall } from "./call-interactive";
 import { loadConfig, loadConfiguredQpiHeader, resolveSeed } from "../../config";
 import { resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
 import { formatFault, readFault } from "../../ops/fault";
-import { loadContracts, mergeContracts, resolveContract } from "../../contracts/registry";
+import { loadContracts, mergeContracts, missingContractMessage, resolveContract } from "../../contracts/registry";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { loadContractIdls } from "../../contracts/idl-lookup";
 import { Header, Spinner, Status, Bar, theme } from "../../ui";
@@ -208,7 +208,7 @@ function CallOneShot({
                 // contract: resolve a name or index across user-deployed (first) then built-in system contracts.
                 const sets = await loadContracts(rpc);
                 const rc = resolveContract(contract, sets);
-                if (!rc) throw new Error(`no contract '${contract}' (deployed or system — run \`qinit node run\` to load system contracts)`);
+                if (!rc) throw new Error(missingContractMessage(sets, contract));
                 const idx = rc.index;
                 // entry: accept a fn/proc name or an inputType number. Prefer local qinit.idl.json, else derive from the
                 // contract source (node dyn-registry source for user contracts, snapshot source for system contracts).

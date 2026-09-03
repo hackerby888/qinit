@@ -4,7 +4,7 @@ import { DEFAULT_RPC_BASE, LiteRpc, type DynamicContractRegistryEntry } from "@q
 import { LARGE_STATE_CONTAINER_BYTES, loadStateContainer, readState, stateIsComplete, type DecodedState, type StateContainer } from "../../trace/state-read";
 import { StateView } from "../../trace/views";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
-import { loadContracts, mergeContracts } from "../../contracts/registry";
+import { loadContracts, mergeContracts, missingContractMessage } from "../../contracts/registry";
 import { Header, Spinner, Panel, KV, fmtCompact, theme } from "../../ui";
 import { Select, type SelItem } from "../../ui/prompt";
 import { invalidArgs, output, type CommandArguments } from "../../args";
@@ -346,7 +346,8 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                     setDigest(await readStateDigest(o.target, rpc));
                     return;
                 }
-                const { all, userCount: deployed } = mergeContracts(await loadContracts(rpc));
+                const sets = await loadContracts(rpc);
+                const { all, userCount: deployed } = mergeContracts(sets);
                 if (o.target) {
                     const c = all.find((x) => String(x.index) === o.target || (x.name || "").toLowerCase() === o.target.toLowerCase());
                     if (!c) {
@@ -356,12 +357,12 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                             await runDump(Number(o.target.trim()), o.target.trim());
                             return;
                         }
-                        throw new Error(`no contract '${o.target}' (deployed or system — run \`qinit node run\` for system)`);
+                        throw new Error(missingContractMessage(sets, o.target));
                     }
                     await load(c);
                     return;
                 }
-                if (!all.length) throw new Error("no contracts — deploy one, or run `qinit node run` to load system contracts");
+                if (!all.length) throw new Error(missingContractMessage(sets));
                 // `--json` renders nothing, so the picker would be an invisible prompt.
                 if (!process.stdin.isTTY || output.json)
                     throw new Error(`specify a contract: qinit state <name|slot> (${all.map((c) => c.name || c.index).join(", ")})`);

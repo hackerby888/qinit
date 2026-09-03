@@ -7,6 +7,8 @@ import { resolveCoreDir } from "../config";
 export type ContractSets = {
     user: DynamicContractRegistryEntry[];
     system: SystemContract[];
+    /** Set when the node did not answer, so an empty `user` means "unknown", not "none deployed". */
+    nodeError?: string;
 };
 
 export function parseContractSlot(value: unknown): number {
@@ -36,14 +38,28 @@ export function loadSystem(): SystemContract[] {
 
 export async function loadContracts(rpc: LiteRpc): Promise<ContractSets> {
     let user: DynamicContractRegistryEntry[] = [];
+    let nodeError: string | undefined;
 
     try {
         user = ((await rpc.dynRegistry()).contracts ?? []).filter((contract) => contract.armed);
-    } catch {
+    } catch (error) {
         // System contracts remain available while the node is down.
+        nodeError = String((error as Error)?.message ?? error);
     }
 
-    return { user, system: loadSystem() };
+    return { user, system: loadSystem(), ...(nodeError ? { nodeError } : {}) };
+}
+
+// A registry the node never answered is not an empty registry, and "no contract" would send the
+// developer off to redeploy something that is still there.
+export function missingContractMessage(sets: ContractSets, target?: string): string {
+    if (sets.nodeError) {
+        return `the node did not answer, so its contracts are unknown — is it running or busy? (\`qinit node status\`)  [${sets.nodeError}]`;
+    }
+
+    return target
+        ? `no contract '${target}' (deployed or system — run \`qinit node run\` to load system contracts)`
+        : "no contracts — deploy one, or run `qinit node run` to load system contracts";
 }
 
 export function systemAsDyn(contract: SystemContract): DynamicContractRegistryEntry {

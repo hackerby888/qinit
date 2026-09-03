@@ -1,7 +1,7 @@
 // resolveContract is the single target-resolution path for call / ls / state: a name or index must map to
 // the same contract everywhere, with user (dyn-registry) entries shadowing built-in system contracts.
 import { test, expect } from "bun:test";
-import { parseContractSlot, resolveContract, systemAsDyn, type ContractSets } from "../../src/contracts/registry";
+import { missingContractMessage, parseContractSlot, resolveContract, systemAsDyn, type ContractSets } from "../../src/contracts/registry";
 
 const user = (over: any = {}) => ({
     index: 100,
@@ -110,4 +110,16 @@ test("systemAsDyn presents a system contract as an armed registry entry", () => 
     expect(d.source).toBe("SYS_SRC");
     expect(d.functions.map((f) => f.inputType)).toEqual([1]);
     expect(d.procedures.map((p) => p.inputType)).toEqual([2]);
+});
+
+test("a registry the node never answered is reported as unknown, not as empty", () => {
+    const silent = sets({ nodeError: "node unreachable at http://127.0.0.1:41841 — is it running? (qinit node run)  [request timed out after 10000ms]" });
+
+    expect(missingContractMessage(silent, "Probe")).toContain("the node did not answer");
+    expect(missingContractMessage(silent, "Probe")).toContain("request timed out");
+    expect(missingContractMessage(silent, "Probe")).not.toContain("no contract");
+
+    // An answered, empty registry keeps the old wording in both forms.
+    expect(missingContractMessage(sets(), "Probe")).toBe("no contract 'Probe' (deployed or system — run `qinit node run` to load system contracts)");
+    expect(missingContractMessage(sets())).toBe("no contracts — deploy one, or run `qinit node run` to load system contracts");
 });

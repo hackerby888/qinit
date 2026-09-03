@@ -13,6 +13,9 @@ export type ContractIdls = Map<number, ContractIdl>;
 // and decode it. Best effort: a slot whose source will not parse is dropped, never the whole map.
 export async function loadContractIdls(rpc: LiteRpc): Promise<ContractIdls> {
     const sets = await loadContracts(rpc);
+    if (sets.nodeError) {
+        debug("loadContractIdls: node registry unavailable, deployed slots will decode by number", sets.nodeError);
+    }
     const catalog = new Map(sets.system.map((contract) => [contract.index, contract]));
     const idls: ContractIdls = new Map();
 

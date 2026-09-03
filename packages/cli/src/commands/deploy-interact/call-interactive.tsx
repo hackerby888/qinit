@@ -5,7 +5,7 @@ import { hasOverlappingAbiType, zeroInputFormat } from "@qinit/proto";
 import { AbiTypeKind, type AbiField, type AbiType, type ContractEntry, type ContractIdl, type ContractIdlFile } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { loadConfiguredQpiHeader } from "../../config";
-import { loadContracts, mergeContracts } from "../../contracts/registry";
+import { loadContracts, mergeContracts, missingContractMessage } from "../../contracts/registry";
 import { contractIdlForSlot, emptyContractIdlFile, loadContractIdlFile } from "../../contracts/idl-file";
 import { Header, Spinner, Panel, Status, theme } from "../../ui";
 import { Select, TextPrompt } from "../../ui/prompt";
@@ -164,10 +164,11 @@ export function CallInteractive({ rpcBaseUrl, onRun }: { rpcBaseUrl: string; onR
         (async () => {
             try {
                 setIdlFile(loadContractIdlFile());
-                const { all: combined, userCount: deployed } = mergeContracts(await loadContracts(new LiteRpc(rpcBaseUrl)));
+                const sets = await loadContracts(new LiteRpc(rpcBaseUrl));
+                const { all: combined, userCount: deployed } = mergeContracts(sets);
 
                 if (!combined.length) {
-                    setWizard({ stage: "done", error: "no contracts — deploy one, or run `qinit node run` to load system contracts" });
+                    setWizard({ stage: "done", error: missingContractMessage(sets) });
                     return;
                 }
 
