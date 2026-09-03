@@ -348,6 +348,20 @@ function readUint128(view: DataView, offset: number): bigint {
     return (high << 64n) | low;
 }
 
+// The format dialect reads field by field, so a layout wider than the bytes surfaces as the DataView's
+// own RangeError; name both sizes instead, the way the typed path does.
+async function decodeFormat(view: DataView, fmt: string): Promise<any> {
+    const node = parseLayout(fmt);
+    try {
+        return (await decodeNode(view, 0, node))[0];
+    } catch (error) {
+        if (error instanceof RangeError) {
+            throw new RangeError(`${fmt} reads ${sizeOf(node)} bytes, only ${view.byteLength} returned`);
+        }
+        throw error;
+    }
+}
+
 function assertBounds(view: DataView, offset: number, size: number): void {
     if (offset < 0 || size < 0 || offset + size > view.byteLength) {
         throw new RangeError(`ABI value at ${offset} with size ${size} exceeds ${view.byteLength} bytes`);
@@ -356,7 +370,7 @@ function assertBounds(view: DataView, offset: number, size: number): void {
 
 export async function decodeOutput(bytes: Uint8Array, fmt: string | AbiType): Promise<any> {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const decoded = typeof fmt === "string" ? (await decodeNode(view, 0, parseLayout(fmt)))[0] : await decodeAbiValue(bytes, fmt);
+    const decoded = typeof fmt === "string" ? await decodeFormat(view, fmt) : await decodeAbiValue(bytes, fmt);
     if (typeof fmt !== "string" && fmt.kind === AbiTypeKind.STRUCT) {
         if (fmt.fields.length === 0) {
             return [];

@@ -4,8 +4,18 @@ import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
 import { activeNodeScratchDir } from "../../ops/node";
-import { callFunction, invokeProcedure, encodeInput, encodeInputJson, parseInputJson, checkInputSize, zeroInputFormat, TX_TICK_OFFSET } from "@qinit/proto";
-import { AbiTypeKind, type ContractEntry } from "@qinit/proto/contract-idl";
+import {
+    callFunction,
+    invokeProcedure,
+    encodeInput,
+    encodeInputJson,
+    parseInputJson,
+    checkInputSize,
+    zeroInputFormat,
+    layoutOf,
+    TX_TICK_OFFSET,
+} from "@qinit/proto";
+import { AbiTypeKind, formatAbiType, type ContractEntry } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { describeTrace, type DecodedTrace } from "../../trace/format";
 import { fmtVal, formatStateValue } from "../../trace/state-format";
@@ -14,7 +24,7 @@ import { TraceView } from "../../trace/views";
 import { CallInteractive, type CollectedCall } from "./call-interactive";
 import { loadConfig, loadConfiguredQpiHeader, resolveSeed } from "../../config";
 import { resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
-import { loadContracts, resolveContract } from "../../contracts/registry";
+import { loadContracts, mergeContracts, resolveContract } from "../../contracts/registry";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { Header, Spinner, Status, Bar, theme } from "../../ui";
 import { invalidArgs, output, type CommandArguments } from "../../args";
@@ -66,6 +76,15 @@ export function callJsonResult(mode: CallMode, contract: string, entryName: stri
               }
             : {}),
     };
+}
+
+// A format that does not parse is left for the decode to report, where the error already has its wording.
+function outputSizeOf(format: string): number | undefined {
+    try {
+        return layoutOf(format).size;
+    } catch {
+        return undefined;
+    }
 }
 
 // Log fields decode to bigint, which JSON.stringify throws on, and a uint64 past 2^53 would lose
@@ -154,7 +173,8 @@ function CallOneShot({
     const [trace, setTrace] = useState<Trace | null>(null);
     const [facts, setFacts] = useState<CallFacts | null>(null);
     const [confirm, setConfirm] = useState<Confirm | null>(null);
-    const [note, setNote] = useState("");
+    const [notes, setNotes] = useState<string[]>([]);
+    const addNote = (line: string) => setNotes((lines) => [...lines, line]);
     const [done, setDone] = useState(false);
 
     useEffect(() => {
@@ -194,6 +214,16 @@ function CallOneShot({
                         throw new Error(`no ${mode} named '${entryName}' on contract ${idx} (no local IDL and node has no source for this slot)`);
                     }
                     entry = entryIdl.inputType;
+                }
+                // A number the node never registered: a fn read can only be a mistake, a proc is still a tx to send.
+                const registered = mergeContracts(sets).all.find((candidate) => candidate.index === idx);
+                const known = (mode === "fn" ? registered?.functions : registered?.procedures) ?? [];
+                if (known.length && !known.some((candidate) => candidate.inputType === entry)) {
+                    const message = `no ${mode} ${entry} on contract ${idx} (registered: ${known.map((candidate) => candidate.inputType).join(", ")})`;
+                    if (mode === "fn") {
+                        throw new Error(message);
+                    }
+                    addNote(`⚠ ${message} — sending the tx anyway`);
                 }
                 // --args JSON encodes through the IDL schema; otherwise use raw --in format.
                 let input: Uint8Array;
@@ -273,6 +303,14 @@ function CallOneShot({
                 const entryLabelName = entryIdl?.name ?? String(entry);
 
                 if (mode === "fn") {
+                    if (outputFormat && entryIdl) {
+                        const outSize = outputSizeOf(outputFormat);
+                        if (outSize !== undefined && outSize !== entryIdl.outSize) {
+                            addNote(
+                                `⚠ --out ${outputFormat} reads ${outSize} bytes; ${label} returns ${formatAbiType(entryIdl.output)} (${entryIdl.outSize} bytes)`,
+                            );
+                        }
+                    }
                     const out = await callFunction(rpc, idx, entry, input, outputFormat ?? entryIdl?.output ?? "");
                     const empty = out == null || (typeof out === "object" && Object.keys(out).length === 0);
                     const ne = empty ? await nodeErr() : "";
@@ -292,7 +330,7 @@ function CallOneShot({
                         explicit: Boolean(seed),
                     });
                     if (signer.switched) {
-                        setNote(`⚠ seed unfunded here — signing as ${signer.identity}`);
+                        addNote(`⚠ seed unfunded here — signing as ${signer.identity}`);
                     }
                     const r = await invokeProcedure({
                         seed: signer.seed,
@@ -359,7 +397,7 @@ function CallOneShot({
                             entry: entryLabel(mode === "fn" ? 0 : 1, entry, entryIdl?.name),
                             view: await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl),
                         });
-                    else setNote("(no trace captured — is the debug toggle available on this node?)");
+                    else addNote("(no trace captured — is the debug toggle available on this node?)");
                 }
                 setDone(true);
             } catch (e: any) {
@@ -407,7 +445,11 @@ function CallOneShot({
                     <TraceView e={trace.e} name={trace.name} entry={trace.entry} view={trace.view} showInternals={showInternals} internalsHint="--trace-full" />
                 </Box>
             )}
-            {note && <Text dimColor>{note}</Text>}
+            {notes.map((line, i) => (
+                <Text key={i} dimColor>
+                    {line}
+                </Text>
+            ))}
             {!done &&
                 (confirm ? (
                     <Text>

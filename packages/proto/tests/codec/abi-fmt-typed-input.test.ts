@@ -140,3 +140,10 @@ test("parseInputJson keeps integer literals past 2^53 exact", async () => {
     // Everything JSON.parse already gets right is untouched, floats and exponents included.
     expect(parseInputJson('{"a":[1.5, 1e3, -7], "b":{"c":"18446744073709551615"}}')).toEqual({ a: [1.5, 1000, -7], b: { c: "18446744073709551615" } });
 });
+
+// An --out wider than the answer used to surface as the DataView's bare "Out of bounds access".
+test("a format wider than the bytes names both sizes", async () => {
+    await expect(decodeOutput(new Uint8Array(8), "id")).rejects.toThrow("id reads 32 bytes, only 8 returned");
+    // A narrower format still reads the leading bytes: --out stays an escape hatch for a stale IDL.
+    expect(await decodeOutput(new Uint8Array([7, 0, 0, 0, 1, 0, 0, 0]), "uint32")).toBe(7);
+});
