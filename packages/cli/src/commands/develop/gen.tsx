@@ -9,6 +9,11 @@ import { loadConfig, resolveCoreDir } from "../../config";
 import { Header, Panel, KV, theme } from "../../ui";
 import type { CommandArguments } from "../../args";
 import { parseContractSlot } from "../../contracts/registry";
+import { loadContractIdlFile } from "../../contracts/idl-file";
+
+function deployedSlot(name: string): number | undefined {
+    return Object.values(loadContractIdlFile().contracts).find((contract) => contract.name === name)?.slot;
+}
 
 type State = { ok: true; file: string; name: string; slot: number; fns: number; procs: number } | { ok: false; err: string } | null;
 
@@ -22,7 +27,8 @@ export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
             const contractPath = resolve(commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract ?? "fixtures/Counter.h");
             const name = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
             const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
-            const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
+            // The deploy wrote this contract's slot to the IDL file; the window base is only right with no callees.
+            const requestedSlot = commandArgs.get("slot") ?? cfg.slot ?? deployedSlot(name);
             const slot = parseContractSlot(requestedSlot === undefined ? loadCoreWasmSlotLayout(core).slotBase : requestedSlot);
             const idl = extractIdl(readFileSync(contractPath, "utf8"), name, {
                 slot,
