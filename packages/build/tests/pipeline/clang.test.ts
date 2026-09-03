@@ -2,6 +2,7 @@
 // impl include, or a target-specific include leak silently miscompiles. These lock the wrapper structure.
 import { test, expect } from "bun:test";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
+import { CheatMode } from "@qinit/compiler";
 import {
     buildPreamble,
     generateWasmContractTestingHeader,
@@ -107,22 +108,42 @@ test("generateWasmWrapperSource: container diagnostics trap without importing li
     expect(iHash).toBeLessThan(iUndef);
 });
 
-test("generateWasmWrapperSource: callee prelude is injected between preamble and the contract defines", () => {
+// A callee header is spliced into the same TU, so it only sees the cheat and div shims if they come first.
+test("generateWasmWrapperSource: the shims sit between the preamble and the callee prelude", () => {
     const prelude = "/*__CALLEE_PRELUDE__*/\n";
     const w = generateWasmWrapperSource(opts({ calleePrelude: prelude }));
 
-    const iPreambleEnd = buildPreamble().length;
+    const iCheat = w.indexOf("#define CC_PRINT");
+    const iDiv = w.indexOf("#define div(...) qinitDiv(__VA_ARGS__)");
     const iPrelude = w.indexOf(prelude);
     const iDefines = w.indexOf("#define CONTRACT_INDEX 7");
 
-    expect(iPrelude).toBe(iPreambleEnd);
+    expect(w.startsWith(buildPreamble())).toBe(true);
+    expect(iCheat).toBeGreaterThanOrEqual(buildPreamble().length);
+    expect(iCheat).toBeLessThan(iDiv);
+    expect(iDiv).toBeLessThan(iPrelude);
     expect(iPrelude).toBeLessThan(iDefines);
 });
 
-test("generateWasmWrapperSource: omitting the callee prelude leaves no gap before the defines", () => {
+test("generateWasmWrapperSource: bare div reaches QPI in the contract only, not in what follows it", () => {
     const w = generateWasmWrapperSource(opts());
 
-    expect(w).toContain(`${buildPreamble()}\n#define CONTRACT_INDEX 7`);
+    const iDefine = w.indexOf("#define div(...) qinitDiv(__VA_ARGS__)");
+    const iContract = w.indexOf('#include "/abs/Counter.h"');
+    const iUndef = w.indexOf("#undef div");
+    const iCollection = w.indexOf("qpi/impl/qpi_collection_impl.h");
+
+    expect(iDefine).toBeGreaterThan(0);
+    expect(iDefine).toBeLessThan(iContract);
+    expect(iContract).toBeLessThan(iUndef);
+    expect(iUndef).toBeLessThan(iCollection);
+});
+
+test("generateWasmWrapperSource: a production build drops the cheat shim but keeps the div shim", () => {
+    const w = generateWasmWrapperSource(opts({ cheats: CheatMode.OFF }));
+
+    expect(w).not.toContain("CC_PRINT");
+    expect(w).toContain("#define div(...) qinitDiv(__VA_ARGS__)");
 });
 
 test("generateWasmWrapperSource: includes only the Wasm support and runtime headers", () => {

@@ -20,7 +20,12 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   struct Div_input { uint64 a; uint64 b; }; struct Div_output { uint64 q; uint64 r; };
   struct SumTo_input { uint64 n; }; struct SumTo_output { uint64 s; };
   struct SumTo_locals { uint64 i; uint64 s; };
+  struct SignedDiv_input { sint64 a; sint64 b; }; struct SignedDiv_output { sint64 q; sint64 r; };
   PUBLIC_FUNCTION(Div) {
+    output.q = div(input.a, input.b);
+    output.r = mod(input.a, input.b);
+  }
+  PUBLIC_FUNCTION(SignedDiv) {
     output.q = div(input.a, input.b);
     output.r = mod(input.a, input.b);
   }
@@ -35,6 +40,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
     REGISTER_USER_FUNCTION(Div, 1);
     REGISTER_USER_FUNCTION(SumTo, 2);
+    REGISTER_USER_FUNCTION(SignedDiv, 3);
   }
 };
 `;
@@ -51,6 +57,17 @@ const CALC_GTEST = coreGtest(
   auto rz = t.call<Calc::Div_output>(1, z);
   EXPECT_EQ(rz.q, 0ull);
   EXPECT_EQ(rz.r, 0ull);
+}
+TEST(Calc, SignedDivMod) {
+  ContractTestingHarness t;
+  Calc::SignedDiv_input a{}; a.a = -7ll; a.b = 2ll;
+  auto r = t.call<Calc::SignedDiv_output>(3, a);
+  EXPECT_EQ(r.q, -3ll);
+  EXPECT_EQ(r.r, -1ll);
+  Calc::SignedDiv_input z{}; z.a = -5ll; z.b = 0ll;
+  auto rz = t.call<Calc::SignedDiv_output>(3, z);
+  EXPECT_EQ(rz.q, 0ll);
+  EXPECT_EQ(rz.r, 0ll);
 }
 TEST(Calc, LoopSumWithBreakCap) {
   ContractTestingHarness t;

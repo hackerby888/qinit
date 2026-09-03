@@ -81,31 +81,40 @@ function transitiveDependencies(contract: PlannedProjectContract, byStateType: R
     return ordered;
 }
 
-function clangCallees(dependencies: readonly PlannedProjectContract[]): DynCallees {
+type SourceOf = (contract: PlannedProjectContract) => string;
+
+function clangCallees(dependencies: readonly PlannedProjectContract[], sourceOf: SourceOf): DynCallees {
     return Object.fromEntries(
         dependencies
             .filter((dependency) => dependency.kind === "custom")
             .map((dependency) => [
                 dependency.stateType,
                 {
-                    header: dependency.sourcePath,
+                    header: sourceOf(dependency),
                     index: dependency.index,
                 },
             ]),
     );
 }
 
-function typescriptCallees(dependencies: readonly PlannedProjectContract[]): Record<string, TypeScriptCalleeBuildOptions> {
+function typescriptCallees(dependencies: readonly PlannedProjectContract[], sourceOf: SourceOf): Record<string, TypeScriptCalleeBuildOptions> {
     return Object.fromEntries(
         dependencies.map((dependency) => [
             dependency.stateType,
             {
-                header: dependency.sourcePath,
+                header: sourceOf(dependency),
                 index: dependency.index,
                 stateType: dependency.stateType,
             },
         ]),
     );
+}
+
+// clang names the file it stopped in, which is a callee's as often as the contract being built.
+export function blamedContract(stderr: string, plan: readonly PlannedProjectContract[]): PlannedProjectContract | undefined {
+    const file = /^(.*?):\d+:\d+: (?:fatal )?error:/m.exec(stderr)?.[1];
+
+    return file ? plan.find((contract) => basename(contract.sourcePath) === basename(file)) : undefined;
 }
 
 /**
@@ -138,6 +147,19 @@ export async function buildProjectContracts(options: {
 }): Promise<ProjectBuildOutcome> {
     const byStateType = new Map(options.plan.map((contract) => [contract.stateType, contract]));
     const built: BuiltProjectContract[] = [];
+    // A production build strips each contract once; a dependent then includes the very file its callee was built from.
+    const stripped = new Map<string, string>();
+    const sourceOf: SourceOf = (contract) => {
+        if (options.cheats !== CheatMode.OFF || contract.kind !== "custom") {
+            return contract.sourcePath;
+        }
+        let path = stripped.get(contract.sourcePath);
+        if (!path) {
+            path = productionSource(contract.sourcePath);
+            stripped.set(contract.sourcePath, path);
+        }
+        return path;
+    };
 
     for (const contract of options.plan) {
         if (contract.kind === "system") {
@@ -146,7 +168,7 @@ export async function buildProjectContracts(options: {
 
         options.onContract?.(contract);
         const dependencies = transitiveDependencies(contract, byStateType);
-        const sourcePath = options.cheats === CheatMode.OFF ? productionSource(contract.sourcePath) : contract.sourcePath;
+        const sourcePath = sourceOf(contract);
         const result =
             options.compiler === "typescript"
                 ? await buildContractWithTypeScript({
@@ -156,7 +178,7 @@ export async function buildProjectContracts(options: {
                       slot: contract.index,
                       corePath: options.core,
                       outDir: options.outDir,
-                      dynCallees: typescriptCallees(dependencies),
+                      dynCallees: typescriptCallees(dependencies, sourceOf),
                       cheats: options.cheats,
                   })
                 : await buildContractWithClang({
@@ -166,7 +188,7 @@ export async function buildProjectContracts(options: {
                       slot: contract.index,
                       corePath: options.core,
                       outDir: options.outDir,
-                      dynCallees: clangCallees(dependencies),
+                      dynCallees: clangCallees(dependencies, sourceOf),
                       cheats: options.cheats,
                       skipVerify: options.skipVerify,
                   });
@@ -175,7 +197,7 @@ export async function buildProjectContracts(options: {
             return {
                 ok: false,
                 contracts: built,
-                failed: contract,
+                failed: blamedContract(result.stderr ?? "", options.plan) ?? contract,
                 result,
             };
         }

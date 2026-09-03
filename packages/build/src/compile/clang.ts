@@ -140,9 +140,21 @@ function cheatShim(mode: CheatMode): string {
     return `#define QINIT_CHEATS\n#define QINIT_CC_LINE_BASE 0\n${QINIT_CHEATS_H}`;
 }
 
+// libc++'s <stdlib.h> injects ::div(long long, long long) globally, and that exact match beats the
+// QPI::div template on signed operands (the expression becomes lldiv_t). Route bare div() back to QPI.
+// The #undef after the contract include is the ceiling: gtest and corpus sources after it keep libc++'s
+// div, since core-lite's own test/qpi.cpp exercises it.
+const QPI_DIV_SHIM = `namespace QPI { template <typename T> inline static constexpr T qinitDiv(T a, T b) { return QPI::div<T>(a, b); } }
+using QPI::qinitDiv;
+#define div(...) qinitDiv(__VA_ARGS__)
+`;
+
+// The shims come before the callee prelude so a callee header is parsed with CC_PRINT and div in scope,
+// and after the preamble so the PCH stays a prefix of the TU.
 export function generateWasmWrapperSource(o: ClangBuildOptions): string {
     const contractType = o.stateType ?? o.contractName;
-    const wrapper = `${buildPreamble()}${o.calleePrelude ?? ""}
+    const wrapper = `${buildPreamble()}${cheatShim(o.cheats ?? CheatMode.ON)}
+${QPI_DIV_SHIM}${o.calleePrelude ?? ""}
 #define CONTRACT_INDEX ${o.slot}
 #define ${contractType}_CONTRACT_INDEX ${o.slot}
 #define CONTRACT_STATE_TYPE ${contractType}
@@ -151,8 +163,8 @@ export function generateWasmWrapperSource(o: ClangBuildOptions): string {
 // __contract_index + <Type>_<fn>_inputType consts from the prelude + CONTRACT_INDEX above).
 #include "${CORE_WASM_HEADERS.sdk.intercontractCalls}"
 #include "${CORE_WASM_HEADERS.sdk.qpiSupport}"
-${cheatShim(o.cheats ?? CheatMode.ON)}
 #include "${o.contractPath}"
+#undef div
 // QPI data-structure impls operate on contract-local memory. CAUTION: after the contract.
 #define printf(...) (__builtin_trap(), 0)
 // Collection + LinkedList are clean (only qpi.h + memory).

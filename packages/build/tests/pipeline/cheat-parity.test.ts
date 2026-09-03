@@ -2,8 +2,7 @@
 // lowers CC_PRINT with an intrinsic, clang expands a parameter pack. This is the test that says they
 // agree — same source in, same (id, part, bytes) on the wire, for every argument shape a print accepts.
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { QubicSimulator } from "@qinit/engine";
@@ -95,6 +94,35 @@ test.if(HAS_CORE && HAS_WASI)(
             slot: 28,
             corePath: CORE_PATH,
             outDir: mkdtempSync(join(tmpdir(), "qinit-cheat-ops-")),
+        });
+
+        expect(clang.ok, clang.stderr).toBe(true);
+    },
+    120_000,
+);
+
+// A callee header is spliced into the caller's TU ahead of the contract, where CC_PRINT used to be
+// undeclared: "use of undeclared identifier 'CC_PRINT'" on the callee's line.
+test.if(HAS_CORE && HAS_WASI)(
+    "a callee that prints compiles as part of its caller",
+    async () => {
+        const dir = mkdtempSync(join(tmpdir(), "qinit-cheat-callee-"));
+        const calleePath = join(dir, "Counter.h");
+        writeFileSync(
+            calleePath,
+            readFileSync(join(FIXTURES, "Counter.h"), "utf8").replace(
+                "state.mut().counter += 1;",
+                'state.mut().counter += 1;\n        CC_PRINT("inc", state.get().counter);',
+            ),
+        );
+
+        const clang = await buildContractWithClang({
+            contractPath: join(FIXTURES, "Proxy.h"),
+            contractName: "Proxy",
+            slot: 29,
+            corePath: CORE_PATH,
+            outDir: join(dir, "out"),
+            dynCallees: { Counter: { header: calleePath, index: 28 } },
         });
 
         expect(clang.ok, clang.stderr).toBe(true);

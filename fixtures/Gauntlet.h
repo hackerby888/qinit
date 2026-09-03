@@ -120,7 +120,7 @@ struct Gauntlet : public ContractBase
 
     PUBLIC_FUNCTION(SignedOp)
     {
-        output.q = QPI::div(input.a, input.b);   // QPI:: — unqualified div(long long,long long) hits stdlib lldiv_t
+        output.q = div(input.a, input.b);
         // Signed division truncates toward zero; modulo follows the dividend sign.
         output.r = QPI::mod(input.a, input.b);
         output.sum = input.a + input.b;
