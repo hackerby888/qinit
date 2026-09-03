@@ -37,7 +37,7 @@ test("Proxy calls Counter: CALL function + INVOKE procedure cross the contract b
 
     const proxyCalls = procedures.filter((entry) => entry.index === 29);
     expect(proxyCalls.map((entry) => entry.stateDiff)).toEqual([[], []]);
-    expect(proxyCalls.map((entry) => entry.hostCalls)).toEqual([
+    expect(proxyCalls.map((entry) => entry.hostCalls.map(({ name, detail }) => ({ name, detail })))).toEqual([
         [{ name: "invokeProcedure", detail: "→ @28 proc #1 reward=0" }],
         [{ name: "invokeProcedure", detail: "→ @28 proc #1 reward=0" }],
     ]);

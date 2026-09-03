@@ -17,7 +17,7 @@ import {
 } from "@qinit/proto";
 import { AbiTypeKind, formatAbiType, type ContractEntry } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
-import { describeTrace, type DecodedTrace } from "../../trace/format";
+import { describeTrace, mergePrints, type DecodedCheat, type DecodedTrace } from "../../trace/format";
 import { fmtVal, formatStateValue } from "../../trace/state-format";
 import { entryLabel } from "../../trace/entry-label";
 import { TraceView } from "../../trace/views";
@@ -26,6 +26,7 @@ import { loadConfig, loadConfiguredQpiHeader, resolveSeed } from "../../config";
 import { resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
 import { loadContracts, mergeContracts, resolveContract } from "../../contracts/registry";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
+import { loadContractIdls } from "../../contracts/idl-lookup";
 import { Header, Spinner, Status, Bar, theme } from "../../ui";
 import { invalidArgs, output, type CommandArguments } from "../../args";
 
@@ -76,6 +77,24 @@ export function callJsonResult(mode: CallMode, contract: string, entryName: stri
               }
             : {}),
     };
+}
+
+// Each callee frame decodes against its own slot's IDL, since a print is only readable through the
+// contract that made it. A callee that trapped is named too: the caller only ever sees NO_CALL_ERROR.
+async function calleePrints(rpc: LiteRpc, frames: readonly DebugEntry[], warn: (line: string) => void) {
+    const idls = await loadContractIdls(rpc);
+    const decoded: { contract: string; cheats: DecodedCheat[] }[] = [];
+
+    for (const frame of frames) {
+        const idl = idls.get(frame.index);
+        const contract = idl?.name ?? String(frame.index);
+        if (!frame.ok) {
+            warn(`⚠ ${contract} trapped inside this call${frame.trap ? `: ${frame.trap}` : ""}`);
+        }
+        decoded.push({ contract, cheats: (await describeTrace(frame, undefined, contract, undefined, idl)).cheats });
+    }
+
+    return decoded;
 }
 
 // A format that does not parse is left for the decode to report, where the error already has its wording.
@@ -376,13 +395,16 @@ function CallOneShot({
 
                 if (wantTrace) {
                     let te: DebugEntry | undefined;
+                    let polled: DebugEntry[] = [];
                     for (let i = 0; i < 12 && !te; i++) {
-                        const t = await rpc.debugTrace(sinceSeq, 200);
-                        te = (t.entries ?? [])
-                            .filter((x) => x.index === idx && x.seq > sinceSeq && x.kind === (mode === "fn" ? 0 : 1) && x.entry === entry)
-                            .pop();
+                        polled = (await rpc.debugTrace(sinceSeq, 200)).entries ?? [];
+                        te = polled.filter((x) => x.index === idx && x.seq > sinceSeq && x.kind === (mode === "fn" ? 0 : 1) && x.entry === entry).pop();
                         if (!te) await sleep(700);
                     }
+                    // A frame gets its seq when it completes, so the callees this call ran sit between the
+                    // seq seen before dispatch and the call's own. Only the ones with something to say are kept.
+                    // ponytail: on a shared node another tx's frame in the same tick window would slip in too.
+                    const children = te ? polled.filter((x) => x.seq > sinceSeq && x.seq < te!.seq && x.tick === te!.tick && (x.cheats?.length || !x.ok)) : [];
                     // The header only matters for deriving an IDL from source, and the build already gave
                     // us one — a core checkout that cannot supply it must not fail a call that ran.
                     let traceHeader: string | undefined;
@@ -390,14 +412,21 @@ function CallOneShot({
                         traceHeader = traceSrc ? loadConfiguredQpiHeader() : undefined;
                     } catch {}
 
-                    if (te)
+                    if (te) {
+                        const view = await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl);
+                        if (children.length) {
+                            view.cheats = mergePrints([{ contract: contractName, cheats: view.cheats }, ...(await calleePrints(rpc, children, addNote))]);
+                            if (view.cheats.some((cheat) => cheat.ord === undefined)) {
+                                addNote("(this node sends no print order — callee prints follow the caller's)");
+                            }
+                        }
                         setTrace({
                             e: te,
                             name: traceName,
                             entry: entryLabel(mode === "fn" ? 0 : 1, entry, entryIdl?.name),
-                            view: await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl),
+                            view,
                         });
-                    else addNote("(no trace captured — is the debug toggle available on this node?)");
+                    } else addNote("(no trace captured — is the debug toggle available on this node?)");
                 }
                 setDone(true);
             } catch (e: any) {

@@ -108,7 +108,7 @@ test.skipIf(!haveQx)(
 
             const trace = sim.sim.getTrace().entries;
             expect(trace.find((entry) => entry.index === 1 && entry.kind === 0 && entry.entry === 1)?.ok).toBe(true);
-            expect(trace.find((entry) => entry.index === 29 && entry.kind === 0 && entry.entry === 11)?.hostCalls).toEqual([
+            expect(trace.find((entry) => entry.index === 29 && entry.kind === 0 && entry.entry === 11)?.hostCalls).toMatchObject([
                 { name: "callFunction", detail: "→ @1 fn #1" },
             ]);
             expect(i64(sim.sim.query(29, 5))).toBe(0n);

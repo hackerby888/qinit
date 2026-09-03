@@ -153,7 +153,10 @@ export function TraceView({
             label: "print",
             node: (
                 <Text>
-                    <Text dimColor>:{cheat.line}</Text> {cheat.text}
+                    <Text dimColor>
+                        {cheat.contract ?? ""}:{cheat.line}
+                    </Text>{" "}
+                    {cheat.text}
                 </Text>
             ),
         });

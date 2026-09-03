@@ -117,6 +117,27 @@ export interface DecodedCheat {
     text: string;
     /** A container, or a struct holding one, as the blocks `qinit state` draws; `text` is then their head. */
     blocks?: ValueBlocks;
+    /** Where the print ran in the node's emission order; absent from a node that predates it. */
+    ord?: number;
+    /** Set when the stream spans more than one contract, so a line says which one printed it. */
+    contract?: string;
+}
+
+/**
+ * The prints of one call across every frame it ran, in the order they ran. Each frame decodes against
+ * its own IDL first; only then can lines from different contracts be interleaved. Without ordinals the
+ * frames stay in the order given, which is the best an older node allows.
+ */
+export function mergePrints(frames: readonly { contract: string; cheats: readonly DecodedCheat[] }[]): DecodedCheat[] {
+    const printing = frames.filter((frame) => frame.cheats.length);
+    const tagged = new Set(printing.map((frame) => frame.contract)).size > 1;
+    const lines = printing.flatMap((frame) => frame.cheats.map((cheat) => (tagged ? { ...cheat, contract: frame.contract } : cheat)));
+
+    if (lines.every((cheat) => cheat.ord !== undefined)) {
+        lines.sort((left, right) => left.ord! - right.ord!);
+    }
+
+    return lines;
 }
 
 /**
@@ -155,8 +176,11 @@ function printInstances(records: readonly DebugCheat[]): DebugCheat[][] {
 }
 
 async function decodePrint(group: DebugCheat[], site: ContractCheat | undefined): Promise<DecodedCheat> {
+    const ords = group.flatMap((record) => (record.ord === undefined ? [] : [record.ord]));
+    const ord = ords.length ? { ord: Math.min(...ords) } : {};
+
     if (!site) {
-        return { line: group[0].id, text: group.map(rawCheatValue).join(" ") };
+        return { line: group[0].id, text: group.map(rawCheatValue).join(" "), ...ord };
     }
 
     const pieces: string[] = [];
@@ -190,7 +214,7 @@ async function decodePrint(group: DebugCheat[], site: ContractCheat | undefined)
         pieces.push(unlabelled ? `${part.expr}=${value}` : value);
     }
 
-    return { line: site.line, text: pieces.join(" "), ...(blocks ? { blocks } : {}) };
+    return { line: site.line, text: pieces.join(" "), ...(blocks ? { blocks } : {}), ...ord };
 }
 
 // Undefined for anything that is not a container-bearing value at exactly its size; the inline path

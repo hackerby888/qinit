@@ -117,6 +117,8 @@ export class TraceRecorder {
     private entries: DebugEntry[] = [];
     private stack: DebugEntry[] = [];
     private seq = 0;
+    // Recorder-wide, not per entry: a nested frame's records must order against its caller's.
+    private ord = 0;
 
     setEnabled(on: boolean): void {
         this.enabled = on;
@@ -201,7 +203,7 @@ export class TraceRecorder {
     log(type: number, msg: Uint8Array): void {
         const e = this.stack[this.stack.length - 1];
         if (e) {
-            e.logs.push({ type, size: msg.length, hex: toHex(msg) });
+            e.logs.push({ type, size: msg.length, hex: toHex(msg), ord: ++this.ord });
         }
     }
 
@@ -210,7 +212,7 @@ export class TraceRecorder {
     cheat(slot: number, id: number, part: number, value: bigint, bytes: Uint8Array): void {
         const e = this.stack[this.stack.length - 1];
         if (e) {
-            e.cheats.push({ slot, id, part, size: bytes.length, value: value.toString(), hex: toHex(bytes) });
+            e.cheats.push({ slot, id, part, size: bytes.length, value: value.toString(), hex: toHex(bytes), ord: ++this.ord });
         }
     }
 
@@ -218,7 +220,7 @@ export class TraceRecorder {
     hostCall(name: string, detail: string): void {
         const e = this.stack[this.stack.length - 1];
         if (e) {
-            e.hostCalls.push({ name, detail });
+            e.hostCalls.push({ name, detail, ord: ++this.ord });
         }
     }
 }

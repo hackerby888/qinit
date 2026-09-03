@@ -62,9 +62,12 @@ export interface DynamicContractUploadStatus {
     missingCount: number;
 }
 
+// `ord` is the record's place in the node's emission order, shared across every frame of one call, so
+// a callee's prints can be read back in the order they ran among the caller's. Older nodes omit it.
 export interface DebugHostCall {
     name: string;
     detail: string;
+    ord?: number;
 }
 export interface DebugStateRegion {
     off: number;
@@ -75,6 +78,7 @@ export interface DebugLog {
     type: number;
     size: number;
     hex: string;
+    ord?: number;
 } // a LOG_* call (numeric struct bytes)
 export interface DebugCheat {
     slot?: number;
@@ -83,6 +87,7 @@ export interface DebugCheat {
     size: number;
     value: number | string;
     hex: string;
+    ord?: number;
 } // one CC_PRINT argument; size 0 means the value came by register
 export interface DebugEntry {
     seq: number;
