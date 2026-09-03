@@ -36,6 +36,20 @@ export function epochJsonResult(action: string, facts: EpochFacts | null, error:
     };
 }
 
+// Step over the boundary from `fromEpoch` exactly once. The node ticks on its own between requests, so
+// by the time this runs it may already sit in the next epoch — asking it to advance then would cross a
+// whole further epoch. Only when it has not moved is the transition requested, with a few nudges.
+export async function crossEpoch(rpc: LiteRpc, fromEpoch: number) {
+    const now = await rpc.epochInfo();
+    if (now.epoch > fromEpoch) {
+        return { fromEpoch, toEpoch: now.epoch, fromTick: now.tick, tick: now.tick, initialTick: now.initialTick, switched: true };
+    }
+
+    let r = await advanceEpochOrFault(rpc);
+    for (let i = 0; i < 3 && !r.switched; i++) r = await advanceEpochOrFault(rpc);
+    return r;
+}
+
 // The boundary transition fails the same way the tick advance does on a halted node.
 async function advanceEpochOrFault(rpc: LiteRpc) {
     try {
@@ -84,8 +98,7 @@ export function Epoch({ commandArgs }: { commandArgs: CommandArguments }) {
                     await advanceTo(rpc, target, e.tick, (c) => setProg((p) => p && { ...p, cur: c }));
                     setProg(null);
                     setBusy("transitioning to the next epoch");
-                    let r = await advanceEpochOrFault(rpc);
-                    for (let i = 0; i < 3 && !r.switched; i++) r = await advanceEpochOrFault(rpc); // a few nudges if the boundary needs more ticks
+                    const r = await crossEpoch(rpc, e.epoch);
                     if (!r.switched) throw new Error(`epoch did not switch (still ${r.toEpoch}, tick ${r.tick}) — node may have timed out`);
                     factsRef.current = {
                         ...NO_EPOCH_FACTS,
