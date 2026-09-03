@@ -1,9 +1,9 @@
 // The typed encode path (an AbiType rather than a format string) reaches its own validation: the
 // string dialect's tests never run these branches, so a dropped range or identity check survives there.
 import { test, expect } from "bun:test";
-import { encodeInputJson, decodeOutput, zeroInputFormat, encodeInput } from "../../src/abi-fmt";
+import { encodeInputJson, parseInputJson, decodeOutput, zeroInputFormat, encodeInput } from "../../src/abi-fmt";
 import { AbiScalarKind, AbiTypeKind, type AbiStruct, type AbiType } from "../../src/contract-idl";
-import { arr, bit, named, st, u8, u32, u64, i32, id, validated } from "./abi-builders";
+import { arr, bit, named, st, u8, u32, u64, i32, i64, id, validated } from "./abi-builders";
 
 const scalarField = (scalar: AbiScalarKind, size: number, align: number): AbiType => ({
     kind: AbiTypeKind.SCALAR,
@@ -127,4 +127,16 @@ test("a three-level typed input agrees byte-for-byte with the value dialect it p
         ],
         3,
     ]);
+});
+
+// A 64-bit literal in --args must reach the contract exact: JSON.parse alone rounds it past 2^53 before
+// any range check runs, and 2^53+1 silently becomes 2^53.
+test("parseInputJson keeps integer literals past 2^53 exact", async () => {
+    const wide = named(["u", u64], ["s", i64], ["mid", u64], ["f", u32]);
+    const json = parseInputJson('{"u":18446744073709551615,"s":-9223372036854775808,"mid":9007199254740993,"f":42}');
+
+    expect(json).toEqual({ u: "18446744073709551615", s: "-9223372036854775808", mid: "9007199254740993", f: 42 });
+    expect(await decodeOutput(await encodeInputJson(wide, json), wide)).toEqual([18446744073709551615n, -9223372036854775808n, 9007199254740993n, 42]);
+    // Everything JSON.parse already gets right is untouched, floats and exponents included.
+    expect(parseInputJson('{"a":[1.5, 1e3, -7], "b":{"c":"18446744073709551615"}}')).toEqual({ a: [1.5, 1000, -7], b: { c: "18446744073709551615" } });
 });

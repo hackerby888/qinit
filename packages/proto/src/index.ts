@@ -15,6 +15,7 @@ export { TX_TICK_OFFSET } from "./protocol";
 export {
     encodeInput,
     encodeInputJson,
+    parseInputJson,
     checkInputSize,
     hasOverlappingAbiType,
     jsonToInputFormat,

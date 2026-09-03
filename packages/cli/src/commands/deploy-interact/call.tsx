@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
 import { activeNodeScratchDir } from "../../ops/node";
-import { callFunction, invokeProcedure, encodeInput, encodeInputJson, checkInputSize, zeroInputFormat, TX_TICK_OFFSET } from "@qinit/proto";
+import { callFunction, invokeProcedure, encodeInput, encodeInputJson, parseInputJson, checkInputSize, zeroInputFormat, TX_TICK_OFFSET } from "@qinit/proto";
 import { AbiTypeKind, type ContractEntry } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { describeTrace, type DecodedTrace } from "../../trace/format";
@@ -204,7 +204,7 @@ function CallOneShot({
                         );
                     }
                     try {
-                        input = await encodeInputJson(entryIdl.input, JSON.parse(inputJson));
+                        input = await encodeInputJson(entryIdl.input, parseInputJson(inputJson));
                     } catch (er: any) {
                         throw new Error("--args: " + String(er?.message ?? er));
                     }

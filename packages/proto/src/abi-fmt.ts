@@ -789,6 +789,22 @@ export function jsonToInputFormat(fields: InputFields, json: any): string {
     return fields.map((f, i) => jsonValueToFmt(f.type, arr[i])).join(", ");
 }
 
+// JSON.parse rounds an integer past 2^53 before any range check can see it. The reviver's source text
+// keeps such a literal exact as a string, which every integer encoder below already accepts.
+export function parseInputJson(text: string): any {
+    type Reviver = (this: any, key: string, value: any, context?: { source?: string }) => any;
+    const exact: Reviver = (_key, value, context) => {
+        if (typeof value !== "number" || Number.isSafeInteger(value) || !Number.isInteger(value)) {
+            return value;
+        }
+        if (context?.source === undefined) {
+            throw new Error(`integer ${value} is past 2^53: quote it as a string`);
+        }
+        return /^-?\d+$/.test(context.source) ? context.source : value;
+    };
+    return JSON.parse(text, exact as (key: string, value: any) => any);
+}
+
 export async function encodeInputJson(fields: InputFields, json: any): Promise<Uint8Array> {
     rejectComplexInput(fields);
     if (!Array.isArray(fields)) {
