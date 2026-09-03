@@ -1711,7 +1711,7 @@ resolve, slot, and build the complete project graph
   -> deploy changed custom dependencies
   -> always deploy Main last
   -> generate tests/.qinit runtime and typed client
-  -> scaffold a sample .test.ts when none exists
+  -> fail when tests/ holds no .test.ts (qinit new ships one written for its template)
   -> update/create package.json
   -> bun install when the public Qubic library is missing
   -> spawn bun test
@@ -1772,7 +1772,7 @@ Chain and contract routes:
 | ------------------------- | ------------------------------------------ | ------------------------------------------------------- |
 | `tickInfo()`              | `GET /live/v1/tick-info`                   | deploy, procedure call, state reachability, node health |
 | `latestCreatedTickInfo()` | `GET /latest-created-tick-info`            | tick freshness checks                                   |
-| `faultInfo()`             | `GET /live/v1/dev/fault`                   | simulator fault reporting                               |
+| `faultInfo()`             | `GET /live/v1/dev/fault`                   | halt reporting in call, node status, tick and epoch     |
 | `whoami()`                | `GET /live/v1/whoami`                      | explicit core/simulator orchestration                   |
 | `raw()`                   | any GET path                               | escape hatch for routes with no method                  |
 | `dynRegistry()`           | `GET /live/v1/dyn-registry`                | deploy/slot planning, call, state, debug, list          |
