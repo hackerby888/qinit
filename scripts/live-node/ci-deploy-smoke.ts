@@ -248,6 +248,17 @@ if (counterV2Value !== 4n || migrationTickAfterCall !== migratedAtTick) {
     fail(`CounterV2 post-migration call failed: counter=${counterV2Value}, ` + `tick=${migrationTickAfterCall}`);
 }
 
+// The migration itself is a traced dispatch: its input is the whole old state (v1's single uint64) and
+// its diff is the new layout, written over a state the node zeroed first.
+const migration = ((await rpc.debugTrace(0, 256)).entries ?? []).find((entry) => entry.index === counterSlot && entry.kind === 3);
+if (!migration || !migration.ok || migration.inSize !== 8) {
+    fail("debug trace missing the migration entry: " + JSON.stringify(migration ?? null));
+}
+console.log("debug: migrate stateDiff " + JSON.stringify(migration!.stateDiff));
+if (!migration!.stateDiff.some((diff) => diff.off === 0 && diff.after.startsWith("0300000000000000"))) {
+    fail("migration entry carries no state diff for the counter it migrated");
+}
+
 // Deploy Logger and verify that Emit(2) produces a decoded INFO log.
 console.log("deploy Logger…");
 const loggerDeployment = await deployContract({ contractPath: resolve("fixtures/Logger.h"), name: "Logger", core, rpcBaseUrl }, (event: any) => {

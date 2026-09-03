@@ -6,7 +6,7 @@ import type { ContractIdl } from "@qinit/proto/contract-idl";
 const FUNCTION = 0;
 const PROCEDURE = 1;
 const SYSPROC = 2;
-const MIGRATE = 3;
+export const MIGRATE = 3;
 
 const SYSPROC_NAMES = new Map<number, string>(Object.entries(SYSTEM_PROCEDURES).map(([name, id]) => [id, name]));
 

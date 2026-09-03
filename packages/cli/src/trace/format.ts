@@ -5,6 +5,7 @@ import type { DebugCheat } from "@qinit/core";
 import { extractIdl } from "@qinit/build";
 import { stateDiffLines, type StateDiffLine } from "./state-diff";
 import { enumMap, formatStateValue, stateFieldsOf, type StateField } from "./state-format";
+import { MIGRATE } from "./entry-label";
 import { decodeValueBlocks, holdsContainer, type ValueBlocks } from "./state-read";
 import { bytesToIdentity, hexToBytes, type DebugEntry } from "@qinit/core";
 
@@ -54,9 +55,11 @@ export async function describeTrace(
         // else — so every section is optional rather than assumed present.
         const registered = (entry.kind === 0 ? idl.functions : idl.procedures) ?? [];
         const metadata = registered.find((candidate) => candidate.inputType === entry.entry);
+        // A migration's input is the old state, which carries no entry number — its layout is OldStateData.
+        const inputType = entry.kind === MIGRATE ? idl.migration?.oldState : metadata?.input;
 
-        if (metadata && entry.inHex) {
-            input = await orElse(input, async () => formatStateValue(await decodeOutput(hexToBytes(entry.inHex), metadata.input), metadata.input, false, true));
+        if (inputType && entry.inHex) {
+            input = await orElse(input, async () => formatStateValue(await decodeOutput(hexToBytes(entry.inHex), inputType), inputType, false, true));
         }
         if (metadata && entry.outHex) {
             output = await orElse(output, async () =>
