@@ -2,6 +2,7 @@
 // report a stale tick has to ask for the fault and say so.
 import { CONTRACT_ENTRY_KIND } from "@qinit/engine";
 import type { EngineFaultInfo, LiteRpc } from "@qinit/core";
+import { loadContracts, mergeContracts } from "../contracts/registry";
 
 const ENTRY_LABEL: Record<number, string> = {
     [CONTRACT_ENTRY_KIND.FUNCTION]: "fn",
@@ -30,6 +31,17 @@ function withHexAbortCode(message: string): string {
         const code = Number(digits);
         return Number.isSafeInteger(code) ? `abort(0x${code.toString(16).toUpperCase()})` : whole;
     });
+}
+
+/** The fault line with the slot resolved to a contract name, when the registry still answers. */
+export async function describeFault(rpc: LiteRpc, fault: EngineFaultInfo): Promise<string> {
+    let name: string | undefined;
+    if (fault.slot !== undefined) {
+        const { all } = mergeContracts(await loadContracts(rpc));
+        name = all.find((contract) => contract.index === fault.slot)?.name || undefined;
+    }
+
+    return formatFault(fault, name);
 }
 
 /** One line naming what trapped, where, and how to recover. */

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadConfig } from "../../config";
-import { formatFault, readFault } from "../../ops/fault";
+import { describeFault, readFault } from "../../ops/fault";
 import { Header, Spinner, Bar, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 
@@ -49,7 +49,7 @@ export async function advanceChunk(rpc: LiteRpc, span: number) {
             throw error;
         }
         const fault = await readFault(rpc);
-        throw fault ? new Error(formatFault(fault)) : error;
+        throw fault ? new Error(await describeFault(rpc, fault)) : error;
     }
 }
 

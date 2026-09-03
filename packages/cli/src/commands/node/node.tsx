@@ -3,7 +3,7 @@ import { Box, useApp } from "ink";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { DEFAULT_RPC_BASE, readCurrent, LiteRpc } from "@qinit/core";
 import { ensureNodeBinary, killNode, nodeAlive, nodeStatus } from "../../ops/node";
-import { formatFault } from "../../ops/fault";
+import { describeFault } from "../../ops/fault";
 import { output, type CommandArguments } from "../../args";
 const dlLabel = (recv: number, total: number) =>
     total ? `downloading node ${(recv / 1e6).toFixed(0)}/${(total / 1e6).toFixed(0)} MB` : `downloading node ${(recv / 1e6).toFixed(0)} MB`;
@@ -45,7 +45,7 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                         return;
                     }
                     if (st.fault) {
-                        add(formatFault(st.fault), false);
+                        add(await describeFault(new LiteRpc(rpcBaseUrl), st.fault), false);
                     } else {
                         add(st.ticking ? "rpc: up, ticking" : "rpc: up, not yet ticking", st.ticking);
                     }

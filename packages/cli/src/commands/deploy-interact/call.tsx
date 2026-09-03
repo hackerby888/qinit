@@ -24,7 +24,7 @@ import { TraceView } from "../../trace/views";
 import { CallInteractive, type CollectedCall } from "./call-interactive";
 import { loadConfig, loadConfiguredQpiHeader, resolveSeed } from "../../config";
 import { resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
-import { formatFault, readFault } from "../../ops/fault";
+import { describeFault, readFault } from "../../ops/fault";
 import { loadContracts, mergeContracts, missingContractMessage, resolveContract } from "../../contracts/registry";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { loadContractIdls } from "../../contracts/idl-lookup";
@@ -454,7 +454,8 @@ function CallOneShot({
                 // here is not one. Reported last: the fault is only knowable after the call was attempted.
                 const fault = await readFault(rpc);
                 if (fault) {
-                    setResult((r) => ({ ...(r ?? { label }), ok: false, err: formatFault(fault, fault.slot === idx ? rc.name : undefined) }));
+                    const halted = await describeFault(rpc, fault);
+                    setResult((r) => ({ ...(r ?? { label }), ok: false, err: halted }));
                 }
                 setDone(true);
             } catch (e: any) {
