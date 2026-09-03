@@ -16,7 +16,7 @@
         "snapshot:core": "bun run scripts/release/build-core-headers.ts",
         "ci:core-lite-smoke": "bun run scripts/core-compat/core-smoke.ts",
         "smoke": "bun run packages/cli/src/index.tsx smoke",
-        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "typecheck": "tsc -p tsconfig.json --noEmit && bun run --cwd packages/vscode typecheck && tsc -p packages/compiler/tsconfig.build.json --noEmit",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "test": "bun test",

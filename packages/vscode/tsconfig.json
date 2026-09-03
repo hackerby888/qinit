@@ -9,6 +9,6 @@
         "noEmit": true,
         "skipLibCheck": true
     },
-    "include": ["src"],
+    "include": ["src", "../build/src/text-assets.d.ts"],
     "exclude": ["dist", "node_modules"]
 }

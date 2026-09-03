@@ -8,6 +8,14 @@ declare module "@qinit/core" {
     }
     export type LhostImportName = string;
     export const LHOST_ABI: Readonly<Record<string, LhostFunctionSignature>>;
+    export const CHEAT_OP: Readonly<{
+        print: number;
+        deal: number;
+        warpTick: number;
+        warpEpoch: number;
+        prank: number;
+        unprank: number;
+    }>;
     export const ASSET_ENUMERATION_RECORD: Readonly<{
         size: number;
         capacity: number;

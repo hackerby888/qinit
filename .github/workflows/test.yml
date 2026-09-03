@@ -456,7 +456,7 @@ jobs:
                 --peers 127.0.0.1 --node-mode 3 --ticking-delay 1000 > node.log 2>&1
             ) &
             node_pid=$!
-            if t=$(bash scripts/live-node/poll-node-json.sh "$QINIT_RPC/live/v1/tick-info" '.tick // 0' 50 3); then
+            if t=$(bash scripts/live-node/poll-node-json.sh "$QINIT_RPC/live/v1/tick-info" '.tickInfo.tick // .tick // 0' 50 3); then
               echo "node ticking at $t"
             else
               echo "node never ticked"
