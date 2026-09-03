@@ -1,6 +1,6 @@
 import { CHEAT_ERR, CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURES, type DebugTrace, type EngineFaultInfo } from "@qinit/core";
 import { encodeBurningLog, encodeQuTransferLog, MAINNET_COMPUTOR_COUNT, MAX_INPUT_SIZE, QUBIC_LOG_TYPE, TXS_PER_TICK } from "@qinit/proto";
-import { Contract, CONTRACT_ENTRY_KIND, ContractExecutionError, Entity, HostServices } from "./contract/runtime";
+import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, Entity, HostServices } from "./contract/runtime";
 import { toHex, verifySync } from "./support/k12";
 import { TraceRecorder } from "./logging/trace";
 import { Committee, MAX_NUMBER_OF_CONTRACTS, type CommitteeOpts } from "./chain/consensus";
@@ -309,6 +309,27 @@ export class QubicSimulator {
         }
     }
 
+    // The first fault is the one that describes the halt; later ones are consequences of it.
+    private recordFault(error: unknown, phase: string, txId?: string): EngineFaultInfo {
+        const contractError = error instanceof ContractExecutionError ? error : null;
+        const fault: EngineFaultInfo = {
+            message: String((error as Error)?.message ?? error),
+            phase,
+            failedTick: this.currentTick,
+            failedEpoch: this.currentEpoch,
+            lastFinalizedTick: this.lastFinalizedTick,
+            lastFinalizedEpoch: this.lastFinalizedEpoch,
+            slot: contractError?.slot,
+            kind: contractError?.kind,
+            entry: contractError?.entry,
+            txId,
+        };
+
+        this.terminalFault ??= fault;
+
+        return this.terminalFault;
+    }
+
     private runOperation<T>(
         phase: string,
         operation: () => T,
@@ -330,21 +351,8 @@ export class QubicSimulator {
             if (context.contractErrorsOnly && !contractError) {
                 throw error;
             }
-            const fault: EngineFaultInfo = {
-                message: String((error as Error)?.message ?? error),
-                phase,
-                failedTick: this.currentTick,
-                failedEpoch: this.currentEpoch,
-                lastFinalizedTick: this.lastFinalizedTick,
-                lastFinalizedEpoch: this.lastFinalizedEpoch,
-                slot: contractError?.slot,
-                kind: contractError?.kind,
-                entry: contractError?.entry,
-                txId: context.txId,
-            };
 
-            this.terminalFault ??= fault;
-            throw new EngineFaultedError(this.terminalFault, error);
+            throw new EngineFaultedError(this.recordFault(error, phase, context.txId), error);
         }
     }
 
@@ -1133,7 +1141,7 @@ export class QubicSimulator {
             });
             return { error: NO_CALL_ERROR, output };
         } catch (error) {
-            return this.nestedTrapResult(callee, CONTRACT_ENTRY_KIND.FUNCTION, inputType, error);
+            return this.nestedTrapResult(callee, CONTRACT_ENTRY_KIND.FUNCTION, inputType, error, "contract-function");
         } finally {
             this.callDepth--;
         }
@@ -1169,18 +1177,32 @@ export class QubicSimulator {
             const output = this.processTickTransactionContractProcedure(calleeIndex, inputType, input, invocator, originator, transferredReward);
             return { error: NO_CALL_ERROR, output };
         } catch (error) {
-            return this.nestedTrapResult(callee, CONTRACT_ENTRY_KIND.PROCEDURE, inputType, error);
+            return this.nestedTrapResult(callee, CONTRACT_ENTRY_KIND.PROCEDURE, inputType, error, "contract-procedure");
         } finally {
             this.callDepth--;
         }
     }
 
-    private nestedTrapResult(callee: Contract, kind: number, inputType: number, error: unknown): { error: number; output: Uint8Array } {
+    // A callee that aborted deliberately halts the node, exactly as the same abort does at the top level.
+    // A Wasm trap stays recoverable: Core keeps ticking through one, and the caller gets NoCallError with
+    // a zero-filled output, which is the only shape it has for "the callee produced nothing".
+    private nestedTrapResult(
+        callee: Contract,
+        kind: number,
+        inputType: number,
+        error: unknown,
+        phase: string,
+    ): { error: number; output: Uint8Array } {
         if (!(error instanceof ContractExecutionError)) {
             throw error;
         }
+        if (error.cause instanceof ContractAbort) {
+            // Recorded here rather than in an enclosing runOperation: these two entry points are also
+            // called directly, where there is no enclosing operation to record the fault.
+            this.recordFault(error, phase);
+            throw error;
+        }
 
-        // Core records a nested Wasm trap but returns NoCallError to the caller.
         const outputSize = callee.entries.find((entry) => entry.kind === kind && entry.inputType === inputType)?.outputSizeBytes;
         return {
             error: NO_CALL_ERROR,

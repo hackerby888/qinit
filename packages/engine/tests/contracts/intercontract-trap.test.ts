@@ -74,3 +74,29 @@ test("a trapped nested function returns zero output and remains callable", async
     expect(words(sim.query(28, 1))).toEqual([7n, 0n, 0x43414c4c45455741n]);
     expect(sim.isFaulted()).toBe(false);
 });
+
+test("a nested abort halts the engine and the fault names the callee", async () => {
+    await initK12();
+
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("Cheats"));
+    sim.deploy(29, await wasm("QpiDual"));
+    sim.setDebug(true);
+
+    // Add asserts on a positive amount, so zero aborts inside the callee.
+    const input = new Uint8Array(8);
+    const originator = sim.contractId(29);
+
+    expect(() => sim.invokeProcedure(29, 28, 1, input, 0n, originator)).toThrow(/abort\(/);
+    expect(sim.isFaulted()).toBe(true);
+    expect(sim.faultInfo()).toMatchObject({
+        phase: "contract-procedure",
+        slot: 28,
+        kind: 1,
+        entry: 1,
+    });
+
+    const trapped = sim.getTrace().entries.find((entry) => entry.index === 28 && entry.kind === 1 && entry.entry === 1);
+    expect(trapped).toMatchObject({ ok: false });
+    expect(trapped?.trap).toMatch(/abort/i);
+});
