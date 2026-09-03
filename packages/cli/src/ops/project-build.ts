@@ -180,6 +180,7 @@ export async function buildProjectContracts(options: {
                       outDir: options.outDir,
                       dynCallees: typescriptCallees(dependencies, sourceOf),
                       cheats: options.cheats,
+                      skipVerify: options.skipVerify,
                   })
                 : await buildContractWithClang({
                       contractPath: sourcePath,

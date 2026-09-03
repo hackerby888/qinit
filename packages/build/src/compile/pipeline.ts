@@ -9,7 +9,7 @@ import { resolveContractSource } from "./source";
 // Embedded as text by `bun build --compile` (import.meta.dir asset files aren't bundled into the binary).
 import TEST_UTIL_H from "../assets/test_util.h" with { type: "text" };
 import { extractIdl, type ContractIdl } from "./idl";
-import { verifyContract } from "./verify";
+import { verifyForBuild, verifyRejection } from "./verify";
 import type { ContractBuildResult, SystemContractCompiler } from "./types";
 import { buildContractWithTypeScript } from "./typescript";
 import { buildCalleePrelude } from "../contracts/intercontract";
@@ -65,15 +65,10 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
     }
     const calls = analysis.calls;
     const calleeNames = [...new Set([...Object.keys(o.dynCallees ?? {}), ...calls.map((call) => call.callee)])];
-    const verify = o.skipVerify
-        ? { available: false, ok: true, oracle: false, errors: [] as string[] }
-        : await verifyContract(o.contractPath, o.contractName, { allowedPrefixes: calleeNames });
-    if (verify.available && !verify.ok) {
-        return {
-            ok: false,
-            verify,
-            stderr: ["Qubic protocol violations:", ...verify.errors.map((e) => "  • " + e)].join("\n"),
-        };
+    const verify = await verifyForBuild({ contractPath: o.contractPath, stateType: o.stateType ?? o.contractName, calleeNames, skipVerify: o.skipVerify });
+    const rejected = verifyRejection(verify);
+    if (rejected) {
+        return rejected;
     }
 
     // Inter-contract: scan the contract for CALL_OTHER_CONTRACT_* and auto-derive the callee prelude
@@ -257,6 +252,7 @@ export async function buildSystemContract(
         corePath,
         outDir,
         dynCallees: dependencies,
+        skipVerify: true,
     });
     if (!result.ok) {
         return {

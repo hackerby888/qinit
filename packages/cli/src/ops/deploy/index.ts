@@ -117,6 +117,7 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
                 corePath: options.core,
                 outDir,
                 dynCallees,
+                skipVerify: options.skipVerify,
             })
           : await buildContractWithClang({
                 contractPath: options.contractPath,

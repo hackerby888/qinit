@@ -4,6 +4,7 @@ import { CheatMode,compileContractWithTypeScript, DiagnosticSeverity, loadQpiHea
 import { analyzeContract, type SourceAnalysisResult } from "@qinit/compiler/analyzer";
 import { k12Hex } from "@qinit/core";
 import type { ContractBuildResult } from "./types";
+import { verifyForBuild, verifyRejection } from "./verify";
 import { KNOWN_LOG_HEADER_VIOLATIONS } from "../contracts/system-contracts";
 import { resolveContractSource } from "./source";
 
@@ -14,7 +15,7 @@ export interface TypeScriptCalleeBuildOptions {
 }
 
 // Every field here is spelled as in ClangBuildOptions, so one options object drives either backend.
-// Clang-only knobs (skipVerify, wasmClang, extraCompileFlags) have no meaning for this backend.
+// Clang-only knobs (wasmClang, extraCompileFlags) have no meaning for this backend.
 export interface TypeScriptBuildOptions {
     contractPath?: string; // supply this or `source`
     source?: string;
@@ -26,6 +27,7 @@ export interface TypeScriptBuildOptions {
     dynCallees?: Record<string, TypeScriptCalleeBuildOptions>;
     strict?: boolean; // default true; false keeps fidelity-only findings from failing the build
     cheats?: CheatMode; // development cheatcodes; OFF is what Core sees
+    skipVerify?: boolean; // skip the protocol verifier; the same gate clang runs
 }
 
 interface DynamicCalleeSource {
@@ -107,6 +109,17 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         source: calleeSource,
     }));
     const contractStateType = o.stateType ?? o.contractName;
+
+    // The verifier rejects a scope prefix it does not know, so every callee this contract names — planned
+    // or a system contract found in the source — is allowed, the same list the clang build passes.
+    const calls = analyzeContract({ source, contractName: contractStateType, slot: o.slot, qpiHeader }).calls;
+    const calleeNames = [...new Set([...dynamicCallees.map((callee) => callee.name), ...calls.map((call) => call.callee)])];
+    const verify = await verifyForBuild({ contractPath, stateType: contractStateType, calleeNames, skipVerify: o.skipVerify });
+    const rejected = verifyRejection(verify);
+    if (rejected) {
+        return rejected;
+    }
+
     const result = await compileContractWithTypeScript({
         source,
         contractName: contractStateType,
@@ -146,6 +159,7 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         wasmSizeBytes: statSync(wasmPath).size,
         wasmK12DigestHex: await k12Hex(result.wasm),
         idl,
+        verify,
         stderr: warnings.length ? warnings.map((diagnostic) => `warning: ${diagnostic.message}`).join("\n") : undefined,
     };
 }
