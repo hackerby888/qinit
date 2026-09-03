@@ -83,16 +83,20 @@ What a value part carries depends on whether the argument has an address:
 
 The reader decodes a value only when the bytes are exactly its type's size. Anything else — a stale IDL,
 a shape the compiler could not type, bytes that contradict themselves — is shown raw with both sizes
-(or marked undecodable) rather than dropped, and each part
-and each section of the trace decodes on its own, so one unreadable value never blanks the rest.
+(or marked undecodable) rather than dropped, and each part and each section of the trace decodes on its
+own, so one unreadable value never blanks the rest.
 
 A print is never cut short or elided: no terminal-width truncation, no `… +N more` cap. A print of
-**one value that holds a container** — `state.get()`, `input` with an `Array` in it, a bare `HashMap`
-— renders as a block under its head, in the rows `qinit state` draws: one per scalar field, a
-container as its own lines with zero runs and unoccupied slots collapsed. Two ceilings: a print with
-several values stays inline (`"nums", state.get().nums, "second", …` is one line), and a nested
-struct's container prints as JSON inside its field, as it does in `qinit state`. The `qinit debug`
-pane cannot scroll a block, so it shows the row count and points at `qinit call --trace`.
+**one value that holds a container** — `state.get()`, `input` with an `Array` in it, a bare `HashMap` —
+renders as the blocks `qinit state` draws, from the same decoder and the same components
+(`state-read.ts` `decodeValueBlocks`, `views.tsx` `StateBlocks`): every scalar field as a row, then each
+container under its own header with its counts, zero runs and unoccupied slots collapsed. A container
+reached through struct fields is named for the path to it (`test_struct.map`) and gets a block of its
+own, which is where `qinit state` picked up the same fix. Blocks in a print carry no `[n]` badge: there
+is no `--container` to load them with. Two ceilings: a print with several values stays inline
+(`"nums", state.get().nums, "second", …` is one line), and a container below a *container's element*
+(`Array<TestStruct, 8>`) stays JSON, since a block per element would bury the container it lives in.
+The `qinit debug` pane cannot scroll a block, so it shows the row count and points at `qinit call --trace`.
 
 `"a" + value` is not supported and never will be: it fails to lower in one backend and is pointer
 arithmetic in the other. Use the comma form.

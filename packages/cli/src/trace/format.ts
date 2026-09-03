@@ -4,8 +4,8 @@ import { AbiTypeKind, type AbiType, type ContractCheat, type ContractIdl } from 
 import type { DebugCheat } from "@qinit/core";
 import { extractIdl } from "@qinit/build";
 import { stateDiffLines, type StateDiffLine } from "./state-diff";
-import { enumMap, formatStateValue, stateFieldsOf, type StateField, type StateLine } from "./state-format";
-import { valueBlock } from "./state-read";
+import { enumMap, formatStateValue, stateFieldsOf, type StateField } from "./state-format";
+import { decodeValueBlocks, holdsContainer, type ValueBlocks } from "./state-read";
 import { bytesToIdentity, hexToBytes, type DebugEntry } from "@qinit/core";
 
 export interface DecodedTrace {
@@ -115,14 +115,14 @@ async function orElse<T>(fallback: T, work: () => Promise<T>): Promise<T> {
 export interface DecodedCheat {
     line: number;
     text: string;
-    /** A container, or a struct holding one, as the rows `qinit state` draws; `text` is then its head. */
-    block?: StateLine[];
+    /** A container, or a struct holding one, as the blocks `qinit state` draws; `text` is then their head. */
+    blocks?: ValueBlocks;
 }
 
 /**
  * Rebuilds one CC_PRINT line. Literal parts come straight from the IDL and carry no bytes; a value
  * part is decoded against the type recorded for that argument, and labelled with its source text
- * when no literal precedes it. A print of one value that holds a container becomes a block instead,
+ * when no literal precedes it. A print of one value that holds a container becomes blocks instead,
  * since a whole state on one line reads as nothing at any width.
  */
 async function decodeCheats(records: readonly DebugCheat[], sites: readonly ContractCheat[]): Promise<DecodedCheat[]> {
@@ -146,7 +146,7 @@ async function decodeCheats(records: readonly DebugCheat[], sites: readonly Cont
 
         const pieces: string[] = [];
         const lone = site.parts.filter((part) => part.lit === undefined).length === 1;
-        let block: StateLine[] | undefined;
+        let blocks: ValueBlocks | undefined;
 
         for (const [index, part] of site.parts.entries()) {
             if (part.lit !== undefined) {
@@ -161,9 +161,9 @@ async function decodeCheats(records: readonly DebugCheat[], sites: readonly Cont
             }
 
             const unlabelled = site.parts[index - 1]?.lit === undefined && part.expr;
-            block = lone && part.type ? await cheatBlock(record, part.type) : undefined;
+            blocks = lone && part.type ? await cheatBlocks(record, part.type) : undefined;
 
-            if (block) {
+            if (blocks) {
                 if (unlabelled) {
                     pieces.push(unlabelled);
                 }
@@ -175,7 +175,7 @@ async function decodeCheats(records: readonly DebugCheat[], sites: readonly Cont
             pieces.push(unlabelled ? `${part.expr}=${value}` : value);
         }
 
-        decoded.push({ line: site.line, text: pieces.join(" "), ...(block ? { block } : {}) });
+        decoded.push({ line: site.line, text: pieces.join(" "), ...(blocks ? { blocks } : {}) });
     }
 
     return decoded;
@@ -183,13 +183,13 @@ async function decodeCheats(records: readonly DebugCheat[], sites: readonly Cont
 
 // Undefined for anything that is not a container-bearing value at exactly its size; the inline path
 // then decides between a decoded value and the raw bytes.
-async function cheatBlock(record: DebugCheat, type: AbiType): Promise<StateLine[] | undefined> {
-    if (record.size !== type.size) {
+async function cheatBlocks(record: DebugCheat, type: AbiType): Promise<ValueBlocks | undefined> {
+    if (record.size !== type.size || !holdsContainer(type)) {
         return undefined;
     }
 
     try {
-        return await valueBlock(hexToBytes(record.hex), type);
+        return await decodeValueBlocks(hexToBytes(record.hex), type);
     } catch {
         return undefined;
     }

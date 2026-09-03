@@ -19,7 +19,11 @@ test("every printed argument carries its declared type", async () => {
         ["output.value + 2", "uint64", 8],
         ["input", "", 1],
         ["output", "{ uint64 }", 8],
-        ["state.get()", "{ uint64, [4;uint64], [2;{ uint64, uint16 }], id, { [4;{ id, uint64 }], [1;uint64], uint64, uint64 } }", 288],
+        [
+            "state.get()",
+            "{ uint64, [4;uint64], [2;{ uint64, uint16 }], id, { [4;{ id, uint64 }], [1;uint64], uint64, uint64 }, { uint64, { [4;{ uint64, uint64 }], [1;uint64], uint64, uint64 } } }",
+            384,
+        ],
         ["input.abc", "{ uint64, uint16 }", 16],
         ["input.abc.b", "uint16", 2],
         ["input.neg", "sint32", 4],

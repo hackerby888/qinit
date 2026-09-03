@@ -13,8 +13,9 @@ import {
     type AbiStruct,
     type ContractIdl,
 } from "@qinit/proto/contract-idl";
-import type { DebugEntry } from "@qinit/core";
-import { describeTrace } from "../../src/trace/format";
+import { hexToBytes, type DebugEntry } from "@qinit/core";
+import type { StateContainer } from "../../src/trace/state-read";
+import { describeTrace, type DecodedCheat } from "../../src/trace/format";
 
 const UINT64: AbiScalar = { kind: AbiTypeKind.SCALAR, scalar: AbiScalarKind.UINT64, size: 8, align: 8, format: "uint64" };
 const SINT32: AbiScalar = { kind: AbiTypeKind.SCALAR, scalar: AbiScalarKind.SINT32, size: 4, align: 4, format: "sint32" };
@@ -27,6 +28,58 @@ const TOTAL: AbiStruct = {
     align: 8,
     format: "uint64",
 };
+const MAP_GEOMETRY = hashMapGeometry({ size: 8, align: 8 }, { size: 8, align: 8 }, 4);
+const MAP: AbiHashMap = {
+    kind: AbiTypeKind.HASH_MAP,
+    key: UINT64,
+    value: UINT64,
+    capacity: 4,
+    size: MAP_GEOMETRY.size,
+    align: 8,
+    format: "{ [4;{ uint64, uint64 }], [1;uint64], uint64, uint64 }",
+};
+const WITH_INNER: AbiStruct = {
+    kind: AbiTypeKind.STRUCT,
+    name: "StateData",
+    fields: [
+        { name: "counter", offset: 0, size: 8, type: UINT64 },
+        {
+            name: "inner",
+            offset: 8,
+            size: 8 + MAP_GEOMETRY.size,
+            type: {
+                kind: AbiTypeKind.STRUCT,
+                name: "Inner",
+                fields: [
+                    { name: "value", offset: 0, size: 8, type: UINT64 },
+                    { name: "map", offset: 8, size: MAP_GEOMETRY.size, type: MAP },
+                ],
+                size: 8 + MAP_GEOMETRY.size,
+                align: 8,
+                format: "",
+            },
+        },
+    ],
+    size: 16 + MAP_GEOMETRY.size,
+    align: 8,
+    format: "",
+};
+
+// One live entry in a HashMap<uint64, uint64, 4>: qpi hashes the key to its slot, so pin the slot the view finds.
+function mapBytes(key: number, value: number): Uint8Array {
+    const bytes = new Uint8Array(8 + MAP_GEOMETRY.size);
+    const view = new DataView(bytes.buffer);
+    const slot = 2;
+
+    view.setBigUint64(0, BigInt(key), true);
+    view.setBigUint64(8 + slot * MAP_GEOMETRY.recordStride, BigInt(key), true);
+    view.setBigUint64(8 + slot * MAP_GEOMETRY.recordStride + MAP_GEOMETRY.valueOffset, BigInt(value), true);
+    view.setBigUint64(8 + MAP_GEOMETRY.flagsOffset, 1n << BigInt(slot * 2), true);
+    view.setBigUint64(8 + MAP_GEOMETRY.populationOffset, 1n, true);
+
+    return bytes;
+}
+
 const NUMS: AbiArray = { kind: AbiTypeKind.ARRAY, element: UINT64, count: 4, size: 32, align: 8, format: "[4;uint64]" };
 const MANY: AbiArray = { kind: AbiTypeKind.ARRAY, element: UINT64, count: 40, size: 320, align: 8, format: "[40;uint64]" };
 const WITH_NUMS: AbiStruct = {
@@ -203,15 +256,41 @@ test("no IDL still lists the raw rows", async () => {
 const words = (...values: number[]) => values.map((value) => value.toString(16).padStart(2, "0") + "00".repeat(7)).join("");
 
 const siteOf = (parts: ContractIdl["cheats"][number]["parts"]): ContractIdl => ({ ...idl, cheats: [{ id: 60, line: 60, parts }] });
-const flat = (lines: { label: string; text: string }[] | undefined) => lines?.map((line) => `${line.label} ${line.text}`.trim());
+// The rows of one block in their flat form, the way `qinit state` reads on screen.
+const flat = (container: StateContainer | undefined) => container?.lines.map((line) => `${line.label} ${line.text}`.trim());
+const blockNames = (cheat: DecodedCheat) => cheat.blocks?.containers.map((container) => container.name);
+const scalars = (cheat: DecodedCheat) => cheat.blocks?.fields.map((field) => `${field.name} ${field.value}`);
 
-test("a struct holding a container prints as a block, one row per field", async () => {
+test("a struct holding a container prints as the blocks qinit state draws", async () => {
     const site = siteOf([{ type: WITH_NUMS, expr: "state.get()" }]);
     const view = await describeTrace(entryWith([{ id: 60, part: 0, size: 40, value: "0", hex: words(7, 0, 0, 0, 9) }]), undefined, "Cheats", undefined, site);
+    const [nums] = view.cheats[0].blocks!.containers;
 
     expect(view.cheats[0].text).toBe("state.get()");
-    expect(flat(view.cheats[0].block)).toEqual(["counter 7", "nums [0..2] =0 ×3 (skipped)", "[3] 9"]);
-    expect(view.cheats[0].block!.map((line) => line.filled)).toEqual([true, false, true]);
+    expect(scalars(view.cheats[0])).toEqual(["counter 7"]);
+    expect(nums.name).toBe("nums");
+    expect(flat(nums)).toEqual(["[0..2] =0 ×3 (skipped)", "[3] 9"]);
+    expect(nums.lines.map((line) => line.filled)).toEqual([false, true]);
+    // Counts drive the block's header, and nothing here can be loaded separately.
+    expect([nums.index, nums.capacity, nums.occupiedSlots, nums.totalEntries]).toEqual([0, 4, 1, 1]);
+});
+
+test("a container nested under a struct field gets its own named block", async () => {
+    const site = siteOf([{ type: WITH_INNER, expr: "state.get()" }]);
+    const bytes = new Uint8Array(WITH_INNER.size);
+    bytes.set(hexToBytes(words(4)), 0);
+    bytes.set(mapBytes(5, 6), 8);
+    const view = await describeTrace(
+        entryWith([{ id: 60, part: 0, size: bytes.length, value: "0", hex: Buffer.from(bytes).toString("hex") }]),
+        undefined,
+        "Cheats",
+        undefined,
+        site,
+    );
+
+    expect(scalars(view.cheats[0])).toEqual(["counter 4", "inner.value 5"]);
+    expect(blockNames(view.cheats[0])).toEqual(["inner.map"]);
+    expect(flat(view.cheats[0].blocks!.containers[0])).toEqual(["slots[0..1] (unoccupied ×2; skipped)", "slot[2] 5 = 6", "slot[3] (unoccupied ×1; skipped)"]);
 });
 
 test("a literal in front of a block is its head", async () => {
@@ -219,14 +298,34 @@ test("a literal in front of a block is its head", async () => {
     const view = await describeTrace(entryWith([{ id: 60, part: 1, size: 40, value: "0", hex: words(0, 0, 0, 0, 0) }]), undefined, "Cheats", undefined, site);
 
     expect(view.cheats[0].text).toBe("state is");
-    expect(flat(view.cheats[0].block)).toEqual(["counter 0", "nums [0..3] =0 ×4 (skipped)"]);
+    expect(scalars(view.cheats[0])).toEqual(["counter 0"]);
+    expect(flat(view.cheats[0].blocks!.containers[0])).toEqual(["[0..3] =0 ×4 (skipped)"]);
 });
 
-test("a bare container prints as a block", async () => {
+test("a bare container prints as one unnamed block", async () => {
     const site = siteOf([{ type: NUMS, expr: "state.get().nums" }]);
     const view = await describeTrace(entryWith([{ id: 60, part: 0, size: 32, value: "0", hex: words(0, 0, 0, 0) }]), undefined, "Cheats", undefined, site);
 
-    expect(view.cheats[0]).toEqual({ line: 60, text: "state.get().nums", block: [{ label: "", text: "[0..3] =0 ×4 (skipped)", filled: false }] });
+    expect(view.cheats[0].text).toBe("state.get().nums");
+    expect(view.cheats[0].blocks!.fields).toEqual([]);
+    expect(blockNames(view.cheats[0])).toEqual([""]);
+    expect(flat(view.cheats[0].blocks!.containers[0])).toEqual(["[0..3] =0 ×4 (skipped)"]);
+});
+
+// A block per element would bury the container it lives in, so a struct below a container stays inline.
+test("a container inside a container's element stays inline JSON", async () => {
+    const elements: AbiArray = { kind: AbiTypeKind.ARRAY, element: WITH_NUMS, count: 2, size: 80, align: 8, format: "[2;{ uint64, [4;uint64] }]" };
+    const site = siteOf([{ type: elements, expr: "state.get().rows" }]);
+    const view = await describeTrace(
+        entryWith([{ id: 60, part: 0, size: 80, value: "0", hex: words(...new Array(10).fill(0)) }]),
+        undefined,
+        "Cheats",
+        undefined,
+        site,
+    );
+
+    expect(blockNames(view.cheats[0])).toEqual([""]);
+    expect(flat(view.cheats[0].blocks!.containers[0])).toEqual(["[0..1] =0 ×2 (skipped)"]);
 });
 
 test("a container beside other values stays inline", async () => {

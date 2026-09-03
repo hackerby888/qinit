@@ -251,6 +251,70 @@ export async function valueBlock(bytes: Uint8Array, type: AbiType): Promise<Stat
     return lines;
 }
 
+/** The scalar rows and container blocks of one value, in the shape `qinit state` renders. */
+export type ValueBlocks = { fields: { name: string; value: string }[]; containers: StateContainer[] };
+
+// A container reached through plain struct fields still deserves its own block. One inside a container's
+// element does not: a block per element would bury the container it lives in, so those stay inline.
+export function holdsContainer(type: AbiType): boolean {
+    if (containerLayoutOf(type)) {
+        return true;
+    }
+    return type.kind === AbiTypeKind.STRUCT && type.fields.some((field) => holdsContainer(field.type));
+}
+
+function fieldsOfValue(type: AbiType): StateField[] {
+    const container = containerLayoutOf(type);
+
+    if (type.kind === AbiTypeKind.STRUCT && !container) {
+        return stateFieldsOf({ state: type });
+    }
+    return container ? [{ name: "", off: 0, size: type.size, type: type.format, abi: type, container }] : [];
+}
+
+/**
+ * A value already in hand, decoded into the rows `qinit state` draws. Blocks carry index 0: they are part
+ * of a value someone already holds, so nothing can be loaded separately the way a state container can.
+ */
+export async function decodeValueBlocks(bytes: Uint8Array, type: AbiType, prefix = ""): Promise<ValueBlocks> {
+    const blocks: ValueBlocks = { fields: [], containers: [] };
+
+    for (const field of fieldsOfValue(type)) {
+        const slice = bytes.subarray(field.off, field.off + field.size);
+        const name = prefix + field.name;
+
+        if (field.container) {
+            const view = await formatContainerView(field, qpiSnapshotSource(slice), true);
+
+            blocks.containers.push({
+                index: 0,
+                name,
+                kind: field.container.kind,
+                size: field.size,
+                status: "loaded",
+                capacity: field.container.capacity,
+                occupiedSlots: view.occupiedSlots,
+                totalEntries: view.totalEntries,
+                lines: view.stateLines,
+                sourceField: field,
+            });
+            continue;
+        }
+
+        if (holdsContainer(field.abi!)) {
+            const nested = await decodeValueBlocks(slice, field.abi!, `${name}.`);
+
+            blocks.fields.push(...nested.fields);
+            blocks.containers.push(...nested.containers);
+            continue;
+        }
+
+        blocks.fields.push({ name, value: formatStateValue(await decodeOutput(slice, field.abi!), field.abi!, true, true) });
+    }
+
+    return blocks;
+}
+
 async function readContainerBlock(
     rpc: StateReader,
     contractIndex: number,
@@ -441,7 +505,7 @@ export async function readState(
     // Fields read concurrently. A node answers about one request per tick, so reading them in sequence
     // pays that latency once per field for bytes that could all have been in flight together. Each field
     // still reads only the ranges it needs, and results land in declaration order regardless of finish order.
-    const slots: { field: StateField; value?: string; container?: StateContainer }[] = fields.map((field) => ({ field }));
+    const slots: { field: StateField; value?: string; container?: StateContainer; nested?: ValueBlocks }[] = fields.map((field) => ({ field }));
     const reads: Promise<void>[] = [];
     let totalBytes = 0;
     let completedBytes = 0;
@@ -490,7 +554,16 @@ export async function readState(
         reads.push(
             (async () => {
                 try {
-                    const decoded = await decodeOutput(await readAllBytes(stateByteSource(rpc, contractIndex, field, onRead)), field.abi ?? field.type);
+                    const bytes = await readAllBytes(stateByteSource(rpc, contractIndex, field, onRead));
+
+                    // A struct field can hold a container of its own. Rendered as one value it would be a
+                    // line of JSON, so it takes the same rows a state container does.
+                    if (field.abi && holdsContainer(field.abi)) {
+                        slot.nested = await decodeValueBlocks(bytes, field.abi, `${field.name}.`);
+                        return;
+                    }
+
+                    const decoded = await decodeOutput(bytes, field.abi ?? field.type);
                     slot.value =
                         typeof decoded === "object" && decoded !== null
                             ? field.abi
@@ -514,6 +587,9 @@ export async function readState(
     for (const slot of slots) {
         if (slot.container) {
             containers.push(slot.container);
+        } else if (slot.nested) {
+            decodedFields.push(...slot.nested.fields);
+            containers.push(...slot.nested.containers);
         } else if (slot.value !== undefined) {
             decodedFields.push({ name: slot.field.name, value: slot.value });
         }

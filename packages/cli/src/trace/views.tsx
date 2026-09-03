@@ -4,11 +4,13 @@ import { Box, Text } from "ink";
 import { type DebugEntry } from "@qinit/core";
 import { Status, theme, truncEnd, truncMid, termCols } from "../ui";
 import { type DecodedTrace } from "./format";
-import { type DecodedState, type StateContainer } from "./state-read";
-import { formatStateValue, jstr } from "./state-format";
+import { type DecodedState, type StateContainer, type ValueBlocks } from "./state-read";
+import { formatStateValue, jstr, type StateLine } from "./state-format";
 import { sevColor } from "../ui";
 import { entryLabel } from "./entry-label";
 import { type StateDiffLine } from "./state-diff";
+
+type TraceRow = { label: string; node: React.ReactNode } | { blocks: ValueBlocks };
 
 const execµs = (ns: number) => (ns < 1_000_000 ? `${(ns / 1000) | 0}µs` : `${(ns / 1e6).toFixed(1)}ms`);
 
@@ -23,6 +25,18 @@ function Rows({ rows, width, truncate }: { rows: { label: string; node: React.Re
                 </Text>
             ))}
         </Box>
+    );
+}
+
+// The one row every block of decoded state draws: a bracket-token label, then its value.
+function StateRow({ label, text, filled, width, wrap }: StateLine & { width: number; wrap?: "wrap" | "truncate-end" }) {
+    return (
+        <Text wrap={wrap} dimColor={!filled}>
+            <Text color={filled ? theme.accent : undefined} bold={filled}>
+                {label.padEnd(width)}
+            </Text>{" "}
+            {text}
+        </Text>
     );
 }
 
@@ -76,12 +90,7 @@ function StateDiff({
             </Text>
             <Box flexDirection="column" marginLeft={2}>
                 {shown.map((line, index) => (
-                    <Text key={index} wrap={maxRows ? "truncate-end" : "wrap"} dimColor={!line.filled}>
-                        <Text color={line.filled ? theme.accent : undefined} bold={line.filled}>
-                            {labelOf(line).padEnd(width)}
-                        </Text>{" "}
-                        {line.text}
-                    </Text>
+                    <StateRow key={index} {...line} label={labelOf(line)} width={width} wrap={maxRows ? "truncate-end" : "wrap"} />
                 ))}
                 {tail.length ? (
                     <Text color={theme.mute} dimColor>
@@ -134,9 +143,11 @@ export function TraceView({
             node: bounded ? <Text>{truncMid(view.caller, Math.max(12, cols - 12))}</Text> : <Text wrap="wrap">{view.caller}</Text>,
         });
 
-    const rows: { label: string; node: React.ReactNode }[] = [];
-    // A separate row kind from `log`: this is dev output that never reached the chain. It is never cut
-    // short — a print exists to be read — and a block sits under its head, one row per line.
+    // A row is either one line the shared label column owns, or a whole decoded value: a printed struct
+    // takes the blocks `qinit state` draws, which are Boxes and so cannot live inside a row's Text.
+    const rows: ({ label: string; node: React.ReactNode } | { blocks: ValueBlocks })[] = [];
+    // A separate row kind from `log`: this is dev output that never reached the chain, and it is never
+    // cut short — a print exists to be read.
     for (const cheat of view.cheats) {
         rows.push({
             label: "print",
@@ -146,33 +157,23 @@ export function TraceView({
                 </Text>
             ),
         });
-        const indent = " ".repeat(String(cheat.line).length + 2);
+
+        if (!cheat.blocks) {
+            continue;
+        }
         // A bounded pane cannot scroll a block, and Ink cannot erase rows past the screen, so it gets a count.
-        if (bounded && cheat.block) {
+        if (bounded) {
             rows.push({
                 label: "",
                 node: (
                     <Text color={theme.mute} dimColor>
-                        {indent}⋯ {cheat.block.length} rows · qinit call --trace
+                        ⋯ {blockRowCount(cheat.blocks)} rows · qinit call --trace
                     </Text>
                 ),
             });
             continue;
         }
-        const width = Math.max(1, ...(cheat.block ?? []).map((line) => line.label.length));
-        for (const line of cheat.block ?? [])
-            rows.push({
-                label: "",
-                node: (
-                    <Text dimColor={!line.filled}>
-                        {indent}
-                        <Text color={line.filled ? theme.accent : undefined} bold={line.filled}>
-                            {line.label.padEnd(width)}
-                        </Text>{" "}
-                        {line.text}
-                    </Text>
-                ),
-            });
+        rows.push({ blocks: cheat.blocks });
     }
     for (const l of view.logs)
         rows.push({
@@ -212,7 +213,7 @@ export function TraceView({
             ),
         });
     // One label column across both blocks, so the state block does not sit at its own indent.
-    const labelWidth = Math.max(5, ...[...callRows, ...rows].map((row) => row.label.length));
+    const labelWidth = Math.max(5, ...[...callRows, ...rows].map((row) => ("label" in row ? row.label.length : 0)));
     // Status measures its own detail against the terminal, which overflows a narrower pane — pre-cut it.
     // The glyph and its space are the 3rd column the detail has to leave room for.
     const detailMax = bounded ? cols - pad - 3 : Math.max(12, cols - pad - 8);
@@ -230,9 +231,40 @@ export function TraceView({
                 maxRows={maxStateRows}
                 offset={stateOffset}
             />
-            <Rows rows={rows} width={labelWidth} truncate={bounded} />
+            {groupRows(rows).map((group, index) =>
+                "blocks" in group ? (
+                    <Box key={index} marginLeft={labelWidth + 3}>
+                        <StateBlocks state={group.blocks} />
+                    </Box>
+                ) : (
+                    <Rows key={index} rows={group.rows} width={labelWidth} truncate={bounded} />
+                ),
+            )}
         </Box>
     );
+}
+
+const blockRowCount = (blocks: ValueBlocks) => blocks.fields.length + blocks.containers.reduce((count, container) => count + 1 + container.lines.length, 0);
+
+// Consecutive line rows share one grid; a value's blocks stand between them as their own element.
+function groupRows(rows: TraceRow[]): ({ rows: { label: string; node: React.ReactNode }[] } | { blocks: ValueBlocks })[] {
+    const groups: ({ rows: { label: string; node: React.ReactNode }[] } | { blocks: ValueBlocks })[] = [];
+
+    for (const row of rows) {
+        if ("blocks" in row) {
+            groups.push(row);
+            continue;
+        }
+
+        const last = groups[groups.length - 1];
+        if (last && "rows" in last) {
+            last.rows.push(row);
+        } else {
+            groups.push({ rows: [row] });
+        }
+    }
+
+    return groups;
 }
 
 // Arrays and BitArrays count set elements; other containers count occupied slots.
@@ -245,7 +277,7 @@ function containerDetail(container: StateContainer, hidden: boolean, interactive
         return "loading";
     }
     if (container.status === "error") {
-        return `read failed · ${selectionHint} to retry`;
+        return container.index ? `read failed · ${selectionHint} to retry` : "read failed";
     }
     if (hidden) {
         return `cached · hidden · press ${container.index} to show`;
@@ -279,28 +311,54 @@ export function StateView({
     return (
         <Box flexDirection="column">
             <Status ok={state.complete ? null : false} label={`${name} state`} detail={state.complete ? undefined : "incomplete"} />
+            <StateBlocks state={state} hiddenContainerIndexes={hiddenContainerIndexes} interactive={interactive} />
+        </Box>
+    );
+}
+
+/**
+ * The rows of one decoded value: every scalar field, then every container as its own block. Shared by
+ * `qinit state` and a `CC_PRINT` of a struct, so the same bytes read the same way in both.
+ */
+export function StateBlocks({
+    state,
+    hiddenContainerIndexes,
+    interactive = false,
+}: {
+    state: Pick<DecodedState, "fields" | "containers">;
+    hiddenContainerIndexes?: ReadonlySet<number>;
+    interactive?: boolean;
+}) {
+    const fieldWidth = Math.max(1, ...state.fields.map((field) => field.name.length));
+
+    return (
+        <Box flexDirection="column">
             {state.fields.length ? (
                 <Rows
                     rows={state.fields.map((field) => ({
                         label: field.name,
                         node: <Text wrap="wrap">{field.value}</Text>,
                     }))}
+                    width={fieldWidth}
                 />
             ) : (
                 <Box marginLeft={2}>
                     <Text dimColor>no scalar fields</Text>
                 </Box>
             )}
-            {state.containers.map((container) => {
+            {state.containers.map((container, position) => {
                 const hidden = container.status === "loaded" && (hiddenContainerIndexes?.has(container.index) ?? false);
                 const width = hidden || container.status !== "loaded" ? 1 : container.lines.reduce((maximum, line) => Math.max(maximum, line.label.length), 1);
+                // A block with no index is part of a value already in hand: nothing to select, nothing to load.
+                const title = container.index ? `[${container.index}] ${container.name}` : container.name;
 
                 return (
-                    <Box key={container.index} flexDirection="column" marginTop={1}>
+                    <Box key={position} flexDirection="column" marginTop={1}>
                         <Text>
                             <Text color={theme.accent} dimColor={container.status === "collapsed"}>
-                                [{container.index}] {container.name}
-                            </Text>{" "}
+                                {title}
+                            </Text>
+                            {title ? " " : null}
                             <Text dimColor>· {containerDetail(container, hidden, interactive)}</Text>
                         </Text>
                         <Box flexDirection="column" marginLeft={2}>
@@ -313,14 +371,7 @@ export function StateView({
                             ) : container.status === "collapsed" ? (
                                 <Text dimColor>not read</Text>
                             ) : hidden ? null : container.lines.length ? (
-                                container.lines.map((line, index) => (
-                                    <Text key={index} wrap="wrap" dimColor={!line.filled}>
-                                        <Text color={line.filled ? theme.accent : undefined} bold={line.filled}>
-                                            {line.label.padEnd(width)}
-                                        </Text>{" "}
-                                        {line.text}
-                                    </Text>
-                                ))
+                                container.lines.map((line, index) => <StateRow key={index} {...line} width={width} wrap="wrap" />)
                             ) : (
                                 <Text dimColor>empty</Text>
                             )}

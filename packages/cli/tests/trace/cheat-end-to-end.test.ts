@@ -22,14 +22,10 @@ const PUT = 1;
 const ADD = 1;
 
 const REPORTED_LINES = ["Counter is 0", "Counter is 2 after adding 2", "input={}", "output=0", "state.get()"];
-// The whole state under its head, in the rows `qinit state` draws: every container empty, the owner an all-zero id.
-const STATE_BLOCK = [
-    "counter 0",
-    "nums [0..3] =0 ×4 (skipped)",
-    "items [0..1] =0 ×2 (skipped)",
-    expect.stringMatching(/^owner "[A-Z]{60}"$/),
-    "balances slots[0..3] (unoccupied ×4; skipped)",
-];
+// The whole state under its head, in the rows `qinit state` draws: every container empty, the owner an
+// all-zero id, and the HashMap inside `inner` a block of its own rather than a line of JSON.
+const STATE_SCALARS = [expect.stringMatching(/^counter \d+$/), expect.stringMatching(/^owner "[A-Z]{60}"$/), expect.stringMatching(/^inner\.value \d+$/)];
+const STATE_BLOCKS = ["nums", "items", "balances", "inner.map"];
 
 // A state large enough that no single line could hold it, printed whole.
 const WIDE = `
@@ -80,7 +76,9 @@ async function printed(entry: DebugEntry, idl: ContractIdl) {
     return {
         lines: view.cheats.map((cheat) => cheat.line),
         texts: view.cheats.map((cheat) => cheat.text),
-        blocks: view.cheats.map((cheat) => cheat.block?.map((line) => `${line.label} ${line.text}`.trim())),
+        scalars: view.cheats.map((cheat) => cheat.blocks?.fields.map((field) => `${field.name} ${field.value}`)),
+        blocks: view.cheats.map((cheat) => cheat.blocks?.containers.map((container) => container.name)),
+        rows: view.cheats.map((cheat) => cheat.blocks?.containers.map((container) => container.lines.map((line) => `${line.label} ${line.text}`.trim()))),
         logs: view.logs,
     };
 }
@@ -101,37 +99,48 @@ test("the reported function prints all five lines, the whole state as a block", 
     const sim = await deployed(await loadWasmFixture("CheatShapes"));
     sim.query(28, GET);
 
-    const { texts, blocks } = await printed(sim.getTrace().entries.at(-1)!, await shapesIdl());
+    const { texts, scalars, blocks, rows } = await printed(sim.getTrace().entries.at(-1)!, await shapesIdl());
 
     expect(texts).toEqual(REPORTED_LINES);
-    expect(blocks).toEqual([undefined, undefined, undefined, undefined, STATE_BLOCK]);
+    expect(blocks).toEqual([undefined, undefined, undefined, undefined, STATE_BLOCKS]);
+    expect(scalars[4]).toEqual(STATE_SCALARS);
+    expect(rows[4]).toEqual([
+        ["[0..3] =0 ×4 (skipped)"],
+        ["[0..1] =0 ×2 (skipped)"],
+        ["slots[0..3] (unoccupied ×4; skipped)"],
+        ["slots[0..3] (unoccupied ×4; skipped)"],
+    ]);
 });
 
 test("every argument shape reads back as its value", async () => {
     const sim = await deployed(await loadWasmFixture("CheatShapes"));
     sim.procedure(28, PUT, putInput());
 
-    const { texts, blocks } = await printed(sim.getTrace().entries.at(-1)!, await shapesIdl());
+    const { texts, blocks, rows } = await printed(sim.getTrace().entries.at(-1)!, await shapesIdl());
 
     expect(texts[0]).toBe("input.abc={a: 5, b: 7} input.abc.b=7 input.neg=-3 input.flag=1");
     expect(texts[1]).toBe("nums [0, 0, 0, 0] second 0 item {a: 0, b: 0}");
     expect(texts[2]).toMatch(/^owner "[A-Z]{60}" caller "[A-Z]{60}"$/);
     expect(texts[3]).toBe("state.get().balances");
-    expect(blocks[3]).toEqual(["slots[0..3] (unoccupied ×4; skipped)"]);
+    expect(blocks[3]).toEqual([""]);
+    expect(rows[3]).toEqual([["slots[0..3] (unoccupied ×4; skipped)"]]);
     // An rvalue has no declared type, so it prints as the unsigned register it travelled in.
     expect(texts[4]).toBe("neg plus one 18446744073709551614");
     expect(texts[5]).toBe("flag set");
     expect(texts).toHaveLength(6);
 });
 
-test("the block reflects the state the print saw", async () => {
+test("the blocks reflect the state the print saw", async () => {
     const sim = await deployed(await loadWasmFixture("CheatShapes"));
     sim.procedure(28, PUT, putInput());
     sim.query(28, GET);
 
-    const { blocks } = await printed(sim.getTrace().entries.at(-1)!, await shapesIdl());
+    const { scalars, rows } = await printed(sim.getTrace().entries.at(-1)!, await shapesIdl());
 
-    expect(blocks[4]![0]).toBe("counter 5");
+    expect(scalars[4]![0]).toBe("counter 5");
+    // The nested HashMap took an entry, and it reads as a slot row rather than JSON.
+    expect(scalars[4]![2]).toBe("inner.value 5");
+    expect(rows[4]![3].filter((row) => !row.includes("unoccupied"))).toEqual(["slot[1] 5 = 7"]);
 });
 
 test("a 32 KB state arrives whole and folds to one zero run", async () => {
@@ -145,10 +154,11 @@ test("a 32 KB state arrives whole and folds to one zero run", async () => {
 
     expect(entry.cheats.map((cheat) => cheat.size)).toEqual([4096 * 8]);
 
-    const { texts, blocks } = await printed(entry, compiled.idl!);
+    const { texts, blocks, rows } = await printed(entry, compiled.idl!);
 
     expect(texts).toEqual(["state.get()"]);
-    expect(blocks[0]).toEqual(["nums [0..4094] =0 ×4095 (skipped)", "[4095] 7"]);
+    expect(blocks[0]).toEqual(["nums"]);
+    expect(rows[0]).toEqual([["[0..4094] =0 ×4095 (skipped)", "[4095] 7"]]);
 });
 
 test("a print past line 255 still finds its site", async () => {
@@ -168,7 +178,7 @@ test("a print past line 255 still finds its site", async () => {
     const { lines, texts } = await printed(sim.getTrace().entries.at(-1)!, compiled.idl!);
 
     expect(texts).toEqual(REPORTED_LINES);
-    expect(lines).toEqual([46, 48, 49, 50, 51].map((line) => line + padding));
+    expect(lines).toEqual([54, 56, 57, 58, 59].map((line) => line + padding));
 });
 
 test("the IDL file a deploy writes carries the cheat table intact", async () => {
@@ -182,7 +192,7 @@ test("the IDL file a deploy writes carries the cheat table intact", async () => 
     const { texts, blocks } = await printed(sim.getTrace().entries.at(-1)!, parsed);
 
     expect(texts).toEqual(REPORTED_LINES);
-    expect(blocks[4]).toEqual(STATE_BLOCK);
+    expect(blocks[4]).toEqual(STATE_BLOCKS);
 });
 
 test.if(HAS_CORE && HAS_WASI)(
@@ -201,10 +211,11 @@ test.if(HAS_CORE && HAS_WASI)(
         const sim = await deployed(new Uint8Array(await Bun.file(clang.wasmPath!).arrayBuffer()));
         sim.query(28, GET);
 
-        const { texts, blocks } = await printed(sim.getTrace().entries.at(-1)!, await shapesIdl());
+        const { texts, scalars, blocks } = await printed(sim.getTrace().entries.at(-1)!, await shapesIdl());
 
         expect(texts).toEqual(REPORTED_LINES);
-        expect(blocks[4]).toEqual(STATE_BLOCK);
+        expect(blocks[4]).toEqual(STATE_BLOCKS);
+        expect(scalars[4]).toEqual(STATE_SCALARS);
     },
     120_000,
 );

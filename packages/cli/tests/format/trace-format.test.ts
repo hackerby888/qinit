@@ -87,7 +87,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
                     name: "pulled",
                     offset: 0,
                     size: 8,
-                    type: { kind: AbiTypeKind.STRUCT, name: "Get_output", size: 8, align: 8, format: "", fields: [{ name: "value", offset: 0, size: 8, type: uint64 }] },
+                    type: {
+                        kind: AbiTypeKind.STRUCT,
+                        name: "Get_output",
+                        size: 8,
+                        align: 8,
+                        format: "",
+                        fields: [{ name: "value", offset: 0, size: 8, type: uint64 }],
+                    },
                 },
             ],
         },
@@ -515,19 +522,18 @@ test("readState: BitArray ignores high padding bits", async () => {
     });
 });
 
-test("readState: nested BitArray keeps one-field struct boundaries", async () => {
+// A container two structs down is still a container: it takes the block a top-level one would, named for
+// the path that reaches it, rather than a line of JSON inside its parent's value.
+test("readState: a BitArray nested under two structs becomes its own block", async () => {
     const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct Bits { BitArray<128> value; }; struct Box { Bits bits; }; struct StateData { Box nested; }; INITIALIZE() {} };`;
     const bytes = new Uint8Array(16);
     bytes[7] = 0x80;
 
     const state = await readState(fakeRpc(bytes), 2, source, "NestedBits");
 
-    expect(state.fields).toEqual([
-        {
-            name: "nested",
-            value: "{value: [0..62]=0 ×63 (skipped), [63]=1, [64..127]=0 ×64 (skipped)}",
-        },
-    ]);
+    expect(state.fields).toEqual([]);
+    expect(state.containers).toMatchObject([{ name: "nested.bits.value", kind: "bitarray", index: 0, capacity: 128, occupiedSlots: 1 }]);
+    expect(flatLines(state.containers[0])).toEqual(["[0..62] =0 ×63 (skipped)", "[63] =1", "[64..127] =0 ×64 (skipped)"]);
 });
 
 const HASHMAP_SOURCE = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { HashMap<uint64, uint64, 8> values; }; INITIALIZE() {} };`;

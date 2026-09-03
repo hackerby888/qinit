@@ -15,6 +15,13 @@ struct CheatShapes : public ContractBase
         uint16 b;
     };
 
+    // A container reached through a struct field, which used to print as a line of JSON.
+    struct Inner
+    {
+        uint64 value;
+        HashMap<uint64, uint64, 4> map;
+    };
+
     struct StateData
     {
         uint64 counter;
@@ -22,6 +29,7 @@ struct CheatShapes : public ContractBase
         Array<ABC, 2> items;
         id owner;
         HashMap<id, uint64, 4> balances;
+        Inner inner;
     };
 
     struct Get_input
@@ -63,6 +71,8 @@ struct CheatShapes : public ContractBase
         else
             CC_PRINT("flag clear");
         state.mut().counter = input.abc.a;
+        state.mut().inner.value = input.abc.a;
+        state.mut().inner.map.set(input.abc.a, input.abc.b);
     }
 
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
