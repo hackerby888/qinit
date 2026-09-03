@@ -1186,13 +1186,7 @@ export class QubicSimulator {
     // A callee that aborted deliberately halts the node, exactly as the same abort does at the top level.
     // A Wasm trap stays recoverable: Core keeps ticking through one, and the caller gets NoCallError with
     // a zero-filled output, which is the only shape it has for "the callee produced nothing".
-    private nestedTrapResult(
-        callee: Contract,
-        kind: number,
-        inputType: number,
-        error: unknown,
-        phase: string,
-    ): { error: number; output: Uint8Array } {
+    private nestedTrapResult(callee: Contract, kind: number, inputType: number, error: unknown, phase: string): { error: number; output: Uint8Array } {
         if (!(error instanceof ContractExecutionError)) {
             throw error;
         }

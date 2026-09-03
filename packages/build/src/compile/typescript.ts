@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { CheatMode,compileContractWithTypeScript, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
+import { CheatMode, compileContractWithTypeScript, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { analyzeContract, type SourceAnalysisResult } from "@qinit/compiler/analyzer";
 import { k12Hex } from "@qinit/core";
 import type { ContractBuildResult } from "./types";

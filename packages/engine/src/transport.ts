@@ -13,7 +13,15 @@ import type {
     EntityInfo,
     TxInfo,
 } from "@qinit/core";
-import { bytesToIdentity, identityToBytes, DEFAULT_WASM_SLOT_LAYOUT, LITE_DEPLOY_ADDRESS, TESTNET_FUNDED_SEEDS, WASM_ABI_VERSION, hexToBytes } from "@qinit/core";
+import {
+    bytesToIdentity,
+    identityToBytes,
+    DEFAULT_WASM_SLOT_LAYOUT,
+    LITE_DEPLOY_ADDRESS,
+    TESTNET_FUNDED_SEEDS,
+    WASM_ABI_VERSION,
+    hexToBytes,
+} from "@qinit/core";
 import { LITE_TX, CHUNK_DATA_MAX, MAX_INPUT_SIZE, UploadBegin, UploadChunkHeader, DeployMessage } from "@qinit/proto";
 import { QubicSimulator, EngineFaultedError, type AssetSnapshot, type FeeMode, type ProcedureCallOptions } from "./qubic-simulator";
 import type { LogSink } from "./logging/log";

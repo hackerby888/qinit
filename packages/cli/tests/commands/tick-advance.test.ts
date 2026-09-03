@@ -30,7 +30,17 @@ test("advanceTo never asks for the whole distance in one request", async () => {
 
 test("advanceChunk reports the fault behind a 503 and passes other errors through", async () => {
     const halted = Object.assign(new Error("RPC GET /live/v1/dev/advance-tick → HTTP 503"), { status: 503 });
-    const fault = { message: "abort(7)", phase: "transaction", failedTick: 42, failedEpoch: 1, lastFinalizedTick: 41, lastFinalizedEpoch: 1, slot: 30, kind: 1, entry: 4 };
+    const fault = {
+        message: "abort(7)",
+        phase: "transaction",
+        failedTick: 42,
+        failedEpoch: 1,
+        lastFinalizedTick: 41,
+        lastFinalizedEpoch: 1,
+        slot: 30,
+        kind: 1,
+        entry: 4,
+    };
     const rpc = { advanceTick: async () => Promise.reject(halted), faultInfo: async () => fault } as unknown as LiteRpc;
 
     await expect(advanceChunk(rpc, 5)).rejects.toThrow(/node halted: slot 30 proc#4 trapped abort\(0x7\) at tick 42/);

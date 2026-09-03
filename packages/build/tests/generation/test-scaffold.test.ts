@@ -15,7 +15,7 @@ for (const kind of TEMPLATE_KINDS) {
         for (const entry of called) {
             expect(registered).toContain(entry);
         }
-        expect(spec).toContain('import { MyToken');
+        expect(spec).toContain("import { MyToken");
         expect(spec).toContain("let c: MyToken;");
         expect(spec).not.toContain("CONTRACT_STATE_TYPE");
         expect((spec.match(/\{/g) ?? []).length).toBe((spec.match(/\}/g) ?? []).length);

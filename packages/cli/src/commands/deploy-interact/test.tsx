@@ -190,7 +190,9 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                 add("sdk", true, `tests/.qinit/ (${idl.functions.length} fn / ${idl.procedures.length} proc)`);
                 // A spec is the developer's to write; a guessed one would only fail against their entries.
                 if (!readdirSync(testsDir).some((f) => f.endsWith(".test.ts"))) {
-                    throw new Error(`no tests/*.test.ts in this project — \`qinit new\` ships one; write a spec that imports { ${contractName}, provider } from "./.qinit"`);
+                    throw new Error(
+                        `no tests/*.test.ts in this project — \`qinit new\` ships one; write a spec that imports { ${contractName}, provider } from "./.qinit"`,
+                    );
                 }
 
                 // The generated SDK bundles its own crypto, so the project needs no dependency — only ESM.
