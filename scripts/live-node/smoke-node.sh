@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end smoke: cached node up -> deploy Counter -> verify ARMED (codeHash) -> call Get.
+# End-to-end smoke: cached node up -> deploy Counter -> confirm (codeHash) -> call Get.
 # Requires a synced node (`qinit node get` / `qinit node run`). Exercises deploy arm-verification (#1).
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -14,12 +14,12 @@ strip() {
   echo "✗ node not ticking"
   exit 1
 }
-"$qinit" deploy --contract fixtures/Counter.h 2>&1 | strip | grep -q "armed ✓" || {
+"$qinit" deploy --contract fixtures/Counter.h 2>&1 | strip | grep -q "deployed ✓" || {
   echo "✗ deploy did not arm"
   "$qinit" node stop >/dev/null 2>&1
   exit 1
 }
-"$qinit" call --fn 28 1 2>&1 | strip | grep -q "fn 28" || {
+"$qinit" call --fn Counter Get 2>&1 | strip | grep -q "Counter.Get" || {
   echo "✗ call failed"
   "$qinit" node stop >/dev/null 2>&1
   exit 1
