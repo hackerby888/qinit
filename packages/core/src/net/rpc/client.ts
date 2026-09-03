@@ -99,7 +99,7 @@ export class LiteRpc implements NodeTransport {
     // Current tick / epoch — used to stamp outgoing transactions. The prefixed route is the one the
     // public Qubic RPC serves, so this works against a live network as well as core-lite.
     async tickInfo(): Promise<TickInfo> {
-        // A live node nests the numbers under `tickInfo`; core-lite and the simulator answer flat.
+        // Every node nests the numbers under `tickInfo`; the flat keys remain from the older answer.
         const { tickInfo, ...flat } = await this.get<TickInfo & { tickInfo?: Partial<TickInfo> }>("/live/v1/tick-info");
         return { ...flat, ...tickInfo };
     }

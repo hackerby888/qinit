@@ -41,14 +41,23 @@ test("/tick-info reports the engine's tick + epoch", async () => {
     }
 });
 
-// The client asks for the prefixed route, which is the one a live Qubic node serves.
-test("/live/v1/tick-info answers like the bare route", async () => {
-    const { base, stop } = await serve();
+// The client asks for the prefixed route, which core-lite answers wrapped in an envelope; a client written
+// against the older flat answer still finds tick and epoch at the top.
+test("/live/v1/tick-info carries core-lite's envelope and keeps the flat keys", async () => {
+    const { base, stop, engine } = await serve();
     try {
         const [prefixed, bare] = await Promise.all([fetch(`${base}/live/v1/tick-info`), fetch(`${base}/tick-info`)]);
 
         expect(prefixed.status).toBe(200);
-        expect(await prefixed.json()).toEqual(await bare.json());
+        const flat = await bare.json();
+        expect(await prefixed.json()).toEqual({
+            ...flat,
+            tickInfo: { tick: flat.tick, epoch: flat.epoch, initialTick: engine.epochInfo().initialTick, duration: 0 },
+            alignedVotes: 0,
+            misalignedVotes: 0,
+            mainAuxStatus: 3,
+        });
+        expect((await new LiteRpc(base).tickInfo()).tick).toBe(flat.tick);
     } finally {
         stop();
     }
