@@ -1,0 +1,18 @@
+import { test, expect, beforeAll } from "bun:test";
+import { CONTRACT_STATE_TYPE, deriveIdentity, provider } from "./.qinit";
+
+let c: CONTRACT_STATE_TYPE;
+let who: string;
+beforeAll(async () => {
+  c = new CONTRACT_STATE_TYPE(provider());
+  who = (await deriveIdentity(provider().seed!)).identity;   // the signer's own identity is a handy key
+});
+
+test("CONTRACT_STATE_TYPE: starts empty, then holds one balance", async () => {
+  expect(await c.Stats()).toEqual({ total: 0n, population: 0n });
+  const r = await c.Set({ who, amount: 42n });   // auto-confirms via the tx-status RPC
+  expect(r.confirmed).toBe(true);
+  expect(r.included).toBe(true);
+  expect((await c.BalanceOf({ who })).amount).toBe(42n);
+  expect(await c.Stats()).toEqual({ total: 42n, population: 1n });
+}, 60000);                // procedures are tick-bound (confirm waits ~8 ticks); give them room

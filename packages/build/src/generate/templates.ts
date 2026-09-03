@@ -6,6 +6,10 @@ import COUNTER_H from "../assets/templates/counter.h" with { type: "text" };
 import HASHMAP_H from "../assets/templates/hashmap.h" with { type: "text" };
 import ASSET_H from "../assets/templates/asset.h" with { type: "text" };
 import INTERCONTRACT_H from "../assets/templates/intercontract.h" with { type: "text" };
+import COUNTER_TEST from "../assets/templates/counter.test.ts.txt" with { type: "text" };
+import HASHMAP_TEST from "../assets/templates/hashmap.test.ts.txt" with { type: "text" };
+import ASSET_TEST from "../assets/templates/asset.test.ts.txt" with { type: "text" };
+import INTERCONTRACT_TEST from "../assets/templates/intercontract.test.ts.txt" with { type: "text" };
 
 export type TemplateKind = "counter" | "hashmap" | "asset" | "intercontract";
 export const TEMPLATE_KINDS: TemplateKind[] = ["counter", "hashmap", "asset", "intercontract"];
@@ -17,6 +21,14 @@ const BODIES: Record<TemplateKind, string> = {
     hashmap: HASHMAP_H,
     asset: ASSET_H,
     intercontract: INTERCONTRACT_H,
+};
+
+// One bun:test spec per template, written against that template's own entries.
+const TESTS: Record<TemplateKind, string> = {
+    counter: COUNTER_TEST,
+    hashmap: HASHMAP_TEST,
+    asset: ASSET_TEST,
+    intercontract: INTERCONTRACT_TEST,
 };
 
 export const TEMPLATE_NOTE: Partial<Record<TemplateKind, string>> = {
@@ -32,4 +44,9 @@ export function templateSource(kind: TemplateKind, contractName?: string): strin
         return HEAD + body;
     }
     return HEAD + body.replaceAll("CONTRACT_STATE2_TYPE", `${contractName}2`).replaceAll("CONTRACT_STATE_TYPE", contractName);
+}
+
+// The spec imports the generated client by the contract's name, so the same placeholder serves it.
+export function templateTest(kind: TemplateKind, contractName: string): string {
+    return TESTS[kind].replaceAll("CONTRACT_STATE_TYPE", contractName);
 }

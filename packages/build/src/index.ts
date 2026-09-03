@@ -29,4 +29,4 @@ export { planProjectSlots } from "./contracts/project-slots";
 export type { PlannedProjectSlotNode, ProjectSlotLayout, ProjectSlotNode } from "./contracts/project-slots";
 export { generateClient } from "./generate/client";
 export { genStdGtest } from "./generate/std-gtest";
-export { testRuntimeSource, sampleTest } from "./generate/test-scaffold";
+export { testRuntimeSource } from "./generate/test-scaffold";

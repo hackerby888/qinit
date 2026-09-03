@@ -1,24 +1,26 @@
-// test-scaffold emits the starter `bun:test` spec a new project ships with. The generated source must name
-// the contract type consistently (import, declaration, title) or the scaffold won't compile for the user.
+// Every template ships a bun:test spec written against its own entries, so a fresh project's first
+// `qinit test` exercises the contract it actually has rather than a counter it does not.
 import { test, expect } from "bun:test";
-import { sampleTest, testRuntimeSource } from "../../src/generate/test-scaffold";
+import { TEMPLATE_KINDS, templateSource, templateTest } from "../../src/generate/templates";
+import { testRuntimeSource } from "../../src/generate/test-scaffold";
 
-test("sampleTest: weaves the contract name through import, declaration, and title", () => {
-    const src = sampleTest("MyToken");
+for (const kind of TEMPLATE_KINDS) {
+    test(`${kind} spec only calls entries the ${kind} template registers`, () => {
+        const source = templateSource(kind, "MyToken");
+        const registered = new Set([...source.matchAll(/REGISTER_USER_(?:PROCEDURE|FUNCTION)\((\w+),/g)].map((match) => match[1]));
+        const spec = templateTest(kind, "MyToken");
+        const called = [...spec.matchAll(/\bc\.(\w+)\(/g)].map((match) => match[1]);
 
-    expect(src).toContain('import { MyToken, provider } from "./.qinit"');
-    expect(src).toContain("let c: MyToken;");
-    expect(src).toContain('test("MyToken: starts at zero and increments"');
-    expect(src).toContain("beforeAll(() => { c = new MyToken(provider()); });");
-});
-
-test("sampleTest: emits a balanced, non-trivial spec", () => {
-    const src = sampleTest("Counter");
-
-    expect(src.length).toBeGreaterThan(200);
-    expect((src.match(/\{/g) ?? []).length).toBe((src.match(/\}/g) ?? []).length);
-    expect(src).toContain('from "bun:test"');
-});
+        expect(called.length).toBeGreaterThan(0);
+        for (const entry of called) {
+            expect(registered).toContain(entry);
+        }
+        expect(spec).toContain('import { MyToken');
+        expect(spec).toContain("let c: MyToken;");
+        expect(spec).not.toContain("CONTRACT_STATE_TYPE");
+        expect((spec.match(/\{/g) ?? []).length).toBe((spec.match(/\}/g) ?? []).length);
+    });
+}
 
 test("testRuntimeSource: the inlined SDK template is present and non-empty", () => {
     expect(testRuntimeSource.startsWith("// @ts-nocheck\n")).toBe(true);

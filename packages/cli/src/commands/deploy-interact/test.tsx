@@ -7,7 +7,7 @@ import type { DeploymentEvent } from "../../ops/deploy";
 import { deployProjectContracts } from "../../ops/project-deploy";
 import { activeNodeScratchDir, ensureNodeBinary, killNode, launchNode, waitTicking } from "../../ops/node";
 import { DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
-import { testRuntimeSource, sampleTest, generateClient, extractIdl } from "@qinit/build";
+import { testRuntimeSource, generateClient, extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import { EngineServer } from "@qinit/engine/server";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
@@ -187,11 +187,11 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                 writeFileSync(join(sdkDir, `${contractName}.ts`), generateClient(idl, dep.slot, { runtimeImport: "./runtime" }));
                 writeFileSync(join(sdkDir, "index.ts"), `export * from "./runtime";\nexport { ${contractName} } from "./${contractName}";\n`);
                 const testsDir = join(root, "tests");
-                const hasTest = readdirSync(testsDir).some((f) => f.endsWith(".test.ts"));
-                if (!hasTest) {
-                    writeFileSync(join(testsDir, `${contractName}.test.ts`), sampleTest(contractName));
-                }
                 add("sdk", true, `tests/.qinit/ (${idl.functions.length} fn / ${idl.procedures.length} proc)`);
+                // A spec is the developer's to write; a guessed one would only fail against their entries.
+                if (!readdirSync(testsDir).some((f) => f.endsWith(".test.ts"))) {
+                    throw new Error(`no tests/*.test.ts in this project — \`qinit new\` ships one; write a spec that imports { ${contractName}, provider } from "./.qinit"`);
+                }
 
                 // The generated SDK bundles its own crypto, so the project needs no dependency — only ESM.
                 const pkgPath = join(root, "package.json");

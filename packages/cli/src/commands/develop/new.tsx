@@ -6,7 +6,7 @@ import { Header, theme } from "../../ui";
 import { loadSystem } from "../../contracts/registry";
 import { extractIdl, genStdGtest } from "@qinit/build";
 import { DEFAULT_RPC_BASE } from "@qinit/core";
-import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, type TemplateKind } from "@qinit/build/generate/templates";
+import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, templateTest, type TemplateKind } from "@qinit/build/generate/templates";
 import { loadConfiguredQpiHeader } from "../../config";
 import type { CommandArguments } from "../../args";
 
@@ -73,10 +73,11 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
             const source = templateSource(kind, name);
             writeFileSync(join(dir, "contracts", `${name}.h`), source);
 
-            // Scaffold a contract_testing.h test from the contract IDL.
+            // The bun:test spec is written for this template's entries; the gtest below is derived from the IDL.
+            mkdirSync(join(dir, "tests"), { recursive: true });
+            writeFileSync(join(dir, "tests", `${name}.test.ts`), templateTest(kind, name));
             let testRel: string | undefined;
             try {
-                mkdirSync(join(dir, "tests"), { recursive: true });
                 writeFileSync(
                     join(dir, "tests", `${name}.test.cpp`),
                     genStdGtest(
@@ -108,6 +109,9 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
                     "qinit dev       # watch contracts/" +
                     name +
                     ".h -> auto build+deploy on save\n" +
+                    "qinit test      # run tests/" +
+                    name +
+                    ".test.ts against the dev node through the generated client\n" +
                     "qinit gtest --compiler typescript   # run tests/" +
                     name +
                     ".test.cpp on an isolated node (TS compiler)\n" +
@@ -118,6 +122,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
 
             add(`✓ created ${dir}/  (template: ${kind})`);
             add(`  contracts/${name}.h`);
+            add(`  tests/${name}.test.ts`);
             if (testRel) add(`  ${testRel}`);
             add(`  qinit.json · .gitignore · README.md`);
             if (TEMPLATE_NOTE[kind]) add(`  note: ${TEMPLATE_NOTE[kind]}`);

@@ -1,0 +1,29 @@
+import { test, expect, beforeAll } from "bun:test";
+import { CONTRACT_STATE_TYPE, deriveIdentity, provider } from "./.qinit";
+
+// An asset name is up to 7 ASCII characters packed little-endian into a uint64.
+function assetName(text: string): bigint {
+  let packed = 0n;
+  for (let i = text.length - 1; i >= 0; i--) packed = (packed << 8n) | BigInt(text.charCodeAt(i));
+  return packed;
+}
+
+let c: CONTRACT_STATE_TYPE;
+let to: string;
+const NAME = assetName("TEMPL");
+beforeAll(async () => {
+  c = new CONTRACT_STATE_TYPE(provider());
+  to = (await deriveIdentity(provider().seed!)).identity;
+});
+
+test("CONTRACT_STATE_TYPE: issues shares, then moves some to the signer", async () => {
+  expect((await c.Total({ name: NAME })).shares).toBe(0n);
+  const issued = await c.Issue({ name: NAME, shares: 1000n });   // auto-confirms via the tx-status RPC
+  expect(issued.confirmed).toBe(true);
+  expect(issued.included).toBe(true);
+  expect((await c.Total({ name: NAME })).shares).toBe(1000n);
+
+  const moved = await c.Move({ name: NAME, to, shares: 10n });
+  expect(moved.included).toBe(true);
+  expect((await c.Total({ name: NAME })).shares).toBe(1000n);   // a transfer changes owners, not the supply
+}, 90000);                // two procedures, each tick-bound (confirm waits ~8 ticks); give them room

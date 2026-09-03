@@ -4,3 +4,9 @@ declare module "*.h" {
     const content: string;
     export default content;
 }
+
+// Template specs ship as .txt so neither tsc nor `bun test` treats them as this repo's own source.
+declare module "*.txt" {
+    const content: string;
+    export default content;
+}

@@ -1,0 +1,13 @@
+import { test, expect, beforeAll } from "bun:test";
+import { CONTRACT_STATE_TYPE, provider } from "./.qinit";
+
+let c: CONTRACT_STATE_TYPE;
+beforeAll(() => { c = new CONTRACT_STATE_TYPE(provider()); });
+
+test("CONTRACT_STATE_TYPE: starts at zero and increments", async () => {
+  expect((await c.Get()).value).toBe(0n);
+  const r = await c.Inc();   // auto-confirms via the tx-status RPC (resolves once processed)
+  expect(r.confirmed).toBe(true);  // node gave an exact verdict (not a tick guess)
+  expect(r.included).toBe(true);   // the tx actually landed on-chain
+  expect((await c.Get()).value).toBe(1n);
+}, 60000);                // procedures are tick-bound (confirm waits ~8 ticks); give them room

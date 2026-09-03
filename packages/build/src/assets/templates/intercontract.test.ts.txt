@@ -1,0 +1,14 @@
+import { test, expect, beforeAll } from "bun:test";
+import { CONTRACT_STATE_TYPE, provider } from "./.qinit";
+
+let c: CONTRACT_STATE_TYPE;
+beforeAll(() => { c = new CONTRACT_STATE_TYPE(provider()); });
+
+// Both calls go through to the Counter callee, which `qinit test` deployed just below this contract.
+test("CONTRACT_STATE_TYPE: bumps the callee's counter and reads it back", async () => {
+  expect((await c.ReadCounter()).value).toBe(0n);
+  const r = await c.BumpCounter();   // auto-confirms via the tx-status RPC (resolves once processed)
+  expect(r.confirmed).toBe(true);
+  expect(r.included).toBe(true);
+  expect((await c.ReadCounter()).value).toBe(1n);
+}, 60000);                // procedures are tick-bound (confirm waits ~8 ticks); give them room
