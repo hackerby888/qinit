@@ -26,6 +26,7 @@ export const CORE_WASM_HEADERS = Object.freeze({
         reservedSlotContract: header("runtime/reserved_slot_contract.h"),
         arenaScope: header("runtime/arena_scope.h"),
         trace: header("runtime/trace.h"),
+        fault: header("runtime/fault.h"),
         stateWriteTracker: header("runtime/state_write_tracker.h"),
         stateWriteJournal: header("runtime/state_write_journal.h"),
         oracleServices: header("runtime/oracle_services.h"),
