@@ -365,57 +365,62 @@ function CallOneShot({
                     if (signer.switched) {
                         addNote(`⚠ seed unfunded here — signing as ${signer.identity}`);
                     }
-                    // Said before signing: the node will accept this tx and never run it.
+                    // An unfunded signer's tx is accepted then dropped without running on every runtime; fail
+                    // before submitting (mirrors ops/deploy) so the exit code is 1 on both, skipping the resends.
                     if (signer.unfunded) {
-                        addNote(`⚠ ${unfundedSignerMessage(signer.identity)}`);
+                        setConfirm(null);
+                        unfundedSigner = true;
+                        setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, tick });
+                        setResult({
+                            ok: false,
+                            label,
+                            detail: "not submitted — signer unfunded",
+                            rows: [["tick", String(tick)]],
+                            err: unfundedSignerMessage(signer.identity),
+                        });
+                    } else {
+                        const r = await invokeProcedure({
+                            seed: signer.seed,
+                            rpcBaseUrl: rpcBaseUrl,
+                            contractIndex: idx,
+                            procedureId: entry,
+                            amount: Number(amount ?? 0),
+                            input,
+                            tick,
+                            confirm: settle,
+                            rpc,
+                            onProgress: ({ tick: net, target }) => setConfirm((c) => ({ start: c?.start ?? net, net, target })),
+                        });
+                        setConfirm(null);
+                        const txs = (r.txId ?? "") || "—"; // full txid — user pastes it into the explorer
+                        const detail = !r.ok
+                            ? `FAIL${r.code != null ? " code=" + r.code : ""}`
+                            : !settle
+                              ? "broadcast"
+                              : r.confirmed && r.included
+                                ? "processed"
+                                : r.confirmed && !r.included
+                                  ? "dropped — not included"
+                                  : "broadcast · unconfirmed";
+                        const ok = !r.ok ? false : r.confirmed && !r.included ? false : true;
+                        setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, tick, tx: r.txId || undefined });
+                        setResult({
+                            ok,
+                            label,
+                            detail,
+                            rows: [
+                                ["tx", txs],
+                                ["tick", String(tick)],
+                            ],
+                            err: (await enrichErr(await nodeErr())) || (!r.ok ? r.message : undefined),
+                        });
                     }
-                    const r = await invokeProcedure({
-                        seed: signer.seed,
-                        rpcBaseUrl: rpcBaseUrl,
-                        contractIndex: idx,
-                        procedureId: entry,
-                        amount: Number(amount ?? 0),
-                        input,
-                        tick,
-                        confirm: settle,
-                        rpc,
-                        onProgress: ({ tick: net, target }) => setConfirm((c) => ({ start: c?.start ?? net, net, target })),
-                    });
-                    setConfirm(null);
-                    const txs = (r.txId ?? "") || "—"; // full txid — user pastes it into the explorer
-                    const detail = !r.ok
-                        ? `FAIL${r.code != null ? " code=" + r.code : ""}`
-                        : !settle
-                          ? "broadcast"
-                          : r.confirmed && r.included
-                            ? "processed"
-                            : r.confirmed && !r.included
-                              ? "dropped — not included"
-                              : "broadcast · unconfirmed";
-                    const ok = !r.ok ? false : r.confirmed && !r.included ? false : true;
-                    // An empty signer is the usual reason a broadcast tx never makes it into a tick.
-                    const dropped = r.ok && r.confirmed && !r.included;
-                    unfundedSigner = Boolean(signer.unfunded);
-                    setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, tick, tx: r.txId || undefined });
-                    setResult({
-                        ok,
-                        label,
-                        detail,
-                        rows: [
-                            ["tx", txs],
-                            ["tick", String(tick)],
-                        ],
-                        err:
-                            (await enrichErr(await nodeErr())) ||
-                            (!r.ok ? r.message : undefined) ||
-                            (dropped && signer.unfunded ? unfundedSignerMessage(signer.identity) : undefined),
-                    });
                 }
 
                 if (wantTrace) {
                     let te: DebugEntry | undefined;
                     let polled: DebugEntry[] = [];
-                    for (let i = 0; i < 12 && !te; i++) {
+                    for (let i = 0; i < 12 && !te && !unfundedSigner; i++) {
                         polled = (await rpc.debugTrace(sinceSeq, 200)).entries ?? [];
                         te = polled.filter((x) => x.index === idx && x.seq > sinceSeq && x.kind === (mode === "fn" ? 0 : 1) && x.entry === entry).pop();
                         if (!te) await sleep(700);
