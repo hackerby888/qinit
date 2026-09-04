@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { DEFAULT_RPC_BASE } from "@qinit/core";
+import { templateTest } from "@qinit/build/generate/templates";
 import repositories from "../../config/repositories.json";
 
 interface RunOptions {
@@ -119,6 +120,9 @@ try {
 
     mkdirSync(join(project, "contracts"), { recursive: true });
     copyFileSync(join(qinitRoot, "fixtures", "DigestProbe.h"), join(project, "contracts", "DigestProbe.h"));
+    // DigestProbe has the counter template's entries (Inc, Get), so that spec exercises the probe unchanged.
+    mkdirSync(join(project, "tests"), { recursive: true });
+    writeFileSync(join(project, "tests", "DigestProbe.test.ts"), templateTest("counter", "DigestProbe"));
     await run(
         [
             qinitBin,
