@@ -24,7 +24,7 @@ import { TraceView } from "../../trace/views";
 import { CallInteractive, type CollectedCall } from "./call-interactive";
 import { loadConfig, loadConfiguredQpiHeader, resolveSeed } from "../../config";
 import { resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
-import { describeFault, readFault } from "../../ops/fault";
+import { describeContractError, describeFault, readFault } from "../../ops/fault";
 import { loadContracts, mergeContracts, missingContractMessage, resolveContract } from "../../contracts/registry";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { loadContractIdls } from "../../contracts/idl-lookup";
@@ -459,7 +459,7 @@ function CallOneShot({
                 }
                 setDone(true);
             } catch (e: any) {
-                setResult({ ok: false, label: "call", err: String(e?.message ?? e) });
+                setResult({ ok: false, label: "call", err: describeContractError(String(e?.message ?? e)) });
                 setDone(true);
             }
         })();

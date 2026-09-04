@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { formatFault, readFault } from "../../src/ops/fault";
+import { describeContractError, formatFault, readFault } from "../../src/ops/fault";
 
 const FAULT = {
     message: "abort(3422552174)",
@@ -20,6 +20,15 @@ test("formatFault names the contract, the entry, the abort code in hex and the t
     expect(formatFault({ ...FAULT, slot: undefined, kind: undefined, entry: undefined, message: "log store failed" })).toBe(
         "node halted: trapped log store failed at tick 3111 — run `qinit node run` to restart it",
     );
+});
+
+test("describeContractError spells an abort in hex and names the trap code", () => {
+    expect(describeContractError("abort(3422552174)")).toBe("abort(0xCC00006E)");
+    expect(describeContractError("abort(3424452608)")).toBe("wasm trap");
+    expect(describeContractError("Error calling smart contract function: 3424452608")).toBe("Error calling smart contract function: wasm trap");
+    expect(describeContractError("Error calling smart contract function: 3422552174")).toBe("Error calling smart contract function: abort(0xCC00006E)");
+    expect(describeContractError("Error calling smart contract function: 7")).toBe("Error calling smart contract function: 7");
+    expect(formatFault({ ...FAULT, message: "Exception: integer overflow" }, "Probe")).toContain("trapped Exception: integer overflow at tick 3111");
 });
 
 test("readFault treats a missing route as healthy and anything else as an error", async () => {

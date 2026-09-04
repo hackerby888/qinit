@@ -2,6 +2,7 @@ import { LOOPBACK_HOST, initK12, type DirectDeploymentKind } from "@qinit/core";
 import { VirtualNode } from "./transport";
 import { PeerServer } from "./peer-server";
 import { EngineFaultedError } from "./qubic-simulator";
+import { ContractExecutionError } from "./contract/runtime";
 import { NodeTicker } from "./support/node-ticker";
 
 export interface EngineServerHandle {
@@ -292,7 +293,16 @@ export class EngineServer {
                 requestData?: string;
             };
             const input = Uint8Array.from(Buffer.from(body.requestData ?? "", "base64"));
-            const output = await engine.querySmartContract(Number(body.contractIndex), Number(body.inputType), input);
+            let output: Uint8Array;
+            try {
+                output = await engine.querySmartContract(Number(body.contractIndex), Number(body.inputType), input);
+            } catch (error) {
+                // The same envelope core answers with when a function aborts, so a client reads one shape.
+                if (error instanceof ContractExecutionError) {
+                    return json({ code: -1, message: `Error calling smart contract function: ${error.message}` }, 500);
+                }
+                throw error;
+            }
 
             return json({
                 responseData: Buffer.from(output).toString("base64"),

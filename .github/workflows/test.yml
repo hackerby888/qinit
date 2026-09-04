@@ -491,7 +491,21 @@ jobs:
           set -e
           stop_node
           echo "=== run-dual/node.log tail ==="; tail -25 run-dual/node.log
-          [ $c1 -eq 0 ] && [ $c2 -eq 0 ] && [ $c3 -eq 0 ] && [ $c4 -eq 0 ] && [ $c5 -eq 0 ]
+
+          # A halting fault class does not come back, so each core case gets its own node.
+          c6=0
+          for fault_case in fn trap abort migrate; do
+            for fault_compiler in TS Clang; do
+              fault_dir="run-fault-$fault_case-$fault_compiler"
+              start_node "$fault_dir"
+              set +e
+              QINIT_FAULT_CASE=$fault_case QINIT_FAULT_COMPILER=$fault_compiler bun run scripts/live-node/ci-fault-dual-engine.ts; rc=$?
+              set -e
+              stop_node
+              if [ $rc -ne 0 ]; then c6=1; echo "=== $fault_dir/node.log tail ==="; tail -25 "$fault_dir/node.log"; fi
+            done
+          done
+          [ $c1 -eq 0 ] && [ $c2 -eq 0 ] && [ $c3 -eq 0 ] && [ $c4 -eq 0 ] && [ $c5 -eq 0 ] && [ $c6 -eq 0 ]
 
   # QPI VS Code extension checks that need clangd or a real editor.
   vscode-clangd-check:

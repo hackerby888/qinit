@@ -1,7 +1,7 @@
 // A node that halted on a contract trap keeps answering reads, so every command that would otherwise
 // report a stale tick has to ask for the fault and say so.
 import { CONTRACT_ENTRY_KIND } from "@qinit/engine";
-import type { EngineFaultInfo, LiteRpc } from "@qinit/core";
+import { WASM_TRAP_ERROR_CODE, type EngineFaultInfo, type LiteRpc } from "@qinit/core";
 import { loadContracts, mergeContracts } from "../contracts/registry";
 
 const ENTRY_LABEL: Record<number, string> = {
@@ -33,6 +33,20 @@ function withHexAbortCode(message: string): string {
     });
 }
 
+const TRAP_CODE_TEXT = new RegExp(`abort\\(0x${WASM_TRAP_ERROR_CODE.toString(16).toUpperCase()}\\)|\\b${WASM_TRAP_ERROR_CODE}\\b`, "g");
+// Core reports a function failure as the bare error code; a code in the assert range is a line number.
+const BARE_ASSERT_CODE = /(smart contract function: )(\d+)$/;
+const ASSERT_CODE_BASE = 0xcc000000;
+
+/** A contract error line with its codes spelled the way a developer reads them. */
+export function describeContractError(message: string): string {
+    const named = message.replace(BARE_ASSERT_CODE, (whole, prefix: string, digits: string) => {
+        const code = Number(digits);
+        return code >= ASSERT_CODE_BASE && code <= ASSERT_CODE_BASE + 0xffffff ? `${prefix}abort(${code})` : whole;
+    });
+    return withHexAbortCode(named).replace(TRAP_CODE_TEXT, "wasm trap");
+}
+
 /** The fault line with the slot resolved to a contract name, when the registry still answers. */
 export async function describeFault(rpc: LiteRpc, fault: EngineFaultInfo): Promise<string> {
     let name: string | undefined;
@@ -49,5 +63,5 @@ export function formatFault(fault: EngineFaultInfo, contractName?: string): stri
     const where = fault.slot === undefined ? "" : ` ${contractName ?? `slot ${fault.slot}`}`;
     const entry = fault.entry === undefined ? "" : ` ${ENTRY_LABEL[fault.kind ?? -1] ?? "entry"}#${fault.entry}`;
 
-    return `node halted:${where}${entry} trapped ${withHexAbortCode(fault.message)} at tick ${fault.failedTick} — run \`qinit node run\` to restart it`;
+    return `node halted:${where}${entry} trapped ${describeContractError(fault.message)} at tick ${fault.failedTick} — run \`qinit node run\` to restart it`;
 }

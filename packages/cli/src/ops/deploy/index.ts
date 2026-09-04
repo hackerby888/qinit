@@ -12,6 +12,7 @@ import { parseContractSlot } from "../../contracts/registry";
 import { classifyConfirm, type DeploymentEvent } from "./steps";
 import { buildUploadTx, uploadContract } from "./upload";
 import { resolveFundedSigner, unfundedSignerMessage } from "../signer";
+import { describeFault, readFault } from "../fault";
 import { assertChainFastEnough, deployToSimulator, resolveSigningSeed, runPreflightChecks, waitForTickReadiness } from "./phases";
 export { resolveNodeCallees } from "../../contracts/callees";
 export { STEPS, classifyConfirm, tickFailureMessage, updateDeploymentSteps } from "./steps";
@@ -323,6 +324,7 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
     let lastTick = currentTick;
     let registryRead = false;
     let registrationMismatch = false;
+    let halted: string | undefined;
 
     for (let i = 0; i < 420; i++) {
         // Arming and INITIALIZE each need a tick: drive them when the node allows it, wait otherwise.
@@ -333,6 +335,13 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
         try {
             const tickInfo = await rpc.tickInfo();
             lastTick = tickInfo.tick;
+            // A MIGRATE or INITIALIZE that trapped halts the node before the slot reports constructed; a
+            // node without the route is simply not halted.
+            const fault = await readFault(rpc).catch(() => null);
+            if (fault) {
+                halted = await describeFault(rpc, fault);
+                break;
+            }
             const registry = await rpc.dynRegistry();
             registryRead = true;
             const contract = (registry.contracts ?? []).find((candidate) => candidate.index === slot);
@@ -396,7 +405,10 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
     }
 
     let reason: string | undefined;
-    if (armed && !registrationMismatch) {
+    if (halted) {
+        reason = halted;
+        emit({ step: "confirm", state: "fail", detail: halted });
+    } else if (armed && !registrationMismatch) {
         try {
             await rpc.putContractSource(slot, readFileSync(options.contractPath, "utf8"));
         } catch {
@@ -443,7 +455,7 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
     }
 
     return {
-        ok: armed && !registrationMismatch,
+        ok: armed && !registrationMismatch && !halted,
         slot,
         reused,
         hash,

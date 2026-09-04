@@ -283,3 +283,31 @@ test("a contract fault stops ticking but keeps postmortem routes available", asy
         handle.stop();
     }
 });
+
+test("/live/v1/querySmartContract answers a function abort with core's 500 envelope and keeps serving", async () => {
+    await initK12();
+    const { base, stop } = await serve(async (e) => {
+        e.deploy(28, await wasm("FaultZoo"));
+    });
+    try {
+        const query = (n: bigint) => {
+            const input = new Uint8Array(8);
+            new DataView(input.buffer).setBigUint64(0, n, true);
+            return fetch(`${base}/live/v1/querySmartContract`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ contractIndex: 28, inputType: 1, inputSize: 8, requestData: Buffer.from(input).toString("base64") }),
+            });
+        };
+
+        const failed = await query(50n);
+        expect(failed.status).toBe(500);
+        expect(await failed.json()).toMatchObject({ code: -1, message: expect.stringMatching(/^Error calling smart contract function: abort\(/) });
+
+        const fine = await query(5n);
+        expect(fine.status).toBe(200);
+        expect(await (await fetch(`${base}/live/v1/dev/fault`)).json()).toBeNull();
+    } finally {
+        stop();
+    }
+});

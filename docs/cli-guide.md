@@ -1330,6 +1330,15 @@ over `--digest` when both are given, and `--out` without `--dump` is an argument
 
 ## 11. Live debugging
 
+A contract failure is one of three classes, and both runtimes agree on them. An abort or trap inside a
+function fails only that query: `call --fn` exits 1 with `Error calling smart contract function: …`,
+the frame stays in the trace with `ok:false`, and the node keeps ticking. An abort or trap inside a
+procedure, system procedure, or `MIGRATE` commits its trace frame (state diff included), records the
+fault served by `GET /live/v1/dev/fault`, and halts the tick loop; `call`, `deploy`, `node status`,
+`tick`, and `epoch` all read that route and print `node halted: <Contract> <kind>#<entry> trapped …`.
+A nested Wasm trap is recovered by the caller as `NoCallError` with zeroed output; a nested abort
+unwinds every frame and halts like a top-level one, naming the callee.
+
 [`commands/deploy-interact/debug.tsx`](../packages/cli/src/commands/deploy-interact/debug.tsx) is a long-running
 trace browser:
 
@@ -1772,7 +1781,7 @@ Chain and contract routes:
 | ------------------------- | ------------------------------------------ | ------------------------------------------------------- |
 | `tickInfo()`              | `GET /live/v1/tick-info`                   | deploy, procedure call, state reachability, node health |
 | `latestCreatedTickInfo()` | `GET /latest-created-tick-info`            | tick freshness checks                                   |
-| `faultInfo()`             | `GET /live/v1/dev/fault`                   | halt reporting in call, node status, tick and epoch     |
+| `faultInfo()`             | `GET /live/v1/dev/fault`                   | halt reporting in call, deploy, node status, tick, epoch |
 | `whoami()`                | `GET /live/v1/whoami`                      | explicit core/simulator orchestration                   |
 | `raw()`                   | any GET path                               | escape hatch for routes with no method                  |
 | `dynRegistry()`           | `GET /live/v1/dyn-registry`                | deploy/slot planning, call, state, debug, list          |

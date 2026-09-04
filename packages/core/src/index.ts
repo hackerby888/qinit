@@ -10,6 +10,7 @@ export {
     CONTRACT_ENTRY_POINTS,
     CHEAT_OP,
     CHEAT_ERR,
+    WASM_TRAP_ERROR_CODE,
 } from "./wasm/lhost-abi";
 export type { LhostFunctionSignature, LhostImportName, LhostValueType } from "./wasm/lhost-abi";
 export { CORE_WASM_HEADERS } from "./wasm/headers";

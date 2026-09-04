@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import wabtInit from "../../../compiler/node_modules/wabt";
 import { SYSTEM_PROCEDURES } from "@qinit/core";
-import { CONTRACT_ENTRY_KIND } from "../../src/contract/runtime";
-import { EngineFaultedError, QubicSimulator } from "../../src/qubic-simulator";
+import { CONTRACT_ENTRY_KIND, ContractExecutionError } from "../../src/contract/runtime";
+import { QubicSimulator } from "../../src/qubic-simulator";
 
 async function compileWat(name: string, wat: string): Promise<Uint8Array> {
     const wabt = await wabtInit();
@@ -177,19 +177,18 @@ test("system and inter-contract dispatch use registered input sizes", async () =
     expect([...call.output]).toEqual([4, 0, 0, 0]);
 });
 
-test("a function that calls a mutating host import faults without changing state", async () => {
+test("a function that calls a mutating host import fails its query without changing state or halting", async () => {
     const sim = new QubicSimulator();
     const contract = sim.deploy(28, await mutatingFunctionContract());
 
-    expect(() => sim.query(28, 1)).toThrow(EngineFaultedError);
-    expect(sim.faultInfo()).toMatchObject({
-        phase: "contract-function",
-        slot: 28,
-        kind: CONTRACT_ENTRY_KIND.FUNCTION,
-        entry: 1,
-    });
+    expect(() => sim.query(28, 1)).toThrow(ContractExecutionError);
+    expect(() => sim.query(28, 1)).toThrow(/mutating host import/);
+    expect(sim.isFaulted()).toBe(false);
     expect(contract.state()).toEqual(new Uint8Array(8));
-    expect(() => sim.query(28, 1)).toThrow(EngineFaultedError);
+    // The failure is the query's alone: the same call fails the same way and the engine still advances.
+    expect(() => sim.query(28, 1)).toThrow(ContractExecutionError);
+    sim.advance();
+    expect(sim.isFaulted()).toBe(false);
 });
 
 test("raw oracle imports derive query fees and require exact read sizes", async () => {

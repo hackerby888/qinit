@@ -6,6 +6,7 @@ import { systemNames } from "@qinit/build";
 import { savedSeed, resolveCoreDir } from "../../config";
 import { tickFailureMessage, type DeploymentEvent } from "./steps";
 import { activeUploadError } from "./upload";
+import { describeFault, readFault } from "../fault";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -69,6 +70,13 @@ export async function waitForTickReadiness(rpc: LiteRpc, rpcBaseUrl: string, emi
             reached = true;
             misses = 0;
             currentTick = tickInfo.tick;
+            // A halted node answers with a frozen tick; waiting out the margin would only hide the halt.
+            const fault = await readFault(rpc).catch(() => null);
+            if (fault) {
+                const halted = await describeFault(rpc, fault);
+                emit({ step: "tick", state: "fail", detail: halted });
+                return { ok: false, error: halted };
+            }
             if (initialTick < 0) {
                 initialTick = currentTick;
                 // A dev node jumps the readiness margin at once; one that cannot answers 0 and the loop waits.
@@ -171,7 +179,17 @@ export interface SimulatorDeployRequest {
 export async function deployToSimulator(request: SimulatorDeployRequest): Promise<{ ok: boolean; error?: string }> {
     const { rpc, slot, wasm, hash, emit } = request;
 
-    const directDeployment = await rpc.directDeploy(slot, wasm, request.name, "dynamic");
+    let directDeployment: Awaited<ReturnType<typeof rpc.directDeploy>>;
+    try {
+        directDeployment = await rpc.directDeploy(slot, wasm, request.name, "dynamic");
+    } catch (error) {
+        // A MIGRATE or INITIALIZE that trapped halts the simulator inside this very request.
+        const fault = await readFault(rpc).catch(() => null);
+        if (fault) {
+            return { ok: false, error: await describeFault(rpc, fault) };
+        }
+        throw error;
+    }
     if (!directDeployment) {
         return { ok: false, error: "simulator does not expose direct deployment; upgrade the Qinit simulator" };
     }

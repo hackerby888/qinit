@@ -337,7 +337,8 @@ function trapMessage(err: unknown): string {
     if (err instanceof ContractAbort) {
         return `abort(${err.code})`;
     }
-    return String((err as Error)?.message ?? err);
+    // JavaScriptCore appends the evaluated expression to a Wasm trap, which is bundle text, not the trap.
+    return String((err as Error)?.message ?? err).replace(/ \(evaluating '[\s\S]*'\)$/, "");
 }
 
 export class Contract {

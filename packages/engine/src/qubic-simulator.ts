@@ -1063,6 +1063,8 @@ export class QubicSimulator {
         }
     }
 
+    // A function that aborts or traps fails only its own query: the frame stays in the trace and the node
+    // keeps ticking, as it does on core.
     query(slot: number, inputType: number, input?: Uint8Array): Uint8Array {
         this.assertOperational();
         const contract = this.contracts.get(slot);
@@ -1071,7 +1073,7 @@ export class QubicSimulator {
             throw new Error(`unknown contract function ${slot}:${inputType}`);
         }
 
-        return this.runOperation("contract-function", () => contract.invoke(CONTRACT_ENTRY_KIND.FUNCTION, inputType, input), { contractErrorsOnly: true });
+        return contract.invoke(CONTRACT_ENTRY_KIND.FUNCTION, inputType, input);
     }
 
     // Runs the user procedure only. Each caller fires POST_INCOMING_TRANSFER for the reward beforehand, because

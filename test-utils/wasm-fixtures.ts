@@ -7,9 +7,12 @@ import COUNTER_SOURCE from "../fixtures/Counter.h" with { type: "text" };
 import COUNTER_V2_SOURCE from "../fixtures/CounterV2.h" with { type: "text" };
 import DIGEST_PROBE_SOURCE from "../fixtures/DigestProbe.h" with { type: "text" };
 import DIVIDEND_SOURCE from "../fixtures/Dividend.h" with { type: "text" };
+import FAULT_ZOO_SOURCE from "../fixtures/FaultZoo.h" with { type: "text" };
 import HOOKS_SOURCE from "../fixtures/Hooks.h" with { type: "text" };
 import HOST_WRITE_SOURCE from "../fixtures/HostWrite.h" with { type: "text" };
 import INCOMING_LOGGER_SOURCE from "../fixtures/IncomingLogger.h" with { type: "text" };
+import MIGRATE_TRAP_SOURCE from "../fixtures/MigrateTrap.h" with { type: "text" };
+import MIGRATE_TRAP_V1_SOURCE from "../fixtures/MigrateTrapV1.h" with { type: "text" };
 import CHEATS_SOURCE from "../fixtures/Cheats.h" with { type: "text" };
 import CHEAT_OPS_SOURCE from "../fixtures/CheatOps.h" with { type: "text" };
 import CHEAT_SHAPES_SOURCE from "../fixtures/CheatShapes.h" with { type: "text" };
@@ -78,9 +81,12 @@ export const wasmFixtureManifest = {
     CounterV2: fixture("CounterV2.h", COUNTER_V2_SOURCE, "Counter", 28),
     DigestProbe: fixture("DigestProbe.h", DIGEST_PROBE_SOURCE, "DigestProbe", 29),
     Dividend: fixture("Dividend.h", DIVIDEND_SOURCE, "Dividend", 28),
+    FaultZoo: fixture("FaultZoo.h", FAULT_ZOO_SOURCE, "FaultZoo", 28),
     Hooks: fixture("Hooks.h", HOOKS_SOURCE, "Hooks", 28),
     HostWrite: fixture("HostWrite.h", HOST_WRITE_SOURCE, "HostWrite", 28),
     IncomingLogger: fixture("IncomingLogger.h", INCOMING_LOGGER_SOURCE, "IncomingLogger", 29),
+    MigrateTrap: fixture("MigrateTrap.h", MIGRATE_TRAP_SOURCE, "MigrateTrap", 28),
+    MigrateTrapV1: fixture("MigrateTrapV1.h", MIGRATE_TRAP_V1_SOURCE, "MigrateTrap", 28),
     OracleProbe: fixture("OracleProbe.h", ORACLE_PROBE_SOURCE, "OracleProbe", 29),
     Proxy: fixture("Proxy.h", PROXY_SOURCE, "Proxy", 29, ["Counter"]),
     QpiDualCallee: fixture("QpiDualCallee.h", QPI_DUAL_CALLEE_SOURCE, "QpiDualCallee", 28),

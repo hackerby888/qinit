@@ -160,6 +160,10 @@ compile anyway, since Core's headers never define it.
 | `cheat/mutator-in-function` | Caught at compile time rather than left to the host's `-3`                                                                           |
 | `cheat/too-many-per-line`   | The wire tags a print by its line alone, so a second `CC_PRINT` there would read back as the first                                   |
 
+`CC_ASSERT` follows the entry point it runs in: inside a function it fails that query and the node keeps
+ticking; inside a procedure, system procedure, or `MIGRATE` it halts the node, and the frame with its
+state diff stays in the trace on both runtimes.
+
 `qpi/no-string` and `qpi/no-char` are suppressed inside a cheat argument, since those literals are
 interned rather than lowered. Aliasing needs no rule: `qpi/no-preprocessor` already forbids `#define` in
 contract source.
