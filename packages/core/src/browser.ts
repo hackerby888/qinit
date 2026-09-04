@@ -14,6 +14,7 @@ export type { IdentityResult, CryptoSmokeResult } from "./crypto/qubic";
 
 export { buildSignedTx, assertSeed, LITE_DEPLOY_ADDRESS } from "./crypto/tx";
 export type { SignedTx, TxInput } from "./crypto/tx";
+export { TESTNET_FUNDED_SEEDS, DEFAULT_FUNDED_SEED } from "./crypto/testnet-seeds";
 
 export { LiteRpc } from "./net/rpc/client";
 export type {
