@@ -199,3 +199,36 @@ test("a Collection element's id and its bookkeeping share one record without ble
     expect(await shown(ORDERS, [window])).toEqual([`orders[0] 0 → {entity: "${entity}", amount: 7, flags: 0}`, "orders[0].priority 0 → -100"]);
     expect(await hidden(ORDERS, [window])).toEqual(["orders[0].bstParentIndex 0 → -1"]);
 });
+
+const REC = "struct Rec { uint32 a; uint64 b; uint32 c; uint64 d; };";
+const PADDED = fieldsOf("Padded", "Rec rec; uint64 tail;", REC);
+const REC_ARRAY = fieldsOf("PaddedArray", "Array<Rec, 2> recs;", REC);
+
+test("a window opening inside a struct's interior padding still reports every later field", async () => {
+    // Rec pads 4..8 and 20..24. Opening in the first pad used to size the padding step to the struct's end,
+    // so b and d were walked over without a row.
+    const window = diffWindow(offsetOf(PADDED, "rec") + 4, 28, undefined, (bytes) => {
+        writeLe(bytes, 4, 42n);
+        writeLe(bytes, 20, 44n);
+    });
+
+    expect(await shown(PADDED, [window])).toEqual(["rec.b 0 → 42", "rec.d 0 → 44"]);
+});
+
+test("interior padding inside an array element resolves to the element's next field", async () => {
+    const window = diffWindow(offsetOf(REC_ARRAY, "recs") + 32 + 4, 28, undefined, (bytes) => {
+        writeLe(bytes, 4, 42n);
+        writeLe(bytes, 20, 44n);
+    });
+
+    expect(await shown(REC_ARRAY, [window])).toEqual(["recs[1].b 0 → 42", "recs[1].d 0 → 44"]);
+});
+
+test("a window covering the padded struct exactly still reports it as one row", async () => {
+    const window = diffWindow(offsetOf(PADDED, "rec"), 32, undefined, (bytes) => {
+        writeLe(bytes, 8, 42n);
+        writeLe(bytes, 24, 44n);
+    });
+
+    expect(await shown(PADDED, [window])).toEqual(["rec 0 → {a: 0, b: 42, c: 0, d: 44}"]);
+});

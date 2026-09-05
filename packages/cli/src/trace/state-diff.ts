@@ -121,8 +121,10 @@ function leafAt(names: Names, base: number, type: AbiType, offset: number, cover
 
             const field = type.fields.find((candidate) => offset >= candidate.offset && offset < candidate.offset + candidate.size);
             if (!field) {
-                // Padding inside the struct names nothing; a zero-count bits leaf moves the walk to its end.
-                return bitsLeaf(names, base + offset, type.size - offset, 1, 0, "internal");
+                // Padding inside the struct names nothing; a zero-count bits leaf moves the walk to the next
+                // field, or to the struct's end when the padding is trailing.
+                const next = type.fields.find((candidate) => candidate.offset > offset);
+                return bitsLeaf(names, base + offset, (next?.offset ?? type.size) - offset, 1, 0, "internal");
             }
             return leafAt(child(names, `.${field.name}`), base + field.offset, field.type, offset - field.offset, covered);
         }
