@@ -1,6 +1,6 @@
 // Diffs read as fields/elements/members, not offsets and hex — container internals come from the member
 // tables in @qinit/proto/qpi-layout.
-import { decodeOutput } from "@qinit/proto";
+import { decodeOutput, decodedJsonValue } from "@qinit/proto";
 import { AbiScalarKind, AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import {
     arrayGeometry,
@@ -18,7 +18,8 @@ import { hexToBytes } from "@qinit/core";
 
 // A diff row keeps both label forms: `label` is what the default view shows, `detail` the full resolved
 // path. `internal` marks container bookkeeping a contract author never wrote, hidden until the full view.
-export type StateDiffLine = StateLine & { detail: string; internal: boolean };
+// `before`/`after` carry the decoded values for machine readers; a partial run keeps them as hex text.
+export type StateDiffLine = StateLine & { detail: string; internal: boolean; before?: unknown; after?: unknown; change?: "new" | "removed" };
 
 // Container bookkeeping is not in the IDL — its indices and counters are plain 64-bit words.
 const word = (kind: AbiScalarKind, size = 8): AbiType => ({
@@ -91,6 +92,8 @@ type EntrySite = {
     keyAfter?: string;
     before: string;
     after: string;
+    beforeData?: unknown;
+    afterData?: unknown;
 };
 // `key` is set only for a flag that opened or closed an entry whose record sat in the same window.
 type FlagSite = { part: "flag"; container: string; containerPath: string; slot: number; from: number; to: number; key?: string };
@@ -257,12 +260,14 @@ const allZero = (bytes: Uint8Array) => bytes.every((byte) => byte === 0);
 const bytesEqual = (left: Uint8Array, right: Uint8Array) => left.length === right.length && left.every((byte, index) => byte === right[index]);
 const toHex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
-async function renderValue(bytes: Uint8Array, type: AbiType): Promise<string> {
+async function renderValue(bytes: Uint8Array, type: AbiType): Promise<{ text: string; data: unknown }> {
+    const decoded = await decodeOutput(bytes, type);
+    const data = decodedJsonValue(decoded, type);
     if (allZero(bytes)) {
-        return "0"; // matches how `qinit state` collapses an untouched element
+        return { text: "0", data }; // matches how `qinit state` collapses an untouched element
     }
 
-    return scalarText(await decodeOutput(bytes, type), type);
+    return { text: scalarText(decoded, type), data };
 }
 
 // Occupation flags and BitArrays are packed, so report the indices that moved, not the raw words.
@@ -303,6 +308,8 @@ function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, afte
             text: `${from} → ${to}`,
             filled: true,
             internal: leaf.cls === "internal",
+            before: from,
+            after: to,
             ...siteOf(index, from, to),
         });
     }
@@ -362,7 +369,7 @@ function collapseEntries(rows: SitedRow[]): StateDiffLine[] {
         if (site.part === "flag") {
             // An entry whose key and value both stayed zero left only its flag, which then names it.
             if (site.key !== undefined && !valued.has(group) && !keyRows.has(group)) {
-                return { ...line, label: `${site.container}[${site.key}]`, text: site.to === 1 ? "(new)" : "(removed)", internal: false };
+                return { ...line, label: `${site.container}[${site.key}]`, text: site.to === 1 ? "(new)" : "(removed)", internal: false, change: changeOf(site) };
             }
             return line;
         }
@@ -372,7 +379,7 @@ function collapseEntries(rows: SitedRow[]): StateDiffLine[] {
         const labelled = key === undefined ? line.label : `${site.container}[${key}]${site.suffix}`;
 
         if (site.part === "value") {
-            return key === undefined ? line : { ...line, label: labelled, text: entryText(site, flag) };
+            return key === undefined ? line : { ...line, label: labelled, text: entryText(site, flag), change: changeOf(flag) };
         }
 
         // The entry line already names the key, so a key row of its own is noise — unless nothing else
@@ -383,9 +390,11 @@ function collapseEntries(rows: SitedRow[]): StateDiffLine[] {
         if (valued.has(group) || !flag || key === undefined) {
             return line;
         }
-        return { ...line, label: labelled, text: flag.to === 1 ? "(new)" : flag.to === 2 ? "(removed)" : line.text };
+        return { ...line, label: labelled, text: flag.to === 1 ? "(new)" : flag.to === 2 ? "(removed)" : line.text, change: changeOf(flag) };
     });
 }
+
+const changeOf = (flag: FlagSite | undefined): "new" | "removed" | undefined => (flag?.to === 1 ? "new" : flag?.to === 2 ? "removed" : undefined);
 
 // A value straddling two regions can only be decoded once they are one range — core reports per dirty
 // page, so a record crossing a page boundary arrives split.
@@ -527,15 +536,19 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
                 if (leaf.off >= region.off && valueEnd <= end) {
                     const renderedBefore = await renderValue(beforeBytes, leaf.type);
                     const renderedAfter = await renderValue(afterBytes, leaf.type);
-                    const change = `${renderedBefore} → ${renderedAfter}`;
+                    const change = `${renderedBefore.text} → ${renderedAfter.text}`;
                     const entry = leaf.keyed ? await entrySiteOf(leaf.keyed, leaf.short) : undefined;
-                    const site = entry ? { ...entry, before: renderedBefore, after: renderedAfter } : undefined;
+                    const site = entry
+                        ? { ...entry, before: renderedBefore.text, after: renderedAfter.text, beforeData: renderedBefore.data, afterData: renderedAfter.data }
+                        : undefined;
                     rows.push({
                         label: leaf.short,
                         detail: leaf.path,
                         text: leaf.cls === "count" ? `${change} entries` : change,
                         filled: true,
                         internal,
+                        before: renderedBefore.data,
+                        after: renderedAfter.data,
                         ...(site ? { site } : {}),
                     });
                 } else {
@@ -547,6 +560,8 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
                         text: `0x${toHex(beforeBytes)} → 0x${toHex(afterBytes)}`,
                         filled: true,
                         internal,
+                        before: `0x${toHex(beforeBytes)}`,
+                        after: `0x${toHex(afterBytes)}`,
                     });
                 }
             }

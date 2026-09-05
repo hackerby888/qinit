@@ -80,7 +80,14 @@ export function callJsonResult(
                   execNs: trace.e.execNs,
                   caller: trace.view.caller,
                   in: trace.view.inJson ?? trace.view.inDecoded,
-                  state: trace.view.stateDiff.map((line) => ({ label: line.label, detail: line.detail, text: line.text, internal: line.internal })),
+                  state: trace.view.stateDiff.map((line) => ({
+                      label: line.label,
+                      detail: line.detail,
+                      text: line.text,
+                      internal: line.internal,
+                      ...("before" in line ? { before: line.before, after: line.after } : {}),
+                      ...(line.change ? { change: line.change } : {}),
+                  })),
                   logs: trace.view.logs.map((log) => ({
                       severity: log.severity,
                       type: log.type,

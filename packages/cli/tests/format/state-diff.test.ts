@@ -57,6 +57,8 @@ const rowsFor = async (write: (after: Uint8Array) => void, span: { off: number; 
 
 test("a scalar field decodes to its value", async () => {
     expect(await rowsFor((after) => writeLe(after, 0, 92, 8), { off: 0, length: 8 })).toEqual(["counter 0 → 92"]);
+    const [line] = await linesFor((after) => writeLe(after, 0, 92, 8), { off: 0, length: 8 });
+    expect([line.before, line.after]).toEqual([0n, 92n]);
 });
 
 test("an array element is named by index, not by byte offset", async () => {
@@ -91,6 +93,7 @@ test("a HashMap insert reads as one entry named by its key", async () => {
         { off: map, length: 152 },
     );
 
+    // Every row also carries the decoded values, so a machine reader never has to parse `text`.
     expect(lines).toEqual([
         {
             label: "map.slot[4].key",
@@ -98,6 +101,8 @@ test("a HashMap insert reads as one entry named by its key", async () => {
             text: "0 → 11",
             filled: true,
             internal: true,
+            before: 0n,
+            after: 11n,
         },
         {
             label: "map[11]",
@@ -105,6 +110,9 @@ test("a HashMap insert reads as one entry named by its key", async () => {
             text: "= 101 (new)",
             filled: true,
             internal: false,
+            before: 0n,
+            after: 101n,
+            change: "new",
         },
         {
             label: "map._occupationFlags[4]",
@@ -112,6 +120,8 @@ test("a HashMap insert reads as one entry named by its key", async () => {
             text: "0 → 1",
             filled: true,
             internal: true,
+            before: 0,
+            after: 1,
         },
         {
             label: "map",
@@ -119,8 +129,35 @@ test("a HashMap insert reads as one entry named by its key", async () => {
             text: "0 → 1 entries",
             filled: true,
             internal: false,
+            before: 0n,
+            after: 1n,
         },
     ]);
+});
+
+test("a removed entry carries its last value and the removal as data", async () => {
+    const before = new Uint8Array(STATE_SIZE);
+    liveEntry(before);
+    const after = before.slice();
+    writeLe(after, mapKey(4), 0, 8);
+    writeLe(after, mapValue(4), 0, 8);
+    setFlag(after, 4, 2);
+    writeLe(after, MAP_POPULATION, 0, 8);
+    const lines = await stateDiffLines(FIELDS, [region(before, after, WHOLE_MAP.off, WHOLE_MAP.length)]);
+    const entry = lines.find((line) => line.label === "map[11]")!;
+
+    expect(entry.text).toBe("101 → (removed)");
+    expect(entry.before).toBe(101n);
+    expect(entry.after).toBe(0n);
+    expect(entry.change).toBe("removed");
+});
+
+test("a partial run carries its bytes as hex data", async () => {
+    const nums = offsetOf("nums");
+    const [line] = await linesFor((after) => writeLe(after, nums + 8, 3195, 8), { off: nums + 8, length: 2 });
+
+    expect(line.before).toBe("0x0000");
+    expect(line.after).toBe("0x7b0c");
 });
 
 // A HashSet slot is the key alone, with no value member below it, so the key row is what carries the entry.

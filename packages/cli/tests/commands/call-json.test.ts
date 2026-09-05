@@ -11,8 +11,8 @@ const TRACE = {
         inDecoded: "{}",
         outDecoded: "{}",
         stateDiff: [
-            { label: "counter", detail: "counter", text: "15 → 16", filled: true, internal: false },
-            { label: "abc_map._occupationFlags[167]", detail: "abc_map._occupationFlags[167]", text: "0 → 1", filled: true, internal: true },
+            { label: "counter", detail: "counter", text: "15 → 16", filled: true, internal: false, before: 15n, after: 16n },
+            { label: "abc_map._occupationFlags[167]", detail: "abc_map._occupationFlags[167]", text: "0 → 1", filled: true, internal: true, before: 0, after: 1 },
         ],
         logs: [{ severity: "INFO", type: 6, name: "Log1", fields: { _scindex: 29, counter: 16n }, hex: "0x1d" }],
     },
@@ -36,8 +36,8 @@ test("call JSON reports a traced procedure with its state rows and logs", () => 
         caller: "BZBQFLL",
         in: "{}",
         state: [
-            { label: "counter", detail: "counter", text: "15 → 16", internal: false },
-            { label: "abc_map._occupationFlags[167]", detail: "abc_map._occupationFlags[167]", text: "0 → 1", internal: true },
+            { label: "counter", detail: "counter", text: "15 → 16", internal: false, before: 15n, after: 16n },
+            { label: "abc_map._occupationFlags[167]", detail: "abc_map._occupationFlags[167]", text: "0 → 1", internal: true, before: 0, after: 1 },
         ],
         logs: [{ severity: "INFO", type: 6, name: "Log1", fields: { _scindex: 29, counter: 16n }, hex: "0x1d" }],
     });
