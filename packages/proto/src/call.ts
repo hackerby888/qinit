@@ -164,7 +164,7 @@ export async function sendTransfer(
     opts: SubmitOptions & {
         seed: string;
         destination: Uint8Array;
-        amount: number;
+        amount: number | bigint;
     },
 ): Promise<SubmittedTx> {
     const buildTx = (tick: number) =>
@@ -186,7 +186,7 @@ export async function invokeProcedure(
         seed: string;
         contractIndex: number;
         procedureId: number;
-        amount: number;
+        amount: number | bigint;
         inputFormat?: string;
         input?: Uint8Array | TypedContractInput;
     },

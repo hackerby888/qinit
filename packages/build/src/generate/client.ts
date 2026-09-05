@@ -196,7 +196,7 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         lines.push("");
         lines.push(`  /** transaction — auto-confirms (resolves once processed) unless { confirm: false } */`);
         lines.push(
-            `  async ${entry.name}(${parameter}opts: { seed?: string; amount?: number; confirm?: boolean } = {}): Promise<{ ok: boolean; txId?: string; tick?: number; confirmed?: boolean; included?: boolean; moneyFlew?: boolean }> {`,
+            `  async ${entry.name}(${parameter}opts: { seed?: string; amount?: number | bigint; confirm?: boolean } = {}): Promise<{ ok: boolean; txId?: string; tick?: number; confirmed?: boolean; included?: boolean; moneyFlew?: boolean }> {`,
         );
         lines.push(`    const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed());`);
         lines.push(

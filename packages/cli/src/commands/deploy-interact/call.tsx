@@ -120,6 +120,22 @@ function outputSizeOf(format: string): number | undefined {
 
 // Log fields decode to bigint, which JSON.stringify throws on, and a uint64 past 2^53 would lose
 // digits as a number anyway.
+// A transfer amount is whole qu on the wire; anything Number() would quietly reshape (1e3, 0x10, a value
+// past 2^53) is refused here so the amount signed is the amount typed.
+export function parseAmountQu(text: string | undefined): bigint {
+    if (text === undefined || text === "") {
+        return 0n;
+    }
+    if (!/^\d+$/.test(text)) {
+        invalidArgs(`--amount must be a whole number of qu (got '${text}')`);
+    }
+    const amount = BigInt(text);
+    if (amount > 2n ** 63n - 1n) {
+        invalidArgs(`--amount ${text} exceeds the signed 64-bit range`);
+    }
+    return amount;
+}
+
 export const bigintText = (_key: string, value: unknown) => (typeof value === "bigint" ? value.toString() : value);
 
 // The wizard's answers as if they had been typed. A key present in `overrides` wins even when its value is
@@ -199,7 +215,7 @@ function CallOneShot({
     const wantTrace = commandArgs.has("trace") || showInternals;
     const settle = !commandArgs.has("no-settle");
     const seed = commandArgs.get("seed");
-    const amount = commandArgs.get("amount");
+    const amount = parseAmountQu(commandArgs.get("amount"));
     const [result, setResult] = useState<Result | null>(null);
     const [trace, setTrace] = useState<Trace | null>(null);
     const [facts, setFacts] = useState<CallFacts | null>(null);
@@ -384,7 +400,7 @@ function CallOneShot({
                             rpcBaseUrl: rpcBaseUrl,
                             contractIndex: idx,
                             procedureId: entry,
-                            amount: Number(amount ?? 0),
+                            amount,
                             input,
                             tick,
                             confirm: settle,

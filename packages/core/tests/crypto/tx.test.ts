@@ -42,4 +42,13 @@ test("buildSignedTx rejects bad seed / tick / amount before signing", async () =
     await expect(buildSignedTx("a".repeat(55), { tick: 1.5, inputType: 0, payload: p })).rejects.toThrow(/invalid tick/);
     await expect(buildSignedTx("a".repeat(55), { tick: 1, inputType: 0, amount: -5, payload: p })).rejects.toThrow(/invalid amount/);
     await expect(buildSignedTx("a".repeat(55), { tick: 1, inputType: 0, amount: Infinity, payload: p })).rejects.toThrow(/invalid amount/);
+    await expect(buildSignedTx("a".repeat(55), { tick: 1, inputType: 0, amount: 1.5, payload: p })).rejects.toThrow(/invalid amount/);
+    await expect(buildSignedTx("a".repeat(55), { tick: 1, inputType: 0, amount: 2 ** 53, payload: p })).rejects.toThrow(/invalid amount/);
+    await expect(buildSignedTx("a".repeat(55), { tick: 1, inputType: 0, amount: 2n ** 63n, payload: p })).rejects.toThrow(/invalid amount/);
+});
+
+test("buildSignedTx writes a bigint amount past 2^53 into the 8-byte field exactly", async () => {
+    const amount = 2n ** 63n - 1n;
+    const tx = await buildSignedTx("a".repeat(55), { tick: 1, inputType: 0, amount, payload: new Uint8Array() });
+    expect(new DataView(tx.bytes.buffer, tx.bytes.byteOffset).getBigUint64(64, true)).toBe(amount);
 });

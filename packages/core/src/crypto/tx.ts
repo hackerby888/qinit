@@ -17,7 +17,7 @@ export interface SignedTx {
 
 export interface TxInput {
     destination?: string | Uint8Array; // default: LITE_DEPLOY_ADDRESS
-    amount?: number;
+    amount?: number | bigint;
     tick: number;
     inputType: number;
     payload: Uint8Array;
@@ -31,19 +31,32 @@ export function assertSeed(seed: string): void {
     }
 }
 
+// The wire amount is a signed 64-bit integer of qu; a number past 2^53 would already have lost digits.
+function wholeAmount(amount: number | bigint | undefined): bigint {
+    if (amount == null) {
+        return 0n;
+    }
+    if (typeof amount === "number" && !Number.isSafeInteger(amount)) {
+        throw new Error(`invalid amount: ${amount} (must be a whole number below 2^53, or a bigint)`);
+    }
+    const value = BigInt(amount);
+    if (value < 0n || value > 2n ** 63n - 1n) {
+        throw new Error(`invalid amount: ${amount} (must be 0..2^63-1)`);
+    }
+    return value;
+}
+
 export async function buildSignedTx(seed: string, t: TxInput): Promise<SignedTx> {
     assertSeed(seed);
     if (!Number.isInteger(t.tick) || t.tick <= 0) {
         throw new Error(`invalid tick: ${t.tick}`);
     }
-    if (t.amount != null && (!Number.isFinite(t.amount) || t.amount < 0)) {
-        throw new Error(`invalid amount: ${t.amount} (must be ≥ 0)`);
-    }
+    const amount = wholeAmount(t.amount);
     const { identity } = await deriveIdentity(seed);
     const unsigned = buildTransaction({
         source: identity as never,
         destination: (t.destination ?? LITE_DEPLOY_ADDRESS) as never,
-        amount: BigInt(t.amount ?? 0),
+        amount,
         targetTick: t.tick,
         inputType: t.inputType,
         payload: t.payload,
