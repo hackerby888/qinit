@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { deriveIdentity } from "@qinit/core";
-import { resolveFundedSigner, unfundedSignerMessage, type SignerRpc } from "../../src/ops/signer";
+import { insufficientBalanceMessage, resolveFundedSigner, unfundedSignerMessage, type SignerRpc } from "../../src/ops/signer";
 
 const saved = "b".repeat(55);
 const funded = "c".repeat(55);
@@ -85,4 +85,11 @@ test("the message names the identity and both ways out", async () => {
     expect(message).toContain("BZBQFLLB");
     expect(message).toContain("qinit seed");
     expect(message).toContain("--seed");
+});
+
+test("the balance message names both amounts and the way out", () => {
+    const message = insufficientBalanceMessage("ID", "50", 100n);
+
+    expect(message).toContain("holds 50 qu, below the 100 qu --amount");
+    expect(message).toContain("Lower --amount or fund the signer");
 });

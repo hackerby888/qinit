@@ -20,6 +20,13 @@ export function unfundedSignerMessage(identity: string): string {
     );
 }
 
+export function insufficientBalanceMessage(identity: string, balance: string, amount: bigint): string {
+    return (
+        `signer ${identity} holds ${balance} qu, below the ${amount} qu --amount — the node accepts the transaction ` +
+        "and drops it at tick assembly, so the procedure would never run. Lower --amount or fund the signer."
+    );
+}
+
 async function readBalance(rpc: SignerRpc, identity: string): Promise<string | undefined> {
     try {
         return (await rpc.balance(identity)).balance;

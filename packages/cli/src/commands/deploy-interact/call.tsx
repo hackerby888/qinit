@@ -25,7 +25,7 @@ import { entryLabel } from "../../trace/entry-label";
 import { TraceView } from "../../trace/views";
 import { CallInteractive, type CollectedCall } from "./call-interactive";
 import { loadConfig, loadConfiguredQpiHeader, resolveSeed } from "../../config";
-import { resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
+import { insufficientBalanceMessage, resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
 import { describeContractError, describeFault, readFault } from "../../ops/fault";
 import { loadContracts, mergeContracts, missingContractMessage, resolveContract } from "../../contracts/registry";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
@@ -320,7 +320,8 @@ function CallOneShot({
                 // Entry seq is 1-based on both backends, so 0 means "everything captured from here on".
                 let sinceSeq = 0;
                 // Remembered past the dispatch so an empty trace can name the real reason.
-                let unfundedSigner = false;
+                // Why the procedure was never submitted, worded for the trace note; unset when it was sent.
+                let skipped: string | undefined;
                 const traceSrc = rc.source;
                 const traceName = rc.name;
                 if (wantTrace) {
@@ -344,7 +345,6 @@ function CallOneShot({
                     const reported = (await registryEntry())?.feeReserve;
                     return reported === undefined ? undefined : BigInt(reported);
                 };
-                let dormant = false;
                 // upgrade a raw trap string to a source-mapped backtrace via node.log + the slot's DWARF sidecar.
                 const enrichErr = async (raw: string): Promise<string | undefined> => {
                     if (!raw) return undefined;
@@ -402,7 +402,7 @@ function CallOneShot({
                     const reserve = await feeReserve();
                     if (signer.unfunded) {
                         setConfirm(null);
-                        unfundedSigner = true;
+                        skipped = "the signer has no balance";
                         setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, tick });
                         setResult({
                             ok: false,
@@ -411,9 +411,20 @@ function CallOneShot({
                             rows: [["tick", String(tick)]],
                             err: unfundedSignerMessage(signer.identity),
                         });
+                    } else if (amount > 0n && signer.balance !== undefined && BigInt(signer.balance) < amount) {
+                        // A transfer the balance cannot cover is accepted and dropped the same way, with the procedure never run.
+                        skipped = "the signer's balance is below --amount";
+                        setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, tick });
+                        setResult({
+                            ok: false,
+                            label,
+                            detail: "not submitted — balance below --amount",
+                            rows: [["tick", String(tick)]],
+                            err: insufficientBalanceMessage(signer.identity, signer.balance, amount),
+                        });
                     } else if (reserve !== undefined && reserve <= 0n) {
                         // The node takes the tx, refunds it and runs nothing, so it never leaves here.
-                        dormant = true;
+                        skipped = "the contract is dormant";
                         setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, tick });
                         setResult({
                             ok: false,
@@ -468,7 +479,7 @@ function CallOneShot({
                 if (wantTrace) {
                     let te: DebugEntry | undefined;
                     let polled: DebugEntry[] = [];
-                    for (let i = 0; i < 12 && !te && !unfundedSigner && !dormant; i++) {
+                    for (let i = 0; i < 12 && !te && !skipped; i++) {
                         polled = (await rpc.debugTrace(sinceSeq, 200)).entries ?? [];
                         te = polled.filter((x) => x.index === idx && x.seq > sinceSeq && x.kind === (mode === "fn" ? 0 : 1) && x.entry === entry).pop();
                         if (!te) await sleep(700);
@@ -498,10 +509,8 @@ function CallOneShot({
                             entry: entryLabel(mode === "fn" ? 0 : 1, entry, entryIdl?.name),
                             view,
                         });
-                    } else if (unfundedSigner) {
-                        addNote("(no trace: the procedure never ran, because the signer has no balance)");
-                    } else if (dormant) {
-                        addNote("(no trace: the procedure never ran, because the contract is dormant)");
+                    } else if (skipped) {
+                        addNote(`(no trace: the procedure never ran, because ${skipped})`);
                     } else addNote("(no trace captured — is the debug toggle available on this node?)");
                 }
 
