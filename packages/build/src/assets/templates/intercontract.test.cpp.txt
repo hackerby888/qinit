@@ -1,0 +1,58 @@
+#define NO_UEFI
+#include "contract_testing.h"
+
+// The Counter callee sits at the lower slot `qinit gtest` planned for it, so both contracts are constructed here.
+class ContractTestingCONTRACT_STATE_TYPE : protected ContractTesting
+{
+public:
+    ContractTestingCONTRACT_STATE_TYPE()
+    {
+        initEmptySpectrum();
+        initEmptyUniverse();
+        INIT_CONTRACT(Counter);
+        INIT_CONTRACT(CONTRACT_STATE_TYPE);
+        callSystemProcedure(Counter_CONTRACT_INDEX, INITIALIZE);
+        callSystemProcedure(CONTRACT_STATE_TYPE_CONTRACT_INDEX, INITIALIZE);
+    }
+
+    uint64 readCounter() const
+    {
+        CONTRACT_STATE_TYPE::ReadCounter_input input{};
+        CONTRACT_STATE_TYPE::ReadCounter_output output{};
+        callFunction(CONTRACT_STATE_TYPE_CONTRACT_INDEX, 1, input, output);
+        return output.value;
+    }
+
+    uint64 calleeCounter() const
+    {
+        Counter::Get_input input{};
+        Counter::Get_output output{};
+        callFunction(Counter_CONTRACT_INDEX, 1, input, output);
+        return output.value;
+    }
+
+    void bumpCounter(const id& user)
+    {
+        CONTRACT_STATE_TYPE::BumpCounter_input input{};
+        CONTRACT_STATE_TYPE::BumpCounter_output output{};
+        invokeUserProcedure(CONTRACT_STATE_TYPE_CONTRACT_INDEX, 1, input, output, user, 0);
+    }
+};
+
+TEST(CONTRACT_STATE_TYPE, ReadsTheCalleeThroughTheCall)
+{
+    ContractTestingCONTRACT_STATE_TYPE t;
+    EXPECT_EQ(t.readCounter(), 0ull);
+    EXPECT_EQ(t.readCounter(), t.calleeCounter());
+}
+
+TEST(CONTRACT_STATE_TYPE, BumpInvokesTheCalleeProcedure)
+{
+    ContractTestingCONTRACT_STATE_TYPE t;
+    const id user = id::randomValue();
+    increaseEnergy(user, 1000000000);
+
+    t.bumpCounter(user);
+    EXPECT_EQ(t.calleeCounter(), 1ull);
+    EXPECT_EQ(t.readCounter(), 1ull);
+}

@@ -4,10 +4,8 @@ import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { Header, theme } from "../../ui";
 import { loadSystem } from "../../contracts/registry";
-import { extractIdl, genStdGtest } from "@qinit/build";
 import { DEFAULT_RPC_BASE } from "@qinit/core";
-import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, templateTest, type TemplateKind } from "@qinit/build/generate/templates";
-import { loadConfiguredQpiHeader } from "../../config";
+import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateGtest, templateSource, templateTest, type TemplateKind } from "@qinit/build/generate/templates";
 import type { CommandArguments } from "../../args";
 
 // Sanitize a project name into a valid C++ struct identifier (PascalCase-ish).
@@ -73,22 +71,11 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
             const source = templateSource(kind, name);
             writeFileSync(join(dir, "contracts", `${name}.h`), source);
 
-            // The bun:test spec is written for this template's entries; the gtest below is derived from the IDL.
+            // Both specs are written for this template's entries, so a fresh project's tests assert something.
             mkdirSync(join(dir, "tests"), { recursive: true });
             writeFileSync(join(dir, "tests", `${name}.test.ts`), templateTest(kind, name));
-            let testRel: string | undefined;
-            try {
-                writeFileSync(
-                    join(dir, "tests", `${name}.test.cpp`),
-                    genStdGtest(
-                        extractIdl(source, name, {
-                            qpiHeader: loadConfiguredQpiHeader(requestedCoreDir),
-                        }),
-                        name,
-                    ),
-                );
-                testRel = `tests/${name}.test.cpp`;
-            } catch {}
+            writeFileSync(join(dir, "tests", `${name}.test.cpp`), templateGtest(kind, name));
+            const testRel = `tests/${name}.test.cpp`;
 
             // No slot: project planning assigns dependencies below Main and reuses matching names.
             const cfg: Record<string, unknown> = {
@@ -123,7 +110,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
             add(`✓ created ${dir}/  (template: ${kind})`);
             add(`  contracts/${name}.h`);
             add(`  tests/${name}.test.ts`);
-            if (testRel) add(`  ${testRel}`);
+            add(`  ${testRel}`);
             add(`  qinit.json · .gitignore · README.md`);
             if (TEMPLATE_NOTE[kind]) add(`  note: ${TEMPLATE_NOTE[kind]}`);
             add("");

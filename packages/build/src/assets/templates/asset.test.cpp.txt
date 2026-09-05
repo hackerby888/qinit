@@ -1,0 +1,80 @@
+#define NO_UEFI
+#include "contract_testing.h"
+
+// An asset name is up to seven capital letters packed little-endian into a uint64.
+static uint64 packAssetName(const char* text)
+{
+    uint64 name = 0;
+    for (int index = 0; text[index] != 0 && index < 7; index++)
+    {
+        name |= (uint64)(unsigned char)text[index] << (8 * index);
+    }
+    return name;
+}
+
+class ContractTestingCONTRACT_STATE_TYPE : protected ContractTesting
+{
+public:
+    ContractTestingCONTRACT_STATE_TYPE()
+    {
+        initEmptySpectrum();
+        initEmptyUniverse();
+        INIT_CONTRACT(CONTRACT_STATE_TYPE);
+        callSystemProcedure(CONTRACT_STATE_TYPE_CONTRACT_INDEX, INITIALIZE);
+    }
+
+    sint64 issue(const id& user, uint64 name, sint64 shares)
+    {
+        CONTRACT_STATE_TYPE::Issue_input input{};
+        input.name = name;
+        input.shares = shares;
+        CONTRACT_STATE_TYPE::Issue_output output{};
+        invokeUserProcedure(CONTRACT_STATE_TYPE_CONTRACT_INDEX, 1, input, output, user, 0);
+        return output.result;
+    }
+
+    sint64 move(const id& user, uint64 name, const id& to, sint64 shares)
+    {
+        CONTRACT_STATE_TYPE::Move_input input{};
+        input.name = name;
+        input.to = to;
+        input.shares = shares;
+        CONTRACT_STATE_TYPE::Move_output output{};
+        invokeUserProcedure(CONTRACT_STATE_TYPE_CONTRACT_INDEX, 2, input, output, user, 0);
+        return output.result;
+    }
+
+    sint64 total(uint64 name) const
+    {
+        CONTRACT_STATE_TYPE::Total_input input{};
+        input.name = name;
+        CONTRACT_STATE_TYPE::Total_output output{};
+        callFunction(CONTRACT_STATE_TYPE_CONTRACT_INDEX, 1, input, output);
+        return output.shares;
+    }
+};
+
+TEST(CONTRACT_STATE_TYPE, IssueCreatesTheSharesTotalReports)
+{
+    ContractTestingCONTRACT_STATE_TYPE t;
+    const id user = id::randomValue();
+    increaseEnergy(user, 1000000000);
+    const uint64 name = packAssetName("TOKEN");
+
+    EXPECT_EQ(t.total(name), 0ll);
+    EXPECT_EQ(t.issue(user, name, 1000), 1000ll);
+    EXPECT_EQ(t.total(name), 1000ll);
+}
+
+TEST(CONTRACT_STATE_TYPE, MoveKeepsTheTotalAndReportsWhatMoved)
+{
+    ContractTestingCONTRACT_STATE_TYPE t;
+    const id user = id::randomValue();
+    const id receiver = id::randomValue();
+    increaseEnergy(user, 1000000000);
+    const uint64 name = packAssetName("TOKEN");
+
+    t.issue(user, name, 1000);
+    EXPECT_EQ(t.move(user, name, receiver, 300), 700ll);
+    EXPECT_EQ(t.total(name), 1000ll);
+}

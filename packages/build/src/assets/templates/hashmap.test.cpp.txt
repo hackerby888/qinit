@@ -1,0 +1,65 @@
+#define NO_UEFI
+#include "contract_testing.h"
+
+class ContractTestingCONTRACT_STATE_TYPE : protected ContractTesting
+{
+public:
+    ContractTestingCONTRACT_STATE_TYPE()
+    {
+        initEmptySpectrum();
+        initEmptyUniverse();
+        INIT_CONTRACT(CONTRACT_STATE_TYPE);
+        callSystemProcedure(CONTRACT_STATE_TYPE_CONTRACT_INDEX, INITIALIZE);
+    }
+
+    void set(const id& user, const id& who, uint64 amount)
+    {
+        CONTRACT_STATE_TYPE::Set_input input{};
+        input.who = who;
+        input.amount = amount;
+        CONTRACT_STATE_TYPE::Set_output output{};
+        invokeUserProcedure(CONTRACT_STATE_TYPE_CONTRACT_INDEX, 1, input, output, user, 0);
+    }
+
+    uint64 balanceOf(const id& who) const
+    {
+        CONTRACT_STATE_TYPE::BalanceOf_input input{};
+        input.who = who;
+        CONTRACT_STATE_TYPE::BalanceOf_output output{};
+        callFunction(CONTRACT_STATE_TYPE_CONTRACT_INDEX, 1, input, output);
+        return output.amount;
+    }
+
+    CONTRACT_STATE_TYPE::Stats_output stats() const
+    {
+        CONTRACT_STATE_TYPE::Stats_input input{};
+        CONTRACT_STATE_TYPE::Stats_output output{};
+        callFunction(CONTRACT_STATE_TYPE_CONTRACT_INDEX, 2, input, output);
+        return output;
+    }
+};
+
+TEST(CONTRACT_STATE_TYPE, StartsEmpty)
+{
+    ContractTestingCONTRACT_STATE_TYPE t;
+    EXPECT_EQ(t.balanceOf(id::randomValue()), 0ull);
+    EXPECT_EQ(t.stats().total, 0ull);
+    EXPECT_EQ(t.stats().population, 0ull);
+}
+
+TEST(CONTRACT_STATE_TYPE, SetStoresOneEntryPerKey)
+{
+    ContractTestingCONTRACT_STATE_TYPE t;
+    const id user = id::randomValue();
+    const id alice = id::randomValue();
+    const id bob = id::randomValue();
+    increaseEnergy(user, 1000000000);
+
+    t.set(user, alice, 5);
+    t.set(user, bob, 7);
+    t.set(user, alice, 9);
+    EXPECT_EQ(t.balanceOf(alice), 9ull);
+    EXPECT_EQ(t.balanceOf(bob), 7ull);
+    EXPECT_EQ(t.stats().population, 2ull);
+    EXPECT_EQ(t.stats().total, 21ull);
+}

@@ -4,7 +4,9 @@ import { test, expect } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithClang, buildCorpusRunner } from "@qinit/build";
+import { buildContractWithClang, buildCorpusRunner, extractIdl, genStdGtest } from "@qinit/build";
+import { TEMPLATE_KINDS, templateGtest, templateSource } from "@qinit/build/generate/templates";
+import { loadQpiHeader } from "@qinit/compiler";
 import { wasiSdkPaths } from "@qinit/core/project";
 import { runContractTesting } from "@qinit/engine";
 import { runStdGtest, type StdGtestContractSpec } from "../../src/ops/corpus-run";
@@ -200,5 +202,89 @@ for (const backend of ["clang", "typescript"] as const) {
             }
         },
         180_000,
+    );
+}
+
+// Every template ships a gtest that has to build and pass on both backends, the way `qinit new` then
+// `qinit gtest` runs it; the intercontract one drives its Counter callee at the slot below.
+for (const backend of ["clang", "typescript"] as const) {
+    for (const kind of TEMPLATE_KINDS) {
+        test.skipIf(!have)(
+            `${kind} template gtest passes with ${backend}`,
+            async () => {
+                const scratch = mkdtempSync(join(tmpdir(), `qinit-gtest-${kind}-${backend}-`));
+                const name = `Tpl${kind[0].toUpperCase()}${kind.slice(1)}`;
+                const contractPath = join(scratch, `${name}.h`);
+                const testPath = join(scratch, `${name}.test.cpp`);
+                writeFileSync(contractPath, templateSource(kind, name));
+                writeFileSync(testPath, templateGtest(kind, name));
+                const calleePath = join(scratch, "Counter.h");
+                writeFileSync(calleePath, templateSource("counter", "Counter"));
+                const callee: StdGtestContractSpec = { contractPath: calleePath, name: "Counter", stateType: "Counter", slot: 100 };
+
+                try {
+                    const run = await runStdGtest({
+                        contractPath,
+                        testPath,
+                        name,
+                        stateType: name,
+                        slot: 101,
+                        core: CORE,
+                        backend,
+                        scratch,
+                        ...(kind === "intercontract" ? { projectDependencies: [callee], dynCallees: { Counter: { header: calleePath, index: 100 } } } : {}),
+                    });
+
+                    expect(run.runnerOk, run.buildError).toBe(true);
+                    expect(run.results.length).toBeGreaterThan(1);
+                    for (const result of run.results) {
+                        expect(result.passed, `${result.name}: ${result.message}`).toBe(true);
+                    }
+                } finally {
+                    rmSync(scratch, { recursive: true, force: true });
+                }
+            },
+            240_000,
+        );
+    }
+}
+
+// A scaffolded gtest value-initialises every input, which a struct holding a uint128 only allows once
+// core's uint128_t has a default constructor.
+const WIDE_SOURCE = `using namespace QPI;
+struct Wide2 {};
+struct Wide : public ContractBase {
+    struct StateData { uint128 last; };
+    struct Store_input { uint128 v; };
+    struct Store_output {};
+    struct Peek_input {};
+    struct Peek_output { uint128 v; };
+    PUBLIC_PROCEDURE(Store) { state.mut().last = input.v; }
+    PUBLIC_FUNCTION(Peek) { output.v = state.get().last; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Store, 1); REGISTER_USER_FUNCTION(Peek, 1); }
+    INITIALIZE() {}
+};
+`;
+
+for (const backend of ["clang", "typescript"] as const) {
+    test.skipIf(!have)(
+        `a scaffolded gtest builds for a contract whose input holds a uint128 with ${backend}`,
+        async () => {
+            const scratch = mkdtempSync(join(tmpdir(), `qinit-gtest-wide-${backend}-`));
+            const contractPath = join(scratch, "Wide.h");
+            const testPath = join(scratch, "Wide.test.cpp");
+            writeFileSync(contractPath, WIDE_SOURCE);
+            writeFileSync(testPath, genStdGtest(extractIdl(WIDE_SOURCE, "Wide", { slot: 101, qpiHeader: loadQpiHeader(CORE) }), "Wide"));
+
+            try {
+                const run = await runStdGtest({ contractPath, testPath, name: "Wide", stateType: "Wide", slot: 101, core: CORE, backend, scratch });
+
+                expect(run.runnerOk, run.buildError).toBe(true);
+                expect(run.results.length).toBeGreaterThan(0);
+            } finally {
+                rmSync(scratch, { recursive: true, force: true });
+            }
+        },
+        240_000,
     );
 }

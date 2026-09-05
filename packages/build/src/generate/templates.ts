@@ -10,6 +10,10 @@ import COUNTER_TEST from "../assets/templates/counter.test.ts.txt" with { type: 
 import HASHMAP_TEST from "../assets/templates/hashmap.test.ts.txt" with { type: "text" };
 import ASSET_TEST from "../assets/templates/asset.test.ts.txt" with { type: "text" };
 import INTERCONTRACT_TEST from "../assets/templates/intercontract.test.ts.txt" with { type: "text" };
+import COUNTER_GTEST from "../assets/templates/counter.test.cpp.txt" with { type: "text" };
+import HASHMAP_GTEST from "../assets/templates/hashmap.test.cpp.txt" with { type: "text" };
+import ASSET_GTEST from "../assets/templates/asset.test.cpp.txt" with { type: "text" };
+import INTERCONTRACT_GTEST from "../assets/templates/intercontract.test.cpp.txt" with { type: "text" };
 
 export type TemplateKind = "counter" | "hashmap" | "asset" | "intercontract";
 export const TEMPLATE_KINDS: TemplateKind[] = ["counter", "hashmap", "asset", "intercontract"];
@@ -31,6 +35,14 @@ const TESTS: Record<TemplateKind, string> = {
     intercontract: INTERCONTRACT_TEST,
 };
 
+// One core-lite-style gtest per template, asserting on the entries the template registers.
+const GTESTS: Record<TemplateKind, string> = {
+    counter: COUNTER_GTEST,
+    hashmap: HASHMAP_GTEST,
+    asset: ASSET_GTEST,
+    intercontract: INTERCONTRACT_GTEST,
+};
+
 export const TEMPLATE_NOTE: Partial<Record<TemplateKind, string>> = {
     intercontract: "Counter callee scaffolded in contracts/ for automatic dependency resolution",
 };
@@ -49,4 +61,9 @@ export function templateSource(kind: TemplateKind, contractName?: string): strin
 // The spec imports the generated client by the contract's name, so the same placeholder serves it.
 export function templateTest(kind: TemplateKind, contractName: string): string {
     return TESTS[kind].replaceAll("CONTRACT_STATE_TYPE", contractName);
+}
+
+// The gtest names the fixture, the tests and the contract index after the contract, through one placeholder.
+export function templateGtest(kind: TemplateKind, contractName: string): string {
+    return GTESTS[kind].replaceAll("CONTRACT_STATE_TYPE", contractName);
 }
