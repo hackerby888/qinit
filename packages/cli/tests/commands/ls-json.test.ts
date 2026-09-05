@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { lsJsonResult, lsTableRows, stateOf } from "../../src/commands/deploy-interact/ls";
+import { lsJsonResult, stateOf } from "../../src/commands/deploy-interact/ls";
 import { contractLabel } from "../../src/ops/node";
 import type { DynamicContractRegistryEntry } from "@qinit/core";
 
@@ -37,14 +37,4 @@ test("node status labels a dormant contract", () => {
     expect(contractLabel(entry({ feeReserve: "0" }))).toBe("Counter@29 (dormant)");
     expect(contractLabel(entry({ feeReserve: "5" }))).toBe("Counter@29");
     expect(contractLabel(entry({ constructed: false }))).toBe("Counter@29 (armed)");
-});
-
-test("a run of empty slots collapses to one table row while deployed slots keep their own", () => {
-    const empty = (index: number) => entry({ index, armed: false, constructed: false, name: "", codeHash: "" });
-    const rows = lsTableRows([entry({ index: 29 }), empty(30), empty(31), empty(32), entry({ index: 33, name: "Vault" }), empty(34)]);
-
-    expect(rows.map((row) => row.cells[0])).toEqual(["29", "30–32", "33", "34"]);
-    expect(rows[1].cells[2]).toBe("empty ×3");
-    expect(rows[1].state).toBe("empty");
-    expect(rows[3].cells[2]).toBe("empty");
 });

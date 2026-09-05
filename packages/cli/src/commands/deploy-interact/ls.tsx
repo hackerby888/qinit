@@ -27,37 +27,6 @@ const SYS_COLS: Column[] = [
 export const stateOf = (contract: DynamicContractRegistryEntry) =>
     !contract.armed ? "empty" : !contract.constructed ? "constructing" : contractIsDormant(contract) ? "dormant" : "ready";
 
-// Sixty empty slots say nothing one row cannot: a run of them collapses to its span, deployed slots stay one per row.
-export function lsTableRows(user: DynamicContractRegistryEntry[]): { cells: string[]; state: string }[] {
-    const rows: { cells: string[]; state: string }[] = [];
-    for (let i = 0; i < user.length; i++) {
-        const c = user[i];
-        const state = stateOf(c);
-        let end = i;
-        while (state === "empty" && end + 1 < user.length && stateOf(user[end + 1]) === "empty" && user[end + 1].index === user[end].index + 1) {
-            end++;
-        }
-        if (end > i) {
-            rows.push({ cells: [`${c.index}–${user[end].index}`, "-", `empty ×${end - i + 1}`, "", "", "", ""], state });
-            i = end;
-            continue;
-        }
-        rows.push({
-            cells: [
-                String(c.index),
-                c.name || "-",
-                state,
-                `${c.functions?.length ?? 0}/${c.procedures?.length ?? 0}`,
-                "v" + (c.version ?? 0),
-                c.feeReserve ?? "-",
-                (c.codeHash || "").slice(0, 16) + "…",
-            ],
-            state,
-        });
-    }
-    return rows;
-}
-
 export function lsJsonResult(user: DynamicContractRegistryEntry[], system: SystemContract[], nodeDown: boolean) {
     return {
         deployed: user.map((c) => ({
@@ -119,7 +88,6 @@ export function Ls({ commandArgs }: { commandArgs: CommandArguments }) {
 
     const user = (s.user ?? []).filter((c) => c.armed || (c.name && c.name.length));
     const system = s.system ?? [];
-    const tableRows = lsTableRows(user);
     return (
         <Box flexDirection="column">
             <Header cmd="ls" />
@@ -127,9 +95,17 @@ export function Ls({ commandArgs }: { commandArgs: CommandArguments }) {
                 <Panel title={`deployed · ${user.length}`} color={theme.brand}>
                     <Table
                         columns={COLS}
-                        rows={tableRows.map((row) => row.cells)}
+                        rows={user.map((c) => [
+                            String(c.index),
+                            c.name || "-",
+                            stateOf(c),
+                            `${c.functions?.length ?? 0}/${c.procedures?.length ?? 0}`,
+                            "v" + (c.version ?? 0),
+                            c.feeReserve ?? "-",
+                            (c.codeHash || "").slice(0, 16) + "…",
+                        ])}
                         rowColor={(i) => {
-                            const st = tableRows[i].state;
+                            const st = stateOf(user[i]);
                             return st === "constructing" || st === "dormant" ? theme.warn : st === "empty" ? theme.mute : undefined;
                         }}
                     />
