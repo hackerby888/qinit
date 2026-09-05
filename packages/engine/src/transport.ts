@@ -46,7 +46,11 @@ interface UploadSession {
     buf: Uint8Array;
     received: Set<number>;
     finalHash: string;
+    lastProgressTick: number;
 }
+
+// An upload that receives nothing for this many ticks is dropped, matching the node's limit.
+const UPLOAD_STALE_TICKS = 32;
 
 interface StoredRawTransaction {
     txId: string;
@@ -409,7 +413,19 @@ export class VirtualNode implements NodeTransport {
         return this.sim.undeploy(slot);
     }
 
+    private uploadIdleTicks(): number {
+        return this.upload ? Math.max(0, this.sim.currentTick - this.upload.lastProgressTick) : 0;
+    }
+
+    // Deploy transactions are handled at broadcast time, so the idle check runs whenever a session is looked at.
+    private dropStaleUpload(): void {
+        if (this.upload && this.uploadIdleTicks() > UPLOAD_STALE_TICKS) {
+            this.upload = null;
+        }
+    }
+
     async dynUpload(): Promise<DynamicContractUploadStatus> {
+        this.dropStaleUpload();
         const upload = this.upload;
         if (!upload) {
             return {
@@ -423,6 +439,9 @@ export class VirtualNode implements NodeTransport {
                 finalHash: "",
                 missing: [],
                 missingCount: 0,
+                idleTicks: 0,
+                staleAfterTicks: UPLOAD_STALE_TICKS,
+                lastProgressTick: 0,
             };
         }
 
@@ -445,6 +464,9 @@ export class VirtualNode implements NodeTransport {
             finalHash: upload.finalHash,
             missing,
             missingCount: missing.length,
+            idleTicks: this.uploadIdleTicks(),
+            staleAfterTicks: UPLOAD_STALE_TICKS,
+            lastProgressTick: upload.lastProgressTick,
         };
     }
 
@@ -599,6 +621,7 @@ export class VirtualNode implements NodeTransport {
             }
             const message = UploadBegin.wrap(payload);
 
+            this.dropStaleUpload();
             if (this.upload) {
                 if (this.upload.sessionId !== message.sessionId) {
                     throw new Error(
@@ -624,6 +647,7 @@ export class VirtualNode implements NodeTransport {
                 buf: new Uint8Array(totalSize),
                 received: new Set(),
                 finalHash: toHex(message.finalHash),
+                lastProgressTick: this.sim.currentTick,
             };
 
             return;
@@ -657,6 +681,7 @@ export class VirtualNode implements NodeTransport {
 
             upload.buf.set(payload.subarray(UploadChunkHeader.SIZE), offset);
             upload.received.add(message.seq);
+            upload.lastProgressTick = this.sim.currentTick;
 
             return;
         }

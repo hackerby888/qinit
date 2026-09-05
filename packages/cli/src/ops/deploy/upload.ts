@@ -10,8 +10,61 @@ export async function buildUploadTx(seed: string, inputType: number, payload: Ui
     return (await buildSignedTx(seed, { tick, inputType, payload })).bytes;
 }
 
-export function activeUploadError(upload: { sessionId: string; receivedCount: number; chunkCount: number }): string {
-    return `another contract upload is active (session ${upload.sessionId}, ${upload.receivedCount}/${upload.chunkCount} chunks); wait for it to complete`;
+export interface ForeignUpload {
+    sessionId: string;
+    receivedCount: number;
+    chunkCount: number;
+    idleTicks?: number;
+    staleAfterTicks?: number;
+}
+
+// A node that reports idle time will drop an abandoned session by itself; only a live one is worth refusing for.
+export function staleUploadTicksLeft(upload: ForeignUpload): number | undefined {
+    if (upload.idleTicks === undefined || upload.staleAfterTicks === undefined) {
+        return undefined;
+    }
+
+    return Math.max(0, upload.staleAfterTicks + 1 - upload.idleTicks);
+}
+
+export function activeUploadError(upload: ForeignUpload): string {
+    const progress = `${upload.receivedCount}/${upload.chunkCount} chunks`;
+    if (upload.idleTicks === undefined) {
+        return `another contract upload is active (session ${upload.sessionId}, ${progress}); wait for it to complete`;
+    }
+
+    return `another deploy is in progress (session ${upload.sessionId}, ${progress}, idle ${upload.idleTicks} ticks); retry when it finishes`;
+}
+
+// Waits out a session another client abandoned; answers false when the session is still being fed.
+export async function waitForStaleUpload(
+    rpc: Pick<LiteRpc, "dynUpload">,
+    upload: ForeignUpload,
+    emit: (event: DeploymentEvent) => void,
+    waitForTick: (target: number, attempts?: number) => Promise<number>,
+    readTick: () => Promise<number>,
+): Promise<boolean> {
+    const ticksLeft = staleUploadTicksLeft(upload);
+    if (ticksLeft === undefined) {
+        return false;
+    }
+
+    let seen = upload;
+    for (let waited = 0; waited <= ticksLeft; waited++) {
+        emit({ step: "upload", state: "active", detail: `waiting for an abandoned upload to expire · ${seen.idleTicks}/${seen.staleAfterTicks} idle ticks` });
+        await waitForTick((await readTick()) + 1);
+
+        const current = await rpc.dynUpload();
+        if (!current.active || current.sessionId !== seen.sessionId) {
+            return true;
+        }
+        if (current.receivedCount !== seen.receivedCount) {
+            return false;
+        }
+        seen = current;
+    }
+
+    return false;
 }
 
 export interface UploadOpts {

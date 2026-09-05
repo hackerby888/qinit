@@ -57,8 +57,30 @@ export interface DeployResult {
 export async function deployContract(options: DeployOpts, emit: (event: DeploymentEvent) => void): Promise<DeployResult> {
     const slotOverride = options.slotOverride === undefined ? undefined : parseContractSlot(options.slotOverride);
     const rpc = options.rpc ?? new LiteRpc(options.rpcBaseUrl);
+    let currentTick = 0;
 
-    const preflight = await runPreflightChecks(rpc, options, emit);
+    const readTick = async () => {
+        try {
+            const tickInfo = await rpc.tickInfo();
+            return tickInfo.tick;
+        } catch {
+            return currentTick;
+        }
+    };
+
+    const waitForTick = async (target: number, attempts = 300) => {
+        let tick = await rpc.hurryToTick(target);
+        for (let i = 0; i < attempts && tick < target; i++) {
+            tick = await readTick();
+            if (tick >= target) {
+                break;
+            }
+            await sleep(1000);
+        }
+        return tick;
+    };
+
+    const preflight = await runPreflightChecks(rpc, options, emit, { readTick, waitForTick });
     if (preflight) {
         return { ok: false, error: preflight.error };
     }
@@ -67,7 +89,7 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
     if (!readiness.ok) {
         return { ok: false, error: readiness.error };
     }
-    let currentTick = readiness.tick;
+    currentTick = readiness.tick;
 
     let seed = await resolveSigningSeed(rpc, options.seed, emit);
 
@@ -223,26 +245,6 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
         // The last tick from the readiness probe remains usable.
     }
 
-    const readTick = async () => {
-        try {
-            const tickInfo = await rpc.tickInfo();
-            return tickInfo.tick;
-        } catch {
-            return currentTick;
-        }
-    };
-
-    const waitForTick = async (target: number, attempts = 300) => {
-        let tick = await rpc.hurryToTick(target);
-        for (let i = 0; i < attempts && tick < target; i++) {
-            tick = await readTick();
-            if (tick >= target) {
-                break;
-            }
-            await sleep(1000);
-        }
-        return tick;
-    };
 
     const slowChain = await assertChainFastEnough(rpc, currentTick, readTick, emit);
     if (slowChain) {

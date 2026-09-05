@@ -5,12 +5,17 @@ import { DEFAULT_FUNDED_SEED, LiteRpc, readCurrent, autoUpdateVerifyTool } from 
 import { systemNames } from "@qinit/build";
 import { savedSeed, resolveCoreDir } from "../../config";
 import { tickFailureMessage, type DeploymentEvent } from "./steps";
-import { activeUploadError } from "./upload";
+import { activeUploadError, waitForStaleUpload } from "./upload";
 import { describeFault, readFault } from "../fault";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Emit = (event: DeploymentEvent) => void;
+
+export interface UploadWaits {
+    readTick: () => Promise<number>;
+    waitForTick: (target: number, attempts?: number) => Promise<number>;
+}
 
 export interface PreflightOptions {
     name: string;
@@ -18,14 +23,17 @@ export interface PreflightOptions {
     artifact?: unknown;
 }
 
-export async function runPreflightChecks(rpc: LiteRpc, options: PreflightOptions, emit: Emit): Promise<{ error: string } | null> {
-    // Reject a competing upload before doing build or network work.
+export async function runPreflightChecks(rpc: LiteRpc, options: PreflightOptions, emit: Emit, waits?: UploadWaits): Promise<{ error: string } | null> {
+    // A competing upload is refused before any build or network work; an abandoned one is waited out.
     try {
         const upload = await rpc.dynUpload();
         if (upload.active) {
-            const error = activeUploadError(upload);
-            emit({ step: "upload", state: "fail", detail: error });
-            return { error };
+            const expired = waits ? await waitForStaleUpload(rpc, upload, emit, waits.waitForTick, waits.readTick) : false;
+            if (!expired) {
+                const error = activeUploadError(upload);
+                emit({ step: "upload", state: "fail", detail: error });
+                return { error };
+            }
         }
     } catch {
         // Older nodes do not expose dyn-upload; the normal reachability check remains authoritative.

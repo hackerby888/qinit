@@ -119,6 +119,57 @@ test("deployContract: an active upload fails before tick waiting, slot resolutio
     expect(events).toContainEqual({ step: "upload", state: "fail", detail: error });
 });
 
+test("deployContract: an abandoned upload is waited out instead of refused", async () => {
+    process.env.QINIT_NO_UPDATE = "1";
+    const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
+    dirs.push(core);
+    let polls = 0;
+    let tick = 0;
+    const rpc: any = {
+        // The first two reads show a session nobody is feeding; the node drops it before the third.
+        dynUpload: async () => {
+            polls++;
+            const abandoned = polls <= 2;
+            return { active: abandoned, sessionId: "77", receivedCount: 3, chunkCount: 9, idleTicks: 30 + polls, staleAfterTicks: 32 };
+        },
+        tickInfo: async () => ({ tick: (tick += 1), epoch: 1 }),
+        hurryToTick: async (target: number) => target,
+        dynRegistry: async () => ({ contracts: [], slotBase: 28, slotCount: 4 }),
+    };
+    const events: any[] = [];
+
+    // Past preflight the mock registry has no slots to offer, which is the point: the wait is over by then.
+    const r = await deployContract({ contractPath: join(core, "missing.h"), name: "Patient", core, rpcBaseUrl: "http://unused", rpc }, (event) =>
+        events.push(event),
+    ).catch((error: Error) => ({ ok: false, error: error.message }));
+
+    expect(polls).toBeGreaterThanOrEqual(3);
+    expect(events.some((event) => event.step === "upload" && event.state === "active" && /waiting for an abandoned upload/.test(event.detail))).toBe(true);
+    expect(events.some((event) => event.step === "upload" && event.state === "fail")).toBe(false);
+    expect(r.ok).toBe(false);
+    expect(r.error).not.toMatch(/upload/);
+});
+
+test("deployContract: an upload that is still being fed is refused, idle time and all", async () => {
+    const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
+    dirs.push(core);
+    let polls = 0;
+    let tick = 0;
+    const rpc: any = {
+        dynUpload: async () => {
+            polls++;
+            return { active: true, sessionId: "77", receivedCount: 2 + polls, chunkCount: 9, idleTicks: 0, staleAfterTicks: 32 };
+        },
+        tickInfo: async () => ({ tick: (tick += 1), epoch: 1 }),
+        hurryToTick: async (target: number) => target,
+        dynRegistry: async () => ({ contracts: [], slotBase: 28, slotCount: 4 }),
+    };
+
+    const r = await deployContract({ contractPath: join(core, "missing.h"), name: "Busy", core, rpcBaseUrl: "http://unused", rpc }, () => {});
+
+    expect(r).toEqual({ ok: false, error: "another deploy is in progress (session 77, 3/9 chunks, idle 0 ticks); retry when it finishes" });
+});
+
 test("deployContract rejects an invalid slot before node work", async () => {
     let nodeCalls = 0;
     const rpc: any = {
@@ -224,7 +275,7 @@ test("deployContract: racing deployments preserve the winner's occupied slot", a
     const winner = first.findIndex((r) => r.ok);
     const loser = 1 - winner;
     expect(winner).toBeGreaterThanOrEqual(0);
-    expect(first[loser].error).toMatch(/^another contract upload is active \(session \d+, \d+\/\d+ chunks\); wait for it to complete$/);
+    expect(first[loser].error).toMatch(/^another deploy is in progress \(session \d+, \d+\/\d+ chunks, idle \d+ ticks\); retry when it finishes$/);
     const rpcs = [rpcA, rpcB];
     expect(rpcs[winner].stats.chunks).toBeGreaterThan(0);
     expect(rpcs[loser].stats.chunks).toBe(0);

@@ -20,12 +20,12 @@ const UNSIGNED_SOURCE = new Uint8Array(32).fill(0x99);
 const ORACLE = "4b31b54f2213f1396cec4a1bd633b9409112d5969592c2c5fa66ddc1656f63c9";
 
 // Build an unsigned canonical transaction for deploy-wire tests with real header offsets.
-function wrapTx(inputType: number, payload: Uint8Array, destination: Uint8Array = LITE_DEPLOY_ADDRESS): Uint8Array {
+function wrapTx(inputType: number, payload: Uint8Array, destination: Uint8Array = LITE_DEPLOY_ADDRESS, tick = 10): Uint8Array {
     const b = new Uint8Array(80 + payload.length + 64);
     const v = new DataView(b.buffer);
     b.set(UNSIGNED_SOURCE, 0);
     b.set(destination, 32);
-    v.setUint32(72, 10, true); // tick
+    v.setUint32(72, tick, true);
     v.setUint16(76, inputType, true);
     v.setUint16(78, payload.length, true);
     b.set(payload, 80);
@@ -96,6 +96,40 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
     await eng.broadcastTx(wrapTx(1, new Uint8Array(0), contractAddress(29))); // Inc (procedure it=1)
     expect(await decodeOutput(await eng.querySmartContract(29, 1, await encodeInput("")), "uint64")).toBe(1n);
     expect(eng.sim.digest(29)).toBe(ORACLE);
+});
+
+test("an upload session idle past the stale limit gives way to a new one", async () => {
+    const eng = await VirtualNode.create({
+        mempool: false,
+        verifySigs: false,
+    });
+    const so = await wasm("DigestProbe");
+    const finalHashHex = await k12Hex(so);
+    const chunks = splitUploadChunks(so);
+    // Every tx is scheduled just ahead of the node so the advanced clock never makes it stale.
+    const tx = (inputType: number, payload: Uint8Array) => wrapTx(inputType, payload, LITE_DEPLOY_ADDRESS, eng.sim.currentTick + 1);
+    const begin = (sessionId: bigint) => eng.broadcastTx(tx(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId, totalSize: so.length, chunkCount: chunks.length, finalHashHex })));
+
+    await begin(11n);
+    await eng.broadcastTx(tx(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: 11n, seq: 0, bytes: chunks[0] })));
+    const started = await eng.dynUpload();
+    expect(started.receivedCount).toBe(1);
+    expect(started.staleAfterTicks).toBe(32);
+
+    // At the limit the first session still owns the slot and the second is refused.
+    eng.advanceTick(32);
+    expect((await eng.dynUpload()).idleTicks).toBe(32);
+    expect((await begin(22n)).ok).toBe(false);
+    expect((await eng.dynUpload()).sessionId).toBe("11");
+
+    // One tick later it is abandoned and the second session takes over from scratch.
+    eng.advanceTick(1);
+    expect((await eng.dynUpload()).active).toBe(false);
+    expect((await begin(22n)).ok).toBe(true);
+    const replaced = await eng.dynUpload();
+    expect(replaced.sessionId).toBe("22");
+    expect(replaced.receivedCount).toBe(0);
+    expect(replaced.idleTicks).toBe(0);
 });
 
 test("deployment routing requires the exact reserved address", async () => {

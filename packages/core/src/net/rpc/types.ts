@@ -62,6 +62,10 @@ export interface DynamicContractUploadStatus {
     finalHash: string;
     missing: number[];
     missingCount: number;
+    /** Ticks since the last chunk landed and the node's idle limit; older nodes omit both. */
+    idleTicks?: number;
+    staleAfterTicks?: number;
+    lastProgressTick?: number;
 }
 
 // `ord` is the record's place in the node's emission order, shared across every frame of one call, so
