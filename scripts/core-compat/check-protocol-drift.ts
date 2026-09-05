@@ -6,7 +6,7 @@ import { CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURE_COUNT } from "@qinit/core/wasm/
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm/slot-layout";
 import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { LITE_DEPLOY_ADDRESS } from "@qinit/core/crypto/tx";
-import { DEFAULT_FEE_RESERVE } from "../../packages/engine/src/contract/fees";
+import { DEFAULT_FEE_RESERVE } from "@qinit/engine";
 import { DeployMessage, UploadBegin, UploadChunkHeader } from "@qinit/proto/deploy";
 import {
     ASSETS_DEPTH,
