@@ -6,7 +6,8 @@ import { systemContractClosure } from "@qinit/build";
 import { loadConfig, resolveCompilerBackend, resolveCoreDir } from "../../config";
 import { systemCatalog, systemWasm } from "../../contracts/system-wasm";
 import { Header, Spinner, Status } from "../../ui";
-import type { CommandArguments } from "../../args";
+import { nodeJsonResult } from "../node/node";
+import { output, type CommandArguments } from "../../args";
 
 // qinit system manages simulator selections and reports native Core contracts.
 type Line = { t: string; ok?: boolean | null };
@@ -17,6 +18,13 @@ function saveSelection(system: string[]): void {
     const cfg: Record<string, unknown> = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
     cfg.system = system;
     writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
+}
+
+export type SystemCatalogRow = { index: number; name: string; state: "live" | "selected" | "available" };
+
+// The catalog rows are the data the rendered lines are padded from.
+export function systemJsonResult(action: string, lines: Line[], catalog: SystemCatalogRow[], selected: string[]) {
+    return { ...nodeJsonResult(action, lines.map((line) => ({ t: line.t, ok: line.ok ?? undefined })), undefined), catalog, selected };
 }
 
 export function System({ commandArgs }: { commandArgs: CommandArguments }) {
@@ -30,6 +38,8 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
     const cfg = loadConfig();
     const rpcBaseUrl = o.rpc || cfg.rpc || DEFAULT_RPC_BASE;
     const [lines, setLines] = useState<Line[]>([]);
+    const [catalogRows, setCatalogRows] = useState<SystemCatalogRow[]>([]);
+    const [selectedNames, setSelectedNames] = useState<string[]>(cfg.system ?? []);
     const [busy, setBusy] = useState("starting");
     const [done, setDone] = useState(false);
     const add = (text: string, ok?: boolean | null) => setLines((currentLines) => [...currentLines, { t: text, ok }]);
@@ -145,6 +155,7 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                         }
                     }
                     saveSelection([...selected].sort());
+                    setSelectedNames([...selected].sort());
                     setDone(true);
                     return;
                 }
@@ -158,9 +169,14 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                     /* node down -> show catalog + selection only */
                 }
                 const selected = new Set(cfg.system ?? []);
-                for (const c of catalog) {
-                    const state = live.has(c.index) ? "live" : selected.has(c.name) ? "selected" : "available";
-                    add(`${String(c.index).padStart(2)}  ${c.name.padEnd(12)} ${state}`, live.has(c.index) ? true : null);
+                const rows: SystemCatalogRow[] = catalog.map((c) => ({
+                    index: c.index,
+                    name: c.name,
+                    state: live.has(c.index) ? "live" : selected.has(c.name) ? "selected" : "available",
+                }));
+                setCatalogRows(rows);
+                for (const row of rows) {
+                    add(`${String(row.index).padStart(2)}  ${row.name.padEnd(12)} ${row.state}`, row.state === "live" ? true : null);
                 }
                 setDone(true);
             } catch (e: any) {
@@ -171,12 +187,14 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
     }, []);
     useEffect(() => {
         if (done) {
+            if (output.json) process.stdout.write(JSON.stringify(systemJsonResult(o.sub || "ls", lines, catalogRows, selectedNames)) + "\n");
             process.exitCode = lines.some((l) => l.ok === false) ? 1 : 0;
             const t = setTimeout(() => exit(), 30);
             return () => clearTimeout(t);
         }
     }, [done]);
 
+    if (output.json) return null;
     return (
         <Box flexDirection="column">
             <Header cmd="system" />

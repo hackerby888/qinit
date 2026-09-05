@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import type { CommandArguments } from "../../args";
+import { output, type CommandArguments } from "../../args";
 import { GradLine, Header, theme } from "../../ui";
+
+export function backendPickerJsonResult(command: "compiler" | "runtime", active: string, backends: readonly string[], messages: string[]) {
+    const failed = messages.find((message) => message.startsWith("✗"));
+    return { ok: !failed, command, active, backends: [...backends], lines: messages, error: failed ? failed.slice(2) : null };
+}
 
 export function BackendPicker<Backend extends string>({
     commandArgs,
@@ -28,8 +33,9 @@ export function BackendPicker<Backend extends string>({
     const [selection, setSelection] = useState(Math.max(0, backends.indexOf(current)));
     const selectionRef = useRef(selection);
     const [messages, setMessages] = useState<string[]>([]);
+    const [active, setActive] = useState<Backend>(current);
     // Starting in "done" without a terminal keeps the picker frame off a piped stream entirely.
-    const interactive = Boolean(process.stdin.isTTY);
+    const interactive = Boolean(process.stdin.isTTY) && !output.json;
     const [phase, setPhase] = useState<"pick" | "done">(requested || show || !interactive ? "done" : "pick");
 
     const add = (message: string) => {
@@ -58,11 +64,13 @@ export function BackendPicker<Backend extends string>({
             return;
         }
         save(requested as Backend);
+        setActive(requested as Backend);
         add(`✓ ${label} set: ${requested}`);
     }, []);
 
     useEffect(() => {
         if (phase === "done") {
+            if (output.json) process.stdout.write(JSON.stringify(backendPickerJsonResult(command, active, backends, messages)) + "\n");
             const timer = setTimeout(() => exit(), 30);
             return () => clearTimeout(timer);
         }
@@ -82,6 +90,7 @@ export function BackendPicker<Backend extends string>({
             } else if (key.return) {
                 const backend = backends[selectionRef.current];
                 save(backend);
+                setActive(backend);
                 add(`✓ ${label} saved: ${backend}`);
                 setPhase("done");
             }
@@ -89,6 +98,7 @@ export function BackendPicker<Backend extends string>({
         { isActive: interactive },
     );
 
+    if (output.json) return null;
     return (
         <Box flexDirection="column">
             <Header cmd={command} />

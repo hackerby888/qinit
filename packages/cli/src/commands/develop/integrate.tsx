@@ -85,6 +85,14 @@ function validateEpochOrder(metadata: Metadata): void {
     }
 }
 
+export function integrateJsonResult(state: Extract<State, { phase: "done" | "error" }>) {
+    if (state.phase === "error") {
+        return { ok: false, error: state.message };
+    }
+    const { mode, contractIndex, corePath, branch, testPath, warnings } = state.result;
+    return { ok: true, mode, contractIndex, corePath, branch, testPath: testPath ?? null, warnings, error: null };
+}
+
 export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
     const [state, setState] = useState<State>({ phase: "prepare" });
@@ -210,6 +218,7 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
 
     useEffect(() => {
         if (state.phase === "done" || state.phase === "error") {
+            if (output.json) process.stdout.write(JSON.stringify(integrateJsonResult(state)) + "\n");
             const timer = setTimeout(() => exit(), 30);
             return () => clearTimeout(timer);
         }
@@ -268,6 +277,7 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
               ? "construction epoch (IPO is normally one epoch earlier)"
               : "destruction epoch";
 
+    if (output.json) return null;
     return (
         <Box flexDirection="column">
             <Header cmd="integrate" />

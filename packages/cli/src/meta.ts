@@ -54,10 +54,12 @@ const commandMeta = {
     },
     doctor: {
         group: "setup",
+        json: true,
         summary: "check the Qinit development setup",
     },
     clean: {
         group: "setup",
+        json: true,
         summary: "remove cached node, headers, SDK, and tools",
         options: [booleanOption("dry-run", "preview what would be removed")],
     },
@@ -130,6 +132,7 @@ const commandMeta = {
     },
     integrate: {
         group: "develop",
+        json: true,
         summary: "add or update a contract in Qubic Core",
         usage: "[<file.h>] [--asset <symbol> --construction-epoch <n>]",
         options: [
@@ -182,6 +185,7 @@ const commandMeta = {
     },
     gen: {
         group: "develop",
+        json: true,
         summary: "generate a TypeScript client",
         usage: "<file.h>",
         options: [
@@ -263,6 +267,7 @@ const commandMeta = {
     },
     seed: {
         group: "deploy & interact",
+        json: true,
         summary: "manage the transaction signer seed",
         usage: "[<seed>]",
         options: [booleanOption("show", "show the saved seed"), booleanOption("clear", "remove the saved seed"), stringOption("rpc", "<url>", "RPC URL")],
@@ -363,18 +368,21 @@ const commandMeta = {
 
     runtime: {
         group: "misc",
+        json: true,
         summary: "choose the default runtime",
         usage: "[core|simulator]",
         options: [booleanOption("show", "show the current runtime")],
     },
     compiler: {
         group: "misc",
+        json: true,
         summary: "choose the default compiler",
         usage: "[clang|typescript]",
         options: [booleanOption("show", "show the current compiler")],
     },
     system: {
         group: "deploy & interact",
+        json: true,
         summary: "manage system contracts",
         usage: "[ls | add <name…> | rm <name…>]",
         options: [stringOption("rpc", "<url>", "RPC URL"), stringOption("compiler", "<clang|typescript>", "simulator system-contract compiler")],

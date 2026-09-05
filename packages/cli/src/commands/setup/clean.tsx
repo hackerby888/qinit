@@ -3,7 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { cacheRoot } from "@qinit/core";
 import { cacheInfo, wipeCache, human, type CacheItem } from "../../ops/cache";
 import { Header, Status, Spinner, KV, theme } from "../../ui";
-import type { CommandArguments } from "../../args";
+import { output, type CommandArguments } from "../../args";
 
 // qinit clean [--dry-run]
 // Remove ALL qinit cache (~/.cache/qinit or $QINIT_CACHE): fetched node, core-headers, wasi-sdk/clang artifacts.
@@ -14,6 +14,19 @@ type S = {
     killed?: boolean;
     err?: string;
 };
+
+// Sizes are plain bytes here; the rendered frame is the only place they are rounded.
+export function cleanJsonResult(s: S, dryRun: boolean, root: string) {
+    return {
+        ok: s.phase !== "err",
+        dryRun,
+        root,
+        total: s.total ?? 0,
+        items: (s.items ?? []).map((item) => ({ name: item.name, bytes: item.sz })),
+        killed: s.killed ?? false,
+        error: s.phase === "err" ? (s.err ?? "clean failed") : null,
+    };
+}
 
 export function Clean({ commandArgs }: { commandArgs: CommandArguments }) {
     const dry = commandArgs.has("dry-run");
@@ -38,12 +51,14 @@ export function Clean({ commandArgs }: { commandArgs: CommandArguments }) {
     }, []);
     useEffect(() => {
         if (s.phase !== "run") {
+            if (output.json) process.stdout.write(JSON.stringify(cleanJsonResult(s, dry, root)) + "\n");
             process.exitCode = s.phase === "err" ? 1 : 0;
             const t = setTimeout(() => exit(), 20);
             return () => clearTimeout(t);
         }
     }, [s.phase]);
 
+    if (output.json) return null;
     return (
         <Box flexDirection="column">
             <Header cmd="clean" />

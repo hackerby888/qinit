@@ -7,7 +7,7 @@ import { loadQpiHeader } from "@qinit/compiler";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { loadConfig, resolveCoreDir } from "../../config";
 import { Header, Panel, KV, theme } from "../../ui";
-import type { CommandArguments } from "../../args";
+import { output, type CommandArguments } from "../../args";
 import { parseContractSlot } from "../../contracts/registry";
 import { loadContractIdlFile } from "../../contracts/idl-file";
 
@@ -16,6 +16,10 @@ function deployedSlot(name: string): number | undefined {
 }
 
 type State = { ok: true; file: string; name: string; slot: number; fns: number; procs: number } | { ok: false; err: string } | null;
+
+export function genJsonResult(s: Exclude<State, null>) {
+    return s.ok ? { ...s, error: null } : { ok: false, error: s.err };
+}
 
 export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
@@ -56,11 +60,13 @@ export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
     }, []);
     useEffect(() => {
         if (s) {
+            if (output.json) process.stdout.write(JSON.stringify(genJsonResult(s)) + "\n");
             process.exitCode = s.ok ? 0 : 1;
             exit();
         }
     }, [s, exit]);
 
+    if (output.json) return null;
     return (
         <Box flexDirection="column">
             <Header cmd="gen" />

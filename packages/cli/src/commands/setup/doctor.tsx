@@ -4,6 +4,7 @@ import { Header, Spinner, Panel, Status, theme } from "../../ui";
 import { resolveCoreDir } from "../../config";
 import { resolveVerifyTool } from "@qinit/build";
 import { wasiSdkPaths } from "@qinit/core";
+import { output } from "../../args";
 
 interface Check {
     name: string;
@@ -54,6 +55,16 @@ async function runChecks(): Promise<Check[]> {
     return checks;
 }
 
+// Optional checks never fail the document, the same rule the exit code follows.
+export function doctorJsonResult(checks: Check[]) {
+    const failed = checks.filter((check) => !check.optional && check.ok !== true);
+    return {
+        ok: failed.length === 0,
+        checks: checks.map((check) => ({ name: check.name, ok: check.ok, detail: check.detail, fix: check.fix ?? null, optional: check.optional ?? false })),
+        error: failed.length ? `${failed.map((check) => check.name).join(", ")} not ready` : null,
+    };
+}
+
 export function Doctor() {
     const { exit } = useApp();
     const [checks, setChecks] = useState<Check[] | null>(null);
@@ -65,6 +76,7 @@ export function Doctor() {
     const required = (c: Check) => !c.optional;
     useEffect(() => {
         if (checks) {
+            if (output.json) process.stdout.write(JSON.stringify(doctorJsonResult(checks)) + "\n");
             process.exitCode = checks.filter(required).every((c) => c.ok === true) ? 0 : 1;
             exit();
         }
@@ -72,6 +84,7 @@ export function Doctor() {
 
     const allOk = checks?.filter(required).every((c) => c.ok === true) ?? false;
     const fixes = checks?.filter((c) => c.ok !== true && c.fix) ?? [];
+    if (output.json) return null;
     return (
         <Box flexDirection="column">
             <Header cmd="doctor" />

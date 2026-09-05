@@ -3,7 +3,7 @@ import { Box, Text, useApp, useInput } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc, deriveIdentity } from "@qinit/core";
 import { savedSeed, setSavedSeed, clearSavedSeed, seedStorePath, loadConfig } from "../../config";
 import { Header, Spinner, GradLine, theme } from "../../ui";
-import type { CommandArguments } from "../../args";
+import { output, type CommandArguments } from "../../args";
 
 type Item = { seed: string; id: string; balance: string };
 
@@ -14,6 +14,21 @@ const compactBalance = new Intl.NumberFormat("en-US", {
 
 export function formatSeedBalance(balance: string): string {
     return `${compactBalance.format(BigInt(balance))} QUs`;
+}
+
+export type SeedFacts = { action: "show" | "save" | "clear"; seed?: string; identity?: string; balance?: string; path: string };
+
+// The facts are captured before the rendered lines are worded, so the document never carries display text.
+export function seedJsonResult(facts: SeedFacts | null, error: string | null) {
+    return {
+        ok: !error,
+        action: facts?.action ?? null,
+        seed: facts?.seed ?? null,
+        identity: facts?.identity ?? null,
+        balance: facts?.balance ?? null,
+        path: facts?.path ?? seedStorePath(),
+        error,
+    };
 }
 
 export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
@@ -32,6 +47,7 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
         setI(sel.current);
     };
     const [msg, setMsg] = useState<string[]>([]);
+    const [facts, setFacts] = useState<SeedFacts | null>(null);
     const [phase, setPhase] = useState<"load" | "pick" | "done" | "err">("load");
     const add = (s: string) => setMsg((m) => [...m, s]);
 
@@ -41,6 +57,7 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
                 const rpc = new LiteRpc(rpcBaseUrl);
                 if (commandArgs.has("clear")) {
                     clearSavedSeed();
+                    setFacts({ action: "clear", path: seedStorePath() });
                     add("cleared saved seed (" + seedStorePath() + ")");
                     setPhase("done");
                     return;
@@ -48,6 +65,7 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
                 if (commandArgs.has("show")) {
                     const s = savedSeed();
                     if (!s) {
+                        setFacts({ action: "show", path: seedStorePath() });
                         add("no saved seed — run `qinit seed` to pick one");
                         setPhase("done");
                         return;
@@ -55,6 +73,7 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
 
                     const id = (await deriveIdentity(s)).identity;
                     const balance = await rpc.balance(id);
+                    setFacts({ action: "show", seed: s, identity: id, balance: balance.balance, path: seedStorePath() });
                     add(`saved seed: ${s}\n  identity: ${id}\n  balance: ${formatSeedBalance(balance.balance)}`);
                     setPhase("done");
                     return;
@@ -63,12 +82,14 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
                 const given = commandArgs.positionals[0];
                 if (given) {
                     setSavedSeed(given);
+                    const id = (await deriveIdentity(given)).identity;
+                    setFacts({ action: "save", seed: given, identity: id, path: seedStorePath() });
                     add("✓ saved → " + seedStorePath());
-                    add("identity: " + (await deriveIdentity(given)).identity);
+                    add("identity: " + id);
                     setPhase("done");
                     return;
                 }
-                if (!process.stdin.isTTY) {
+                if (!process.stdin.isTTY || output.json) {
                     throw new Error("no terminal to pick in — pass the seed instead: qinit seed <seed>");
                 }
 
@@ -98,6 +119,10 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
     }, []);
     useEffect(() => {
         if (phase === "done" || phase === "err") {
+            if (output.json) {
+                const error = msg.find((line) => line.startsWith("ERROR: "))?.slice("ERROR: ".length) ?? null;
+                process.stdout.write(JSON.stringify(seedJsonResult(facts, error)) + "\n");
+            }
             const t = setTimeout(() => exit(), 30);
             return () => clearTimeout(t);
         }
@@ -131,6 +156,7 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
     const WIN = 8; // each item renders 2 lines (full id + full seed) — keep the visible window short
     const start = Math.max(0, Math.min(i - 4, items.length - WIN));
     const balanceWidth = Math.max(0, ...items.map((item) => item.balance.length));
+    if (output.json) return null;
     return (
         <Box flexDirection="column">
             <Header cmd="seed" />
