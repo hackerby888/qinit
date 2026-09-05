@@ -137,6 +137,37 @@ test("ambiguous size -> hex fallback (no name/fields)", async () => {
     expect(d.hex).toBe("0x0100000000000000");
 });
 
+const AMOUNT_SHAPE: Array<[string, AbiScalarKind]> = [
+    ["_contractIndex", AbiScalarKind.UINT32],
+    ["_type", AbiScalarKind.UINT32],
+    ["amount", AbiScalarKind.UINT64],
+];
+const TRADE = { ...log("TradeLog", AMOUNT_SHAPE), types: [3] };
+const FEE = { ...log("FeeLog", AMOUNT_SHAPE), types: [4] };
+const amountRecord = (type: number, amount: number) => hexOf([...le(29, 4), ...le(type, 4), ...le(amount, 8)]);
+
+test("same-size structs decode by the _type word when the IDL recorded its values", async () => {
+    const trade = await decodeLog(6, 16, amountRecord(3, 50), [TRADE, FEE]);
+    expect(trade.name).toBe("TradeLog");
+    expect(trade.fields).toEqual({ _contractIndex: 29, _type: 3, amount: 50n });
+
+    const fee = await decodeLog(6, 16, amountRecord(4, 150), [TRADE, FEE]);
+    expect(fee.name).toBe("FeeLog");
+    expect(fee.fields?.amount).toBe(150n);
+});
+
+test("a _type word no entry recorded falls back to hex", async () => {
+    const d = await decodeLog(6, 16, amountRecord(5, 1), [TRADE, FEE]);
+    expect(d.name).toBeUndefined();
+    expect(d.fields).toBeUndefined();
+});
+
+test("an entry without recorded values stays ambiguous next to a typed one that does not match", async () => {
+    const untyped = log("OtherLog", AMOUNT_SHAPE);
+    expect((await decodeLog(6, 16, amountRecord(4, 1), [TRADE, untyped])).name).toBe("OtherLog");
+    expect((await decodeLog(6, 16, amountRecord(3, 1), [TRADE, untyped])).name).toBeUndefined();
+});
+
 test("no size match -> hex fallback", async () => {
     const d = await decodeLog(4, 5, hexOf([1, 2, 3, 4, 5]), [LOGGER]);
     expect(d.severity).toBe("ERROR");

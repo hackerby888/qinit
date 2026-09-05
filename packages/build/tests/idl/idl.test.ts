@@ -97,6 +97,37 @@ test("enums, logs, and system procedure mask come from semantic analysis", () =>
     expect(idl.sysprocMask).toBe(1);
 });
 
+const LOG_TYPES_SOURCE = `
+using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  enum LogType { LOG_TRADE = 3, LOG_FEE = 4 };
+  struct TradeLog { uint32 _contractIndex; uint32 _type; uint64 amount; sint8 _terminator; };
+  struct FeeLog { uint32 _contractIndex; uint32 _type; uint64 fee; sint8 _terminator; };
+  struct AuditLog { uint32 _contractIndex; uint32 _type; uint64 checksum; sint8 _terminator; };
+  struct StateData { AuditLog last; };
+  struct Swap_input { uint32 kind; }; struct Swap_output {};
+  struct Swap_locals { TradeLog trade; FeeLog fee; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Swap) {
+    locals.trade._type = LOG_TRADE;
+    locals.fee._type = 4;
+    locals.fee._type = input.kind;
+    state.mut().last._type = (7);
+    LOG_INFO(locals.trade);
+    LOG_INFO(locals.fee);
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Swap, 1); }
+};`;
+
+test("a log struct records the folded _type values the contract writes into it", () => {
+    const logs = extractIdl(LOG_TYPES_SOURCE, "Types", { slot: 7 }).logs;
+    const typesOf = (name: string) => logs.find((entry) => entry.name === name)?.types;
+
+    expect(typesOf("TradeLog")).toEqual([3]);
+    expect(typesOf("FeeLog")).toEqual([4]);
+    expect(typesOf("AuditLog")).toEqual([7]);
+});
+
 test("empty source still returns a complete v4 schema", () => {
     const empty = extractIdl("", "Empty");
     expect(empty).toMatchObject({

@@ -37,6 +37,13 @@ test("enum members may be negative and the underlying scalar must be known", () 
     expect(parseContractIdl(enumIdl("id", {})).enums[0].underlying).toBe(AbiScalarKind.ID); // any scalar name passes, by design
 });
 
+test("a log's recorded _type values must be unsigned integers", () => {
+    const unpadded = { ...(st(u64, u8) as AbiStruct), size: 9 };
+    expect(parseContractIdl(contractIdl(STATE, { logs: [{ name: "L", type: unpadded, types: [3, 4] }] })).logs[0].types).toEqual([3, 4]);
+    expect(parseContractIdl(contractIdl(STATE, { logs: [{ name: "L", type: unpadded }] })).logs[0].types).toBeUndefined();
+    expect(() => parseContractIdl(contractIdl(STATE, { logs: [{ name: "L", type: unpadded, types: [3, "x"] as never }] }))).toThrow(/log 0 type 1/);
+});
+
 test("only a log may omit its tail padding — migration and state may not", () => {
     const padded = st(u64, u8) as AbiStruct;
     const unpadded = { ...padded, size: 9 };

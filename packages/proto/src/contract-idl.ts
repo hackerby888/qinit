@@ -132,6 +132,8 @@ export interface ContractEnum {
 export interface ContractLog {
     name: string;
     type: AbiStruct;
+    // The `_type` values the contract writes into this struct, when the build could fold them.
+    types?: number[];
 }
 
 // One argument of a CC_PRINT call. A literal part carries its text and emits no code; a value part
@@ -375,9 +377,11 @@ function contractEnum(value: unknown, label: string): ContractEnum {
 
 function contractLog(value: unknown, label: string): ContractLog {
     const entry = objectValue(value, label);
+    const types = entry.types === undefined ? undefined : arrayValue(entry.types, `${label} types`).map((item, index) => uintValue(item, `${label} type ${index}`));
     return {
         name: stringValue(entry.name, `${label} name`),
         type: abiStruct(entry.type, `${label} type`, true),
+        ...(types ? { types } : {}),
     };
 }
 

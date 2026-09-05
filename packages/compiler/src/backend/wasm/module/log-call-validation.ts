@@ -182,7 +182,7 @@ function checkLogStatement(programAnalysis: ProgramAnalysis, roots: PayloadRoots
 
 // ponytail: depth-1 payloads only (locals.x / state.get().x); deeper chains need codegen's typedef
 // and template member-type resolution, so they fall through to the codegen check.
-function resolvePayload(programAnalysis: ProgramAnalysis, roots: PayloadRoots, expression: Expression): ResolvedPayload | null {
+export function resolvePayload(programAnalysis: ProgramAnalysis, roots: PayloadRoots, expression: Expression): ResolvedPayload | null {
     const direct = rootLayout(roots, expression);
 
     if (direct) {
