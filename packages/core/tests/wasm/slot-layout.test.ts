@@ -15,8 +15,8 @@ const coreSource = haveCore ? readFileSync(contractDefinition, "utf8") : "";
 describe.if(haveCore)("core-derived Wasm slot layout", () => {
     const source = coreSource;
 
-    test("the current standard profile derives slot base 29 and count 4", () => {
-        expect(loadCoreWasmSlotLayout(corePath)).toEqual({ slotBase: 29, slotCount: 4 });
+    test("the current standard profile derives slot base 29 and count 64", () => {
+        expect(loadCoreWasmSlotLayout(corePath)).toEqual({ slotBase: 29, slotCount: 64 });
     });
 
     test("adding a native contract shifts the dynamic base", () => {
@@ -28,7 +28,7 @@ describe.if(haveCore)("core-derived Wasm slot layout", () => {
 // new contracts should be added above this line`,
         );
 
-        expect(parseWasmSlotLayoutSource(extended)).toEqual({ slotBase: 30, slotCount: 4 });
+        expect(parseWasmSlotLayoutSource(extended)).toEqual({ slotBase: 30, slotCount: 64 });
     });
 
     test("test-example declarations do not affect the standard profile", () => {
@@ -37,7 +37,7 @@ describe.if(haveCore)("core-derived Wasm slot layout", () => {
             "constexpr unsigned short TESTEXD_CONTRACT_INDEX = (CONTRACT_INDEX + 1000);",
         );
 
-        expect(parseWasmSlotLayoutSource(changedExamples)).toEqual({ slotBase: 29, slotCount: 4 });
+        expect(parseWasmSlotLayoutSource(changedExamples)).toEqual({ slotBase: 29, slotCount: 64 });
     });
 
     test.each([
@@ -45,7 +45,7 @@ describe.if(haveCore)("core-derived Wasm slot layout", () => {
         ["missing dynamic slot", source.replace(/constexpr unsigned short LITEDYN2_CONTRACT_INDEX[^;]+;\r?\n/, "")],
         ["duplicate slot", source.replace("constexpr unsigned short LITEDYN1_CONTRACT_INDEX", "constexpr unsigned short LITEDYN0_CONTRACT_INDEX")],
         ["non-contiguous slots", source.replace("constexpr unsigned short LITEDYN1_CONTRACT_INDEX", "constexpr unsigned short LITEDYN4_CONTRACT_INDEX")],
-        ["count mismatch", source.replace("constexpr unsigned short WASM_RESERVED_SLOT_COUNT = 4;", "constexpr unsigned short WASM_RESERVED_SLOT_COUNT = 3;")],
+        ["count mismatch", source.replace("constexpr unsigned short WASM_RESERVED_SLOT_COUNT = 64;", "constexpr unsigned short WASM_RESERVED_SLOT_COUNT = 63;")],
     ])("rejects %s", (_label, invalidSource) => {
         expect(() => parseWasmSlotLayoutSource(invalidSource)).toThrow();
     });
