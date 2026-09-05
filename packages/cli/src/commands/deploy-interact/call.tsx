@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
 import { activeNodeScratchDir } from "../../ops/node";
 import {
+    contractAddress,
     callFunction,
     invokeProcedure,
     encodeInput,
@@ -42,7 +43,7 @@ type Result = {
 };
 type Trace = { e: DebugEntry; name: string; entry: string; view: DecodedTrace };
 // What --json reports beyond the result itself: `out` is the rendered row, `outJson` the same value as data.
-type CallFacts = { contract: string; slot: number; entry: string; tick?: number; tx?: string; out?: string; outJson?: unknown };
+type CallFacts = { contract: string; slot: number; entry: string; tick?: number; tx?: string; out?: string; outJson?: unknown; address?: string; balance?: string };
 type Confirm = { start: number; net: number; target: number };
 type CallMode = "fn" | "proc";
 
@@ -67,6 +68,8 @@ export function callJsonResult(
         ok: trapped ? false : (result?.ok ?? false),
         contract: facts?.contract ?? contract,
         slot: facts?.slot ?? null,
+        address: facts?.address ?? null,
+        balance: facts?.balance ?? null,
         entry: facts?.entry ?? entryName,
         kind: mode === "fn" ? "function" : "procedure",
         tick: facts?.tick ?? trace?.e.tick ?? null,
@@ -352,6 +355,15 @@ function CallOneShot({
                     const reported = (await registryEntry())?.feeReserve;
                     return reported === undefined ? undefined : BigInt(reported);
                 };
+                // F72: the contract's identity + qu balance, so a call that should have moved money shows it landed.
+                const contractInfo = async (): Promise<{ address: string; balance: string } | undefined> => {
+                    try {
+                        const address = await bytesToIdentity(contractAddress(idx));
+                        return { address, balance: (await rpc.balance(address)).balance };
+                    } catch {
+                        return undefined;
+                    }
+                };
                 // upgrade a raw trap string to a source-mapped backtrace via node.log + the slot's DWARF sidecar.
                 const enrichErr = async (raw: string): Promise<string | undefined> => {
                     if (!raw) return undefined;
@@ -388,11 +400,12 @@ function CallOneShot({
                     // An explicit --out format overrides the IDL, and only the IDL type carries field names.
                     const rendered = !outputFormat && entryIdl ? formatStateValue(out, entryIdl.output, showAll, true) : fmtVal(out, showAll);
                     const outJson = !outputFormat && entryIdl ? decodedJsonValue(out, entryIdl.output) : out;
-                    setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, out: rendered, outJson });
+                    const info = ne ? undefined : await contractInfo();
+                    setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, out: rendered, outJson, address: info?.address, balance: info?.balance });
                     setResult({
                         ok: ne ? false : true,
                         label,
-                        rows: [["out", rendered]],
+                        rows: [["out", rendered], ...(info ? ([["balance", info.balance], ["address", info.address]] as [string, string][]) : [])],
                         err: await enrichErr(ne),
                     });
                 } else {
@@ -465,7 +478,9 @@ function CallOneShot({
                                   ? "dropped — not included"
                                   : "broadcast · unconfirmed";
                         const ok = !r.ok ? false : r.confirmed && !r.included ? false : true;
-                        setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, tick, tx: r.txId || undefined });
+                        // Only a processed tx has a settled balance; a pre-inclusion read would be the silent-wrong value.
+                        const info = detail === "processed" ? await contractInfo() : undefined;
+                        setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, tick, tx: r.txId || undefined, address: info?.address, balance: info?.balance });
                         setResult({
                             ok,
                             label,
@@ -473,6 +488,7 @@ function CallOneShot({
                             rows: [
                                 ["tx", txs],
                                 ["tick", String(tick)],
+                                ...(info ? ([["balance", info.balance], ["address", info.address]] as [string, string][]) : []),
                             ],
                             err: (await enrichErr(await nodeErr())) || (!r.ok ? r.message : undefined),
                         });

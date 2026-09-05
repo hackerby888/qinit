@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, type DynamicContractRegistryEntry } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity, type DynamicContractRegistryEntry } from "@qinit/core";
+import { contractAddress } from "@qinit/proto";
 import { LARGE_STATE_CONTAINER_BYTES, loadStateContainer, readState, stateIsComplete, type DecodedState, type StateContainer } from "../../trace/state-read";
 import { StateView } from "../../trace/views";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
@@ -31,11 +32,13 @@ function parseContainerIndexes(values: readonly string[]): Set<number> {
 
 // What --json reports for a decoded target: the same values the view renders, minus each container's
 // `sourceField`, which carries the whole recursive ABI layout and belongs in the contract's IDL file.
-export function stateJsonResult(contract: string, slot: number | null, state: DecodedState | null, error: string) {
+export function stateJsonResult(contract: string, slot: number | null, state: DecodedState | null, error: string, address: string | null = null, balance: string | null = null) {
     return {
         ok: !error && state?.complete === true,
         contract: contract || null,
         slot,
+        address,
+        balance,
         complete: state?.complete ?? null,
         fields: state?.fields.map((field) => ({ name: field.name, value: field.data ?? null, error: field.data === undefined ? field.value : null })) ?? [],
         containers:
@@ -83,6 +86,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
     const [errorText, setErrorText] = useState("");
     const [decodedState, setDecodedState] = useState<DecodedState | null>(null);
     const [name, setName] = useState("");
+    const [meta, setMeta] = useState<{ address: string; balance: string } | null>(null);
     const [contracts, setContracts] = useState<DynamicContractRegistryEntry[]>([]);
     const [userCount, setUserCount] = useState(0); // contracts[0..userCount) deployed, rest system
     const [phase, setPhase] = useState<Phase>("loading");
@@ -173,6 +177,11 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
             if (!c.source) throw new Error(`node has no source for slot ${c.index} — cannot decode state`);
             const rpc = new LiteRpc(rpcBaseUrl);
             await rpc.tickInfo(); // fail fast + loud if the node is unreachable (else readState silently fills "(read failed)")
+            // F72: the contract's identity + qu balance, so money it wrongly keeps is visible in `state --json`.
+            try {
+                const address = await bytesToIdentity(contractAddress(c.index));
+                setMeta({ address, balance: (await rpc.balance(address)).balance });
+            } catch {}
             const state = await readState(
                 rpc,
                 c.index,
@@ -399,14 +408,14 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
             return () => clearTimeout(t);
         }
         if (!o.digest && !o.dump && (phase === "show" || phase === "done")) {
-            if (output.json) process.stdout.write(JSON.stringify(stateJsonResult(name, contractIndexRef.current, decodedState, errorText), bigintText) + "\n");
+            if (output.json) process.stdout.write(JSON.stringify(stateJsonResult(name, contractIndexRef.current, decodedState, errorText, meta?.address ?? null, meta?.balance ?? null), bigintText) + "\n");
             if (lines.some((l) => l.startsWith("ERROR")) || decodedState?.complete === false) {
                 process.exitCode = 1;
             }
             const t = setTimeout(() => exit(), 50);
             return () => clearTimeout(t);
         }
-    }, [phase, digest, dump, decodedState, errorText]);
+    }, [phase, digest, dump, decodedState, errorText, meta]);
     useEffect(() => {
         exitingRef.current = false;
         return () => {

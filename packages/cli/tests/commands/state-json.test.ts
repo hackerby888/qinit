@@ -31,6 +31,8 @@ test("state JSON reports the decoded fields and container summary", () => {
         ok: true,
         contract: "Counter",
         slot: 29,
+        address: null,
+        balance: null,
         complete: true,
         fields: [
             { name: "counter", value: 16n, error: null },
@@ -75,6 +77,8 @@ test("state JSON carries the message when the read never produced a state", () =
         ok: false,
         contract: null,
         slot: null,
+        address: null,
+        balance: null,
         complete: null,
         fields: [],
         containers: [],

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { resolve, basename } from "node:path";
 import { Box, Text, useApp } from "ink";
 import { contractAddress } from "@qinit/proto";
-import { DEFAULT_RPC_BASE, bytesToIdentity } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity } from "@qinit/core";
 import { loadConfig, resolveCoreDir, resolveCompilerBackend } from "../../config";
 import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentStepState } from "../../ops/deploy";
 import { deployProjectContracts, type ProjectDeployResult } from "../../ops/project-deploy";
@@ -19,6 +19,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
     const [notes, setNotes] = useState<string[]>([]);
     const [result, setResult] = useState<ProjectDeployResult | null>(null);
     const [addr, setAddr] = useState("");
+    const [bal, setBal] = useState<string | null>(null);
     const [name, setName] = useState("");
 
     useEffect(() => {
@@ -57,7 +58,12 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                 );
                 if (r.ok && r.slot != null) {
                     try {
-                        setAddr(await bytesToIdentity(contractAddress(r.slot)));
+                        const id = await bytesToIdentity(contractAddress(r.slot));
+                        setAddr(id);
+                        // F72: the deployed contract's qu balance, so money it holds is visible without a second command.
+                        try {
+                            setBal((await new LiteRpc(commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE).balance(id)).balance);
+                        } catch {}
                     } catch {}
                 }
                 setResult(r);
@@ -80,6 +86,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                         contract: name,
                         slot: result.slot ?? null,
                         address: addr || null,
+                        balance: bal ?? null,
                         tx: result.txId ?? null,
                         codeHash: result.hash ?? null,
                         dependencies: result.deployments.filter((deployment) => deployment.kind !== "main"),
@@ -125,6 +132,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                                 ["contract", name],
                                 ["slot", String(result.slot)],
                                 ["address", addr || `id(${result.slot},0,0,0)`],
+                                ["balance", bal ?? "—"],
                                 ["tx", result.txId ?? "—"],
                                 ["codeHash", result.hash ?? "—"],
                                 ["fns/procs", result.idl ? `${result.idl.functions.length} / ${result.idl.procedures.length}` : "—"],
