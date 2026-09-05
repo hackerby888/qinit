@@ -94,7 +94,7 @@ test("direct deploy enforces dynamic and system slot ranges", async () => {
         expect(dynamicAtSystemSlot.status).toBe(400);
         expect(await dynamicAtSystemSlot.json()).toMatchObject({
             ok: false,
-            message: "dynamic slot 1 is outside 29..32",
+            message: "dynamic slot 1 is outside 29..92",
         });
 
         const systemAtDynamicSlot = await fetch(`${base}/live/v1/dev/deploy`, {
