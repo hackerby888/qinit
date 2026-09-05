@@ -1,5 +1,16 @@
 import { test, expect } from "bun:test";
-import { checkInputSize, encodeInput, encodeInputJson, encodeInputTyped, decodeOutput, decodeAbiValue, structFieldOffsets, layoutOf, parseLayout, zeroInputFormat } from "../../src/abi-fmt";
+import {
+    checkInputSize,
+    encodeInput,
+    encodeInputJson,
+    encodeInputTyped,
+    decodeOutput,
+    decodeAbiValue,
+    structFieldOffsets,
+    layoutOf,
+    parseLayout,
+    zeroInputFormat,
+} from "../../src/abi-fmt";
 import { formatAbiType, type AbiType } from "../../src/contract-idl";
 import { hashMapGeometry } from "../../src/qpi-layout";
 import { arr, ba, bit, co, hm, hs, i8, i16, i32, i64, i128, id, ll, m256i, named, st, u8, u16, u32, u64, u128, validated } from "./abi-builders";
@@ -669,7 +680,8 @@ const MIRROR = named(
 );
 
 test("the schema road lays the spelled tokens out exactly like --args does", async () => {
-    const spelled = "1uint8, {2uint8, 3uint64}, " + IDENTITY + "id, [2; 4uint64, 5uint64], 1bit, -7sint16, 340282366920938463463374607431768211455uint128, [1; 5uint64]";
+    const spelled =
+        "1uint8, {2uint8, 3uint64}, " + IDENTITY + "id, [2; 4uint64, 5uint64], 1bit, -7sint16, 340282366920938463463374607431768211455uint128, [1; 5uint64]";
     const typed = await encodeInputJson(MIRROR, {
         a: 1,
         inner: { b: 2, c: 3 },

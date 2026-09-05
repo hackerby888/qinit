@@ -252,8 +252,7 @@ test("id field decodes to a 60-char identity at its padded offset", async () => 
     expect(d.fields!.amt).toBe(1000n);
 });
 
-// A renderer can only name a nested struct's fields if it gets the type back with the value, and
-// `fields` stops at the top level — so the struct and its positional values ride along.
+// A renderer that wants the positional values gets the struct back with them; `fields` names every depth.
 test("the log struct and its values come back alongside the named top-level fields", async () => {
     const point = {
         kind: AbiTypeKind.STRUCT as const,
@@ -286,7 +285,7 @@ test("the log struct and its values come back alongside the named top-level fiel
 
     expect(d.abi).toBe(cat[0].type);
     expect(d.values).toEqual([0, [1, 2]]);
-    expect(d.fields).toEqual({ a: 0, point: [1, 2] });
+    expect(d.fields).toEqual({ a: 0, point: { x: 1, y: 2 } });
 });
 
 // decodeOutput unwraps a one-field struct to its bare value, which the positional list has to undo.

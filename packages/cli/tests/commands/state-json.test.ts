@@ -4,7 +4,10 @@ import type { DecodedState } from "../../src/trace/state-read";
 
 const DECODED = {
     complete: true,
-    fields: [{ name: "counter", value: "16" }],
+    fields: [
+        { name: "counter", value: "16", data: 16n },
+        { name: "broken", value: "(read failed: boom)" },
+    ],
     containers: [
         {
             index: 1,
@@ -29,7 +32,10 @@ test("state JSON reports the decoded fields and container summary", () => {
         contract: "Counter",
         slot: 29,
         complete: true,
-        fields: [{ name: "counter", value: "16" }],
+        fields: [
+            { name: "counter", value: 16n, error: null },
+            { name: "broken", value: null, error: "(read failed: boom)" },
+        ],
         containers: [
             {
                 index: 1,

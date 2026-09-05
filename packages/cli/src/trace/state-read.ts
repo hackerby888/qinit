@@ -6,6 +6,7 @@ import {
     QpiContainerConsistencyError,
     QpiIncompleteReadError,
     type QpiByteSource,
+    decodedJsonValue,
 } from "@qinit/proto";
 import { AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
@@ -253,7 +254,7 @@ export async function valueBlock(bytes: Uint8Array, type: AbiType): Promise<Stat
 }
 
 /** The scalar rows and container blocks of one value, in the shape `qinit state` renders. */
-export type ValueBlocks = { fields: { name: string; value: string }[]; containers: StateContainer[] };
+export type ValueBlocks = { fields: StateFieldValue[]; containers: StateContainer[] };
 
 function fieldsOfValue(type: AbiType): StateField[] {
     const container = containerLayoutOf(type);
@@ -301,7 +302,8 @@ export async function decodeValueBlocks(bytes: Uint8Array, type: AbiType, prefix
             continue;
         }
 
-        blocks.fields.push({ name, value: scalarText(await decodeOutput(slice, field.abi!), field.abi!) });
+        const decoded = await decodeOutput(slice, field.abi!);
+        blocks.fields.push({ name, value: scalarText(decoded, field.abi!), data: decodedJsonValue(decoded, field.abi!) });
     }
 
     return blocks;
@@ -394,8 +396,11 @@ export async function loadStateContainer(
     return loaded;
 }
 
+// `value` is the rendered text (an error message when the read failed); `data` the decoded value for --json.
+export type StateFieldValue = { name: string; value: string; data?: unknown };
+
 export interface DecodedState {
-    fields: { name: string; value: string }[];
+    fields: StateFieldValue[];
     containers: StateContainer[];
     complete: boolean;
 }
@@ -497,7 +502,7 @@ export async function readState(
     // Fields read concurrently. A node answers about one request per tick, so reading them in sequence
     // pays that latency once per field for bytes that could all have been in flight together. Each field
     // still reads only the ranges it needs, and results land in declaration order regardless of finish order.
-    const slots: { field: StateField; value?: string; container?: StateContainer; nested?: ValueBlocks }[] = fields.map((field) => ({ field }));
+    const slots: { field: StateField; value?: string; data?: unknown; container?: StateContainer; nested?: ValueBlocks }[] = fields.map((field) => ({ field }));
     const reads: Promise<void>[] = [];
     let totalBytes = 0;
     let completedBytes = 0;
@@ -555,7 +560,9 @@ export async function readState(
                         return;
                     }
 
-                    slot.value = scalarText(await decodeOutput(bytes, field.abi!), field.abi!);
+                    const decoded = await decodeOutput(bytes, field.abi!);
+                    slot.value = scalarText(decoded, field.abi!);
+                    slot.data = decodedJsonValue(decoded, field.abi!);
                 } catch (error) {
                     slot.value = `(read failed: ${stateReadError(error)})`;
                 }
@@ -577,7 +584,7 @@ export async function readState(
             decodedFields.push(...slot.nested.fields);
             containers.push(...slot.nested.containers);
         } else if (slot.value !== undefined) {
-            decodedFields.push({ name: slot.field.name, value: slot.value });
+            decodedFields.push({ name: slot.field.name, value: slot.value, ...(slot.data !== undefined ? { data: slot.data } : {}) });
         }
     }
 

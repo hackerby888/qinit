@@ -382,6 +382,47 @@ export async function decodeOutput(bytes: Uint8Array, fmt: string | AbiType): Pr
     return decoded;
 }
 
+// ---------- decoded value -> JSON shape ----------
+// The decoder yields positional arrays for structs; this names them so a machine consumer reads the tree
+// the IDL describes. Scalars stay as decoded: bigint for 64/128-bit, identity text for id.
+export function abiJsonValue(value: any, type: AbiType): unknown {
+    switch (type.kind) {
+        case AbiTypeKind.SCALAR:
+        case AbiTypeKind.BIT_ARRAY:
+            return value;
+        case AbiTypeKind.STRUCT: {
+            const values = Array.isArray(value) ? value : [value];
+            const named: Record<string, unknown> = {};
+            type.fields.forEach((field, index) => {
+                named[field.name] = abiJsonValue(values[index], field.type);
+            });
+            return named;
+        }
+        case AbiTypeKind.ARRAY:
+            return Array.isArray(value) ? value.map((item) => abiJsonValue(item, type.element)) : value;
+        case AbiTypeKind.HASH_MAP:
+            return Array.isArray(value)
+                ? value.map((entry) => ({ ...entry, key: abiJsonValue(entry.key, type.key), value: abiJsonValue(entry.value, type.value) }))
+                : value;
+        case AbiTypeKind.HASH_SET:
+            return Array.isArray(value) ? value.map((entry) => ({ ...entry, key: abiJsonValue(entry.key, type.key) })) : value;
+        case AbiTypeKind.COLLECTION:
+        case AbiTypeKind.LINKED_LIST:
+            return Array.isArray(value) ? value.map((entry) => ({ ...entry, value: abiJsonValue(entry.value, type.value) })) : value;
+    }
+}
+
+// The JSON shape of what decodeOutput returned, which already unwrapped a one-field struct to its value.
+export function decodedJsonValue(value: any, type: AbiType): unknown {
+    if (type.kind === AbiTypeKind.STRUCT && type.fields.length === 0) {
+        return {};
+    }
+    if (type.kind === AbiTypeKind.STRUCT && type.fields.length === 1) {
+        return abiJsonValue(value, type.fields[0].type);
+    }
+    return abiJsonValue(value, type);
+}
+
 export async function decodeAbiValue(bytes: Uint8Array, type: AbiType): Promise<any> {
     return await decodeAbiType(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), 0, type);
 }
@@ -951,7 +992,8 @@ export async function encodeInput(fmt: string): Promise<Uint8Array> {
 
 // ---------- --in against the IDL: every token checked against the field it lands in ----------
 export type InputStruct = { kind: "struct"; items: InputNode[]; raw: string };
-export type InputNode = InputStruct | { kind: "array"; count: number | null; items: InputNode[]; raw: string } | { kind: "scalar"; type: string; text: string; raw: string };
+export type InputNode =
+    InputStruct | { kind: "array"; count: number | null; items: InputNode[]; raw: string } | { kind: "scalar"; type: string; text: string; raw: string };
 
 const WIDE_SUFFIXES = ["m256i", "uint128", "sint128", "id"];
 

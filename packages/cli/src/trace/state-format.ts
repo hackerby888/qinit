@@ -46,7 +46,9 @@ export type StateField = {
 // separates an occupied slot from a skipped range.
 export type StateLine = { label: string; text: string; filled: boolean };
 
-export const jstr = (value: any) => JSON.stringify(value, (_key, item) => (typeof item === "bigint" ? item.toString() : item));
+// JSON.stringify throws on a bigint, and a uint64 past 2^53 would lose digits as a number anyway.
+export const bigintText = (_key: string, value: unknown) => (typeof value === "bigint" ? value.toString() : value);
+export const jstr = (value: any) => JSON.stringify(value, bigintText);
 
 const RUN_MIN = 6;
 const MAX_ITEMS = 32;

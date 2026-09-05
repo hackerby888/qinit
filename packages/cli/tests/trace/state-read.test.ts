@@ -48,7 +48,7 @@ const readLayout = (rpc: StateReader, options = {}) => readState(rpc, 7, SRC, "L
 test("a complete read decodes the scalars and loads every container", async () => {
     const state = await readLayout(honestReader());
 
-    expect(state.fields[0]).toEqual({ name: "counter", value: "42" });
+    expect(state.fields[0]).toEqual({ name: "counter", value: "42", data: 42n });
     expect(state.fields[1].value).toMatch(/^[A-Z]{60}$/);
     expect(state.containers.map((container) => `${container.name}/${container.kind}/${container.status}`)).toEqual([
         "nums/array/loaded",

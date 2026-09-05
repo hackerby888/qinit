@@ -487,6 +487,12 @@ JSON is also not automatic. A command must explicitly:
 4. Set the correct exit status.
 5. Exit Ink.
 
+A JSON result carries values as data, not as the rendered text: a struct is a
+name-keyed object, an array an array, and 64/128-bit integers are decimal
+strings. Run markers (`×N`) and the `+N more` elision belong to the human view
+only, so `--all` changes nothing under `--json`; a `state --json` field whose
+read failed carries `value: null` and the message in `error`.
+
 The common one-shot component lifecycle is:
 
 ```text

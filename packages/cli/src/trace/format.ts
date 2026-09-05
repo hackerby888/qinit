@@ -1,5 +1,5 @@
 // Decodes one debug trace entry into the strings the trace views render.
-import { decodeOutput, decodeLog, type DecodedLog } from "@qinit/proto";
+import { decodeOutput, decodeLog, decodedJsonValue, type DecodedLog } from "@qinit/proto";
 import { AbiTypeKind, type AbiType, type ContractCheat, type ContractIdl } from "@qinit/proto/contract-idl";
 import type { DebugCheat } from "@qinit/core";
 import { extractIdl } from "@qinit/build";
@@ -12,6 +12,9 @@ import { bytesToIdentity, hexToBytes, type DebugEntry } from "@qinit/core";
 export interface DecodedTrace {
     inDecoded: string;
     outDecoded: string;
+    // The same values as data, for --json; absent when the bytes could not be decoded.
+    inJson?: unknown;
+    outJson?: unknown;
     caller: string;
     fields: StateField[];
     stateDiff: StateDiffLine[];
@@ -32,6 +35,8 @@ export async function describeTrace(
 ): Promise<DecodedTrace> {
     let input = entry.inHex ? "0x" + entry.inHex : "(none)";
     let output = entry.outHex ? "0x" + entry.outHex : "(none)";
+    let inputJson: unknown;
+    let outputJson: unknown;
     let caller = "(none)";
 
     if (entry.kind === 1 && !/^0+$/.test(entry.invocator)) {
@@ -59,12 +64,18 @@ export async function describeTrace(
         const inputType = entry.kind === MIGRATE ? idl.migration?.oldState : metadata?.input;
 
         if (inputType && entry.inHex) {
-            input = await orElse(input, async () => formatStateValue(await decodeOutput(hexToBytes(entry.inHex), inputType), inputType, false, true));
+            await orElse(undefined, async () => {
+                const decoded = await decodeOutput(hexToBytes(entry.inHex), inputType);
+                input = formatStateValue(decoded, inputType, false, true);
+                inputJson = decodedJsonValue(decoded, inputType);
+            });
         }
         if (metadata && entry.outHex) {
-            output = await orElse(output, async () =>
-                formatStateValue(await decodeOutput(hexToBytes(entry.outHex), metadata.output), metadata.output, false, true),
-            );
+            await orElse(undefined, async () => {
+                const decoded = await decodeOutput(hexToBytes(entry.outHex), metadata.output);
+                output = formatStateValue(decoded, metadata.output, false, true);
+                outputJson = decodedJsonValue(decoded, metadata.output);
+            });
         }
 
         // The fields stand on their own: a diff that cannot be read must not make the state look absent.
@@ -84,6 +95,8 @@ export async function describeTrace(
     return {
         inDecoded: input,
         outDecoded: output,
+        ...(inputJson !== undefined ? { inJson: inputJson } : {}),
+        ...(outputJson !== undefined ? { outJson: outputJson } : {}),
         caller,
         fields,
         stateDiff,

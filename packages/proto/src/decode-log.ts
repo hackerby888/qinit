@@ -1,6 +1,6 @@
 // Decode a contract LOG_* call. Qubic SCs cannot use strings (qpi forbids ""), so logs are NUMERIC STRUCTS.
 // A log ends at its `sint8 _terminator`; the node records every preceding byte.
-import { decodeOutput, structFieldOffsets } from "./abi-fmt";
+import { abiJsonValue, decodeOutput, structFieldOffsets } from "./abi-fmt";
 import { LOG_SEVERITY as SEVERITY } from "./protocol";
 import { AbiTypeKind, type AbiStruct, type ContractLog } from "./contract-idl";
 import { hexToBytes } from "@qinit/core";
@@ -51,10 +51,7 @@ export async function decodeLog(type: number, size: number, hex: string, catalog
             const decoded = await decodeOutput(structBytes, struct);
             // decodeOutput unwraps a one-field struct to its bare value, which may itself be an array.
             const vals = struct.fields.length === 1 ? [decoded] : (decoded as unknown[]);
-            const fields: Record<string, unknown> = {};
-            struct.fields.forEach((field, index) => {
-                fields[field.name] = vals[index];
-            });
+            const fields = abiJsonValue(vals, struct) as Record<string, unknown>;
             const tv = fields["_type"];
             const typeName = enums && (typeof tv === "number" || typeof tv === "bigint") ? enums[String(tv)] : undefined;
             return {

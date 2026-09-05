@@ -187,7 +187,7 @@ test("describeTrace: no source -> raw hex passthrough, no decode", async () => {
 
 test("readState: scalar fields decoded + container entries", async () => {
     const state = await readState(fakeRpc([...le(7, 8), ...hashmapBuf(42)]), 7, SRC, "Counter");
-    expect(state.fields).toEqual([{ name: "counter", value: "7" }]); // bal is a container -> not a scalar
+    expect(state.fields).toEqual([{ name: "counter", value: "7", data: 7n }]); // bal is a container -> not a scalar
     expect(state.complete).toBe(true);
     expect(state.containers).toHaveLength(1);
     expect(state.containers[0].name).toBe("bal");

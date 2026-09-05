@@ -10,6 +10,7 @@ import { Select, type SelItem } from "../../ui/prompt";
 import { invalidArgs, output, type CommandArguments } from "../../args";
 import { readStateDigest, type StateDigestResult } from "../../contracts/state-digest";
 import { dumpContractState, type StateDumpResult } from "../../contracts/state-dump";
+import { bigintText } from "../../trace/state-format";
 
 type DigestOutput = StateDigestResult | { ok: false; error: string };
 type DumpOutput = StateDumpResult | { ok: false; error: string };
@@ -36,7 +37,7 @@ export function stateJsonResult(contract: string, slot: number | null, state: De
         contract: contract || null,
         slot,
         complete: state?.complete ?? null,
-        fields: state?.fields.map((field) => ({ name: field.name, value: field.value })) ?? [],
+        fields: state?.fields.map((field) => ({ name: field.name, value: field.data ?? null, error: field.data === undefined ? field.value : null })) ?? [],
         containers:
             state?.containers.map((container) => ({
                 index: container.index,
@@ -398,7 +399,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
             return () => clearTimeout(t);
         }
         if (!o.digest && !o.dump && (phase === "show" || phase === "done")) {
-            if (output.json) process.stdout.write(JSON.stringify(stateJsonResult(name, contractIndexRef.current, decodedState, errorText)) + "\n");
+            if (output.json) process.stdout.write(JSON.stringify(stateJsonResult(name, contractIndexRef.current, decodedState, errorText), bigintText) + "\n");
             if (lines.some((l) => l.startsWith("ERROR")) || decodedState?.complete === false) {
                 process.exitCode = 1;
             }

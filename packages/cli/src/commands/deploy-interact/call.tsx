@@ -10,6 +10,7 @@ import {
     encodeInput,
     encodeInputJson,
     encodeInputTyped,
+    decodedJsonValue,
     parseInputJson,
     checkInputSize,
     zeroInputFormat,
@@ -19,7 +20,7 @@ import {
 import { AbiTypeKind, formatAbiType, type ContractEntry } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { describeTrace, mergePrints, type DecodedCheat, type DecodedTrace } from "../../trace/format";
-import { fmtVal, formatStateValue } from "../../trace/state-format";
+import { fmtVal, formatStateValue, bigintText } from "../../trace/state-format";
 import { entryLabel } from "../../trace/entry-label";
 import { TraceView } from "../../trace/views";
 import { CallInteractive, type CollectedCall } from "./call-interactive";
@@ -40,8 +41,8 @@ type Result = {
     err?: string;
 };
 type Trace = { e: DebugEntry; name: string; entry: string; view: DecodedTrace };
-// What --json reports beyond the result itself: the values the rendered rows hold as text.
-type CallFacts = { contract: string; slot: number; entry: string; tick?: number; tx?: string; out?: string };
+// What --json reports beyond the result itself: `out` is the rendered row, `outJson` the same value as data.
+type CallFacts = { contract: string; slot: number; entry: string; tick?: number; tx?: string; out?: string; outJson?: unknown };
 type Confirm = { start: number; net: number; target: number };
 type CallMode = "fn" | "proc";
 
@@ -70,7 +71,7 @@ export function callJsonResult(
         kind: mode === "fn" ? "function" : "procedure",
         tick: facts?.tick ?? trace?.e.tick ?? null,
         tx: facts?.tx ?? null,
-        out: facts?.out ?? trace?.view.outDecoded ?? null,
+        out: facts?.outJson ?? trace?.view.outJson ?? trace?.view.outDecoded ?? null,
         error: result?.err ?? null,
         ...(trapped ? { trap: trace?.e.trap ?? null } : {}),
         ...(warnings.length ? { warnings: [...warnings] } : {}),
@@ -78,7 +79,7 @@ export function callJsonResult(
             ? {
                   execNs: trace.e.execNs,
                   caller: trace.view.caller,
-                  in: trace.view.inDecoded,
+                  in: trace.view.inJson ?? trace.view.inDecoded,
                   state: trace.view.stateDiff.map((line) => ({ label: line.label, detail: line.detail, text: line.text, internal: line.internal })),
                   logs: trace.view.logs.map((log) => ({
                       severity: log.severity,
@@ -119,8 +120,6 @@ function outputSizeOf(format: string): number | undefined {
     }
 }
 
-// Log fields decode to bigint, which JSON.stringify throws on, and a uint64 past 2^53 would lose
-// digits as a number anyway.
 // A transfer amount is whole qu on the wire; anything Number() would quietly reshape (1e3, 0x10, a value
 // past 2^53) is refused here so the amount signed is the amount typed.
 export function parseAmountQu(text: string | undefined): bigint {
@@ -137,7 +136,7 @@ export function parseAmountQu(text: string | undefined): bigint {
     return amount;
 }
 
-export const bigintText = (_key: string, value: unknown) => (typeof value === "bigint" ? value.toString() : value);
+export { bigintText };
 
 // The wizard's answers as if they had been typed. A key present in `overrides` wins even when its value is
 // undefined, so a stray --args/--out/--amount cannot outlive the prompt that replaced it.
@@ -369,7 +368,8 @@ function CallOneShot({
                     const ne = empty ? await nodeErr() : "";
                     // An explicit --out format overrides the IDL, and only the IDL type carries field names.
                     const rendered = !outputFormat && entryIdl ? formatStateValue(out, entryIdl.output, showAll, true) : fmtVal(out, showAll);
-                    setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, out: rendered });
+                    const outJson = !outputFormat && entryIdl ? decodedJsonValue(out, entryIdl.output) : out;
+                    setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, out: rendered, outJson });
                     setResult({
                         ok: ne ? false : true,
                         label,

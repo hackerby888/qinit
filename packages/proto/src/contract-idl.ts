@@ -377,7 +377,8 @@ function contractEnum(value: unknown, label: string): ContractEnum {
 
 function contractLog(value: unknown, label: string): ContractLog {
     const entry = objectValue(value, label);
-    const types = entry.types === undefined ? undefined : arrayValue(entry.types, `${label} types`).map((item, index) => uintValue(item, `${label} type ${index}`));
+    const types =
+        entry.types === undefined ? undefined : arrayValue(entry.types, `${label} types`).map((item, index) => uintValue(item, `${label} type ${index}`));
     return {
         name: stringValue(entry.name, `${label} name`),
         type: abiStruct(entry.type, `${label} type`, true),
