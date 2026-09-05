@@ -27,6 +27,14 @@ export function logPayloadDefect(layout: StructLayout): LogPayloadDefect | null 
         return LogPayloadDefect.TERMINATOR_TOO_EARLY;
     }
 
+    // Both backends log offsetof(_terminator) bytes, so a field declared after it is silently dropped
+    // and the record no longer matches the IDL's size.
+    for (const field of layout.fields.values()) {
+        if (field.offset > terminator.offset) {
+            return LogPayloadDefect.FIELD_AFTER_TERMINATOR;
+        }
+    }
+
     if (!headerWordIsReserved(layout)) {
         return LogPayloadDefect.HEADER_WORD_NOT_RESERVED;
     }
@@ -64,6 +72,8 @@ export function logPayloadMessage(callName: string, defect: LogPayloadDefect): s
             return `${callName} payload ${LOG_TERMINATOR_FIELD} offset must be at least ${MIN_TERMINATOR_OFFSET_BYTES} bytes`;
         case LogPayloadDefect.HEADER_WORD_NOT_RESERVED:
             return `${callName} payload ${LOG_HEADER_WORD_HINT}`;
+        case LogPayloadDefect.FIELD_AFTER_TERMINATOR:
+            return `${callName} payload ${LOG_TERMINATOR_FIELD} must be the last field; a field after it is never logged`;
     }
 }
 

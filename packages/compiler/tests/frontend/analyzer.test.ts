@@ -328,6 +328,15 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(findings[0].span.line).toBe(LOG_CALL_LINE);
     });
 
+    test("a field declared after _terminator is reported at the call", () => {
+        const source = LOGGING_SOURCE.replace("sint8 _terminator;", "sint8 _terminator; uint64 checksum;");
+        const findings = compilerDiagnostics(source);
+
+        expect(findings.map((item) => item.message)).toEqual(["__qinit_log_info payload _terminator must be the last field; a field after it is never logged"]);
+        expect(findings[0].severity).toBe(DiagnosticSeverity.ERROR);
+        expect(findings[0].span.line).toBe(LOG_CALL_LINE);
+    });
+
     test("a scalar payload is reported as a non-struct", () => {
         const source = LOGGING_SOURCE.replace("LOG_INFO(locals.message);", "LOG_INFO(input.value);");
 
