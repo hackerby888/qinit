@@ -5,7 +5,7 @@ import { parseCallees } from "../../src/contracts/callees";
 test("parseCallees parses repeated declarations", () => {
     expect(parseCallees(["Counter=contracts/Counter.h", "Oracle=Oracle.h@29"])).toEqual({
         Counter: { header: resolve("contracts/Counter.h") },
-        Oracle: { header: resolve("Oracle.h"), index: 29 },
+        Oracle: { header: resolve("Oracle.h"), slot: 29 },
     });
 });
 

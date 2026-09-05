@@ -3,14 +3,15 @@ import { useEffect, useState } from "react";
 import { resolve, join, basename } from "node:path";
 import { writeFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
-import type { ContractBuildResult } from "@qinit/build";
+import { resolveContracts, type ContractBuildResult } from "@qinit/build";
 import { DEFAULT_RPC_BASE, autoUpdateVerifyTool, LiteRpc, loadCoreWasmSlotLayout } from "@qinit/core";
 import { loadConfig, resolveCoreDir, resolveCompilerBackend } from "../../config";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
-import { buildProjectContracts, resolveProjectPlan } from "../../ops/project-build";
+import { compileContracts } from "../../ops/project-build";
+import { assignSlots } from "@qinit/build/contracts/project-slots";
 
 type State = { phase: "run" } | { phase: "done"; r: ContractBuildResult };
 
@@ -50,21 +51,23 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                     new Promise<undefined>((resolveTimeout) => setTimeout(() => resolveTimeout(undefined), 2500)),
                 ]);
                 const slotLayout = registry ?? loadCoreWasmSlotLayout(core);
-                const plan = resolveProjectPlan({
-                    projectRoot: process.cwd(),
-                    core,
-                    contractPath,
-                    name,
-                    slot,
-                    explicitCallees: dynCallees,
+                const plan = assignSlots(
+                    resolveContracts({
+                        projectRoot: process.cwd(),
+                        corePath: core,
+                        contractPath,
+                        contractName: name,
+                        slot,
+                        explicitCallees: dynCallees,
+                    }),
                     slotLayout,
                     registry,
-                });
+                );
 
-                if (compiler === "clang") {
+                if (compiler === "clang" || compiler === "typescript") {
                     await autoUpdateVerifyTool();
                 }
-                const project = await buildProjectContracts({
+                const project = await compileContracts({
                     plan,
                     core,
                     compiler,

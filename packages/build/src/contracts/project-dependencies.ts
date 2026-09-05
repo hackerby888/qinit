@@ -5,30 +5,30 @@ import { detectContractName } from "@qinit/compiler/analyzer";
 import { scanCallees } from "./intercontract";
 import { systemContracts, type SystemContract } from "./system-contracts";
 
-export interface ProjectCalleeInput {
+export interface CalleeInput {
     header: string;
-    index?: number;
+    slot?: number;
 }
 
-export interface ProjectContractNode {
+export interface ResolvedContract {
     kind: "custom" | "system";
     name: string;
     stateType: string;
     sourcePath: string;
     source: string;
-    index?: number;
-    dependencies: string[];
+    slot?: number;
+    callees: string[];
     // Pulled in by includeWorkspaceSiblings rather than by a reference from the contract being resolved.
-    eager?: boolean;
+    workspaceSibling?: boolean;
 }
 
-export interface ResolveProjectDependenciesOptions {
+export interface ResolveContractsOptions {
     projectRoot: string;
     corePath: string;
     contractName: string;
     contractPath: string;
-    contractIndex?: number;
-    explicitCallees?: Readonly<Record<string, ProjectCalleeInput>>;
+    slot?: number;
+    explicitCallees?: Readonly<Record<string, CalleeInput>>;
     additionalRootSource?: string;
     // Editors want every contract in the workspace, not only the ones the root already references.
     includeWorkspaceSiblings?: boolean;
@@ -67,7 +67,7 @@ function workspaceHeaders(projectRoot: string): Map<string, string[]> {
     return headers;
 }
 
-function readCustomNode(name: string, sourcePath: string, index?: number): ProjectContractNode {
+function readCustomNode(name: string, sourcePath: string, slot?: number): ResolvedContract {
     if (!existsSync(sourcePath) || !statSync(sourcePath).isFile()) {
         throw new Error(`callee '${name}' source is missing: ${sourcePath}`);
     }
@@ -78,35 +78,38 @@ function readCustomNode(name: string, sourcePath: string, index?: number): Proje
         stateType: name,
         sourcePath,
         source: readFileSync(sourcePath, "utf8"),
-        index,
-        dependencies: [],
+        slot,
+        callees: [],
     };
 }
 
-function systemNode(corePath: string, contract: SystemContract): ProjectContractNode {
+function systemNode(corePath: string, contract: SystemContract): ResolvedContract {
     return {
         kind: "system",
         name: contract.name,
         stateType: contract.stateType,
         sourcePath: join(corePath, "src", "contracts", contract.file),
         source: contract.source,
-        index: contract.index,
-        dependencies: [],
+        slot: contract.index,
+        callees: [],
     };
 }
 
-export function resolveProjectDependencies(options: ResolveProjectDependenciesOptions): ProjectContractNode[] {
+export function resolveContracts(options: ResolveContractsOptions): ResolvedContract[] {
     const projectRoot = resolve(options.projectRoot);
     const corePath = resolve(projectRoot, options.corePath);
     const contractPath = resolve(projectRoot, options.contractPath);
     const explicitCallees = options.explicitCallees ?? {};
     const catalog = systemContracts(corePath);
-    const systemByReference = new Map<string, SystemContract>();
+    // Two maps keep the resolution order explicit: a reference is a struct type (stateType) first,
+    // and only falls back to the on-chain name / header basename when no type matches.
+    const systemsByStateType = new Map<string, SystemContract>();
+    const systemsByName = new Map<string, SystemContract>();
     const reservedSystemNames = new Map<string, SystemContract>();
 
     for (const contract of catalog) {
-        systemByReference.set(contract.name, contract);
-        systemByReference.set(contract.stateType, contract);
+        systemsByStateType.set(contract.stateType, contract);
+        systemsByName.set(contract.name, contract);
         reservedSystemNames.set(contract.name.toLowerCase(), contract);
         reservedSystemNames.set(contract.stateType.toLowerCase(), contract);
     }
@@ -128,36 +131,47 @@ export function resolveProjectDependencies(options: ResolveProjectDependenciesOp
 
     const qpiHeader = loadQpiHeader(corePath);
     const headers = workspaceHeaders(projectRoot);
-    const knownCallees = new Set([...systemByReference.keys(), ...Object.keys(explicitCallees), ...headers.keys()]);
-    const nodes = new Map<string, ProjectContractNode>();
+    const knownCallees = new Set([...systemsByStateType.keys(), ...systemsByName.keys(), ...Object.keys(explicitCallees), ...headers.keys()]);
+    const nodes = new Map<string, ResolvedContract>();
     const visitState = new Map<string, "visiting" | "visited">();
     const stack: string[] = [];
-    const ordered: ProjectContractNode[] = [];
-    const root = readCustomNode(options.contractName, contractPath, options.contractIndex);
+    const ordered: ResolvedContract[] = [];
+    const root = readCustomNode(options.contractName, contractPath, options.slot);
     nodes.set(root.stateType, root);
 
-    const resolveCallee = (reference: string, caller: ProjectContractNode): ProjectContractNode => {
+    const resolveSystem = (system: SystemContract): ResolvedContract => {
+        const existing = nodes.get(system.stateType);
+        if (existing) {
+            return existing;
+        }
+        const node = systemNode(corePath, system);
+        nodes.set(node.stateType, node);
+        return node;
+    };
+
+    const resolveCallee = (reference: string, caller: ResolvedContract): ResolvedContract => {
         const known = nodes.get(reference);
         if (known) {
             return known;
         }
 
+        // stateType is the primary key: scanCallees emits struct type names.
+        const system = systemsByStateType.get(reference);
+        if (system) {
+            return resolveSystem(system);
+        }
+
         const explicit = explicitCallees[reference];
         if (explicit) {
-            const node = readCustomNode(reference, resolve(projectRoot, explicit.header), explicit.index);
+            const node = readCustomNode(reference, resolve(projectRoot, explicit.header), explicit.slot);
             nodes.set(node.stateType, node);
             return node;
         }
 
-        const system = systemByReference.get(reference);
-        if (system) {
-            const existing = nodes.get(system.stateType);
-            if (existing) {
-                return existing;
-            }
-            const node = systemNode(corePath, system);
-            nodes.set(node.stateType, node);
-            return node;
+        // name fallback: a system contract's on-chain name, or a workspace name.h header.
+        const systemByName = systemsByName.get(reference);
+        if (systemByName) {
+            return resolveSystem(systemByName);
         }
 
         const candidates = headers.get(reference) ?? [];
@@ -179,7 +193,7 @@ export function resolveProjectDependencies(options: ResolveProjectDependenciesOp
         );
     };
 
-    const visit = (node: ProjectContractNode): void => {
+    const visit = (node: ResolvedContract): void => {
         const state = visitState.get(node.stateType);
         if (state === "visited") {
             return;
@@ -199,17 +213,17 @@ export function resolveProjectDependencies(options: ResolveProjectDependenciesOp
                 source,
                 {
                     contractName: node.stateType,
-                    slot: node.index,
+                    slot: node.slot,
                     qpiHeader,
                 },
                 knownCallees,
             ),
         ].sort();
-        const dependencies = references.map((reference) => resolveCallee(reference, node));
-        node.dependencies = dependencies.map((dependency) => dependency.stateType);
+        const callees = references.map((reference) => resolveCallee(reference, node));
+        node.callees = callees.map((callee) => callee.stateType);
 
-        for (const dependency of dependencies) {
-            visit(dependency);
+        for (const callee of callees) {
+            visit(callee);
         }
 
         stack.pop();
@@ -228,11 +242,11 @@ export function resolveProjectDependencies(options: ResolveProjectDependenciesOp
 
 interface SiblingVisit {
     headers: Map<string, string[]>;
-    nodes: Map<string, ProjectContractNode>;
+    nodes: Map<string, ResolvedContract>;
     visitState: Map<string, "visiting" | "visited">;
     stack: string[];
-    ordered: ProjectContractNode[];
-    visit: (node: ProjectContractNode) => void;
+    ordered: ResolvedContract[];
+    visit: (node: ResolvedContract) => void;
     reservedSystemNames: Map<string, SystemContract>;
 }
 
@@ -257,7 +271,7 @@ function visitWorkspaceSiblings(o: SiblingVisit): void {
             o.nodes.set(sibling.stateType, sibling);
             o.visit(sibling);
             for (const node of o.ordered.slice(orderedLength)) {
-                node.eager = true;
+                node.workspaceSibling = true;
             }
         } catch {
             o.stack.length = 0;

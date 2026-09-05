@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { resolveProjectDependencies, type ProjectContractNode } from "@qinit/build/contracts/project-dependencies";
-import { planProjectSlots } from "@qinit/build/contracts/project-slots";
+import { resolveContracts, type ResolvedContract } from "@qinit/build/contracts/project-dependencies";
+import { assignSlots } from "@qinit/build/contracts/project-slots";
 import { systemContracts, type SystemContract } from "@qinit/build/contracts/system-contracts";
 import type { ContractIdl } from "@qinit/build/compile/idl";
 import type { DynCallees } from "@qinit/build/contracts/intercontract";
@@ -13,8 +13,8 @@ import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm/slot-layout";
 import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { contractStateType, findProjectRoot, QINIT_JSON } from "./project-util";
 
-interface PlannedProjectNode extends ProjectContractNode {
-    index: number;
+interface SlottedContract extends ResolvedContract {
+    slot: number;
 }
 
 export interface ProjectAnalysisContext extends Omit<AnalyzeContractOptions, "source"> {
@@ -32,27 +32,27 @@ export interface ProjectSourceDetails {
     analysis: ProjectAnalysisContext;
 }
 
-export function planEditorProjectSlots(nodes: readonly ProjectContractNode[], layout: { slotBase: number; slotCount: number }): PlannedProjectNode[] {
-    return planProjectSlots(nodes, layout);
+export function planEditorProjectSlots(nodes: readonly ResolvedContract[], layout: { slotBase: number; slotCount: number }): SlottedContract[] {
+    return assignSlots(nodes, layout);
 }
 
 // Eagerly indexed siblings take slots too, so a workspace with more contracts than the dynamic window
 // would stop planning altogether. Drop them and keep the contracts the project actually builds.
-function planWithSiblings(nodes: readonly ProjectContractNode[], layout: { slotBase: number; slotCount: number }): PlannedProjectNode[] {
+function planWithSiblings(nodes: readonly ResolvedContract[], layout: { slotBase: number; slotCount: number }): SlottedContract[] {
     try {
         return planEditorProjectSlots(nodes, layout);
     } catch (error) {
-        if (!nodes.some((node) => node.eager)) {
+        if (!nodes.some((node) => node.workspaceSibling)) {
             throw error;
         }
         return planEditorProjectSlots(
-            nodes.filter((node) => !node.eager),
+            nodes.filter((node) => !node.workspaceSibling),
             layout,
         );
     }
 }
 
-function transitiveDependencies(contract: PlannedProjectNode, nodes: readonly PlannedProjectNode[]): PlannedProjectNode[] {
+function calleeClosure(contract: SlottedContract, nodes: readonly SlottedContract[]): SlottedContract[] {
     const byStateType = new Map(nodes.map((node) => [node.stateType, node]));
     const wanted = new Set<string>();
 
@@ -60,24 +60,24 @@ function transitiveDependencies(contract: PlannedProjectNode, nodes: readonly Pl
         if (wanted.has(stateType)) {
             return;
         }
-        const dependency = byStateType.get(stateType);
-        if (!dependency) {
+        const callee = byStateType.get(stateType);
+        if (!callee) {
             throw new Error(`${contract.stateType} references unresolved project contract '${stateType}'`);
         }
         wanted.add(stateType);
-        for (const nested of dependency.dependencies) {
+        for (const nested of callee.callees) {
             visit(nested);
         }
     };
 
-    for (const dependency of contract.dependencies) {
-        visit(dependency);
+    for (const callee of contract.callees) {
+        visit(callee);
     }
     return nodes.filter((node) => wanted.has(node.stateType));
 }
 
-function catalogIdl(node: PlannedProjectNode, catalog: readonly SystemContract[]): ContractIdl {
-    const contract = catalog.find((candidate) => candidate.index === node.index || candidate.stateType === node.stateType);
+function catalogIdl(node: SlottedContract, catalog: readonly SystemContract[]): ContractIdl {
+    const contract = catalog.find((candidate) => candidate.index === node.slot || candidate.stateType === node.stateType);
     if (!contract) {
         throw new Error(`system contract '${node.stateType}' is missing from the Core catalog`);
     }
@@ -85,23 +85,23 @@ function catalogIdl(node: PlannedProjectNode, catalog: readonly SystemContract[]
     return {
         ...contract.idl,
         name: node.stateType,
-        slot: node.index,
+        slot: node.slot,
     };
 }
 
 // Every project contract the edited one could name: the ones it already calls, plus the siblings the
 // editor indexed eagerly so `Sibling::` resolves before the first reference is written.
-function visibleDependencies(contract: PlannedProjectNode, nodes: readonly PlannedProjectNode[]): PlannedProjectNode[] {
-    const dependencies = transitiveDependencies(contract, nodes);
+function visibleDependencies(contract: SlottedContract, nodes: readonly SlottedContract[]): SlottedContract[] {
+    const dependencies = calleeClosure(contract, nodes);
     const referenced = new Set(dependencies.map((node) => node.stateType));
     const siblings = nodes.filter((node) => node.kind === "custom" && node.stateType !== contract.stateType && !referenced.has(node.stateType));
 
     return [...dependencies, ...siblings];
 }
 
-function analysisContext(contract: PlannedProjectNode, nodes: readonly PlannedProjectNode[], corePath: string): ProjectAnalysisContext {
+function analysisContext(contract: SlottedContract, nodes: readonly SlottedContract[], corePath: string): ProjectAnalysisContext {
     const dependencies = visibleDependencies(contract, nodes);
-    const referenced = new Set(transitiveDependencies(contract, nodes).map((node) => node.stateType));
+    const referenced = new Set(calleeClosure(contract, nodes).map((node) => node.stateType));
     const qpiHeader = loadQpiHeader(corePath);
     const catalog = systemContracts(corePath);
     const callees: ContractIdl[] = [];
@@ -115,7 +115,7 @@ function analysisContext(contract: PlannedProjectNode, nodes: readonly PlannedPr
             const result = analyzeContract({
                 source: dependency.source,
                 contractName: dependency.stateType,
-                slot: dependency.index,
+                slot: dependency.slot,
                 qpiHeader,
                 callees: callees.length ? callees : undefined,
                 calleeSources: calleeSources.length ? calleeSources : undefined,
@@ -139,20 +139,20 @@ function analysisContext(contract: PlannedProjectNode, nodes: readonly PlannedPr
         calleeSources.push({
             name: dependency.stateType,
             source: dependency.source,
-            slot: dependency.index,
+            slot: dependency.slot,
         });
     }
 
     const cacheKey = createHash("sha256")
         .update(corePath)
-        .update(String(contract.index))
+        .update(String(contract.slot))
         .update(contract.stateType)
-        .update(dependencies.map((dependency) => `${dependency.stateType}\0${dependency.index}\0${dependency.source}`).join("\0"))
+        .update(dependencies.map((dependency) => `${dependency.stateType}\0${dependency.slot}\0${dependency.source}`).join("\0"))
         .digest("hex");
 
     return {
         contractName: contract.stateType,
-        slot: contract.index,
+        slot: contract.slot,
         qpiHeader,
         callees: callees.length ? callees : undefined,
         calleeSources: calleeSources.length ? calleeSources : undefined,
@@ -212,12 +212,12 @@ export function resolveProjectSourceDetails(options: { filePath: string; workspa
         mainSource = readFileSync(mainPath, "utf8");
     } catch {}
     const mainName = config.contractName ?? contractStateType(mainSource) ?? basename(mainPath).replace(/\.[^.]+$/, "");
-    const nodes = resolveProjectDependencies({
+    const nodes = resolveContracts({
         projectRoot,
         corePath,
         contractName: mainName,
         contractPath: mainPath,
-        contractIndex: config.slot,
+        slot: config.slot,
         includeWorkspaceSiblings: true,
     });
     const planned = planWithSiblings(nodes, loadCoreWasmSlotLayout(corePath));
@@ -235,7 +235,7 @@ export function resolveProjectSourceDetails(options: { filePath: string; workspa
                 dependency.stateType,
                 {
                     header: dependency.sourcePath.replace(/\\/g, "/"),
-                    index: dependency.index,
+                    slot: dependency.slot,
                 },
             ]),
     );
@@ -246,7 +246,7 @@ export function resolveProjectSourceDetails(options: { filePath: string; workspa
         wasiSysrootPath: availableWasiSysroot,
         contractPath: contract.sourcePath,
         name: contract.stateType,
-        slot: contract.index,
+        slot: contract.slot,
         dynCallees,
         analysis: analysisContext(contract, planned, corePath),
     };

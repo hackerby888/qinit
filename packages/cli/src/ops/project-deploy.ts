@@ -1,10 +1,11 @@
 import { CheatMode } from "@qinit/compiler";
 import { resolve } from "node:path";
-import type { ProjectCalleeInput } from "@qinit/build";
+import { resolveContracts, type CalleeInput } from "@qinit/build";
 import { LiteRpc, k12Hex, type DynamicContractRegistryEntry, type NodeBackendIdentity } from "@qinit/core";
 import type { CompilerBackend } from "../config";
 import { systemWasm } from "../contracts/system-wasm";
-import { buildProjectContracts, resolveProjectPlan, type BuiltProjectContract, type PlannedProjectContract } from "./project-build";
+import { compileContracts, type BuiltContract, type SlottedContract } from "./project-build";
+import { assignSlots } from "@qinit/build/contracts/project-slots";
 import { deployContract, type DeployResult } from "./deploy";
 import type { DeploymentEvent } from "./deploy/steps";
 import { DEFAULT_IDL_PATH, saveContractIdl } from "../contracts/idl-file";
@@ -36,17 +37,17 @@ function dependencyEvent(emit: (event: DeploymentEvent) => void, message: string
     emit({ note: message });
 }
 
-async function saveBuiltMetadata(rpc: LiteRpc, built: BuiltProjectContract, idlPath: string): Promise<void> {
-    await rpc.putContractSource(built.contract.index, built.contract.source);
+async function saveBuiltMetadata(rpc: LiteRpc, built: BuiltContract, idlPath: string): Promise<void> {
+    await rpc.putContractSource(built.contract.slot, built.contract.source);
     if (!built.result.idl) {
         return;
     }
 
     saveContractIdl(
-        built.contract.index,
+        built.contract.slot,
         {
             ...built.result.idl,
-            slot: built.contract.index,
+            slot: built.contract.slot,
             codeHash: built.hash,
             debugWasm: built.result.debugWasmPath ? resolve(built.result.debugWasmPath) : undefined,
             linesJson: built.result.lineMapPath ? resolve(built.result.lineMapPath) : undefined,
@@ -63,7 +64,7 @@ export async function deployProjectContracts(
         core: string;
         rpcBaseUrl: string;
         seed?: string;
-        explicitCallees?: Readonly<Record<string, ProjectCalleeInput>>;
+        explicitCallees?: Readonly<Record<string, CalleeInput>>;
         slotOverride?: number;
         outDir?: string;
         skipVerify?: boolean;
@@ -82,16 +83,18 @@ export async function deployProjectContracts(
 
     const registry = await rpc.dynRegistry();
     emit({ step: "slot", state: "active", detail: "planning project slots…" });
-    const plan = resolveProjectPlan({
-        projectRoot: options.projectRoot,
-        core: options.core,
-        contractPath: options.contractPath,
-        name: options.name,
-        slot: options.slotOverride,
-        explicitCallees: options.explicitCallees,
-        slotLayout: registry,
+    const plan = assignSlots(
+        resolveContracts({
+            projectRoot: options.projectRoot,
+            corePath: options.core,
+            contractPath: options.contractPath,
+            contractName: options.name,
+            slot: options.slotOverride,
+            explicitCallees: options.explicitCallees,
+        }),
         registry,
-    });
+        registry,
+    );
     const main = plan.at(-1);
     if (!main || main.kind !== "custom" || main.name !== options.name) {
         throw new Error(`project dependency graph did not end with Main '${options.name}'`);
@@ -99,18 +102,18 @@ export async function deployProjectContracts(
     emit({
         step: "slot",
         state: "ok",
-        detail: `${plan.filter((contract) => contract.kind === "custom").length} custom · Main slot ${main.index}`,
+        detail: `${plan.filter((contract) => contract.kind === "custom").length} custom · Main slot ${main.slot}`,
     });
 
     emit({ step: "build", state: "active", detail: "compiling project graph…" });
-    const projectBuild = await buildProjectContracts({
+    const projectBuild = await compileContracts({
         plan,
         core: options.core,
         compiler: options.compiler,
         outDir: resolve(options.outDir ?? "dist/contracts"),
         skipVerify: options.skipVerify,
         cheats: options.cheats,
-        onContract: (contract) => dependencyEvent(emit, `building ${contract.name} @ slot ${contract.index}`),
+        onContract: (contract) => dependencyEvent(emit, `building ${contract.name} @ slot ${contract.slot}`),
     });
     if (!projectBuild.ok) {
         const error = projectBuild.result?.stderr ?? "compile failed";
@@ -131,7 +134,7 @@ export async function deployProjectContracts(
     }
 
     interface BuiltSystem {
-        contract: PlannedProjectContract;
+        contract: SlottedContract;
         wasm: Uint8Array;
         hash: string;
     }
@@ -141,7 +144,7 @@ export async function deployProjectContracts(
             if (contract.kind !== "system") {
                 continue;
             }
-            dependencyEvent(emit, `building system ${contract.name} @ slot ${contract.index} (${options.compiler})`);
+            dependencyEvent(emit, `building system ${contract.name} @ slot ${contract.slot} (${options.compiler})`);
             const built = await systemWasm(contract.name, options.core, options.compiler);
             systems.push({
                 contract,
@@ -153,7 +156,7 @@ export async function deployProjectContracts(
 
     const registryContracts = registry.contracts ?? [];
     for (const system of systems) {
-        const occupant = deployedAt(registryContracts, system.contract.index);
+        const occupant = deployedAt(registryContracts, system.contract.slot);
         if (occupant && occupant.name !== system.contract.name) {
             return {
                 ok: false,
@@ -164,7 +167,7 @@ export async function deployProjectContracts(
                     ...systems.map((candidate) => candidate.contract.name),
                     ...projectBuild.contracts.map((candidate) => candidate.contract.name),
                 ],
-                error: `system slot ${system.contract.index} is occupied by '${occupant.name}', ` + `expected '${system.contract.name}'`,
+                error: `system slot ${system.contract.slot} is occupied by '${occupant.name}', ` + `expected '${system.contract.name}'`,
             };
         }
     }
@@ -176,10 +179,10 @@ export async function deployProjectContracts(
 
     const deployments: ProjectDeploymentRecord[] = [];
     for (const [systemIndex, system] of systems.entries()) {
-        let occupant = deployedAt(registryContracts, system.contract.index);
+        let occupant = deployedAt(registryContracts, system.contract.slot);
         if (normalizedHash(occupant?.codeHash) === normalizedHash(system.hash)) {
             try {
-                occupant = deployedAt((await rpc.dynRegistry()).contracts ?? [], system.contract.index);
+                occupant = deployedAt((await rpc.dynRegistry()).contracts ?? [], system.contract.slot);
             } catch {
                 occupant = undefined;
             }
@@ -187,18 +190,18 @@ export async function deployProjectContracts(
         if (normalizedHash(occupant?.codeHash) === normalizedHash(system.hash)) {
             deployments.push({
                 name: system.contract.name,
-                slot: system.contract.index,
+                slot: system.contract.slot,
                 kind: "system",
                 action: "skipped",
                 hash: system.hash,
             });
-            dependencyEvent(emit, `system ${system.contract.name} @ ${system.contract.index}: unchanged`);
+            dependencyEvent(emit, `system ${system.contract.name} @ ${system.contract.slot}: unchanged`);
             continue;
         }
 
         let deployed;
         try {
-            deployed = await rpc.directDeploy(system.contract.index, system.wasm, system.contract.name, "system");
+            deployed = await rpc.directDeploy(system.contract.slot, system.wasm, system.contract.name, "system");
         } catch (error: any) {
             return {
                 ok: false,
@@ -227,12 +230,12 @@ export async function deployProjectContracts(
         }
         deployments.push({
             name: system.contract.name,
-            slot: system.contract.index,
+            slot: system.contract.slot,
             kind: "system",
             action: occupant ? "updated" : "deployed",
             hash: system.hash,
         });
-        dependencyEvent(emit, `system ${system.contract.name} @ ${system.contract.index}: ${occupant ? "updated" : "deployed"}`);
+        dependencyEvent(emit, `system ${system.contract.name} @ ${system.contract.slot}: ${occupant ? "updated" : "deployed"}`);
     }
 
     const builtMain = projectBuild.contracts.at(-1);
@@ -243,10 +246,10 @@ export async function deployProjectContracts(
     let mainResult: DeployResult | undefined;
     for (const [builtIndex, built] of projectBuild.contracts.entries()) {
         const isMain = built.contract.stateType === main.stateType;
-        let occupant = deployedAt(registryContracts, built.contract.index);
+        let occupant = deployedAt(registryContracts, built.contract.slot);
         if (!isMain && occupant?.name === built.contract.name && normalizedHash(occupant.codeHash) === normalizedHash(built.hash)) {
             try {
-                occupant = deployedAt((await rpc.dynRegistry()).contracts ?? [], built.contract.index);
+                occupant = deployedAt((await rpc.dynRegistry()).contracts ?? [], built.contract.slot);
             } catch {
                 occupant = undefined;
             }
@@ -259,17 +262,17 @@ export async function deployProjectContracts(
             }
             deployments.push({
                 name: built.contract.name,
-                slot: built.contract.index,
+                slot: built.contract.slot,
                 kind: "custom",
                 action: "skipped",
                 hash: built.hash,
             });
-            dependencyEvent(emit, `callee ${built.contract.name} @ ${built.contract.index}: unchanged`);
+            dependencyEvent(emit, `callee ${built.contract.name} @ ${built.contract.slot}: unchanged`);
             continue;
         }
 
         if (!isMain) {
-            dependencyEvent(emit, `deploying callee ${built.contract.name} @ ${built.contract.index}`);
+            dependencyEvent(emit, `deploying callee ${built.contract.name} @ ${built.contract.slot}`);
         }
         let result: DeployResult;
         try {
@@ -299,7 +302,7 @@ export async function deployProjectContracts(
 
         deployments.push({
             name: built.contract.name,
-            slot: built.contract.index,
+            slot: built.contract.slot,
             kind: isMain ? "main" : "custom",
             action: occupant ? "updated" : "deployed",
             hash: built.hash,
@@ -318,7 +321,7 @@ export async function deployProjectContracts(
 }
 
 async function deployBuiltContract(
-    built: BuiltProjectContract,
+    built: BuiltContract,
     options: {
         projectRoot: string;
         core: string;
@@ -339,7 +342,7 @@ async function deployBuiltContract(
             core: options.core,
             rpcBaseUrl: options.rpcBaseUrl,
             seed: options.seed,
-            slotOverride: built.contract.index,
+            slotOverride: built.contract.slot,
             outDir: options.outDir,
             idlPath: resolve(options.projectRoot, DEFAULT_IDL_PATH),
             skipVerify: options.skipVerify,

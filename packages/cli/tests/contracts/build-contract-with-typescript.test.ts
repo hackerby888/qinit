@@ -103,8 +103,8 @@ test.skipIf(!HAS_CORE)("buildContractWithTypeScript analyzes transitive cyclic c
         corePath: CORE_PATH,
         outDir,
         dynCallees: {
-            Mirror: { header: mirrorPath, index: 30 },
-            Relay: { header: relayPath, index: 29 },
+            Mirror: { header: mirrorPath, slot: 30 },
+            Relay: { header: relayPath, slot: 29 },
         },
     });
 

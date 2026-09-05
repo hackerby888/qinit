@@ -126,7 +126,7 @@ test("buildCalleePrelude emits guarded callee CONTRACT_INDEX + inputType constan
     };`,
         );
         const prelude = buildCalleePrelude(root, "CALL_OTHER_CONTRACT_FUNCTION(QX, in, out);", {
-            QX: { header: callee, index: 1 },
+            QX: { header: callee, slot: 1 },
         });
         // the QUtil fix: a contract using `id(QX_CONTRACT_INDEX, …)` needs the callee index in the single-
         // contract TU (no contract_def.h) — guarded so the full build's #define still wins.
@@ -153,7 +153,7 @@ test("buildCalleePrelude includes static-only dynamic callees", () => {
         );
 
         const prelude = buildCalleePrelude(root, "const auto value = DYNAMIC::helper();", {
-            DYNAMIC: { header: callee, index: 28 },
+            DYNAMIC: { header: callee, slot: 28 },
         });
 
         expect(prelude).toContain("#define CONTRACT_STATE_TYPE DYNAMIC");
@@ -183,8 +183,8 @@ test("buildCalleePrelude does not reinclude the root through a callee", () => {
             root,
             "const auto value = CHILD::helper();",
             {
-                ROOT: { header: rootHeader, index: 2 },
-                CHILD: { header: childHeader, index: 1 },
+                ROOT: { header: rootHeader, slot: 2 },
+                CHILD: { header: childHeader, slot: 1 },
             },
             "ROOT",
         );
@@ -210,7 +210,7 @@ test("buildCalleePrelude includes unreferenced dynamic callees only when the edi
       REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
     };`,
         );
-        const dynamicCallees = { Calle: { header: callee, index: 1 } };
+        const dynamicCallees = { Calle: { header: callee, slot: 1 } };
         const source = "state.mut().counter += 1;";
 
         expect(buildCalleePrelude(root, source, dynamicCallees, "Counter")).not.toContain("Calle_Get_inputType");
@@ -231,7 +231,7 @@ test("an unreferenced callee that fails to analyze drops instead of failing the 
         const broken = join(root, "Broken.h");
         writeFileSync(broken, "struct CONTRACT_STATE_TYPE : public ContractBase { PUBLIC_FUNCTION(Get) {");
 
-        const prelude = buildCalleePrelude(root, "state.mut().counter += 1;", { Broken: { header: broken, index: 1 } }, "Counter", true);
+        const prelude = buildCalleePrelude(root, "state.mut().counter += 1;", { Broken: { header: broken, slot: 1 } }, "Counter", true);
 
         expect(prelude).not.toContain("Broken.h");
     } finally {
@@ -253,7 +253,7 @@ test("the prelude leaves the inter-contract SDK include to the wasm wrapper", ()
       REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
     };`,
         );
-        const prelude = buildCalleePrelude(root, "CALL_OTHER_CONTRACT_FUNCTION(QX, Get, in, out);", { QX: { header: callee, index: 1 } });
+        const prelude = buildCalleePrelude(root, "CALL_OTHER_CONTRACT_FUNCTION(QX, Get, in, out);", { QX: { header: callee, slot: 1 } });
 
         expect(prelude).not.toContain("intercontract_calls.h");
     } finally {

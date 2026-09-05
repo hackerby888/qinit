@@ -23,10 +23,10 @@ export {
     type SystemContract,
     type SystemContractDescription,
 } from "./contracts/system-contracts";
-export { resolveProjectDependencies } from "./contracts/project-dependencies";
-export type { ProjectCalleeInput, ProjectContractNode, ResolveProjectDependenciesOptions } from "./contracts/project-dependencies";
-export { planProjectSlots } from "./contracts/project-slots";
-export type { PlannedProjectSlotNode, ProjectSlotLayout, ProjectSlotNode } from "./contracts/project-slots";
+export { resolveContracts } from "./contracts/project-dependencies";
+export type { CalleeInput, ResolvedContract, ResolveContractsOptions } from "./contracts/project-dependencies";
+export { assignSlots } from "./contracts/project-slots";
+export type { SlotAssignment, ProjectSlotLayout, SlotInput } from "./contracts/project-slots";
 export { generateClient } from "./generate/client";
 export { genStdGtest } from "./generate/std-gtest";
 export { testRuntimeSource } from "./generate/test-scaffold";

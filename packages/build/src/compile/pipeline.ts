@@ -239,7 +239,7 @@ export async function buildSystemContract(
                 dependency.stateType,
                 {
                     header: join(corePath, "src", "contracts", dependency.file),
-                    index: dependency.index,
+                    slot: dependency.index,
                     stateType: dependency.stateType,
                 },
             ]),

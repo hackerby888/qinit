@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { CheatMode } from "@qinit/compiler";
 import { HAS_WASI } from "../../../../test-utils/paths";
-import { blamedContract, buildProjectContracts, resolveProjectPlan, type PlannedProjectContract } from "../../src/ops/project-build";
+import { blamedContract, compileContracts, type SlottedContract } from "../../src/ops/project-build";
+import { resolveContracts } from "@qinit/build";
+import { assignSlots } from "@qinit/build/contracts/project-slots";
 
 const core = process.env.QINIT_CORE?.trim();
 const haveCore = !!core && existsSync(join(core, "src", "qpi", "qpi.h"));
@@ -24,14 +26,16 @@ function project() {
         writeFileSync(path, readFileSync(path, "utf8").replace(from, to));
     };
     const build = (compiler: "clang" | "typescript", cheats: CheatMode) =>
-        buildProjectContracts({
-            plan: resolveProjectPlan({
-                projectRoot,
-                core: core!,
-                contractPath: join(contractsDir, "Proxy.h"),
-                name: "Proxy",
-                slotLayout: { slotBase: 29, slotCount: 4 },
-            }),
+        compileContracts({
+            plan: assignSlots(
+                resolveContracts({
+                    projectRoot,
+                    corePath: core!,
+                    contractPath: join(contractsDir, "Proxy.h"),
+                    contractName: "Proxy",
+                }),
+                { slotBase: 29, slotCount: 4 },
+            ),
             core: core!,
             compiler,
             outDir: join(projectRoot, "dist"),
@@ -76,7 +80,7 @@ test("the failed contract is the file clang named, not whichever was being built
     const plan = [
         { name: "Counter", stateType: "Counter", sourcePath: "/tmp/qinit-production-x/Counter.h" },
         { name: "Proxy", stateType: "Proxy", sourcePath: "/work/contracts/Proxy.h" },
-    ] as PlannedProjectContract[];
+    ] as SlottedContract[];
 
     expect(blamedContract("/work/contracts/Counter.h:24:9: error: use of undeclared identifier 'CC_PRINT'\n", plan)?.name).toBe("Counter");
     expect(blamedContract("/work/contracts/Proxy.h:31:9: fatal error: too many errors\n", plan)?.name).toBe("Proxy");

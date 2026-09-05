@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { resolve, basename } from "node:path";
 import { Box, Text, useApp } from "ink";
-import { resolveProjectDependencies, verifyContract, type VerifyResult } from "@qinit/build";
+import { resolveContracts, verifyContract, type VerifyResult } from "@qinit/build";
 import { loadConfig, resolveCoreDir } from "../../config";
 import { Header, Panel, Status, theme, termCols } from "../../ui";
 import { output, type CommandArguments } from "../../args";
@@ -21,7 +21,7 @@ export function Verify({ commandArgs }: { commandArgs: CommandArguments }) {
                 if (!cpath) throw new Error("no contract: pass `qinit verify <file.h>` (or set contract in qinit.json)");
                 const file = resolve(cpath);
                 const name = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(file).replace(/\.[^.]+$/, "");
-                const graph = resolveProjectDependencies({
+                const graph = resolveContracts({
                     projectRoot: process.cwd(),
                     corePath: resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir),
                     contractName: name,

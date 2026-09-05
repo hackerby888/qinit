@@ -7,7 +7,7 @@ import { invalidArgs } from "../args";
 
 export interface DynamicCallee {
     header: string;
-    index?: number;
+    slot?: number;
 }
 
 export function parseCallees(values: readonly string[] | undefined): Record<string, DynamicCallee> {
@@ -22,9 +22,9 @@ export function parseCallees(values: readonly string[] | undefined): Record<stri
         const [, name, declaration] = match;
         const indexed = /^(.*)@(\d+)$/.exec(declaration);
         const header = indexed?.[1] ?? declaration;
-        const rawIndex = indexed?.[2];
-        const index = rawIndex === undefined ? undefined : Number(rawIndex);
-        if (index !== undefined && (!Number.isSafeInteger(index) || index > 0xffffffff)) {
+        const rawSlot = indexed?.[2];
+        const slot = rawSlot === undefined ? undefined : Number(rawSlot);
+        if (slot !== undefined && (!Number.isSafeInteger(slot) || slot > 0xffffffff)) {
             invalidArgs(`invalid --callee '${value}': index must be an unsigned 32-bit integer`);
         }
         if (callees.has(name)) {
@@ -33,7 +33,7 @@ export function parseCallees(values: readonly string[] | undefined): Record<stri
 
         callees.set(name, {
             header: resolve(header),
-            ...(index === undefined ? {} : { index }),
+            ...(slot === undefined ? {} : { slot }),
         });
     }
 
@@ -76,7 +76,7 @@ export async function resolveNodeCallees(
 
             const header = join(tmpdir(), `qinit-callee-${name}.h`);
             writeFileSync(header, contract.source!);
-            resolved[name] = { header, index: contract.index };
+            resolved[name] = { header, slot: contract.index };
             onNote?.(`callee ${name} → slot ${contract.index} (from node)`);
         }
     } catch {

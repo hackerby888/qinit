@@ -188,7 +188,7 @@ for (const backend of ["clang", "typescript"] as const) {
                     dynCallees: {
                         Counter: {
                             header: CONTRACT,
-                            index: dependency.slot,
+                            slot: dependency.slot,
                         },
                     },
                 });
@@ -232,7 +232,7 @@ for (const backend of ["clang", "typescript"] as const) {
                         core: CORE,
                         backend,
                         scratch,
-                        ...(kind === "intercontract" ? { projectDependencies: [callee], dynCallees: { Counter: { header: calleePath, index: 100 } } } : {}),
+                        ...(kind === "intercontract" ? { projectDependencies: [callee], dynCallees: { Counter: { header: calleePath, slot: 100 } } } : {}),
                     });
 
                     expect(run.runnerOk, run.buildError).toBe(true);

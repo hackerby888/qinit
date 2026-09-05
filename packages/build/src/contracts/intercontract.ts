@@ -98,7 +98,7 @@ export function parseRegisters(source: string, options: SourceOptions = {}): { f
     }));
 }
 
-export type DynCallees = Record<string, { header: string; index: number }>;
+export type DynCallees = Record<string, { header: string; slot: number }>;
 
 function indexDefines(parsed: ParsedContractDefinitionSource): string {
     let output = "// ---- all contract indices (contract_def.h) so a directly-#included sibling resolves ----\n";
@@ -182,7 +182,7 @@ export function buildCalleePrelude(
         if (dynamicCallees[type]) {
             callee = {
                 type,
-                index: dynamicCallees[type].index,
+                index: dynamicCallees[type].slot,
                 include: dynamicCallees[type].header,
                 src: readFileSync(dynamicCallees[type].header, "utf8"),
                 registrations: [],

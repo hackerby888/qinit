@@ -11,7 +11,7 @@ if (!core) {
 // Generated wrappers include this path verbatim, so it must be absolute.
 const fixturePath = (name: string) => resolve("fixtures", name);
 
-type Callees = Record<string, { header: string; index: number }>;
+type Callees = Record<string, { header: string; slot: number }>;
 const corpus: { name: string; path: string; dynCallees?: Callees; skipVerify?: boolean }[] = [
     { name: "Counter", path: fixturePath("Counter.h") },
     { name: "Token", path: fixturePath("Token.h") },
@@ -28,7 +28,7 @@ const corpus: { name: string; path: string; dynCallees?: Callees; skipVerify?: b
     {
         name: "Proxy",
         path: fixturePath("Proxy.h"),
-        dynCallees: { Counter: { header: fixturePath("Counter.h"), index: 28 } },
+        dynCallees: { Counter: { header: fixturePath("Counter.h"), slot: 28 } },
     },
     { name: "QX", path: core + "/src/contracts/Qx.h" },
     { name: "QEARN", path: core + "/src/contracts/Qearn.h" },

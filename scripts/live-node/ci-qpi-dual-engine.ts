@@ -144,7 +144,7 @@ async function compileClangPair(calleeSlot: number, driverSlot: number): Promise
         corePath: core!,
         outDir: join(scratch, "clang-driver"),
         arenaSizeBytes: ARENA_SIZE,
-        dynCallees: { QpiDualCallee: { header: calleePath, index: calleeSlot } },
+        dynCallees: { QpiDualCallee: { header: calleePath, slot: calleeSlot } },
     });
     if (!driver.ok || !driver.wasmPath || !driver.idl) {
         fail(`Clang driver compile: ${driver.stderr ?? "no artifact"}`);
@@ -173,7 +173,7 @@ async function deployAll(base: string, rpc: LiteRpc, artifacts: Artifact[], seed
                 rpc,
                 seed,
                 slotOverride: item.slot,
-                dynCallees: item.role === "driver" ? { QpiDualCallee: { header: calleePath, index: pairCallee.slot } } : undefined,
+                dynCallees: item.role === "driver" ? { QpiDualCallee: { header: calleePath, slot: pairCallee.slot } } : undefined,
                 artifact: {
                     wasm: item.wasm,
                     hash: item.hash,

@@ -26,7 +26,7 @@ export interface DeployOpts {
     core: string;
     rpcBaseUrl: string;
     seed?: string;
-    dynCallees?: Record<string, { header: string; index: number }>;
+    dynCallees?: Record<string, { header: string; slot: number }>;
     slotOverride?: number;
     outDir?: string;
     idlPath?: string;
@@ -110,10 +110,10 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
           });
     const dynCallees = Object.fromEntries(
         Object.entries(discoveredCallees).map(([name, callee]) => {
-            if (callee.index === undefined) {
+            if (callee.slot === undefined) {
                 throw new Error(`callee '${name}' has no slot; use the project deployment planner or pass --callee ${name}=path@index`);
             }
-            return [name, { header: callee.header, index: callee.index }];
+            return [name, { header: callee.header, slot: callee.slot }];
         }),
     );
 

@@ -96,7 +96,7 @@ const proxyDeployment = await deployContract(
         dynCallees: {
             Counter: {
                 header: resolve("fixtures/Counter.h"),
-                index: counterSlot,
+                slot: counterSlot,
             },
         },
         rpc,

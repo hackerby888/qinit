@@ -5,7 +5,7 @@ import { resolve, join, basename } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { loadConfig, resolveCompilerBackend, resolveCoreDir } from "../../config";
-import { genStdGtest, extractIdl, resolveProjectDependencies } from "@qinit/build";
+import { genStdGtest, extractIdl, resolveContracts } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import type { TestResult } from "@qinit/engine";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
@@ -13,7 +13,7 @@ import { runCorpus, runStdGtest } from "../../ops/corpus-run";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import type { CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
-import { planProjectSlots } from "@qinit/build/contracts/project-slots";
+import { assignSlots } from "@qinit/build/contracts/project-slots";
 import { parseContractSlot } from "../../contracts/registry";
 
 export function resolveGtestSlot(core: string, requestedSlot?: unknown): number {
@@ -149,31 +149,31 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 const testPath = resolve(firstPositional ?? join("tests", `${name}.test.cpp`));
                 const existingTestSource = existsSync(testPath) && !commandArgs.has("new") ? readFileSync(testPath, "utf8") : undefined;
                 const slotLayout = loadCoreWasmSlotLayout(core);
-                const dependencyGraph = resolveProjectDependencies({
+                const dependencyGraph = resolveContracts({
                     projectRoot: process.cwd(),
                     corePath: core,
                     contractName: stateType,
                     contractPath,
-                    contractIndex: requestedSlot === undefined ? undefined : resolveGtestSlot(core, requestedSlot),
+                    slot: requestedSlot === undefined ? undefined : resolveGtestSlot(core, requestedSlot),
                     explicitCallees,
                     additionalRootSource: existingTestSource,
                 });
-                const plannedSlots = planProjectSlots(dependencyGraph, slotLayout);
+                const plannedSlots = assignSlots(dependencyGraph, slotLayout);
                 const plannedContracts = dependencyGraph.map((contract, index) => ({
                     ...contract,
-                    index: plannedSlots[index].index,
+                    slot: plannedSlots[index].slot,
                 }));
                 const plannedMain = plannedContracts[plannedContracts.length - 1];
                 if (!plannedMain) {
                     throw new Error(`cannot resolve the ${name} contract graph`);
                 }
-                const slot = plannedMain.index;
+                const slot = plannedMain.slot;
                 const plannedDependencies = plannedContracts.slice(0, -1);
                 const projectDependencies = plannedDependencies.map((contract) => ({
                     contractPath: contract.sourcePath,
                     name: contract.name,
                     stateType: contract.stateType,
-                    slot: contract.index,
+                    slot: contract.slot,
                 }));
                 const dynCallees = Object.fromEntries(
                     plannedDependencies
@@ -182,7 +182,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                             contract.stateType,
                             {
                                 header: contract.sourcePath,
-                                index: contract.index,
+                                slot: contract.slot,
                             },
                         ]),
                 );

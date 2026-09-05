@@ -10,7 +10,7 @@ import { resolveContractSource } from "./source";
 
 export interface TypeScriptCalleeBuildOptions {
     header: string;
-    index: number;
+    slot: number;
     stateType?: string;
 }
 
@@ -86,10 +86,10 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         return { ok: false, stderr: String(error?.message ?? error) };
     }
 
-    const dynamicCallees = Object.entries(o.dynCallees ?? {}).map(([name, { header, index, stateType }]) => ({
+    const dynamicCallees = Object.entries(o.dynCallees ?? {}).map(([name, { header, slot, stateType }]) => ({
         name,
         stateType: stateType ?? name,
-        slot: index,
+        slot,
         source: readFileSync(header, "utf8"),
     }));
 

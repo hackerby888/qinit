@@ -78,7 +78,7 @@ export interface ClangBuildOptions {
     outDir: string;
     calleePrelude?: string; // inter-contract: callee type headers + inputType consts (from intercontract.ts)
     cheats?: CheatMode; // development cheatcodes; OFF is what Core sees
-    dynCallees?: Record<string, { header: string; index: number }>; // dynamic (Qinit-deployed) callees
+    dynCallees?: Record<string, { header: string; slot: number }>; // dynamic (Qinit-deployed) callees
     wasmClang?: string; // clang targeting wasm32-wasi; default env WASM_CLANG / the auto-fetched wasi-sdk
     wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
     skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some Wasm macros)

@@ -89,7 +89,7 @@ const dep = await deployContract(
         dynCallees: {
             QX: {
                 header: resolve(core, "src/contracts/Qx.h"),
-                index: 1,
+                slot: 1,
             },
         },
     },

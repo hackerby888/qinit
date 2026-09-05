@@ -83,7 +83,7 @@ test.skipIf(!haveQx)(
                 dynCallees: {
                     QX: {
                         header: join(CORE, "src/contracts/Qx.h"),
-                        index: 1,
+                        slot: 1,
                     },
                 },
             });

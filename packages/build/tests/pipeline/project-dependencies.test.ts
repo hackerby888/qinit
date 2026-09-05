@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { resolveProjectDependencies } from "../../src/contracts/project-dependencies";
+import { resolveContracts } from "../../src/contracts/project-dependencies";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 
 const CORE = CORE_PATH;
@@ -34,7 +34,7 @@ test.skipIf(!HAS_CORE)("resolves recursive workspace callees in dependency-first
             "contracts/Shared.h": "",
         },
         (root) => {
-            const graph = resolveProjectDependencies({
+            const graph = resolveContracts({
                 projectRoot: root,
                 corePath: CORE,
                 contractName: "Main",
@@ -42,7 +42,7 @@ test.skipIf(!HAS_CORE)("resolves recursive workspace callees in dependency-first
             });
 
             expect(graph.map((node) => node.stateType)).toEqual(["Leaf", "Shared", "Middle", "Main"]);
-            expect(graph.find((node) => node.stateType === "Middle")?.dependencies).toEqual(["Leaf", "Shared"]);
+            expect(graph.find((node) => node.stateType === "Middle")?.callees).toEqual(["Leaf", "Shared"]);
         },
     );
 });
@@ -54,7 +54,7 @@ test.skipIf(!HAS_CORE)("resolves custom callees referenced through ABI types", (
             "contracts/Counter.h": "",
         },
         (root) => {
-            const graph = resolveProjectDependencies({
+            const graph = resolveContracts({
                 projectRoot: root,
                 corePath: CORE,
                 contractName: "Main",
@@ -73,7 +73,7 @@ test.skipIf(!HAS_CORE)("resolves custom callees referenced only by additional ro
             "contracts/Helper.h": "",
         },
         (root) => {
-            const graph = resolveProjectDependencies({
+            const graph = resolveContracts({
                 projectRoot: root,
                 corePath: CORE,
                 contractName: "Main",
@@ -88,7 +88,7 @@ test.skipIf(!HAS_CORE)("resolves custom callees referenced only by additional ro
     );
 });
 
-test.skipIf(!HAS_CORE)("explicit callees override workspace discovery and may omit an index", () => {
+test.skipIf(!HAS_CORE)("explicit callees override workspace discovery and may omit a slot", () => {
     project(
         {
             "contracts/Main.h": calls("Counter"),
@@ -97,7 +97,7 @@ test.skipIf(!HAS_CORE)("explicit callees override workspace discovery and may om
             "overrides/Counter.h": calls("Leaf"),
         },
         (root) => {
-            const withoutIndex = resolveProjectDependencies({
+            const withoutSlot = resolveContracts({
                 projectRoot: root,
                 corePath: CORE,
                 contractName: "Main",
@@ -106,19 +106,19 @@ test.skipIf(!HAS_CORE)("explicit callees override workspace discovery and may om
                     Counter: { header: "overrides/Counter.h" },
                 },
             });
-            expect(withoutIndex.map((node) => node.stateType)).toEqual(["Leaf", "Counter", "Main"]);
-            expect(withoutIndex[1].index).toBeUndefined();
+            expect(withoutSlot.map((node) => node.stateType)).toEqual(["Leaf", "Counter", "Main"]);
+            expect(withoutSlot[1].slot).toBeUndefined();
 
-            const withIndex = resolveProjectDependencies({
+            const withSlot = resolveContracts({
                 projectRoot: root,
                 corePath: CORE,
                 contractName: "Main",
                 contractPath: "contracts/Main.h",
                 explicitCallees: {
-                    Counter: { header: "overrides/Counter.h", index: 31 },
+                    Counter: { header: "overrides/Counter.h", slot: 31 },
                 },
             });
-            expect(withIndex[1].index).toBe(31);
+            expect(withSlot[1].slot).toBe(31);
         },
     );
 });
@@ -130,14 +130,14 @@ test.skipIf(!HAS_CORE)("system contracts take precedence over workspace headers"
             "contracts/QUTIL.h": calls("MissingWorkspaceDependency"),
         },
         (root) => {
-            const graph = resolveProjectDependencies({
+            const graph = resolveContracts({
                 projectRoot: root,
                 corePath: CORE,
                 contractName: "Main",
                 contractPath: "contracts/Main.h",
             });
 
-            expect(graph.map((node) => [node.stateType, node.kind, node.index])).toEqual([
+            expect(graph.map((node) => [node.stateType, node.kind, node.slot])).toEqual([
                 ["QX", "system", 1],
                 ["QUTIL", "system", 4],
                 ["Main", "custom", undefined],
@@ -153,7 +153,7 @@ test.skipIf(!HAS_CORE)("rejects missing and ambiguous workspace callees determin
         },
         (root) => {
             expect(() =>
-                resolveProjectDependencies({
+                resolveContracts({
                     projectRoot: root,
                     corePath: CORE,
                     contractName: "Main",
@@ -171,7 +171,7 @@ test.skipIf(!HAS_CORE)("rejects missing and ambiguous workspace callees determin
         },
         (root) => {
             expect(() =>
-                resolveProjectDependencies({
+                resolveContracts({
                     projectRoot: root,
                     corePath: CORE,
                     contractName: "Main",
@@ -191,7 +191,7 @@ test.skipIf(!HAS_CORE)("rejects dependency cycles and ignores self-calls", () =>
         },
         (root) => {
             expect(() =>
-                resolveProjectDependencies({
+                resolveContracts({
                     projectRoot: root,
                     corePath: CORE,
                     contractName: "Main",
@@ -206,7 +206,7 @@ test.skipIf(!HAS_CORE)("rejects dependency cycles and ignores self-calls", () =>
             "contracts/Main.h": calls("Main"),
         },
         (root) => {
-            const graph = resolveProjectDependencies({
+            const graph = resolveContracts({
                 projectRoot: root,
                 corePath: CORE,
                 contractName: "Main",
@@ -214,7 +214,7 @@ test.skipIf(!HAS_CORE)("rejects dependency cycles and ignores self-calls", () =>
             });
 
             expect(graph.map((node) => node.stateType)).toEqual(["Main"]);
-            expect(graph[0]?.dependencies).toEqual([]);
+            expect(graph[0]?.callees).toEqual([]);
         },
     );
 });
@@ -227,7 +227,7 @@ test.skipIf(!HAS_CORE)("rejects explicit and main contract system-name overrides
         },
         (root) => {
             expect(() =>
-                resolveProjectDependencies({
+                resolveContracts({
                     projectRoot: root,
                     corePath: CORE,
                     contractName: "Main",
@@ -239,7 +239,7 @@ test.skipIf(!HAS_CORE)("rejects explicit and main contract system-name overrides
             ).toThrow("--callee 'QX' cannot override system contract QX at slot 1");
 
             expect(() =>
-                resolveProjectDependencies({
+                resolveContracts({
                     projectRoot: root,
                     corePath: CORE,
                     contractName: "qx",
@@ -274,14 +274,14 @@ test.skipIf(!HAS_CORE)("includeWorkspaceSiblings appends unreferenced contracts 
                 contractName: "Main",
                 contractPath: "contracts/Main.h",
             };
-            const reachable = resolveProjectDependencies(options);
-            const widened = resolveProjectDependencies({ ...options, includeWorkspaceSiblings: true });
+            const reachable = resolveContracts(options);
+            const widened = resolveContracts({ ...options, includeWorkspaceSiblings: true });
 
             expect(reachable.map((node) => node.stateType)).toEqual(["Leaf", "Main"]);
             expect(widened.map((node) => node.stateType)).toEqual(["Leaf", "Main", "Sibling"]);
-            expect(widened.filter((node) => node.eager).map((node) => node.stateType)).toEqual(["Sibling"]);
+            expect(widened.filter((node) => node.workspaceSibling).map((node) => node.stateType)).toEqual(["Sibling"]);
             // The sibling is offered for completion, not called, so it must not become a dependency.
-            expect(widened.find((node) => node.stateType === "Main")?.dependencies).toEqual(["Leaf"]);
+            expect(widened.find((node) => node.stateType === "Main")?.callees).toEqual(["Leaf"]);
         },
     );
 });
@@ -294,7 +294,7 @@ test.skipIf(!HAS_CORE)("a broken or non-contract sibling is skipped instead of f
             "contracts/helpers.h": "static constexpr unsigned int SHARED_LIMIT = 4;",
         },
         (root) => {
-            const graph = resolveProjectDependencies({
+            const graph = resolveContracts({
                 projectRoot: root,
                 corePath: CORE,
                 contractName: "Main",

@@ -64,7 +64,7 @@ test.skipIf(!haveCore)(
                 contractPath: proxyPath,
                 contractName: "Proxy",
                 slot: 29,
-                dynCallees: { Counter: { header: counterPath, index: 28 } },
+                dynCallees: { Counter: { header: counterPath, slot: 28 } },
             });
             expect(counter.ok, counter.stderr).toBe(true);
             expect(proxy.ok, proxy.stderr).toBe(true);

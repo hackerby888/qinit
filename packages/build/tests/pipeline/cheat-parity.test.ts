@@ -122,7 +122,7 @@ test.if(HAS_CORE && HAS_WASI)(
             slot: 29,
             corePath: CORE_PATH,
             outDir: join(dir, "out"),
-            dynCallees: { Counter: { header: calleePath, index: 28 } },
+            dynCallees: { Counter: { header: calleePath, slot: 28 } },
         });
 
         expect(clang.ok, clang.stderr).toBe(true);

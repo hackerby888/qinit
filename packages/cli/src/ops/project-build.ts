@@ -6,21 +6,19 @@ import { CheatMode } from "@qinit/compiler";
 import {
     buildContractWithTypeScript,
     buildContractWithClang,
-    resolveProjectDependencies,
     type ContractBuildResult,
-    type ProjectCalleeInput,
-    type ProjectContractNode,
+    type ResolvedContract,
     type TypeScriptCalleeBuildOptions,
 } from "@qinit/build";
-import { k12Hex, type DynamicContractRegistry } from "@qinit/core";
+import { k12Hex } from "@qinit/core";
 import type { DynCallees } from "@qinit/build/contracts/intercontract";
 import type { CompilerBackend } from "../config";
-import { planProjectSlots, type PlannedProjectSlotNode } from "@qinit/build/contracts/project-slots";
+import type { SlotAssignment } from "@qinit/build/contracts/project-slots";
 
-export type PlannedProjectContract = ProjectContractNode & PlannedProjectSlotNode;
+export type SlottedContract = ResolvedContract & SlotAssignment;
 
-export interface BuiltProjectContract {
-    contract: PlannedProjectContract;
+export interface BuiltContract {
+    contract: SlottedContract;
     result: ContractBuildResult;
     wasm: Uint8Array;
     hash: string;
@@ -28,36 +26,14 @@ export interface BuiltProjectContract {
 
 export interface ProjectBuildOutcome {
     ok: boolean;
-    contracts: BuiltProjectContract[];
-    failed?: PlannedProjectContract;
+    contracts: BuiltContract[];
+    failed?: SlottedContract;
     result?: ContractBuildResult;
 }
 
-export function resolveProjectPlan(options: {
-    projectRoot: string;
-    core: string;
-    contractPath: string;
-    name: string;
-    slot?: number;
-    explicitCallees?: Readonly<Record<string, ProjectCalleeInput>>;
-    slotLayout: { slotBase: number; slotCount: number };
-    registry?: DynamicContractRegistry;
-}): PlannedProjectContract[] {
-    const dependencies = resolveProjectDependencies({
-        projectRoot: options.projectRoot,
-        corePath: options.core,
-        contractName: options.name,
-        contractPath: options.contractPath,
-        contractIndex: options.slot,
-        explicitCallees: options.explicitCallees,
-    });
-
-    return planProjectSlots(dependencies, options.slotLayout, options.registry);
-}
-
-function transitiveDependencies(contract: PlannedProjectContract, byStateType: ReadonlyMap<string, PlannedProjectContract>): PlannedProjectContract[] {
+function calleeClosure(contract: SlottedContract, byStateType: ReadonlyMap<string, SlottedContract>): SlottedContract[] {
     const visited = new Set<string>();
-    const ordered: PlannedProjectContract[] = [];
+    const ordered: SlottedContract[] = [];
 
     const visit = (stateType: string): void => {
         if (visited.has(stateType)) {
@@ -65,53 +41,53 @@ function transitiveDependencies(contract: PlannedProjectContract, byStateType: R
         }
         visited.add(stateType);
 
-        const dependency = byStateType.get(stateType);
-        if (!dependency) {
+        const callee = byStateType.get(stateType);
+        if (!callee) {
             throw new Error(`${contract.stateType} references unresolved project contract '${stateType}'`);
         }
-        for (const nested of dependency.dependencies) {
+        for (const nested of callee.callees) {
             visit(nested);
         }
-        ordered.push(dependency);
+        ordered.push(callee);
     };
 
-    for (const dependency of contract.dependencies) {
-        visit(dependency);
+    for (const callee of contract.callees) {
+        visit(callee);
     }
     return ordered;
 }
 
-type SourceOf = (contract: PlannedProjectContract) => string;
+type PathFor = (contract: SlottedContract) => string;
 
-function clangCallees(dependencies: readonly PlannedProjectContract[], sourceOf: SourceOf): DynCallees {
+function clangCallees(callees: readonly SlottedContract[], pathFor: PathFor): DynCallees {
     return Object.fromEntries(
-        dependencies
-            .filter((dependency) => dependency.kind === "custom")
-            .map((dependency) => [
-                dependency.stateType,
+        callees
+            .filter((callee) => callee.kind === "custom")
+            .map((callee) => [
+                callee.stateType,
                 {
-                    header: sourceOf(dependency),
-                    index: dependency.index,
+                    header: pathFor(callee),
+                    slot: callee.slot,
                 },
             ]),
     );
 }
 
-function typescriptCallees(dependencies: readonly PlannedProjectContract[], sourceOf: SourceOf): Record<string, TypeScriptCalleeBuildOptions> {
+function typescriptCallees(callees: readonly SlottedContract[], pathFor: PathFor): Record<string, TypeScriptCalleeBuildOptions> {
     return Object.fromEntries(
-        dependencies.map((dependency) => [
-            dependency.stateType,
+        callees.map((callee) => [
+            callee.stateType,
             {
-                header: sourceOf(dependency),
-                index: dependency.index,
-                stateType: dependency.stateType,
+                header: pathFor(callee),
+                slot: callee.slot,
+                stateType: callee.stateType,
             },
         ]),
     );
 }
 
 // clang names the file it stopped in, which is a callee's as often as the contract being built.
-export function blamedContract(stderr: string, plan: readonly PlannedProjectContract[]): PlannedProjectContract | undefined {
+export function blamedContract(stderr: string, plan: readonly SlottedContract[]): SlottedContract | undefined {
     const file = /^(.*?):\d+:\d+: (?:fatal )?error:/m.exec(stderr)?.[1];
 
     return file ? plan.find((contract) => basename(contract.sourcePath) === basename(file)) : undefined;
@@ -135,21 +111,21 @@ function productionSource(sourcePath: string): string {
     return target;
 }
 
-export async function buildProjectContracts(options: {
-    plan: readonly PlannedProjectContract[];
+export async function compileContracts(options: {
+    plan: readonly SlottedContract[];
     core: string;
     compiler: CompilerBackend;
     outDir: string;
     skipVerify?: boolean;
     // A production build defines the cheatcodes away, which is what Core compiles.
     cheats?: CheatMode;
-    onContract?: (contract: PlannedProjectContract) => void;
+    onContract?: (contract: SlottedContract) => void;
 }): Promise<ProjectBuildOutcome> {
     const byStateType = new Map(options.plan.map((contract) => [contract.stateType, contract]));
-    const built: BuiltProjectContract[] = [];
+    const built: BuiltContract[] = [];
     // A production build strips each contract once; a dependent then includes the very file its callee was built from.
     const stripped = new Map<string, string>();
-    const sourceOf: SourceOf = (contract) => {
+    const pathFor: PathFor = (contract) => {
         if (options.cheats !== CheatMode.OFF || contract.kind !== "custom") {
             return contract.sourcePath;
         }
@@ -167,18 +143,18 @@ export async function buildProjectContracts(options: {
         }
 
         options.onContract?.(contract);
-        const dependencies = transitiveDependencies(contract, byStateType);
-        const sourcePath = sourceOf(contract);
+        const callees = calleeClosure(contract, byStateType);
+        const sourcePath = pathFor(contract);
         const result =
             options.compiler === "typescript"
                 ? await buildContractWithTypeScript({
                       contractPath: sourcePath,
                       contractName: contract.name,
                       stateType: contract.stateType,
-                      slot: contract.index,
+                      slot: contract.slot,
                       corePath: options.core,
                       outDir: options.outDir,
-                      dynCallees: typescriptCallees(dependencies, sourceOf),
+                      dynCallees: typescriptCallees(callees, pathFor),
                       cheats: options.cheats,
                       skipVerify: options.skipVerify,
                   })
@@ -186,10 +162,10 @@ export async function buildProjectContracts(options: {
                       contractPath: sourcePath,
                       contractName: contract.name,
                       stateType: contract.stateType,
-                      slot: contract.index,
+                      slot: contract.slot,
                       corePath: options.core,
                       outDir: options.outDir,
-                      dynCallees: clangCallees(dependencies, sourceOf),
+                      dynCallees: clangCallees(callees, pathFor),
                       cheats: options.cheats,
                       skipVerify: options.skipVerify,
                   });

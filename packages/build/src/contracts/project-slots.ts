@@ -1,16 +1,16 @@
 import type { DynamicContractRegistry, DynamicContractRegistryEntry } from "@qinit/core";
 
-export interface ProjectSlotNode {
+export interface SlotInput {
     kind: "system" | "custom";
     name: string;
     stateType: string;
-    index?: number;
-    dependencies: readonly string[];
+    slot?: number;
+    callees: readonly string[];
 }
 
-export interface PlannedProjectSlotNode extends ProjectSlotNode {
-    index: number;
-    reused: boolean;
+export interface SlotAssignment {
+    slot: number;
+    alreadyDeployed: boolean;
 }
 
 export interface ProjectSlotLayout {
@@ -18,8 +18,8 @@ export interface ProjectSlotLayout {
     slotCount: number;
 }
 
-function inDynamicWindow(index: number, layout: ProjectSlotLayout): boolean {
-    return index >= layout.slotBase && index < layout.slotBase + layout.slotCount;
+function inDynamicWindow(slot: number, layout: ProjectSlotLayout): boolean {
+    return slot >= layout.slotBase && slot < layout.slotBase + layout.slotCount;
 }
 
 function armedDynamicContracts(registry: DynamicContractRegistry | undefined): DynamicContractRegistryEntry[] {
@@ -30,16 +30,16 @@ function armedDynamicContracts(registry: DynamicContractRegistry | undefined): D
     return (registry.contracts ?? []).filter((contract) => contract.armed && inDynamicWindow(contract.index, registry));
 }
 
-export function planProjectSlots<T extends ProjectSlotNode>(
+export function assignSlots<T extends SlotInput>(
     nodes: readonly T[],
     layout: ProjectSlotLayout,
     registry?: DynamicContractRegistry,
-): Array<T & PlannedProjectSlotNode> {
+): Array<T & SlotAssignment> {
     if (layout.slotCount <= 0) {
         throw new Error("no dynamic contract slots are available");
     }
 
-    const byStateType = new Map<string, ProjectSlotNode>();
+    const byStateType = new Map<string, SlotInput>();
     for (const node of nodes) {
         if (byStateType.has(node.stateType)) {
             throw new Error(`duplicate project contract '${node.stateType}'`);
@@ -49,8 +49,9 @@ export function planProjectSlots<T extends ProjectSlotNode>(
 
     const customNodes = nodes.filter((node) => node.kind === "custom");
     const deployed = armedDynamicContracts(registry);
+    // Core registry entries carry on-chain `index`; project nodes carry `slot` — same number, one seam.
     const deployedBySlot = new Map(deployed.map((contract) => [contract.index, contract]));
-    const fixed = new Map<string, { index: number; reused: boolean }>();
+    const fixed = new Map<string, { slot: number; alreadyDeployed: boolean }>();
 
     for (const node of customNodes) {
         const matching = deployed.filter((contract) => contract.name === node.name);
@@ -58,67 +59,67 @@ export function planProjectSlots<T extends ProjectSlotNode>(
             throw new Error(`multiple deployed contracts are named '${node.name}': ${matching.map((contract) => contract.index).join(", ")}`);
         }
 
-        if (node.index !== undefined) {
-            if (!inDynamicWindow(node.index, layout)) {
+        if (node.slot !== undefined) {
+            if (!inDynamicWindow(node.slot, layout)) {
                 throw new Error(
-                    `${node.name} slot ${node.index} is outside the dynamic window ` + `${layout.slotBase}..${layout.slotBase + layout.slotCount - 1}`,
+                    `${node.name} slot ${node.slot} is outside the dynamic window ` + `${layout.slotBase}..${layout.slotBase + layout.slotCount - 1}`,
                 );
             }
 
-            const occupant = deployedBySlot.get(node.index);
+            const occupant = deployedBySlot.get(node.slot);
             if (occupant && occupant.name !== node.name) {
-                throw new Error(`slot ${node.index} is occupied by '${occupant.name}', not '${node.name}'`);
+                throw new Error(`slot ${node.slot} is occupied by '${occupant.name}', not '${node.name}'`);
             }
-            if (matching[0] && matching[0].index !== node.index) {
-                throw new Error(`'${node.name}' is already deployed at slot ${matching[0].index}, ` + `not requested slot ${node.index}`);
+            if (matching[0] && matching[0].index !== node.slot) {
+                throw new Error(`'${node.name}' is already deployed at slot ${matching[0].index}, ` + `not requested slot ${node.slot}`);
             }
 
             fixed.set(node.stateType, {
-                index: node.index,
-                reused: occupant?.name === node.name,
+                slot: node.slot,
+                alreadyDeployed: occupant?.name === node.name,
             });
             continue;
         }
 
         if (matching[0]) {
             fixed.set(node.stateType, {
-                index: matching[0].index,
-                reused: true,
+                slot: matching[0].index,
+                alreadyDeployed: true,
             });
         }
     }
 
     const fixedSlots = new Map<number, string>();
     for (const [stateType, planned] of fixed) {
-        const previous = fixedSlots.get(planned.index);
+        const previous = fixedSlots.get(planned.slot);
         if (previous && previous !== stateType) {
-            throw new Error(`project contracts '${previous}' and '${stateType}' both require slot ${planned.index}`);
+            throw new Error(`project contracts '${previous}' and '${stateType}' both require slot ${planned.slot}`);
         }
-        fixedSlots.set(planned.index, stateType);
+        fixedSlots.set(planned.slot, stateType);
     }
 
     const graphNames = new Set(customNodes.map((node) => node.name));
     const unavailableSlots = new Set(deployed.filter((contract) => !graphNames.has(contract.name)).map((contract) => contract.index));
     const assignments = new Map<string, number>();
     for (const [stateType, planned] of fixed) {
-        assignments.set(stateType, planned.index);
+        assignments.set(stateType, planned.slot);
     }
 
-    const edges: Array<[dependency: string, caller: string]> = [];
+    const edges: Array<[callee: string, caller: string]> = [];
     for (const node of customNodes) {
-        for (const dependency of node.dependencies) {
-            const dependencyNode = byStateType.get(dependency);
-            if (dependencyNode?.kind === "custom") {
-                edges.push([dependency, node.stateType]);
+        for (const callee of node.callees) {
+            const calleeNode = byStateType.get(callee);
+            if (calleeNode?.kind === "custom") {
+                edges.push([callee, node.stateType]);
             }
         }
     }
 
     const constraintsHold = (): boolean => {
-        for (const [dependency, caller] of edges) {
-            const dependencySlot = assignments.get(dependency);
+        for (const [callee, caller] of edges) {
+            const calleeSlot = assignments.get(callee);
             const callerSlot = assignments.get(caller);
-            if (dependencySlot !== undefined && callerSlot !== undefined && dependencySlot >= callerSlot) {
+            if (calleeSlot !== undefined && callerSlot !== undefined && calleeSlot >= callerSlot) {
                 return false;
             }
         }
@@ -131,7 +132,7 @@ export function planProjectSlots<T extends ProjectSlotNode>(
 
     const unassigned = customNodes.filter((node) => !assignments.has(node.stateType));
     const candidates = Array.from({ length: layout.slotCount }, (_, offset) => layout.slotBase + offset).filter(
-        (index) => !unavailableSlots.has(index) && !fixedSlots.has(index),
+        (slot) => !unavailableSlots.has(slot) && !fixedSlots.has(slot),
     );
 
     const assignNext = (position: number): boolean => {
@@ -140,12 +141,12 @@ export function planProjectSlots<T extends ProjectSlotNode>(
         }
 
         const node = unassigned[position];
-        for (const index of candidates) {
-            if ([...assignments.values()].includes(index)) {
+        for (const slot of candidates) {
+            if ([...assignments.values()].includes(slot)) {
                 continue;
             }
 
-            assignments.set(node.stateType, index);
+            assignments.set(node.stateType, slot);
             if (constraintsHold() && assignNext(position + 1)) {
                 return true;
             }
@@ -165,16 +166,16 @@ export function planProjectSlots<T extends ProjectSlotNode>(
 
     return nodes.map((node) => {
         if (node.kind === "system") {
-            if (node.index === undefined) {
+            if (node.slot === undefined) {
                 throw new Error(`system contract '${node.name}' has no canonical slot`);
             }
-            return { ...node, index: node.index, reused: true };
+            return { ...node, slot: node.slot, alreadyDeployed: true };
         }
 
         return {
             ...node,
-            index: assignments.get(node.stateType)!,
-            reused: fixed.get(node.stateType)?.reused ?? false,
+            slot: assignments.get(node.stateType)!,
+            alreadyDeployed: fixed.get(node.stateType)?.alreadyDeployed ?? false,
         };
     });
 }
