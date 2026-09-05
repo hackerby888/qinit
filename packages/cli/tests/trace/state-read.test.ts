@@ -252,3 +252,34 @@ test("stateIsComplete treats a failed read, an undecodable field, and an errored
     ).toBe(false);
     expect(stateIsComplete({ fields: [], containers: [{ status: "collapsed" } as never] })).toBe(true);
 });
+
+// A container inside a struct field takes the next number in declaration order, so every block is addressable.
+const NESTED_SRC = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Inner { HashMap<uint64, uint64, 8> map; uint64 tag; };
+  struct StateData {
+    Array<uint64, 4> nums;
+    Inner inner;
+    HashSet<uint64, 8> set;
+  };
+  INITIALIZE() {}
+};`;
+
+test("nested containers are numbered in one sequence with the top-level ones", async () => {
+    const size = extractIdl(NESTED_SRC, "Nested", { slot: 7 }).state.size;
+    const zeros = readerOf((offset, length) => "00".repeat(Math.min(length, Math.max(0, size - offset))));
+    const read = (options = {}) => readState(zeros, 7, NESTED_SRC, "Nested", undefined, undefined, options);
+
+    const state = await read();
+    expect(state.containers.map((container) => [container.name, container.index])).toEqual([
+        ["nums", 1],
+        ["inner.map", 2],
+        ["set", 3],
+    ]);
+    expect(state.fields.map((field) => field.name)).toEqual(["inner.tag"]);
+
+    await expect(read({ containerIndexes: new Set([4]) })).rejects.toThrow("container index 4 is outside 1..3");
+    const selected = await read({ containerIndexes: new Set([2]), collapseContainersAtBytes: 1 });
+    expect(selected.containers.map((container) => `${container.name}/${container.status}`)).toEqual(["nums/collapsed", "inner.map/loaded", "set/collapsed"]);
+});

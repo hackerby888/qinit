@@ -157,13 +157,14 @@ test("qinit state, a print block and --json draw the same rows from the same byt
     // A whole value that is an id reads bare; one inside a struct keeps its quotes.
     expect(state.fields.find((field) => field.name === "nullish")!.value).toMatch(/^[A-Z]{60}$/);
     expect(state.fields.find((field) => field.name === "packed")!.value).toMatch(/^\{tag: 7, wide: 11, half: 513, who: "[A-Z]{60}", flag: 1, tiny: -5\}$/);
-    // A struct holding a container is rows and blocks named for the path, never one line of JSON.
+    // A struct holding a container is rows and blocks named for the path, never one line of JSON, and the
+    // blocks take their numbers in declaration order like any state container.
     expect(state.fields.map((field) => field.name)).toEqual(["packed", "deeper.deep.inner", "s8", "s16", "s32", "s64", "umax", "nullish"]);
     expect(state.containers.slice(0, 4).map((block) => [block.name, block.index])).toEqual([
-        ["deeper.deep.quad", 0],
-        ["deeper.map", 0],
-        ["only.a", 0],
-        ["only.b", 0],
+        ["deeper.deep.quad", 1],
+        ["deeper.map", 2],
+        ["only.a", 3],
+        ["only.b", 4],
     ]);
 });
 

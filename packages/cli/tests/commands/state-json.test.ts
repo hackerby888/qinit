@@ -82,15 +82,14 @@ test("state JSON carries the message when the read never produced a state", () =
     });
 });
 
-// A container reached through a struct field carries no index: `--container` cannot address it, and a
-// consumer reading the JSON has to see it all the same.
-test("state JSON carries a nested container block with no index", () => {
+// A container reached through a struct field is numbered like any other, so `--container` can address it.
+test("state JSON carries a nested container block with its number", () => {
     const nested = {
         ...DECODED,
         containers: [
             ...DECODED.containers,
             {
-                index: 0,
+                index: 2,
                 name: "inner.map",
                 kind: "hashmap",
                 size: 88,
@@ -108,7 +107,7 @@ test("state JSON carries a nested container block with no index", () => {
 
     expect(result.containers.map((container) => [container.name, container.index])).toEqual([
         ["abc_map", 1],
-        ["inner.map", 0],
+        ["inner.map", 2],
     ]);
     expect(result.containers[1]).not.toHaveProperty("sourceField");
 });
