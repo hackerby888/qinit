@@ -9,6 +9,7 @@ import {
     invokeProcedure,
     encodeInput,
     encodeInputJson,
+    encodeInputTyped,
     parseInputJson,
     checkInputSize,
     zeroInputFormat,
@@ -287,7 +288,10 @@ function CallOneShot({
                     }
                 } else {
                     try {
-                        input = await encodeInput(inputFormat ?? entryIdl?.input.format ?? "");
+                        input =
+                            inputFormat !== undefined && entryIdl
+                                ? await encodeInputTyped(entryIdl.input, inputFormat)
+                                : await encodeInput(inputFormat ?? entryIdl?.input.format ?? "");
                     } catch (enc: any) {
                         let z = "";
                         try {

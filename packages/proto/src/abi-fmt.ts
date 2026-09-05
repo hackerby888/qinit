@@ -722,11 +722,8 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
         for (const x of buf) out.push(x);
         return;
     }
-    const m = tok.match(/^(-?\d+)([a-z0-9]+)$/);
-    if (!m) throw new Error(`cannot parse value token '${tok}' (expected <number><type>, e.g. 5uint64)`);
-    const [, numStr, type] = m;
+    const { numStr, type } = scalarToken(tok);
     const size = SCALAR_SIZE[type];
-    if (!size) throw new Error(`unknown type '${type}' in '${tok}'`);
     const signed = type.startsWith("sint");
     const val = BigInt(numStr);
     if (type === "bit") {
@@ -746,6 +743,18 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
     else if (size === 2) dv.setUint16(0, Number(val) & 0xffff, true);
     else dv.setUint8(0, Number(val) & 0xff);
     for (const x of buf) out.push(x);
+}
+
+// A <number><type> token. Hex and exponent spellings are named outright: the generic regex would split
+// '0x10uint64' at the 'x' and blame an unknown type.
+function scalarToken(tok: string): { numStr: string; type: string } {
+    if (/^-?0x/i.test(tok)) throw new Error(`hex is not accepted, write '${tok}' in decimal`);
+    if (/^-?\d+e\d/i.test(tok)) throw new Error(`exponent notation is not accepted, write '${tok}' in full`);
+    const m = tok.match(/^(-?\d+)([a-z0-9]+)$/);
+    if (!m) throw new Error(`cannot parse value token '${tok}' (expected <number><type>, e.g. 5uint64)`);
+    const [, numStr, type] = m;
+    if (!SCALAR_SIZE[type]) throw new Error(`unknown type '${type}' in '${tok}'`);
+    return { numStr, type };
 }
 
 // ---------- JSON -> input value-format (field-name keyed; reuses the encodeInput grammar) ----------
@@ -938,6 +947,124 @@ export async function encodeInput(fmt: string): Promise<Uint8Array> {
     for (const tok of parts) await encodeToken(tok, out);
     padTo(out, sa); // round the whole input struct to its alignment
     return new Uint8Array(out);
+}
+
+// ---------- --in against the IDL: every token checked against the field it lands in ----------
+export type InputStruct = { kind: "struct"; items: InputNode[]; raw: string };
+export type InputNode = InputStruct | { kind: "array"; count: number | null; items: InputNode[]; raw: string } | { kind: "scalar"; type: string; text: string; raw: string };
+
+const WIDE_SUFFIXES = ["m256i", "uint128", "sint128", "id"];
+
+// The value dialect as a tree, so a schema can check each token's spelled type before any byte is placed.
+export function parseInputTokens(fmt: string): InputStruct {
+    const t = (fmt ?? "").trim();
+    return { kind: "struct", items: t ? expandReps(splitTop(t)).map(parseInputToken) : [], raw: t };
+}
+
+function parseInputToken(tok: string): InputNode {
+    tok = tok.trim();
+    if (tok[0] === "{") {
+        if (tok[tok.length - 1] !== "}") throw new Error(`struct value is missing its closing '}': '${tok}'`);
+        return { kind: "struct", items: expandReps(splitTop(tok.slice(1, -1))).map(parseInputToken), raw: tok };
+    }
+    if (tok[0] === "[") {
+        if (tok[tok.length - 1] !== "]") throw new Error(`array value is missing its closing ']': '${tok}'`);
+        const inner = tok.slice(1, -1);
+        const semi = inner.indexOf(";");
+        const items = expandReps(splitTop(semi >= 0 ? inner.slice(semi + 1) : inner)).map(parseInputToken);
+        let count: number | null = null;
+        if (semi >= 0) {
+            const rawCount = inner.slice(0, semi).trim();
+            if (!/^\d+$/.test(rawCount)) throw new Error(`array count '${rawCount}' must be a non-negative integer`);
+            count = parseInt(rawCount, 10);
+            if (items.length !== count) throw new Error(`array of ${count} needs ${count} values, got ${items.length}`);
+        }
+        return { kind: "array", count, items, raw: tok };
+    }
+    const suffix = WIDE_SUFFIXES.find((candidate) => tok.endsWith(candidate));
+    if (suffix) {
+        return { kind: "scalar", type: suffix, text: tok.slice(0, -suffix.length).trim(), raw: tok };
+    }
+    const { numStr, type } = scalarToken(tok);
+    return { kind: "scalar", type, text: numStr, raw: tok };
+}
+
+// `--in` with the entry's schema in hand: tokens are checked field by field and written at the schema's own
+// offsets, so a reordered or wrong-width spelling is refused instead of laid out as spelled.
+export async function encodeInputTyped(type: AbiType, fmt: string): Promise<Uint8Array> {
+    const root = parseInputTokens(fmt);
+    const node = type.kind === AbiTypeKind.STRUCT ? unwrapInputBraces(root, type) : root.items.length === 1 ? root.items[0] : root;
+    const bytes = new Uint8Array(type.size);
+    await writeInputNode(new DataView(bytes.buffer), 0, type, node, "input");
+    return bytes;
+}
+
+// "{a, b}" and "a, b" both spell the input struct; only a one-field struct wrapping another struct keeps its braces.
+function unwrapInputBraces(root: InputStruct, type: AbiStruct): InputNode {
+    const only = root.items.length === 1 ? root.items[0] : null;
+    if (only?.kind !== "struct") return root;
+    return type.fields.length === 1 && type.fields[0].type.kind === AbiTypeKind.STRUCT ? root : only;
+}
+
+async function writeInputNode(view: DataView, offset: number, type: AbiType, node: InputNode, path: string): Promise<void> {
+    switch (type.kind) {
+        case AbiTypeKind.SCALAR: {
+            if (node.kind !== "scalar" || node.type !== type.scalar) {
+                throw new Error(`${path} is ${type.scalar}, got '${node.raw}'`);
+            }
+            await encodeAbiScalar(view, offset, type.scalar, inputScalarValue(node));
+            return;
+        }
+        case AbiTypeKind.STRUCT: {
+            if (node.kind !== "struct") {
+                throw new Error(`${path} is a struct ${formatAbiType(type)}, got '${node.raw}'`);
+            }
+            if (hasOverlappingFields(type)) {
+                await writeSpelledNode(view, offset, type, node, path);
+                return;
+            }
+            if (node.items.length !== type.fields.length) {
+                throw new Error(`${path} has ${type.fields.length} field(s), got ${node.items.length} value(s)`);
+            }
+            for (let index = 0; index < type.fields.length; index++) {
+                const field = type.fields[index];
+                await writeInputNode(view, offset + field.offset, field.type, node.items[index], `${path}.${field.name}`);
+            }
+            return;
+        }
+        case AbiTypeKind.ARRAY: {
+            if (node.kind !== "array") {
+                throw new Error(`${path} is an array of ${type.count}, got '${node.raw}'`);
+            }
+            if (node.items.length !== type.count) {
+                throw new Error(`${path} expects ${type.count} elements, got ${node.items.length}`);
+            }
+            const { stride } = arrayGeometry(type.element, type.count);
+            for (let index = 0; index < type.count; index++) {
+                await writeInputNode(view, offset + index * stride, type.element, node.items[index], `${path}[${index}]`);
+            }
+            return;
+        }
+        default:
+            // Bit arrays are spelled as their physical words and containers have no value dialect of their own,
+            // so those keep the spelling's bytes, checked only for size.
+            await writeSpelledNode(view, offset, type, node, path);
+    }
+}
+
+async function writeSpelledNode(view: DataView, offset: number, type: AbiType, node: InputNode, path: string): Promise<void> {
+    const out: number[] = [];
+    await encodeToken(node.raw, out);
+    if (out.length !== type.size) {
+        throw new Error(`${path} encodes to ${out.length} bytes, ${formatAbiType(type)} wants ${type.size}`);
+    }
+    writeBytes(view, offset, new Uint8Array(out));
+}
+
+// The typed scalar writer takes the JSON spellings, where a zero id or m256i is spelled out in full.
+function inputScalarValue(node: InputNode & { kind: "scalar" }): string {
+    if ((node.type === "id" || node.type === "m256i") && node.text === "0") return "0".repeat(64);
+    return node.text;
 }
 
 // encodeInput sees only values, never the schema, so a self-consistent but wrong-shaped input encodes

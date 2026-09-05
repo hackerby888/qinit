@@ -1,8 +1,8 @@
 import { test, expect } from "bun:test";
-import { checkInputSize, encodeInput, decodeOutput, decodeAbiValue, structFieldOffsets, layoutOf, parseLayout, zeroInputFormat } from "../../src/abi-fmt";
+import { checkInputSize, encodeInput, encodeInputJson, encodeInputTyped, decodeOutput, decodeAbiValue, structFieldOffsets, layoutOf, parseLayout, zeroInputFormat } from "../../src/abi-fmt";
 import { formatAbiType, type AbiType } from "../../src/contract-idl";
 import { hashMapGeometry } from "../../src/qpi-layout";
-import { arr, ba, bit, co, hm, hs, i8, i16, i32, i64, i128, id, ll, m256i, st, u8, u16, u32, u64, u128, validated } from "./abi-builders";
+import { arr, ba, bit, co, hm, hs, i8, i16, i32, i64, i128, id, ll, m256i, named, st, u8, u16, u32, u64, u128, validated } from "./abi-builders";
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 const bytes = (h: string) => new Uint8Array((h.match(/../g) ?? []).map((x) => parseInt(x, 16)));
@@ -653,4 +653,69 @@ test("checkInputSize names an over-long input against an entry that takes none",
     const type = validated(st());
     const extra = await encodeInput("1uint64");
     expect(() => checkInputSize(type, extra, "proc 1/1")).toThrow(/encodes to 8 bytes, proc 1\/1 wants 1/);
+});
+
+// ---------- --in checked against the schema ----------
+const IDENTITY = "BZBQFLLBNCXEMGLOBHUVFTLUPLVCPQUASSILFABOFFBCADQSSUPNWLZBQEXK";
+const MIRROR = named(
+    ["a", u8],
+    ["inner", named(["b", u8], ["c", u64])],
+    ["who", id],
+    ["n", arr(u64, 2)],
+    ["flag", bit],
+    ["s16", i16],
+    ["wide", u128],
+    ["bits", ba(8)],
+);
+
+test("the schema road lays the spelled tokens out exactly like --args does", async () => {
+    const spelled = "1uint8, {2uint8, 3uint64}, " + IDENTITY + "id, [2; 4uint64, 5uint64], 1bit, -7sint16, 340282366920938463463374607431768211455uint128, [1; 5uint64]";
+    const typed = await encodeInputJson(MIRROR, {
+        a: 1,
+        inner: { b: 2, c: 3 },
+        who: IDENTITY,
+        n: [4, 5],
+        flag: 1,
+        s16: -7,
+        wide: "340282366920938463463374607431768211455",
+        bits: [1, 0, 1, 0, 0, 0, 0, 0],
+    });
+
+    expect(await encodeInputTyped(MIRROR, spelled)).toEqual(typed);
+    expect(await encodeInputTyped(MIRROR, `{${spelled}}`)).toEqual(typed);
+    expect(await encodeInputTyped(MIRROR, spelled)).toEqual(await encodeInput(spelled));
+});
+
+test("a token of the wrong width or in the wrong order is refused by field name", async () => {
+    const signed = named(["s8", i8], ["s16", i16], ["s32", i32]);
+    expect(await encodeInputTyped(signed, "-1sint8, -2sint16, -3sint32")).toEqual(await encodeInput("-1sint8, -2sint16, -3sint32"));
+    await expect(encodeInputTyped(signed, "-2sint16, -1sint8, -3sint32")).rejects.toThrow("input.s8 is sint8, got '-2sint16'");
+
+    const pair = named(["a", u8], ["b", u64]);
+    await expect(encodeInputTyped(pair, "1uint64, 2uint64")).rejects.toThrow("input.a is uint8, got '1uint64'");
+    await expect(encodeInputTyped(pair, "1uint8")).rejects.toThrow("input has 2 field(s), got 1 value(s)");
+    await expect(encodeInputTyped(pair, "")).rejects.toThrow("input has 2 field(s), got 0 value(s)");
+    await expect(encodeInputTyped(pair, "1uint8, {2uint64}")).rejects.toThrow("input.b is uint64, got '{2uint64}'");
+    await expect(encodeInputTyped(named(["n", arr(u64, 2)]), "[3; 1uint64, 2uint64, 3uint64]")).rejects.toThrow("input.n expects 2 elements, got 3");
+    await expect(encodeInputTyped(named(["n", arr(u64, 2)]), "1uint64, 2uint64")).rejects.toThrow("input has 1 field(s), got 2 value(s)");
+    await expect(encodeInputTyped(pair, "1uint8, 300uint64x1")).resolves.toBeInstanceOf(Uint8Array);
+    await expect(encodeInputTyped(pair, "256uint8, 1uint64")).rejects.toThrow("uint8 out of range: 256");
+});
+
+test("hex and exponent spellings are named on both roads", async () => {
+    const one = named(["v", u64]);
+    await expect(encodeInputTyped(one, "0x10uint64")).rejects.toThrow("hex is not accepted, write '0x10uint64' in decimal");
+    await expect(encodeInput("0x10uint64")).rejects.toThrow("hex is not accepted, write '0x10uint64' in decimal");
+    await expect(encodeInputTyped(one, "1e3uint64")).rejects.toThrow("exponent notation is not accepted, write '1e3uint64' in full");
+    await expect(encodeInputTyped(one, "5UINT64")).rejects.toThrow("cannot parse value token");
+});
+
+test("the schema road keeps the repeat shorthand, zero ids, and physical bit-array words", async () => {
+    const four = named(["n", arr(u32, 4)], ["who", id], ["bits", ba(128)]);
+    const words = "[2; 1uint64, 18446744073709551615uint64]";
+    const bytes = await encodeInputTyped(four, `[4; 9uint32x4], 0id, ${words}`);
+
+    expect(bytes).toEqual(await encodeInput(`[4; 9uint32x4], 0id, ${words}`));
+    expect(bytes.subarray(16, 48)).toEqual(new Uint8Array(32));
+    await expect(encodeInputTyped(four, "[4; 9uint32x4], 0id, [1; 1uint64]")).rejects.toThrow("input.bits encodes to 8 bytes, [2;uint64] wants 16");
 });
