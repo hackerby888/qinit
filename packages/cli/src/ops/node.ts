@@ -350,6 +350,12 @@ export interface NodeStatus {
     contracts: string[];
 }
 
+// A reported reserve at or below zero means the node skips the contract's procedures until it is refilled.
+export const contractIsDormant = (contract: { feeReserve?: string }) => contract.feeReserve !== undefined && BigInt(contract.feeReserve) <= 0n;
+
+export const contractLabel = (contract: { name?: string; index: number; constructed?: boolean; feeReserve?: string }) =>
+    `${contract.name || contract.index}@${contract.index}${!contract.constructed ? " (armed)" : contractIsDormant(contract) ? " (dormant)" : ""}`;
+
 export async function nodeStatus(rpcBaseUrl: string): Promise<NodeStatus> {
     const rpc = new LiteRpc(rpcBaseUrl);
     try {
@@ -369,7 +375,7 @@ export async function nodeStatus(rpcBaseUrl: string): Promise<NodeStatus> {
             epoch: secondTickInfo.epoch ?? 0,
             armed: armedContracts.length,
             slotCount: registry.slotCount ?? 0,
-            contracts: armedContracts.map((contract: any) => `${contract.name || contract.index}@${contract.index}${contract.constructed ? "" : " (armed)"}`),
+            contracts: armedContracts.map(contractLabel),
         };
     } catch (error) {
         debug("nodeStatus: rpc read failed", error);

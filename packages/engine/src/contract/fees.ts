@@ -6,7 +6,9 @@ import { MAINNET_COMPUTOR_COUNT } from "@qinit/proto";
 export type FeeMode = "off" | "metered";
 
 const IPO_COMPUTORS = BigInt(MAINNET_COMPUTOR_COUNT);
-export const DEFAULT_FEE_RESERVE = 1000000000n; // seed a metered deploy gets (a faked successful IPO)
+// The dev reserve a metered deploy is seeded with (a faked successful IPO); the node seeds the same amount,
+// which is about a hundred state-changing procedures on a state near the 1 GiB limit.
+export const DEFAULT_FEE_RESERVE = 100000000000n;
 const OFF_MODE_RESERVE = 1000000n; // queryFeeReserve's constant return when fees are off
 
 export class FeeManager {

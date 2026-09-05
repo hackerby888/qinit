@@ -354,6 +354,7 @@ export class VirtualNode implements NodeTransport {
                 functions: entries(CONTRACT_ENTRY_KIND.FUNCTION),
                 procedures: entries(CONTRACT_ENTRY_KIND.PROCEDURE),
                 source: this.contractSources.get(slot),
+                feeReserve: this.sim.getContractFeeReserve(slot).toString(),
             };
         };
 

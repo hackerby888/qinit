@@ -138,6 +138,13 @@ export function parseAmountQu(text: string | undefined): bigint {
 
 export { bigintText };
 
+export function dormantContractMessage(name: string, slot: number, reserve: bigint): string {
+    return (
+        `contract ${name}@${slot} is dormant: fee reserve ${reserve} qu — refill it with a burn to the contract ` +
+        `(qpi.burn from one of its procedures, or QUtil BurnQubicForContract)`
+    );
+}
+
 // The wizard's answers as if they had been typed. A key present in `overrides` wins even when its value is
 // undefined, so a stray --args/--out/--amount cannot outlive the prompt that replaced it.
 export function overlayArgs(base: CommandArguments, positionals: string[], overrides: Record<string, string | undefined>): CommandArguments {
@@ -323,16 +330,21 @@ function CallOneShot({
                     } catch {}
                 }
 
-                // node-side runtime error: the most recent dispatch trap on this slot (dyn-registry lastError).
-                const nodeErr = async (): Promise<string> => {
+                // The slot's dyn-registry entry: its most recent dispatch trap (lastError) and its fee reserve.
+                const registryEntry = async () => {
                     try {
-                        const reg = await rpc.dynRegistry();
-                        const c = (reg.contracts ?? []).find((x) => x.index === idx);
-                        return c?.lastError ?? "";
+                        return ((await rpc.dynRegistry()).contracts ?? []).find((x) => x.index === idx);
                     } catch {
-                        return "";
+                        return undefined;
                     }
                 };
+                const nodeErr = async (): Promise<string> => (await registryEntry())?.lastError ?? "";
+                // Only a node that reports the reserve can say the contract is dormant; older ones report nothing.
+                const feeReserve = async (): Promise<bigint | undefined> => {
+                    const reported = (await registryEntry())?.feeReserve;
+                    return reported === undefined ? undefined : BigInt(reported);
+                };
+                let dormant = false;
                 // upgrade a raw trap string to a source-mapped backtrace via node.log + the slot's DWARF sidecar.
                 const enrichErr = async (raw: string): Promise<string | undefined> => {
                     if (!raw) return undefined;
@@ -387,6 +399,7 @@ function CallOneShot({
                     }
                     // An unfunded signer's tx is accepted then dropped without running on every runtime; fail
                     // before submitting (mirrors ops/deploy) so the exit code is 1 on both, skipping the resends.
+                    const reserve = await feeReserve();
                     if (signer.unfunded) {
                         setConfirm(null);
                         unfundedSigner = true;
@@ -397,6 +410,17 @@ function CallOneShot({
                             detail: "not submitted — signer unfunded",
                             rows: [["tick", String(tick)]],
                             err: unfundedSignerMessage(signer.identity),
+                        });
+                    } else if (reserve !== undefined && reserve <= 0n) {
+                        // The node takes the tx, refunds it and runs nothing, so it never leaves here.
+                        dormant = true;
+                        setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, tick });
+                        setResult({
+                            ok: false,
+                            label,
+                            detail: "not submitted — contract dormant",
+                            rows: [["tick", String(tick)]],
+                            err: dormantContractMessage(rc.name, idx, reserve),
                         });
                     } else {
                         const r = await invokeProcedure({
@@ -434,13 +458,17 @@ function CallOneShot({
                             ],
                             err: (await enrichErr(await nodeErr())) || (!r.ok ? r.message : undefined),
                         });
+                        const after = detail === "processed" ? await feeReserve() : undefined;
+                        if (after !== undefined && after <= 0n) {
+                            addNote("⚠ fee reserve exhausted by this call — the next procedure is skipped until the contract is refilled");
+                        }
                     }
                 }
 
                 if (wantTrace) {
                     let te: DebugEntry | undefined;
                     let polled: DebugEntry[] = [];
-                    for (let i = 0; i < 12 && !te && !unfundedSigner; i++) {
+                    for (let i = 0; i < 12 && !te && !unfundedSigner && !dormant; i++) {
                         polled = (await rpc.debugTrace(sinceSeq, 200)).entries ?? [];
                         te = polled.filter((x) => x.index === idx && x.seq > sinceSeq && x.kind === (mode === "fn" ? 0 : 1) && x.entry === entry).pop();
                         if (!te) await sleep(700);
@@ -472,6 +500,8 @@ function CallOneShot({
                         });
                     } else if (unfundedSigner) {
                         addNote("(no trace: the procedure never ran, because the signer has no balance)");
+                    } else if (dormant) {
+                        addNote("(no trace: the procedure never ran, because the contract is dormant)");
                     } else addNote("(no trace captured — is the debug toggle available on this node?)");
                 }
 

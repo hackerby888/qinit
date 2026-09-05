@@ -311,3 +311,21 @@ test("/live/v1/querySmartContract answers a function abort with core's 500 envel
         stop();
     }
 });
+
+test("/live/v1/dyn-registry reports each slot's fee reserve as decimal text", async () => {
+    const server = new EngineServer();
+    server.engine.deploy(28, await wasm("Counter"), "Counter");
+    const handle = await server.start(0);
+    try {
+        const registry = async () =>
+            (await (await fetch(handle.rpcBaseUrl + "/live/v1/dyn-registry")).json()) as { contracts: { index: number; feeReserve?: string }[] };
+        const seeded = (await registry()).contracts.find((entry) => entry.index === 28)!;
+        expect(seeded.feeReserve).toBe(server.engine.feeReserve(28).toString());
+        expect(BigInt(seeded.feeReserve!)).toBeGreaterThan(0n);
+
+        server.engine.setContractFeeReserve(28, -5n);
+        expect((await registry()).contracts.find((entry) => entry.index === 28)!.feeReserve).toBe("-5");
+    } finally {
+        handle.stop();
+    }
+});

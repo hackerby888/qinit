@@ -6,6 +6,7 @@ import { loadConfig } from "../../config";
 import { loadSystem } from "../../contracts/registry";
 import { Header, Spinner, Panel, Table, theme, type Column } from "../../ui";
 import { output, type CommandArguments } from "../../args";
+import { contractIsDormant } from "../../ops/node";
 
 // qinit ls [--rpc <url>]  — user-deployed contracts (dyn-registry) first, then built-in system contracts (catalog).
 const COLS: Column[] = [
@@ -14,6 +15,7 @@ const COLS: Column[] = [
     { header: "state" },
     { header: "fn·proc", align: "right" },
     { header: "ver", align: "right" },
+    { header: "reserve", align: "right" },
     { header: "k12", dim: true, max: 16 },
 ];
 const SYS_COLS: Column[] = [
@@ -22,7 +24,27 @@ const SYS_COLS: Column[] = [
     { header: "fn·proc", align: "right" },
     { header: "source", dim: true, max: 24 },
 ];
-const stateOf = (contract: DynamicContractRegistryEntry) => (!contract.armed ? "empty" : contract.constructed ? "ready" : "constructing");
+export const stateOf = (contract: DynamicContractRegistryEntry) =>
+    !contract.armed ? "empty" : !contract.constructed ? "constructing" : contractIsDormant(contract) ? "dormant" : "ready";
+
+export function lsJsonResult(user: DynamicContractRegistryEntry[], system: SystemContract[], nodeDown: boolean) {
+    return {
+        deployed: user.map((c) => ({
+            slot: c.index,
+            name: c.name || null,
+            state: stateOf(c),
+            version: c.version ?? 0,
+            codeHash: c.codeHash || null,
+            feeReserve: c.feeReserve ?? null,
+        })),
+        system: system.map((c) => ({
+            index: c.index,
+            name: c.name,
+            file: c.file,
+        })),
+        nodeDown,
+    };
+}
 
 export function Ls({ commandArgs }: { commandArgs: CommandArguments }) {
     const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
@@ -48,24 +70,7 @@ export function Ls({ commandArgs }: { commandArgs: CommandArguments }) {
     }, []);
     useEffect(() => {
         if (s.phase !== "run") {
-            if (output.json)
-                process.stdout.write(
-                    JSON.stringify({
-                        deployed: (s.user ?? []).map((c) => ({
-                            slot: c.index,
-                            name: c.name || null,
-                            state: stateOf(c),
-                            version: c.version ?? 0,
-                            codeHash: c.codeHash || null,
-                        })),
-                        system: (s.system ?? []).map((c) => ({
-                            index: c.index,
-                            name: c.name,
-                            file: c.file,
-                        })),
-                        nodeDown: !!s.nodeDown,
-                    }) + "\n",
-                );
+            if (output.json) process.stdout.write(JSON.stringify(lsJsonResult(s.user ?? [], s.system ?? [], !!s.nodeDown)) + "\n");
             process.exitCode = s.nodeDown ? 1 : 0;
             const t = setTimeout(() => exit(), 20);
             return () => clearTimeout(t);
@@ -96,11 +101,12 @@ export function Ls({ commandArgs }: { commandArgs: CommandArguments }) {
                             stateOf(c),
                             `${c.functions?.length ?? 0}/${c.procedures?.length ?? 0}`,
                             "v" + (c.version ?? 0),
+                            c.feeReserve ?? "-",
                             (c.codeHash || "").slice(0, 16) + "…",
                         ])}
                         rowColor={(i) => {
                             const st = stateOf(user[i]);
-                            return st === "constructing" ? theme.warn : st === "empty" ? theme.mute : undefined;
+                            return st === "constructing" || st === "dormant" ? theme.warn : st === "empty" ? theme.mute : undefined;
                         }}
                     />
                 </Panel>

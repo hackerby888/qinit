@@ -42,6 +42,8 @@ export interface DynamicContractRegistryEntry {
     procedures: DynamicContractEntry[];
     source?: string;
     lastError?: string;
+    // Execution fee reserve in qu as decimal text; at or below zero the contract is dormant. Older nodes omit it.
+    feeReserve?: string;
 }
 export interface DynamicContractRegistry {
     contracts: DynamicContractRegistryEntry[];

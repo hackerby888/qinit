@@ -406,6 +406,12 @@ export class EngineServer {
 
         const engine = this.engine;
 
+        // The engine's own warnings (a dormant slot skipping a tx, for one) otherwise go nowhere; the node
+        // log is where a developer looks for them.
+        if (!engine.onLog) {
+            engine.onLog = (event) => console.error(`[${event.level}] tick ${event.tick} ${event.cat}: ${event.msg}`);
+        }
+
         await engine.seedFaucet();
         if (engine.sim.currentEpoch === 0 && engine.sim.currentTick === 0 && engine.sim.contracts.size === 0) {
             engine.sim.bootstrapEpoch(1);

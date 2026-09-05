@@ -6,6 +6,7 @@ import { CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURE_COUNT } from "@qinit/core/wasm/
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm/slot-layout";
 import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { LITE_DEPLOY_ADDRESS } from "@qinit/core/crypto/tx";
+import { DEFAULT_FEE_RESERVE } from "../../packages/engine/src/contract/fees";
 import { DeployMessage, UploadBegin, UploadChunkHeader } from "@qinit/proto/deploy";
 import {
     ASSETS_DEPTH,
@@ -134,6 +135,7 @@ for (const [name, expected] of [
 }
 
 // LITE_TX deploy inputTypes
+expectEqual("DEV_FEE_RESERVE", readDefine("src/extensions/wasm/runtime/deployment.h", "LITE_DEV_FEE_RESERVE"), Number(DEFAULT_FEE_RESERVE));
 expectEqual("LITE_TX_UPLOAD_BEGIN", readDefine(DEPLOYMENT_PROTOCOL, "WASM_DEPLOYMENT_UPLOAD_BEGIN_INPUT_TYPE"), LITE_TX.UPLOAD_BEGIN);
 expectEqual("LITE_TX_UPLOAD_CHUNK", readDefine(DEPLOYMENT_PROTOCOL, "WASM_DEPLOYMENT_UPLOAD_CHUNK_INPUT_TYPE"), LITE_TX.UPLOAD_CHUNK);
 expectEqual("LITE_TX_DEPLOY", readDefine(DEPLOYMENT_PROTOCOL, "WASM_DEPLOYMENT_DEPLOY_INPUT_TYPE"), LITE_TX.DEPLOY);
