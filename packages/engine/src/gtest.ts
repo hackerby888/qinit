@@ -94,6 +94,9 @@ export async function runContractTesting(
             fees: "off",
             liteTicking: true,
         });
+        // pin the corpus clock to the native harness's fixed date (wasm_contract_testing.h:298 utcTime=2024-01-01)
+        // so it does not follow VirtualNode's wall-clock override (F71); the preservation below still wins on redeploy.
+        sim.timeBaseMs = Date.UTC(2024, 0, 1);
         // Native-harness clock semantics: etalonTick's date fields ARE the chain time and never move on their
         // own — a corpus advances time only by writing them (q_set_datetime). Freeze the per-tick advance.
         sim.tickDuration = 0;
