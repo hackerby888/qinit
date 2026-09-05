@@ -134,6 +134,64 @@ export function checkStruct(validator: Validator, structDeclaration: StructDecl)
     const typeNames = new Set<string>();
     const fnBodies = new Map<string, FunctionDecl>();
     const fnSigs = new Map<string, FnSig>();
+    // F67: a nested type and a member function sharing a name — C++ hides the type behind the function
+    // ([basic.scope.hiding]/2), so a bare use of that type after the function is declared is an error clang
+    // rejects. Qinit has no elaborated `struct T` form, so reject it too rather than silently resolving the type.
+    const seenFnNames = new Set<string>();
+    const scopeTypeNames = new Set<string>();
+    for (const typeMember of structDeclaration.members) {
+        const forwardDecl = (typeMember.kind === AstKind.STRUCT || typeMember.kind === AstKind.CLASS_TEMPLATE) && typeMember.hasBody === false;
+        if (
+            (typeMember.kind === AstKind.STRUCT ||
+                typeMember.kind === AstKind.CLASS_TEMPLATE ||
+                typeMember.kind === AstKind.ENUM ||
+                typeMember.kind === AstKind.TYPEDEF_DECL) &&
+            typeMember.name &&
+            !forwardDecl
+        )
+            scopeTypeNames.add(typeMember.name);
+    }
+    const collectTypeUses = (type: TypeSpec, out: { name: string; span?: Span }[]): void => {
+        switch (type.kind) {
+            case AstKind.NAME:
+                out.push({ name: type.name, span: type.span });
+                break;
+            case AstKind.TEMPLATE_INSTANCE:
+                out.push({ name: type.name, span: type.span });
+                for (const argument of type.callArguments) collectTypeUses(argument, out);
+                break;
+            case AstKind.CONST:
+                collectTypeUses(type.valueType, out);
+                break;
+            case AstKind.REFERENCE:
+                collectTypeUses(type.referentType, out);
+                break;
+            case AstKind.POINTER:
+                collectTypeUses(type.pointee, out);
+                break;
+            case AstKind.ARRAY:
+                collectTypeUses(type.element, out);
+                break;
+            case AstKind.DEPENDENT_MEMBER:
+                collectTypeUses(type.base, out);
+                break;
+        }
+    };
+    const gatherFieldUses = (members: Declaration[], out: { name: string; span?: Span }[]): void => {
+        for (const field of members) {
+            if (field.kind === AstKind.VARIABLE) collectTypeUses(field.type, out);
+            else if (field.kind === AstKind.STRUCT && field.hasBody !== false) gatherFieldUses(field.members, out);
+        }
+    };
+    const flagHiddenTypeUses = (uses: { name: string; span?: Span }[], fallback: Span): void => {
+        for (const use of uses) {
+            if (scopeTypeNames.has(use.name) && seenFnNames.has(use.name))
+                validator.error(
+                    `type '${use.name}' is hidden by a procedure or function of the same name; C++ requires the elaborated 'struct ${use.name}' here, which Qinit does not support — rename the type or the entry`,
+                    use.span ?? fallback,
+                );
+        }
+    };
     for (const member of structDeclaration.members) {
         const isForwardDecl = (member.kind === AstKind.STRUCT || member.kind === AstKind.CLASS_TEMPLATE) && member.hasBody === false;
         if (
@@ -167,6 +225,9 @@ export function checkStruct(validator: Validator, structDeclaration: StructDecl)
                 validator.error(`duplicate member '${member.name}' in struct '${structDeclaration.name}'`, member.span);
             }
             fieldNames.add(member.name);
+            const variableUses: { name: string; span?: Span }[] = [];
+            collectTypeUses(member.type, variableUses);
+            flagHiddenTypeUses(variableUses, member.span);
             if (member.initializer && (member.isConstexpr || isConstType(member.type))) {
                 const value = evalIntegralConst(member.initializer, (name) => validator.constants.get(name) ?? null);
                 if (value !== null) validator.constants.set(member.name, value);
@@ -174,6 +235,9 @@ export function checkStruct(validator: Validator, structDeclaration: StructDecl)
         }
         if (member.kind === AstKind.STRUCT) {
             if (member.name) validator.aggregateNames.add(member.name);
+            const nestedUses: { name: string; span?: Span }[] = [];
+            gatherFieldUses(member.members, nestedUses);
+            flagHiddenTypeUses(nestedUses, member.span);
             validator.checkStruct(member);
         }
         if (member.kind === AstKind.ENUM) {
@@ -183,6 +247,7 @@ export function checkStruct(validator: Validator, structDeclaration: StructDecl)
             validator.checkStaticAssert(member.condition, member.message, member.span);
         }
         if (member.kind === AstKind.FUNCTION) {
+            seenFnNames.add(member.name);
             const sig: FnSig = {
                 declaration: member,
                 minArgs: member.params.filter((parameter) => !parameter.defaultValue).length,
