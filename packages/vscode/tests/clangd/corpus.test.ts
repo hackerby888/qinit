@@ -15,7 +15,7 @@ const hasCore = !!core && existsSync(join(core, "src", "contract_core", "contrac
 test.if(hasCore)("no warn/error linter findings across the deployed core contracts", () => {
     const offenders = lintCorpus(core!)
         .filter((r) => r.findings.length)
-        .map((r) => ({ file: r.file, rules: r.findings.map((f) => f.rule) }));
+        .map((r) => ({ file: r.file, rules: r.findings.map((f) => f.code) }));
     expect(offenders).toEqual([]);
 });
 

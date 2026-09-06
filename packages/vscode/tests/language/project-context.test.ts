@@ -20,7 +20,7 @@ test("editor slot planning keeps custom callees below callers", () => {
             stateType: "Counter",
             sourcePath: "/project/contracts/Counter.h",
             source: "",
-            dependencies: [],
+            callees: [],
         },
         {
             kind: "custom" as const,
@@ -28,7 +28,7 @@ test("editor slot planning keeps custom callees below callers", () => {
             stateType: "Proxy",
             sourcePath: "/project/contracts/Proxy.h",
             source: "",
-            dependencies: ["Counter"],
+            callees: ["Counter"],
         },
     ];
 
@@ -37,7 +37,7 @@ test("editor slot planning keeps custom callees below callers", () => {
         slotCount: 4,
     });
 
-    expect(planned.map((contract) => [contract.name, contract.index])).toEqual([
+    expect(planned.map((contract) => [contract.name, contract.slot])).toEqual([
         ["Counter", 29],
         ["Proxy", 30],
     ]);
@@ -77,7 +77,7 @@ test.if(hasCore)("Proxy resolves Counter from contracts and configures clangd wi
         expect(details.dynCallees).toEqual({
             Counter: {
                 header: counterPath.replace(/\\/g, "/"),
-                index: layout.slotBase,
+                slot: layout.slotBase,
             },
         });
 
@@ -147,7 +147,7 @@ struct Sibling : public ContractBase {
 
         // Proxy still calls only Counter, so the slots it builds with are unchanged.
         expect(details.slot).toBe(layout.slotBase + 1);
-        expect(details.dynCallees.Counter?.index).toBe(layout.slotBase);
+        expect(details.dynCallees.Counter?.slot).toBe(layout.slotBase);
         expect(details.dynCallees.Sibling).toBeDefined();
         expect(details.analysis.calleeSources?.map((callee) => callee.name)).toContain("Sibling");
 
