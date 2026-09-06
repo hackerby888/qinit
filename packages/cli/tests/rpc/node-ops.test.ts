@@ -47,7 +47,7 @@ test("killNode stops ONLY the tracked PID, not an unrelated process", async () =
     const other = sleeper(); // an unrelated instance that must survive
     try {
         writeFileSync(pidFile(dir), String(mine));
-        await killNode(dir);
+        expect(await killNode(dir)).toBe(true);
         expect(alive(mine)).toBe(false);
         expect(alive(other)).toBe(true);
         expect(existsSync(pidFile(dir))).toBe(false);
@@ -66,7 +66,7 @@ test("killNode is a no-op (no throw, no broad kill) when there is no pidfile", a
     const dir = scratch();
     const bystander = sleeper();
     try {
-        await killNode(dir);
+        expect(await killNode(dir)).toBe(false);
         expect(alive(bystander)).toBe(true);
     } finally {
         try {
@@ -107,7 +107,7 @@ test("default lifecycle operations follow the persisted active scratch directory
 
         expect(activeNodeScratchDir()).toBe(customScratch);
         expect(nodeAlive()).toBe(true);
-        await killNode();
+        expect(await killNode()).toBe(true);
         expect(alive(mine)).toBe(false);
         expect(existsSync(join(cache, "active-node-scratch"))).toBe(false);
     } finally {

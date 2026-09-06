@@ -69,11 +69,12 @@ function pidAlive(pid: number): boolean {
 }
 
 // Never kill by image name: a developer may be running other Qubic nodes.
-export async function killNode(scratch = activeNodeScratchDir()): Promise<void> {
+// Resolves true once the tracked pid is dead; false when nothing is tracked or it outlived the wait.
+export async function killNode(scratch = activeNodeScratchDir()): Promise<boolean> {
     const resolvedScratch = resolve(scratch);
     const pid = trackedPid(resolvedScratch);
     if (pid === undefined) {
-        return;
+        return false;
     }
 
     try {
@@ -94,10 +95,11 @@ export async function killNode(scratch = activeNodeScratchDir()): Promise<void> 
                 // A concurrent Qinit invocation may already have removed it.
             }
             forgetActiveScratch(resolvedScratch);
-            return;
+            return true;
         }
         await sleep(250);
     }
+    return false;
 }
 
 export function nodeAlive(scratch = activeNodeScratchDir()): boolean {

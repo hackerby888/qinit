@@ -98,9 +98,9 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                         setS({ phase: "done", title: "stopped", color: theme.info, lines, facts: { stopped: true, wasRunning: false } });
                         return;
                     }
-                    await killNode();
-                    const dead = !nodeAlive();
-                    add(dead ? "node stopped" : "node still alive (pkill failed)", dead);
+                    // Trust the pid outcome: a rescan by image name still lists the process mid-teardown on Windows.
+                    const dead = await killNode();
+                    add(dead ? "node stopped" : "node still alive (kill failed)", dead);
                     setS({
                         phase: "done",
                         title: dead ? "stopped ✓" : "stop failed",
