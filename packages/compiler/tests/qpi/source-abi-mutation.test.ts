@@ -9,8 +9,8 @@ import { inspectWasmModule } from "../../src/driver/wasm-inspection";
 import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "../../src/driver/qpi/snapshot";
 
 const HEADER = () => loadQpiHeader(CORE_PATH);
-const metadata = () => readFileSync(`${CORE_PATH}/src/${CORE_WASM_HEADERS.shared.abiMetadata}`, "utf8");
-const shared = () => readFileSync(`${CORE_PATH}/src/${CORE_WASM_HEADERS.shared.abiTypes}`, "utf8");
+const metadata = () => readFileSync(`${CORE_PATH}/src/${CORE_WASM_HEADERS.shared.abiMetadata}`, "utf8").replace(/\r\n/g, "\n");
+const shared = () => readFileSync(`${CORE_PATH}/src/${CORE_WASM_HEADERS.shared.abiTypes}`, "utf8").replace(/\r\n/g, "\n");
 
 function addFunctionContextDeclaration(header: string, declaration: string): string {
     const marker = /struct QpiContextFunctionCall : public QpiContext\r?\n\s*\{/;

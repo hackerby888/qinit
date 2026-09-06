@@ -50,6 +50,7 @@ for (const seed of process.argv.slice(2).map(Number)) {
             corePath: CORE,
             outDir: dir,
             skipVerify: true,
+            buildRules: false, // generated sources spell div/mod bare; the user gate is not under test here
         });
         if (!built.ok) {
             console.log(`  // seed ${seed}: NATIVE BUILD FAIL — not pinned`);

@@ -29,6 +29,7 @@ export async function buildDifferentialRunner(options: DifferentialRunnerOptions
         slot,
         corePath: options.corePath,
         outDir: dir,
+        buildRules: false, // compiler-differential sources spell QPI helpers bare on purpose; the user rules are a product gate
     });
     if (!built.ok || !built.wasmPath) {
         throw new Error(built.stderr ?? `failed to build ${options.name} differential runner`);

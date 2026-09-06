@@ -125,6 +125,7 @@ async function checkSeed(contract: FuzzContract, headers: string, wasiAvailable:
             corePath: options.corePath,
             outDir: directory,
             skipVerify: true,
+            buildRules: false, // generated sources spell div/mod bare; the user gate is not under test here
         });
         if (!built.ok) {
             return {

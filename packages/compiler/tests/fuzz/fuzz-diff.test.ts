@@ -88,6 +88,7 @@ describe.skipIf(!HAS_CORE)("fuzz pinned seeds", () => {
                         corePath: CORE,
                         outDir: dir,
                         skipVerify: true,
+                        buildRules: false, // the generator spells div/mod bare; this tests the compiler, not the user gate
                     });
                     expect(built.ok).toBe(true);
                     expect(runState(new Uint8Array(readFileSync(built.wasmPath!)), c.inputs)).toBe(expected);
