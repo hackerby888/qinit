@@ -56,7 +56,7 @@ export function divModFix(source: string, token: Token, operator: BinaryOp.DIVID
     }
     return [
         sourceFix(
-            `Convert to ${operator === BinaryOp.DIVIDE ? "div" : "mod"}(a, b)`,
+            `Convert to QPI::${operator === BinaryOp.DIVIDE ? "div" : "mod"}(a, b)`,
             source,
             [
                 {
@@ -152,7 +152,7 @@ export function divModFixForLine(
     return {
         start,
         end,
-        text: `${operator === BinaryOp.DIVIDE ? "div" : "mod"}(${left[1]}, ${right[1]})`,
+        text: `QPI::${operator === BinaryOp.DIVIDE ? "div" : "mod"}(${left[1]}, ${right[1]})`,
     };
 }
 

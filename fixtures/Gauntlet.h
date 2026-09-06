@@ -106,8 +106,8 @@ struct Gauntlet : public ContractBase
 
     PUBLIC_FUNCTION(DivMod)
     {
-        output.q = div(input.a, input.b);   // div(a, 0) -> 0
-        output.r = mod(input.a, input.b);   // mod(a, 0) -> 0
+        output.q = QPI::div(input.a, input.b);   // div(a, 0) -> 0
+        output.r = QPI::mod(input.a, input.b);   // mod(a, 0) -> 0
     }
 
     PUBLIC_FUNCTION(Arith)
@@ -120,7 +120,7 @@ struct Gauntlet : public ContractBase
 
     PUBLIC_FUNCTION(SignedOp)
     {
-        output.q = div(input.a, input.b);
+        output.q = QPI::div(input.a, input.b);
         // Signed division truncates toward zero; modulo follows the dividend sign.
         output.r = QPI::mod(input.a, input.b);
         output.sum = input.a + input.b;

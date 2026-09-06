@@ -41,6 +41,7 @@ export async function buildRunner(core: string): Promise<Uint8Array> {
         const built = await buildCorpusRunner({
             corpusPath: `${core}/test/contract_qutil.cpp`,
             contractPath: `${core}/src/contracts/QUtil.h`,
+            contractKind: "system",
             contractName: "QUTIL",
             stateType: "QUTIL",
             slot: QUTIL_IDX,
@@ -96,6 +97,7 @@ export async function buildContractsWithClang(core: string): Promise<Record<numb
     try {
         const qx = await buildContractWithClang({
             contractPath: `${core}/src/contracts/Qx.h`,
+            contractKind: "system",
             contractName: "QX",
             stateType: "QX",
             slot: QX_IDX,
@@ -110,6 +112,7 @@ export async function buildContractsWithClang(core: string): Promise<Record<numb
 
         const qutil = await buildContractWithClang({
             contractPath: `${core}/src/contracts/QUtil.h`,
+            contractKind: "system",
             contractName: "QUTIL",
             stateType: "QUTIL",
             slot: QUTIL_IDX,

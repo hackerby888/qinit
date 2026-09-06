@@ -486,3 +486,56 @@ describe("runCoreIntegration", () => {
         expect(runGit(partialOutput, "status", "--porcelain")).toBe("");
     });
 });
+
+describe("build rules at the Core hand-off", () => {
+    test("refuses a bare div before any checkout is created", async () => {
+        const root = temporaryDirectory();
+        const repositoryUrl = createCoreRepository(root);
+        const projectRoot = createProject(root);
+        const outputPath = join(root, "Main-core");
+
+        writeFileSync(
+            join(projectRoot, "contracts", "Main.h"),
+            "struct Main { struct StateData { Base::StateData* base; }; };\nPUBLIC_PROCEDURE(P)\n{\n    state.mut().n = div(input.a, input.b);\n}\n",
+        );
+
+        await expect(
+            runCoreIntegration({
+                projectRoot,
+                contractPath: "contracts/Main.h",
+                contractName: "Main",
+                outputPath,
+                assetName: "MAIN",
+                constructionEpoch: 300,
+                destructionEpoch: 10000,
+                repositoryUrl,
+            }),
+        ).rejects.toThrow(/build rule violations in Main\.h:\n {2}line 4: .*QPI::div/);
+        expect(existsSync(outputPath)).toBe(false);
+    });
+
+    test("--no-build-rules lets the same contract through", async () => {
+        const root = temporaryDirectory();
+        const repositoryUrl = createCoreRepository(root);
+        const projectRoot = createProject(root);
+
+        writeFileSync(
+            join(projectRoot, "contracts", "Main.h"),
+            "struct Main { struct StateData { Base::StateData* base; }; };\nPUBLIC_PROCEDURE(P)\n{\n    state.mut().n = div(input.a, input.b);\n}\n",
+        );
+
+        const result = await runCoreIntegration({
+            projectRoot,
+            contractPath: "contracts/Main.h",
+            contractName: "Main",
+            outputPath: join(root, "Main-core"),
+            assetName: "MAIN",
+            constructionEpoch: 300,
+            destructionEpoch: 10000,
+            repositoryUrl,
+            buildRules: false,
+        });
+
+        expect(readFileSync(join(result.corePath, "src", "contracts", "Main.h"), "utf8")).toContain("div(input.a, input.b)");
+    });
+});

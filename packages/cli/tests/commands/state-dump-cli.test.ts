@@ -1,9 +1,9 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CLI_TEST_TIMEOUT_MS, removeDirWithRetry, runCli } from "../../../../test-utils/cli";
 
-const cli = join(import.meta.dir, "../../src/index.tsx");
 const canListen = (() => {
     try {
         const probe = Bun.serve({ port: 0, fetch: () => new Response("ok") });
@@ -18,19 +18,13 @@ const canListen = (() => {
 const workDir = realpathSync(mkdtempSync(join(tmpdir(), "qinit-state-dump-cli-")));
 
 afterAll(() => {
-    rmSync(workDir, { recursive: true, force: true });
+    removeDirWithRetry(workDir);
 });
 
 async function runState(args: string[]) {
-    const child = Bun.spawn([process.execPath, cli, "state", ...args], {
-        cwd: workDir,
-        stdout: "pipe",
-        stderr: "pipe",
-    });
-    const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    return { code: child.exitCode, stdout: stdout.trim(), stderr: stderr.trim() };
+    const result = await runCli(["state", ...args], { cwd: workDir });
+    return { code: result.code, stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }
-
 function stateServer(state: Uint8Array) {
     return Bun.serve({
         port: 0,
@@ -75,7 +69,7 @@ test.skipIf(!canListen)("state --dump --json writes the state and reports the fi
     } finally {
         server.stop(true);
     }
-});
+}, CLI_TEST_TIMEOUT_MS);
 
 // A dump needs neither IDL nor source, so a slot the registry never lists still works.
 test.skipIf(!canListen)("state --dump takes a numeric slot and an --out path", async () => {
@@ -93,7 +87,7 @@ test.skipIf(!canListen)("state --dump takes a numeric slot and an --out path", a
     } finally {
         server.stop(true);
     }
-});
+}, CLI_TEST_TIMEOUT_MS);
 
 test.skipIf(!canListen)("state --dump --json reports a failure and exits nonzero", async () => {
     const server = Bun.serve({
@@ -110,10 +104,10 @@ test.skipIf(!canListen)("state --dump --json reports a failure and exits nonzero
     } finally {
         server.stop(true);
     }
-});
+}, CLI_TEST_TIMEOUT_MS);
 
 test("state --out without --dump is an argument error", async () => {
     const result = await runState(["29", "--out", "x.bin"]);
     expect(result.code).toBe(1);
     expect(result.stdout).toContain("--out only applies with --dump");
-});
+}, CLI_TEST_TIMEOUT_MS);

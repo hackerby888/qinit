@@ -2,7 +2,8 @@ import { existsSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { cacheRoot, readCurrent } from "@qinit/core";
-import { stripCheatcodes } from "@qinit/compiler/analyzer";
+import { analyzeContract, stripCheatcodes } from "@qinit/compiler/analyzer";
+import { buildGateViolations, type BuildGateContext } from "./build-rules";
 
 export interface VerifyResult {
     available: boolean;
@@ -60,7 +61,19 @@ export function verifyRejection(verify: VerifyResult): { ok: false; verify: Veri
     };
 }
 
-export async function verifyContract(file: string, name: string, options?: { oracle?: boolean; allowedPrefixes?: string[] }): Promise<VerifyResult> {
+// With `buildRules`, Qinit's own build gate (build-rules.ts) is evaluated on the file first and its findings lead the
+// error list, whether or not the external verifier is available. Builds do not pass it: their gate already ran.
+export async function verifyContract(
+    file: string,
+    name: string,
+    options?: { oracle?: boolean; allowedPrefixes?: string[]; buildRules?: BuildGateContext },
+): Promise<VerifyResult> {
+    const gate = options?.buildRules ? buildGateViolations(analyzeContract({ source: readFileSync(file, "utf8"), contractName: name }).diagnostics, options.buildRules) : [];
+    const result = await verifyWithTool(file, name, options);
+    return gate.length ? { ...result, ok: false, errors: [...gate, ...result.errors] } : result;
+}
+
+async function verifyWithTool(file: string, name: string, options?: { oracle?: boolean; allowedPrefixes?: string[] }): Promise<VerifyResult> {
     const tool = resolveVerifyTool();
     const oracle = !!options?.oracle || /oracle_interface/i.test(file);
 

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { existsSync } from "node:fs";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { basename } from "node:path";
 import {
     autoUpdateVerifyTool,
+    configuredWasiSdk,
     fetchWasiSdk,
     loadManifest,
     managedWasiSdkStatus,
@@ -54,26 +55,6 @@ function configuredVerifyTool(): string | null {
         return override;
     }
     return Bun.which("contractverify");
-}
-
-function configuredWasiSdk(): string | null {
-    const clang = process.env.WASM_CLANG?.trim();
-    const sysroot = process.env.WASI_SYSROOT?.trim();
-    if (!clang && !sysroot) {
-        return null;
-    }
-    const sdk = wasiSdkPaths();
-    if (!sdk || (clang && sysroot)) {
-        return sdk?.root ?? null;
-    }
-    const managedRoot = managedWasiSdkStatus().currentRoot;
-    const configuredPath = clang ?? sysroot;
-    if (!managedRoot || !configuredPath) {
-        return null;
-    }
-    const pathFromManagedRoot = relative(resolve(managedRoot), resolve(configuredPath));
-    const usesManagedCache = pathFromManagedRoot === "" || (!pathFromManagedRoot.startsWith("..") && !isAbsolute(pathFromManagedRoot));
-    return usesManagedCache ? sdk.root : null;
 }
 
 const defaultDeps = {
@@ -273,7 +254,9 @@ export async function runSetup(emit: (event: SetupEvent) => void = () => {}, inj
             if (configuredSdk) {
                 return `ready ${configuredSdk}`;
             }
-            const sdk = await deps.fetchWasiSdk(onProgress, updateWasi ? { upgrade: true } : undefined);
+            const sdk = await deps.fetchWasiSdk(onProgress, updateWasi ? { upgrade: true } : undefined).catch((error: any) => {
+                throw new Error(`${error?.message ?? error}\n  rerun to resume, or install the SDK yourself and set WASM_CLANG/WASI_SYSROOT`);
+            });
             const ready = deps.wasiSdkPaths();
             if (!ready) {
                 throw new Error("WASI SDK unavailable after setup — check WASM_CLANG and WASI_SYSROOT");

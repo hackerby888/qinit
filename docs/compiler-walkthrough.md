@@ -649,6 +649,20 @@ Recursion is rejected because contract stack and locals usage need to remain sta
 
 This is not a complete ISO C++ semantic analyzer. It validates the restricted C++/QPI subset that Qinit can faithfully lower.
 
+### 8.1 Source policy rules and the build gate
+
+Separately from the compiler's own diagnostics, the token-based rules in
+[`analyzer/source-policy.ts`](../packages/compiler/src/analyzer/source-policy.ts) describe what a QPI contract may not
+write (`/`, `%`, brackets, string literals, an unqualified `div(…)`/`mod(…)`, ...). Each rule emits a `qpi/<name>`
+diagnostic, usually a warning with a quick fix, so the editor and the CLI share one list.
+
+Which of those findings fail a build is decided by one table, `BUILD_GATE_RULES` in
+[`build/src/compile/build-rules.ts`](../packages/build/src/compile/build-rules.ts). Both backends, `verify` and
+`integrate` call it. A row has a scope: `all` rows are protocol rules and always run; `user` rows are skipped for core's
+own system contracts (`contractKind: "system"`) and can be switched off with `--no-build-rules` or
+`QINIT_BUILD_RULES=off`. To add a rule: emit the diagnostic in `source-policy.ts`, add a row here, and add its code to
+`USER_CONTRACT_RULES` when it should not apply to core's contracts.
+
 ## 9. The analyzing phase and `SemanticAnalyzer`
 
 The pipeline creates:

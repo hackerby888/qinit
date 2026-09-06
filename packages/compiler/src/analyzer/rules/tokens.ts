@@ -19,7 +19,7 @@ const LIFECYCLE = new Set([
     "EXPAND",
 ]);
 
-const TYPE_KINDS = new Set<TokenKind>([
+export const TYPE_KINDS = new Set<TokenKind>([
     TokenKind.KW_AUTO,
     TokenKind.KW_BOOL,
     TokenKind.KW_CHAR,

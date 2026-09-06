@@ -10,11 +10,11 @@ import {
     readCurrent,
     updateCurrent,
     loadManifest,
-    downloadVerifiedAsset,
+    downloadVerifiedAssetToFile,
     releasePlatformKey,
-    atomicWrite,
     debug,
     type AssetRef,
+    type CurrentPointer,
     type EngineFaultInfo,
     type Manifest,
 } from "@qinit/core";
@@ -138,9 +138,8 @@ export async function fetchNodeBinary(
     const dir = join(cacheRoot(), manifest.version, "node");
     const nodeBinaryPath = join(dir, isWindows ? "Qubic.exe" : "Qubic");
     if (!existsSync(nodeBinaryPath)) {
-        const node = await downloadVerifiedAsset(asset, onProgress);
         mkdirSync(dir, { recursive: true });
-        atomicWrite(nodeBinaryPath, node);
+        await downloadVerifiedAssetToFile(asset, nodeBinaryPath, onProgress);
         if (!isWindows) {
             Bun.spawnSync(["chmod", "+x", nodeBinaryPath]);
         }
@@ -159,6 +158,13 @@ export function cachedNode(): string | undefined {
 
 export function cachedReleaseRef(version?: string): string | undefined {
     return version && !["local", "cached", "unknown"].includes(version) ? version : undefined;
+}
+
+// Drift only means something between two managed releases; a local checkout has no version to compare.
+export function versionDrift(current: Pick<CurrentPointer, "headersVersion" | "nodeVersion"> | null | undefined): boolean {
+    const headers = cachedReleaseRef(current?.headersVersion);
+    const node = cachedReleaseRef(current?.nodeVersion);
+    return headers !== undefined && node !== undefined && headers !== node;
 }
 
 export async function ensureNodeBinary(

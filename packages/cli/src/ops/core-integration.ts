@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseContractDef } from "@qinit/build/contracts/intercontract";
-import { analyzeCheatcodes, stripCheatcodes } from "@qinit/compiler/analyzer";
+import { analyzeCheatcodes, analyzeContract, stripCheatcodes } from "@qinit/compiler/analyzer";
+import { buildGateViolations } from "@qinit/build";
 import {
     coreFilePaths,
     descriptions,
@@ -37,6 +38,8 @@ export interface CoreIntegrationOptions {
     destructionEpoch?: number;
     requireDestructionEpoch?: boolean;
     repositoryUrl?: string;
+    // false skips the user-scope build rules (`--no-build-rules`).
+    buildRules?: boolean;
     onProgress?: (event: CoreIntegrationProgress) => void;
 }
 
@@ -311,6 +314,15 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
 
         if (/\bCC_[A-Z0-9_]/.test(contractSource)) {
             throw new Error("internal: cheatcode residue after strip");
+        }
+
+        // Core's Windows build is the hand-off this gate exists for; refuse before any checkout is created.
+        const rules = buildGateViolations(analyzeContract({ source: contractSource, contractName }).diagnostics, {
+            contractKind: "user",
+            buildRules: options.buildRules,
+        });
+        if (rules.length) {
+            throw new Error(`build rule violations in ${sourceFileName}:\n${rules.map((item) => `  ${item}`).join("\n")}`);
         }
         const localTestPath = join(projectRoot, "tests", `${contractName}.test.cpp`);
         const testSource = existsSync(localTestPath) ? readFileSync(localTestPath, "utf8") : undefined;

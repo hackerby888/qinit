@@ -26,7 +26,7 @@ export { buildSignedTx, assertSeed, LITE_DEPLOY_ADDRESS } from "./crypto/tx";
 export type { SignedTx, TxInput } from "./crypto/tx";
 export { TESTNET_FUNDED_SEEDS, DEFAULT_FUNDED_SEED } from "./crypto/testnet-seeds";
 
-export { LiteRpc } from "./net/rpc/client";
+export { LiteRpc, RpcTimeoutError, ADVANCE_TICK_TIMEOUT_MS, ADVANCE_EPOCH_TIMEOUT_MS, RPC_TIMEOUT_MS } from "./net/rpc/client";
 export type {
     TickInfo,
     EngineFaultInfo,
@@ -58,7 +58,9 @@ export {
     broadcastTx,
     broadcastTxs,
     fetchWithTimeout,
+    RequestTimeoutError,
     readResponseBodyWithTimeout,
+    readResponseChunksWithTimeout,
 } from "./net/http";
 export type { BroadcastResult } from "./net/http";
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, RpcTimeoutError } from "@qinit/core";
 import { loadConfig } from "../../config";
 import { advanceTo, haltedNodeError } from "./tick";
 import { Header, Spinner, Bar, KV, theme } from "../../ui";
@@ -45,17 +45,30 @@ export async function crossEpoch(rpc: LiteRpc, fromEpoch: number) {
         return { fromEpoch, toEpoch: now.epoch, fromTick: now.tick, tick: now.tick, initialTick: now.initialTick, switched: true };
     }
 
-    let r = await advanceEpochOrFault(rpc);
-    for (let i = 0; i < 3 && !r.switched; i++) r = await advanceEpochOrFault(rpc);
+    let r = await advanceEpochOrFault(rpc, fromEpoch);
+    for (let i = 0; i < 3 && !r.switched; i++) r = await advanceEpochOrFault(rpc, fromEpoch);
     return r;
 }
 
-// The boundary transition fails the same way the tick advance does on a halted node.
-async function advanceEpochOrFault(rpc: LiteRpc) {
+const SETTLE_POLL_MS = 500;
+const SETTLE_BUDGET_MS = 30_000;
+
+// The boundary transition fails the same way the tick advance does on a halted node; a timeout is followed up instead.
+export async function advanceEpochOrFault(rpc: LiteRpc, fromEpoch: number, pollMs = SETTLE_POLL_MS, budgetMs = SETTLE_BUDGET_MS) {
     try {
         return await rpc.advanceEpoch();
     } catch (error) {
-        throw (await haltedNodeError(rpc)) ?? error;
+        const halted = await haltedNodeError(rpc);
+        if (halted) throw halted;
+        if (!(error instanceof RpcTimeoutError)) throw error;
+    }
+    const deadline = Date.now() + budgetMs;
+    for (;;) {
+        const now = await rpc.epochInfo();
+        if (now.epoch > fromEpoch || Date.now() >= deadline) {
+            return { fromEpoch, toEpoch: now.epoch, fromTick: now.tick, tick: now.tick, initialTick: now.initialTick, switched: now.epoch > fromEpoch };
+        }
+        await new Promise((r) => setTimeout(r, pollMs));
     }
 }
 

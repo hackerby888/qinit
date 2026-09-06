@@ -7,8 +7,6 @@ import {
     DEFAULT_RPC_BASE,
     LOOPBACK_HOST,
     LiteRpc,
-    fetchWasiSdk,
-    haveWasiSdkCache,
     loadCoreWasmSlotLayout,
     loadManifest,
     readCurrent,
@@ -30,6 +28,7 @@ import { loadConfig, resolveCompilerBackend, resolveRuntime } from "../../config
 import { Header, Step, type StepState, Panel, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { prepareNodeRunCore } from "../../ops/node-core";
+import { prepareNodeRunWasiSdk } from "../../ops/node-wasi";
 
 type Phase = { key: string; label: string; state: StepState; detail?: string };
 
@@ -130,20 +129,13 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                     );
                 }
 
-                // wasm compiler: fetch the host's wasi-sdk (clang + wasi-sysroot) so `qinit build` needs zero
-                // native deps. Best-effort — WASM_CLANG/WASI_SYSROOT or a clang on PATH still work.
+                // wasm compiler: best-effort prefetch of the managed wasi-sdk; a configured or cached SDK is reused as is.
                 set("wasi-sdk", "active");
-                try {
-                    if (offline) set("wasi-sdk", "ok", haveWasiSdkCache() ? "cached" : "offline — skipped");
-                    else {
-                        const s = await fetchWasiSdk((rc, tt) =>
-                            set("wasi-sdk", "active", tt ? `${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `${(rc / 1e6) | 0} MB`),
-                        );
-                        set("wasi-sdk", "ok", s.cached ? "cached" : "fetched");
-                    }
-                } catch {
-                    set("wasi-sdk", "ok", "unavailable — set WASM_CLANG/WASI_SYSROOT");
-                }
+                const sdk = await prepareNodeRunWasiSdk({
+                    offline,
+                    onProgress: (rc, tt) => set("wasi-sdk", "active", tt ? `${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `${(rc / 1e6) | 0} MB`),
+                });
+                set("wasi-sdk", "ok", sdk.detail);
 
                 // Run: reuse a node that's already ticking (keeps deployed state); else (re)launch.
                 set("run", "active", "checking");

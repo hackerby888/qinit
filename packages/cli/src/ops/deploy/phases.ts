@@ -7,6 +7,7 @@ import { savedSeed, resolveCoreDir } from "../../config";
 import { tickFailureMessage, type DeploymentEvent } from "./steps";
 import { activeUploadError, waitForStaleUpload } from "./upload";
 import { describeFault, readFault } from "../fault";
+import { versionDrift } from "../node";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -49,8 +50,8 @@ export async function runPreflightChecks(rpc: LiteRpc, options: PreflightOptions
     }
 
     const pin = readCurrent();
-    if (pin?.headersVersion && pin?.nodeVersion && pin.headersVersion !== pin.nodeVersion) {
-        emit({ note: `⚠ version drift: headers ${pin.headersVersion} ≠ node ${pin.nodeVersion} — run 'qinit setup'` });
+    if (versionDrift(pin)) {
+        emit({ note: `⚠ version drift: headers ${pin?.headersVersion} ≠ node ${pin?.nodeVersion} — run 'qinit setup'` });
     }
 
     if (!options.artifact) {

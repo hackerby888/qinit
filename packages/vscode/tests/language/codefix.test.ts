@@ -52,15 +52,15 @@ test("declines unsafe array shapes", () => {
 });
 
 test("rewrites simple division and modulo", () => {
-    expect(applyFix("locals.r = a / b;", "qpi/no-division")).toBe("locals.r = div(a, b);");
-    expect(applyFix("output.x = total % 10;", "qpi/no-modulo")).toBe("output.x = mod(total, 10);");
-    expect(applyFix("locals.v = input.amt / 100;", "qpi/no-division")).toBe("locals.v = div(input.amt, 100);");
-    expect(applyFix("locals.v = locals.x / locals.y;", "qpi/no-division")).toBe("locals.v = div(locals.x, locals.y);");
+    expect(applyFix("locals.r = a / b;", "qpi/no-division")).toBe("locals.r = QPI::div(a, b);");
+    expect(applyFix("output.x = total % 10;", "qpi/no-modulo")).toBe("output.x = QPI::mod(total, 10);");
+    expect(applyFix("locals.v = input.amt / 100;", "qpi/no-division")).toBe("locals.v = QPI::div(input.amt, 100);");
+    expect(applyFix("locals.v = locals.x / locals.y;", "qpi/no-division")).toBe("locals.v = QPI::div(locals.x, locals.y);");
 });
 
 test("division fix rewrites only the immediate operands", () => {
-    expect(applyFix("locals.r = a + b / c;", "qpi/no-division")).toBe("locals.r = a + div(b, c);");
-    expect(applyFix("locals.r = a / b + c;", "qpi/no-division")).toBe("locals.r = div(a, b) + c;");
+    expect(applyFix("locals.r = a + b / c;", "qpi/no-division")).toBe("locals.r = a + QPI::div(b, c);");
+    expect(applyFix("locals.r = a / b + c;", "qpi/no-division")).toBe("locals.r = QPI::div(a, b) + c;");
 });
 
 test("division fix declines unsafe shapes", () => {

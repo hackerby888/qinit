@@ -10,6 +10,7 @@ import { wasiSdkPaths } from "@qinit/core/project";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { instrumentStateJournal, remapCodeOffset } from "@qinit/core/wasm/instrument";
 import { writeLineMap } from "./line-map";
+import type { ContractKind } from "./build-rules";
 import WASM_GTEST_H from "../assets/wasm_gtest.h" with { type: "text" };
 import WASM_CONTRACT_TESTING_H_TEMPLATE from "../assets/wasm_contract_testing.h" with { type: "text" };
 import TEST_UTIL_H from "../assets/test_util.h" with { type: "text" };
@@ -83,6 +84,8 @@ export interface ClangBuildOptions {
     wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
     skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some Wasm macros)
     strict?: boolean; // default true; false keeps fidelity-only findings out of the build gate, matching CompileOptions.strict
+    contractKind?: ContractKind; // "system" for core's own contracts, which skip the user-scope build rules (default "user")
+    buildRules?: boolean; // false skips the user-scope build rules (`--no-build-rules`); the protocol rules always run
     arenaSizeBytes?: number; // contract-side arena size (WASM_ARENA_SIZE), default 1GB; shrink for browser IDE builds
     journalCapBytes?: number; // state-write journal budget; capacity is also capped by the reserved region
     testSource?: string; // core-lite contract_testing.h-style source compiled into a private Wasm runner

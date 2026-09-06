@@ -133,8 +133,8 @@ struct Contract : public ContractBase {
     const division = diagnostics.find((item) => item.code === "qpi/no-division");
 
     expect(array?.fixes?.[0].title).toBe("Convert to Array<T, N>");
-    expect(division?.fixes?.[0].title).toBe("Convert to div(a, b)");
-    expect(applyEdits(source, division!.fixes![0].edits)).toContain("div(input.left, input.right)");
+    expect(division?.fixes?.[0].title).toBe("Convert to QPI::div(a, b)");
+    expect(applyEdits(source, division!.fixes![0].edits)).toContain("QPI::div(input.left, input.right)");
 });
 
 test("reports registration and public interface mistakes", () => {
@@ -546,4 +546,37 @@ struct Contract : public ContractBase {
         expect(applyEdits(sameEntry, callErrors(sameEntry)[0].fixes![0].edits)).toContain("locals.secondOutput, getError2)");
         expect(applyEdits(taken, callErrors(taken)[0].fixes![0].edits)).toContain("1, incError2)");
     });
+});
+
+test("flags an unqualified div/mod call and offers the QPI:: fix, but not declarations or qualified calls", () => {
+    const flagged = [
+        "uint64 a = div(x, y);",
+        "uint64 b = mod(x, y);",
+        "return div(a, b);",
+        "output.q = (uint64)div(input.v, 2ull);",
+        "foo(div(a, b));",
+    ];
+    const clean = [
+        "QPI::div(a, b);",
+        "QPI::mod(a, b);",
+        "x.div(a);",
+        "p->div(a);",
+        "div<sint64>(a, b);",
+        "// div(a, b)",
+        "uint64 div(uint64 a, uint64 b);",
+        "template <typename T> T div(T a, T b) { return a; }",
+        "T& div(T a);",
+        "inline static constexpr T div(T a, T b) { return a; }",
+    ];
+    const codes = (source: string) => qpiDiagnostics(source).filter((item) => item.code.startsWith("qpi/unqualified-"));
+
+    for (const source of clean) {
+        expect(codes(source), source).toEqual([]);
+    }
+    for (const source of flagged) {
+        const [finding] = codes(source);
+        expect(finding?.severity, source).toBe(DiagnosticSeverity.WARNING);
+        expect(finding?.code, source).toBe(source.includes("mod(") ? "qpi/unqualified-mod" : "qpi/unqualified-div");
+        expect(applyEdits(source, finding!.fixes![0].edits), source).toContain(source.includes("mod(") ? "QPI::mod(" : "QPI::div(");
+    }
 });

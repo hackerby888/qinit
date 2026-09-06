@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { DEFAULT_RPC_BASE, readCurrent, LiteRpc } from "@qinit/core";
-import { ensureNodeBinary, killNode, nodeAlive, nodeStatus } from "../../ops/node";
+import { ensureNodeBinary, killNode, nodeAlive, nodeStatus, versionDrift } from "../../ops/node";
 import { describeFault } from "../../ops/fault";
 import { output, type CommandArguments } from "../../args";
 const dlLabel = (recv: number, total: number) =>
@@ -66,8 +66,7 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                     const cur = readCurrent();
                     if (cur?.headersVersion || cur?.nodeVersion)
                         rows.push(["synced", `headers ${cur?.headersVersion ?? "—"} · node ${cur?.nodeVersion ?? "—"}`]);
-                    if (cur?.headersVersion && cur?.nodeVersion && cur.headersVersion !== cur.nodeVersion)
-                        add("⚠ headers/node version drift — run `qinit setup`", false);
+                    if (versionDrift(cur)) add("⚠ headers/node version drift — run `qinit setup`", false);
                     setS({
                         phase: "done",
                         title: st.ticking ? "node up ✓" : "node up (idle)",
@@ -87,7 +86,7 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                             contracts: st.contracts,
                             headersVersion: cur?.headersVersion ?? null,
                             nodeVersion: cur?.nodeVersion ?? null,
-                            versionDrift: Boolean(cur?.headersVersion && cur?.nodeVersion && cur.headersVersion !== cur.nodeVersion),
+                            versionDrift: versionDrift(cur),
                         },
                     });
                     return;

@@ -1,7 +1,7 @@
 // buildCorpusRunner replaces core-lite's contract_testing.h with the engine-backed test harness.
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { buildContractWithClang, buildCorpusRunner, KNOWN_LOG_HEADER_VIOLATIONS, systemContracts, type DynCallees } from "@qinit/build";
+import { buildContractWithClang, buildCorpusRunner, KNOWN_LOG_HEADER_VIOLATIONS, systemContracts, type ContractKind, type DynCallees } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { initK12 } from "@qinit/core";
@@ -24,6 +24,7 @@ export interface StdGtestContractSpec {
     name: string;
     stateType: string;
     slot: number;
+    kind?: "custom" | "system";
 }
 
 export interface StdGtestRun {
@@ -122,6 +123,7 @@ function depSpecs(catalog: any[], mainName: string, testSrc: string, contractSrc
                 name: other.name,
                 stateType: other.stateType,
                 slot: other.index,
+                kind: "system",
             });
         }
     };
@@ -147,6 +149,7 @@ async function clangWasms(
             slot: s.slot,
             corePath: core,
             skipVerify: true,
+            contractKind: (s.kind === "system" ? "system" : "user") as ContractKind,
             dynCallees,
         };
         const p1 = await buildContractWithClang({
@@ -288,6 +291,7 @@ export async function runStdGtest(opts: {
     shared?: boolean;
     projectDependencies?: readonly StdGtestContractSpec[];
     dynCallees?: DynCallees;
+    contractKind?: "user" | "system";
     excludeTests?: readonly string[];
     filterTests?: readonly string[];
     onResult?: (r: TestResult) => void | Promise<void>;
@@ -335,6 +339,7 @@ export async function runStdGtest(opts: {
         outDir: join(opts.scratch, "run_" + opts.name),
         arenaSizeBytes: ARENA,
         dynCallees,
+        contractKind: opts.contractKind,
         contractDescriptions: deps
             .filter((dependency) => dynCallees[dependency.stateType])
             .map((dependency) => ({
@@ -407,6 +412,7 @@ export async function runCorpus(opts: {
         backend: opts.backend,
         scratch: opts.scratch,
         shared: systemGtestTier(c.name) === "heavy",
+        contractKind: "system",
         excludeTests: opts.excludeTests,
         filterTests: opts.filterTests,
         onResult: opts.onResult,

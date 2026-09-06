@@ -205,10 +205,10 @@ export class QubicSimulator {
             assetEnumerate: (asset, ownership, possession, kind) => this.assets.enumerate(asset, ownership, possession, kind),
             transferShareOwnershipAndPossession: (slot, name, issuer, owner, possessor, shares, newOwner) =>
                 this.assets.transferShareOwnershipAndPossession(slot, name, issuer, owner, possessor, shares, newOwner),
-            acquireShares: (slot, name, issuer, owner, possessor, shares, sourceOwnershipManager, sourcePossessionManager, fee) =>
-                this.acquireShares(slot, name, issuer, owner, possessor, shares, sourceOwnershipManager, sourcePossessionManager, fee),
-            releaseShares: (slot, name, issuer, owner, possessor, shares, destinationOwnershipManager, destinationPossessionManager, fee) =>
-                this.releaseShares(slot, name, issuer, owner, possessor, shares, destinationOwnershipManager, destinationPossessionManager, fee),
+            acquireShares: (slot, name, issuer, owner, possessor, shares, sourceOwnershipManager, sourcePossessionManager, fee, originator) =>
+                this.acquireShares(slot, name, issuer, owner, possessor, shares, sourceOwnershipManager, sourcePossessionManager, fee, originator),
+            releaseShares: (slot, name, issuer, owner, possessor, shares, destinationOwnershipManager, destinationPossessionManager, fee, originator) =>
+                this.releaseShares(slot, name, issuer, owner, possessor, shares, destinationOwnershipManager, destinationPossessionManager, fee, originator),
             dayOfWeek: (year, month, day) => (new Date(Date.UTC(2000 + year, month - 1, day)).getUTCDay() + 4) % 7,
             signatureValidity: (entity, digest, signature) => (verifySync(entity, digest, signature) ? 1 : 0),
             bidInIPO: () => -1n,
@@ -586,6 +586,7 @@ export class QubicSimulator {
         shares: bigint,
         fee: bigint,
         otherSlot: number,
+        originator: Id,
     ): { allow: boolean; fee: bigint } {
         const contract = this.contracts.get(targetSlot);
         if (!contract || !contract.hasSysproc(spId)) {
@@ -601,7 +602,11 @@ export class QubicSimulator {
         request.offeredFee = fee;
         request.otherContractIndex = otherSlot;
 
+        // Core runs these callbacks in the caller's context: invocator = the contract moving the rights, originator = the tx signer.
         const output = this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, spId, request.bytes, {
+            invocator: this.contractId(otherSlot),
+            originator,
+            invocationReward: 0n,
             entryPoint: spId,
         });
         const reply = PreManagementRightsTransferOutput.wrap(output);
@@ -627,8 +632,9 @@ export class QubicSimulator {
         postSysproc: number;
         // Release moves rights away from the caller; acquire pulls them in from the counterparty.
         heldByCaller: boolean;
+        originator: Id;
     }): bigint {
-        const { callerSlot, name, issuer, owner, possessor, shares, offeredFee } = request;
+        const { callerSlot, name, issuer, owner, possessor, shares, offeredFee, originator } = request;
         const { counterpartyOwnershipManager, counterpartyPossessionManager, heldByCaller } = request;
 
         this.assertOperational();
@@ -662,6 +668,7 @@ export class QubicSimulator {
             shares,
             offeredFee,
             callerSlot,
+            originator,
         );
 
         if (!callback.allow || callback.fee < 0n || callback.fee > MAX_AMOUNT) {
@@ -685,7 +692,7 @@ export class QubicSimulator {
             return INVALID_AMOUNT;
         }
 
-        this.runManagementCallback(counterpartyOwnershipManager, request.postSysproc, name, issuer, owner, possessor, shares, callback.fee, callerSlot);
+        this.runManagementCallback(counterpartyOwnershipManager, request.postSysproc, name, issuer, owner, possessor, shares, callback.fee, callerSlot, originator);
 
         return callback.fee;
     }
@@ -700,6 +707,7 @@ export class QubicSimulator {
         sourceOwnershipManager: number,
         sourcePossessionManager: number,
         offeredFee: bigint,
+        originator: Id = ZERO32,
     ): bigint {
         return this.moveManagementRights({
             callerSlot,
@@ -714,6 +722,7 @@ export class QubicSimulator {
             preSysproc: SYSTEM_PROCEDURES.PRE_RELEASE_SHARES,
             postSysproc: SYSTEM_PROCEDURES.POST_RELEASE_SHARES,
             heldByCaller: false,
+            originator,
         });
     }
 
@@ -727,6 +736,7 @@ export class QubicSimulator {
         destinationOwnershipManager: number,
         destinationPossessionManager: number,
         offeredFee: bigint,
+        originator: Id = ZERO32,
     ): bigint {
         return this.moveManagementRights({
             callerSlot,
@@ -741,6 +751,7 @@ export class QubicSimulator {
             preSysproc: SYSTEM_PROCEDURES.PRE_ACQUIRE_SHARES,
             postSysproc: SYSTEM_PROCEDURES.POST_ACQUIRE_SHARES,
             heldByCaller: true,
+            originator,
         });
     }
 

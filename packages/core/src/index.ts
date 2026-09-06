@@ -38,7 +38,7 @@ export type { IdentityResult, CryptoSmokeResult, KeyPair } from "./crypto/qubic"
 export { buildSignedTx, assertSeed, LITE_DEPLOY_ADDRESS } from "./crypto/tx";
 export { TESTNET_FUNDED_SEEDS, DEFAULT_FUNDED_SEED } from "./crypto/testnet-seeds";
 export type { SignedTx, TxInput } from "./crypto/tx";
-export { LiteRpc } from "./net/rpc/client";
+export { LiteRpc, RpcTimeoutError, ADVANCE_TICK_TIMEOUT_MS, ADVANCE_EPOCH_TIMEOUT_MS, RPC_TIMEOUT_MS } from "./net/rpc/client";
 export type {
     TickInfo,
     EngineFaultInfo,
@@ -70,18 +70,21 @@ export {
     broadcastTx,
     broadcastTxs,
     fetchWithTimeout,
+    RequestTimeoutError,
     readResponseBodyWithTimeout,
+    readResponseChunksWithTimeout,
 } from "./net/http";
 export type { BroadcastResult } from "./net/http";
-export { cacheRoot, cacheDir, cacheHeaders, toolsDir, releasePlatformKey, currentPath, readCurrent, updateCurrent } from "./cache/paths";
+export { cacheRoot, cacheDir, cacheHeaders, downloadsDir, toolsDir, releasePlatformKey, currentPath, readCurrent, updateCurrent } from "./cache/paths";
 export type { CurrentPointer } from "./cache/paths";
-export { sha256Hex, atomicWrite, downloadVerifiedAsset, extractTarGz } from "./cache/download";
+export { sha256Hex, atomicWrite, downloadVerifiedAsset, downloadVerifiedAssetToFile, extractTarGz } from "./cache/download";
+export type { DownloadOptions } from "./cache/download";
 export { RELEASE_REPO, loadManifest } from "./cache/manifest";
 export type { AssetRef, ReleaseSource, Manifest } from "./cache/manifest";
 export { CLI_REPO, cliAssetName, resolveCliTag, cliReleaseUrls, fetchCliSha } from "./cache/cli-release";
 export { VERIFY_REPO, VERIFY_TAG, cachedVerifyToolPath, loadVerifyManifest, autoUpdateVerifyTool } from "./cache/verify-tool";
 export type { VerifyManifest, VerifyUpdate } from "./cache/verify-tool";
-export { wasiSdkDir, managedWasiSdkStatus, wasiSdkPaths, haveWasiSdkCache, fetchWasiSdk } from "./cache/wasi-sdk";
+export { wasiSdkDir, managedWasiSdkStatus, wasiSdkPaths, haveWasiSdkCache, configuredWasiSdk, fetchWasiSdk } from "./cache/wasi-sdk";
 export type { ManagedWasiSdkStatus } from "./cache/wasi-sdk";
 export { loadConfig, resolveCoreDir } from "./project";
 export type { QinitConfig } from "./project";

@@ -165,7 +165,8 @@ const warnsOf = (s: string) =>
         .map((f) => f.code);
 
 test("valid QPI constructs never produce warn/error findings", () => {
-    expect(warnsOf("uint64 a = div(x, y); uint64 b = mod(x, y); uint64 c = smul(x, y);")).toEqual([]);
+    expect(warnsOf("uint64 a = QPI::div(x, y); uint64 b = QPI::mod(x, y); uint64 c = smul(x, y);")).toEqual([]);
+    expect(warnsOf("uint64 a = div(x, y); uint64 b = mod(x, y);")).toEqual(["qpi/unqualified-div", "qpi/unqualified-mod"]);
     expect(warnsOf("uint64 a = div<uint128>(x, y);")).toEqual([]);
     expect(warnsOf("v = arr.get(locals.i); arr.set(locals.i, v); m.contains(k);")).toEqual([]);
     expect(warnsOf("Status s = Status::Active; ProposalTypes::cls(x);")).toEqual([]);

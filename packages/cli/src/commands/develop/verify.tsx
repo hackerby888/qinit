@@ -29,7 +29,12 @@ export function Verify({ commandArgs }: { commandArgs: CommandArguments }) {
                     explicitCallees: dynCallees,
                 });
                 const calleeNames = graph.filter((contract) => contract.stateType !== name).flatMap((contract) => [contract.name, contract.stateType]);
-                setR(await verifyContract(file, name, { allowedPrefixes: calleeNames }));
+                setR(
+                    await verifyContract(file, name, {
+                        allowedPrefixes: calleeNames,
+                        buildRules: { contractKind: "user", buildRules: !commandArgs.has("no-build-rules") },
+                    }),
+                );
             } catch (e: any) {
                 setErr(String(e?.message ?? e));
             }
@@ -45,7 +50,7 @@ export function Verify({ commandArgs }: { commandArgs: CommandArguments }) {
                 : { ok: r!.ok, available: r!.available, oracle: r!.oracle, errors: r!.errors };
             process.stdout.write(JSON.stringify(payload) + "\n");
         }
-        process.exitCode = err || (r && r.available && !r.ok) ? 1 : 0;
+        process.exitCode = err || (r && !r.ok) ? 1 : 0;
         const t = setTimeout(() => exit(), 40);
         return () => clearTimeout(t);
     }, [done]);
@@ -71,7 +76,7 @@ export function Verify({ commandArgs }: { commandArgs: CommandArguments }) {
     return (
         <Box flexDirection="column">
             <Header cmd="verify" />
-            {!v.available ? (
+            {v.ok && !v.available ? (
                 <Status ok={null} label="protocol rules" detail="skipped — verify tool not fetched (run qinit setup)" pad={16} />
             ) : v.ok ? (
                 <Status ok={true} label="protocol rules" detail="passed — complies with qpi.h restrictions" pad={16} />

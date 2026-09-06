@@ -59,16 +59,30 @@ function makeArchive(expectedRoot: string, valid = true): Uint8Array {
     return new Uint8Array(tar.stdout);
 }
 
-function serveArchive(archive: Uint8Array, requests?: string[]): () => number {
+// Serves the archive; with dropAfterBytes the first body breaks mid-way and Range requests resume from there.
+function serveArchive(archive: Uint8Array, requests?: string[], options: { dropAfterBytes?: number } = {}): () => number {
     let requestCount = 0;
-    globalThis.fetch = (async (input: string | URL | Request) => {
+    let bodies = 0;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
         requestCount++;
         const url = String(input);
         requests?.push(url);
         if (url.endsWith(".sha256")) {
             return new Response("", { status: 404 });
         }
-        return new Response(new Uint8Array(archive));
+        const range = new Headers(init?.headers).get("range");
+        const start = range ? Number(range.replace("bytes=", "").replace("-", "")) : 0;
+        const slice = archive.subarray(start);
+        const dropAt = bodies++ === 0 && options.dropAfterBytes !== undefined ? options.dropAfterBytes : slice.length;
+        let pulls = 0;
+        const stream = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                if (pulls++ === 0) controller.enqueue(slice.subarray(0, dropAt));
+                else if (dropAt < slice.length) controller.error(new Error("The socket connection was closed unexpectedly."));
+                else controller.close();
+            },
+        });
+        return new Response(stream, { status: start > 0 ? 206 : 200, headers: { "content-length": String(slice.length) } });
     }) as unknown as typeof fetch;
     return () => requestCount;
 }
@@ -151,4 +165,28 @@ test("fetchWasiSdk preserves the old SDK when replacement validation fails", asy
     expect(wasiSdkPaths()?.root).toBe(oldRoot);
     expect(readFileSync(join(oldRoot, "VERSION"), "utf8")).toBe("old");
     expect(readdirSync(cache).filter((name) => name.includes("wasi-sdk.tmp"))).toEqual([]);
+});
+
+test("fetchWasiSdk survives a dropped connection by resuming the .part", async () => {
+    const cache = isolateCache();
+    const expectedRoot = managedWasiSdkStatus().expectedRoot;
+    const archive = makeArchive(expectedRoot);
+    const requests: string[] = [];
+    const requestCount = serveArchive(archive, requests, { dropAfterBytes: Math.floor(archive.length / 2) });
+
+    expect(await fetchWasiSdk()).toEqual({ dir: wasiSdkDir(), cached: false });
+
+    expect(requestCount()).toBe(3); // sha256 probe, the dropped body, the resumed remainder
+    expect(wasiSdkPaths()?.root).toBe(expectedRoot);
+    expect(readdirSync(join(cache, "downloads"))).toEqual([]);
+});
+
+test("fetchWasiSdk keeps the archive when activation fails so the next run does not download again", async () => {
+    const cache = isolateCache();
+    const expectedRoot = managedWasiSdkStatus().expectedRoot;
+    serveArchive(makeArchive(expectedRoot, false));
+
+    await expect(fetchWasiSdk()).rejects.toThrow("downloaded wasi-sdk is missing clang++ or wasi-sysroot");
+
+    expect(readdirSync(join(cache, "downloads"))).toEqual([`${basename(expectedRoot)}.tar.gz`]);
 });

@@ -4,14 +4,14 @@ import { DEFAULT_RPC_BASE, readCurrent, wasiSdkPaths } from "@qinit/core";
 import { compilerInfo } from "@qinit/compiler/browser";
 import { output, type CommandArguments } from "../../args";
 import { loadConfig, resolveCoreDir, savedCompilerBackend, savedRuntime } from "../../config";
-import { nodeStatus } from "../../ops/node";
+import { nodeStatus, versionDrift } from "../../ops/node";
 import { Header, KV, Panel, Spinner, theme } from "../../ui";
 import { VERSION } from "../../version";
 
 interface Setup {
     qinit: { version: string; binary: string };
     compiler: { backend: string; wasiSdk: string; protocolVersion: number; snapshotHash: string; coreCommit: string };
-    runtime: { runtime: string; rpc: string; nodeVersion: string; nodeBinary: string; headersVersion: string; node: string };
+    runtime: { runtime: string; rpc: string; nodeVersion: string; nodeBinary: string; headersVersion: string; node: string; versionDrift: boolean };
     core: { checkout: string; qpiHeader: string };
 }
 
@@ -60,6 +60,7 @@ async function collectSetup(rpcOverride?: string): Promise<Setup> {
             nodeBinary: current?.node ?? "—",
             headersVersion: current?.headersVersion ?? "—",
             node,
+            versionDrift: versionDrift(current),
         },
         core: { checkout, qpiHeader },
     };
@@ -90,8 +91,7 @@ export function Info({ commandArgs }: { commandArgs: CommandArguments }) {
 
     // Drift between the headers a contract compiles against and the node it deploys to breaks deploys,
     // so say it here rather than leaving it to be discovered at deploy time.
-    const drift =
-        setup && setup.runtime.headersVersion !== "—" && setup.runtime.nodeVersion !== "—" && setup.runtime.headersVersion !== setup.runtime.nodeVersion;
+    const drift = setup?.runtime.versionDrift ?? false;
 
     return (
         <Box flexDirection="column">

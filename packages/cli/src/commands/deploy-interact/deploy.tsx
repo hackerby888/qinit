@@ -51,6 +51,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                         explicitCallees: dynCallees,
                         slotOverride,
                         skipVerify: commandArgs.has("skip-verify"),
+                        buildRules: !commandArgs.has("no-build-rules"),
                         compiler: resolveCompilerBackend(commandArgs.get("compiler")),
                         cheats: commandArgs.has("production") ? CheatMode.OFF : CheatMode.ON,
                     },

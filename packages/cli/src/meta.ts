@@ -142,6 +142,7 @@ const commandMeta = {
             stringOption("asset", "<symbol>", "asset symbol"),
             stringOption("construction-epoch", "<n>", "first active epoch"),
             stringOption("destruction-epoch", "<n>", "first inactive epoch (default: 10000)"),
+            booleanOption("no-build-rules", "skip the Qinit build rules for user contracts (development only)"),
         ],
         examples: ["qinit integrate ./contracts/Mytoken.h --asset MYTOKEN --construction-epoch 200"],
     },
@@ -181,6 +182,7 @@ const commandMeta = {
             }),
             stringOption("compiler", "<clang|typescript>", "compiler for this run"),
             booleanOption("skip-verify", "skip compatibility checks (development only)"),
+            booleanOption("no-build-rules", "skip the Qinit build rules for user contracts (development only)"),
         ],
     },
     gen: {
@@ -216,6 +218,7 @@ const commandMeta = {
             stringOption("callee", "<n>=<hdr>[@<i>]", "callee header and optional slot", {
                 multiple: true,
             }),
+            booleanOption("no-build-rules", "skip the Qinit build rules for user contracts (development only)"),
         ],
     },
 
@@ -237,6 +240,7 @@ const commandMeta = {
             booleanOption("production", "build without cheatcodes, as Core will"),
             stringOption("compiler", "<clang|typescript>", "compiler for this run"),
             booleanOption("skip-verify", "skip compatibility checks (development only)"),
+            booleanOption("no-build-rules", "skip the Qinit build rules for user contracts (development only)"),
         ],
         examples: ["qinit deploy ./mytoken.h --contract-name Mytoken"],
     },

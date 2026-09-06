@@ -1,10 +1,10 @@
 // wasi-sdk (clang + wasi-sysroot for `qinit build`).
 // Version 33 exposes getrusage, breaking the toolchain assumptions. The supported pin lives in config.
 import { existsSync, readdirSync, renameSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fetchWithTimeout } from "../net/http";
-import { downloadVerifiedAsset, extractTarGz } from "./download";
-import { cacheRoot } from "./paths";
+import { downloadVerifiedAssetToFile, extractTarGz } from "./download";
+import { cacheRoot, downloadsDir } from "./paths";
 import toolchains from "../../../../config/toolchains.json";
 
 function wasiSdkAsset(): { url: string; base: string } {
@@ -72,6 +72,26 @@ export function wasiSdkPaths(): { root: string; clang: string; sysroot: string }
 export function haveWasiSdkCache(): boolean {
     return wasiSdkCachePaths() !== null;
 }
+// The root of an SDK the developer configured through WASM_CLANG/WASI_SYSROOT, or null when the managed cache is in play.
+export function configuredWasiSdk(): string | null {
+    const clang = process.env.WASM_CLANG?.trim();
+    const sysroot = process.env.WASI_SYSROOT?.trim();
+    if (!clang && !sysroot) {
+        return null;
+    }
+    const sdk = wasiSdkPaths();
+    if (!sdk || (clang && sysroot)) {
+        return sdk?.root ?? null;
+    }
+    const managedRoot = managedWasiSdkStatus().currentRoot;
+    const configuredPath = clang ?? sysroot;
+    if (!managedRoot || !configuredPath) {
+        return null;
+    }
+    const pathFromManagedRoot = relative(resolve(managedRoot), resolve(configuredPath));
+    const usesManagedCache = pathFromManagedRoot === "" || (!pathFromManagedRoot.startsWith("..") && !isAbsolute(pathFromManagedRoot));
+    return usesManagedCache ? sdk.root : null;
+}
 // Fetch the pinned host SDK. Existing caches stay untouched unless upgrade is requested.
 // Upstream sha256 is best-effort; if absent, rely on HTTPS transport integrity.
 export async function fetchWasiSdk(
@@ -83,13 +103,15 @@ export async function fetchWasiSdk(
     if (status.currentRoot && (!options?.upgrade || !status.updateAvailable)) {
         return { dir, cached: true };
     }
-    const { url } = wasiSdkAsset();
+    const { url, base } = wasiSdkAsset();
     let sha256 = "";
     try {
         const r = await fetchWithTimeout(url + ".sha256", undefined, 15000);
         if (r.ok) sha256 = (await r.text()).trim().split(/\s+/)[0] ?? "";
     } catch {}
-    const buf = await downloadVerifiedAsset({ url, sha256 }, onProgress);
+    // The archive (and its .part) lives under the cache so a later `qinit setup` resumes instead of restarting.
+    const archive = join(downloadsDir(), `${base}.tar.gz`);
+    await downloadVerifiedAssetToFile({ url, sha256 }, archive, onProgress);
     const suffix = `${process.pid}.${Date.now()}`;
     const tmp = `${dir}.tmp.${suffix}`;
     const backup = `${dir}.bak.${suffix}`;
@@ -97,7 +119,7 @@ export async function fetchWasiSdk(
     rmSync(backup, { recursive: true, force: true });
     let backedUp = false;
     try {
-        await extractTarGz(buf, tmp);
+        await extractTarGz(archive, tmp);
         if (!wasiSdkCachePathsAt(tmp)) {
             throw new Error("downloaded wasi-sdk is missing clang++ or wasi-sysroot");
         }
@@ -122,6 +144,7 @@ export async function fetchWasiSdk(
             throw activationError;
         }
         if (backedUp) rmSync(backup, { recursive: true, force: true });
+        rmSync(archive, { force: true });
         return { dir, cached: false };
     } finally {
         rmSync(tmp, { recursive: true, force: true });

@@ -174,6 +174,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     name: contract.name,
                     stateType: contract.stateType,
                     slot: contract.slot,
+                    kind: contract.kind,
                 }));
                 const dynCallees = Object.fromEntries(
                     plannedDependencies

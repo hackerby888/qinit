@@ -7,6 +7,7 @@ import type { ContractBuildResult } from "./types";
 import { verifyForBuild, verifyRejection } from "./verify";
 import { KNOWN_LOG_HEADER_VIOLATIONS } from "../contracts/system-contracts";
 import { resolveContractSource } from "./source";
+import { buildGateRejection, buildGateViolations, type ContractKind } from "./build-rules";
 
 export interface TypeScriptCalleeBuildOptions {
     header: string;
@@ -28,6 +29,8 @@ export interface TypeScriptBuildOptions {
     strict?: boolean; // default true; false keeps fidelity-only findings from failing the build
     cheats?: CheatMode; // development cheatcodes; OFF is what Core sees
     skipVerify?: boolean; // skip the protocol verifier; the same gate clang runs
+    contractKind?: ContractKind; // "system" for core's own contracts, which skip the user-scope build rules (default "user")
+    buildRules?: boolean; // false skips the user-scope build rules (`--no-build-rules`); the protocol rules always run
 }
 
 interface DynamicCalleeSource {
@@ -109,11 +112,18 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         source: calleeSource,
     }));
     const contractStateType = o.stateType ?? o.contractName;
+    const rejectsLogHeader = o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(contractPath));
+
+    // The same gate the clang build runs (build-rules.ts), so both compilers reject the same contracts.
+    const analysis = analyzeContract({ source, contractName: contractStateType, slot: o.slot, qpiHeader });
+    const gate = buildGateRejection(buildGateViolations(analysis.diagnostics, { contractKind: o.contractKind, buildRules: o.buildRules, rejectsLogHeader }));
+    if (gate) {
+        return gate;
+    }
 
     // The verifier rejects a scope prefix it does not know, so every callee this contract names — planned
     // or a system contract found in the source — is allowed, the same list the clang build passes.
-    const calls = analyzeContract({ source, contractName: contractStateType, slot: o.slot, qpiHeader }).calls;
-    const calleeNames = [...new Set([...dynamicCallees.map((callee) => callee.name), ...calls.map((call) => call.callee)])];
+    const calleeNames = [...new Set([...dynamicCallees.map((callee) => callee.name), ...analysis.calls.map((call) => call.callee)])];
     const verify = await verifyForBuild({ contractPath, stateType: contractStateType, calleeNames, skipVerify: o.skipVerify });
     const rejected = verifyRejection(verify);
     if (rejected) {
@@ -127,7 +137,7 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         qpiHeader,
         callees: callees.length ? callees : undefined,
         calleeSources: calleeSources.length ? calleeSources : undefined,
-        strict: o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(contractPath)),
+        strict: rejectsLogHeader,
         cheats: o.cheats,
     });
     const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);

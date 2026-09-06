@@ -122,6 +122,7 @@ test("accepted develop and call options are documented", () => {
         "asset",
         "construction-epoch",
         "destruction-epoch",
+        "no-build-rules",
     ]);
 });
 

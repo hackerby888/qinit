@@ -14,6 +14,9 @@ export function cacheDir(version: string): string {
 export function cacheHeaders(version: string): string {
     return join(cacheDir(version), "core-headers");
 }
+export function downloadsDir(): string {
+    return join(cacheRoot(), "downloads");
+}
 export function toolsDir(): string {
     return join(cacheRoot(), "tools");
 }

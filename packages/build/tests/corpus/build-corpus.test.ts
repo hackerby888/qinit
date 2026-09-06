@@ -17,6 +17,7 @@ test.skipIf(!HAS_WASI || !HAS_CORE)(
         const built = await buildCorpusRunner({
             corpusPath: join(CORE, "test", "contract_qutil.cpp"),
             contractPath: join(CORE, "src", "contracts", "QUtil.h"),
+            contractKind: "system",
             contractName: "QUTIL",
             stateType: "QUTIL",
             slot: 4,

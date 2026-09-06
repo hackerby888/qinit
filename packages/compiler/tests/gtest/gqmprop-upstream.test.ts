@@ -40,6 +40,7 @@ describe.skipIf(!HAS_CORE)("upstream gtest — contract_gqmprop.cpp against depl
                 const built = await buildCorpusRunner({
                     corpusPath: `${CORE}/test/contract_gqmprop.cpp`,
                     contractPath: `${CORE}/src/contracts/GeneralQuorumProposal.h`,
+                    contractKind: "system",
                     contractName: "GQMPROP",
                     stateType: "GQMPROP",
                     slot: GQMPROP_IDX,

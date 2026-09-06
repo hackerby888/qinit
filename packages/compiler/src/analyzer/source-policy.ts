@@ -5,7 +5,7 @@ import { Lexer, type Token } from "../frontend/lexer";
 import type { SourceAnalysisDiagnostic, SourceFix } from "./index";
 import { USER_FUNCTION_KIND } from "../shared/entry-abi";
 import { DEFAULT_CALL_ERROR_VAR, type SourceContractCall } from "../driver/semantic-calls";
-import { findEntryFunctions, findLocalDeclarations, findNext, isUsingNamespaceQpi, matchingToken, type EntryFunction } from "./rules/tokens";
+import { TYPE_KINDS, findEntryFunctions, findLocalDeclarations, findNext, isUsingNamespaceQpi, matchingToken, type EntryFunction } from "./rules/tokens";
 import { arrayFix, compareDiagnostics, diagnostic, divModFix, moveLocalToWithLocalsEdits, sourceFix } from "./rules/fixes";
 import { analyzeCheatcodes, cheatArgumentRanges } from "./cheatcodes";
 
@@ -34,6 +34,36 @@ const KEYWORD_RULES: Record<string, { code: string; message: string }> = {
 
 // Names a contract may not write, for callers that suppress rather than diagnose them.
 export const QPI_BANNED_KEYWORDS: readonly string[] = Object.keys(KEYWORD_RULES);
+
+// QPI math helpers a user contract must spell with their namespace: with `using namespace QPI`, MSVC's C runtime
+// declares a global `lldiv_t div(long long, long long)` that beats `QPI::div<T>`, so Core's Windows build rejects a bare call.
+const UNQUALIFIED_MATH: Record<string, { code: string; message: string }> = {
+    div: {
+        code: "qpi/unqualified-div",
+        message:
+            "`div(…)` is unqualified — write `QPI::div(…)`. With `using namespace QPI`, MSVC's C runtime declares a global " +
+            "`lldiv_t div(long long, long long)` that beats `QPI::div<T>` on signed operands, so Core's Windows build rejects the contract (C2440).",
+    },
+    mod: {
+        code: "qpi/unqualified-mod",
+        message: "`mod(…)` is unqualified — write `QPI::mod(…)` (QPI math helpers are spelled with their namespace so they never bind to a C-runtime overload).",
+    },
+};
+
+// Rule codes that apply to user contracts only; core's own contracts are exempt (they are built by Qinit too).
+export const USER_CONTRACT_RULES: ReadonlySet<string> = new Set(Object.values(UNQUALIFIED_MATH).map((rule) => rule.code));
+
+const MEMBER_ACCESS_KINDS = new Set<TokenKind>([TokenKind.D_COLON, TokenKind.DOT, TokenKind.ARROW]);
+const DECLARATOR_KINDS = new Set<TokenKind>([TokenKind.IDENTIFIER, TokenKind.R_ANGLE, TokenKind.AMP, TokenKind.STAR, TokenKind.KW_INLINE]);
+
+// `div(` as a call: not `QPI::div(`, not `x.div(`, and not a declaration such as `uint64 div(` or `T& div(`.
+function isUnqualifiedCall(tokens: Token[], index: number): boolean {
+    if (index === 0 || tokens[index + 1]?.kind !== TokenKind.L_PAREN) {
+        return false;
+    }
+    const previous = tokens[index - 1].kind;
+    return !MEMBER_ACCESS_KINDS.has(previous) && !DECLARATOR_KINDS.has(previous) && !TYPE_KINDS.has(previous);
+}
 
 const FORBIDDEN_PUBLIC_TYPE_NAMES = new Set(["Collection", "LinkedList", "HashMap", "HashSet"]);
 
@@ -321,7 +351,7 @@ function forbiddenConstructs(source: string, tokens: Token[], cheatRanges: Array
             diagnostics.push(
                 diagnostic(
                     "qpi/no-division",
-                    "The `/` operator is forbidden (division by zero is undefined). Use `div(a, b)`.",
+                    "The `/` operator is forbidden (division by zero is undefined). Use `QPI::div(a, b)`.",
                     token.span,
                     DiagnosticSeverity.WARNING,
                     divModFix(source, token, BinaryOp.DIVIDE),
@@ -333,7 +363,7 @@ function forbiddenConstructs(source: string, tokens: Token[], cheatRanges: Array
             diagnostics.push(
                 diagnostic(
                     "qpi/no-modulo",
-                    "The `%` operator is forbidden. Use `mod(a, b)`.",
+                    "The `%` operator is forbidden. Use `QPI::mod(a, b)`.",
                     token.span,
                     DiagnosticSeverity.WARNING,
                     divModFix(source, token, BinaryOp.MODULO),
@@ -382,6 +412,13 @@ function forbiddenConstructs(source: string, tokens: Token[], cheatRanges: Array
         const keyword = KEYWORD_RULES[token.text];
         if (keyword) {
             diagnostics.push(diagnostic(keyword.code, keyword.message, token.span));
+            continue;
+        }
+
+        const math = token.kind === TokenKind.IDENTIFIER ? UNQUALIFIED_MATH[token.text] : undefined;
+        if (math && isUnqualifiedCall(tokens, index)) {
+            const qualify = sourceFix(`Qualify as QPI::${token.text}`, source, [{ start: token.span.start, end: token.span.start, newText: "QPI::" }], true);
+            diagnostics.push(diagnostic(math.code, math.message, token.span, DiagnosticSeverity.WARNING, [qualify]));
             continue;
         }
 

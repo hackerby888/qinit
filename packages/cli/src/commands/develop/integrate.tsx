@@ -137,6 +137,7 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
                 ...context,
                 ...metadata,
                 requireDestructionEpoch: promptWhenMetadataIsRequired,
+                buildRules: !commandArgs.has("no-build-rules"),
                 onProgress: (event: CoreIntegrationProgress) => {
                     setSteps((current) => ({
                         ...(current ?? initialSteps()),

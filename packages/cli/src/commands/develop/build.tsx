@@ -73,6 +73,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                     compiler,
                     outDir,
                     skipVerify: commandArgs.has("skip-verify"),
+                    buildRules: !commandArgs.has("no-build-rules"),
                     // Production means what Core compiles: no shim at all, and the cheats already gone
                     // from the source. Anything left over is then an undeclared identifier, not a no-op.
                     cheats: commandArgs.has("production") ? CheatMode.OFF : CheatMode.ON,

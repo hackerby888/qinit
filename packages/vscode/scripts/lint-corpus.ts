@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { analyzeContract, DiagnosticSeverity, SourceAnalysisOrigin, type SourceAnalysisDiagnostic } from "@qinit/compiler/analyzer";
+import { analyzeContract, DiagnosticSeverity, SourceAnalysisOrigin, USER_CONTRACT_RULES, type SourceAnalysisDiagnostic } from "@qinit/compiler/analyzer";
 import { resolveCoreDir } from "@qinit/core/project";
 
 const DENY = new Set(["qpi.h", "Qswap_old.h", "TestExampleA.h", "TestExampleB.h", "TestExampleC.h", "TestExampleD.h"]);
@@ -23,8 +23,9 @@ export function lintCorpus(core: string): { file: string; findings: SourceAnalys
             continue;
         }
         const source = readFileSync(path, "utf8");
+        // Core's own contracts are exempt from the user-contract rules, as in the build gate.
         const findings = analyzeContract({ source }).diagnostics.filter(
-            (finding) => finding.origin === SourceAnalysisOrigin.QPI && finding.severity !== DiagnosticSeverity.INFORMATION,
+            (finding) => finding.origin === SourceAnalysisOrigin.QPI && finding.severity !== DiagnosticSeverity.INFORMATION && !USER_CONTRACT_RULES.has(finding.code),
         );
         results.push({ file, findings });
     }

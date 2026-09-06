@@ -1,6 +1,6 @@
 // Client for the qubic-core-lite built-in HTTP RPC.
 // Fast path for on-chain reads — current tick, spectrum, and (later) the deploy registry.
-import { DEFAULT_RPC_BASE, fetchWithTimeout, broadcastTx as netBroadcastTx } from "../http";
+import { DEFAULT_RPC_BASE, RequestTimeoutError, fetchWithTimeout, broadcastTx as netBroadcastTx } from "../http";
 import type { NodeTransport, EntityInfo, TxInfo } from "../transport";
 import type {
     ContractCallsPage,
@@ -36,6 +36,29 @@ function explorerTx(t: Record<string, unknown>): ExplorerTx {
     };
 }
 
+// The node accepted the request but did not answer in time; unlike "unreachable", it may still be working on it.
+export class RpcTimeoutError extends Error {
+    constructor(
+        readonly path: string,
+        readonly timeoutMs: number,
+    ) {
+        super(`node did not answer ${path} within ${timeoutMs / 1000}s — it may still be working on it`);
+        this.name = "RpcTimeoutError";
+    }
+}
+
+// Per-route budgets sit above core-lite's own fast-forward caps (12 s advance-tick/-to-last, 25 s advance-epoch).
+export const RPC_TIMEOUT_MS = 10000;
+export const ADVANCE_TICK_TIMEOUT_MS = 15000;
+export const ADVANCE_EPOCH_TIMEOUT_MS = 30000;
+
+function unreachableOrTimeout(base: string, path: string, e: any): Error {
+    if (e instanceof RequestTimeoutError || e?.name === "RequestTimeoutError") {
+        return new RpcTimeoutError(path, e.timeoutMs);
+    }
+    return new Error(`node unreachable at ${base} — is it running? (qinit node run)  [${e?.message ?? e}]`);
+}
+
 export class LiteRpc implements NodeTransport {
     // Set once the dev advance route 404s, so hurryToTick stops probing a node that will never have it.
     private devAdvanceMissing = false;
@@ -46,17 +69,17 @@ export class LiteRpc implements NodeTransport {
     // node boot/load doesn't fail the command. An HTTP non-2xx is a real answer -> not retried. The two dev
     // routes that move the chain by a relative amount pass tries=1: a timed-out advance may well have run,
     // and re-sending it advances again.
-    private async get<T = unknown>(path: string, tries = 3): Promise<T> {
+    private async get<T = unknown>(path: string, tries = 3, timeoutMs = RPC_TIMEOUT_MS): Promise<T> {
         for (let a = 0; ; a++) {
             let r: Response;
             try {
-                r = await fetchWithTimeout(this.base + path, undefined, 10000);
+                r = await fetchWithTimeout(this.base + path, undefined, timeoutMs);
             } catch (e: any) {
                 if (a < tries - 1) {
                     await sleep(200 * (a + 1));
                     continue;
                 }
-                throw new Error(`node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`);
+                throw unreachableOrTimeout(this.base, path, e);
             }
             if (!r.ok) {
                 const body = (await r.json().catch(() => null)) as { message?: unknown } | null;
@@ -88,7 +111,7 @@ export class LiteRpc implements NodeTransport {
                 timeoutMs,
             );
         } catch (e: any) {
-            throw new Error(`node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`);
+            throw unreachableOrTimeout(this.base, path, e);
         }
         const json = (await r.json().catch(() => ({}))) as T;
         if (!r.ok && r.status !== 404) {
@@ -201,7 +224,7 @@ export class LiteRpc implements NodeTransport {
             reached: number;
             epochLastTick: number;
             cappedAtEpochEnd: boolean;
-        }>(`/live/v1/dev/advance-tick?n=${n}`, 1);
+        }>(`/live/v1/dev/advance-tick?n=${n}`, 1, ADVANCE_TICK_TIMEOUT_MS);
     }
     // Testnet-only: pull the chain to `target` rather than wait out its cadence, and answer with the tick
     // reached (0 when it cannot). Never throws, and refuses spans past maxSpan — those mean a stale read.
@@ -251,7 +274,7 @@ export class LiteRpc implements NodeTransport {
             reached: number;
             epochLastTick: number;
             epoch: number;
-        }>(`/live/v1/dev/advance-to-last?gap=${gap}`);
+        }>(`/live/v1/dev/advance-to-last?gap=${gap}`, 3, ADVANCE_TICK_TIMEOUT_MS);
     }
     /** Testnet-only: advance to the next epoch via the node's seamless transition (GET /live/v1/dev/advance-epoch). */
     advanceEpoch() {
@@ -262,7 +285,7 @@ export class LiteRpc implements NodeTransport {
             tick: number;
             initialTick: number;
             switched: boolean;
-        }>("/live/v1/dev/advance-epoch", 1);
+        }>("/live/v1/dev/advance-epoch", 1, ADVANCE_EPOCH_TIMEOUT_MS);
     }
     /** Set the simulator tick interval without restarting it. */
     setTickMs(ms: number) {

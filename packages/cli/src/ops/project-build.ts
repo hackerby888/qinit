@@ -117,6 +117,7 @@ export async function compileContracts(options: {
     compiler: CompilerBackend;
     outDir: string;
     skipVerify?: boolean;
+    buildRules?: boolean;
     // A production build defines the cheatcodes away, which is what Core compiles.
     cheats?: CheatMode;
     onContract?: (contract: SlottedContract) => void;
@@ -157,6 +158,7 @@ export async function compileContracts(options: {
                       dynCallees: typescriptCallees(callees, pathFor),
                       cheats: options.cheats,
                       skipVerify: options.skipVerify,
+                      buildRules: options.buildRules,
                   })
                 : await buildContractWithClang({
                       contractPath: sourcePath,
@@ -168,6 +170,7 @@ export async function compileContracts(options: {
                       dynCallees: clangCallees(callees, pathFor),
                       cheats: options.cheats,
                       skipVerify: options.skipVerify,
+                      buildRules: options.buildRules,
                   });
 
         if (!result.ok || !result.wasmPath) {

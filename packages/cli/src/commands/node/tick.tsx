@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, RpcTimeoutError } from "@qinit/core";
 import { loadConfig } from "../../config";
 import { describeFault, readFault } from "../../ops/fault";
 import { Header, Spinner, Bar, KV, theme } from "../../ui";
@@ -16,7 +16,7 @@ export async function advanceTo(rpc: LiteRpc, target: number, from: number, onPr
         chunk = FIRST_CHUNK_TICKS;
     while (cur < target) {
         const startedAt = Date.now();
-        const r = await advanceChunk(rpc, Math.min(chunk, target - cur));
+        const r = await advanceChunk(rpc, Math.min(chunk, target - cur), cur);
         chunk = nextChunk(chunk, Date.now() - startedAt);
         capped = r.cappedAtEpochEnd;
         if (r.reached <= cur) {
@@ -42,12 +42,35 @@ function nextChunk(chunk: number, elapsedMs: number): number {
 
 // A halted node answers the advance route with 503, or on a core node never answers it at all, and the
 // tick number alone would say nothing. Whatever the failure, the fault route is asked once first.
-export async function advanceChunk(rpc: LiteRpc, span: number) {
+export async function advanceChunk(rpc: LiteRpc, span: number, from = 0) {
     try {
         return await rpc.advanceTick(span);
     } catch (error) {
-        throw (await haltedNodeError(rpc)) ?? error;
+        const halted = await haltedNodeError(rpc);
+        if (halted) throw halted;
+        if (error instanceof RpcTimeoutError) return settleAfterTimeout(rpc, from, span);
+        throw error;
     }
+}
+
+const SETTLE_POLL_MS = 500;
+const SETTLE_BUDGET_MS = 20_000;
+
+// A timed-out advance usually ran anyway: follow the tick until it reaches the target or stops moving.
+export async function settleAfterTimeout(rpc: LiteRpc, from: number, span: number, pollMs = SETTLE_POLL_MS, budgetMs = SETTLE_BUDGET_MS) {
+    const target = from + span;
+    const deadline = Date.now() + budgetMs;
+    let last = from;
+    let stable = 0;
+    for (;;) {
+        const tick = (await rpc.tickInfo()).tick;
+        stable = tick === last ? stable + 1 : 0;
+        last = Math.max(last, tick);
+        if (last >= target || (last > from && stable >= 2) || Date.now() >= deadline) break;
+        await new Promise((r) => setTimeout(r, pollMs));
+    }
+    const epoch = await rpc.epochInfo();
+    return { from, requested: span, target, reached: last, epochLastTick: epoch.epochLastTick, cappedAtEpochEnd: last >= epoch.epochLastTick };
 }
 
 export async function haltedNodeError(rpc: LiteRpc): Promise<Error | null> {

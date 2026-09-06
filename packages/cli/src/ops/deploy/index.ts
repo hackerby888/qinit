@@ -31,6 +31,7 @@ export interface DeployOpts {
     outDir?: string;
     idlPath?: string;
     skipVerify?: boolean;
+    buildRules?: boolean;
     compiler?: CompilerBackend;
     backend?: NodeBackendIdentity["backend"];
     artifact?: {
@@ -141,6 +142,7 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
                 outDir,
                 dynCallees,
                 skipVerify: options.skipVerify,
+                buildRules: options.buildRules,
             })
           : await buildContractWithClang({
                 contractPath: options.contractPath,
@@ -150,6 +152,7 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
                 outDir,
                 dynCallees,
                 skipVerify: options.skipVerify,
+                buildRules: options.buildRules,
             });
 
     if (!build.ok) {

@@ -837,6 +837,18 @@ An absent or unrecognizable verifier is reported as unavailable/skipped, not as
 a protocol failure. Unlike build/deploy, the standalone verify command does not
 auto-download the verifier.
 
+Before the external tool, `verify` runs Qinit's own build rules
+([`compile/build-rules.ts`](../packages/build/src/compile/build-rules.ts)), the
+same gate `build`, `deploy` and `integrate` apply on both compilers. The table
+has two scopes: protocol rules that always run, and user-contract rules that
+core's own system contracts are exempt from. The first user rule rejects an
+unqualified `div(…)` or `mod(…)`: with `using namespace QPI`, MSVC's C runtime
+declares a global `div(long long, long long)` that beats `QPI::div<T>`, so a
+contract that builds everywhere in Qinit fails Core's Windows build. Write
+`QPI::div(a, b)` / `QPI::mod(a, b)`. `--no-build-rules` (or
+`QINIT_BUILD_RULES=off` for paths without the flag) switches the user rules off
+for development; the protocol rules stay on.
+
 `dev` polls source modification times because filesystem watchers are not
 reliable in the compiled binary. A change resolves and synchronizes the same
 project graph as `deploy`. The command remains mounted until the user quits.
@@ -1587,6 +1599,10 @@ Header preparation is in [`ops/node-core.ts`](../packages/cli/src/ops/node-core.
 - `--core-dir` and `--ref` are mutually exclusive.
 - `--offline` requires an existing cache.
 - Otherwise one release manifest supplies the version and header asset.
+
+The Wasm compiler step ([`ops/node-wasi.ts`](../packages/cli/src/ops/node-wasi.ts))
+reuses an SDK configured through `WASM_CLANG`/`WASI_SYSROOT` or already cached;
+it only downloads the managed SDK when neither exists and `--offline` is not set.
 
 For the core runtime, Qinit uses an explicit, cached, or downloaded Qubic binary
 and calls `launchNode()`. For the simulator runtime, it loads the core-derived

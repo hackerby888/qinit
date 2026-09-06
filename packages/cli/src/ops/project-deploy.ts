@@ -68,6 +68,7 @@ export async function deployProjectContracts(
         slotOverride?: number;
         outDir?: string;
         skipVerify?: boolean;
+        buildRules?: boolean;
         compiler: CompilerBackend;
         // Deploying is not submitting to Core, so cheatcodes stay on unless the caller says otherwise.
         cheats?: CheatMode;
@@ -112,6 +113,7 @@ export async function deployProjectContracts(
         compiler: options.compiler,
         outDir: resolve(options.outDir ?? "dist/contracts"),
         skipVerify: options.skipVerify,
+        buildRules: options.buildRules,
         cheats: options.cheats,
         onContract: (contract) => dependencyEvent(emit, `building ${contract.name} @ slot ${contract.slot}`),
     });
@@ -329,6 +331,7 @@ async function deployBuiltContract(
         seed?: string;
         outDir?: string;
         skipVerify?: boolean;
+        buildRules?: boolean;
         compiler: CompilerBackend;
     },
     backend: NodeBackendIdentity["backend"],
@@ -346,6 +349,7 @@ async function deployBuiltContract(
             outDir: options.outDir,
             idlPath: resolve(options.projectRoot, DEFAULT_IDL_PATH),
             skipVerify: options.skipVerify,
+        buildRules: options.buildRules,
             compiler: options.compiler,
             backend,
             artifact: {

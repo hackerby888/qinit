@@ -17,7 +17,8 @@ import type { DynCallees } from "../contracts/intercontract";
 import { generateWasmContractTestingHeaderForCore, KNOWN_LOG_HEADER_VIOLATIONS, systemContractClosure, systemContracts } from "../contracts/system-contracts";
 import { k12Hex } from "@qinit/core";
 import { analyzeContract } from "@qinit/compiler/analyzer";
-import { loadQpiHeader, LOG_HEADER_WORD_HINT } from "@qinit/compiler";
+import { loadQpiHeader } from "@qinit/compiler";
+import { buildGateRejection, buildGateViolations, type ContractKind } from "./build-rules";
 
 export async function buildContractWithClang(input: ClangBuildOptions): Promise<ContractBuildResult> {
     let source: string;
@@ -46,22 +47,16 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         slot: o.slot,
         qpiHeader,
     });
-    // The TypeScript backend promotes this one to an error itself; matching it here keeps a clang
-    // build from accepting a log payload whose leading word the host is going to overwrite.
-    const rejectsLogHeader = o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(o.contractPath));
-    const protocolDiagnostics = analysis.diagnostics.filter(
-        (diagnostic) =>
-            diagnostic.message.includes(" is forbidden in registered entry") ||
-            diagnostic.code === "qpi/public-complex-type" ||
-            // clang reports this as a bare `redefinition of 'interContractCallError'` from inside the macro.
-            diagnostic.code === "qpi/duplicate-call-error-var" ||
-            (rejectsLogHeader && diagnostic.message.includes(LOG_HEADER_WORD_HINT)),
+    // The same gate the TypeScript backend runs (build-rules.ts), so both compilers reject the same contracts.
+    const gate = buildGateRejection(
+        buildGateViolations(analysis.diagnostics, {
+            contractKind: o.contractKind,
+            buildRules: o.buildRules,
+            rejectsLogHeader: o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(o.contractPath)),
+        }),
     );
-    if (protocolDiagnostics.length) {
-        return {
-            ok: false,
-            stderr: ["Qubic protocol violations:", ...protocolDiagnostics.map((diagnostic) => `  • ${diagnostic.message}`)].join("\n"),
-        };
+    if (gate) {
+        return gate;
     }
     const calls = analysis.calls;
     const calleeNames = [...new Set([...Object.keys(o.dynCallees ?? {}), ...calls.map((call) => call.callee)])];
@@ -141,6 +136,8 @@ export async function buildCorpusRunner(o: {
     arenaSizeBytes?: number;
     dynCallees?: DynCallees;
     contractDescriptions?: readonly { index: number; name: string }[];
+    contractKind?: ContractKind;
+    buildRules?: boolean;
 }): Promise<ContractBuildResult> {
     const raw = (await readFile(o.corpusPath, "utf8")).replace(/^﻿/, "");
 
@@ -192,6 +189,8 @@ export async function buildCorpusRunner(o: {
         extraCompileFlags,
         calleePrelude,
         dynCallees: o.dynCallees,
+        contractKind: o.contractKind,
+        buildRules: o.buildRules,
     });
 }
 
@@ -226,6 +225,7 @@ export async function buildSystemContract(
             corePath,
             outDir,
             skipVerify: true,
+            contractKind: "system",
             wasmClang: opts.wasmClang,
             wasmSysroot: opts.wasmSysroot,
         });
@@ -253,6 +253,7 @@ export async function buildSystemContract(
         outDir,
         dynCallees: dependencies,
         skipVerify: true,
+        contractKind: "system",
     });
     if (!result.ok) {
         return {

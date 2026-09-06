@@ -190,6 +190,7 @@ async function buildRunnerFor(spec: Spec, outDir: string): Promise<Uint8Array> {
     const r = await buildCorpusRunner({
         corpusPath: `${CORE}/test/${spec.corpus}`,
         contractPath: `${CORE}/src/contracts/${spec.header}`,
+        contractKind: "system",
         contractName: spec.name,
         stateType: spec.stateType,
         slot: spec.slot,
@@ -268,6 +269,7 @@ async function buildWithClang(spec: Spec, outDir: string): Promise<Record<number
     for (const callee of spec.callees) {
         const r = await buildContractWithClang({
             contractPath: `${CORE}/src/contracts/${callee.header}`,
+            contractKind: "system",
             contractName: callee.name,
             stateType: callee.stateType,
             slot: callee.slot,
@@ -284,6 +286,7 @@ async function buildWithClang(spec: Spec, outDir: string): Promise<Record<number
 
     const mainR = await buildContractWithClang({
         contractPath: `${CORE}/src/contracts/${spec.header}`,
+        contractKind: "system",
         contractName: spec.name,
         stateType: spec.stateType,
         slot: spec.slot,

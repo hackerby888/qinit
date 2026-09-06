@@ -3,6 +3,17 @@ export const DEFAULT_RPC_PORT = 41841;
 export const DEFAULT_RPC_BASE = `http://${LOOPBACK_HOST}:${DEFAULT_RPC_PORT}`;
 export const DEFAULT_PEER_PORT = 31841;
 
+// A request that got no response headers within its budget; the server may still be working on it.
+export class RequestTimeoutError extends Error {
+    constructor(
+        readonly url: string,
+        readonly timeoutMs: number,
+    ) {
+        super(`request timed out after ${timeoutMs}ms: ${url}`);
+        this.name = "RequestTimeoutError";
+    }
+}
+
 // Fetch with a timeout until response headers arrive; body streaming has its own watchdog.
 export async function fetchWithTimeout(url: string, init?: RequestInit, ms = 10000): Promise<Response> {
     const controller = new AbortController();
@@ -11,7 +22,7 @@ export async function fetchWithTimeout(url: string, init?: RequestInit, ms = 100
         return await fetch(url, { ...init, signal: controller.signal });
     } catch (e: any) {
         if (controller.signal.aborted) {
-            throw new Error(`request timed out after ${ms}ms: ${url}`);
+            throw new RequestTimeoutError(url, ms);
         }
         throw e;
     } finally {
@@ -19,12 +30,20 @@ export async function fetchWithTimeout(url: string, init?: RequestInit, ms = 100
     }
 }
 
-// Read a response body with an inactivity watchdog that resets after every chunk.
-export async function readResponseBodyWithTimeout(r: Response, stallMs = 60000, onProgress?: (recv: number, total: number) => void): Promise<Uint8Array> {
-    if (!r.body) return new Uint8Array(await r.arrayBuffer());
+// Stream a response body chunk by chunk with an inactivity watchdog that resets after every chunk.
+// `total` is the content-length (0 when the server sent none).
+export async function readResponseChunksWithTimeout(
+    r: Response,
+    stallMs: number,
+    onChunk: (chunk: Uint8Array, received: number, total: number) => void | Promise<void>,
+): Promise<{ received: number; total: number }> {
     const total = Number(r.headers.get("content-length") ?? 0);
+    if (!r.body) {
+        const body = new Uint8Array(await r.arrayBuffer());
+        await onChunk(body, body.length, total);
+        return { received: body.length, total };
+    }
     const reader = r.body.getReader();
-    const chunks: Uint8Array[] = [];
     let received = 0;
     let stalled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -41,9 +60,8 @@ export async function readResponseBodyWithTimeout(r: Response, stallMs = 60000, 
             const { done, value } = await reader.read();
             if (done) break;
             arm();
-            chunks.push(value);
             received += value.length;
-            onProgress?.(received, total);
+            await onChunk(value, received, total);
         }
     } finally {
         clearTimeout(timer);
@@ -51,6 +69,16 @@ export async function readResponseBodyWithTimeout(r: Response, stallMs = 60000, 
     if (stalled) {
         throw new Error(`download stalled — no data for ${stallMs}ms`);
     }
+    return { received, total };
+}
+
+// Read a whole response body into memory through the same watchdog.
+export async function readResponseBodyWithTimeout(r: Response, stallMs = 60000, onProgress?: (recv: number, total: number) => void): Promise<Uint8Array> {
+    const chunks: Uint8Array[] = [];
+    const { received } = await readResponseChunksWithTimeout(r, stallMs, (chunk, receivedSoFar, total) => {
+        chunks.push(chunk);
+        onProgress?.(receivedSoFar, total);
+    });
     const body = new Uint8Array(received);
     let offset = 0;
     for (const chunk of chunks) {

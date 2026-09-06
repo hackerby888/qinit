@@ -6,7 +6,19 @@ import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { releasePlatformKey } from "@qinit/core";
-import { activeNodeScratchDir, ensureNodeBinary, fetchNodeBinary, killNode, nodeAlive, nodeAssetForPlatform } from "../../src/ops/node";
+import { activeNodeScratchDir, ensureNodeBinary, fetchNodeBinary, killNode, nodeAlive, nodeAssetForPlatform, versionDrift } from "../../src/ops/node";
+
+test("versionDrift only compares two managed release refs", () => {
+    // The pointer a --core-dir/--node-bin session leaves behind: local headers, last downloaded node.
+    expect(versionDrift({ headersVersion: "local", nodeVersion: "qinit-v0.0.47" })).toBe(false);
+    expect(versionDrift({ headersVersion: "qinit-v1", nodeVersion: "qinit-v2" })).toBe(true);
+    expect(versionDrift({ headersVersion: "qinit-v1", nodeVersion: "qinit-v1" })).toBe(false);
+    expect(versionDrift({ headersVersion: "qinit-v1" })).toBe(false);
+    expect(versionDrift({ nodeVersion: "qinit-v1" })).toBe(false);
+    expect(versionDrift({ headersVersion: "cached", nodeVersion: "qinit-v1" })).toBe(false);
+    expect(versionDrift({ headersVersion: "qinit-v1", nodeVersion: "unknown" })).toBe(false);
+    expect(versionDrift(null)).toBe(false);
+});
 
 const scratch = () => mkdtempSync(join(tmpdir(), "qinit-nodeops-"));
 const pidFile = (s: string) => join(s, "node.pid");

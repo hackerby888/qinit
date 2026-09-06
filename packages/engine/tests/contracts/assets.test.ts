@@ -308,3 +308,84 @@ test("qpi host wiring: isContractId, arbitrator/computor, prevDigests, IPO bid q
     expect(sim.host.ipoBidPrice(28, 676)).toBe(-3n); // out of range
     expect(toHex(sim.host.ipoBidId(28, 0))).toBe(toHex(committee.computors[0].publicKey));
 });
+
+// RightsTaker Take input: { uint64 name; id issuer; sint64 shares; uint64 fromContract }
+function takeIn(name: bigint, issuer: Uint8Array, shares: bigint, fromContract: number): Uint8Array {
+    const b = new Uint8Array(56);
+    const d = new DataView(b.buffer);
+    d.setBigUint64(0, name, true);
+    b.set(issuer.subarray(0, 32), 8);
+    d.setBigInt64(40, shares, true);
+    d.setBigUint64(48, BigInt(fromContract), true);
+    return b;
+}
+
+// RightsWitness Seen output: three ids, then five uint64 counters.
+function seen(sim: QubicSimulator) {
+    const out = sim.query(28, 1);
+    const d = new DataView(out.buffer, out.byteOffset);
+    return {
+        originator: out.slice(0, 32),
+        invocator: out.slice(32, 64),
+        owner: out.slice(64, 96),
+        other: Number(d.getBigUint64(96, true)),
+        releaseCalls: Number(d.getBigUint64(104, true)),
+        postReleaseCalls: Number(d.getBigUint64(112, true)),
+        allowed: Number(d.getBigUint64(128, true)),
+    };
+}
+
+// Core runs PRE/POST_RELEASE_SHARES with originator = the tx signer and invocator = the acquiring contract.
+test("PRE_RELEASE_SHARES sees the transaction's originator and the acquiring contract as invocator", async () => {
+    await initK12();
+
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("RightsWitness"));
+    sim.deploy(29, await wasm("RightsTaker"));
+    const A = contractId(28);
+    const B = deriveKeysSync("b".repeat(55)).publicKey;
+
+    sim.procedure(28, 1, issueIn(TOKEN, 1000n));
+    sim.procedure(28, 2, moveIn(TOKEN, B, 400n)); // B owns 400, still managed by 28
+
+    sim.procedure(29, 1, takeIn(TOKEN, A, 100n, 28), { invocator: B, originator: B });
+
+    expect(readInt64LE(sim.query(29, 1))).toBe(0n);
+    const s = seen(sim);
+    expect(toHex(s.originator)).toBe(toHex(B));
+    expect(toHex(s.invocator)).toBe(toHex(contractId(29)));
+    expect(toHex(s.owner)).toBe(toHex(B));
+    expect(s).toMatchObject({ other: 29, releaseCalls: 1, postReleaseCalls: 1, allowed: 1 });
+    expect(sharesByMgmt(sim, 29)).toBe(100n);
+});
+
+test("a release gated on originator == owner passes for the owner and fails for anyone else", async () => {
+    await initK12();
+
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("RightsWitness"));
+    sim.deploy(29, await wasm("RightsTaker"));
+    const A = contractId(28);
+    const B = deriveKeysSync("b".repeat(55)).publicKey;
+    const C = deriveKeysSync("c".repeat(55)).publicKey;
+
+    sim.procedure(28, 1, issueIn(TOKEN, 1000n));
+    sim.procedure(28, 2, moveIn(TOKEN, B, 400n));
+    const mode = new Uint8Array(8);
+    new DataView(mode.buffer).setBigUint64(0, 1n, true);
+    sim.procedure(28, 3, mode); // allow only when qpi.originator() == input.owner
+
+    sim.procedure(29, 1, takeIn(TOKEN, A, 100n, 28), { invocator: B, originator: B });
+    expect(readInt64LE(sim.query(29, 1))).toBe(0n);
+    expect(seen(sim)).toMatchObject({ allowed: 1, postReleaseCalls: 1 });
+
+    // C signs a Take for B's shares: the Take_input owner is the invocator, so C asks about its own (empty) holding.
+    sim.procedure(29, 1, takeIn(TOKEN, A, 100n, 28), { invocator: C, originator: C });
+    expect(readInt64LE(sim.query(29, 1))).toBe(INVALID_AMOUNT);
+
+    // The manager sees a foreign originator only when the taker runs inside a chain another user started.
+    sim.procedure(29, 1, takeIn(TOKEN, A, 100n, 28), { invocator: B, originator: C });
+    expect(readInt64LE(sim.query(29, 1))).toBe(INVALID_AMOUNT);
+    expect(seen(sim)).toMatchObject({ allowed: 0, postReleaseCalls: 1 });
+    expect(sharesByMgmt(sim, 29)).toBe(100n);
+});

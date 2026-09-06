@@ -21,6 +21,8 @@ import PROXY_SOURCE from "../fixtures/Proxy.h" with { type: "text" };
 import QPI_DUAL_SOURCE from "../fixtures/QpiDual.h" with { type: "text" };
 import QPI_DUAL_CALLEE_SOURCE from "../fixtures/QpiDualCallee.h" with { type: "text" };
 import REFUND_SOURCE from "../fixtures/Refund.h" with { type: "text" };
+import RIGHTS_TAKER_SOURCE from "../fixtures/RightsTaker.h" with { type: "text" };
+import RIGHTS_WITNESS_SOURCE from "../fixtures/RightsWitness.h" with { type: "text" };
 import SHARE_APPROVER_SOURCE from "../fixtures/ShareApprover.h" with { type: "text" };
 import SHARE_MANAGER_SOURCE from "../fixtures/ShareManager.h" with { type: "text" };
 import SHARE_PROPOSER_SOURCE from "../fixtures/ShareProposer.h" with { type: "text" };
@@ -92,6 +94,8 @@ export const wasmFixtureManifest = {
     QpiDualCallee: fixture("QpiDualCallee.h", QPI_DUAL_CALLEE_SOURCE, "QpiDualCallee", 28),
     QpiDual: fixture("QpiDual.h", QPI_DUAL_SOURCE, "QpiDual", 29, ["QpiDualCallee"]),
     Refund: fixture("Refund.h", REFUND_SOURCE, "Refund", 28),
+    RightsTaker: fixture("RightsTaker.h", RIGHTS_TAKER_SOURCE, "RightsTaker", 29),
+    RightsWitness: fixture("RightsWitness.h", RIGHTS_WITNESS_SOURCE, "RightsWitness", 28),
     ShareApprover: fixture("ShareApprover.h", SHARE_APPROVER_SOURCE, "ShareApprover", 28),
     ShareManager: fixture("ShareManager.h", SHARE_MANAGER_SOURCE, "ShareManager", 29),
     ShareProposer: fixture("ShareProposer.h", SHARE_PROPOSER_SOURCE, "ShareProposer", 29),

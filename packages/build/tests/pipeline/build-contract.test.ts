@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithClang } from "../../src";
+import { buildContractWithClang, buildContractWithTypeScript } from "../../src";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 
 const FORBIDDEN_PUBLIC_TYPES = [
     ["LinkedList", "LinkedList<uint64, 8>"],
@@ -102,4 +103,93 @@ test("a log payload that spans the reserved contract-index word fails the build"
 // These two ship with the defect, so the gate has to stay off for them without anyone passing strict.
 test.each(["VottunBridge.h", "qRWA.h"])("%s is exempt from the log header gate by default", async (fileName) => {
     expect(await buildLogHeaderContract(fileName)).not.toContain(LOG_HEADER_MESSAGE);
+});
+
+// `div(a, b)` without its namespace binds to MSVC's C runtime once the contract reaches Core, so the gate
+// rejects it here, on both backends, before a compiler is ever spawned. Core's own contracts are exempt.
+const BARE_DIV_CONTRACT = `
+using namespace QPI;
+struct Ratio : public ContractBase {
+  struct StateData { uint64 last; };
+  struct Read_input { uint64 a; uint64 b; };
+  struct Read_output { uint64 q; };
+  PUBLIC_FUNCTION(Read) { output.q = div(input.a, input.b); }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(Read, 1);
+  }
+};`;
+
+test("a bare div is rejected before clang runs", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "qinit-bare-div-gate-"));
+    const contractPath = join(directory, "Ratio.h");
+    writeFileSync(contractPath, BARE_DIV_CONTRACT);
+
+    try {
+        const result = await buildContractWithClang({
+            contractPath,
+            contractName: "Ratio",
+            slot: 28,
+            corePath: join(directory, "missing-core"),
+            outDir: directory,
+            skipVerify: true,
+            wasmClang: join(directory, "must-not-run-clang"),
+            calleePrelude: "",
+        });
+
+        expect(result.ok).toBe(false);
+        expect(result.wasmPath).toBeUndefined();
+        expect(result.stderr).toContain("Qubic protocol violations:");
+        expect(result.stderr).toContain("write `QPI::div(…)`");
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("a system contract with a bare div passes the gate", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "qinit-bare-div-system-"));
+    const contractPath = join(directory, "Ratio.h");
+    writeFileSync(contractPath, BARE_DIV_CONTRACT);
+
+    try {
+        // The gate lets it through, so the build reaches the stub compiler and fails there, not on the rule.
+        const outcome = await buildContractWithClang({
+            contractPath,
+            contractName: "Ratio",
+            slot: 28,
+            corePath: join(directory, "missing-core"),
+            outDir: directory,
+            skipVerify: true,
+            contractKind: "system",
+            wasmClang: join(directory, "must-not-run-clang"),
+            calleePrelude: "",
+        }).then(
+            (result) => result.stderr ?? "",
+            (error: any) => String(error?.message ?? error),
+        );
+
+        expect(outcome).not.toContain("QPI::div");
+        expect(outcome).toContain("must-not-run-clang");
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test.skipIf(!HAS_CORE)("the TypeScript backend rejects a bare div with the same message", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "qinit-bare-div-ts-"));
+
+    try {
+        const result = await buildContractWithTypeScript({
+            source: BARE_DIV_CONTRACT,
+            contractName: "Ratio",
+            slot: 28,
+            corePath: CORE_PATH,
+            outDir: directory,
+            skipVerify: true,
+        });
+
+        expect(result.ok).toBe(false);
+        expect(result.stderr).toContain("write `QPI::div(…)`");
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
 });

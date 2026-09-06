@@ -45,6 +45,7 @@ for (const contract of corpus) {
         outDir: "/tmp/corpus",
         dynCallees: contract.dynCallees,
         skipVerify: contract.skipVerify,
+        contractKind: contract.path.startsWith(core) ? "system" : "user",
     });
     if (result.ok) {
         console.log(`OK   ${contract.name}  ${result.wasmSizeBytes ?? "?"}B`);

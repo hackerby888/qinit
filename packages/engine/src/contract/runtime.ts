@@ -219,6 +219,7 @@ export interface HostServices {
         srcOwnMgmt: number,
         srcPosMgmt: number,
         offeredFee: bigint,
+        originator: Id,
     ): bigint;
     releaseShares(
         slot: number,
@@ -230,6 +231,7 @@ export interface HostServices {
         dstOwnMgmt: number,
         dstPosMgmt: number,
         offeredFee: bigint,
+        originator: Id,
     ): bigint;
     dayOfWeek(year: number, month: number, day: number): number;
     signatureValidity(entity: Uint8Array, digest: Uint8Array, signature: Uint8Array): number;
@@ -1199,7 +1201,7 @@ export class Contract {
     }
 
     // lhost: share management rights — qpi acquireShares / releaseShares.
-    private shareRightsImports(u8: () => Uint8Array): Record<string, Function> {
+    private shareRightsImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
         return {
             // share management rights — qpi acquireShares / releaseShares (qpi_asset_impl.h). The lhost imports are
             // provided here; a wasm contract reaches them once the qpi wasm binding declares the imports.
@@ -1223,6 +1225,7 @@ export class Contract {
                     srcOwnMgmt & 0xffff,
                     srcPosMgmt & 0xffff,
                     fee,
+                    contextView().originator,
                 );
                 this.recHost("acquireShares", () => `${assetName(name)} ${shares} ← mgmt ${srcPosMgmt & 0xffff}`);
                 return r;
@@ -1247,6 +1250,7 @@ export class Contract {
                     dstOwnMgmt & 0xffff,
                     dstPosMgmt & 0xffff,
                     fee,
+                    contextView().originator,
                 );
                 this.recHost("releaseShares", () => `${assetName(name)} ${shares} → mgmt ${dstPosMgmt & 0xffff}`);
                 return r;
@@ -1380,7 +1384,7 @@ export class Contract {
             ...this.identityImports(u8),
             ...this.ledgerImports(u8),
             ...this.assetImports(u8, contextView),
-            ...this.shareRightsImports(u8),
+            ...this.shareRightsImports(u8, contextView),
             ...this.platformImports(u8),
             ...this.oracleImports(u8),
             ...this.nestedCallImports(u8, contextView),

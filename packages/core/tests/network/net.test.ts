@@ -1,7 +1,7 @@
 // broadcastTx verdict logic + the response-body stall watchdog. broadcastTx must only report ok when the node
 // actually accepted+relayed the tx (peers >= 1, no error code) — a false ok would hide a dropped tx.
 import { test, expect, afterEach } from "bun:test";
-import { DEFAULT_RPC_BASE, broadcastTx, readResponseBodyWithTimeout } from "../../src/net/http";
+import { DEFAULT_RPC_BASE, RequestTimeoutError, broadcastTx, fetchWithTimeout, readResponseBodyWithTimeout } from "../../src/net/http";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -48,4 +48,18 @@ test("readResponseBodyWithTimeout: a stalled body stream aborts via the inactivi
 
 test("readResponseBodyWithTimeout: reads a normal body in full", async () => {
     expect([...(await readResponseBodyWithTimeout(new Response(new Uint8Array([5, 6, 7])), 1000))]).toEqual([5, 6, 7]);
+});
+
+test("fetchWithTimeout: an aborted request surfaces as RequestTimeoutError", async () => {
+    globalThis.fetch = realFetch;
+    const server = Bun.serve({ port: 0, fetch: () => new Promise<Response>((r) => setTimeout(() => r(new Response("late")), 300)) });
+    try {
+        const url = `http://127.0.0.1:${server.port}/slow`;
+        const error = await fetchWithTimeout(url, undefined, 20).catch((e) => e);
+        expect(error).toBeInstanceOf(RequestTimeoutError);
+        expect(error.timeoutMs).toBe(20);
+        expect(error.message).toContain("timed out after 20ms");
+    } finally {
+        server.stop(true);
+    }
 });
