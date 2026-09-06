@@ -50,8 +50,10 @@ after the first start.
 - **Withdrawn before filing:** one runtime divergence that was my own probe (an asset name with a lowercase byte — the
   campaign-6 `<U` trap in a new coat, §Probe errors).
 - Four handoff recipes corrected (§Step 0): `.sln`/`NO_RPC`, missing `LITE_WASM_SC`, `QINIT_CONFIG`, the SDK size.
+- **Post-fix re-run (§Re-run after the fixes):** F82 closed on all four cells, the P1 spec green everywhere, and the first full `bun test`
+  count for Windows; two more filed from it — F84 (`node stop` reports failure for a stop that worked) and F85 (the suite needs ~19 GB).
 
-### Fixed after the campaign (2026-09-06, working tree, not yet committed)
+### Fixed after the campaign (2026-09-06, commits `0b75d9c4` and `25e007da`; re-run in §Re-run after the fixes)
 
 - **F75** — `downloadVerifiedAssetToFile` (`packages/core/src/cache/download.ts`): streamed to a `.part` under `<cache>/downloads`,
   three attempts with backoff, HTTP Range resume, sha256 on the stream; the SDK archive survives a failed run. Re-checked on this
@@ -290,6 +292,51 @@ Windows shape of "file in use"). Control: the same commands work through the com
 --dump --json` returned in ~1 s on every cell; `new` × 5). Not root-caused; recorded so a Windows CI run is not read as
 six product regressions. The full `bun test` run is in §Suite counts.
 
+### F84 — `qinit node stop` on a core node reports `stop failed · node still alive (pkill failed)` (exit 1) for a node it did stop: the pid is dead, so the check falls back to a `tasklist` image scan that still lists the process while Windows tears it down
+
+Windows only (found in the post-fix re-run, §Re-run after the fixes). Repro 2/2, `C:\q\work\p7\node-stop\`:
+
+```
+qinit node run --restart --runtime core --core-dir C:/q/core-lite --node-bin $NODE_BIN --offline --json   # ok, tick 77700002
+qinit node stop --json
+# {"ok":false,"action":"stop","lines":[{"text":"node still alive (pkill failed)","ok":false}],"stopped":false,"wasRunning":true,
+#  "error":"node still alive (pkill failed)"}                exit 1, after 686 ms (cycle 1) / 474 ms (cycle 2)
+tasklist | grep -c Qubic.exe                                  # 0 — immediately after, and again 2 s later
+qinit node status --json                                      # {"up":false,"error":"rpc: down (node not reachable)"}
+```
+
+Expected: `stopped ✓`, exit 0 — the node is gone and nothing is left to stop. Actual: a failure report and exit 1, so a script
+that stops the node between cells (`set -e`, or `runj node-stop … || exit`) aborts on a successful stop.
+
+Cause (`packages/cli/src/ops/node.ts`): `killNode()` runs `taskkill /F /PID`, polls `pidAlive()` until the pid is dead, then
+**deletes the pid file**; `node stop` (`node.tsx:101-103`) then calls `nodeAlive()`, which has no tracked pid any more and falls
+back to `tasklist /FI "IMAGENAME eq Qubic.exe"`. That snapshot still lists the 3.5 GB process for a few hundred milliseconds
+after the kill, so the command reports "still alive" and, on Windows, calls it a `pkill` failure. Linux takes the `pgrep -x
+Qubic` branch after `SIGKILL`, where the reap is immediate, so the window is much narrower there. The pid file is
+correctly gone in both cycles, so the next `node run --restart` is unaffected — only the report and the exit code are wrong.
+
+Fix (1 line of behaviour): let `killNode()` return whether the tracked pid died and trust that in `node stop`; or poll
+`nodeAlive()` for up to ~2 s before declaring the stop failed, mirroring the wait `killNode()` already does for the pid.
+Severity: wrong diagnostic (exit 1 on success); control: the same `stop` against the simulator reports `stopped ✓`.
+**Fixed** in `b2e3700e`: `killNode()` returns whether the tracked pid died and `node stop` reports that; re-checked 2/2 on core and once on the simulator, `stopped:true`, exit 0.
+
+### F85 — the full `bun test` needs ~19 GB of private memory on Windows: one file, `packages/compiler/tests/gtest/contract-testing.test.ts`, takes the bun process from 1.5 GB to 14.4 GB working set / 18.8 GB private bytes, and the system commit charge reaches 37.0 of 42.7 GB — which is what killed both campaign runs, not a low-memory guard
+
+Measured in the post-fix solo run (32 GB RAM, default 10 GB page file, nothing else on the box), sampled once a minute:
+
+| moment | bun working set | bun private bytes | commit used / limit | free physical |
+|---|---|---|---|---|
+| entering `contract-testing.test.ts` (file 28 of the run) | 13.8 GB | 18.8 GB | 37.0 / 42.7 GB | 2.7 GB |
+| peak, same file | 14.4 GB | — | — | 2.4 GB |
+| next file | 1.5 GB | — | — | 17.0 GB |
+
+The file alone was 9.2 GB in the campaign's solo run (§Suite counts), so ~9 GB of that peak is memory retained from the
+27 files before it — `bun test` runs every file in one process. The campaign's two aborted runs died at exactly this file with
+~5 GB of commit headroom less (a core node was up in the first). Not a defect in a contract or a command; it caps the suite
+on any box with < ~24 GB of commit headroom and makes the Windows count depend on the page-file size. Suggested: run the
+compiler gtest files in a separate `bun test` invocation on Windows (or per package, as CI's shards effectively do), and look
+for what the earlier files keep alive (compiled wasm modules or simulator instances that are never released).
+
 ### Probe errors caught by controls (kept for the next tester)
 
 - **An asset name with a lowercase byte.** The harness first hard-coded `22913013085521` as "QLNCH"; it decodes to `Q`
@@ -500,3 +547,33 @@ F81; the vsix path installs.
 | `bun test` (repo, `WASM_CLANG` set, `QINIT_CORE` set, default cache), first run | **did not finish**: the OS low-memory guard killed it after ~25 min while a core node (3.5 GB) and the probe chains shared the box, at `packages/compiler/tests/gtest/contract-testing.test.ts`. Up to that point: **6 fail** (all F83, four files), 172 `PASS` gtest-style lines, no `skip` markers seen. The four failing files re-run alone: 4 pass / 6 fail, 34 s (F83). |
 | `bun test`, solo re-run (nothing else on the box) | **did not finish either**: killed by the same low-memory guard after 26 files / 171 gtest `PASS` lines / **0 fail**, again right after `packages/compiler/tests/edge/fidelity-edges.test.ts`, i.e. entering `packages/compiler/tests/gtest/contract-testing.test.ts`. That file alone: `1 pass / 0 fail` in 27.9 s (`contract_qutil.cpp: 51 PASS · 0 FAIL`), but bun's working set climbs from 207 MB to **9.2 GB** while it runs (free memory 21.5 → 12.6 GB). Two runs, same spot: the suite's memory high-water mark plus whatever earlier files keep resident is what the guard trips on, so **no full-suite count exists for Windows from this session**; the only failures ever observed are the six of F83. Someone with a plain shell (no guard) should run `bun test` once and paste the totals here. |
 | `bun run typecheck` | not reached (queued behind the killed run) |
+
+## Re-run after the fixes (2026-09-06, `dist\qinit.exe` rebuilt from `25e007da`, CI green)
+
+The product repo first had to change: the F76 gate now rejects `Launch.h`'s three bare calls (lines 281, 284, 296), so they are
+spelled `QPI::div` / `QPI::mod` (uncommitted in `C:\q\Launch`; `Vault.h` needed nothing). Then the cells the fixes touched, the
+P1 spec on both simulator cells and the rights probe on all four:
+
+| value | clang×core | clang×sim | ts×core | ts×sim |
+|---|---|---|---|---|
+| P1 spec (pass/fail/expects) | 8/0/64 (campaign) | **8/0/64**, 39 s (was 7/1/59, 71 s) | 8/0/64 (campaign) | **8/0/64**, 39 s (was 7/1/59, 72 s) |
+| vault lock (`acquireShares`, originator-gated) | 0 (moved) | **0 (moved)** (was `INVALID_AMOUNT`) | 0 (spec) | **0 (moved)** (was `INVALID_AMOUNT`) |
+| `PRE_RELEASE_SHARES` sees originator / invocator | user b / taker contract | **user b / taker contract** | user b / taker contract | **user b / taker contract** |
+| rights probe: mode 0 `Take` · mode 1 `Take` · release/post-release calls | 0 · 0 · 2/2 | 0 · 0 · 2/2 | 0 · 0 · 2/2 | 0 · 0 · 2/2 |
+
+The rights probe's `Seen` document is byte-identical on the four cells (`originatorIsB:true`, `invocatorIsB:false`,
+`lastInvocator:"EBAAAAAAAAAA"` = the taker at slot 30, `ownerIsB:true`, `lastOther:30`, `lastShares:"100"`). F82 is closed on
+Windows; the P1 spec is green on every cell. Rows: `C:\q\work\p1\cells-postfix\`, `C:\q\work\p2\probes\rights\<cell>\`.
+
+**Observed during the re-run (not in the fix list):** after the last core cell, `qinit node stop --json` answered
+`{"ok":false,"stopped":false,"wasRunning":true,"error":"node still alive (pkill failed)"}` (exit 1) although the node was gone
+a second later (no `Qubic.exe` in `tasklist`, port 41841 closed) and the pid file had already been removed. `killNode` waits
+for the *pid* to die and deletes the pid file; `nodeAlive()` then has no pid and falls back to `tasklist … IMAGENAME eq Qubic.exe`,
+which still lists a 3.5 GB process while Windows tears it down. Reproduced 2/2 and filed as **F84**.
+
+### Suite counts after the fixes
+
+| suite | result |
+|---|---|
+| `bun run typecheck` | steps 1–2 (what CI runs) clean; step 3 (`tsc -p packages/compiler/tsconfig.build.json`) needs `packages/core` and `packages/proto` built first (`bun run build` in each, CI's `node-dist` order) — with them built, **all three steps exit 0** |
+| `bun test`, solo, `QINIT_CORE` + `WASM_CLANG`/`WASI_SYSROOT` set, default cache | **2860 pass / 38 skip / 22 fail / 192 841 expect() calls, 2920 tests across 350 files, 23 m 44 s**, exit 1 — the first complete Windows count. Every failure is attributed and fixed in the working tree: **21** are the F76 gate rejecting compiler-differential sources that spell `div`/`mod` bare on purpose (`calc-diff` 1, `fuzz-diff` 20 pinned seeds) — a regression of the fix that CI cannot see because those clang branches skip without a WASI SDK; `buildRules: false` now exempts the differential runner, the fuzz test and the two fuzz tools. **1** is `source-abi-mutation.test.ts` rewriting a core header with an LF-joined search string that never matches the checkout’s CRLF (`core.autocrlf=true`) — the handoff’s line-endings watch item; its two readers now normalise. The three files re-run alone: **27 pass / 0 fail / 99 expects, 92 s**. Peak memory during the run: F85. Log `C:\q\work\bun-test-full.log`. |
