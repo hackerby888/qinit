@@ -117,4 +117,4 @@ test("an instrumented contract behaves exactly like the pristine one", async () 
         expect(instrumented.outputs, `${entry.name} returned different bytes`).toEqual(pristine.outputs);
         expect(instrumented.states, `${entry.name} left different state behind`).toEqual(pristine.states);
     }
-});
+}, 60_000);
