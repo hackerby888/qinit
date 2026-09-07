@@ -116,9 +116,25 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         logs: [],
     };
 
-    // Source alone: `pulled` degrades to a short scalar and bytes past it belong to no field.
+    // Source alone: the callee's type cannot be resolved, and an unresolved type no longer degrades to a
+    // short scalar — no IDL is derived, so the state is shown undecoded rather than wrong.
     const derived = await describeTrace(entry, CALLEE_TYPED_SRC, "CallOutState");
-    expect(derived.stateDiff.some((line) => line.label.startsWith("@"))).toBe(true);
+    expect(derived.fields).toEqual([]);
+    expect(derived.stateDiff).toEqual([]);
+
+    // With the callee's source the type resolves from source too, and nothing is left unowned.
+    const COUNTER_SRC = `
+using namespace QPI;
+struct Counter : public ContractBase {
+  struct StateData { uint64 value; };
+  struct Get_input {}; struct Get_output { uint64 value; };
+  PUBLIC_FUNCTION(Get) { output.value = state.get().value; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+  INITIALIZE() {}
+};`;
+    const withCallee = await describeTrace(entry, CALLEE_TYPED_SRC, "CallOutState", undefined, undefined, [{ name: "Counter", source: COUNTER_SRC, slot: 29 }]);
+    expect(withCallee.stateDiff.some((line) => line.label.startsWith("@"))).toBe(false);
+    expect(withCallee.stateDiff.map((line) => line.label)).toContain("pulled");
 
     // With the build's IDL the whole field resolves and nothing is left unowned.
     const supplied = await describeTrace(entry, CALLEE_TYPED_SRC, "CallOutState", undefined, buildIdl);

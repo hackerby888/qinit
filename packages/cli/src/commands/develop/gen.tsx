@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { resolve, join, basename } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { extractIdl, generateClient, testRuntimeSource } from "@qinit/build";
+import { extractIdl, generateClient, resolveContracts, testRuntimeSource, type CalleeSource } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { loadConfig, resolveCoreDir } from "../../config";
@@ -13,6 +13,25 @@ import { loadContractIdlFile } from "../../contracts/idl-file";
 
 function deployedSlot(name: string): number | undefined {
     return Object.values(loadContractIdlFile().contracts).find((contract) => contract.name === name)?.slot;
+}
+
+// The contracts this one calls, resolved the way `build` resolves them, so a state or locals field typed by a
+// callee gets its real layout in the client. A project that does not resolve keeps generating without them.
+function projectCalleeSources(core: string, contractPath: string, contractName: string, slot: number): CalleeSource[] {
+    try {
+        const resolved = resolveContracts({
+            projectRoot: process.cwd(),
+            corePath: core,
+            contractPath,
+            contractName,
+            slot,
+        });
+        return resolved
+            .filter((contract) => contract.stateType !== contractName)
+            .map((contract) => ({ name: contract.stateType, source: contract.source, slot: contract.slot }));
+    } catch {
+        return [];
+    }
 }
 
 type State = { ok: true; file: string; name: string; slot: number; fns: number; procs: number } | { ok: false; err: string } | null;
@@ -37,6 +56,7 @@ export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
             const idl = extractIdl(readFileSync(contractPath, "utf8"), name, {
                 slot,
                 qpiHeader: loadQpiHeader(core),
+                calleeSources: projectCalleeSources(core, contractPath, name, slot),
             });
             // Emit a SELF-CONTAINED client: the client pulls LiteRpc/codec from a sibling runtime.ts (only needs the
             // crypto is bundled in), not from the unpublished @qinit/* monorepo packages — so the output works outside it.

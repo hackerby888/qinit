@@ -5,7 +5,7 @@ import { contractAddress } from "@qinit/proto";
 import { LARGE_STATE_CONTAINER_BYTES, loadStateContainer, readState, stateIsComplete, type DecodedState, type StateContainer } from "../../trace/state-read";
 import { StateView } from "../../trace/views";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
-import { loadContracts, mergeContracts, missingContractMessage } from "../../contracts/registry";
+import { loadContracts, mergeContracts, missingContractMessage, siblingCalleeSources } from "../../contracts/registry";
 import { Header, Spinner, Panel, KV, fmtCompact, theme } from "../../ui";
 import { Select, type SelItem } from "../../ui/prompt";
 import { invalidArgs, output, type CommandArguments } from "../../args";
@@ -163,7 +163,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
         );
     };
 
-    const load = async (c: DynamicContractRegistryEntry) => {
+    const load = async (c: DynamicContractRegistryEntry, siblings: DynamicContractRegistryEntry[] = contracts) => {
         setPhase("loading");
         setProgress("");
         contractIndexRef.current = c.index;
@@ -196,6 +196,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                     collapseContainersAtBytes: LARGE_STATE_CONTAINER_BYTES,
                     containerIndexes,
                     loadAllContainers: o.all,
+                    calleeSources: siblingCalleeSources(siblings, c.index),
                 },
             );
             setCurrentState(state);
@@ -369,7 +370,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                         }
                         throw new Error(missingContractMessage(sets, o.target));
                     }
-                    await load(c);
+                    await load(c, all);
                     return;
                 }
                 if (!all.length) throw new Error(missingContractMessage(sets));

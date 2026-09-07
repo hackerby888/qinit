@@ -8,7 +8,7 @@ import { compileWasmContract, type ClangBuildOptions } from "./clang";
 import { resolveContractSource } from "./source";
 // Embedded as text by `bun build --compile` (import.meta.dir asset files aren't bundled into the binary).
 import TEST_UTIL_H from "../assets/test_util.h" with { type: "text" };
-import { extractIdl, type ContractIdl } from "./idl";
+import { extractIdl, type CalleeSource, type ContractIdl } from "./idl";
 import { verifyForBuild, verifyRejection } from "./verify";
 import type { ContractBuildResult, SystemContractCompiler } from "./types";
 import { buildContractWithTypeScript } from "./typescript";
@@ -102,10 +102,17 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         if (qpiHeaderError) {
             throw new Error(qpiHeaderError);
         }
+        // The callees' declarations, so a state field typed by a callee gets its real layout in the IDL.
+        const calleeSources: CalleeSource[] = Object.entries(o.dynCallees ?? {}).map(([name, callee]) => ({
+            name,
+            source: readFileSync(callee.header, "utf8"),
+            slot: callee.slot,
+        }));
         idl = extractIdl(source, o.contractName, {
             slot: o.slot,
             qpiHeader,
             stateType: o.stateType,
+            calleeSources,
         });
     } catch (e: any) {
         idlError = String(e?.message ?? e);

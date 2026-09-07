@@ -16,6 +16,14 @@ export function canonTypeKey(validator: Validator, type: TypeSpec): string {
                     return numericValue.toString();
                 }
             }
+            // A literal or constant expression argument keys by its value, so `Array<uint8, 4>` and
+            // `Array<uint8, 8>` are different types and `Array<uint8, CAP>` equals the spelled-out one.
+            if (argument.kind === AstKind.EXPR_VALUE) {
+                const evaluated = evalIntegralConst(argument.expression, (name) => validator.constants.get(name) ?? null);
+                if (evaluated !== null) {
+                    return evaluated.toString();
+                }
+            }
             return validator.canonTypeKey(argument);
         });
         return `${unwrappedType.name}<${callArguments.join(",")}>`;

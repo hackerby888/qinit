@@ -2,7 +2,7 @@
 import { decodeOutput, decodeLog, decodedJsonValue, type DecodedLog } from "@qinit/proto";
 import { AbiTypeKind, type AbiType, type ContractCheat, type ContractIdl } from "@qinit/proto/contract-idl";
 import type { DebugCheat } from "@qinit/core";
-import { extractIdl } from "@qinit/build";
+import { extractIdl, type CalleeSource } from "@qinit/build";
 import { stateDiffLines, type StateDiffLine } from "./state-diff";
 import { enumMap, formatStateValue, holdsContainer, scalarText, stateFieldsOf, type StateField } from "./state-format";
 import { MIGRATE } from "./entry-label";
@@ -32,6 +32,7 @@ export async function describeTrace(
     name: string,
     qpiHeader?: string,
     contractIdl?: ContractIdl,
+    calleeSources?: readonly CalleeSource[],
 ): Promise<DecodedTrace> {
     let input = entry.inHex ? "0x" + entry.inHex : "(none)";
     let output = entry.outHex ? "0x" + entry.outHex : "(none)";
@@ -47,7 +48,7 @@ export async function describeTrace(
         }
     }
 
-    const idl = contractIdl ?? idlFromSource(source, name, entry.index, qpiHeader);
+    const idl = contractIdl ?? idlFromSource(source, name, entry.index, qpiHeader, calleeSources);
 
     let fields: StateField[] = [];
     let stateDiff: StateDiffLine[] = [];
@@ -105,13 +106,19 @@ export async function describeTrace(
     };
 }
 
-function idlFromSource(source: string | undefined, name: string, slot: number, qpiHeader: string | undefined): ContractIdl | undefined {
+function idlFromSource(
+    source: string | undefined,
+    name: string,
+    slot: number,
+    qpiHeader: string | undefined,
+    calleeSources?: readonly CalleeSource[],
+): ContractIdl | undefined {
     if (!source) {
         return undefined;
     }
 
     try {
-        return extractIdl(source, name, { slot, qpiHeader });
+        return extractIdl(source, name, { slot, qpiHeader, calleeSources });
     } catch {
         return undefined;
     }

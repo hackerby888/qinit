@@ -28,7 +28,7 @@ import { CallInteractive, type CollectedCall } from "./call-interactive";
 import { loadConfig, loadConfiguredQpiHeader, resolveSeed } from "../../config";
 import { insufficientBalanceMessage, resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
 import { describeContractError, describeFault, readFault } from "../../ops/fault";
-import { loadContracts, mergeContracts, missingContractMessage, resolveContract } from "../../contracts/registry";
+import { loadContracts, mergeContracts, missingContractMessage, resolveContract, siblingCalleeSources } from "../../contracts/registry";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { loadContractIdls } from "../../contracts/idl-lookup";
 import { Header, Spinner, Status, Bar, theme } from "../../ui";
@@ -252,6 +252,8 @@ function CallOneShot({
                 const rc = resolveContract(contract, sets);
                 if (!rc) throw new Error(missingContractMessage(sets, contract));
                 const idx = rc.index;
+                // The other deployed contracts' declarations: a state field may use a type a callee declares.
+                const calleeSources = siblingCalleeSources(mergeContracts(sets).all, idx);
                 // entry: accept a fn/proc name or an inputType number. Prefer local qinit.idl.json, else derive from the
                 // contract source (node dyn-registry source for user contracts, snapshot source for system contracts).
                 const localContractIdl = contractIdlForSlot(idlFile, idx, rc.codeHash);
@@ -263,6 +265,7 @@ function CallOneShot({
                         contractIdl = extractIdl(rc.source, rc.name, {
                             slot: idx,
                             qpiHeader: loadConfiguredQpiHeader(),
+                            calleeSources,
                         });
                         entries = mode === "fn" ? contractIdl.functions : contractIdl.procedures;
                     } catch {
@@ -519,7 +522,7 @@ function CallOneShot({
                     } catch {}
 
                     if (te) {
-                        const view = await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl);
+                        const view = await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl, calleeSources);
                         if (children.length) {
                             view.cheats = mergePrints([{ contract: contractName, cheats: view.cheats }, ...(await calleePrints(rpc, children, addNote))]);
                             if (view.cheats.some((cheat) => cheat.ord === undefined)) {

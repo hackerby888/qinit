@@ -6,7 +6,7 @@ export type { ClangBuildOptions } from "./compile/clang";
 export { buildContractWithTypeScript } from "./compile/typescript";
 export type { TypeScriptBuildOptions, TypeScriptCalleeBuildOptions } from "./compile/typescript";
 export { extractIdl } from "./compile/idl";
-export type { ContractIdl } from "./compile/idl";
+export type { CalleeSource, ContractIdl } from "./compile/idl";
 export { verifyContract, resolveVerifyTool } from "./compile/verify";
 export { BUILD_GATE_RULES, buildGateRejection, buildGateViolations, buildRulesEnabled } from "./compile/build-rules";
 export type { BuildGateContext, BuildGateRule, ContractKind } from "./compile/build-rules";

@@ -21,10 +21,18 @@ export type {
 
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 
+// A callee whose declarations the analysis may need: a caller's state or locals can hold a type the callee declares.
+export interface CalleeSource {
+    name: string;
+    source: string;
+    slot?: number;
+}
+
 export interface ExtractIdlOptions {
     slot?: number;
     qpiHeader?: string;
     stateType?: string;
+    calleeSources?: readonly CalleeSource[];
 }
 
 export function extractIdl(source: string, name: string, options: ExtractIdlOptions = {}): ContractIdl {
@@ -34,6 +42,7 @@ export function extractIdl(source: string, name: string, options: ExtractIdlOpti
         contractName: analysisName,
         slot: options.slot,
         qpiHeader: options.qpiHeader,
+        calleeSources: options.calleeSources ? [...options.calleeSources] : undefined,
     });
 
     if (result.idl) {

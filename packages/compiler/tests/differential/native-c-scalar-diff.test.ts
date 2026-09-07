@@ -12,7 +12,8 @@ import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const SLOT = 27;
-// Mixed native C widths in state: if char/short/int/long are sized wrongly, every later field shifts.
+// Mixed native C widths in state: if char/short/int/long long are sized wrongly, every later field shifts.
+// (`long` itself is rejected: 4 bytes on wasm32, 8 on Core.)
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -20,8 +21,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     char tag;
     short count;
     int amount;
-    long total;
-    unsigned long mask;
+    long long total;
+    unsigned long long mask;
   };
   struct StateData {
     Mixed mixed;
@@ -36,8 +37,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     state.mut().mixed.tag = (char)input.tag;
     state.mut().mixed.count = (short)input.count;
     state.mut().mixed.amount = (int)input.amount;
-    state.mut().mixed.total = (long)input.total;
-    state.mut().mixed.mask = (unsigned long)(input.tag + input.count);
+    state.mut().mixed.total = (long long)input.total;
+    state.mut().mixed.mask = (unsigned long long)(input.tag + input.count);
     // A signed countdown past zero, with the counter used as a subscript. If int narrows by masking
     // instead of sign-extending, y wraps to 4294967295 and the loop runs off the end of the array.
     uint64 src[4];

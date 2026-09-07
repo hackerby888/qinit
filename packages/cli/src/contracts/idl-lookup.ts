@@ -4,7 +4,7 @@ import { AbiTypeKind, type ContractEntry, type ContractIdl } from "@qinit/proto/
 import { extractIdl } from "@qinit/build";
 import { loadConfiguredQpiHeader } from "../config";
 import { contractIdlForSlot, loadContractIdlFile } from "./idl-file";
-import { loadContracts, mergeContracts } from "./registry";
+import { loadContracts, mergeContracts, siblingCalleeSources } from "./registry";
 import { formatStateValue } from "../trace/state-format";
 
 export type ContractIdls = Map<number, ContractIdl>;
@@ -33,7 +33,8 @@ export async function loadContractIdls(rpc: LiteRpc): Promise<ContractIdls> {
         debug("loadContractIdls: no core checkout for the qpi header", error);
     }
 
-    for (const contract of mergeContracts(sets).all) {
+    const deployed = mergeContracts(sets).all;
+    for (const contract of deployed) {
         const local = idlFile && contractIdlForSlot(idlFile, contract.index, contract.codeHash);
         if (local) {
             idls.set(contract.index, local);
@@ -57,6 +58,7 @@ export async function loadContractIdls(rpc: LiteRpc): Promise<ContractIdls> {
                 extractIdl(contract.source, contract.name, {
                     slot: contract.index,
                     qpiHeader,
+                    calleeSources: siblingCalleeSources(deployed, contract.index),
                 }),
             );
         } catch (error) {
