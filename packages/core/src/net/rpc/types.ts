@@ -177,6 +177,8 @@ export interface ExplorerData {
         latestCreatedTick: number;
         mainAuxStatus: number;
         isSavingSnapshot: boolean;
+        // How many finalized ticks the node keeps (the simulator's --history-ticks); absent when it does not say.
+        historyTicks?: number;
     };
     recentTicks: {
         tick: number;

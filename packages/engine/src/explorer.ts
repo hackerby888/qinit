@@ -98,6 +98,7 @@ export class ExplorerReadModel {
                 alignedVotes: this.sim.alignedVotes(tick),
                 ticksInCurrentEpoch: Math.max(0, tick - initialTick),
                 latestCreatedTick: tick,
+                historyTicks: this.sim.tickHistoryDepth,
                 mainAuxStatus: 1,
                 isSavingSnapshot: false,
             },
