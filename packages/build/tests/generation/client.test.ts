@@ -219,7 +219,9 @@ test("scalar and array roots use direct aliases, arguments, and results", () => 
 
 test("procedure wiring: tick+8, confirm-by-default, typed return", () => {
     has("type QinitProcedureResult = {");
-    has("async Inc(opts:"); // no-input proc: only opts
+    // no-input proc: `Inc(opts)` and `Inc({}, opts)` both route the options, so `Inc({}, { amount })` pays.
+    has("async Inc(argsOrOpts: Inc_input | { seed?: string; amount?: number | bigint; confirm?: boolean } = {}, maybeOpts?:");
+    has("const opts = maybeOpts ?? (argsOrOpts as { seed?: string; amount?: number | bigint; confirm?: boolean });");
     has("procedureId: 1,");
     has("tick: (ti.tick ?? 0) + 8");
     has("confirm: opts.confirm !== false");

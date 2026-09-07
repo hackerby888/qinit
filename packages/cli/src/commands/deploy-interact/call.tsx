@@ -278,7 +278,11 @@ function CallOneShot({
                 if (Number.isNaN(entry)) {
                     entryIdl = entries.find((candidate) => candidate.name.toLowerCase() === entryName.toLowerCase());
                     if (!entryIdl) {
-                        throw new Error(`no ${mode} named '${entryName}' on contract ${idx} (no local IDL and node has no source for this slot)`);
+                        // With an IDL in hand the name is simply wrong; only without one is the IDL to blame.
+                        const reason = entries.length
+                            ? `known: ${entries.map((candidate) => candidate.name).join(", ")}`
+                            : "no local IDL and node has no source for this slot";
+                        throw new Error(`no ${mode} named '${entryName}' on contract ${idx} (${reason})`);
                     }
                     entry = entryIdl.inputType;
                 }
@@ -307,10 +311,12 @@ function CallOneShot({
                     }
                 } else {
                     try {
+                        // No --in/--args encodes as empty: the entry's own format is a type string, not a value,
+                        // so feeding it here reported a phantom parse error instead of the missing input.
                         input =
                             inputFormat !== undefined && entryIdl
                                 ? await encodeInputTyped(entryIdl.input, inputFormat)
-                                : await encodeInput(inputFormat ?? entryIdl?.input.format ?? "");
+                                : await encodeInput(inputFormat ?? "");
                     } catch (enc: any) {
                         let z = "";
                         try {

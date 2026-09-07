@@ -152,8 +152,8 @@ export function Tick({ commandArgs }: { commandArgs: CommandArguments }) {
             try {
                 if (o.sub === "rate") {
                     // The simulator can change its tick rate without restarting.
-                    const ms = Math.floor(Number(o.arg));
-                    if (!Number.isFinite(ms) || ms < 0) throw new Error(`rate <ms>: '${o.arg}' is not a non-negative integer`);
+                    const ms = Number(o.arg);
+                    if (!Number.isInteger(ms) || ms < 0) throw new Error(`rate <ms>: '${o.arg}' is not a non-negative integer`);
                     const r = await rpc.setTickMs(ms);
                     factsRef.current = { ...NO_TICK_FACTS, tickMs: r.tickMs };
                     setRows([["tick rate", `${r.tickMs} ms/tick${r.tickMs === 0 ? "  (fastest)" : ""}`]]);
@@ -163,8 +163,8 @@ export function Tick({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
                 const e = await rpc.epochInfo();
                 if (o.sub === "advance") {
-                    const n = Math.floor(Number(o.arg || "1"));
-                    if (!Number.isFinite(n) || n < 1) throw new Error(`advance <n>: '${o.arg}' is not a positive integer`);
+                    const n = Number(o.arg || "1");
+                    if (!Number.isInteger(n) || n < 1) throw new Error(`advance <n>: '${o.arg}' is not a positive integer`);
                     const target = Math.min(e.tick + n, e.epochLastTick);
                     setProg({
                         from: e.tick,
@@ -188,7 +188,9 @@ export function Tick({ commandArgs }: { commandArgs: CommandArguments }) {
                         ...(capped ? [["note", `capped at epoch last tick ${e.epochLastTick} — use 'qinit epoch advance' to cross`] as [string, string]] : []),
                     ]);
                 } else if (o.sub === "advance-to-last" || o.sub === "last") {
-                    const gap = Math.max(0, Math.floor(Number(o.arg || "3")));
+                    // A gap that does not parse used to clamp to 0 and report success without advancing.
+                    const gap = Number(o.arg || "3");
+                    if (!Number.isInteger(gap) || gap < 0) throw new Error(`advance-to-last [gap]: '${o.arg}' is not a non-negative integer`);
                     const target = Math.max(e.tick, e.epochLastTick - gap);
                     setProg({
                         from: e.tick,

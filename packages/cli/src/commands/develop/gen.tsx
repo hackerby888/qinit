@@ -47,8 +47,11 @@ export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
     useEffect(() => {
         try {
             const cfg = loadConfig();
-            const contractPath = resolve(commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract ?? "fixtures/Counter.h");
-            const name = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
+            const requestedContractPath = commandArgs.get("contract") ?? commandArgs.positionals[0];
+            const contractPath = resolve(requestedContractPath ?? cfg.contract ?? "fixtures/Counter.h");
+            // A header named on the command line is the contract to generate for, whatever the project's main one is.
+            const headerName = basename(contractPath).replace(/\.[^.]+$/, "");
+            const name = commandArgs.get("contract-name") ?? (requestedContractPath ? headerName : (cfg.contractName ?? headerName));
             const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
             // The deploy wrote this contract's slot to the IDL file; the window base is only right with no callees.
             const requestedSlot = commandArgs.get("slot") ?? cfg.slot ?? deployedSlot(name);
