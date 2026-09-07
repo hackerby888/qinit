@@ -1,6 +1,6 @@
 import { CheatMode } from "@qinit/compiler";
 import { resolve } from "node:path";
-import { resolveContracts, type CalleeInput } from "@qinit/build";
+import { resolveContracts, type CalleeInput, type ContractIdl } from "@qinit/build";
 import { LiteRpc, k12Hex, type DynamicContractRegistryEntry, type NodeBackendIdentity } from "@qinit/core";
 import type { CompilerBackend } from "../config";
 import { systemWasm } from "../contracts/system-wasm";
@@ -16,6 +16,8 @@ export interface ProjectDeploymentRecord {
     kind: "system" | "custom" | "main";
     action: "skipped" | "deployed" | "updated";
     hash: string;
+    // The build's IDL for a project contract, so a test SDK can carry a client for every deployed callee.
+    idl?: ContractIdl;
 }
 
 export interface ProjectDeployResult extends DeployResult {
@@ -69,6 +71,7 @@ export async function deployProjectContracts(
         outDir?: string;
         skipVerify?: boolean;
         buildRules?: boolean;
+        allowStateCarryover?: boolean;
         compiler: CompilerBackend;
         // Deploying is not submitting to Core, so cheatcodes stay on unless the caller says otherwise.
         cheats?: CheatMode;
@@ -268,6 +271,7 @@ export async function deployProjectContracts(
                 kind: "custom",
                 action: "skipped",
                 hash: built.hash,
+                idl: built.result.idl,
             });
             dependencyEvent(emit, `callee ${built.contract.name} @ ${built.contract.slot}: unchanged`);
             continue;
@@ -308,6 +312,7 @@ export async function deployProjectContracts(
             kind: isMain ? "main" : "custom",
             action: occupant ? "updated" : "deployed",
             hash: built.hash,
+            idl: built.result.idl,
         });
     }
 
@@ -332,6 +337,7 @@ async function deployBuiltContract(
         outDir?: string;
         skipVerify?: boolean;
         buildRules?: boolean;
+        allowStateCarryover?: boolean;
         compiler: CompilerBackend;
     },
     backend: NodeBackendIdentity["backend"],
@@ -349,7 +355,8 @@ async function deployBuiltContract(
             outDir: options.outDir,
             idlPath: resolve(options.projectRoot, DEFAULT_IDL_PATH),
             skipVerify: options.skipVerify,
-        buildRules: options.buildRules,
+            buildRules: options.buildRules,
+            allowStateCarryover: options.allowStateCarryover,
             compiler: options.compiler,
             backend,
             artifact: {

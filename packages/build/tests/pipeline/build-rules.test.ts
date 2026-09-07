@@ -1,6 +1,6 @@
 // The build gate: which analyzer findings fail a build, for which contract kind, and how it is switched off.
 import { afterEach, expect, test } from "bun:test";
-import { analyzeContract } from "@qinit/compiler/analyzer";
+import { analyzeContract, DiagnosticSeverity, SourceAnalysisOrigin } from "@qinit/compiler/analyzer";
 import { BUILD_GATE_RULES, buildGateRejection, buildGateViolations, buildRulesEnabled } from "../../src";
 
 const originalEnv = process.env.QINIT_BUILD_RULES;
@@ -28,6 +28,22 @@ test("every rule names a scope, and the user-scope rules are the only ones a sys
         expect(["user", "system", "all"]).toContain(rule.scope);
     }
     expect(BUILD_GATE_RULES.some((rule) => rule.scope === "user")).toBe(true);
+});
+
+test("a callee type in a public interface, a log or mutating cheat in a function and an LP64 width fail every contract kind", () => {
+    const codes = ["qpi/public-callee-type", "qpi/log-in-function", "cheat/mutator-in-function", "qpi/lp64-width-type"];
+    for (const code of codes) {
+        const finding = {
+            origin: SourceAnalysisOrigin.QPI,
+            code,
+            severity: DiagnosticSeverity.ERROR,
+            message: `${code} tripped`,
+            span: { start: 0, end: 0, line: 0, column: 0 },
+        };
+
+        expect(buildGateViolations([finding], { contractKind: "user" })).toEqual([`${code} tripped`]);
+        expect(buildGateViolations([finding], { contractKind: "system" })).toEqual([`${code} tripped`]);
+    }
 });
 
 test("a bare div fails a user contract with a line number and the QPI:: spelling", () => {

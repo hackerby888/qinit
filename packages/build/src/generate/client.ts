@@ -188,16 +188,24 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         lines.push(`  }`);
     }
 
+    const optsType = "{ seed?: string; amount?: number | bigint; confirm?: boolean }";
     for (const entry of idl.procedures) {
         const inputRequired = hasInput(entry.input);
-        const parameter = inputRequired ? `args: ${entry.name}_input, ` : "";
+        // An empty-input procedure accepts both `Name(opts)` and `Name({}, opts)`: with only `(opts)`, a
+        // caller writing the uniform `Name({}, { amount })` had its opts land in the wrong slot and the payment dropped.
+        const parameters = inputRequired
+            ? `args: ${entry.name}_input, opts: ${optsType} = {}`
+            : `argsOrOpts: ${entry.name}_input | ${optsType} = {}, maybeOpts?: ${optsType}`;
         const value = inputRequired ? "args" : "{}";
         const inputSchema = schemaName(entry.name, "procedure", "input");
         lines.push("");
         lines.push(`  /** transaction — auto-confirms (resolves once processed) unless { confirm: false } */`);
         lines.push(
-            `  async ${entry.name}(${parameter}opts: { seed?: string; amount?: number | bigint; confirm?: boolean } = {}): Promise<{ ok: boolean; txId?: string; tick?: number; confirmed?: boolean; included?: boolean; moneyFlew?: boolean }> {`,
+            `  async ${entry.name}(${parameters}): Promise<{ ok: boolean; txId?: string; tick?: number; confirmed?: boolean; included?: boolean; moneyFlew?: boolean }> {`,
         );
+        if (!inputRequired) {
+            lines.push(`    const opts = maybeOpts ?? (argsOrOpts as ${optsType});`);
+        }
         lines.push(`    const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed());`);
         lines.push(
             `    if (!seed) throw new Error("${idl.name}.${entry.name}: no signing seed — pass { seed }, construct ${idl.name} with { seed }, or set QINIT_SEED");`,

@@ -241,6 +241,7 @@ const commandMeta = {
             stringOption("compiler", "<clang|typescript>", "compiler for this run"),
             booleanOption("skip-verify", "skip compatibility checks (development only)"),
             booleanOption("no-build-rules", "skip the Qinit build rules for user contracts (development only)"),
+            booleanOption("allow-state-carryover", "redeploy over a changed StateData layout without a MIGRATE handler, keeping the old state bytes"),
         ],
         examples: ["qinit deploy ./mytoken.h --contract-name Mytoken"],
     },

@@ -146,6 +146,8 @@ export function TxView({
     const [decoded, setDecoded] = useState<DecodedInput | null>(null);
     const [err, setErr] = useState("");
     const [loading, setLoading] = useState(true);
+    // What the node still remembers, so a miss can say whether the transaction has simply been pruned.
+    const [retention, setRetention] = useState<{ tick: number; historyTicks: number } | null>(null);
 
     useEffect(() => {
         let alive = true;
@@ -156,6 +158,13 @@ export function TxView({
                 setTx(found);
                 setErr("");
                 setLoading(false);
+                if (!found) {
+                    rpc.explorerData()
+                        .then(({ header }) => {
+                            if (alive && header.historyTicks) setRetention({ tick: header.tick, historyTicks: header.historyTicks });
+                        })
+                        .catch(() => {});
+                }
             })
             .catch((e) => {
                 if (!alive) return;
@@ -211,6 +220,12 @@ export function TxView({
             <Box marginTop={1} flexDirection="column">
                 <Text color={theme.warn}>no transaction with this hash on the node</Text>
                 <Text dimColor>{hash}</Text>
+                {retention ? (
+                    <Text dimColor>
+                        the node keeps its last {retention.historyTicks} ticks ({Math.max(0, retention.tick - retention.historyTicks + 1)}…{retention.tick}); a
+                        transaction from an earlier tick has been pruned — start the node with a larger --history-ticks to keep more
+                    </Text>
+                ) : null}
                 {err ? <Text color={theme.err}>{err}</Text> : null}
             </Box>
         );

@@ -121,6 +121,12 @@ export class AbiTypeBuilder {
             return this.struct(unqualifiedName, layout, false, bindings, this.programAnalysis.structOf(type, bindings) ?? undefined);
         }
 
+        // The QPI iterators are opaque handles with a known size; anything else unresolved here would be
+        // laid out as a 4-byte scalar and read back as garbage, so it fails the build instead.
+        if (!/Iterator$/.test(type.name)) {
+            throw new Error(`unknown type '${type.name}' (not a QPI scalar, enum, typedef or struct)`);
+        }
+
         return this.scalar(
             scalarKindForSize(this.programAnalysis.sizeOfType(type, bindings)),
             this.programAnalysis.sizeOfType(type, bindings),

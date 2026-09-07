@@ -62,7 +62,7 @@ test("a nested struct keeps its own name and layout beside the format", () => {
 // One row per native C spelling the compiler accepts. A spelling the kind map misses falls through to
 // scalarKindForSize, which answers unsigned for every width — so asserting `size` alone would pass on a
 // field that silently lost its sign. Every row pins `format`, which is the only place signedness shows.
-// Widths are wasm32's (ILP32): long, unsigned long and size_t are 4 bytes, only long long is 8.
+// long, unsigned long and size_t have no row: 4 bytes on wasm32 but 8 on Core, so they are rejected below.
 const NATIVE_SCALARS: [string, string][] = [
     ["bool", "uint8"],
     ["char", "sint8"],
@@ -79,13 +79,6 @@ const NATIVE_SCALARS: [string, string][] = [
     ["signed int", "sint32"],
     ["unsigned", "uint32"],
     ["unsigned int", "uint32"],
-    ["long", "sint32"],
-    ["long int", "sint32"],
-    ["signed long", "sint32"],
-    ["signed long int", "sint32"],
-    ["unsigned long", "uint32"],
-    ["unsigned long int", "uint32"],
-    ["size_t", "uint32"],
     ["wchar_t", "sint32"],
     ["long long", "sint64"],
     ["signed long long", "sint64"],
@@ -130,8 +123,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     unsigned char byte;
     bool flag;
     unsigned short small;
-    long native;
-    size_t count;
+    int native;
+    unsigned int count;
     long long wide;
   };
   INITIALIZE() {}
@@ -148,4 +141,28 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         ["wide", "sint64", 16],
     ]);
     expect(state.size).toBe(24);
+});
+
+// A width that differs between wasm32 and Core (LP64) would test at one layout and ship at another, and an
+// unknown spelling used to lower silently as a 4-byte scalar: both fail the analysis now.
+test("long, size_t and an unknown type name are rejected instead of laid out as 4 bytes", () => {
+    // size_t is spelled `unsigned long` once the qpi typedef is followed, so that is the name reported.
+    const rejected: [spelling: string, reportedName: string][] = [
+        ["long", "long"],
+        ["unsigned long", "unsigned long"],
+        ["long int", "long int"],
+        ["size_t", "unsigned long"],
+        ["sint128", "sint128"],
+        ["foobar", "foobar"],
+    ];
+    for (const [spelling, reportedName] of rejected) {
+        const source = `
+using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { ${spelling} value; };
+  INITIALIZE() {}
+};`;
+
+        expect(() => extractIdl(source, "Native", { slot: 5 })).toThrow(`unknown type '${reportedName}'`);
+    }
 });

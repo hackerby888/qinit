@@ -24,6 +24,13 @@ export interface BuildGateRule {
 export const BUILD_GATE_RULES: readonly BuildGateRule[] = [
     { title: "registered-entry", scope: "all", matches: (d) => d.message.includes(" is forbidden in registered entry") },
     { title: "public-complex-type", scope: "all", matches: (d) => d.code === "qpi/public-complex-type" },
+    // Core's verifier refuses another contract's types in a public input/output; qinit's own check names the owner.
+    { title: "public-callee-type", scope: "all", matches: (d) => d.code === "qpi/public-callee-type" },
+    // Both compilers reject a log or a mutating cheat inside a function before either builds it.
+    { title: "log-in-function", scope: "all", matches: (d) => d.code === "qpi/log-in-function" },
+    { title: "cheat-in-function", scope: "all", matches: (d) => d.code === "cheat/mutator-in-function" },
+    // long / size_t are 4 bytes on wasm32 but 8 on Core, so clang must refuse them like the TypeScript backend.
+    { title: "lp64-width-type", scope: "all", matches: (d) => d.code === "qpi/lp64-width-type" },
     // clang reports this as a bare `redefinition of 'interContractCallError'` from inside the macro.
     { title: "duplicate-call-error-var", scope: "all", matches: (d) => d.code === "qpi/duplicate-call-error-var" },
     { title: "log-header", scope: "all", matches: (d, c) => c.rejectsLogHeader && d.message.includes(LOG_HEADER_WORD_HINT) },

@@ -85,7 +85,7 @@ export function analyzeContract(options: AnalyzeContractOptions): SourceAnalysis
     const diagnostics = compilerResult.diagnostics;
 
     try {
-        diagnostics.push(...analyzeQpiPolicy(options.source, compilerResult.registrations, compilerResult.idl, calls));
+        diagnostics.push(...analyzeQpiPolicy(options.source, compilerResult.registrations, compilerResult.idl, calls, compilerResult.calleeTypeOwners));
     } catch (error: any) {
         diagnostics.push(internalDiagnostic(error));
     }
@@ -122,6 +122,8 @@ function analyzeCompiler(
     diagnostics: SourceAnalysisDiagnostic[];
     idl?: ContractIdl;
     registrations?: ContractRegistration[];
+    // Type name -> the callee that declares it, so the policy can name the owner of a foreign type.
+    calleeTypeOwners?: ReadonlyMap<string, string>;
 } {
     const earlyDiagnostics = scanUnterminatedSource(options.source);
     if (hasErrors(earlyDiagnostics)) {
@@ -190,6 +192,7 @@ function analyzeCompiler(
             return {
                 diagnostics,
                 registrations: prepared.registrations,
+                calleeTypeOwners: calleeContext.typeOwners,
             };
         }
 
@@ -197,6 +200,7 @@ function analyzeCompiler(
             diagnostics,
             idl,
             registrations: prepared.registrations,
+            calleeTypeOwners: calleeContext.typeOwners,
         };
     } catch (error: any) {
         return {

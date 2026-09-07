@@ -9,7 +9,7 @@ import {
     decodedJsonValue,
 } from "@qinit/proto";
 import { AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
-import { extractIdl } from "@qinit/build";
+import { extractIdl, type CalleeSource } from "@qinit/build";
 import { hexToBytes } from "@qinit/core";
 import {
     containerLayoutOf,
@@ -47,6 +47,7 @@ export type StateReadOptions = {
     collapseContainersAtBytes?: number;
     containerIndexes?: ReadonlySet<number>;
     loadAllContainers?: boolean;
+    calleeSources?: readonly CalleeSource[];
 };
 
 const MAX_STATE_READ = 4 * 1024 * 1024;
@@ -499,6 +500,7 @@ export async function readState(
     const idl = extractIdl(source, name, {
         slot: contractIndex,
         qpiHeader,
+        calleeSources: options.calleeSources,
     });
     const fields = stateFieldsOf(idl);
     // Nested containers count too: the sequence is one walk over the state, so every block gets a number.

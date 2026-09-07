@@ -168,7 +168,9 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                     setS({ phase: "done", lines, ok: false, output: "", rows: [] });
                     return;
                 }
-                add("deploy", true, `${contractName} @ slot ${dep.slot}${dep.reused ? " (reuse)" : ""}`);
+                // A reused slot keeps the previous deployment's state, which is why a green suite can turn red on core.
+                const reuseNote = dep.reused ? " (reuse — state carried over from the previous deployment; `qinit node run --restart` for a clean run)" : "";
+                add("deploy", true, `${contractName} @ slot ${dep.slot}${reuseNote}`);
                 const synchronized = dep.deployments.filter((deployment) => deployment.kind !== "main");
                 if (synchronized.length) {
                     add("dependencies", true, synchronized.map((deployment) => `${deployment.name}@${deployment.slot} ${deployment.action}`).join(" · "));
@@ -185,9 +187,17 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                 mkdirSync(sdkDir, { recursive: true });
                 writeFileSync(join(sdkDir, "runtime.ts"), testRuntimeSource);
                 writeFileSync(join(sdkDir, `${contractName}.ts`), generateClient(idl, dep.slot, { runtimeImport: "./runtime" }));
-                writeFileSync(join(sdkDir, "index.ts"), `export * from "./runtime";\nexport { ${contractName} } from "./${contractName}";\n`);
+                // A client per deployed callee too, so a spec can drive the token it just deployed alongside the market.
+                const calleeClients = dep.deployments.filter((deployment) => deployment.kind === "custom" && deployment.idl);
+                for (const deployment of calleeClients) {
+                    writeFileSync(join(sdkDir, `${deployment.name}.ts`), generateClient(deployment.idl!, deployment.slot, { runtimeImport: "./runtime" }));
+                }
+                const clientNames = [contractName, ...calleeClients.map((deployment) => deployment.name)];
+                const exportLines = clientNames.map((name) => `export { ${name} } from "./${name}";`);
+                writeFileSync(join(sdkDir, "index.ts"), `export * from "./runtime";\n${exportLines.join("\n")}\n`);
                 const testsDir = join(root, "tests");
-                add("sdk", true, `tests/.qinit/ (${idl.functions.length} fn / ${idl.procedures.length} proc)`);
+                const calleeNote = calleeClients.length ? ` · ${calleeClients.map((deployment) => deployment.name).join(", ")}` : "";
+                add("sdk", true, `tests/.qinit/ (${idl.functions.length} fn / ${idl.procedures.length} proc${calleeNote})`);
                 // A spec is the developer's to write; a guessed one would only fail against their entries.
                 if (!readdirSync(testsDir).some((f) => f.endsWith(".test.ts"))) {
                     throw new Error(

@@ -52,6 +52,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                         slotOverride,
                         skipVerify: commandArgs.has("skip-verify"),
                         buildRules: !commandArgs.has("no-build-rules"),
+                        allowStateCarryover: commandArgs.has("allow-state-carryover"),
                         compiler: resolveCompilerBackend(commandArgs.get("compiler")),
                         cheats: commandArgs.has("production") ? CheatMode.OFF : CheatMode.ON,
                     },

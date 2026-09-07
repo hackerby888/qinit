@@ -41,6 +41,18 @@ async function boot() {
     return { run, stop };
 }
 
+// A typo in an entry name used to be blamed on a missing IDL, sending the developer to rebuild instead of fixing the name.
+test("an unknown entry name lists the names the IDL does know", async () => {
+    const { run, stop } = await boot();
+    try {
+        const fn = await run("--fn", String(SLOT), "Nope");
+        expect(fn.code).toBe(1);
+        expect(fn.stdout).toContain("no fn named 'Nope' on contract 28 (known: Get)");
+    } finally {
+        stop();
+    }
+}, 60_000);
+
 // Each case spawns the CLI twice, which on a Windows runner alone outlasts the default test timeout.
 test("an unregistered fn number fails, an unregistered proc number warns and still sends", async () => {
     const { run, stop } = await boot();

@@ -34,7 +34,6 @@ export function scalarKindForName(name: string): AbiScalarKind | undefined {
         sint16: AbiScalarKind.SINT16,
         sint32: AbiScalarKind.SINT32,
         sint64: AbiScalarKind.SINT64,
-        sint128: AbiScalarKind.SINT128,
         bool: AbiScalarKind.UINT8,
         char: AbiScalarKind.SINT8,
         "signed char": AbiScalarKind.SINT8,
@@ -52,14 +51,8 @@ export function scalarKindForName(name: string): AbiScalarKind | undefined {
         "signed int": AbiScalarKind.SINT32,
         unsigned: AbiScalarKind.UINT32,
         "unsigned int": AbiScalarKind.UINT32,
-        // Contracts build for wasm32, which is ILP32: long and size_t are 4 bytes, matching SCALAR_SIZE.
-        long: AbiScalarKind.SINT32,
-        "long int": AbiScalarKind.SINT32,
-        "signed long": AbiScalarKind.SINT32,
-        "signed long int": AbiScalarKind.SINT32,
-        "unsigned long": AbiScalarKind.UINT32,
-        "unsigned long int": AbiScalarKind.UINT32,
-        size_t: AbiScalarKind.UINT32,
+        // No row for long / unsigned long / size_t: they are 4 bytes on wasm32 but 8 on Core (LP64), so a
+        // contract using them would test at one layout and ship at another. They fail as unknown types.
         wchar_t: AbiScalarKind.SINT32, // __WCHAR_TYPE__ is int on wasm32
         "long long": AbiScalarKind.SINT64,
         "signed long long": AbiScalarKind.SINT64,

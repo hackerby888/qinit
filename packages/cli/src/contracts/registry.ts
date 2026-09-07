@@ -1,5 +1,5 @@
 import { LiteRpc, debug, type DynamicContractRegistryEntry } from "@qinit/core";
-import { systemContracts, type SystemContract } from "@qinit/build";
+import { systemContracts, type CalleeSource, type SystemContract } from "@qinit/build";
 import { MAX_NUMBER_OF_CONTRACTS } from "@qinit/proto";
 import type { ContractEntry } from "@qinit/proto/contract-idl";
 import { resolveCoreDir } from "../config";
@@ -95,6 +95,25 @@ export function mergeContracts(sets: ContractSets): {
     const system = sets.system.filter((contract) => !deployed.has(contract.index)).map(systemAsDyn);
 
     return { all: [...user, ...system], userCount: user.length };
+}
+
+// Every other contract the node holds, as analyzer callee sources: a state field may use a type a sibling
+// declares, and only an IDL built with that declaration decodes it at the right offset.
+export function siblingCalleeSources(contracts: readonly DynamicContractRegistryEntry[], index: number): CalleeSource[] {
+    const siblings: CalleeSource[] = [];
+
+    for (const contract of contracts) {
+        if (contract.index === index || !contract.source) {
+            continue;
+        }
+        siblings.push({
+            name: contract.name || String(contract.index),
+            source: contract.source,
+            slot: contract.index,
+        });
+    }
+
+    return siblings;
 }
 
 export type ResolvedContract = {

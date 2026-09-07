@@ -10,6 +10,8 @@ import { activeNodeScratchDir } from "../../ops/node";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { loadContractIdls, type ContractIdls } from "../../contracts/idl-lookup";
+import { siblingCalleeSources } from "../../contracts/registry";
+import type { CalleeSource } from "@qinit/build";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 import { Header, Table, Spinner, theme, useFrame, useTerminalSize, type Column } from "../../ui";
 import type { CommandArguments } from "../../args";
@@ -335,6 +337,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                                 source={reg.current.find((c) => c.index === cur.index)?.source}
                                 codeHash={reg.current.find((c) => c.index === cur.index)?.codeHash}
                                 contractIdl={idls.get(cur.index)}
+                                calleeSources={siblingCalleeSources(reg.current, cur.index)}
                                 qpiHeader={qpiHeader}
                                 showInternals={showInternals}
                                 width={detailWidth}
@@ -357,6 +360,7 @@ function Detail({
     source,
     codeHash,
     contractIdl,
+    calleeSources,
     qpiHeader,
     showInternals,
     width,
@@ -368,6 +372,7 @@ function Detail({
     source?: string;
     codeHash?: string;
     contractIdl?: ContractIdl;
+    calleeSources?: readonly CalleeSource[];
     qpiHeader?: string;
     showInternals: boolean;
     width: number;
@@ -378,7 +383,7 @@ function Detail({
     const [stateOffset, setStateOffset] = useState(0);
     useEffect(() => {
         let alive = true;
-        describeTrace(e, qpiHeader ? source : undefined, name, qpiHeader, contractIdl)
+        describeTrace(e, qpiHeader ? source : undefined, name, qpiHeader, contractIdl, calleeSources)
             .then((view) => {
                 if (alive) setV(view);
             })
