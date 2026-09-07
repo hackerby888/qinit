@@ -16,3 +16,7 @@ contracts_dyn/
 /packages/vscode/resources/
 # Written by the integration-test pretest step (machine-specific clangd path).
 /packages/vscode/test-fixtures/ws/.vscode/
+
+# Solidity-port campaign scratch (raw sweep rows, build artifacts).
+/work/
+/corpus/solidity-port/.results/

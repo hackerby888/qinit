@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Qinit is a Bun/TypeScript ESM workspace. Package code lives under `packages/`: `cli` provides the Ink command interface, `core` handles Qubic primitives and RPC, `build` generates contract projects, `compiler` implements the TypeScript-to-Wasm compiler, `engine` simulates contracts, `proto` owns wire/ABI codecs, and `vscode` contains the extension. Keep package tests in `packages/<name>/tests/`; shared helpers belong in `test-utils/`. Contract fixtures live in `fixtures/`, automation in `scripts/`, and design notes in `docs/` (start at `docs/README.md`). Update generated sources only through their owning generator.
+Qinit is a Bun/TypeScript ESM workspace. Package code lives under `packages/`: `cli` provides the Ink command interface, `core` handles Qubic primitives and RPC, `build` generates contract projects, `compiler` implements the TypeScript-to-Wasm compiler, `engine` simulates contracts, `proto` owns wire/ABI codecs, and `vscode` contains the extension. Keep package tests in `packages/<name>/tests/`; shared helpers belong in `test-utils/`. Contract fixtures live in `fixtures/`, automation in `scripts/`, and design notes in `docs/` (start at `docs/README.md`). The Solidity-port differential corpus lives in `corpus/solidity-port/` and is owned by `scripts/solidity-port/generate.ts` — never hand-edit it; edit the archetype and regenerate (`bun run corpus:check` enforces this). Update generated sources only through their owning generator.
 
 ## Build, Test, and Development Commands
 

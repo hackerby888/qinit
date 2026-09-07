@@ -29,6 +29,10 @@
         "test:node": "bash scripts/live-node/smoke-node.sh",
         "check:idl:native": "bun run scripts/core-compat/check-idl-native.ts",
         "generate:core-abi": "bun packages/core/tools/gen-wasm-abi.ts",
+        "corpus:generate": "bun run scripts/solidity-port/generate.ts",
+        "corpus:check": "bun run scripts/solidity-port/generate.ts --check",
+        "corpus:analyze": "bun run scripts/solidity-port/generate.ts --analyze-only",
+        "corpus:sweep": "bun run scripts/solidity-port/run-differential.ts",
         "sources:sync": "bun run scripts/config/sync-sources.ts",
         "sources:check": "bun run scripts/config/sync-sources.ts --check"
     },

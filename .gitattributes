@@ -1,0 +1,6 @@
+# The differential corpus is generator-owned: keep it out of diffs, and keep its bytes LF on every
+# platform so the manifest's source hashes survive a Windows checkout.
+corpus/** -diff linguist-generated
+corpus/**/*.h text eol=lf
+corpus/**/*.json text eol=lf
+corpus/**/*.jsonl text eol=lf

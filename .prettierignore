@@ -17,3 +17,6 @@ packages/compiler/core-snapshot.json
 .github/workflows/
 # CI checks core-lite out here; it is another repo's source and formats to its own rules.
 /core/
+
+# Generated differential corpus: owned by scripts/solidity-port/generate.ts, never hand-formatted.
+/corpus/
