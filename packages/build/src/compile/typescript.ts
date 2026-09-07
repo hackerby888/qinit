@@ -115,7 +115,13 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
     const rejectsLogHeader = o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(contractPath));
 
     // The same gate the clang build runs (build-rules.ts), so both compilers reject the same contracts.
-    const analysis = analyzeContract({ source, contractName: contractStateType, slot: o.slot, qpiHeader });
+    const analysis = analyzeContract({
+        source,
+        contractName: contractStateType,
+        slot: o.slot,
+        qpiHeader,
+        calleeSources: calleeSources.length ? calleeSources : undefined,
+    });
     const gate = buildGateRejection(buildGateViolations(analysis.diagnostics, { contractKind: o.contractKind, buildRules: o.buildRules, rejectsLogHeader }));
     if (gate) {
         return gate;

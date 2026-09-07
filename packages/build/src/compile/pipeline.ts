@@ -39,6 +39,13 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         qpiHeaderError = String(error?.message ?? error);
     }
 
+    // The callees' declarations: the gate names a callee type misused in a public interface, and the IDL
+    // gives a state field typed by a callee its real layout.
+    const calleeSources: CalleeSource[] = Object.entries(o.dynCallees ?? {}).map(([name, callee]) => ({
+        name,
+        source: readFileSync(callee.header, "utf8"),
+        slot: callee.slot,
+    }));
     // Collection/HashMap/HashSet/LinkedList have no safe public wire representation; reject them even
     // when verification is skipped.
     const analysis = analyzeContract({
@@ -46,6 +53,7 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         contractName: o.stateType ?? o.contractName,
         slot: o.slot,
         qpiHeader,
+        calleeSources,
     });
     // The same gate the TypeScript backend runs (build-rules.ts), so both compilers reject the same contracts.
     const gate = buildGateRejection(
@@ -102,12 +110,6 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         if (qpiHeaderError) {
             throw new Error(qpiHeaderError);
         }
-        // The callees' declarations, so a state field typed by a callee gets its real layout in the IDL.
-        const calleeSources: CalleeSource[] = Object.entries(o.dynCallees ?? {}).map(([name, callee]) => ({
-            name,
-            source: readFileSync(callee.header, "utf8"),
-            slot: callee.slot,
-        }));
         idl = extractIdl(source, o.contractName, {
             slot: o.slot,
             qpiHeader,

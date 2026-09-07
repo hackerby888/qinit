@@ -5,11 +5,13 @@ import { join } from "node:path";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { buildContractWithTypeScript } from "../../src/ops/typescript-build";
 
+// A callee's slot-sized type sits in the state, not in a public input: core's verifier refuses another
+// contract's types in an input/output, and the build gate now says so before compiling.
 const MAIN = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
-  struct StateData {};
-  struct Read_input { Relay::Payload value; };
+  struct StateData { Relay::Payload value; };
+  struct Read_input {};
   struct Read_output { uint64 value; };
   struct Read_locals {
     Relay::Read_input relayInput;
@@ -27,9 +29,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 const RELAY = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
-  struct StateData {};
+  struct StateData { Mirror::Payload value; };
   struct Payload { SlowAnySizeArray<uint8, CONTRACT_INDEX> bytes; };
-  struct Read_input { Mirror::Payload value; };
+  struct Read_input {};
   struct Read_output { uint64 value; };
   struct Read_locals {
     Mirror::Read_input mirrorInput;
@@ -47,9 +49,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 const MIRROR = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
-  struct StateData {};
+  struct StateData { Relay::Payload value; };
   struct Payload { SlowAnySizeArray<uint8, CONTRACT_INDEX> bytes; };
-  struct Read_input { Relay::Payload value; };
+  struct Read_input {};
   struct Read_output { uint64 value; };
   struct Read_locals {
     Relay::Read_input relayInput;
@@ -111,7 +113,7 @@ test.skipIf(!HAS_CORE)("buildContractWithTypeScript analyzes transitive cyclic c
     expect(result.stderr).toBeUndefined();
     expect(result.ok).toBe(true);
     expect(result.idl?.dependencies).toEqual(["Relay"]);
-    expect(result.idl?.functions[0]?.inSize).toBe(29);
+    expect(result.idl?.state.size).toBe(29);
     expect(result.wasmPath).toBe(join(outDir, "Main.wasm"));
     expect(existsSync(result.wasmPath!)).toBe(true);
     expect(result.wasmSizeBytes).toBeGreaterThan(0);

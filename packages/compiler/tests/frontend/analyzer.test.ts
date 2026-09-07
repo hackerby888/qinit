@@ -198,6 +198,72 @@ struct Contract : public ContractBase {
     }
 });
 
+test("reports a callee's type inside a public input/output, but not in locals or state", () => {
+    const callee = `
+using namespace QPI;
+struct FzS0 { uint64 a; uint16 b; };
+struct Fz : public ContractBase {
+  struct StateData { uint64 n; };
+  struct Get_input {}; struct Get_output { FzS0 v; };
+  PUBLIC_FUNCTION(Get) { output.v.a = state.get().n; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+  INITIALIZE() {}
+};`;
+    const source = `
+using namespace QPI;
+struct FzB : public ContractBase {
+  struct StateData { FzS0 mirror; };
+  struct Peek_input { FzS0 v; }; struct Peek_output { Fz::Get_output g; uint64 tail; };
+  struct Peek_locals { Fz::Get_input in; Fz::Get_output out; };
+  PUBLIC_FUNCTION_WITH_LOCALS(Peek) { CALL_OTHER_CONTRACT_FUNCTION(Fz, Get, locals.in, locals.out); output.tail = 1; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Peek, 1); }
+  INITIALIZE() {}
+};`;
+    const spelled = (diagnostics: { code: string; message: string }[]) =>
+        diagnostics.filter((item) => item.code === "qpi/public-callee-type").map((item) => item.message.match(/^`([^`]+)`/)?.[1]);
+
+    const withCallee = analyzeContract({ source, contractName: "FzB", slot: 30, calleeSources: [{ name: "Fz", source: callee, slot: 29 }] }).diagnostics;
+    expect(spelled(withCallee)).toEqual(["FzS0", "Fz::Get_output"]);
+    expect(withCallee.find((item) => item.code === "qpi/public-callee-type")?.message).toContain("declared by contract Fz");
+
+    // Without the callee's source the scoped form is still known through the call it makes.
+    expect(spelled(analyzeContract({ source, contractName: "FzB", slot: 30 }).diagnostics)).toEqual(["Fz::Get_output"]);
+});
+
+test("reports a log inside a function, not one inside a procedure", () => {
+    const source = `
+using namespace QPI;
+struct Contract : public ContractBase {
+  struct StateData { uint64 n; };
+  struct Note { uint32 _contractIndex; uint32 _type; uint64 value; sint8 _terminator; };
+  struct Read_input {}; struct Read_output { uint64 v; };
+  struct Read_locals { Note note; };
+  PUBLIC_FUNCTION_WITH_LOCALS(Read) { LOG_INFO(locals.note); output.v = 1; }
+  struct Do_input {}; struct Do_output {};
+  struct Do_locals { Note note; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Do) { LOG_WARNING(locals.note); state.mut().n += 1; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Read, 1); REGISTER_USER_PROCEDURE(Do, 1); }
+};`;
+    const found = qpiDiagnostics(source).filter((item) => item.code === "qpi/log-in-function");
+
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain("`LOG_INFO` inside function `Read`");
+});
+
+test("reports long, unsigned long and size_t, but not long long", () => {
+    const source = `
+using namespace QPI;
+struct Contract : public ContractBase {
+  struct StateData { long a; unsigned long b; size_t c; long long d; unsigned long long e; long int f; };
+  INITIALIZE() {}
+};`;
+    const spellings = qpiDiagnostics(source)
+        .filter((item) => item.code === "qpi/lp64-width-type")
+        .map((item) => item.message.match(/^`([^`]+)`/)?.[1]);
+
+    expect(spellings).toEqual(["long", "unsigned long", "size_t", "long int"]);
+});
+
 test("allows direct and nested BitArray public types", () => {
     const source = `
 using namespace QPI;

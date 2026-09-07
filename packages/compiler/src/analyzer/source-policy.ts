@@ -76,15 +76,19 @@ export function analyzeQpiPolicy(
     registrations?: readonly ContractRegistration[],
     idl?: ContractIdl,
     calls: readonly SourceContractCall[] = [],
+    // Type name -> the callee declaring it (from the compiler's callee context), when callee sources were given.
+    calleeTypeOwners: ReadonlyMap<string, string> = new Map(),
 ): SourceAnalysisDiagnostic[] {
     const tokens = new Lexer(source).tokenize();
     const entries = findEntryFunctions(tokens);
+    const calleeNames = new Set([...calls.map((call) => call.callee), ...calleeTypeOwners.values()]);
     const diagnostics = [
         ...analyzeCheatcodes(source),
         ...forbiddenConstructs(source, tokens, cheatArgumentRanges(source)),
         ...localDiagnostics(source, tokens, entries),
         ...localsFormDiagnostics(tokens, entries),
-        ...idlDiagnostics(tokens, entries, registrations, idl),
+        ...logInFunctionDiagnostics(tokens, entries),
+        ...idlDiagnostics(tokens, entries, registrations, idl, calleeNames, calleeTypeOwners),
         ...contractNameDiagnostics(tokens),
         ...interContractErrorVarDiagnostics(source, tokens, calls),
     ];
@@ -415,6 +419,19 @@ function forbiddenConstructs(source: string, tokens: Token[], cheatRanges: Array
             continue;
         }
 
+        const lp64Spelling = lp64WidthSpelling(tokens, index);
+        if (lp64Spelling) {
+            diagnostics.push(
+                diagnostic(
+                    "qpi/lp64-width-type",
+                    `\`${lp64Spelling}\` is 4 bytes on wasm32 but 8 on Core (LP64), so the contract would test at one layout and ship at another — ` +
+                        "use a fixed-width QPI type (sint64/uint64 or sint32/uint32).",
+                    token.span,
+                ),
+            );
+            continue;
+        }
+
         const math = token.kind === TokenKind.IDENTIFIER ? UNQUALIFIED_MATH[token.text] : undefined;
         if (math && isUnqualifiedCall(tokens, index)) {
             const qualify = sourceFix(`Qualify as QPI::${token.text}`, source, [{ start: token.span.start, end: token.span.start, newText: "QPI::" }], true);
@@ -503,11 +520,89 @@ function localsFormDiagnostics(tokens: Token[], entries: EntryFunction[]): Sourc
     return diagnostics;
 }
 
+// The spelling of a native C type whose width differs between wasm32 (4 bytes) and Core's LP64 build (8 bytes),
+// or null for any other token. `long long` is lexed as one keyword, so a lone `long` is never part of it.
+function lp64WidthSpelling(tokens: Token[], index: number): string | null {
+    const token = tokens[index];
+
+    if (token.kind === TokenKind.IDENTIFIER && token.text === "size_t") {
+        return "size_t";
+    }
+    if (token.kind !== TokenKind.KW_LONG) {
+        return null;
+    }
+
+    const previous = tokens[index - 1];
+    const next = tokens[index + 1];
+    const sign = previous?.kind === TokenKind.KW_UNSIGNED ? "unsigned " : previous?.kind === TokenKind.KW_SIGNED ? "signed " : "";
+    const width = next?.kind === TokenKind.KW_INT ? " int" : "";
+    return `${sign}long${width}`;
+}
+
+const LOG_MACROS = new Set(["LOG_DEBUG", "LOG_ERROR", "LOG_INFO", "LOG_WARNING"]);
+
+// A function is a read-only query with no transaction to pair a log with: core's guide forbids it, the node
+// drops the record, and the TypeScript backend cannot compile it — so both backends refuse it here.
+function logInFunctionDiagnostics(tokens: Token[], entries: EntryFunction[]): SourceAnalysisDiagnostic[] {
+    const diagnostics: SourceAnalysisDiagnostic[] = [];
+
+    for (const entry of entries) {
+        if (!/^(PUBLIC|PRIVATE)_FUNCTION(_WITH_LOCALS)?$/.test(entry.macro)) {
+            continue;
+        }
+        for (let cursor = entry.bodyOpen + 1; cursor < entry.bodyClose; cursor++) {
+            const token = tokens[cursor];
+            if (token.kind !== TokenKind.IDENTIFIER || !LOG_MACROS.has(token.text) || tokens[cursor + 1]?.kind !== TokenKind.L_PAREN) {
+                continue;
+            }
+            diagnostics.push(
+                diagnostic(
+                    "qpi/log-in-function",
+                    `\`${token.text}\` inside function \`${entry.name}\` — logging is only allowed in procedures: a function is a read-only query ` +
+                        "with no transaction to pair the log with. Move the log into a procedure.",
+                    token.span,
+                ),
+            );
+        }
+    }
+
+    return diagnostics;
+}
+
+// A type another contract declares, spelled at `cursor` inside a public interface struct: `Callee::Type`
+// (a nested struct of a known callee) or a callee's file-scope struct name. Core's verifier cannot see the
+// callee, so it refuses the interface; the message here names the owner instead of a "not allowed" verdict.
+function calleeTypeAt(
+    tokens: Token[],
+    cursor: number,
+    calleeNames: ReadonlySet<string>,
+    calleeTypeOwners: ReadonlyMap<string, string>,
+): { spelling: string; owner: string; tokenCount: number } | null {
+    const token = tokens[cursor];
+    if (token.kind !== TokenKind.IDENTIFIER) {
+        return null;
+    }
+
+    const scoped = tokens[cursor + 1]?.kind === TokenKind.D_COLON && tokens[cursor + 2]?.kind === TokenKind.IDENTIFIER;
+    if (scoped && calleeNames.has(token.text)) {
+        return { spelling: `${token.text}::${tokens[cursor + 2].text}`, owner: token.text, tokenCount: 3 };
+    }
+
+    const owner = calleeTypeOwners.get(token.text);
+    if (owner !== undefined && !scoped) {
+        return { spelling: token.text, owner, tokenCount: 1 };
+    }
+
+    return null;
+}
+
 function idlDiagnostics(
     tokens: Token[],
     entries: EntryFunction[],
     semanticRegistrations?: readonly ContractRegistration[],
     idl?: ContractIdl,
+    calleeNames: ReadonlySet<string> = new Set(),
+    calleeTypeOwners: ReadonlyMap<string, string> = new Map(),
 ): SourceAnalysisDiagnostic[] {
     const diagnostics: SourceAnalysisDiagnostic[] = [];
     const registrations = {
@@ -574,6 +669,20 @@ function idlDiagnostics(
         }
 
         for (let cursor = open + 1; cursor < close; cursor++) {
+            const calleeType = calleeTypeAt(tokens, cursor, calleeNames, calleeTypeOwners);
+            if (calleeType) {
+                diagnostics.push(
+                    diagnostic(
+                        "qpi/public-callee-type",
+                        `\`${calleeType.spelling}\` is declared by contract ${calleeType.owner} — another contract's types are not allowed in a public ` +
+                            `input/output (\`${tokens[index + 1].text}\`): core's verifier cannot see them. Copy the struct into this contract, ` +
+                            "or keep the callee's type in `_locals` or the state.",
+                        tokens[cursor].span,
+                    ),
+                );
+                cursor += calleeType.tokenCount - 1;
+                continue;
+            }
             if (!FORBIDDEN_PUBLIC_TYPE_NAMES.has(tokens[cursor].text)) {
                 continue;
             }

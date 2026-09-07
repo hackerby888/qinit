@@ -8,12 +8,15 @@ import { parseContractSource, preprocessContractSource } from "./contract-fronte
 
 export interface CalleeContext {
     contractStructs: Map<string, StructDecl>;
+    // Which callee declares each name in `contractStructs`, for diagnostics that name the owner.
+    typeOwners: Map<string, string>;
     calleeTranslationUnits: Array<{ contractName: string; declarations: Declaration[] }>;
     diagnostics: ParserDiagnostic[];
 }
 
 export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): CalleeContext {
     const contractStructs = new Map<string, StructDecl>();
+    const typeOwners = new Map<string, string>();
     const calleeTranslationUnits: Array<{ contractName: string; declarations: Declaration[] }> = [];
     const diagnostics: ParserDiagnostic[] = [];
     const calleeSlots = new Map((options.callees ?? []).map((callee) => [callee.name, callee.slot]));
@@ -61,14 +64,18 @@ export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): 
                 // so it must resolve here too, or a copy through it lowers at the wrong size.
                 if (struct.name) {
                     contractStructs.set(struct.name, struct);
+                    typeOwners.set(struct.name, callee.name);
                 }
                 continue;
             }
             for (const member of struct.members ?? []) {
-                if (member.kind === AstKind.STRUCT && member.name) contractStructs.set(`${callee.name}::${member.name}`, member);
+                if (member.kind === AstKind.STRUCT && member.name) {
+                    contractStructs.set(`${callee.name}::${member.name}`, member);
+                    typeOwners.set(`${callee.name}::${member.name}`, callee.name);
+                }
             }
         }
     }
 
-    return { contractStructs, calleeTranslationUnits, diagnostics };
+    return { contractStructs, typeOwners, calleeTranslationUnits, diagnostics };
 }
