@@ -491,28 +491,29 @@
     <p class="standfirst">
       Six thousand QPI contracts, ported from adversarial Solidity, compiled by the TypeScript backend
       <em>and</em> by clang, executed on a byte-identical call script, and compared by the K12 digest of
-      their final state. Where the two disagree, one of them is what the chain does. This is every
-      disagreement the five rounds turned up.
+      their final state. Where the two disagree, one of them is what the chain does. Round 6 added a
+      third opinion — core’s own WAMR runtime — and three of these no longer rest on the two backends
+      disagreeing. This is every disagreement the six rounds turned up.
     </p>
     <div class="tally">
-      <div><span class="n">17</span><span class="k">numbered entries</span></div>
-      <div><span class="n">12</span><span class="k">compiler findings</span></div>
+      <div><span class="n">18</span><span class="k">numbered entries</span></div>
+      <div><span class="n">13</span><span class="k">compiler findings</span></div>
       <div><span class="n">5</span><span class="k">harness / engine</span></div>
-      <div><span class="n">6,091</span><span class="k">contracts swept</span></div>
-      <div><span class="n">411</span><span class="k">archetypes</span></div>
-      <div><span class="n">82</span><span class="k">red rows</span></div>
+      <div><span class="n">6,321</span><span class="k">contracts swept</span></div>
+      <div><span class="n">427</span><span class="k">archetypes</span></div>
+      <div><span class="n">98</span><span class="k">red rows</span></div>
     </div>
   </header>
 
   <section>
-    <h2>The register <span>F200 – F216 · numbering starts at F200; F86–F199 belong to the macOS campaign</span></h2>
+    <h2>The register <span>F200 – F217 · numbering starts at F200; F86–F199 belong to the macOS campaign</span></h2>
     <div class="filters">
-      <button type="button" data-filter="all" aria-pressed="true">All 17</button>
-      <button type="button" data-filter="compiler" aria-pressed="false">Compiler (12)</button>
+      <button type="button" data-filter="all" aria-pressed="true">All 18</button>
+      <button type="button" data-filter="compiler" aria-pressed="false">Compiler (13)</button>
       <button type="button" data-filter="red" aria-pressed="false">Still red (5)</button>
-      <button type="button" data-filter="pinned" aria-pressed="false">Pinned (6)</button>
+      <button type="button" data-filter="pinned" aria-pressed="false">Pinned (7)</button>
       <button type="button" data-filter="harness" aria-pressed="false">Harness / engine (5)</button>
-      <span class="count" id="count">17 of 17 shown</span>
+      <span class="count" id="count">18 of 18 shown</span>
     </div>
     <div class="tablewrap">
       <table>
@@ -531,7 +532,7 @@
             <td class="id"><a href="#F213">F213</a></td>
             <td><span class="sev sev-critical">critical</span></td>
             <td class="what">A constant identifier is effectively global; the last declaration of the name wins, whatever its namespace, enum type or kind</td>
-            <td class="num">39</td>
+            <td class="num">55</td>
             <td><span class="status red"><b>red</b></span></td>
             <td class="num">4</td>
           </tr>
@@ -607,6 +608,14 @@
             <td><span class="status pinned"><b>pinned</b></span></td>
             <td class="num">5</td>
           </tr>
+          <tr data-kind="compiler" data-state="pinned" data-id="F217">
+            <td class="id"><a href="#F217">F217</a></td>
+            <td><span class="sev sev-medium">medium</span></td>
+            <td class="what">A block-scope local shadowing an outer name is refused, and a read of the outer name <em>before</em> the block is called use-before-declaration</td>
+            <td class="num">—</td>
+            <td><span class="status pinned"><b>pinned</b></span></td>
+            <td class="num">6</td>
+          </tr>
           <tr data-kind="compiler" data-state="red" data-id="F204">
             <td class="id"><a href="#F204">F204</a></td>
             <td><span class="sev sev-low">low–med</span></td>
@@ -675,14 +684,14 @@
   </section>
 
   <section>
-    <h2>The twelve compiler findings</h2>
+    <h2>The thirteen compiler findings</h2>
     <div class="findings" id="findings">
 
       <article class="finding" id="F213" data-kind="compiler" data-state="red" data-severity="critical">
         <div class="fhead">
           <span class="fid">F213</span>
           <h3 class="ftitle">A constant name is global, and the last declaration wins</h3>
-          <div class="fmeta"><span class="sev sev-critical">critical</span><span class="status red"><b>39 rows red</b></span></div>
+          <div class="fmeta"><span class="sev sev-critical">critical</span><span class="status red"><b>55 rows red</b></span></div>
         </div>
         <p class="fsum">
           Every read below is <strong>fully qualified</strong>, so C++ has nothing to disambiguate and clang's
@@ -708,6 +717,11 @@ namespace WithEnum { enum Kinds     { Shared = 55 }; }
         <div class="split">
           <div class="ts"><span class="backend">TypeScript backend</span><p>Compiles, runs, writes the wrong number into contract state. No diagnostic, no ambiguity report.</p></div>
           <div class="cl"><span class="backend">clang — what the chain does</span><p>Resolves each qualified name to its own declaration. A four-namespace ladder ORs to 15; TypeScript answers 8.</p></div>
+        </div>
+        <div class="oracle"><b>Confirmed on core’s own runtime</b>
+          Round 6 ran both artifacts under core’s WAMR host. Each reproduces its simulator answer
+          exactly, so the wrong constants are in the wasm that would be deployed — not an artefact of
+          how the simulator resolves names.
         </div>
         <div class="oracle"><b>Why this is the worst one here</b>
           F201, F205, F209, F211 and F214 refuse to compile, so the developer finds out. This one is silent
@@ -950,6 +964,50 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
         </div>
       </article>
 
+      <article class="finding" id="F217" data-kind="compiler" data-state="pinned" data-severity="medium">
+        <div class="fhead">
+          <span class="fid">F217</span>
+          <h3 class="ftitle">A block-scope local shadowing an outer name is refused</h3>
+          <div class="fmeta"><span class="sev sev-medium">medium</span><span class="status pinned"><b>pinned</b></span></div>
+        </div>
+        <p class="fsum">
+          C99 block scoping: a name redeclared inside a block binds only from its declaration to the end
+          of that block. clang accepts the contract and returns <strong>1, 20, 300, 1</strong> — confirmed
+          byte-identically on core’s own WAMR host. The TypeScript backend refuses it with two
+          diagnostics, and they are not equally interesting.
+        </p>
+<pre>static constexpr uint64 tier = 1;
+
+locals.atOne = tier;            <i>no local `tier` in scope yet -&gt; the file constant</i>
+{
+    uint64 tier = 20;
+    locals.atTwo = tier;        <i>the block&#39;s own binding</i>
+    {
+        uint64 tier = 300;
+        locals.atThree = tier;  <i>the innermost binding</i>
+    }
+}
+locals.afterBlocks = tier;      <i>control: the file constant again</i></pre>
+        <div class="split">
+          <div class="ts"><span class="backend">TypeScript backend</span><p><code>error: &#39;tier&#39; is used before its declaration</code></p><p><code>error: &#39;tier&#39; shadows a declaration in an enclosing scope — locals share one slot per name, so shadowing is not supported</code></p></div>
+          <div class="cl"><span class="backend">clang — what the chain does</span><span class="val">1, 20, 300, 1</span><p>Each block’s binding wins inside it, and the file constant is visible again once both blocks close.</p></div>
+        </div>
+        <div class="oracle"><b>The second diagnostic names the cause; the first is the finding</b>
+          “Locals share one slot per name” is a fair statement of a design limit — the backend’s locals
+          model is flat, so a block cannot introduce its own binding. But <code>locals.atOne = tier</code>
+          is read <em>before</em> any block declares a local <code>tier</code>, so in C++ it unambiguously
+          names the file-scope constant. Calling that a use-before-declaration means the block-local
+          declaration is being hoisted over the whole entry body — which is precisely what C99 block
+          scoping exists to prevent, and what the Solidity test it was ported from
+          (<code>scoping/c99_scoping_activation.sol</code>) was written to pin down.
+        </div>
+        <div class="footrow">
+          <span>repro <b>triage/F217-block-scope-shadow/NOTES.md</b></span>
+          <span>rows <b>namespaces/NsBlockScopeShadowChain__* · 12</b></span>
+          <span>found <b>round 6</b></span>
+        </div>
+      </article>
+
       <article class="finding" id="F204" data-kind="compiler" data-state="red" data-severity="low">
         <div class="fhead">
           <span class="fid">F204</span>
@@ -975,6 +1033,11 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           agree because integer promotion widens them to <code>int</code> first. Without the
           <code>constSource</code> axis this would have looked like an ordinary width-dependent difference.
         </p>
+        <div class="oracle"><b>Confirmed on core’s own runtime</b>
+          Round 6 ran both artifacts under core’s WAMR host, which reproduces each backend’s row
+          exactly. clang’s self-inconsistency is real on the production runtime, not a folding artefact
+          of the test harness.
+        </div>
         <div class="footrow">
           <span>repro <b>triage/F204-constant-shift-count/</b></span>
           <span>rows <b>integers/ShiftRhsWiderThanLhs__* · 5</b></span>
@@ -1073,7 +1136,7 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
   </section>
 
   <section>
-    <h2>Five rounds <span>bar = contracts swept · overlay = rows reporting a divergence</span></h2>
+    <h2>Six rounds <span>bar = contracts swept · overlay = rows reporting a divergence</span></h2>
     <div class="rounds">
       <div class="axis">
         <span></span>
@@ -1125,10 +1188,18 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           <div class="cap">6,091 · <i>82 red</i> · <em>F214 F215</em></div>
         </div>
       </div>
+      <div class="row">
+        <div class="rlabel"><b>Round 6</b><span>427 archetypes</span></div>
+        <div class="bar">
+          <div class="fill" style="width:100%"></div>
+          <div class="red" style="width:1.55%"></div>
+          <div class="cap">6,321 · <i>98 red</i> · <em>F217</em></div>
+        </div>
+      </div>
       <div class="legend">
         <span><i class="sw-a"></i>contracts swept (scale above, 0–6,091)</span>
         <span><i class="sw-r"></i>rows reporting a divergence</span>
-        <span>14,564 contract-runs in total, each compiled and executed twice</span>
+        <span>20,885 contract-runs in total, each compiled and executed twice</span>
       </div>
     </div>
     <p class="note">
@@ -1147,9 +1218,10 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
         <h3>The oracle problem</h3>
         <p>
           Both backends share one build gate, one <code>qpi.h</code>, and one <code>QubicSimulator</code>.
-          <b>&ldquo;6,009 matched&rdquo; means they agreed with each other</b>, not that they were right. Only
-          F200 and F203 are convicted by a third, independent oracle; the other ten still rest on the two
-          backends disagreeing.
+          <b>&ldquo;6,223 matched&rdquo; means they agreed with each other</b>, not that they were right.
+          Round 6 narrowed this: <b>F200, F213 and F204 now run on core&rsquo;s real WAMR host</b> and
+          reproduce their answers there. Nine still rest on the two backends disagreeing, and seven of
+          those <em>cannot</em> be settled this way — a compile refusal produces no artifact to run.
         </p>
       </div>
       <div>
@@ -1164,15 +1236,16 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
       <div>
         <h3>Stimulus coverage</h3>
         <p>
-          So the green rows are not vacuous: 5,706 of 6,091 contracts moved their state digest mid-script,
-          280 emitted a log, 18 produced a trap, <b>357 made a cross-contract call</b>, and 100 finished
-          all-zero — the variants where writing nothing is the row's point.
+          So the green rows are not vacuous: the great majority of the 6,321 contracts move their state
+          digest mid-script, and 357 make a cross-contract call. The ~110 hand-derived <b>expect</b> rows
+          are the only assertions of <em>correctness</em> — and in round 6 they caught three of the
+          author's own errors, exactly as they caught eleven in round 5.
         </p>
       </div>
       <div>
         <h3>Not 6,091 trials</h3>
         <p>
-          6,091 contracts from 411 archetypes is 14.8 variants each. Read the contract number as breadth of
+          6,321 contracts from 427 archetypes is 14.8 variants each. Read the contract number as breadth of
           spellings. The variants earn their place as the <b>axis bisector</b>: when a mismatch appears, the
           sibling variants that differ in exactly one axis name the trigger — which is how F200 was pinned to
           <code>sint32</code> and F204 to <code>constSource=constexpr</code>.
