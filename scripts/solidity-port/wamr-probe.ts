@@ -15,7 +15,7 @@
 //
 // Usage: bun run scripts/solidity-port/wamr-probe.ts <header> <ContractName> <slot> <op>...
 //        where each op is `<procedureNumber>:<inputHex>`.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { buildContractWithClang } from "@qinit/build";
@@ -23,6 +23,15 @@ import { compileContractWithTypeScript } from "@qinit/compiler/browser";
 import { QubicSimulator, initK12, toHex } from "@qinit/engine";
 
 const GTEST = process.env.QINIT_WAMR_GTEST ?? `${process.env.QINIT_CORE}/build-wasm/test/qubic_wasm_tests`;
+
+// The oracle binary is not in any repo and does not survive a container restart, so fail here with the
+// one command that rebuilds it rather than letting every cell report a mystery trap.
+if (!existsSync(GTEST)) {
+    console.error(`error: the WAMR oracle is not built at ${GTEST}\n`);
+    console.error("  QINIT_CORE=/path/to/core-lite scripts/solidity-port/build-wamr-oracle.sh\n");
+    console.error("Then set QINIT_WAMR_GTEST to the path it prints.");
+    process.exit(2);
+}
 const CORE = process.env.QINIT_CORE!;
 const OUT = "/tmp/qinit-wamr-probe";
 
