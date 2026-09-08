@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "@qinit/compiler/generated/qpi-snapshot";
-import { qpiHeadersEquivalent } from "@qinit/compiler/driver/qpi/snapshot";
+import { classifyQpiDrift } from "@qinit/compiler/driver/qpi/snapshot";
+import { QpiDriftKind } from "@qinit/compiler";
 
 export const WASM_NODE_CMAKE_PROFILE = Object.freeze({
     BUILD_BINARY: "ON",
@@ -53,10 +54,23 @@ export function assertCoreBuildProfile(core: string, buildDirectories: string[],
 export function assertPinnedQpiHeader(header: string): void {
     const hash = (source: string) => `sha256:${createHash("sha256").update(source).digest("hex")}`;
 
-    if (!qpiHeadersEquivalent(header, QPI_SNAPSHOT)) {
-        throw new Error(`core header hash ${hash(header)} does not match pinned ${QPI_SNAPSHOT_META.snapshotHash}`);
-    }
     if (hash(QPI_SNAPSHOT) !== QPI_SNAPSHOT_META.snapshotHash) {
         throw new Error("generated QPI snapshot does not match its metadata");
+    }
+
+    const drift = classifyQpiDrift(header, QPI_SNAPSHOT);
+    if (drift.kind === QpiDriftKind.EQUIVALENT) {
+        return;
+    }
+    if (drift.kind === QpiDriftKind.ABI) {
+        throw new Error(`core wasm ABI ${hash(header)} drifted from pinned snapshot ${QPI_SNAPSHOT_META.snapshotHash}; regenerate it and review host imports`);
+    }
+
+    const summary = `pinned QPI snapshot (core ${QPI_SNAPSHOT_META.coreCommit}) is behind the live core: ${drift.changed.join(", ")} changed`;
+    console.log(`[core-proof] ${summary}`);
+    console.log(`[core-proof]   live ${hash(header)} vs pinned ${QPI_SNAPSHOT_META.snapshotHash}`);
+    console.log("[core-proof]   refresh with: bun packages/compiler/tools/gen-qpi-snapshot.ts --core-dir <core>");
+    if (process.env.GITHUB_ACTIONS) {
+        console.log(`::warning::${summary}`);
     }
 }

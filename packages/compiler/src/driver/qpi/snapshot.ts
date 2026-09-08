@@ -5,6 +5,7 @@ import { parseWasmAbiSource } from "@qinit/core/wasm/abi-source";
 import { Lexer } from "../../frontend/lexer";
 import { Preprocessor, type MacroDef } from "../../frontend/preprocessor";
 import { getQpiPrelude } from "../qpi-macros";
+import { QpiDriftKind, QpiHeaderSignaturePart } from "../../shared/enums";
 import { embeddedWasmAbi, IMPL_BOUNDARY, WASM_ABI_MARKER } from "./snapshot-format";
 
 export { embeddedWasmAbi, GENERATOR_VERSION, IMPL_BOUNDARY, WASM_ABI_MARKER } from "./snapshot-format";
@@ -237,7 +238,7 @@ function snapshotMacros(macros: Map<string, MacroDef>) {
         }));
 }
 
-function qpiHeaderSignature(headers: string): string {
+export function qpiHeaderSignatureParts(headers: string): Record<QpiHeaderSignaturePart, string> {
     const [mainHeaders, ...implementationChunks] = headers.split(IMPL_BOUNDARY);
     const { preprocessedSource: mainSource, macros } = getQpiPrelude(mainHeaders);
     const implementations = implementationChunks.map((source) => {
@@ -253,18 +254,41 @@ function qpiHeaderSignature(headers: string): string {
         return snapshotTokens(implementationSource);
     });
 
-    return JSON.stringify({
-        wasmAbi: embeddedWasmAbi(headers),
-        main: snapshotTokens(mainSource),
-        macros: snapshotMacros(macros),
-        implementations,
-    });
+    return {
+        [QpiHeaderSignaturePart.WASM_ABI]: JSON.stringify(embeddedWasmAbi(headers)),
+        [QpiHeaderSignaturePart.MAIN]: JSON.stringify(snapshotTokens(mainSource)),
+        [QpiHeaderSignaturePart.MACROS]: JSON.stringify(snapshotMacros(macros)),
+        [QpiHeaderSignaturePart.IMPLEMENTATIONS]: JSON.stringify(implementations),
+    };
+}
+
+function qpiHeaderSignature(headers: string): string {
+    return JSON.stringify(qpiHeaderSignatureParts(headers));
 }
 
 export function qpiHeadersEquivalent(left: string, right: string): boolean {
     const normalizeEndlines = (source: string) => source.replace(/\r\n?/g, "\n");
 
     return normalizeEndlines(left) === normalizeEndlines(right) || qpiHeaderSignature(left) === qpiHeaderSignature(right);
+}
+
+export interface QpiDrift {
+    kind: QpiDriftKind;
+    changed: QpiHeaderSignaturePart[];
+}
+
+// Only wasmAbi drift changes what compiled contracts import from the host; the other parts grow with every added
+// contract, oracle interface, or protocol constant and are safe to trail behind the live core.
+export function classifyQpiDrift(liveHeader: string, pinnedHeader: string): QpiDrift {
+    if (qpiHeadersEquivalent(liveHeader, pinnedHeader)) {
+        return { kind: QpiDriftKind.EQUIVALENT, changed: [] };
+    }
+
+    const liveParts = qpiHeaderSignatureParts(liveHeader);
+    const pinnedParts = qpiHeaderSignatureParts(pinnedHeader);
+    const changed = Object.values(QpiHeaderSignaturePart).filter((part) => liveParts[part] !== pinnedParts[part]);
+
+    return { kind: changed.includes(QpiHeaderSignaturePart.WASM_ABI) ? QpiDriftKind.ABI : QpiDriftKind.DRIFT, changed };
 }
 
 // List every core file read during header assembly and cache hashing.

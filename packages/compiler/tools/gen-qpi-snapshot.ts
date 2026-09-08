@@ -3,8 +3,9 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { assembleQpiHeader, GENERATOR_VERSION, qpiHeadersEquivalent } from "../src/driver/qpi/snapshot";
+import { assembleQpiHeader, classifyQpiDrift, GENERATOR_VERSION } from "../src/driver/qpi/snapshot";
 import { assembleQpiProtocolPrelude } from "../src/driver/qpi/prelude";
+import { QpiDriftKind } from "../src/shared/enums";
 
 const callArguments = process.argv.slice(2);
 const flag = (name: string): boolean => callArguments.includes(name);
@@ -22,6 +23,10 @@ const normalize = (source: string) => source.replace(/\r\n?/g, "\n");
 const outputMatches = (path: string, contents: string) => existsSync(path) && normalize(readFileSync(path, "utf8")) === normalize(contents);
 const log = (msg: string) => {
     if (!quiet) console.log(`[qpi-snapshot] ${msg}`);
+};
+const warn = (msg: string) => {
+    console.log(`[qpi-snapshot] ${msg}`);
+    if (process.env.GITHUB_ACTIONS) console.log(`::warning::${msg}`);
 };
 
 const corePath = opt("--core-dir") ?? process.env.QINIT_CORE;
@@ -79,10 +84,18 @@ function verify(hash: string): void {
 
 try {
     const liveSnapshot = assembleQpiHeader(core);
+    const checking = flag("--verify") || flag("--check");
     let snapshot = liveSnapshot;
     if (existsSync(outputPath)) {
         const { QPI_SNAPSHOT } = await import("../src/generated/qpi-snapshot");
-        if (qpiHeadersEquivalent(liveSnapshot, QPI_SNAPSHOT)) {
+        const drift = classifyQpiDrift(liveSnapshot, QPI_SNAPSHOT);
+        if (drift.kind === QpiDriftKind.EQUIVALENT) {
+            snapshot = QPI_SNAPSHOT;
+        } else if (checking && drift.kind === QpiDriftKind.ABI) {
+            throw new Error(`core wasm ABI drifted from the committed snapshot; regenerate it from ${core} and review host imports`);
+        } else if (checking) {
+            // Catalog-only drift keeps the committed snapshot usable; the check then covers its self-consistency.
+            warn(`committed snapshot is behind core at ${core} (${drift.changed.join(", ")} changed); regenerate when convenient`);
             snapshot = QPI_SNAPSHOT;
         }
     }

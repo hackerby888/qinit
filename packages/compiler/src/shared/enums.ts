@@ -444,6 +444,19 @@ export enum UnsupportedFeature {
     CLASS_TO_SCALAR_CONVERSION = "class_to_scalar_conversion",
 }
 
+export enum QpiHeaderSignaturePart {
+    WASM_ABI = "wasmAbi",
+    MAIN = "main",
+    MACROS = "macros",
+    IMPLEMENTATIONS = "implementations",
+}
+
+export enum QpiDriftKind {
+    EQUIVALENT = "equivalent",
+    ABI = "abi",
+    DRIFT = "drift",
+}
+
 // There is no static_cast keyword, so `static_cast<T>(x)` reaches the AST as a template call on this name.
 // Only static_cast converts the value; the other two keep it and change the type.
 export const CAST_TEMPLATE_NAMES = new Set(["static_cast", "reinterpret_cast", "const_cast"]);

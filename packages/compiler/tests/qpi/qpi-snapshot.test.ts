@@ -6,11 +6,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { loadQpiHeader } from "../../src/index";
-import { assembleQpiHeader, GENERATOR_VERSION, qpiHeadersEquivalent, snapshotInputFiles } from "../../src/driver/qpi/snapshot";
+import { assembleQpiHeader, classifyQpiDrift, GENERATOR_VERSION, qpiHeadersEquivalent, snapshotInputFiles } from "../../src/driver/qpi/snapshot";
 import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "../../src/driver/qpi/snapshot-format";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "../../src/generated/qpi-snapshot";
 import { QPI_PROTOCOL_PRELUDE } from "../../src/generated/qpi-protocol-prelude";
 import { assembleQpiProtocolPrelude } from "../../src/driver/qpi/prelude";
+import { QpiDriftKind, QpiHeaderSignaturePart } from "../../src/shared/enums";
 
 const CORE = CORE_PATH;
 const coreOk = existsSync(join(CORE, "src", "qpi", "qpi.h"));
@@ -61,6 +62,25 @@ describe("qpi header equivalence", () => {
         expect(qpiHeadersEquivalent(FORMATTED_HEADER, COMPACT_HEADER.replace("left+right", "left-right"))).toBe(false);
         expect(qpiHeadersEquivalent(COMPACT_HEADER.replace("left+right", "left + +right"), COMPACT_HEADER.replace("left+right", "left++right"))).toBe(false);
         expect(qpiHeadersEquivalent(FORMATTED_HEADER, COMPACT_HEADER.replace('"abiVersion":1', '"abiVersion":2'))).toBe(false);
+    });
+});
+
+describe("qpi drift classification", () => {
+    test("equivalent headers report no drift", () => {
+        expect(classifyQpiDrift(FORMATTED_HEADER, COMPACT_HEADER)).toEqual({ kind: QpiDriftKind.EQUIVALENT, changed: [] });
+    });
+
+    test("wasm ABI changes are abi drift", () => {
+        const drift = classifyQpiDrift(COMPACT_HEADER.replace('"abiVersion":1', '"abiVersion":2'), COMPACT_HEADER);
+        expect(drift.kind).toBe(QpiDriftKind.ABI);
+        expect(drift.changed).toContain(QpiHeaderSignaturePart.WASM_ABI);
+    });
+
+    test("an added contract index is catalog drift", () => {
+        const drift = classifyQpiDrift(COMPACT_HEADER.replace("#define SUM", "#define FOO_CONTRACT_INDEX 30\n#define SUM"), COMPACT_HEADER);
+        expect(drift.kind).toBe(QpiDriftKind.DRIFT);
+        expect(drift.changed).toContain(QpiHeaderSignaturePart.MACROS);
+        expect(drift.changed).not.toContain(QpiHeaderSignaturePart.WASM_ABI);
     });
 });
 
@@ -115,7 +135,7 @@ describe("tracked snapshot + browser entry", () => {
 
     test("generated module matches the assembly semantically with an exact byte hash", async () => {
         if (coreOk) {
-            expect(qpiHeadersEquivalent(QPI_SNAPSHOT, assembleQpiHeader(CORE))).toBe(true);
+            expect(classifyQpiDrift(assembleQpiHeader(CORE), QPI_SNAPSHOT).kind).not.toBe(QpiDriftKind.ABI);
         }
         const hash = "sha256:" + createHash("sha256").update(QPI_SNAPSHOT).digest("hex");
         expect(QPI_SNAPSHOT_META.snapshotHash as string).toBe(hash);

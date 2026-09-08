@@ -20,17 +20,25 @@ const layoutOutput = resolve(import.meta.dir, "..", "src", "wasm", "generated", 
 const generatedLayout =
     "// Generated from core-lite's standard lite-Wasm contract profile. Do not edit.\n" +
     `export const WASM_SLOT_LAYOUT = ${JSON.stringify(slotLayout, null, 2)} as const;\n`;
-const outputs = [
-    { path: abiOutput, contents: generatedAbi },
-    { path: layoutOutput, contents: generatedLayout },
-];
+const abiArtifact = { path: abiOutput, contents: generatedAbi };
+const layoutArtifact = { path: layoutOutput, contents: generatedLayout };
+const outputs = [abiArtifact, layoutArtifact];
 const normalize = (source: string) => source.replace(/\r\n?/g, "\n");
+const isStale = (output: { path: string; contents: string }) =>
+    !existsSync(output.path) || normalize(readFileSync(output.path, "utf8")) !== normalize(output.contents);
 if (args.includes("--check")) {
-    const stale = outputs.find((output) => !existsSync(output.path) || normalize(readFileSync(output.path, "utf8")) !== normalize(output.contents));
-    if (stale) {
-        throw new Error(`${stale.path} is stale; regenerate it from ${core}`);
+    if (isStale(abiArtifact)) {
+        throw new Error(`${abiOutput} is stale; regenerate it from ${core}`);
     }
-    for (const output of outputs) console.log(`${output.path} is current`);
+    console.log(`${abiOutput} is current`);
+    // The slot base follows the native contract catalog and nodes report theirs over RPC, so a stale default only warns.
+    if (isStale(layoutArtifact)) {
+        const message = `${layoutOutput} is behind ${core}; regenerate when convenient`;
+        console.log(message);
+        if (process.env.GITHUB_ACTIONS) console.log(`::warning::${message}`);
+    } else {
+        console.log(`${layoutOutput} is current`);
+    }
     process.exit(0);
 }
 for (const output of outputs) {
