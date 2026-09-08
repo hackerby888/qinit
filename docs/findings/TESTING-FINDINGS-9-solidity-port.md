@@ -1467,15 +1467,22 @@ The general lesson is worth more than the specific one: **any tool in this harne
 contract must go through the `@qinit/build` wrappers.** The raw drivers silently model a different,
 more permissive compiler than the one the sweep, the CLI and the chain actually use.
 
+To be precise about the scope of that, since it was later measured rather than assumed: the difference
+is in **acceptance, not codegen**. For a contract the gate accepts, the two paths emit byte-identical
+wasm (`ArrayOfIdStride__base`: 4,744 bytes and the same 64 `lhost` imports either way), which is what
+round 2 found when it moved the whole harness onto the wrappers. The raw driver is dangerous because it
+returns an empty module for a contract the gate refuses instead of failing — not because it compiles
+accepted contracts differently.
+
 ### What the parity sweep found
 
 Nothing — and that is a result worth stating precisely rather than burying.
 
 ```
 385 contracts across 7 families · 770 artifact runs
-  624  agree          simulator and core's WAMR host produce byte-identical state
-  118  shim-trap      the contract calls a host function the gtest does not register
-   28  build-rejected the TypeScript build gate refuses the contract (F217, alias)
+  590  agree           simulator and core's WAMR host produce byte-identical state
+  152  shim-trap       the contract calls a host function the gtest does not register
+   28  build-rejected  the TypeScript build gate refuses the contract (F217, alias)
     0  DISAGREE
 ```
 
@@ -1485,10 +1492,48 @@ campaign has been warning about since round 1 — "both execute in the same `Qub
 matched means they agreed with each other". For the pure-state subset, the simulator is now shown to be
 faithful to the real host rather than merely self-consistent.
 
-Two honest bounds on that claim:
+The internal consistency check that makes the run credible: the shim-trap set is **76 contracts on
+clang and the same 76 on the TypeScript backend — an identical set**, and there is no contract where
+one backend agrees and the other does not (outside the 28 the gate refuses). Whether a contract can run
+under a five-native shim is a property of *the contract*, not of who compiled it, and that is exactly
+what the measurement shows.
 
-- **The 118 shim-traps are not covered.** Anything calling `qpi.K12`, a transfer, the clock, the asset
+Two honest bounds:
+
+- **The 152 shim-traps are not covered.** Anything calling `qpi.K12`, a transfer, the clock, the asset
   API or another contract cannot run under this harness, so the simulator's fidelity there is still
   unmeasured — and that is where F71, F82 and F69 (earlier campaigns) all lived.
-- **A sample, not a census.** 55 contracts per family, 385 of 6,321. The families chosen are the
-  pure-state ones; hostcalls, assets, logging and intercontract were excluded by construction.
+- **A sample, not a census.** 55 contracts per family, 385 of 6,321, and the pure-state families only;
+  hostcalls, assets, logging and intercontract were excluded by construction.
+
+#### This table is the second one. The first was wrong, and how it was wrong matters.
+
+An earlier version of this section published `624 agree · 118 shim-trap · 28 build-rejected · 0
+DISAGREE` and presented it as one clean run. It was not: it was the *first* parity run's tally with the
+28 DISAGREE rows reclassified by hand after F218 was fixed and re-verified on the namespaces family
+alone. A container restart then killed the confirming re-run before it finished, and the derived table
+went out as though it were observed.
+
+Re-running it cleanly moved **34 rows** — `624 → 590` agree, `118 → 152` shim-trap. Only the headline
+survived unchanged.
+
+The cause is not the F218 build-path fix. That was checked rather than assumed: building
+`ArrayOfIdStride__base` through the raw `compileContractWithTypeScript` driver and through
+`buildContractWithTypeScript` produces **byte-identical wasm** — 4,744 bytes, the same 64 `lhost`
+imports — which matches round 2's finding that the wrapper does not change the artifact for a contract
+the gate accepts. The build path cannot explain the shift.
+
+What explains it is that **the first parity run read the corpus while `generate.ts` was rewriting it**.
+It was launched as a background job and left running across two regenerations (commit `08abe9f`, which
+fixed the three wrong Collection `expect` rows, is one of them). Its inputs changed underneath it. The
+asymmetric shim-trap split that run produced — 76 on clang against 42 on TypeScript, for a property
+that cannot depend on the backend — is the fingerprint of exactly that, and is the thing that should
+have been questioned at the time.
+
+Two lessons, both cheap and both learned the expensive way this round:
+
+1. **Never run a sweep against the corpus while anything can regenerate it.** The harness has no lock,
+   and a partially-rewritten corpus produces plausible numbers rather than an error.
+2. **A derived number must be labelled as derived.** The reclassification reasoning was sound and the
+   conclusion held, but publishing it in the shape of an observation is how a campaign that exists to
+   distrust agreement ends up trusting its own arithmetic.
