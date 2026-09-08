@@ -40,12 +40,12 @@ expected results), [`crytic/not-so-smart-contracts`](https://github.com/crytic/n
 - Both findings are **width- or depth-specific**, and were invisible at the plain spelling. Neither
   would have been produced by a probe someone sat down to write.
 
-> This section is round 1. The campaign has since run three more times, at the bottom of this file.
-> Current state after **round 4**: 255 archetypes / 3,017 contracts, 2,986 matching, **ten findings** —
-> F200, F201, F203, F204, F205, F209, F210, F211, F212, F213 — plus four harness/engine defects (F202,
-> F206, F207, F208), each recorded where it was found and each fixed. F200 is now confirmed against a
-> third oracle (core's own headers compiled natively by g++); the rest still rest on the two backends
-> disagreeing, and nothing here has been run against real core or WAMR.
+> This section is round 1. The campaign has since run four more times, at the bottom of this file.
+> Current state after **round 5**: 411 archetypes / 6,091 contracts, 6,009 matching, **twelve findings**
+> — F200, F201, F203, F204, F205, F209, F210, F211, F212, F213, F214, F215 — plus five harness/engine
+> defects (F202, F206, F207, F208, F216), each recorded where it was found and each fixed. F200 is
+> confirmed against a third oracle (core's own headers compiled natively by g++); the rest still rest on
+> the two backends disagreeing, and nothing here has been run against real core or WAMR.
 
 ## Findings
 
@@ -881,3 +881,156 @@ Positive control: planting `uint16: 2 → 4` in `packages/compiler/src/shared/sc
 - **F208 is fixed only for the range the simulator lets us pin.** An archetype that reads
   `computor(676)` would still be non-reproducible, and nothing in the harness prevents someone writing
   one; the guard is a comment in the archetype's caveat, not a check.
+
+# Round 5 — 6,000 contracts from 411 archetypes, and two more parser refusals
+
+Round 4 argued that the archetype count is the sample size and spent its budget accordingly. Round 5
+doubles the corpus while keeping that ratio: **411 archetypes / 6,091 contracts** (round 4: 255 / 3,017),
+from **156 new archetypes** and a variant cap lifted only from 12 to 17. The average is 14.8 variants per
+archetype against round 4's 11.8, so the corpus grew mostly by growing the number of distinct shapes.
+
+## Round 5 summary
+
+- **Two new findings, both refusals of legal C++**, and both found while writing archetypes rather than
+  by the sweep:
+  - **F214** — `sizeof` of a template with more than one argument (`sizeof(Array<uint64, 8>)`) is a parse
+    error in the TypeScript backend. Every QPI container takes at least two template arguments, so this
+    is how a contract asks how big its own state is.
+  - **F215** — a member read on the `SELF` constant (`SELF.u64._0`) is refused; the identical read
+    through a local `id` copy compiles, and clang accepts both.
+- **F213 got much worse on inspection.** Round 4 recorded it as "a qualified enum constant resolves to
+  the last-declared constant of that name". Round 5's value probes show the rule is broader: **a constant
+  identifier is effectively global**, and the last declaration of that name wins regardless of namespace,
+  enum type, or even *kind* of declaration — an enum constant overwrites a file-scope `constexpr` of the
+  same name. A four-namespace ladder returns the fourth namespace's value for all four reads.
+- **One harness defect, F216**: an archetype whose script advanced 3,600 ticks cost about forty seconds
+  of simulator time per backend and blew a shard deadline, which the sweep reported as a hang. The script
+  now advances 240 ticks and exercises the same boundaries.
+- **The secondary oracle is no longer a token gesture.** Round 4 had twelve hand-derived `expect` rows;
+  round 5 has **over a hundred**, spread across the arithmetic, cast, control-flow, layout and DeFi-math
+  archetypes. They caught **eleven of my own derivation errors** during authoring — every one a case
+  where I predicted the wrong number and both backends agreed on the right one.
+
+### F213, restated — a constant name is global and the last declaration wins
+
+Severity: **critical (silent wrong value, no diagnostic, ordinary code triggers it)**.
+
+Repro: `corpus/solidity-port/triage/F213-twin-enum-resolution/` — extended this round with a file-scope
+constant colliding with an enum constant.
+
+```
+namespace Alpha     { enum Level      { Low = 1,   High = 2   }; }
+namespace Beta      { enum Level      { Low = 100, High = 200 }; }
+namespace TwinName  { enum FirstKind  { Only = 7 }; }
+namespace OtherName { enum SecondKind { Only = 9 }; }
+static constexpr uint64 Shared = 5;
+namespace WithEnum  { enum Kinds      { Shared = 55 }; }
+
+  read                                   clang   TypeScript backend
+  Alpha::Low                                 1                  100
+  Alpha::High                                2                  200
+  TwinName::Only                             7                    9
+  Shared          (file-scope constexpr)     5                   55
+  WithEnum::Shared                          55                   55
+```
+
+The corpus now carries three archetypes on this: the original twin pair, a four-namespace ladder
+(`K1::Tag = 1` through `K4::Tag = 8`, where clang ORs them to 15 and the TypeScript backend to 8), and
+an enum-versus-file-constant pair. Thirty-nine rows, all red, none pinned — they should go green when it
+is fixed.
+
+### F214 — `sizeof(Array<uint64, 8>)` does not parse
+
+Severity: **medium (loud refusal of legal C++; the workaround is a type alias)**.
+
+Repro and control: `corpus/solidity-port/triage/F214-sizeof-template-comma/NOTES.md`. Corpus rows:
+`layout/SizeofMultiArgTemplate__*`, pinned through `expectedVerdict`.
+
+```
+error: Expected r_paren but got comma (,) in sizeof expr
+```
+
+clang compiles the same file and both spellings — direct and through `using Aliased = Array<uint64, 8>;`
+— return 64. Five of this round's layout archetypes measured containers directly and were refused; they
+now alias first, which is how the finding was isolated.
+
+### F215 — `SELF.u64._0` is refused; the same read through a copy is not
+
+Severity: **medium (loud refusal; one assignment works around it)**.
+
+Repro: `corpus/solidity-port/triage/F215-self-word-read/NOTES.md`. Corpus rows:
+`hostcalls/HostSelfWordDirectRead__*`, pinned.
+
+```
+error: unsupported member read [id(4).u64._0]
+```
+
+clang compiles it and both the direct read and the copied read return 29 — the contract's own index. The
+diagnostic naming `id(4)` suggests the constant is substituted before the member read is considered.
+
+### F216 — harness: a 3,600-tick script reads as a hang
+
+`hostcalls/TimePackedDateAndTime` advanced the simulator 3,600 ticks to move the clock through an hour.
+That costs roughly forty seconds per backend, and with four workers competing it exceeded the shard
+deadline, so the sweep reported `1 hang`. Re-run alone the cell passes in 59 s. The script now advances
+240 ticks, which crosses the same minute and hour boundaries; the re-run is clean at `0 hang`.
+
+Worth recording because of what it looked like: a hang in the scoreboard is otherwise the signature of a
+compiler that does not terminate (F210 is exactly that), and this one was a corpus-authoring choice.
+
+## Round 5 suite counts
+
+```
+bun run corpus:check      6104 files, 6091 contracts, clean
+bun run corpus:analyze    6091 variants, 0 ERROR diagnostics,
+                          111 expected-reject or documented-divergence
+bun run corpus:sweep -- --tier full --workers 4
+                          6091 contracts · 6009 match · 82 not-match · 0 hang
+                          median 56ms · wall 274s
+```
+
+The 82 non-matching rows are five findings and nothing else: 39 across three F213 archetypes, 32 across
+two F203 archetypes (`K12OfComputedExpression` and the new `HostK12ExpressionVersusVariable`), 5
+`ShiftRhsWiderThanLhs` (F204), 4 `NsInheritedNamespacedTypedef` (F201) and 2 `DivQpi` (F200). F205, F209,
+F211, F212, F214 and F215 are scored as matches through `expectedVerdict`.
+
+Stimulus coverage: 5,706 of 6,091 contracts moved their state digest mid-script, 280 emitted at least one
+log, 18 produced at least one trap, **357 made a cross-contract call**, and 100 finished all-zero.
+
+Positive control: planting `uint16: 2 → 4` in `packages/compiler/src/shared/scalar-sizes.ts` turned
+**126 of the 708 layout contracts red** (round 4: 57 of 369), and restoring it returned all 708 to green.
+Harness controls: 18 pass. `bun run typecheck` (root project): clean.
+
+## What round 5 added
+
+- **156 new archetypes.** By family: integers +48 (casts and promotions, signed boundaries, loops and
+  accumulation), namespaces +18 (all of them *value* probes — see below), containers +12 (ring buffer,
+  swap-and-pop, checkpoint search, LRU, prefix sums, bitmap allocator, paired tables), layout +13
+  (sizeof matrices, offsets by difference, nested arrays, enum and BitArray strides), controlflow +12
+  (state machine, retry with backoff, unroll boundary, short-circuit counting), vulnerabilities +12
+  (collateral ratio, interest accrual, slippage bound, basis points, health factor, reward index drift,
+  first-depositor inflation), hostcalls +13 (digests, K12 over four operand kinds, fee reserve, id word
+  accessors), assets +10 (issuance edges, ownership versus possession, name encoding, multi-asset),
+  lifecycle +10 (hook interaction and epoch boundaries), logging +8, intercontract +12.
+- **Value probes, which is how F213 got its real statement.** Every namespace archetype this round
+  declares same-named things whose *values* differ and reads each through its qualified name. Three
+  earlier rounds compared struct sizes and offsets, which a mis-resolution between identically shaped
+  types cannot disturb — that is why F213 survived to round 4 and why its full shape needed round 5.
+- **A shared two-operand skeleton** (`twoOperandArchetype` in `archetypes/common.ts`) that carries the
+  `expect` machinery, so a new arithmetic archetype is a spec rather than a contract.
+- **Hook locals** and the `--only` analyze filter from round 4 got used heavily; nothing new there.
+
+## Round 5 limitations
+
+- **The oracle problem is unchanged for eleven of the twelve findings.** Both backends still share one
+  build gate, one `qpi.h` and one `QubicSimulator`. The hundred-odd `expect` rows are the only assertions
+  in 6,091 contracts, and they cover arithmetic — not layout, not containers, not host calls. A bug in a
+  shared component still cannot be seen by this method.
+- **The native oracle still does not run contracts.** Same sentence as round 4, and it is the same
+  outstanding work: `contract_testing.h`, gtest, a registered contract index.
+- **Two of this round's three findings were found by *writing* archetypes, not by running them.** F214
+  and F215 were compile refusals hit while authoring; the sweep confirmed them but did not discover them.
+  That is a reasonable way to find parser gaps and a poor way to find miscompilations, and it says
+  something about where the remaining risk is: the sweep is good at what it already knows how to spell.
+- **6,091 contracts from 411 archetypes** is 14.8 variants each. The effective sample is still the
+  archetype count. Read the contract number as breadth of spellings.

@@ -236,6 +236,9 @@ describe.skipIf(!HAS_CORE)("solidity-port live slice", () => {
                 "K12OfComputedExpression",
                 "ShiftRhsWiderThanLhs",
                 "NsTwinEnumSameConstantNames",
+                "NsTwinEnumsAcrossFourNamespaces",
+                "NsEnumConstantVersusFileConstant",
+                "HostK12ExpressionVersusVariable",
             ]);
 
             const failures: string[] = [];

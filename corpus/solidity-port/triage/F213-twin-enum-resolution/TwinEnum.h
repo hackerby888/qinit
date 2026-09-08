@@ -29,6 +29,14 @@ namespace OtherName
 enum SecondKind { Only = 9 };
 }
 
+// A file-scope constant and an enum constant of the same name, in that order.
+static constexpr uint64 Shared = 5;
+
+namespace WithEnum
+{
+enum Kinds { Shared = 55 };
+}
+
 struct TwinEnum2
 {
 };
@@ -44,6 +52,8 @@ struct TwinEnum : public ContractBase
         uint64 product;
         uint64 controlFirst;
         uint64 controlSecond;
+        uint64 fileConstant;
+        uint64 enumConstant;
     };
 
     struct Snap_input
@@ -69,6 +79,8 @@ struct TwinEnum : public ContractBase
         state.mut().product = (uint64)Alpha::High * (uint64)Beta::Low;
         state.mut().controlFirst = (uint64)TwinName::Only;
         state.mut().controlSecond = (uint64)OtherName::Only;
+        state.mut().fileConstant = Shared;
+        state.mut().enumConstant = (uint64)WithEnum::Shared;
     }
 
     struct Read_input
@@ -84,6 +96,8 @@ struct TwinEnum : public ContractBase
         uint64 product;
         uint64 controlFirst;
         uint64 controlSecond;
+        uint64 fileConstant;
+        uint64 enumConstant;
     };
 
     PUBLIC_FUNCTION(Read)
@@ -95,6 +109,8 @@ struct TwinEnum : public ContractBase
         output.product = state.get().product;
         output.controlFirst = state.get().controlFirst;
         output.controlSecond = state.get().controlSecond;
+        output.fileConstant = state.get().fileConstant;
+        output.enumConstant = state.get().enumConstant;
     }
 
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
@@ -112,5 +128,7 @@ struct TwinEnum : public ContractBase
         state.mut().product = 0;
         state.mut().controlFirst = 0;
         state.mut().controlSecond = 0;
+        state.mut().fileConstant = 0;
+        state.mut().enumConstant = 0;
     }
 };

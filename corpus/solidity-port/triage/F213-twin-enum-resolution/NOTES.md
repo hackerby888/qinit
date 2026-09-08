@@ -1,4 +1,4 @@
-# F213 — a qualified enum constant resolves to the last-declared constant of that name
+# F213 — a constant name is effectively global, and the last declaration of it wins
 
 `TwinEnum.h` declares four enums in four namespaces and reads seven fully qualified constants:
 
@@ -20,15 +20,28 @@
 | `Alpha::High * Beta::Low` | 200 |      **20000** |
 | `TwinName::Only`  |     7 |              **9** |
 | `OtherName::Only` |     9 |                  9 |
+| `Shared` (file-scope `constexpr uint64 = 5`) | 5 | **55** |
+| `WithEnum::Shared` (enum constant `= 55`)    | 55 |    55 |
 
 clang's column is what C++ says: every read is qualified, so there is nothing to disambiguate. The
 TypeScript backend returns, for every one of them, the value of the **last constant declared with that
 name** — `Alpha::Low` becomes `Beta::Low`, and `TwinName::Only` becomes `OtherName::Only`.
 
-The last two rows are what pins the rule down. `FirstKind` and `SecondKind` are *different enum names*
-in different namespaces; only the constant name `Only` is shared, and that is enough. So the collision
-is on the constant identifier alone — neither the enclosing namespace nor the enum type participates in
-the lookup.
+The last four rows pin the rule down.
+
+- `FirstKind` and `SecondKind` are *different enum names* in different namespaces; only the constant
+  name `Only` is shared, and that is enough.
+- `Shared` is not an enum constant at all on one side — it is a file-scope `static constexpr uint64` —
+  and the enum constant declared after it still overwrites it.
+
+So the collision is on the **constant identifier alone**. Neither the enclosing namespace, nor the enum
+type, nor even the kind of declaration participates in the lookup: the last declaration of a name is
+what every read of that name returns.
+
+A four-namespace ladder in the corpus (`namespaces/NsTwinEnumsAcrossFourNamespaces`) shows the same
+thing at every position rather than only the last: with `K1::Tag = 1`, `K2::Tag = 2`, `K3::Tag = 4` and
+`K4::Tag = 8`, clang reads 1, 2, 4, 8 and ORs them to 15; the TypeScript backend reads **8 four times**
+and ORs them to 8.
 
 Why this is the worst finding in the ledger so far:
 

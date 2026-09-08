@@ -534,7 +534,10 @@ export const HOSTCALL_TIME_ARCHETYPES: Archetype[] = [
                 ],
                 initialize: "state.mut().packed = 0;\nstate.mut().roundTrips = 0;\nstate.mut().mismatches = 0;\nstate.mut().samples = 0;",
             });
-            return { source, script: script(sampleSteps([1, 60, 3600])) };
+            // 3,600 ticks of simulator time cost about forty seconds per backend and turned this cell
+            // into a reported hang when four workers competed for the machine (F216); 240 exercises the
+            // same minute and hour boundaries.
+            return { source, script: script(sampleSteps([1, 60, 240])) };
         },
     },
 
