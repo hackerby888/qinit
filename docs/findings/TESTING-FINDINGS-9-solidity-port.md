@@ -284,3 +284,239 @@ The sweep is resumable: results are appended as NDJSON and a re-run skips ids al
 Compiled artifacts are cached under `work/cache`, keyed on the contract source, the qpi.h, the clang
 toolchain **and the TypeScript backend's own source tree** — so editing the compiler under test
 correctly invalidates its half of the cache rather than replaying yesterday's wasm.
+
+---
+
+# Round 2 — corpus expansion and cross-contract coverage
+
+Same harness, same environment as above, plus `wasi-sdk-29` unchanged. Round 2 grew the corpus from 68
+archetypes / 605 contracts to **118 archetypes / 1,204 contracts**, added the **cross-contract** family
+that round 1 dropped entirely, and moved both backends onto the `@qinit/build` wrappers so a caller and
+its callee are compiled through one options object.
+
+## Round 2 summary
+
+- **1 new confirmed defect** and **1 new documented divergence**, both from newly ported archetypes:
+  - **F203** — `qpi.K12(<expression>)` hashes different bytes than `qpi.K12(<variable>)` holding the same
+    value, under the TypeScript backend only. Convicted by a **third, independent oracle**, so this one
+    does not rest on the two backends disagreeing.
+  - **F204** — a shift by a count at or beyond the operand width diverges *only when the count is a
+    compile-time constant*. This is undefined behaviour in C++, so neither backend is wrong; what is
+    reportable is that clang's own folded and runtime spellings disagree with each other, and that
+    testing under `--compiler typescript` therefore cannot predict the on-chain answer.
+- **F202 (harness)** is closed: the generator defect round 1 recorded is fixed and its 13 contracts pass.
+- **F200 and F201 still reproduce**, unchanged, on the same variants.
+- The backend switch was verified to change nothing: re-running round 1's 605 contracts through the new
+  wrappers gave the identical 601 match / 4 non-match, same four rows.
+
+### F203 — `qpi.K12` of a computed expression hashes different bytes than `qpi.K12` of a variable holding that value
+
+Severity: **high (silent wrong hash: a commitment or Merkle root computed inline differs from what the
+chain would produce, with no diagnostic on either side)**.
+
+Repro: `corpus/solidity-port/triage/F203-k12-expression/` (`K12Struct.h`, `script.json`).
+
+```
+d=corpus/solidity-port/triage/F203-k12-expression
+bun run scripts/solidity-port/triage.ts $d/K12Struct.h $d/script.json
+# K12Struct: step-mismatch — step 0 (procedure 1): state digest differs
+#
+# with a = 1, b = 1, the Read function returns
+#   ofMember  ofLocal  ofSumExpression  ofProductExpression  witness
+#
+# TypeScript backend:
+#   61d86f04…  4e34329a…  dc545078…  11e55263…  2
+# clang backend:
+#   61d86f04…  4e34329a…  4e34329a…  61d86f04…  2
+exit 1
+```
+
+The contract's four rows are one value hashed four ways:
+
+```cpp
+state.mut().ofMember           = qpi.K12(input.a);          // control: a plain member
+locals.sum                     = input.a + input.b;
+state.mut().ofLocal            = qpi.K12(locals.sum);       // control: a named local
+state.mut().ofSumExpression    = qpi.K12(input.a + input.b);   // the finding
+state.mut().ofProductExpression = qpi.K12(input.a * 1);        // the finding
+```
+
+Oracle — and this is the part that assigns blame without appealing to either backend. core's K12 is one
+line, `src/qpi/impl/qpi_trivial_impl.h:111`:
+
+```cpp
+template <typename T>
+m256i QPI::QpiContextFunctionCall::K12(const T& data) const
+{
+    m256i digest;
+    KangarooTwelve(&data, sizeof(data), &digest, sizeof(digest));
+    return digest;
+}
+```
+
+`T` is `uint64` in every one of the four rows, so all four must hash exactly the eight little-endian
+bytes of their value. Computing that directly with the engine's own KangarooTwelve:
+
+```
+K12(uint64 1) = 61d86f0409ed80b1ad74e4ac47c4ce53cd7bf5267e1435b779af4ed907179d98
+K12(uint64 2) = 4e34329a1bac6e80862edb5e727be3dcc7d1169670a179622a21be84ff826f6e
+```
+
+clang produces exactly those for all four rows. The TypeScript backend produces them for the two rows
+whose argument is a plain variable and something else — `dc545078…`, `11e55263…` — for the two whose
+argument is an expression. **clang is right; the TypeScript backend is wrong.**
+
+Controls, all inside the same contract and the same build: `qpi.K12(input.a)` and `qpi.K12(locals.sum)`
+agree with clang and with the external oracle, so neither `qpi.K12` in general nor this contract's layout
+is implicated — only the temporary. Two further probes rule out the neighbouring suspects: `qpi.K12` over
+a 16-byte struct, over an `Array<uint64,4>` and over a struct of two `id`s all agree across backends, and
+so does `operator<` on `id`. The defect is specifically an argument that is a computed temporary.
+
+How it was found is worth recording: no probe was written for it. It fell out of
+`MerkleProofIterativeVerify`, a port of OpenZeppelin's `processProof`, whose fold hashes `seed + i`. That
+is exactly the case for a corpus of shapes nobody here designed — the archetype was written to test
+Merkle index arithmetic and caught a hashing bug instead. The archetype now hashes through a named local
+so it tests what it was written for, and `K12OfComputedExpression` carries the finding as a standing row.
+
+### F204 — a shift by an out-of-range count diverges only when the count is a compile-time constant, and clang's own two spellings disagree
+
+Severity: **low–medium (undefined behaviour, so neither backend is wrong; but a contract that shifts by
+an out-of-range constant gets a different result under `--compiler typescript` than on chain, and clang
+answers the same expression two different ways depending on whether it folds)**.
+
+Repro: `corpus/solidity-port/triage/F204-constant-shift-count/` (`ConstShift.h`, `script.json`).
+
+```
+d=corpus/solidity-port/triage/F204-constant-shift-count
+bun run scripts/solidity-port/triage.ts $d/ConstShift.h $d/script.json
+# ConstShift: step-mismatch — step 0 (procedure 1): state digest differs
+#
+# with value = 1 and a runtime count of 254, the Read function returns
+# ts:    foldedOutOfRange=4611686018427387904  runtimeOutOfRange=4611686018427387904  agreeOutOfRange=1
+# clang: foldedOutOfRange=0                    runtimeOutOfRange=4611686018427387904  agreeOutOfRange=0
+#        foldedInRange=8  runtimeInRange=8  agreeInRange=1        (on both backends)
+exit 1
+```
+
+The four rows are one shift written two ways, twice:
+
+```cpp
+static constexpr uint8 FOLDED_COUNT = 254;      // >= the operand width
+static constexpr uint8 FOLDED_IN_RANGE = 3;     // control
+
+locals.scratch = input.value << FOLDED_COUNT;   // the finding: foldable, out of range
+locals.scratch = input.value << input.count;    // control: same count, arrives at runtime
+locals.scratch = input.value << FOLDED_IN_RANGE;   // control: foldable, in range
+locals.scratch = input.value << (uint8)3;          // control: runtime, in range
+```
+
+What each backend does with `1 << 254` on a `uint64`:
+
+| | folded count | runtime count | self-consistent |
+| --- | --- | --- | --- |
+| TypeScript | 2^62 = 4611686018427387904 | 2^62 | **yes** |
+| clang | 0 | 2^62 | **no** |
+
+2^62 is `1 << (254 mod 64)`, which is what wasm's `i64.shl` does — it masks the count to six bits. So the
+runtime answer is 2^62 on both, as the instruction requires. The difference is the *folded* path: clang's
+constant folder resolves the undefined shift to 0, while the TypeScript backend folds it the same way its
+runtime code evaluates it.
+
+Oracle, and the reason this is filed as a divergence rather than a defect: `x << n` with `n >= width` is
+**undefined behaviour in C++** ([expr.shift]), so both answers are permitted and neither backend can be
+called wrong. Solidity, which is where the archetype came from, *does* define it — `shift_left_larger_type.sol`
+expects 0 — which is why the port carries the caveat that a disagreement here is expected signal.
+
+Controls: both in-range rows agree on both backends and between the folded and runtime spellings
+(`foldedInRange = runtimeInRange = 8`), so neither shift codegen nor constant folding in general is
+implicated. And the width sweep bounds it precisely — of 16 `ShiftRhsWiderThanLhs` variants, the four
+that diverge are exactly the 32- and 64-bit widths with `constSource=constexpr`:
+
+```
+match          integers/ShiftRhsWiderThanLhs__eb8b   {'width': 'uint8',  'constSource': 'input'}
+match          integers/ShiftRhsWiderThanLhs__65a3   {'width': 'uint8',  'constSource': 'constexpr'}
+match          integers/ShiftRhsWiderThanLhs__5a7d   {'width': 'uint32', 'constSource': 'input'}
+step-mismatch  integers/ShiftRhsWiderThanLhs__3d86   {'width': 'uint32', 'constSource': 'constexpr'}
+step-mismatch  integers/ShiftRhsWiderThanLhs__5bf5   {'width': 'uint64', 'constSource': 'constexpr'}
+step-mismatch  integers/ShiftRhsWiderThanLhs__9103   {'width': 'sint32', 'constSource': 'constexpr'}
+step-mismatch  integers/ShiftRhsWiderThanLhs__0599   {'width': 'sint64', 'constSource': 'constexpr'}
+```
+
+`uint8`/`uint16`/`sint8`/`sint16` agree because integer promotion widens them to `int` before the shift,
+and both backends then treat the promoted operand the same way. The `constSource` axis is what separated
+the two spellings; without it this would have looked like an ordinary width-dependent shift difference.
+
+## Round 2 suite counts
+
+Full sweep, `--tier full --workers 3` on 4 CPUs, 3 min 02 s wall:
+
+```
+FAMILY                     match digest-mi step-mism trap-dive one-side- both-reje expect-vi harness-e
+------------------------------------------------------------------------------------------------------
+assets                        12         0         0         0         0         0         0         0
+containers                   151         0         0         0         0         0         0         0
+controlflow                   35         0         0         0         0         0         0         0
+integers                     618         0         7         3         0         0         0         0
+intercontract                 18         0         0         0         0         0         0         0
+layout                       219         0         0         0         0         0         0         0
+lifecycle                      5         0         0         0         0         0         0         0
+logging                        6         0         0         0         0         0         0         0
+namespaces                   116         0         0         0         1         0         0         0
+vulnerabilities               13         0         0         0         0         0         0         0
+------------------------------------------------------------------------------------------------------
+1204 contracts · 1193 match · 11 not-match · 0 hang
+```
+
+The 11 non-matching rows are four findings and nothing else: 3 `DivQpi` sint32 variants (F200),
+1 `NsInheritedNamespacedTypedef` aliasOfAlias variant (F201), 3 `K12OfComputedExpression` variants
+(F203) and 4 `ShiftRhsWiderThanLhs` constexpr variants (F204).
+
+Stimulus coverage: 1,160 of 1,204 contracts moved their state digest mid-script, 5 emitted at least one
+log, 4 produced at least one trap, **18 made a cross-contract call**, and 44 finished with an all-zero
+state — the `loopShape=zero` and `initStyle=absent` variants, where writing nothing is the row's point.
+
+Positive control, re-run at the new size: planting `uint16: 2 → 4` in
+`packages/compiler/src/shared/scalar-sizes.ts` turned **37 of the 219 layout contracts red** (round 1:
+21 of 81), and restoring the line returned all 219 to green. `bun run corpus:check`: 1,216 files, 1,204
+contracts, clean. `bun run corpus:analyze`: 1,204 variants, 0 ERROR diagnostics, 1 expected-reject.
+`bun run typecheck`: clean. Harness controls: 16 pass, 0 fail — 12 comparator controls including three
+new pair controls, plus corpus-integrity checks that every callee sits at a strictly lower slot than its
+caller.
+
+## What round 2 changed in the harness
+
+- **Both backends now go through the `@qinit/build` wrappers** (`buildContractWithTypeScript` /
+  `buildContractWithClang`), which take a field-identical options object. That is what makes
+  `dynCallees` mean the same thing to both and gives cross-contract support without new plumbing.
+  Verified not to move anything: re-running round 1's 605 contracts through the wrappers reproduced the
+  identical 601 match / 4 non-match, same four rows.
+- **Pairs are compiled, deployed and compared as pairs.** The callee is built standalone, the caller with
+  `dynCallees`; they deploy ascending by slot (callee at 28, caller at 29) because the registry runs
+  `INITIALIZE` on first deploy; and **both slots' digests are compared**, since cross-contract writes land
+  in the callee and comparing only the caller would report a false match.
+- **The compile cache now covers the callee's source and slot.** Without that a caller cached under the
+  old key would survive a callee edit and replay stale wasm.
+- **Four axes that were declared but not applied are now real**: `temporaries` (locals arena vs a scratch
+  sub-struct of state), `initStyle` (INITIALIZE full / empty / omitted), `entryShape` (body inline vs
+  reached through a `PRIVATE_*` entry and `CALL`), `constSource` (operand from input vs a `constexpr`).
+  `constSource` is what produced F204.
+- **The variant cap changed** from "exhaustive up to 400" to "exhaustive when the cross product is ≤ 32,
+  otherwise a pairwise cover capped at 32", because six axes make a full cross product explode.
+
+## Round 2 limitations
+
+Everything in round 1's limitations still holds unchanged — the shared build gate, the shared `qpi.h`,
+and above all the shared `QubicSimulator`: **"1,193 matched" still means they agreed with each other**,
+not that they were right. Cross-contract adds a shared host path (`liteCallFunction`) with exactly the
+same property. No finding in this ledger has been confirmed against real core or WAMR; that remains the
+obvious next step and remains undone.
+
+Two things are specific to round 2:
+
+- **1,204 contracts came from 118 archetypes**, so the effective sample is nearer 118 than 1,204. The
+  corpus is short of the ~250 archetypes the round was scoped around; what was delivered is the harness
+  work, the cross-contract family, the four new axes, and roughly 50 new archetypes. The remaining
+  archetype ideas are catalogued and the generator takes them without further plumbing.
+- **F204 is not a defect and should not be read as one.** Shifting past the operand width is undefined in
+  C++; the finding is the *inconsistency*, not a wrong answer, and the TypeScript backend is arguably the
+  better-behaved of the two there.

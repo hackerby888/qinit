@@ -16,7 +16,13 @@ function isRejection(message: string): boolean {
     return /reject|invalid|unknown contract|not found|unregistered/i.test(message);
 }
 
-export function executeScript(backend: BackendRun["backend"], wasm: Uint8Array, script: CallScript): BackendRun {
+/** A callee deployed alongside the contract under test, at a strictly lower slot. */
+export interface DeployedCallee {
+    slot: number;
+    wasm: Uint8Array;
+}
+
+export function executeScript(backend: BackendRun["backend"], wasm: Uint8Array, script: CallScript, callee?: DeployedCallee): BackendRun {
     const started = Date.now();
     const steps: StepRecord[] = [];
     const sim = new QubicSimulator({
@@ -39,6 +45,9 @@ export function executeScript(backend: BackendRun["backend"], wasm: Uint8Array, 
     let status: BackendRun["status"] = "ok";
     let fatal: string | undefined;
     try {
+        // Ascending by slot: the registry runs INITIALIZE on first deploy, so a caller whose INITIALIZE
+        // calls out would otherwise hit an empty slot and get CALL_ERROR_CONTRACT_INACTIVE.
+        if (callee) sim.deploy(callee.slot, callee.wasm);
         sim.deploy(script.slot, wasm);
     } catch (error: any) {
         const message = String(error?.message ?? error);
@@ -95,6 +104,7 @@ export function executeScript(backend: BackendRun["backend"], wasm: Uint8Array, 
 
     const contract = sim.contracts.get(script.slot);
     const finalState = contract?.state();
+    const calleeContract = callee ? sim.contracts.get(callee.slot) : undefined;
     return {
         backend,
         status,
@@ -107,5 +117,8 @@ export function executeScript(backend: BackendRun["backend"], wasm: Uint8Array, 
         compileMs: 0,
         executeMs: Date.now() - started,
         wasmBytes: wasm.byteLength,
+        // Most cross-contract mutation lands in the callee, so the caller's own state can be identical
+        // while the callee's diverges. Both are compared.
+        ...(calleeContract ? { calleeDigest: sim.digest(callee!.slot), calleeStateSize: calleeContract.state().byteLength } : {}),
     };
 }

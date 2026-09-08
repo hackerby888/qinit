@@ -79,7 +79,10 @@ async function runShard(variants: Variant[], outPath: string, cacheDir: string, 
                 contractName: variant.archetype.name,
                 source: variant.contract.source,
                 script: variant.contract.script,
+                callee: variant.contract.callee,
                 expectReject: variant.archetype.expectReject,
+                expectedVerdict: variant.archetype.expectedVerdict,
+                divergenceNote: variant.archetype.divergenceNote,
             });
         } catch (error: any) {
             result = {
@@ -158,9 +161,12 @@ function scoreboard(outPath: string): number {
     const emittedLogs = rows.filter((row) => row.ts.steps.some((step) => (step.logs?.length ?? 0) > 0)).length;
     const trapped = rows.filter((row) => row.ts.steps.some((step) => step.fault)).length;
     const distinctDigests = rows.filter((row) => new Set(row.ts.steps.map((step) => step.digest).filter(Boolean)).size > 1).length;
+    const pairs = rows.filter((row) => row.ts.calleeDigest !== undefined).length;
 
     console.log(`${total} contracts · ${matched} match · ${failures.length} not-match · ${begun.size} hang · median ${median}ms`);
-    console.log(`stimulus: ${distinctDigests} moved state mid-script · ${emittedLogs} emitted >=1 log · ${trapped} produced >=1 trap · ${deadState} ended all-zero`);
+    console.log(
+        `stimulus: ${distinctDigests} moved state mid-script · ${emittedLogs} emitted >=1 log · ${trapped} produced >=1 trap · ${pairs} called a callee · ${deadState} ended all-zero`,
+    );
     if (deadState > 0) console.log(`  NOTE: ${deadState} contract(s) finished with an all-zero state — their scripts may never reach a state write.`);
     if (begun.size) console.log(`HANG: ${[...begun].join(", ")}`);
     for (const failure of failures.slice(0, 40)) console.log(`  ${failure.verdict}  ${failure.id}  ${failure.firstDifference ?? ""}`);

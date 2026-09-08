@@ -10,6 +10,11 @@ import { AXIS_VALUES } from "./axes";
 import { pairwiseCover } from "./cover";
 import { assertEmittedSourceIsLegal } from "./emit";
 import { INTEGER_ARCHETYPES } from "./archetypes/integers";
+import { SHIFT_ARCHETYPES } from "./archetypes/integers-shifts";
+import { INTEGER_MATH_ARCHETYPES, K12_EXPRESSION_ARCHETYPES } from "./archetypes/integers-math";
+import { LAYOUT_PACKING_ARCHETYPES } from "./archetypes/layout-packing";
+import { NAMESPACE_RESOLUTION_ARCHETYPES } from "./archetypes/namespaces-resolution";
+import { INTERCONTRACT_ARCHETYPES } from "./archetypes/intercontract";
 import { ASSET_ARCHETYPES } from "./archetypes/assets";
 import { CONTROLFLOW_ARCHETYPES } from "./archetypes/controlflow";
 import { LIFECYCLE_ARCHETYPES } from "./archetypes/lifecycle";
@@ -17,6 +22,7 @@ import { LOGGING_ARCHETYPES } from "./archetypes/logging";
 import { VULNERABILITY_ARCHETYPES } from "./archetypes/vulnerabilities";
 import { LAYOUT_ARCHETYPES } from "./archetypes/layout";
 import { CONTAINER_ARCHETYPES } from "./archetypes/containers";
+import { CONTAINER_STRUCTURE_ARCHETYPES } from "./archetypes/containers-structures";
 import { NAMESPACE_ARCHETYPES } from "./archetypes/namespaces";
 import type { Archetype, AxisAssignment, AxisName, BuiltContract, Family } from "./types";
 
@@ -25,13 +31,21 @@ export const GENERATOR_VERSION = 1;
 
 export const ARCHETYPES: Archetype[] = [
     ...NAMESPACE_ARCHETYPES,
+    ...NAMESPACE_RESOLUTION_ARCHETYPES,
     ...LAYOUT_ARCHETYPES,
-    ...INTEGER_ARCHETYPES, ...CONTAINER_ARCHETYPES,
+    ...INTEGER_ARCHETYPES,
+    ...SHIFT_ARCHETYPES,
+    ...INTEGER_MATH_ARCHETYPES,
+    ...K12_EXPRESSION_ARCHETYPES,
+    ...LAYOUT_PACKING_ARCHETYPES,
+    ...CONTAINER_ARCHETYPES,
+    ...CONTAINER_STRUCTURE_ARCHETYPES,
     ...CONTROLFLOW_ARCHETYPES,
     ...LIFECYCLE_ARCHETYPES,
     ...ASSET_ARCHETYPES,
     ...LOGGING_ARCHETYPES,
     ...VULNERABILITY_ARCHETYPES,
+    ...INTERCONTRACT_ARCHETYPES,
 ];
 
 export function archetypesByFamily(): Map<Family, Archetype[]> {
@@ -83,7 +97,13 @@ export function expandArchetype(archetype: Archetype, maxVariants: number, exhau
 
     if (axes.length > 0) {
         const domains = axes.map((axis) => AXIS_VALUES[axis]);
-        const rows = exhaustive ? crossProduct(domains) : pairwiseCover(domains, Number.parseInt(shortHash(`${archetype.name}#${GENERATOR_VERSION}`), 16) >>> 0, Math.max(1, maxVariants - 1));
+        // An exhaustive cross product explodes once an archetype opts into three or more axes
+        // (eight widths times three placements times two temporaries is already 48), so the product is
+        // only enumerated in full when it fits under the cap. Past that a pairwise cover still reaches
+        // every axis value and every pair of values, which is the shape every finding so far has had.
+        const product = domains.reduce((total, domain) => total * domain.length, 1);
+        const seed = Number.parseInt(shortHash(`${archetype.name}#${GENERATOR_VERSION}`), 16) >>> 0;
+        const rows = exhaustive && product <= maxVariants ? crossProduct(domains) : pairwiseCover(domains, seed, Math.max(1, maxVariants - 1));
         for (const row of rows) {
             const assignment: AxisAssignment = {};
             row.forEach((valueIndex, axisIndex) => {
@@ -145,8 +165,10 @@ export const TIERS = {
     standard: 15,
     /** A wider pairwise cover, for re-running a family after a mismatch cluster. */
     deep: 40,
-    /** Every combination of every opted-in axis. The campaign sweep. */
-    full: 400,
+    /** Every combination of every opted-in axis where that fits under 32; a pairwise cover past that. */
+    full: 32,
+    /** A wider cap for an on-demand overnight run. */
+    max: 64,
 } as const;
 
 export type Tier = keyof typeof TIERS;

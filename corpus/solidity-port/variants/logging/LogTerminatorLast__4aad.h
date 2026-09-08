@@ -12,6 +12,14 @@ struct LogTerminatorLast2
 
 struct LogTerminatorLast : public ContractBase
 {
+    struct LogMsg
+    {
+        uint32 _contractIndex;
+        uint32 _type;
+        uint64 value;
+        sint8 _terminator;
+    };
+
     struct StateData
     {
         struct Inner
@@ -20,14 +28,6 @@ struct LogTerminatorLast : public ContractBase
         };
         uint64 placementGuard;
         Inner inner;
-    };
-
-    struct LogMsg
-    {
-        uint32 _contractIndex;
-        uint32 _type;
-        uint64 value;
-        sint8 _terminator;
     };
 
     struct Emit_input

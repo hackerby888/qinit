@@ -11,7 +11,8 @@ export type Family =
     | "lifecycle"
     | "assets"
     | "logging"
-    | "vulnerabilities";
+    | "vulnerabilities"
+    | "intercontract";
 
 export const FAMILIES: Family[] = [
     "namespaces",
@@ -23,6 +24,7 @@ export const FAMILIES: Family[] = [
     "assets",
     "logging",
     "vulnerabilities",
+    "intercontract",
 ];
 
 /** QPI scalar spellings an archetype can be re-typed to. `uint128` has no literal suffix, so it is handled apart. */
@@ -55,10 +57,27 @@ export const FILLS: Fill[] = ["empty", "half", "full", "over"];
 /** Where an entry's temporaries live. Both are legal; only the `_locals` struct is canonical. */
 export type Temporaries = "locals" | "stateScratch";
 
+export const TEMPORARIES: Temporaries[] = ["locals", "stateScratch"];
+
+/** How much INITIALIZE does. `absent` omits it entirely, leaving construction-time zeroing to the host. */
+export type InitStyle = "full" | "empty" | "absent";
+
+export const INIT_STYLES: InitStyle[] = ["full", "empty", "absent"];
+
+/** Whether an entry's body runs inline or is reached through a PRIVATE_FUNCTION + CALL. */
+export type EntryShape = "direct" | "viaPrivate";
+
+export const ENTRY_SHAPES: EntryShape[] = ["direct", "viaPrivate"];
+
+/** Whether the archetype's operand arrives at runtime or as a compile-time constant. */
+export type ConstSource = "input" | "constexpr";
+
+export const CONST_SOURCES: ConstSource[] = ["input", "constexpr"];
+
 /** The shape of a loop bound, which decides whether the trip count is a constant to the compiler. */
 export type LoopShape = "constant" | "clamped" | "zero";
 
-export type AxisName = "width" | "capacity" | "fill" | "ns" | "layout" | "placement" | "temporaries" | "loopShape";
+export type AxisName = "width" | "capacity" | "fill" | "ns" | "layout" | "placement" | "temporaries" | "loopShape" | "initStyle" | "entryShape" | "constSource";
 
 /** One point in the archetype's opted-in axis space. Absent keys mean the archetype ignores that axis. */
 export interface AxisAssignment {
@@ -70,6 +89,9 @@ export interface AxisAssignment {
     placement?: Placement;
     temporaries?: Temporaries;
     loopShape?: LoopShape;
+    initStyle?: InitStyle;
+    entryShape?: EntryShape;
+    constSource?: ConstSource;
 }
 
 /** One step of stimulus. `in` is the raw input struct as hex, so both compilers see identical bytes. */
@@ -122,6 +144,13 @@ export interface CallScript {
 export interface BuiltContract {
     source: string;
     script: CallScript;
+    /**
+     * A callee this contract calls. Its slot must be strictly lower than the caller's: clang
+     * static_asserts the ordering inside the CALL macro, while the TypeScript backend does not check it
+     * at compile time and instead returns CALL_ERROR_CONTRACT_INACTIVE at runtime — so generating a
+     * wrong-order pair by accident would manufacture a false compile-divergence row.
+     */
+    callee?: { name: string; source: string; slot: number };
 }
 
 export interface Archetype {
@@ -143,6 +172,14 @@ export interface Archetype {
      * drifting apart.
      */
     expectReject?: boolean;
+    /**
+     * A divergence this archetype exists to pin, with a documented cause. Scored as a match when it
+     * diverges exactly this way, and as a failure if it ever stops — a regression test rather than a
+     * permanent red row on the scoreboard. Requires `divergenceNote`.
+     */
+    expectedVerdict?: Verdict;
+    /** Why the expected divergence happens; rendered into the emitted file and the scoreboard. */
+    divergenceNote?: string;
     build(axis: AxisAssignment): BuiltContract;
 }
 
@@ -178,6 +215,14 @@ export interface BackendRun {
     wasmBytes?: number;
     /** True when the wasm came from the compile cache, so `compileMs` is not a build time. */
     cached?: boolean;
+    /**
+     * The callee's final state, for a pair. Most cross-contract mutation lands here, so the caller's own
+     * state can be identical while the callee's diverges.
+     */
+    calleeDigest?: string;
+    calleeStateSize?: number;
+    /** Cross-contract calls the run actually made, so a pair that never called out is visible. */
+    calls?: number;
 }
 
 export type Verdict =

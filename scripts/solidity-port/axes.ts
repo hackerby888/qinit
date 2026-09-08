@@ -2,7 +2,7 @@
 // apply them. The axes are chosen from the families that have historically produced silent bugs in
 // this compiler — name qualification, field placement, scalar width, container fill.
 
-import { ALL_WIDTHS, LAYOUT_MODES, NS_MODES, PLACEMENTS, UNSIGNED_WIDTHS } from "./types";
+import { ALL_WIDTHS, CONST_SOURCES, ENTRY_SHAPES, INIT_STYLES, LAYOUT_MODES, NS_MODES, PLACEMENTS, TEMPORARIES, UNSIGNED_WIDTHS } from "./types";
 import type { AxisAssignment, AxisName, Fill, LayoutMode, NsMode, Placement, ScalarWidth } from "./types";
 import { LEGAL_CAPACITIES } from "./emit";
 
@@ -14,8 +14,11 @@ export const AXIS_VALUES: { [K in AxisName]: readonly unknown[] } = {
     ns: NS_MODES,
     layout: LAYOUT_MODES,
     placement: PLACEMENTS,
-    temporaries: ["locals", "stateScratch"],
+    temporaries: TEMPORARIES,
     loopShape: ["constant", "clamped", "zero"],
+    initStyle: INIT_STYLES,
+    entryShape: ENTRY_SHAPES,
+    constSource: CONST_SOURCES,
 };
 
 export function widthOf(axis: AxisAssignment, fallback: ScalarWidth = "uint64"): ScalarWidth {
@@ -151,6 +154,16 @@ export function loopHeader(axis: AxisAssignment, counter: string, boundExpressio
         case "zero":
             return `for (${counter} = 0; ${counter} < 0; ${counter}++)`;
     }
+}
+
+/**
+ * The `constSource` axis: the archetype's second operand arrives either at runtime through `input`, or as
+ * a `static constexpr` the compiler is free to fold. The two paths are lowered very differently, and this
+ * repo has already seen a constant folder disagree with the code it folds for.
+ */
+export function operandFor(axis: AxisAssignment, inputExpression: string, constantName: string, constantType: string, constantValue: bigint): { prelude: string; use: string } {
+    if ((axis.constSource ?? "input") === "input") return { prelude: "", use: inputExpression };
+    return { prelude: `static constexpr ${constantType} ${constantName} = ${constantValue};`, use: constantName };
 }
 
 /** Widths an archetype should be re-typed to when it only makes sense unsigned. */

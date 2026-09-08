@@ -3,18 +3,19 @@
 Generated. Do not edit by hand — edit the archetype in `scripts/solidity-port/archetypes/` and
 regenerate. `bun run scripts/solidity-port/generate.ts --check` enforces that in CI.
 
-Tier `full` · 68 archetypes · 605 contracts · generator version 1.
+Tier `full` · 118 archetypes · 1204 contracts · generator version 1.
 
 | family | contracts |
 | --- | ---: |
 | assets | 12 |
-| containers | 48 |
+| containers | 151 |
 | controlflow | 35 |
-| integers | 345 |
-| layout | 81 |
+| integers | 628 |
+| intercontract | 18 |
+| layout | 219 |
 | lifecycle | 5 |
 | logging | 6 |
-| namespaces | 60 |
+| namespaces | 117 |
 | vulnerabilities | 13 |
 
 ## What this is
@@ -35,7 +36,7 @@ bun run scripts/solidity-port/run-differential.ts --tier full --workers 3
 
 ## What it is not
 
-Only 284 of 605 contracts are faithful ports; the rest are marked `shape-only` in
+Only 508 of 1204 contracts are faithful ports; the rest are marked `shape-only` in
 `manifest.jsonl`. QPI has no revert, no `uint256`, no unbounded mapping and no reentrancy, so a
 Solidity test whose point was atomicity or 256-bit wraparound becomes a *different* test after
 porting. The corpus is a source of adversarial **shapes**, not evidence about Solidity semantics.

@@ -6,11 +6,19 @@
 // source is ever handed to a compiler, so a generator bug surfaces as a generator failure rather than
 // as a contract both backends reject.
 
-import type { Family } from "./types";
+import type { EntryShape, Family, InitStyle, Temporaries } from "./types";
 
 export interface EntrySpec {
     name: string;
     kind: "procedure" | "function";
+    /** `private` emits PRIVATE_* and is not registered; used by the `entryShape` axis. */
+    visibility?: "public" | "private";
+    /**
+     * Take this entry's `_input`/`_output` types by alias instead of declaring fresh structs. Two structs
+     * with identical members are still distinct types in C++, so a forwarding entry has to alias rather
+     * than duplicate or the copy into the forwarded buffer will not compile.
+     */
+    ioAlias?: string;
     /** Registration number, unique per kind within the contract. */
     number: number;
     /** Body of `<Name>_input`. Empty means an empty struct. */
@@ -44,6 +52,16 @@ export interface ContractSpec {
      * Entry bodies are rewritten to match, so an archetype's body text never has to know the placement.
      */
     statePlacement?: "first" | "last" | "nested";
+    /**
+     * Where entry temporaries live. `stateScratch` moves every `_locals` member into a scratch sub-struct
+     * of StateData and rewrites the bodies, which is a different lowering of the same computation: the
+     * locals arena versus contract state memory.
+     */
+    temporaries?: Temporaries;
+    /** How much INITIALIZE does. `absent` omits it, leaving the host's construction-time zeroing exposed. */
+    initStyle?: InitStyle;
+    /** `viaPrivate` moves each public entry's body into a PRIVATE_* entry reached by CALL. */
+    entryShape?: EntryShape;
     /** Whole struct declarations that must live inside the contract, such as a LOG_* payload type. */
     extraStructs?: string;
     entries: EntrySpec[];
@@ -89,9 +107,12 @@ function indentBlock(block: string, indent: string): string {
 }
 
 function emitEntry(entry: EntrySpec): string {
-    const parts = [structBlock(`${entry.name}_input`, entry.input ?? ""), structBlock(`${entry.name}_output`, entry.output ?? "")];
+    const parts = entry.ioAlias
+        ? [`    using ${entry.name}_input = ${entry.ioAlias}_input;`, `    using ${entry.name}_output = ${entry.ioAlias}_output;`]
+        : [structBlock(`${entry.name}_input`, entry.input ?? ""), structBlock(`${entry.name}_output`, entry.output ?? "")];
     if (entry.locals !== undefined) parts.push(structBlock(`${entry.name}_locals`, entry.locals));
-    const macro = entry.kind === "procedure" ? "PUBLIC_PROCEDURE" : "PUBLIC_FUNCTION";
+    const scope = (entry.visibility ?? "public") === "private" ? "PRIVATE" : "PUBLIC";
+    const macro = entry.kind === "procedure" ? `${scope}_PROCEDURE` : `${scope}_FUNCTION`;
     const suffix = entry.locals !== undefined ? "_WITH_LOCALS" : "";
     parts.push(`    ${macro}${suffix}(${entry.name})\n    {\n${bodyBlock(entry.body, "        ")}\n    }`);
     return parts.join("\n\n");
@@ -132,8 +153,111 @@ function applyPlacement(spec: ContractSpec): ContractSpec {
     };
 }
 
+/**
+ * Apply the `temporaries` axis: move every entry's `_locals` members into one scratch sub-struct of
+ * StateData and rewrite `locals.x` to reach it. `state.mut()` yields a mutable reference, so the same
+ * spelling serves reads and writes.
+ *
+ * Members are prefixed per entry, because two entries may each declare a `scratch` or an `i` and they
+ * would collide in a shared struct. The transform bails out entirely when a locals member is typed by an
+ * entry's own I/O struct: the scratch struct is emitted before those structs exist, so hoisting such a
+ * member would reference an incomplete type. Bailing out is safe — the variant then renders identically
+ * to the `locals` spelling and the source-fingerprint dedup drops it.
+ */
+function applyTemporaries(spec: ContractSpec): ContractSpec {
+    if ((spec.temporaries ?? "locals") === "locals") return spec;
+    const withLocals = spec.entries.filter((entry) => entry.locals !== undefined && entry.locals.trim());
+    if (withLocals.length === 0) return spec;
+
+    const declarations: string[] = [];
+    const renamesByEntry = new Map<string, Map<string, string>>();
+    for (const entry of withLocals) {
+        const renames = new Map<string, string>();
+        for (const line of entry.locals!.trim().split("\n")) {
+            const declaration = line.trim();
+            if (!declaration) continue;
+            const match = /^(.+?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*;$/.exec(declaration);
+            if (!match) return spec;
+            const [, typeName, member] = match;
+            if (/_input\b|_output\b|_locals\b/.test(typeName)) return spec;
+            const scoped = `${entry.name.charAt(0).toLowerCase()}${entry.name.slice(1)}${member.charAt(0).toUpperCase()}${member.slice(1)}`;
+            renames.set(member, scoped);
+            declarations.push(`${typeName} ${scoped};`);
+        }
+        renamesByEntry.set(entry.name, renames);
+    }
+
+    const rewriteFor = (entryName: string) => (text: string) => {
+        const renames = renamesByEntry.get(entryName);
+        if (!renames) return text;
+        return text.replace(/\blocals\.([A-Za-z_][A-Za-z0-9_]*)/g, (whole, member: string) => {
+            const scoped = renames.get(member);
+            return scoped ? `state.mut().scratch.${scoped}` : whole;
+        });
+    };
+
+    return {
+        ...spec,
+        state: `${spec.state.trim()}\nScratch scratch;`,
+        extraStructs: `${spec.extraStructs ?? ""}\nstruct Scratch\n{\n${declarations.map((line) => `    ${line}`).join("\n")}\n};`,
+        entries: spec.entries.map((entry) =>
+            entry.locals !== undefined && entry.locals.trim() ? { ...entry, locals: undefined, body: rewriteFor(entry.name)(entry.body) } : entry,
+        ),
+    };
+}
+
+/** Apply the `initStyle` axis. */
+function applyInitStyle(spec: ContractSpec): ContractSpec {
+    switch (spec.initStyle ?? "full") {
+        case "full":
+            return spec;
+        case "empty":
+            return { ...spec, initialize: spec.initialize === undefined ? undefined : "", initializeLocals: undefined };
+        case "absent":
+            return { ...spec, initialize: undefined, initializeLocals: undefined };
+    }
+}
+
+/**
+ * Apply the `entryShape` axis: move each public entry's body into a private entry of the same kind and
+ * have the public one CALL it. The private entry reuses the public one's I/O structs, so only the
+ * dispatch changes.
+ */
+function applyEntryShape(spec: ContractSpec): ContractSpec {
+    if ((spec.entryShape ?? "direct") === "direct") return spec;
+    const entries: EntrySpec[] = [];
+    for (const entry of spec.entries) {
+        // An entry the archetype already made private is its own helper; wrapping it would publish it.
+        if ((entry.visibility ?? "public") === "private") {
+            entries.push(entry);
+            continue;
+        }
+        const inner = `${entry.name}Body`;
+        // The public entry keeps the real I/O structs (the IDL is derived from them); the private one
+        // aliases them, so the forwarded copy is between two names for one type.
+        entries.push({
+            name: entry.name,
+            kind: entry.kind,
+            number: entry.number,
+            input: entry.input,
+            output: entry.output,
+            // The forwarding buffers use the public entry's own types, declared immediately above, so no
+            // member here depends on a type the class has not reached yet. The private entry then aliases
+            // those same types, which makes the CALL's buffers exactly the types it expects.
+            locals: `${entry.name}_input forwardedInput;\n${entry.name}_output forwardedOutput;`,
+            body: [
+                ...(entry.input?.trim() ? ["locals.forwardedInput = input;"] : []),
+                `CALL(${inner}, locals.forwardedInput, locals.forwardedOutput);`,
+                ...(entry.output?.trim() ? ["output = locals.forwardedOutput;"] : []),
+            ].join("\n"),
+        });
+        entries.push({ ...entry, name: inner, visibility: "private", ioAlias: entry.name, input: undefined, output: undefined });
+    }
+    return { ...spec, entries };
+}
+
 export function emitContract(input: ContractSpec): string {
-    const spec = applyPlacement(input);
+    const spec = applyPlacement(applyEntryShape(applyTemporaries(applyInitStyle(input))));
     const { header } = spec;
     const comment = [
         `// ${header.archetype} — ported from ${header.solidity}`,
@@ -144,11 +268,20 @@ export function emitContract(input: ContractSpec): string {
     ].join("\n");
 
     const blocks: string[] = [];
-    blocks.push(structBlock("StateData", spec.state));
+    // Extra structs come first: StateData can carry one as a member (the `temporaries` axis does exactly
+    // that), and a member needs its type to be complete at the point of declaration.
     if (spec.extraStructs?.trim()) blocks.push(indentBlock(spec.extraStructs, "    "));
-    for (const entry of [...spec.entries].sort((a, b) => a.name.localeCompare(b.name))) blocks.push(emitEntry(entry));
+    blocks.push(structBlock("StateData", spec.state));
+    // A struct member needs a complete type, so an entry whose `_locals` names another entry's I/O has
+    // to be emitted after it. Two shapes need that: a hand-written private helper, whose types the public
+    // caller references, and the `entryShape` forwarding pair, where the private half aliases the public
+    // half's types. Ordering helpers first and aliasing entries last satisfies both.
+    const emissionRank = (entry: EntrySpec): number => (entry.ioAlias ? 2 : (entry.visibility ?? "public") === "private" ? 0 : 1);
+    const ordered = [...spec.entries].sort((a, b) => emissionRank(a) - emissionRank(b) || a.name.localeCompare(b.name));
+    for (const entry of ordered) blocks.push(emitEntry(entry));
 
     const registrations = [...spec.entries]
+        .filter((entry) => (entry.visibility ?? "public") !== "private")
         .sort((a, b) => (a.kind === b.kind ? a.number - b.number : a.kind === "function" ? -1 : 1))
         .map((entry) => `        REGISTER_USER_${entry.kind === "procedure" ? "PROCEDURE" : "FUNCTION"}(${entry.name}, ${entry.number});`)
         .join("\n");

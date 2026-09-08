@@ -10,12 +10,6 @@ struct LogNestedStructPayload2
 
 struct LogNestedStructPayload : public ContractBase
 {
-    struct StateData
-    {
-        uint64 emitted;
-        uint64 placementGuard;
-    };
-
     struct Pair
     {
         uint64 left;
@@ -29,6 +23,12 @@ struct LogNestedStructPayload : public ContractBase
         id who;
         Pair pair;
         sint8 _terminator;
+    };
+
+    struct StateData
+    {
+        uint64 emitted;
+        uint64 placementGuard;
     };
 
     struct Emit_input

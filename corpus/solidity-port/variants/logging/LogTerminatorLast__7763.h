@@ -12,18 +12,18 @@ struct LogTerminatorLast2
 
 struct LogTerminatorLast : public ContractBase
 {
-    struct StateData
-    {
-        uint64 placementGuard;
-        uint64 emitted;
-    };
-
     struct LogMsg
     {
         uint32 _contractIndex;
         uint32 _type;
         uint64 value;
         sint8 _terminator;
+    };
+
+    struct StateData
+    {
+        uint64 placementGuard;
+        uint64 emitted;
     };
 
     struct Emit_input

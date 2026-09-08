@@ -47,6 +47,14 @@ export function compareRuns(ts: BackendRun, clang: BackendRun): string | null {
     if (ts.digest !== clang.digest) {
         return `final state digest differs — ts ${ts.digest} / clang ${clang.digest}`;
     }
+    // A pair's cross-contract writes land in the callee, so the caller's own state can agree while the
+    // callee's does not. Checked after the caller so the message names the nearer difference first.
+    if (ts.calleeStateSize !== clang.calleeStateSize) {
+        return `callee state size ${ts.calleeStateSize} != ${clang.calleeStateSize}`;
+    }
+    if (ts.calleeDigest !== clang.calleeDigest) {
+        return `callee state digest differs — ts ${ts.calleeDigest} / clang ${clang.calleeDigest}`;
+    }
     return null;
 }
 
@@ -63,7 +71,7 @@ export function classify(ts: BackendRun, clang: BackendRun, difference: string |
         if (ts.status !== clang.status) return "trap-divergence";
     }
     if (difference === null) return "match";
-    if (difference.startsWith("final state digest")) return "digest-mismatch";
+    if (difference.startsWith("final state digest") || difference.startsWith("callee state digest")) return "digest-mismatch";
     if (difference.includes("fault differs")) return "trap-divergence";
     return "step-mismatch";
 }
