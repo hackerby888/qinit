@@ -16,6 +16,7 @@ import { INTEGER_WIDE_ARCHETYPES } from "./archetypes/integers-wide";
 import { INTEGER_CAST_ARCHETYPES } from "./archetypes/integers-casts";
 import { INTEGER_SIGNED_ARCHETYPES } from "./archetypes/integers-signed";
 import { INTEGER_LOOP_ARCHETYPES } from "./archetypes/integers-loops";
+import { DATETIME_ARCHETYPES } from "./archetypes/integers-datetime";
 import { LAYOUT_PACKING_ARCHETYPES } from "./archetypes/layout-packing";
 import { LAYOUT_ARRAY_ARCHETYPES } from "./archetypes/layout-arrays";
 import { LAYOUT_WIDTH_ARCHETYPES } from "./archetypes/layout-widths";
@@ -32,6 +33,7 @@ import { ASSET_ARCHETYPES } from "./archetypes/assets";
 import { ASSET_LEDGER_ARCHETYPES } from "./archetypes/assets-ledger";
 import { ASSET_SHARE_ARCHETYPES } from "./archetypes/assets-shares";
 import { ASSET_MORE_ARCHETYPES } from "./archetypes/assets-more";
+import { ASSET_ITERATOR_ARCHETYPES } from "./archetypes/assets-iterators";
 import { HOSTCALL_IDENTITY_ARCHETYPES } from "./archetypes/hostcalls-identity";
 import { HOSTCALL_TIME_ARCHETYPES } from "./archetypes/hostcalls-time";
 import { HOSTCALL_MORE_ARCHETYPES } from "./archetypes/hostcalls-more";
@@ -56,6 +58,7 @@ import { CONTAINER_STRUCTURE_ARCHETYPES } from "./archetypes/containers-structur
 import { CONTAINER_COLLECTION_ARCHETYPES } from "./archetypes/containers-collections";
 import { CONTAINER_ADVANCED_ARCHETYPES } from "./archetypes/containers-advanced";
 import { COLLECTION_POV_ARCHETYPES } from "./archetypes/containers-collection-pov";
+import { HASH_REMOVAL_ARCHETYPES } from "./archetypes/containers-hash-removal";
 import { CONTAINER_PATTERN_ARCHETYPES } from "./archetypes/containers-patterns";
 import { NAMESPACE_ARCHETYPES } from "./archetypes/namespaces";
 import { UNIVERSAL_AXES } from "./types";
@@ -79,6 +82,7 @@ export const ARCHETYPES: Archetype[] = [
     ...INTEGER_CAST_ARCHETYPES,
     ...INTEGER_SIGNED_ARCHETYPES,
     ...INTEGER_LOOP_ARCHETYPES,
+    ...DATETIME_ARCHETYPES,
     ...LAYOUT_PACKING_ARCHETYPES,
     ...LAYOUT_ARRAY_ARCHETYPES,
     ...LAYOUT_WIDTH_ARCHETYPES,
@@ -88,6 +92,7 @@ export const ARCHETYPES: Archetype[] = [
     ...CONTAINER_COLLECTION_ARCHETYPES,
     ...CONTAINER_ADVANCED_ARCHETYPES,
     ...COLLECTION_POV_ARCHETYPES,
+    ...HASH_REMOVAL_ARCHETYPES,
     ...CONTAINER_PATTERN_ARCHETYPES,
     ...CONTROLFLOW_ARCHETYPES,
     ...CONTROLFLOW_STRUCTURE_ARCHETYPES,
@@ -100,6 +105,7 @@ export const ARCHETYPES: Archetype[] = [
     ...ASSET_LEDGER_ARCHETYPES,
     ...ASSET_SHARE_ARCHETYPES,
     ...ASSET_MORE_ARCHETYPES,
+    ...ASSET_ITERATOR_ARCHETYPES,
     ...HOSTCALL_IDENTITY_ARCHETYPES,
     ...HOSTCALL_TIME_ARCHETYPES,
     ...HOSTCALL_MORE_ARCHETYPES,

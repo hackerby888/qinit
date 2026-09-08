@@ -1537,3 +1537,241 @@ Two lessons, both cheap and both learned the expensive way this round:
 2. **A derived number must be labelled as derived.** The reclassification reasoning was sound and the
    conclusion held, but publishing it in the shape of an observation is how a campaign that exists to
    distrust agreement ends up trusting its own arithmetic.
+
+# Round 7 — the third oracle was measuring one backend twice
+
+Round 6 ended by claiming the campaign had finally broken its central limitation: that both backends
+execute in the same `QubicSimulator`, so "they matched" only ever meant they agreed with each other.
+The claim rested on a parity sweep against core's own WAMR runtime.
+
+**That sweep never ran clang.** Round 7 opens by withdrawing its table.
+
+## F219 — harness: the parity sweep compared one artifact with itself
+
+Severity: **high (a published result was wrong, and the check offered as its validation was the
+defect's own signature)**.
+
+`buildContractWithClang` writes `join(outDir, "<contractName>.wasm")`
+(`packages/build/src/compile/clang.ts:275`) and `buildContractWithTypeScript` writes the same path
+(`packages/build/src/compile/typescript.ts:170`). `wamr-sweep.ts` passed both the same `outDir` and the
+same contract name. TypeScript built second, overwrote clang's artifact, and the run loop then read
+that one file twice — once labelled `clang`, once labelled `typescript`.
+
+Three independent confirmations:
+
+- Of the 385 contracts where both backends built, **357 produced byte-identical `simulator` *and*
+  `wamr` strings**. The only 28 rows that differed are the ones where the TypeScript build was refused
+  by the gate and never wrote a file at all.
+- `AccountBookWithIterationOrder`'s surviving clang artifact imports exactly the five registered
+  natives — **zero unregistered** — yet its clang row is `shim-trap`, a verdict the code can only reach
+  when `unregisteredImports(wasm).length > 0`. Structurally impossible unless the bytes being
+  classified were the TypeScript module's.
+- Same for `ArrayOfHashMaps`.
+
+So the published `590 agree · 152 shim-trap · 28 build-rejected · 0 DISAGREE` describes the TypeScript
+artifact twice, and **real clang coverage under the third oracle was zero**.
+
+The part worth dwelling on is the validation. Round 6 offered this as the run's internal consistency
+check:
+
+> the shim-trap set is **76 contracts on clang and the same 76 on the TypeScript backend — an
+> identical set**
+
+and reasoned that since whether a contract can run under a five-native shim is a property of the
+contract rather than of who compiled it, the identical sets showed the measurement was sound. But the
+two backends emit *different imports*: clang inlines KangarooTwelve into the module as a header-only
+static (`core-lite/src/kangaroo_twelve.h:1395`), while the TypeScript backend lowers it to `$lh_k12`
+(`packages/compiler/src/backend/wasm/calls/host-intrinsic-call.ts:113`). The sets should **not** have
+matched, and their matching was the clearest possible evidence of the collision. A number was read as
+confirming the result when it was in fact the disproof.
+
+This is the third round-6/7 defect caught by *a classification looking wrong* rather than by reading
+code, and the second caused by an assumption about artifact paths — F218 was the first, and its NOTES
+warned about exactly this family one commit earlier.
+
+**Fix.** Each backend gets its own output directory, plus a guard that aborts the sweep if two
+independently-produced artifacts are ever byte-identical — the condition that would have caught this on
+day one. With the fix, `ArrayOfArraysStride` builds to 17,335 bytes under clang and 4,898 under the
+TypeScript backend, and both agree with WAMR.
+
+## Lane 1 — widening the oracle, and why the shim is a patch in this repo
+
+The gtest registered five natives, so 152 of 770 round-6 runs (~20%) trapped for want of an import
+rather than because anything was wrong. Two natives close the whole gap: `k12` accounts for 122 of the
+152 and `tick` for the other 30.
+
+`scripts/solidity-port/wamr-shim.patch` adds `k12`, `tick`, `epoch`, `initialTick`,
+`numberOfTickTransactions`, the seven clock readers, `now`, and `pauseLog`/`resumeLog`, and populates
+the guest context struct at `ctx_addr()`. Every constant mirrors a bare `QubicSimulator` — tick 0,
+epoch 0, clock pinned to 2024-01-01T00:00:00Z — because the sweep compares this runtime *against* that
+simulator, and a shim answering anything else would manufacture divergences rather than reveal them.
+
+Deliberately **not** shimmed: transfers, the asset ledger, logging, inter-contract calls, IPO, mining
+and the oracle. Those need real host state, and a stub that invents an answer converts "this contract
+is unreachable" into "this contract silently agreed", which is strictly worse for an oracle than a
+trap.
+
+Three implementation notes worth keeping:
+
+- **K12 lives in its own translation unit** (`test/wasm_k12_shim.cpp`). `kangaroo_twelve.h` reaches
+  `platform/memory.h`, whose non-`NO_UEFI` branch resolves `setMem`/`copyMem` through the UEFI
+  boot-services pointer, which no test binary links. Defining `NO_UEFI` inside `wasm_contracts.cpp`
+  would have changed that whole translation unit's view of every core header it already includes.
+- The shim was **checked against the engine before being trusted**: core's `KangarooTwelve(in, len,
+  out, 32)` and the engine's `k12Sync` both return
+  `ad9111ae9ae7ce1ad1139d6060d42ad386c5fbc23f74ecc26e28ed4c0876f47f` for the same four input bytes.
+  The plan flagged a length mismatch as the way this shim could manufacture agreement; both are 32
+  bytes fixed.
+- The `ctx_addr()` fix closes a hole the shim-trap classifier could not see at all.
+  `qpi.invocator()`, `originator()` and `invocationReward()` are **struct reads, not lhost calls**, so
+  they never trapped — they silently answered zero.
+
+**core-lite is never committed to.** It is treated as a scratch build tree: the patch is owned by this
+repo, `build-wamr-oracle.sh` applies it with a reversibility check before configuring, and core-lite's
+HEAD stays where it was. The built binary does not survive a container restart; the patch does.
+
+Recalibrated after patching — `bun test packages/cli/tests/integration/cross-host.test.ts`, 8 pass. An
+oracle that has been modified and not re-checked against a known answer is not an oracle.
+
+## F220 — the asset iterators discard their filters
+
+Severity: **high (silent wrong answer, no diagnostic, in fund-accounting code)**.
+
+Corpus rows: `assets/AssetOwnershipIteratorOwnerFilterIgnored__*`,
+`assets/AssetPossessionIteratorPossessorFilterIgnored__*`,
+`assets/AssetOwnershipIteratorSurvivesEmptyFilter__*`, all pinned through `expectedVerdict`.
+
+`packages/compiler/src/backend/wasm/calls/containers.ts:523` lowers `begin()` as
+
+```ts
+const selN = watIr.rawWatNode(context.lowering.materializeSelect(context, undefined), WatNodeType.I32);
+```
+
+— unconditionally the `any()` selector — and then passes that same buffer for **both** the ownership
+and the possession parameter of `$lh_assetEnumerate`. `expression.callArguments[1]` and `[2]` are never
+read. Only `callArguments[0]`, the asset, survives.
+
+So this compiles, runs, returns no error, and enumerates every holder:
+
+```cpp
+locals.iter.begin(locals.asset, AssetOwnershipSelect::byOwner(locals.other));
+```
+
+Measured on a contract that issues 1000 shares and transfers 400 away, so two holders exist:
+
+| | filtered count | filtered shares | unfiltered count | unfiltered shares |
+| --- | --- | --- | --- | --- |
+| clang | 1 | 400 | 2 | 1000 |
+| typescript | **2** | **1000** | 2 | 1000 |
+
+The unfiltered control agrees on both backends, which is what isolates the cause to the discarded
+filter rather than to the iteration.
+
+Two things sharpen this. First, **the machinery to do it right exists and is used correctly elsewhere
+in the same compiler**: `qpi.numberOfShares(asset, AssetOwnershipSelect::byOwner(holder))` returns
+1000 / 400 / 0 for total / holder / stranger on *both* backends. `materializeSelect` works when handed
+a real expression; `begin` simply never hands it one. Second, the consequence is not a crash but a
+number: a dividend distributor or a snapshot routine written against this iterator would credit one
+holder with every holder's balance.
+
+The same function silently returns `null` — falling through to whatever handles an unrecognised call —
+for `issuer()`, `assetName()`, `asset()`, `issuanceIndex()`, `ownershipIndex()`, `possessionIndex()`
+and `possessionManagingContract()`, and the gate at `:508` does not recognise `AssetIssuanceIterator`
+at all.
+
+## Lane 2 — `DateAndTime`, a surface with ground truth
+
+Round 6's inventory found `addDays`, `addMillisec`, `addMicrosec`, `daysInMonth`, `isLeapYear`,
+`durationDays`, `setDate`, `setTime` and every `get*` accessor at **zero call sites** across all 411
+archetypes. The one near-miss, `hostcalls-time.ts:465`, hand-packs its own non-QPI bit layout and never
+constructs a `DateAndTime`.
+
+`scripts/solidity-port/archetypes/integers-datetime.ts` adds ten archetypes carrying **40 hand-derived
+`expect` rows**. What makes this lane unusually strong: the TypeScript backend does not reimplement any
+of it — `packages/compiler/src/generated/qpi-snapshot.ts` embeds core's `qpi_date_time.h` verbatim and
+the backend compiles those bodies — so everything except `qpi.now()` is pure guest computation, a
+divergence would be codegen rather than a host-model mismatch, and *the answer has ground truth*. A
+leap year is a leap year, so the rows assert against the C++ rule instead of only against the other
+backend.
+
+What the rows pin, each cited to `qpi_date_time.h`:
+
+- **`setDate` and `setTime` do not mask their arguments** (`:84`, `:99`). Month 20 is five bits against
+  a four-bit field, so `20<<42` sets bit 46 — the year's bit 0 — and the date reads back as year 1,
+  month 4. Day 40 bleeds into the month the same way; hour 40 bleeds into the day.
+- **`getYear` is the only accessor with no mask** (`:108`). Year 65536 lands entirely on a reserved bit
+  and reads back as **0**; year 131071 reads back as 65535, indistinguishable from a legal value.
+- The full leap ladder (0, 4, 100, 400, 1900, 2000, 2023, 2024, 65535) and the `daysInMonth` table
+  including its out-of-range guard, where month 0 and month 13 both answer **0** — the value that makes
+  `add()` misbehave on a corrupt month.
+- `add()`'s single-day step across a leap boundary, and its `isValid()` guard, which refuses every day
+  arithmetic on a default-constructed instance before touching a field.
+
+Two archetypes carry **no** rows on purpose. The eight-argument `add()` folds five carries through
+`addAndComputeCarry` and then hands off to a 160-line day loop with a 400-year fast path; deriving that
+by hand is precisely what produced 47 false violations in round 6. Those rest on the two backends and
+the WAMR oracle, and the file says so.
+
+The rows were checked to be *live*: planting a deliberately wrong value in the leap-year ladder turns
+the cell `expect-violation`, so the ten green results mean the rows ran, not that they were skipped.
+
+## Lane 3 — tombstones, the removal counter, and cleanup's three exits
+
+The only removal call site in all 411 archetypes was `removeByKey`, three times. `removeByIndex`,
+`getElementIndex`, `isEmptySlot`, `key`, `value`, `nextElementIndex`, `cleanup`, `cleanupIfNeeded`,
+`needsCleanup`, `capacity`, `reset` and `HashSet::remove` had **zero**.
+
+`scripts/solidity-port/archetypes/containers-hash-removal.ts` adds eight archetypes with **29
+hand-derived rows**. Every one keys on `id`, and that is load-bearing rather than incidental:
+`HashFunction<m256i>::hash` is `key.u64._0` verbatim (`qpi_hash_map_impl.h:26`) with no K12 in the
+path, so `id(k,0,0,0)` lands in slot `k & (L-1)` and a collision chain can be laid out by hand. With a
+`uint64` key the hash goes through KangarooTwelve and a row could only assert behaviour, never
+position.
+
+Pinned behaviour:
+
+- **Tombstone traversal.** Keys 0, 8 and 16 chain into slots 0, 1, 2 of an 8-slot map. Removing the
+  middle still finds the tail, because `getElementIndex` (`:66`) has no `case 2` and walks through a
+  `0b10` while a `0b00` stops it.
+- **`removeByIndex` masks and never validates** (`:229`). Index 8, index 2^40 and index −1 are all
+  silent aliases; −1 selects slot 7, and because slot 7 is unoccupied the occupancy guard makes the
+  whole call a no-op — the same observable outcome as a legal index into an empty slot, which is what
+  makes the missing bounds check hard to notice.
+- **`_markRemovalCounter` counts removals, not tombstones** (`:156`). Churning one key five times leaves
+  a map holding exactly one element in one slot with zero slots marked for removal — and
+  `needsCleanup(50)` returns true.
+- **The threshold truncates.** `percent * L / 100` on an 8-slot map is 0 for every percentage up to 12
+  and 1 at 13, so a nominal 10% policy behaves identically to 0%.
+- **All three `cleanup()` exits** (`:279`): the immediate return when nothing was removed, the
+  `reset()` that zeroes the whole object when everything was, and the scratchpad rehash otherwise —
+  which *moves* a surviving key from slot 2 to slot 1, so compaction is observable as a changed index.
+- `isEmptySlot` returns **true for a tombstone**, `key()`/`value()` ignore occupancy and read back the
+  zeroes `removeByIndex` wrote, and `HashSet::key` returns by value where `HashMap::key` returns by
+  reference.
+
+**Two rows in the first draft were wrong, and the harness caught them.** Both were mine, not the
+compilers': the `Run` procedure is invoked once per operand pair against the same `StateData`, so the
+removal counter accumulated across pairs and each row was silently a function of the ones before it.
+Resetting the container at the top of each body makes every pair independently derivable. Same class of
+error as round 6's 47 — a derivation that forgot its own context — and again caught by a red cell
+rather than by inspection.
+
+A claim from the exploration that did **not** survive checking, recorded because it nearly became an
+archetype: `_getEncodedOccupationFlags` (`:36`) was reported to shift by `2 * _nEncodedFlags - offset`
+and reach ≥ 64 for `L < 32`, which would be UB in C++ and defined in wasm. It cannot. That shift is
+only taken when `offset > 0`, and reaching 64 needs `offset <= 2*nEnc - 64`, which is negative for
+every `L <= 32` and zero at `L = 64`. No legal capacity admits it.
+
+## Lane 4 — partially delivered
+
+The iterator half is done and produced F220 above, plus `AssetNumberOfSharesWithSelectors`, which
+establishes that the selector machinery is correct when it is actually invoked.
+
+**The share-management half was not built.** `acquireShares`, `releaseShares` and the four
+`PRE_/POST_ACQUIRE/RELEASE_SHARES` callbacks remain at zero call sites, as they have been for seven
+rounds — and they are where F69 (campaign 6) and F82 (campaign 7) both lived. Reaching them needs an
+emitter change first: `ContractSpec` (`scripts/solidity-port/emit.ts:34-100`) exposes only `initialize`
+and the four tick/epoch hooks, and the hook loop at `:383-391` iterates exactly
+`["BEGIN_TICK","END_TICK","BEGIN_EPOCH","END_EPOCH"]`. That change touches every archetype's code path,
+and starting it late in a round with a corpus regeneration and two sweeps still to run was the wrong
+trade. It is the first thing round 8 should do.

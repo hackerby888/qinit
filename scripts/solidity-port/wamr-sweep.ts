@@ -13,7 +13,7 @@
 // Usage:
 //   bun run scripts/solidity-port/wamr-sweep.ts [--family <name>] [--limit <n>] [--backend clang|typescript|both]
 import { readFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpus, tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { buildContractWithClang, buildContractWithTypeScript } from "@qinit/build";
 import { QubicSimulator, initK12, toHex } from "@qinit/engine";
@@ -85,6 +85,11 @@ const flag = (name: string): string | undefined => {
 const familyFilter = flag("--family");
 const limit = Number(flag("--limit") ?? "0");
 const backendFilter = flag("--backend") ?? "both";
+// The sweep is dominated by clang: one full clang++ invocation per contract, uncached, at roughly
+// forty seconds each. Serially that is over four hours for a 385-contract run, which is why round 6's
+// sweep was long enough to span two corpus regenerations. The work is independent per contract, so
+// it parallelises cleanly; default to the core count.
+const workers = Math.max(1, Number(flag("--workers") ?? String(Math.max(1, cpus().length))));
 
 await initK12();
 
@@ -102,17 +107,31 @@ interface Row {
 const rows: Row[] = [];
 let considered = 0;
 
+interface Job {
+    family: string;
+    script: ScriptRow;
+    header: string;
+    name: string;
+}
+const jobs: Job[] = [];
 for (const family of families) {
     const scripts = readFileSync(`${CORPUS}/scripts/${family}.jsonl`, "utf8")
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line) as ScriptRow);
     const chosen = limit > 0 ? scripts.slice(0, limit) : scripts;
-
     for (const script of chosen) {
         const header = `${CORPUS}/variants/${family}/${script.contract}.h`;
         if (!existsSync(header)) continue;
-        const name = script.contract.split("__")[0]!;
+        jobs.push({ family, script, header, name: script.contract.split("__")[0]! });
+    }
+}
+console.log(`${jobs.length} contracts across ${families.length} families, ${workers} workers\n`);
+
+let nextJob = 0;
+async function runJob(job: Job): Promise<void> {
+    {
+        const { family, script, header, name } = job;
         considered++;
 
         const artifacts: { backend: string; path: string }[] = [];
@@ -122,7 +141,13 @@ for (const family of families) {
                 contractName: name,
                 slot: script.slot,
                 corePath: CORE,
-                outDir: OUT,
+                // Per-backend directory, NOT a shared one. Both builders write
+                // `<outDir>/<contractName>.wasm`, so a shared outDir means the second build silently
+                // overwrites the first and this sweep runs one artifact twice under two names. That is
+                // F219: it made every clang row in the round-6 parity table a duplicate of its
+                // TypeScript row, and the "identical shim-trap set on both backends" that was offered
+                // as the run's consistency check was the fingerprint of the collision.
+                outDir: `${OUT}/clang/${script.contract}`,
                 skipVerify: true,
             });
             if (built.ok) artifacts.push({ backend: "clang", path: built.wasmPath! });
@@ -138,11 +163,26 @@ for (const family of families) {
                 contractName: name,
                 slot: script.slot,
                 corePath: CORE,
-                outDir: OUT,
+                outDir: `${OUT}/typescript/${script.contract}`,
                 skipVerify: true,
             });
             if (built.ok) artifacts.push({ backend: "typescript", path: built.wasmPath! });
             else rows.push({ id: `${family}/${script.contract}`, backend: "typescript", simulator: "-", wamr: "-", verdict: "build-rejected" });
+        }
+
+        // Two independently-produced artifacts must not be byte-identical. clang and the TypeScript
+        // backend emit different imports, different function orders and different sizes for every
+        // contract in this corpus, so identity here does not mean "the backends agree" — it means the
+        // sweep is holding one file twice. Round 6 shipped a whole parity table without this check.
+        if (artifacts.length === 2) {
+            const [left, right] = artifacts.map((artifact) => readFileSync(artifact.path));
+            if (left!.equals(right!)) {
+                console.error(`\nFATAL: ${family}/${script.contract} produced byte-identical wasm for both backends (${left!.length} bytes).`);
+                console.error(`  ${artifacts[0]!.backend}: ${artifacts[0]!.path}`);
+                console.error(`  ${artifacts[1]!.backend}: ${artifacts[1]!.path}`);
+                console.error("Two backends cannot agree byte-for-byte; one artifact has overwritten the other (see F219).");
+                process.exit(3);
+            }
         }
 
         for (const { backend, path } of artifacts) {
@@ -174,6 +214,17 @@ for (const family of families) {
         }
     }
 }
+
+await Promise.all(
+    Array.from({ length: workers }, async () => {
+        for (;;) {
+            const index = nextJob++;
+            if (index >= jobs.length) return;
+            await runJob(jobs[index]!);
+            if (considered % 25 === 0) console.log(`  ... ${considered}/${jobs.length}`);
+        }
+    }),
+);
 
 const tally = rows.reduce<Record<string, number>>((into, row) => ({ ...into, [row.verdict]: (into[row.verdict] ?? 0) + 1 }), {});
 console.log(`\n${considered} contracts considered, ${rows.length} artifact runs`);

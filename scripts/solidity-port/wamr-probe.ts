@@ -36,12 +36,41 @@ const CORE = process.env.QINIT_CORE!;
 const OUT = "/tmp/qinit-wamr-probe";
 
 /**
- * The natives core's crosshost gtest registers. A contract whose wasm imports anything outside this
- * set traps immediately under that harness — not because the contract is wrong, but because the
- * harness has no QPI host. `lhost.k12` is the one that matters in practice: it is why F203 cannot be
- * settled this way.
+ * The natives core's crosshost gtest registers. A contract whose wasm *calls* anything outside this
+ * set traps under that harness — not because the contract is wrong, but because the harness has no
+ * QPI host.
+ *
+ * This set must track `scripts/solidity-port/wamr-shim.patch`, which is what widens the gtest beyond
+ * the five it registers upstream. If the two drift, every contract the shim newly supports gets
+ * classified as a shim-trap and the sweep quietly under-reports its own coverage.
+ *
+ * The pure and context-read natives the shim adds — `k12` and the tick/clock family — closed the
+ * whole 152-run gap round 6 measured. What remains unregistered is deliberate: transfers, the asset
+ * ledger, logging, inter-contract calls, IPO, mining and the oracle all need real host state, and a
+ * stub that invents an answer would turn "unreachable" into "silently agreed".
  */
-const REGISTERED_NATIVES = new Set(["beginFn", "endFn", "markDirty", "acquireScratch", "releaseScratch"]);
+const REGISTERED_NATIVES = new Set([
+    "beginFn",
+    "endFn",
+    "markDirty",
+    "acquireScratch",
+    "releaseScratch",
+    "k12",
+    "tick",
+    "epoch",
+    "initialTick",
+    "numberOfTickTransactions",
+    "year",
+    "month",
+    "day",
+    "hour",
+    "minute",
+    "second",
+    "millisecond",
+    "now",
+    "pauseLog",
+    "resumeLog",
+]);
 
 /** The `lhost.*` functions a wasm module imports, read straight out of its import section. */
 export function hostImports(wasm: Uint8Array): string[] {
