@@ -1358,3 +1358,67 @@ properly next time:
 The hang guard the lane called for was also not built. It remains a prerequisite for generating
 refusal candidates safely, because F210 (real non-termination) and F216 (a slow script) both score as
 `hang` and nothing yet distinguishes them.
+
+## Round 6 suite counts
+
+```
+bun run corpus:check      6333 files, 6321 contracts, clean
+bun run corpus:analyze    6321 variants, 0 ERROR diagnostics,
+                          139 expected-reject or documented-divergence
+bun run corpus:sweep -- --tier full --workers 3
+                          6321 contracts · 6223 match · 98 not-match
+                          0 expect-violation · 0 hang
+```
+
+The 98 non-matching rows are five findings and nothing else:
+
+| finding | rows | archetypes |
+| --- | ---: | --- |
+| F213 | 55 | `NsEnumConstantVersusNamespaceConstant` 16, `NsEnumConstantVersusFileConstant` 13, `NsTwinEnumsAcrossFourNamespaces` 13, `NsTwinEnumSameConstantNames` 13 |
+| F203 | 32 | `K12OfComputedExpression` 17, `HostK12ExpressionVersusVariable` 15 |
+| F204 | 5 | `ShiftRhsWiderThanLhs` |
+| F201 | 4 | `NsInheritedNamespacedTypedef` |
+| F200 | 2 | `DivQpi` |
+
+F205, F209, F211, F212, F214, F215 and **F217** are scored as matches through `expectedVerdict`: they
+pass by diverging exactly as documented and fail the moment they stop.
+
+**Positive control:** planting `uint16: 2 → 4` in `packages/compiler/src/shared/scalar-sizes.ts`
+turned **126 of the 708 layout contracts red** (round 5: 126 of 708 — unchanged, as expected, since
+round 6 added no layout archetypes), and restoring the line returned all **708 to green**.
+
+**The secondary oracle caught three of my own errors again.** The first full round-6 sweep reported
+**47 expect-violations** across three of the four new Collection archetypes — both backends agreeing
+with each other and both disagreeing with me. All three were one mistake repeated: I assumed the
+per-pov priority queue walks ascending. It walks descending, and core says so outright at
+`qpi_collection_impl.h:64` — *"here, head's priority > maxPriority >= tail's priority"*.
+
+The direction was re-derived from that source rather than adopted from the observed output, so the
+corrected rows remain assertions rather than a restatement of whatever the backends produced. A fourth
+row was then derived from the same comment **before** running it — `headIndex(SELF, 4) -> 20`,
+`tailIndex(SELF, 4) -> 30`, out-of-range bounds `-> 0` — and held on first contact. Round 5 caught
+eleven such errors, round 6 three; that is now three rounds in which the only assertions in the corpus
+have found authoring mistakes that backend-agreement could never have surfaced.
+
+## Round 6 limitations
+
+- **The oracle problem is narrowed, not closed.** Three findings (F200, F213, F204) now rest on core's
+  real WAMR runtime rather than on two backends agreeing. The other nine do not, and seven of them
+  *cannot* through this route: a compile refusal produces no artifact to run. F203 needs an
+  `lhost.k12` shim; F210 produces no artifact at all.
+- **"6,223 matched" still means the two backends agreed with each other** for every row without an
+  `expect`. The ~110 `expect` rows remain the only correctness assertions in 6,321 contracts, and they
+  cover arithmetic, name resolution and now four Collection methods — not layout, not host calls, not
+  cross-contract.
+- **The WAMR route only reaches contracts that never call an unregistered host function.** The gtest
+  registers five `lhost` natives; everything else faults when called. That excludes hostcalls, assets,
+  logging, cross-contract and anything hashing — by construction, not by omission.
+- **Lane 2 covered `Collection` and nothing else on its own list.** The asset, oracle, IPO, mining,
+  governance and date/time surfaces named above are still at **zero call sites**, and the asset gap
+  overlaps two findings from earlier campaigns (F69, F82).
+- **Lane 3 was not built.** No refusal family, no hang guard. F217 and the broader namespace-alias
+  limitation were found by lane 4 and by authoring, which is the same accidental route that produced
+  F214 and F215 — reasonable for parser gaps, poor for miscompilations.
+- **Nothing here has been run against a live node.** WAMR-under-gtest is core's runtime, not core's
+  node: no consensus, no ticking, no real spectrum. F73 and F68 in earlier campaigns were both node-level
+  defects that no in-process harness would have seen.
