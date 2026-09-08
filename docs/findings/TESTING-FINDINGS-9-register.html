@@ -496,9 +496,9 @@
       disagreeing. This is every disagreement the six rounds turned up.
     </p>
     <div class="tally">
-      <div><span class="n">18</span><span class="k">numbered entries</span></div>
+      <div><span class="n">19</span><span class="k">numbered entries</span></div>
       <div><span class="n">13</span><span class="k">compiler findings</span></div>
-      <div><span class="n">5</span><span class="k">harness / engine</span></div>
+      <div><span class="n">6</span><span class="k">harness / engine</span></div>
       <div><span class="n">6,321</span><span class="k">contracts swept</span></div>
       <div><span class="n">427</span><span class="k">archetypes</span></div>
       <div><span class="n">98</span><span class="k">red rows</span></div>
@@ -506,14 +506,14 @@
   </header>
 
   <section>
-    <h2>The register <span>F200 – F217 · numbering starts at F200; F86–F199 belong to the macOS campaign</span></h2>
+    <h2>The register <span>F200 – F218 · numbering starts at F200; F86–F199 belong to the macOS campaign</span></h2>
     <div class="filters">
-      <button type="button" data-filter="all" aria-pressed="true">All 18</button>
+      <button type="button" data-filter="all" aria-pressed="true">All 19</button>
       <button type="button" data-filter="compiler" aria-pressed="false">Compiler (13)</button>
       <button type="button" data-filter="red" aria-pressed="false">Still red (5)</button>
       <button type="button" data-filter="pinned" aria-pressed="false">Pinned (7)</button>
-      <button type="button" data-filter="harness" aria-pressed="false">Harness / engine (5)</button>
-      <span class="count" id="count">18 of 18 shown</span>
+      <button type="button" data-filter="harness" aria-pressed="false">Harness / engine (6)</button>
+      <span class="count" id="count">19 of 19 shown</span>
     </div>
     <div class="tablewrap">
       <table>
@@ -663,6 +663,14 @@
             <td class="num">—</td>
             <td><span class="status"><b>fixed</b></span></td>
             <td class="num">3</td>
+          </tr>
+          <tr data-kind="harness" data-state="fixed" data-id="F218">
+            <td class="id"><a href="#F218">F218</a></td>
+            <td><span class="sev sev-harness">harness</span></td>
+            <td class="what">The parity sweep built with the raw driver, which returns an empty module for a contract the gate refuses — manufacturing 28 false divergences</td>
+            <td class="num">—</td>
+            <td><span class="status"><b>fixed</b></span></td>
+            <td class="num">6</td>
           </tr>
           <tr data-kind="harness" data-state="fixed" data-id="F216">
             <td class="id"><a href="#F216">F216</a></td>
@@ -1120,6 +1128,21 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
         </div>
       </div>
       <div>
+        <span class="hid">F218</span>
+        <div>
+          <h3>The parity sweep manufactured 28 false divergences</h3>
+          <p>
+            It built its TypeScript side with the raw <code>compileContractWithTypeScript</code> driver,
+            which <em>skips the build gate</em>. For a contract the gate refuses — F217&rsquo;s block
+            shadowing, the namespace alias — the raw driver returns an empty module rather than failing,
+            and the sweep dutifully compared that empty module against WAMR and called the difference a
+            divergence. Every one of the 28 read <code>DEPLOY-FAILED(unexpected end of module)</code>
+            with zero imports.
+            <span class="fix">fixed by using buildContractWithTypeScript &middot; and the difference is in <b>acceptance, not codegen</b>: for a contract the gate accepts, both paths emit byte-identical wasm. This is the exact trap F217&rsquo;s notes describe, written one commit earlier, then walked into again in a different tool in the same round.</span>
+          </p>
+        </div>
+      </div>
+      <div>
         <span class="hid">F216</span>
         <div>
           <h3>A 3,600-tick script reads as a hang</h3>
@@ -1214,6 +1237,18 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
   <section>
     <h2>What the green rows are worth</h2>
     <div class="limits">
+      <div>
+        <h3>The simulator itself, measured at last</h3>
+        <p>
+          Round 6 ran each backend&rsquo;s artifact on <b>core&rsquo;s own WAMR host</b> and against the
+          qinit simulator, asking whether the two hosts agree — a question no two-backend comparison can
+          reach. Across 385 contracts and 770 artifact runs: <b>590 agree, 0 disagree</b>, with 152
+          unable to run (they call a host function the test shim does not register) and 28 refused by
+          the build gate. For every contract executable on both, <b>the simulator and the real runtime
+          produce byte-identical state</b>. The shim-trap set is the same 76 contracts on each backend,
+          which is the consistency check that makes the run credible.
+        </p>
+      </div>
       <div>
         <h3>The oracle problem</h3>
         <p>
