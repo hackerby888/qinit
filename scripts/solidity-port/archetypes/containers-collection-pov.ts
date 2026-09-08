@@ -160,9 +160,9 @@ export const COLLECTION_POV_ARCHETYPES: Archetype[] = [
             built.expect = [
                 {
                     step: 5,
-                    out: [10n, 40n, 40n, 10n, 4n, 4n, 0n].map((value) => u64(value)).join(""),
+                    out: [40n, 10n, 10n, 40n, 4n, 4n, 0n].map((value) => u64(value)).join(""),
                     source: "cpp-rule",
-                    note: "four elements at priorities 1,3,5,7 sort to 10,20,30,40; the forward walk runs 10 -> 40 and the backward walk 40 -> 10, so both counts are 4 and nothing mismatches",
+                    note: "the queue is ordered by DESCENDING priority - qpi_collection_impl.h:64 states 'head's priority > maxPriority >= tail's priority' - so with priorities 1,3,5,7 the head is 40 and the tail 10. The forward walk runs 40 -> 10 and the backward walk 10 -> 40; both counts are 4 and nothing mismatches.",
                 },
             ];
             return { source, script: built };
@@ -261,9 +261,9 @@ export const COLLECTION_POV_ARCHETYPES: Archetype[] = [
             built.expect = [
                 {
                     step: 5,
-                    out: [1n, 7n, 4n, 0n, 16n].map((value) => u64(value)).join(""),
+                    out: [7n, 1n, 4n, 0n, 16n].map((value) => u64(value)).join(""),
                     source: "cpp-rule",
-                    note: "walked in priority order the head is priority 1 and the tail 7; all four were added under SELF so there are 4 matches and 0 mismatches, and 1+3+5+7 = 16",
+                    note: "the head is the GREATEST priority (7) and the tail the least (1); all four were added under SELF so there are 4 matches and 0 mismatches, and the sum 1+3+5+7 = 16 is order-independent",
                 },
             ];
             return { source, script: built };
@@ -308,19 +308,20 @@ export const COLLECTION_POV_ARCHETYPES: Archetype[] = [
                         input: "uint64 unused;",
                         locals: "sint64 index;",
                         body: `
-                            // The first element whose priority is at most 4 — with priorities 1,3,5,7 that is 10.
+                            // Walking down from the head, the first element with priority <= 4 is the
+                            // priority-3 one, so 20.
                             locals.index = state.get().queue.headIndex(SELF, 4);
                             state.mut().atOrUnderFour = locals.index >= 0 ? state.get().queue.element(locals.index) : 0;
 
-                            // The last element whose priority is at least 4 — that is 40.
+                            // The last element with priority >= 4 is the priority-5 one, so 30.
                             locals.index = state.get().queue.tailIndex(SELF, 4);
                             state.mut().atOrOverFour = locals.index >= 0 ? state.get().queue.element(locals.index) : 0;
 
-                            // A bound below every priority present must find nothing.
+                            // maxPriority 0 is below every priority present, so nothing qualifies.
                             locals.index = state.get().queue.headIndex(SELF, 0);
                             state.mut().underEverything = locals.index >= 0 ? 1 : 0;
 
-                            // A bound above every priority present must likewise find nothing.
+                            // minPriority 99 is above every priority present, so nothing qualifies.
                             locals.index = state.get().queue.tailIndex(SELF, 99);
                             state.mut().overEverything = locals.index >= 0 ? 1 : 0;
 
@@ -347,15 +348,21 @@ export const COLLECTION_POV_ARCHETYPES: Archetype[] = [
                     "state.mut().queue.reset();\nstate.mut().atOrUnderFour = 0;\nstate.mut().atOrOverFour = 0;\nstate.mut().underEverything = 0;\nstate.mut().overEverything = 0;\nstate.mut().povPopulation = 0;\nstate.mut().totalPopulation = 0;",
             });
 
-            return {
-                source,
-                script: script([
-                    ...SEED_STEPS,
-                    { kind: "procedure", entry: 2, in: u64(0n), invocator: 0, note: "bounded lookups" },
-                    { kind: "function", entry: 1 },
-                    { kind: "advanceTick", n: 1 },
-                ]),
-            };
+            const built = script([
+                ...SEED_STEPS,
+                { kind: "procedure", entry: 2, in: u64(0n), invocator: 0, note: "bounded lookups" },
+                { kind: "function", entry: 1 },
+                { kind: "advanceTick", n: 1 },
+            ]);
+            built.expect = [
+                {
+                    step: 5,
+                    out: [20n, 30n, 0n, 0n, 4n, 4n].map((value) => u64(value)).join(""),
+                    source: "cpp-rule",
+                    note: "priorities 1,3,5,7 hold values 10,20,30,40 and the queue runs head-to-tail by DESCENDING priority. headIndex(SELF, 4) takes the first element with priority <= 4, which is priority 3 -> 20; tailIndex(SELF, 4) takes the last with priority >= 4, which is priority 5 -> 30. maxPriority 0 and minPriority 99 both fall outside the range, so each returns NULL_INDEX and stores 0. Both populations are 4.",
+                },
+            ];
+            return { source, script: built };
         },
     },
 
@@ -438,9 +445,9 @@ export const COLLECTION_POV_ARCHETYPES: Archetype[] = [
             built.expect = [
                 {
                     step: 4,
-                    out: [2n, 1n, 3n, 50n, 70n].map((value) => u64(value)).join(""),
+                    out: [2n, 1n, 3n, 60n, 70n].map((value) => u64(value)).join(""),
                     source: "cpp-rule",
-                    note: "two elements under SELF and one under the invocator: counts 2 and 1, total 3, and each pov's head is its own lowest-priority element (50 at priority 2, 70 at priority 1)",
+                    note: "two elements under SELF and one under the invocator: counts 2 and 1, total 3. Each pov's head is its own HIGHEST-priority element, so SELF's head is 60 (priority 4, over 50 at priority 2) and the invocator's is its only element, 70.",
                 },
             ];
             return { source, script: built };

@@ -108,19 +108,20 @@ struct CollectionPriorityBoundedLookup : public ContractBase
 
     PRIVATE_PROCEDURE(ProbeBody)
     {
-        // The first element whose priority is at most 4 — with priorities 1,3,5,7 that is 10.
+        // Walking down from the head, the first element with priority <= 4 is the
+        // priority-3 one, so 20.
         state.mut().scratch.probeIndex = state.get().queue.headIndex(SELF, 4);
         state.mut().atOrUnderFour = state.mut().scratch.probeIndex >= 0 ? state.get().queue.element(state.mut().scratch.probeIndex) : 0;
 
-        // The last element whose priority is at least 4 — that is 40.
+        // The last element with priority >= 4 is the priority-5 one, so 30.
         state.mut().scratch.probeIndex = state.get().queue.tailIndex(SELF, 4);
         state.mut().atOrOverFour = state.mut().scratch.probeIndex >= 0 ? state.get().queue.element(state.mut().scratch.probeIndex) : 0;
 
-        // A bound below every priority present must find nothing.
+        // maxPriority 0 is below every priority present, so nothing qualifies.
         state.mut().scratch.probeIndex = state.get().queue.headIndex(SELF, 0);
         state.mut().underEverything = state.mut().scratch.probeIndex >= 0 ? 1 : 0;
 
-        // A bound above every priority present must likewise find nothing.
+        // minPriority 99 is above every priority present, so nothing qualifies.
         state.mut().scratch.probeIndex = state.get().queue.tailIndex(SELF, 99);
         state.mut().overEverything = state.mut().scratch.probeIndex >= 0 ? 1 : 0;
 
