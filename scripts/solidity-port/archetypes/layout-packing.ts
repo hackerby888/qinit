@@ -43,6 +43,7 @@ export const LAYOUT_PACKING_ARCHETYPES: Archetype[] = [
                 { declaration: "uint8 d;", bytes: 1 },
             ]);
             const source = emitContract({
+                axis,
                 name: "PackedSignedNeighbourBleed",
                 header: {
                     archetype: "PackedSignedNeighbourBleed",
@@ -114,6 +115,7 @@ export const LAYOUT_PACKING_ARCHETYPES: Archetype[] = [
         build(axis) {
             const width = widthOf(axis, "uint16");
             const source = emitContract({
+                axis,
                 name: "PackedNeighbourOverflowCanary",
                 header: {
                     archetype: "PackedNeighbourOverflowCanary",
@@ -176,6 +178,7 @@ export const LAYOUT_PACKING_ARCHETYPES: Archetype[] = [
         build(axis) {
             const capacity = axis.capacity ?? 8;
             const source = emitContract({
+                axis,
                 name: "CanaryAfterArrayFill",
                 header: {
                     archetype: "CanaryAfterArrayFill",
@@ -254,6 +257,7 @@ export const LAYOUT_PACKING_ARCHETYPES: Archetype[] = [
                 { declaration: "bit flag;", bytes: 1 },
             ]);
             const source = emitContract({
+                axis,
                 name: "MixedWidthStructArrayStride",
                 header: {
                     archetype: "MixedWidthStructArrayStride",
@@ -334,6 +338,7 @@ export const LAYOUT_PACKING_ARCHETYPES: Archetype[] = [
             const capacity = axis.capacity && axis.capacity <= 8 ? axis.capacity : 4;
             const width = widthOf(axis, "uint64");
             const source = emitContract({
+                axis,
                 name: "TwoDimArrayRowMajor",
                 header: {
                     archetype: "TwoDimArrayRowMajor",
@@ -404,6 +409,7 @@ export const LAYOUT_PACKING_ARCHETYPES: Archetype[] = [
                 { declaration: "uint16 after;", bytes: 2 },
             ]);
             const source = emitContract({
+                axis,
                 name: "IdFieldAlignmentProbe",
                 header: {
                     archetype: "IdFieldAlignmentProbe",
@@ -463,6 +469,7 @@ export const LAYOUT_PACKING_ARCHETYPES: Archetype[] = [
         build(axis) {
             const capacity = axis.capacity && axis.capacity >= 64 ? axis.capacity : 64;
             const source = emitContract({
+                axis,
                 name: "BitArrayVsBoolArrayParity",
                 header: {
                     archetype: "BitArrayVsBoolArrayParity",
@@ -535,6 +542,7 @@ export const LAYOUT_PACKING_ARCHETYPES: Archetype[] = [
             const capacity = axis.capacity ?? 8;
             const width = widthOf(axis, "uint64");
             const source = emitContract({
+                axis,
                 name: "SpacerFieldsThenArrayClear",
                 header: {
                     archetype: "SpacerFieldsThenArrayClear",
@@ -615,6 +623,7 @@ export const LAYOUT_PACKING_ARCHETYPES: Archetype[] = [
                 { declaration: "uint128 end;", bytes: 16 },
             ]);
             const source = emitContract({
+                axis,
                 name: "PackedUint128PairSum",
                 header: {
                     archetype: "PackedUint128PairSum",

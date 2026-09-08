@@ -22,6 +22,7 @@ export const LIFECYCLE_ARCHETYPES: Archetype[] = [
         axes: ["placement"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "InitializeSetsEveryField",
                 header: {
                     archetype: "InitializeSetsEveryField",
@@ -88,8 +89,9 @@ export const LIFECYCLE_ARCHETYPES: Archetype[] = [
         stresses: "BEGIN_TICK, END_TICK, BEGIN_EPOCH and END_EPOCH — code that runs with no user call, where a script driving only entries would never look",
         caveat: "Solidity has no per-block hook. Included because hook code is the least-exercised path in a contract.",
         axes: [],
-        build() {
+        build(axis) {
             const source = emitContract({
+                axis,
                 name: "TickAndEpochHooks",
                 header: {
                     archetype: "TickAndEpochHooks",
@@ -151,8 +153,9 @@ export const LIFECYCLE_ARCHETYPES: Archetype[] = [
         stresses: "a read-only function next to a mutating procedure — the negative control: the function's calls must leave the digest unchanged",
         caveat: "Solidity marks this `view`; QPI enforces it structurally, since a function has no state.mut().",
         axes: [],
-        build() {
+        build(axis) {
             const source = emitContract({
+                axis,
                 name: "FunctionMustNotMutate",
                 header: {
                     archetype: "FunctionMustNotMutate",

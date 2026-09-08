@@ -51,6 +51,7 @@ function shiftArchetype(
             const width = signedOperand ? signedOf(base) : unsignedOf(base);
             const accumulator = signedOperand ? "sint64" : "uint64";
             const source = emitContract({
+                axis,
                 name,
                 header: { archetype: name, family: "integers", solidity, stresses, caveat, axis: `width=${width}` },
                 state: `${accumulator} wide;\n${width} narrow;\nuint64 applied;`,
@@ -148,6 +149,7 @@ export const SHIFT_ARCHETYPES: Archetype[] = [
             const width = widthOf(axis, "sint8");
             const count = operandFor(axis, "input.count", "FIXED_COUNT", "uint8", 254n);
             const source = emitContract({
+                axis,
                 name: "ShiftRhsWiderThanLhs",
                 header: {
                     archetype: "ShiftRhsWiderThanLhs",
@@ -201,6 +203,7 @@ export const SHIFT_ARCHETYPES: Archetype[] = [
         build(axis) {
             const width = widthOf(axis, "uint16");
             const source = emitContract({
+                axis,
                 name: "ShiftCleanupChain",
                 header: {
                     archetype: "ShiftCleanupChain",
@@ -262,6 +265,7 @@ export const SHIFT_ARCHETYPES: Archetype[] = [
         build(axis) {
             const width = widthOf(axis, "uint64");
             const source = emitContract({
+                axis,
                 name: "ShiftCountFromState",
                 header: {
                     archetype: "ShiftCountFromState",
@@ -325,6 +329,7 @@ export const SHIFT_ARCHETYPES: Archetype[] = [
         build(axis) {
             const width = widthOf(axis, "uint8");
             const source = emitContract({
+                axis,
                 name: "PowExponentNotNarrowed",
                 header: {
                     archetype: "PowExponentNotNarrowed",

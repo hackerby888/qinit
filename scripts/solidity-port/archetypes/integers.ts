@@ -450,6 +450,7 @@ export const INTEGER_ARCHETYPES: Archetype[] = [
         build(axis) {
             const width = widthOf(axis, "uint8");
             const source = emitContract({
+                axis,
                 name: "NegateUnsignedMinimum",
                 header: {
                     archetype: "NegateUnsignedMinimum",

@@ -39,6 +39,7 @@ export const CONTAINER_ARCHETYPES: Archetype[] = [
             const capacity = capacityOf(axis, 8);
             const fill = fillCount(axis, capacity);
             const source = emitContract({
+                axis,
                 name: "MapFillChurnReuse",
                 header: {
                     archetype: "MapFillChurnReuse",
@@ -122,6 +123,7 @@ export const CONTAINER_ARCHETYPES: Archetype[] = [
         build(axis) {
             const capacity = capacityOf(axis, 8);
             const source = emitContract({
+                axis,
                 name: "MapMissPreZeroed",
                 header: {
                     archetype: "MapMissPreZeroed",
@@ -183,6 +185,7 @@ export const CONTAINER_ARCHETYPES: Archetype[] = [
         build(axis) {
             const capacity = capacityOf(axis, 8);
             const source = emitContract({
+                axis,
                 name: "ArrayIndexMasked",
                 header: {
                     archetype: "ArrayIndexMasked",
@@ -247,6 +250,7 @@ export const CONTAINER_ARCHETYPES: Archetype[] = [
             const capacity = capacityOf(axis, 8);
             const fill = fillCount(axis, capacity);
             const source = emitContract({
+                axis,
                 name: "SetAddDuplicateRemoveMissing",
                 header: {
                     archetype: "SetAddDuplicateRemoveMissing",
@@ -311,6 +315,7 @@ export const CONTAINER_ARCHETYPES: Archetype[] = [
         build(axis) {
             const capacity = capacityOf(axis, 64);
             const source = emitContract({
+                axis,
                 name: "BitArrayPattern",
                 header: {
                     archetype: "BitArrayPattern",
@@ -372,6 +377,7 @@ export const CONTAINER_ARCHETYPES: Archetype[] = [
         build(axis) {
             const capacity = capacityOf(axis, 64);
             const source = emitContract({
+                axis,
                 name: "NestedMappingTwoLevel",
                 header: {
                     archetype: "NestedMappingTwoLevel",

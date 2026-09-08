@@ -13,17 +13,26 @@ import { INTEGER_ARCHETYPES } from "./archetypes/integers";
 import { SHIFT_ARCHETYPES } from "./archetypes/integers-shifts";
 import { INTEGER_MATH_ARCHETYPES, K12_EXPRESSION_ARCHETYPES } from "./archetypes/integers-math";
 import { LAYOUT_PACKING_ARCHETYPES } from "./archetypes/layout-packing";
+import { LAYOUT_ARRAY_ARCHETYPES } from "./archetypes/layout-arrays";
 import { NAMESPACE_RESOLUTION_ARCHETYPES } from "./archetypes/namespaces-resolution";
 import { INTERCONTRACT_ARCHETYPES } from "./archetypes/intercontract";
+import { INTERCONTRACT_DAG_ARCHETYPES } from "./archetypes/intercontract-dag";
 import { ASSET_ARCHETYPES } from "./archetypes/assets";
+import { ASSET_LEDGER_ARCHETYPES } from "./archetypes/assets-ledger";
 import { CONTROLFLOW_ARCHETYPES } from "./archetypes/controlflow";
+import { CONTROLFLOW_STRUCTURE_ARCHETYPES } from "./archetypes/controlflow-structure";
 import { LIFECYCLE_ARCHETYPES } from "./archetypes/lifecycle";
+import { LIFECYCLE_CONSTRUCTION_ARCHETYPES } from "./archetypes/lifecycle-construction";
 import { LOGGING_ARCHETYPES } from "./archetypes/logging";
+import { LOGGING_PAYLOAD_ARCHETYPES } from "./archetypes/logging-payloads";
 import { VULNERABILITY_ARCHETYPES } from "./archetypes/vulnerabilities";
+import { VULNERABILITY_CLASSIC_ARCHETYPES } from "./archetypes/vulnerabilities-classic";
 import { LAYOUT_ARCHETYPES } from "./archetypes/layout";
 import { CONTAINER_ARCHETYPES } from "./archetypes/containers";
 import { CONTAINER_STRUCTURE_ARCHETYPES } from "./archetypes/containers-structures";
+import { CONTAINER_COLLECTION_ARCHETYPES } from "./archetypes/containers-collections";
 import { NAMESPACE_ARCHETYPES } from "./archetypes/namespaces";
+import { UNIVERSAL_AXES } from "./types";
 import type { Archetype, AxisAssignment, AxisName, BuiltContract, Family } from "./types";
 
 /** Bump only with intent: it renames every variant and rewrites the whole corpus. */
@@ -38,14 +47,22 @@ export const ARCHETYPES: Archetype[] = [
     ...INTEGER_MATH_ARCHETYPES,
     ...K12_EXPRESSION_ARCHETYPES,
     ...LAYOUT_PACKING_ARCHETYPES,
+    ...LAYOUT_ARRAY_ARCHETYPES,
     ...CONTAINER_ARCHETYPES,
     ...CONTAINER_STRUCTURE_ARCHETYPES,
+    ...CONTAINER_COLLECTION_ARCHETYPES,
     ...CONTROLFLOW_ARCHETYPES,
+    ...CONTROLFLOW_STRUCTURE_ARCHETYPES,
     ...LIFECYCLE_ARCHETYPES,
+    ...LIFECYCLE_CONSTRUCTION_ARCHETYPES,
     ...ASSET_ARCHETYPES,
+    ...ASSET_LEDGER_ARCHETYPES,
     ...LOGGING_ARCHETYPES,
+    ...LOGGING_PAYLOAD_ARCHETYPES,
     ...VULNERABILITY_ARCHETYPES,
+    ...VULNERABILITY_CLASSIC_ARCHETYPES,
     ...INTERCONTRACT_ARCHETYPES,
+    ...INTERCONTRACT_DAG_ARCHETYPES,
 ];
 
 export function archetypesByFamily(): Map<Family, Archetype[]> {
@@ -92,7 +109,12 @@ export function canonicalAxis(axis: AxisAssignment): string {
  * it opted into, capped so no single archetype dominates the corpus.
  */
 export function expandArchetype(archetype: Archetype, maxVariants: number, exhaustive = false): Variant[] {
-    const axes = archetype.axes.filter((axis) => AXIS_VALUES[axis].length > 0);
+    // The universal axes are added to every archetype: they are applied inside `emitContract` from the
+    // assignment the archetype passes through, so no archetype has to opt into them by hand. One that
+    // ignores an axis renders identically under both of its values and the dedup below drops the copy,
+    // so this widens coverage without inflating the count.
+    const declared = [...new Set([...archetype.axes, ...UNIVERSAL_AXES])];
+    const axes = declared.filter((axis) => AXIS_VALUES[axis].length > 0);
     const assignments: AxisAssignment[] = [{}];
 
     if (axes.length > 0) {

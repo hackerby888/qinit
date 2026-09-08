@@ -34,6 +34,7 @@ export const CONTROLFLOW_ARCHETYPES: Archetype[] = [
         axes: ["placement"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "GuardBeforeWrite",
                 header: {
                     archetype: "GuardBeforeWrite",
@@ -102,6 +103,7 @@ export const CONTROLFLOW_ARCHETYPES: Archetype[] = [
         axes: ["placement"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "GuardAfterPartialWrite",
                 header: {
                     archetype: "GuardAfterPartialWrite",
@@ -168,6 +170,7 @@ export const CONTROLFLOW_ARCHETYPES: Archetype[] = [
         axes: ["placement"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "ShortCircuitSideEffect",
                 header: {
                     archetype: "ShortCircuitSideEffect",
@@ -240,6 +243,7 @@ export const CONTROLFLOW_ARCHETYPES: Archetype[] = [
             const width = widthOf(axis, "uint64");
             const header = loopHeader(axis, "locals.i", "locals.bound", 8);
             const source = emitContract({
+                axis,
                 name: "LoopShapes",
                 header: {
                     archetype: "LoopShapes",
@@ -318,8 +322,9 @@ export const CONTROLFLOW_ARCHETYPES: Archetype[] = [
         stresses: "switch with deliberate fall-through, a default-only arm, and a value matching no case",
         caveat: "Solidity has no switch; the original is an if/else ladder, and the port keeps both spellings side by side so they can be compared.",
         axes: [],
-        build() {
+        build(axis) {
             const source = emitContract({
+                axis,
                 name: "SwitchFallthrough",
                 header: {
                     archetype: "SwitchFallthrough",
@@ -409,8 +414,9 @@ export const CONTROLFLOW_ARCHETYPES: Archetype[] = [
         stresses: "the `modifier` port: a shared guard reached through PRIVATE_FUNCTION + CALL rather than inlined",
         caveat: "Solidity modifiers wrap the body; QPI has no modifiers, so the guard becomes a private function the entry calls first.",
         axes: [],
-        build() {
+        build(axis) {
             const source = emitContract({
+                axis,
                 name: "ModifierAsPrivateFunction",
                 header: {
                     archetype: "ModifierAsPrivateFunction",

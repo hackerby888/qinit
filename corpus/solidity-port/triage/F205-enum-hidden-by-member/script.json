@@ -1,0 +1,18 @@
+{
+  "slot": 29,
+  "tick": 1000,
+  "epoch": 100,
+  "epochLength": 8,
+  "identities": [
+    "0707070707070707070707070707070707070707070707070707070707070707",
+    "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+  ],
+  "fund": [
+    { "id": 0, "amount": "1000000000" },
+    { "id": 1, "amount": "1000000000" }
+  ],
+  "steps": [
+    { "kind": "procedure", "entry": 1, "in": "0500000000000000", "invocator": 0, "note": "assign both the hidden name and the control" },
+    { "kind": "function", "entry": 1, "note": "hidden should read 3, control 4" }
+  ]
+}

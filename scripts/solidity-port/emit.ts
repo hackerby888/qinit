@@ -6,7 +6,7 @@
 // source is ever handed to a compiler, so a generator bug surfaces as a generator failure rather than
 // as a contract both backends reject.
 
-import type { EntryShape, Family, InitStyle, Temporaries } from "./types";
+import type { AxisAssignment, EntryOrder, EntryShape, Family, InitStyle, StateOrder, Temporaries } from "./types";
 
 export interface EntrySpec {
     name: string;
@@ -33,6 +33,13 @@ export interface EntrySpec {
 
 export interface ContractSpec {
     name: string;
+    /**
+     * The variant's axis assignment. The axes that need nothing from the archetype — placement,
+     * temporaries, initStyle, entryShape, stateOrder, entryOrder — are read from here, so an archetype
+     * opts into all of them by passing its `axis` through. An explicit field below still wins, for the
+     * archetypes that drive one of these themselves.
+     */
+    axis?: AxisAssignment;
     /** Provenance and intent, rendered as the file's header comment. */
     header: {
         archetype: string;
@@ -62,6 +69,16 @@ export interface ContractSpec {
     initStyle?: InitStyle;
     /** `viaPrivate` moves each public entry's body into a PRIVATE_* entry reached by CALL. */
     entryShape?: EntryShape;
+    /**
+     * `reversed` declares StateData's members back to front. Every offset after the first member moves,
+     * so the two backends' struct layout has to agree on a shape the archetype never wrote by hand.
+     */
+    stateOrder?: StateOrder;
+    /**
+     * `reversed` declares the entries back to front inside the class. Registration numbers and the IDL do
+     * not move, so only the order the two backends see the declarations in changes.
+     */
+    entryOrder?: EntryOrder;
     /** Whole struct declarations that must live inside the contract, such as a LOG_* payload type. */
     extraStructs?: string;
     entries: EntrySpec[];
@@ -166,7 +183,10 @@ function applyPlacement(spec: ContractSpec): ContractSpec {
  */
 function applyTemporaries(spec: ContractSpec): ContractSpec {
     if ((spec.temporaries ?? "locals") === "locals") return spec;
-    const withLocals = spec.entries.filter((entry) => entry.locals !== undefined && entry.locals.trim());
+    // Only a procedure may be rewritten: hoisting a function's temporaries into state would make the
+    // function write to `state.mut()`, which the build gate refuses on a read-only entry — a rejection
+    // the archetype never asked for.
+    const withLocals = spec.entries.filter((entry) => entry.kind === "procedure" && entry.locals !== undefined && entry.locals.trim());
     if (withLocals.length === 0) return spec;
 
     const declarations: string[] = [];
@@ -201,7 +221,9 @@ function applyTemporaries(spec: ContractSpec): ContractSpec {
         state: `${spec.state.trim()}\nScratch scratch;`,
         extraStructs: `${spec.extraStructs ?? ""}\nstruct Scratch\n{\n${declarations.map((line) => `    ${line}`).join("\n")}\n};`,
         entries: spec.entries.map((entry) =>
-            entry.locals !== undefined && entry.locals.trim() ? { ...entry, locals: undefined, body: rewriteFor(entry.name)(entry.body) } : entry,
+            entry.kind === "procedure" && entry.locals !== undefined && entry.locals.trim()
+                ? { ...entry, locals: undefined, body: rewriteFor(entry.name)(entry.body) }
+                : entry,
         ),
     };
 }
@@ -256,14 +278,56 @@ function applyEntryShape(spec: ContractSpec): ContractSpec {
     return { ...spec, entries };
 }
 
+/**
+ * Apply the `stateOrder` axis: declare StateData's members back to front. Only a run of plain one-line
+ * member declarations can be reversed — a state block that declares a nested struct inline is left alone,
+ * and the variant then renders identically to `declared` and is dropped by the dedup.
+ */
+function applyStateOrder(spec: ContractSpec): ContractSpec {
+    if ((spec.stateOrder ?? "declared") === "declared") return spec;
+    const lines = spec.state
+        .trim()
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+    if (lines.length < 2) return spec;
+    // A member declaration and nothing else: no nested struct, no comment, no blank continuation.
+    if (!lines.every((line) => /^[A-Za-z_][A-Za-z0-9_:<>, ]*\s+[A-Za-z_][A-Za-z0-9_]*\s*;$/.test(line))) return spec;
+    return { ...spec, state: [...lines].reverse().join("\n") };
+}
+
+/** The axis assignment as the emitted file records it, so a variant's banner names every axis applied. */
+function describeAssignment(axis: AxisAssignment): string {
+    const parts = Object.entries(axis)
+        .filter(([, value]) => value !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, value]) => `${key}=${value}`);
+    return parts.length ? parts.join(" ") : "base";
+}
+
+/** Resolve the axes an archetype opts into purely by passing its assignment through. */
+function withAxis(spec: ContractSpec): ContractSpec {
+    const axis = spec.axis;
+    if (!axis) return spec;
+    return {
+        ...spec,
+        statePlacement: spec.statePlacement ?? axis.placement,
+        temporaries: spec.temporaries ?? axis.temporaries,
+        initStyle: spec.initStyle ?? axis.initStyle,
+        entryShape: spec.entryShape ?? axis.entryShape,
+        stateOrder: spec.stateOrder ?? axis.stateOrder,
+        entryOrder: spec.entryOrder ?? axis.entryOrder,
+    };
+}
+
 export function emitContract(input: ContractSpec): string {
-    const spec = applyPlacement(applyEntryShape(applyTemporaries(applyInitStyle(input))));
+    const spec = applyPlacement(applyEntryShape(applyTemporaries(applyInitStyle(applyStateOrder(withAxis(input))))));
     const { header } = spec;
     const comment = [
         `// ${header.archetype} — ported from ${header.solidity}`,
         `// Stresses: ${header.stresses}`,
         ...(header.caveat ? [`// Port caveat: ${header.caveat}`] : []),
-        `// Variant: ${header.axis}`,
+        `// Variant: ${spec.axis ? describeAssignment(spec.axis) : header.axis}`,
         `// Generated by scripts/solidity-port/generate.ts. Do not edit; edit the archetype instead.`,
     ].join("\n");
 
@@ -277,7 +341,18 @@ export function emitContract(input: ContractSpec): string {
     // caller references, and the `entryShape` forwarding pair, where the private half aliases the public
     // half's types. Ordering helpers first and aliasing entries last satisfies both.
     const emissionRank = (entry: EntrySpec): number => (entry.ioAlias ? 2 : (entry.visibility ?? "public") === "private" ? 0 : 1);
-    const ordered = [...spec.entries].sort((a, b) => emissionRank(a) - emissionRank(b) || a.name.localeCompare(b.name));
+    // `entryOrder` may only reverse entries that do not depend on each other's types: an entry whose
+    // `_locals` names another entry's `_input` has to be emitted after it, because a struct member needs
+    // a complete type. Reversing such a contract would emit an unknown type and manufacture a rejection
+    // the archetype never asked for, so the axis stands down for it entirely and the variant renders
+    // identically to `declared` — which the source-fingerprint dedup then drops.
+    const entryNames = spec.entries.map((entry) => entry.name);
+    const dependsOnAnotherEntry = spec.entries.some((entry) => {
+        const declarations = `${entry.locals ?? ""}\n${entry.input ?? ""}\n${entry.output ?? ""}`;
+        return entryNames.some((other) => other !== entry.name && new RegExp(`\\b${other}_(input|output|locals)\\b`).test(declarations));
+    });
+    const nameOrder = (spec.entryOrder ?? "declared") === "reversed" && !dependsOnAnotherEntry ? -1 : 1;
+    const ordered = [...spec.entries].sort((a, b) => emissionRank(a) - emissionRank(b) || nameOrder * a.name.localeCompare(b.name));
     for (const entry of ordered) blocks.push(emitEntry(entry));
 
     const registrations = [...spec.entries]

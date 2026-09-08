@@ -35,6 +35,7 @@ function packingProbe(meta: Omit<Archetype, "build" | "axes">, fields: { declara
         build(axis: AxisAssignment) {
             const ordered = orderFields(axis, fields);
             const source = emitContract({
+                axis,
                 name: meta.name,
                 header: {
                     archetype: meta.name,
@@ -153,6 +154,7 @@ export const LAYOUT_ARCHETYPES: Archetype[] = [
         axes: ["placement"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "StructCopyWholeAssign",
                 header: {
                     archetype: "StructCopyWholeAssign",
@@ -215,6 +217,7 @@ export const LAYOUT_ARCHETYPES: Archetype[] = [
                 { declaration: "uint8 tiny;", bytes: 1 },
             ]);
             const source = emitContract({
+                axis,
                 name: "ArrayOfStructsStride",
                 header: {
                     archetype: "ArrayOfStructsStride",
@@ -287,6 +290,7 @@ export const LAYOUT_ARCHETYPES: Archetype[] = [
         axes: ["placement"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "EnumUnderlyingWidth",
                 header: {
                     archetype: "EnumUnderlyingWidth",
@@ -354,6 +358,7 @@ export const LAYOUT_ARCHETYPES: Archetype[] = [
                 { declaration: "uint8 last;", bytes: 1 },
             ]);
             const source = emitContract({
+                axis,
                 name: "SelfDescribingOffsets",
                 header: {
                     archetype: "SelfDescribingOffsets",

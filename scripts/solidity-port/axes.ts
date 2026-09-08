@@ -2,7 +2,19 @@
 // apply them. The axes are chosen from the families that have historically produced silent bugs in
 // this compiler — name qualification, field placement, scalar width, container fill.
 
-import { ALL_WIDTHS, CONST_SOURCES, ENTRY_SHAPES, INIT_STYLES, LAYOUT_MODES, NS_MODES, PLACEMENTS, TEMPORARIES, UNSIGNED_WIDTHS } from "./types";
+import {
+    ALL_WIDTHS,
+    CONST_SOURCES,
+    ENTRY_ORDERS,
+    ENTRY_SHAPES,
+    INIT_STYLES,
+    LAYOUT_MODES,
+    NS_MODES,
+    PLACEMENTS,
+    STATE_ORDERS,
+    TEMPORARIES,
+    UNSIGNED_WIDTHS,
+} from "./types";
 import type { AxisAssignment, AxisName, Fill, LayoutMode, NsMode, Placement, ScalarWidth } from "./types";
 import { LEGAL_CAPACITIES } from "./emit";
 
@@ -19,6 +31,8 @@ export const AXIS_VALUES: { [K in AxisName]: readonly unknown[] } = {
     initStyle: INIT_STYLES,
     entryShape: ENTRY_SHAPES,
     constSource: CONST_SOURCES,
+    stateOrder: STATE_ORDERS,
+    entryOrder: ENTRY_ORDERS,
 };
 
 export function widthOf(axis: AxisAssignment, fallback: ScalarWidth = "uint64"): ScalarWidth {

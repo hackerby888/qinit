@@ -40,6 +40,11 @@ expected results), [`crytic/not-so-smart-contracts`](https://github.com/crytic/n
 - Both findings are **width- or depth-specific**, and were invisible at the plain spelling. Neither
   would have been produced by a probe someone sat down to write.
 
+> This section is round 1. The campaign has since run twice more, at the bottom of this file. Current
+> state after **round 3**: 171 archetypes / 3,647 contracts, 3,609 matching, **five findings** — F200,
+> F201, F203, F204, F205 — and three harness defects (F202, F206, F207), each recorded where it was found
+> and each fixed. Nothing here has been confirmed against real core or WAMR.
+
 ## Findings
 
 ### F200 — `QPI::div(sint32, sint32)` at `INT32_MIN / -1` traps under clang and silently wraps under the TypeScript backend
@@ -520,3 +525,159 @@ Two things are specific to round 2:
 - **F204 is not a defect and should not be read as one.** Shifting past the operand width is undefined in
   C++; the finding is the *inconsistency*, not a wrong answer, and the TypeScript backend is arguably the
   better-behaved of the two there.
+
+# Round 3 — three times the corpus, and six axes every archetype gets for free
+
+Same harness, same environment as rounds 1 and 2 (`core-lite`, `wasi-sdk-29`, one `QubicSimulator` per
+cell, clang from `wasi-sdk-29`). Round 3 grew the corpus from **118 archetypes / 1,204 contracts** to
+**171 archetypes / 3,647 contracts** — the 3× the round was asked for — and got there from two
+directions at once: **53 new archetypes** in the families round 2 left thinnest, and **six axes that now
+apply to every archetype without it opting in**.
+
+## Round 3 summary
+
+- **1 new divergence, F205** — an unqualified name that is both a file-scope enum constant and a member
+  of the contract. C++ looks up names inside a member function in class scope first, so clang takes the
+  member and refuses the assignment; the TypeScript backend takes the enum constant and compiles. Same
+  direction as F201: the TypeScript backend accepts a program clang refuses, so a contract can pass
+  local testing and then fail the build that produces the on-chain artifact.
+- **2 new harness defects, F206 and F207**, both found and fixed inside the round, both surfaced only
+  because the axes became universal. Recorded here for the same reason F202 was: a generator defect that
+  goes unrecorded looks like a compiler finding the next time someone reads the scoreboard.
+- **F200, F201, F203 and F204 all still reproduce**, on the same archetypes, unchanged — now across 38
+  rows instead of 11, because the new axes multiply each finding's variants.
+- **No other divergence anywhere in 3,647 contracts.** 3,609 matched; the 38 that did not are those four
+  findings and nothing else.
+
+### F205 — a file-scope enum constant hidden by a contract member: clang rejects, the TypeScript backend accepts
+
+Severity: **medium (a contract that compiles under `--compiler typescript` and fails the clang build; no
+silent wrong answer, because the divergence is a compile error on one side)**.
+
+Repro: `corpus/solidity-port/triage/F205-enum-hidden-by-member/` (`EnumHidden.h`, `script.json`).
+Corpus rows: `namespaces/NsEnumConstantHiddenByMember__*`, which pin the divergence deliberately.
+
+```
+d=corpus/solidity-port/triage/F205-enum-hidden-by-member
+bun run scripts/solidity-port/triage.ts $d/EnumHidden.h $d/script.json
+
+# EnumHidden: one-side-rejected
+# TypeScript backend:
+#   status ok  digest 1d91cfaafe467e98…  stateSize 24
+#   [ 1] function 1  out 0300000000000000 0400000000000000 0a00000000000000
+#                        ^ hidden = 3       ^ control = 4     ^ helperCalls
+# clang backend:
+#   status rejected
+#   ! error: assigning to 'uint64' from incompatible type
+#     'void (const QPI::QpiContextFunctionCall &, …, Helper_input &, Helper_output &, Helper_locals &)'
+```
+
+The contract declares `enum Kind { Helper = 3, Solo = 4 };` at file scope and a `PRIVATE_FUNCTION(Helper)`
+inside the contract, then writes `state.mut().hidden = Helper;` from a procedure. C++ name lookup inside
+a member function searches class scope before the enclosing namespace, so `Helper` is the member function
+and the assignment is ill-formed — which is exactly what clang says. The TypeScript backend resolves the
+same spelling to the enum constant and stores 3.
+
+`Solo` is the control: the same assignment through an enum constant that no member hides, which both
+backends accept and both store as 4. So the disagreement is specifically about the hiding rule and not
+about enum constants, and the whole thing is decided by one build of one contract.
+
+This is the third finding in the same family as F201 and the round-1 namespace bugs: the TypeScript
+backend's name resolution is more permissive than C++'s, and where it is more permissive it silently
+picks a different entity rather than reporting an ambiguity.
+
+### F206 — harness defect, found and fixed during the round: the `temporaries` axis hoisted a function's locals into state
+
+The `temporaries=stateScratch` axis moves an entry's `_locals` members into a scratch sub-struct of
+`StateData` and rewrites `locals.x` to `state.mut().scratch.x`. Applied to a **function**, that makes a
+read-only entry write through `state.mut()`, which both build gates refuse — so eleven contracts came
+back `both-rejected`, testing nothing. The axis now rewrites procedures only; a function keeps its
+locals, and the variant renders identically to the `locals` spelling and is dropped by the dedup.
+
+### F207 — harness defect, same shape: `entryOrder` reordered entries whose types depend on each other
+
+`entryOrder=reversed` declares the contract's entries back to front. Where one entry's `_locals` names
+another entry's `_input` — a private helper reached by `CALL`, or a public entry that shares a guard —
+reversing them emits the member before its type exists, and clang rejects with `unknown type name`
+(three `ModifierAsPrivateFunction` variants did exactly this). The axis now stands down for any contract
+with such a dependency. The invariant is pinned by a corpus-wide control that walks every emitted
+contract and asserts that an entry naming another entry's I/O struct is always declared after it, so the
+next axis that reorders declarations cannot reintroduce this quietly.
+
+## Round 3 suite counts
+
+```
+bun run corpus:check      3659 files, 3647 contracts, clean
+bun run corpus:analyze    3647 variants, 0 ERROR diagnostics, 16 expected-reject
+bun run corpus:sweep -- --tier full --workers 4
+                          3647 contracts · 3609 match · 38 not-match · 0 hang
+                          median 842ms · wall 738s
+```
+
+The 38 non-matching rows are the four known findings and nothing else: 19 `K12OfComputedExpression`
+(F203), 10 `ShiftRhsWiderThanLhs` constexpr variants (F204), 5 `NsInheritedNamespacedTypedef`
+aliasOfAlias variants (F201) and 4 `DivQpi` sint32 variants (F200). F205's own rows are scored as
+matches because the archetype documents the divergence through `expectedVerdict`: it passes by diverging
+exactly as described and fails the moment it stops.
+
+Stimulus coverage: 3,462 of 3,647 contracts moved their state digest mid-script, 144 emitted at least one
+log, 21 produced at least one trap, **143 made a cross-contract call**, and 110 finished with an all-zero
+state — the `loopShape=zero` and `initStyle=absent` variants, where writing nothing is the row's point.
+
+Positive control, re-run at the new size: planting `uint16: 2 → 4` in
+`packages/compiler/src/shared/scalar-sizes.ts` turned **89 of the 484 layout contracts red** (round 2: 37
+of 219; round 1: 21 of 81), and restoring the line returned all 484 to green in the same command. So the
+sweep still fails when the compiler under test is wrong, at three times the size, and the compile cache
+still keys on the backend's own source.
+
+`bun run typecheck` (root project, which covers `scripts/`): clean.
+
+## What round 3 changed in the harness
+
+- **Six axes are now universal.** `emitContract` takes the variant's whole axis assignment and applies
+  `placement`, `temporaries`, `initStyle`, `entryShape`, `stateOrder` and `entryOrder` from it, and the
+  generator adds those six to every archetype's declared axes. Before this, 15 archetypes opted into no
+  axis at all and 16 into `placement` alone, so most of round 2's contract count came from a handful of
+  integer and layout archetypes. This is the change that made 3× reachable without inventing 350 more
+  archetypes: an archetype now varies along every axis it can support, and one it cannot support renders
+  identically under both values and is dropped by the source-fingerprint dedup — so the count cannot be
+  inflated by an axis nobody applies.
+- **Two new axes**, both real declaration differences rather than new stimulus: `stateOrder` declares
+  `StateData`'s members back to front, which moves every offset after the first member; `entryOrder`
+  declares the entries back to front, which changes nothing about the IDL or the registration numbers and
+  therefore isolates declaration order on its own.
+- **53 new archetypes**, weighted to the families round 2 left thinnest — lifecycle 3 → 11, logging
+  4 → 10, vulnerabilities 5 → 13, assets 4 → 11, controlflow 6 → 14, containers 13 → 19, intercontract
+  6 → 10, layout 17 → 22. New ground they cover: `HashMap::removeByKey` markers and `cleanup()`
+  compaction (no Solidity analogue at all — a mapping never compacts), `HashSet` churn, `Array::setRange`
+  and `rangeEquals` at inverted and out-of-range bounds, epoch settlement inside `END_EPOCH`, hook
+  ordering, OpenZeppelin's `PullPayment` / `AccessControl` / `Nonces` / `VestingWallet` and the
+  MasterChef reward-per-share accumulator, tx.origin-versus-msg.sender authorisation (which ports
+  faithfully, since QPI exposes both), a cross-contract call made from inside a loop and from inside a
+  private procedure, and three-deep nested arrays.
+- **A `--only <pattern>` flag on `generate.ts --analyze-only`**, which is what made authoring a batch of
+  archetypes a seconds-long loop instead of a full-corpus one.
+
+## Round 3 limitations
+
+Everything in rounds 1 and 2 still holds, unchanged and still the most important thing on this page: both
+backends share one build gate, one `qpi.h` and the same `QubicSimulator`, so **"3,609 matched" means they
+agreed with each other**, not that either was right. No finding in this ledger has been confirmed against
+real core or WAMR. That is still the obvious next step and it is still undone.
+
+Three things are specific to round 3:
+
+- **3,647 contracts came from 171 archetypes**, so the effective sample is nearer 171 than 3,647 — and
+  the ratio is worse than round 2's, not better: 21 variants per archetype against 10. The axes earn
+  their place as the bisector that made F200, F201 and F204 precise, and F205 was found by a *new
+  archetype*, not by a new axis. Read the contract count as breadth of spellings, not as independent
+  trials.
+- **`stateOrder` and `entryOrder` are permutations, not new semantics.** They re-spell a contract the
+  archetype already wrote. That is genuinely worth testing — struct offsets and declaration order are
+  where this compiler has broken before — but a reader should not take "3,647 contracts" as 3,647
+  distinct behaviours under test.
+- **The two harness defects above were found by the sweep going red, not by review.** Both had the same
+  signature: an axis applied where the archetype could not support it, producing a rejection that says
+  nothing about either compiler. The corpus-wide invariant test added for F207 covers the declaration
+  ordering; there is no such guard for a *semantic* axis misapplication, and the honest position is that
+  the next one would again show up as an unexplained `both-rejected` cluster.

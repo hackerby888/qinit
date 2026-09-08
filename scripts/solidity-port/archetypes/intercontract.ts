@@ -18,7 +18,7 @@
 import { emitContract } from "../emit";
 import { script } from "./common";
 import { u64 } from "../encode";
-import type { Archetype, CallStep } from "../types";
+import type { Archetype, AxisAssignment, CallStep } from "../types";
 
 const SOL = "test/libsolidity/semanticTests/functionCall";
 
@@ -26,8 +26,9 @@ export const CALLER_SLOT = 29;
 export const CALLEE_SLOT = 28;
 
 /** The callee every archetype here calls: a small ledger with one function and one procedure. */
-function ledgerCallee(name: string): { name: string; source: string; slot: number } {
+function ledgerCallee(name: string, axis: AxisAssignment): { name: string; source: string; slot: number } {
     const source = emitContract({
+        axis,
         name,
         header: {
             archetype: name,
@@ -96,8 +97,9 @@ export const INTERCONTRACT_ARCHETYPES: Archetype[] = [
         caveat: "The callee's types stay in the caller's `_locals`; a callee type in a public input is a hard gate error on both backends.",
         axes: ["placement", "temporaries"],
         build(axis) {
-            const callee = ledgerCallee("PackLedger");
+            const callee = ledgerCallee("PackLedger", axis);
             const source = emitContract({
+                axis,
                 name: "CalleeStructInputPacking",
                 header: {
                     archetype: "CalleeStructInputPacking",
@@ -146,8 +148,9 @@ export const INTERCONTRACT_ARCHETYPES: Archetype[] = [
         stresses: "a caller that barely changes its own state while driving the callee's — the case where comparing only the caller's digest would report a false match",
         axes: ["placement"],
         build(axis) {
-            const callee = ledgerCallee("SinkLedger");
+            const callee = ledgerCallee("SinkLedger", axis);
             const source = emitContract({
+                axis,
                 name: "CalleeStateIsWhereMutationLands",
                 header: {
                     archetype: "CalleeStateIsWhereMutationLands",
@@ -199,8 +202,9 @@ export const INTERCONTRACT_ARCHETYPES: Archetype[] = [
         caveat: "Each call is wrapped in its own block: the plain macro declares an error variable in the enclosing scope, and two in one scope is a redefinition on both backends.",
         axes: ["placement", "temporaries"],
         build(axis) {
-            const callee = ledgerCallee("TwiceLedger");
+            const callee = ledgerCallee("TwiceLedger", axis);
             const source = emitContract({
+                axis,
                 name: "CalleeCalledTwiceSameProcedure",
                 header: {
                     archetype: "CalleeCalledTwiceSameProcedure",
@@ -258,6 +262,7 @@ export const INTERCONTRACT_ARCHETYPES: Archetype[] = [
         build(axis) {
             const calleeName = "PartialLedger";
             const calleeSource = emitContract({
+                axis,
                 name: calleeName,
                 header: {
                     archetype: calleeName,
@@ -290,6 +295,7 @@ export const INTERCONTRACT_ARCHETYPES: Archetype[] = [
                 initialize: "state.mut().calls = 0;",
             });
             const source = emitContract({
+                axis,
                 name: "CalleeOutputPartiallySet",
                 header: {
                     archetype: "CalleeOutputPartiallySet",
@@ -347,6 +353,7 @@ export const INTERCONTRACT_ARCHETYPES: Archetype[] = [
             ].join("\n");
             const calleeName = "EnvelopeLedger";
             const calleeSource = emitContract({
+                axis,
                 name: calleeName,
                 header: {
                     archetype: calleeName,
@@ -376,6 +383,7 @@ export const INTERCONTRACT_ARCHETYPES: Archetype[] = [
                 initialize: "state.mut().sum = 0;\nstate.mut().calls = 0;",
             });
             const source = emitContract({
+                axis,
                 name: "CalleeSharedStructDefinition",
                 header: {
                     archetype: "CalleeSharedStructDefinition",
@@ -426,6 +434,7 @@ export const INTERCONTRACT_ARCHETYPES: Archetype[] = [
         build(axis) {
             const calleeName = "RewardLedger";
             const calleeSource = emitContract({
+                axis,
                 name: calleeName,
                 header: {
                     archetype: calleeName,
@@ -455,6 +464,7 @@ export const INTERCONTRACT_ARCHETYPES: Archetype[] = [
                 beginTick: "state.mut().transfers = state.get().transfers;",
             });
             const source = emitContract({
+                axis,
                 name: "CalleeInvokedWithReward",
                 header: {
                     archetype: "CalleeInvokedWithReward",

@@ -69,6 +69,16 @@ export type EntryShape = "direct" | "viaPrivate";
 
 export const ENTRY_SHAPES: EntryShape[] = ["direct", "viaPrivate"];
 
+/** Declaration order of StateData's own members. Reversing it moves every offset after the first field. */
+export type StateOrder = "declared" | "reversed";
+
+export const STATE_ORDERS: StateOrder[] = ["declared", "reversed"];
+
+/** Declaration order of the contract's entries inside the class. The registration numbers do not move. */
+export type EntryOrder = "declared" | "reversed";
+
+export const ENTRY_ORDERS: EntryOrder[] = ["declared", "reversed"];
+
 /** Whether the archetype's operand arrives at runtime or as a compile-time constant. */
 export type ConstSource = "input" | "constexpr";
 
@@ -77,7 +87,27 @@ export const CONST_SOURCES: ConstSource[] = ["input", "constexpr"];
 /** The shape of a loop bound, which decides whether the trip count is a constant to the compiler. */
 export type LoopShape = "constant" | "clamped" | "zero";
 
-export type AxisName = "width" | "capacity" | "fill" | "ns" | "layout" | "placement" | "temporaries" | "loopShape" | "initStyle" | "entryShape" | "constSource";
+export type AxisName =
+    | "width"
+    | "capacity"
+    | "fill"
+    | "ns"
+    | "layout"
+    | "placement"
+    | "temporaries"
+    | "loopShape"
+    | "initStyle"
+    | "entryShape"
+    | "constSource"
+    | "stateOrder"
+    | "entryOrder";
+
+/**
+ * Axes that need nothing from the archetype beyond passing its `axis` through to `emitContract`, so the
+ * generator opts every archetype into them. An archetype that ignores one renders identically under both
+ * of its values and the source-fingerprint dedup drops the duplicate, so this cannot inflate the corpus.
+ */
+export const UNIVERSAL_AXES: AxisName[] = ["placement", "temporaries", "initStyle", "entryShape", "stateOrder", "entryOrder"];
 
 /** One point in the archetype's opted-in axis space. Absent keys mean the archetype ignores that axis. */
 export interface AxisAssignment {
@@ -92,6 +122,8 @@ export interface AxisAssignment {
     initStyle?: InitStyle;
     entryShape?: EntryShape;
     constSource?: ConstSource;
+    stateOrder?: StateOrder;
+    entryOrder?: EntryOrder;
 }
 
 /** One step of stimulus. `in` is the raw input struct as hex, so both compilers see identical bytes. */

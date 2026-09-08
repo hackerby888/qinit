@@ -69,6 +69,7 @@ export const LOGGING_ARCHETYPES: Archetype[] = [
         axes: ["placement"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "LogTerminatorLast",
                 header: {
                     archetype: "LogTerminatorLast",
@@ -122,8 +123,9 @@ export const LOGGING_ARCHETYPES: Archetype[] = [
         caveat: "Agreement-on-rejection row. The TypeScript backend refuses it through its build gate; clang refuses it through core's own static_assert in lhost_imports.h, so the two verdicts are independently derived.",
         axes: [],
         expectReject: true,
-        build() {
+        build(axis) {
             const source = emitContract({
+                axis,
                 name: "LogTerminatorFirst",
                 header: {
                     archetype: "LogTerminatorFirst",
@@ -169,8 +171,9 @@ export const LOGGING_ARCHETYPES: Archetype[] = [
         stresses: "ERROR, WARNING, INFO and DEBUG emitted from one procedure, with a paused region in the middle",
         caveat: "LOG_PAUSE has no Solidity analogue; it is included because the repo has an open finding about pause being honoured by core and ignored by the debug trace.",
         axes: [],
-        build() {
+        build(axis) {
             const source = emitContract({
+                axis,
                 name: "LogSeverityLadder",
                 header: {
                     archetype: "LogSeverityLadder",
@@ -232,8 +235,9 @@ export const LOGGING_ARCHETYPES: Archetype[] = [
         solidity: `${SOL}/events/event_struct_memory_v2.sol`,
         stresses: "a log payload carrying a nested struct and an id — padding inside the payload is part of the emitted bytes",
         axes: [],
-        build() {
+        build(axis) {
             const source = emitContract({
+                axis,
                 name: "LogNestedStructPayload",
                 header: {
                     archetype: "LogNestedStructPayload",

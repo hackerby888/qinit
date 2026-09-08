@@ -27,6 +27,7 @@ export const ASSET_ARCHETYPES: Archetype[] = [
         build(axis) {
             const capacity = capacityOf(axis, 64);
             const source = emitContract({
+                axis,
                 name: "Erc20TransferTable",
                 header: {
                     archetype: "Erc20TransferTable",
@@ -124,6 +125,7 @@ export const ASSET_ARCHETYPES: Archetype[] = [
         build(axis) {
             const capacity = capacityOf(axis, 64);
             const source = emitContract({
+                axis,
                 name: "Erc20AllowanceUnderflow",
                 header: {
                     archetype: "Erc20AllowanceUnderflow",
@@ -203,8 +205,9 @@ export const ASSET_ARCHETYPES: Archetype[] = [
         stresses: "msg.sender and msg.value as QPI sees them: invocator, originator and invocationReward, recorded per caller",
         caveat: "Solidity's msg.value is attached to the call; QPI credits the invocation reward to the contract before the body runs.",
         axes: [],
-        build() {
+        build(axis) {
             const source = emitContract({
+                axis,
                 name: "InvocatorAndReward",
                 header: {
                     archetype: "InvocatorAndReward",
@@ -274,6 +277,7 @@ export const ASSET_ARCHETYPES: Archetype[] = [
         axes: ["placement"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "OwnerGuardAndPause",
                 header: {
                     archetype: "OwnerGuardAndPause",

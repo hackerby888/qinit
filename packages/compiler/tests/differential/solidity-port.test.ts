@@ -129,6 +129,56 @@ describe("solidity-port corpus integrity", () => {
         }
     });
 
+    // The universal axes are applied inside emitContract from the assignment an archetype passes
+    // through, so an archetype that never reaches them would silently produce one variant per axis value
+    // with identical text. The dedup drops those, which is exactly why the corpus can only be trusted if
+    // the axes really do change the source somewhere.
+    test("the stateOrder and entryOrder axes reach the corpus and change the emitted source", () => {
+        const variants = expandAll("full");
+        const reversedState = variants.filter((variant) => variant.axis.stateOrder === "reversed");
+        const reversedEntries = variants.filter((variant) => variant.axis.entryOrder === "reversed");
+        expect(reversedState.length).toBeGreaterThan(10);
+        expect(reversedEntries.length).toBeGreaterThan(10);
+
+        const byArchetype = new Map<string, string[]>();
+        for (const variant of variants) {
+            // The generator's own fingerprint: the code with its banner stripped, plus the call script.
+            // An axis that changes only the stimulus (fill, capacity) is a different test on the same
+            // text, so the script has to be part of the identity or those variants read as duplicates.
+            const code = variant.contract.source.replace(/^(?:\/\/[^\n]*\n)+/, "");
+            const fingerprint = `${code}\u0000${JSON.stringify(variant.contract.script)}`;
+            byArchetype.set(variant.archetype.name, [...(byArchetype.get(variant.archetype.name) ?? []), fingerprint]);
+        }
+        for (const [name, fingerprints] of byArchetype) {
+            // Two variants of one archetype that render the same bytes are the same test run twice.
+            expect(new Set(fingerprints).size, `${name} has duplicate variants`).toBe(fingerprints.length);
+        }
+    });
+
+    // A struct member needs a complete type, so an entry whose `_locals` names another entry's I/O has
+    // to be emitted after it. The entryOrder axis stands down where that would be violated; this is the
+    // invariant it stands down for, checked on every emitted contract in the corpus.
+    test("an entry that names another entry's I/O type is always emitted after it", () => {
+        const declarationOf = (source: string, name: string) => source.indexOf(`struct ${name}_input`);
+        const violations: string[] = [];
+        for (const variant of expandAll("full")) {
+            const source = variant.contract.source;
+            // Every `<Name>_input` / `<Name>_output` mentioned inside another entry's locals struct.
+            for (const match of source.matchAll(/struct (\w+)_locals\s*\n\s*\{([^}]*)\}/g)) {
+                const [, owner, body] = match;
+                for (const reference of body.matchAll(/\b(\w+)_(?:input|output)\b/g)) {
+                    const target = reference[1];
+                    if (target === owner) continue;
+                    const targetAt = declarationOf(source, target);
+                    const ownerAt = declarationOf(source, owner);
+                    if (targetAt < 0 || ownerAt < 0) continue;
+                    if (targetAt > ownerAt) violations.push(`${variant.id}: ${owner}_locals names ${target}_input, declared later`);
+                }
+            }
+        }
+        expect(violations).toEqual([]);
+    });
+
     // clang static_asserts the DAG ordering inside the CALL macro while the TypeScript backend does not
     // check it at compile time, so a wrong-order pair would show up as a compile divergence that says
     // nothing about code generation. The generator must never emit one.

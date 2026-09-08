@@ -24,6 +24,7 @@ export const VULNERABILITY_ARCHETYPES: Archetype[] = [
         build(axis) {
             const capacity = capacityOf(axis, 8);
             const source = emitContract({
+                axis,
                 name: "BatchOverflowMulCount",
                 header: {
                     archetype: "BatchOverflowMulCount",
@@ -105,8 +106,9 @@ export const VULNERABILITY_ARCHETYPES: Archetype[] = [
         stresses: "interaction-before-effect versus checks-effects-interactions, expressed as a re-entry flag rather than a real callback",
         caveat: "QPI's call graph is a strict DAG by slot, so a callee cannot re-enter its caller: classic reentrancy is structurally impossible. The port models the re-entry as a second entry reached while a guard flag is set, which is the state-machine residue of the same bug.",
         axes: [],
-        build() {
+        build(axis) {
             const source = emitContract({
+                axis,
                 name: "ReentrancyStateMachine",
                 header: {
                     archetype: "ReentrancyStateMachine",
@@ -201,8 +203,9 @@ export const VULNERABILITY_ARCHETYPES: Archetype[] = [
         stresses: "a winner picked from chain-visible data — the same predictability bug, and a determinism probe for the tick and digest host calls",
         caveat: "block.timestamp/blockhash become qpi.tick() and qpi.K12(); the script pins the tick, so a differing result is a compiler difference, not chain noise.",
         axes: [],
-        build() {
+        build(axis) {
             const source = emitContract({
+                axis,
                 name: "TickDerivedRandomness",
                 header: {
                     archetype: "TickDerivedRandomness",
@@ -271,6 +274,7 @@ export const VULNERABILITY_ARCHETYPES: Archetype[] = [
         build(axis) {
             const capacity = capacityOf(axis, 8);
             const source = emitContract({
+                axis,
                 name: "UnboundedLoopBounded",
                 header: {
                     archetype: "UnboundedLoopBounded",
@@ -356,6 +360,7 @@ export const VULNERABILITY_ARCHETYPES: Archetype[] = [
         axes: ["placement"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "UninitialisedOwnerTakeover",
                 header: {
                     archetype: "UninitialisedOwnerTakeover",

@@ -116,6 +116,7 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
         axes: ["placement", "entryShape"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "NsOverloadResolveByArity",
                 header: {
                     archetype: "NsOverloadResolveByArity",
@@ -193,6 +194,7 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
         axes: ["placement", "temporaries"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "NsMemberNameShadowsQpiBuiltin",
                 header: {
                     archetype: "NsMemberNameShadowsQpiBuiltin",
@@ -263,6 +265,7 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
         axes: ["placement", "constSource"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "NsConstantSameNameTwoNamespaces",
                 header: {
                     archetype: "NsConstantSameNameTwoNamespaces",
@@ -322,6 +325,7 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
         axes: ["placement", "layout"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "NsTwoStructsSameFieldNames",
                 header: {
                     archetype: "NsTwoStructsSameFieldNames",
@@ -389,6 +393,7 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
         build(axis) {
             const width = axis.width ?? "uint64";
             const source = emitContract({
+                axis,
                 name: "NsFileLevelConstantChain",
                 header: {
                     archetype: "NsFileLevelConstantChain",
@@ -451,6 +456,7 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
         axes: ["placement", "temporaries"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "NsUnderscoreNamedMember",
                 header: {
                     archetype: "NsUnderscoreNamedMember",
@@ -486,6 +492,71 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
                     },
                 ],
                 initialize: "state.mut()._ = 0;\nstate.mut()._value = 0;\nstate.mut().value_ = 0;\nstate.mut().combined = 0;",
+            });
+            return { source, script: script(drive(VALUES)) };
+        },
+    },
+
+    {
+        name: "NsEnumConstantHiddenByMember",
+        family: "namespaces",
+        solidity: `${SOL}/scoping/name_shadowing.sol`,
+        stresses: "a file-scope enum constant and a member of the contract sharing one name — C++ searches class scope first, so the unqualified name is the member and the enum is unreachable",
+        caveat: "The Solidity original shadows a state variable with a local; QPI's equivalent asymmetry is between class scope and file scope, which is where the two backends disagree.",
+        axes: ["placement"],
+        // Pinned divergence: clang resolves `Helper` to the private entry and refuses the assignment,
+        // the TypeScript backend resolves it to the enum constant and compiles. Scored as a match while
+        // it diverges this way, and as a failure the moment it stops.
+        expectedVerdict: "one-side-rejected",
+        divergenceNote:
+            "F205 — an unqualified name that is both a file-scope enum constant and a member of the contract: clang takes the member (class scope wins) and rejects the assignment; the TypeScript backend takes the enum constant and accepts the contract.",
+        build(axis) {
+            const source = emitContract({
+                axis,
+                name: "NsEnumConstantHiddenByMember",
+                header: {
+                    archetype: "NsEnumConstantHiddenByMember",
+                    family: "namespaces",
+                    solidity: `${SOL}/scoping/name_shadowing.sol`,
+                    stresses: "an enum constant hidden by a member function of the same name",
+                    caveat: "documented divergence: clang rejects, the TypeScript backend accepts",
+                    axis: `placement=${axis.placement ?? "first"}`,
+                },
+                prelude: "enum Kind { Helper = 3, Other = 4 };",
+                state: "uint64 kind;\nuint64 helperCalls;",
+                entries: [
+                    {
+                        name: "Helper",
+                        kind: "function",
+                        visibility: "private",
+                        number: 0,
+                        input: "uint64 value;",
+                        output: "uint64 doubled;",
+                        body: "output.doubled = input.value * 2;",
+                    },
+                    {
+                        name: "Assign",
+                        kind: "procedure",
+                        number: 1,
+                        input: "uint64 seed;",
+                        locals: "Helper_input request;\nHelper_output reply;",
+                        body: `
+                            locals.request.value = input.seed;
+                            CALL(Helper, locals.request, locals.reply);
+                            state.mut().helperCalls += locals.reply.doubled;
+                            // Unqualified: the enum constant at file scope, or the member declared above?
+                            state.mut().kind = Helper;
+                        `,
+                    },
+                    {
+                        name: "Read",
+                        kind: "function",
+                        number: 1,
+                        output: "uint64 kind;\nuint64 helperCalls;",
+                        body: "output.kind = state.get().kind;\noutput.helperCalls = state.get().helperCalls;",
+                    },
+                ],
+                initialize: "state.mut().kind = 0;\nstate.mut().helperCalls = 0;",
             });
             return { source, script: script(drive(VALUES)) };
         },

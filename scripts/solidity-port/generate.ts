@@ -151,11 +151,11 @@ function listExisting(root: string): Map<string, string> {
     return found;
 }
 
-async function analyzeAll(tier: Tier): Promise<number> {
+async function analyzeAll(tier: Tier, only?: RegExp): Promise<number> {
     const corePath = process.env.QINIT_CORE;
     if (!corePath) throw new Error("QINIT_CORE must point at a core-lite checkout to analyze the corpus");
     const qpiHeader = loadQpiHeader(corePath);
-    const variants = expandAll(tier);
+    const variants = expandAll(tier).filter((variant) => !only || only.test(variant.archetype.name));
     let errors = 0;
     let expectedRejections = 0;
 
@@ -188,7 +188,11 @@ async function main(): Promise<void> {
     if (!(tier in TIERS)) throw new Error(`--tier must be one of ${Object.keys(TIERS).join(", ")}`);
 
     if (argv.includes("--analyze-only")) {
-        process.exit((await analyzeAll(tier)) === 0 ? 0 : 1);
+        // `--only <pattern>` narrows the gate to the archetypes whose name matches, which is what makes
+        // authoring a new batch a seconds-long loop rather than a full-corpus one.
+        const onlyArgument = argv.indexOf("--only");
+        const only = onlyArgument >= 0 ? new RegExp(argv[onlyArgument + 1]) : undefined;
+        process.exit((await analyzeAll(tier, only)) === 0 ? 0 : 1);
     }
 
     const { files, manifest } = buildFiles(tier);

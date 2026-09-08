@@ -41,6 +41,7 @@ function layoutProbe(meta: Omit<Archetype, "build" | "axes">, definition: string
         build(axis: AxisAssignment) {
             const type = qualifiedStruct(axis, "Entry", definition, decoy);
             const source = emitContract({
+                axis,
                 name: meta.name,
                 header: {
                     archetype: meta.name,
@@ -144,6 +145,7 @@ export const NAMESPACE_ARCHETYPES: Archetype[] = [
         build(axis) {
             const type = qualifiedStruct(axis, "Base", "uint64 a;\nuint64 b;\nuint64 c;", "uint16 a;");
             const source = emitContract({
+                axis,
                 name: "NsInheritedNamespacedTypedef",
                 header: {
                     archetype: "NsInheritedNamespacedTypedef",
@@ -202,6 +204,7 @@ export const NAMESPACE_ARCHETYPES: Archetype[] = [
                 : "namespace Alpha\n{\nstatic constexpr uint64 CAPACITY = 8;\n}";
             const use = "Alpha::CAPACITY";
             const source = emitContract({
+                axis,
                 name: "NsTwinConstant",
                 header: {
                     archetype: "NsTwinConstant",
@@ -270,6 +273,7 @@ export const NAMESPACE_ARCHETYPES: Archetype[] = [
                 ? "namespace Alpha\n{\nenum Status : uint64 { Idle = 0, Busy = 1, Done = 2 };\n}\n\nnamespace Beta\n{\nenum Status : uint8 { Idle = 0, Busy = 1, Done = 2 };\n}"
                 : "namespace Alpha\n{\nenum Status : uint64 { Idle = 0, Busy = 1, Done = 2 };\n}";
             const source = emitContract({
+                axis,
                 name: "NsTwinEnum",
                 header: {
                     archetype: "NsTwinEnum",
@@ -325,10 +329,11 @@ export const NAMESPACE_ARCHETYPES: Archetype[] = [
         stresses: "a contract-level constant named exactly like a qpi.h internal, which previously rewrote HashMap's internals silently",
         caveat: "No Solidity analogue — this is the historical Qubic bug, reproduced across several qpi.h-internal names.",
         axes: [],
-        build() {
+        build(axis) {
             // The names below are qpi.h internals a contract can legally declare; the point is that
             // declaring them must not change the behaviour of the containers that use the real ones.
             const source = emitContract({
+                axis,
                 name: "NsConstantShadowsQpiInternal",
                 header: {
                     archetype: "NsConstantShadowsQpiInternal",
@@ -393,6 +398,7 @@ export const NAMESPACE_ARCHETYPES: Archetype[] = [
         axes: ["placement"],
         build(axis) {
             const source = emitContract({
+                axis,
                 name: "NsLocalShadowsStateField",
                 header: {
                     archetype: "NsLocalShadowsStateField",
@@ -449,8 +455,9 @@ export const NAMESPACE_ARCHETYPES: Archetype[] = [
         solidity: `${SOL}/libraries/library_inheritance.sol`,
         stresses: "a state field typed `A::B::C::Entry`, three namespaces deep, with a same-named type at each level",
         axes: [],
-        build() {
+        build(axis) {
             const source = emitContract({
+                axis,
                 name: "NsNestedNamespaceDepth",
                 header: {
                     archetype: "NsNestedNamespaceDepth",
@@ -514,8 +521,9 @@ export const NAMESPACE_ARCHETYPES: Archetype[] = [
         stresses: "sizeof over a plain local, a plain global and a namespaced type in one contract — the control row that caught an 8-to-4 regression when the qualified path was fixed",
         caveat: "Deliberately boring. A table with no row that fails when a fix over-reaches is incomplete.",
         axes: [],
-        build() {
+        build(axis) {
             const source = emitContract({
+                axis,
                 name: "NsSizeofLocalControl",
                 header: {
                     archetype: "NsSizeofLocalControl",

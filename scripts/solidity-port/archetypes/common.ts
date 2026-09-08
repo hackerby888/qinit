@@ -60,6 +60,7 @@ export function binaryOpArchetype(
             const pairs = (options.operands ?? defaultOperands)(width).filter(([, b]) => !options.avoidZeroDivisor || b !== 0n);
 
             const source = emitContract({
+                axis,
                 name: meta.name,
                 header: {
                     archetype: meta.name,
@@ -161,6 +162,7 @@ export function singleProcedureArchetype(meta: Omit<Archetype, "build">, options
         build(axis: AxisAssignment): BuiltContract {
             const spec = options(axis);
             const source = emitContract({
+                axis,
                 name: meta.name,
                 header: {
                     archetype: meta.name,
