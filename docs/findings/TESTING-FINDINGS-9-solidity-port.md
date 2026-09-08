@@ -1775,3 +1775,80 @@ and the four tick/epoch hooks, and the hook loop at `:383-391` iterates exactly
 `["BEGIN_TICK","END_TICK","BEGIN_EPOCH","END_EPOCH"]`. That change touches every archetype's code path,
 and starting it late in a round with a corpus regeneration and two sweeps still to run was the wrong
 trade. It is the first thing round 8 should do.
+
+## The parity table, measured for the first time on both backends
+
+Sample: 15 variants per family across the seven pure-state families, run against core's own WAMR
+runtime through the repaired sweep and the widened shim.
+
+```
+105 contracts across 7 families · 210 artifact runs
+  195  agree           simulator and core's WAMR host produce byte-identical state
+   15  build-rejected  the TypeScript build gate refuses the contract (F217, the namespace alias)
+    0  shim-trap
+    0  DISAGREE
+```
+
+By backend: **clang 105 agree** — every contract built and ran — and **typescript 90 agree, 15
+build-rejected**. The 15 are the gate-refusal family clang accepts and the TypeScript backend does not,
+already recorded as F217 and the alias limitation.
+
+Three things this establishes that round 6's table did not.
+
+**clang has now actually been measured.** All 105 clang artifacts were executed on core's real runtime
+and every one produced the same state as the qinit simulator. Under the collided sweep that number was
+structurally zero, whatever the table said.
+
+**The shim gap is closed: 152 of 770 runs (~20%) became 0 of 210.** Nothing in this sample is
+unreachable any more. That is the widened shim doing exactly what it was added for — `k12` for the
+hash-keyed and `qpi.K12` contracts, `tick` for the lifecycle ones.
+
+**The artifact-collision guard did not trip**, so the 105 pairs are genuinely distinct modules. Their
+*final states* still match, which is the correct invariant — same contract, same semantics — but they
+now reach it through different bytes: 17,335 bytes under clang against 4,898 under the TypeScript
+backend for `ArrayOfArraysStride`. Round 6 could not have told those two facts apart.
+
+And it is a first, real cross-check of two independent KangarooTwelve implementations: clang inlines
+core's header-only K12 into the module, while the TypeScript backend calls out to `lhost.k12`, which
+the shim answers with core's. The hash-keyed container contracts exercise both and agree.
+
+Two bounds, stated plainly:
+
+- **This is a smaller sample than round 6's** — 105 contracts against 385, 15 per family rather than
+  55, chosen because the sweep was competing with the full differential run for four cores. It is a
+  sample, not a census, and the families outside the pure-state seven (hostcalls, assets, logging,
+  intercontract) are excluded by construction as before.
+- **The unshimmed surface is still unmeasured.** Transfers, the asset ledger, logging and
+  inter-contract calls remain outside the oracle by choice, and F220 lives in exactly that region — it
+  was found by reading the backend and confirmed by the two-backend differential, not by this oracle.
+
+## F221 — `addMillisec` silently drops the day carry
+
+Severity: **high (silent wrong answer in date arithmetic; the call reports success)**.
+
+Repro: `corpus/solidity-port/triage/F221-addmillisec-day-carry/NOTES.md`. Corpus rows:
+`integers/DateAddMillisecCarryChain__*`, six variants, currently unpinned.
+
+From `2024-01-01 00:00:00.000`:
+
+| `addMillisec(n)` | clang | typescript |
+| --- | --- | --- |
+| 86,399,999 — one ms short of a day | 2024-01-01 23:59:59.999 | same |
+| **86,400,000 — exactly one day** | **2024-01-02** 00:00:00.000 | **2024-01-01** 00:00:00.000 |
+| **172,800,000 — two days** | **2024-01-03** 00:00:00.000 | **2024-01-01** 00:00:00.000 |
+
+It returns **true** in every row on both backends. Nothing reports a problem.
+
+The boundary is exact. Everything below a full day agrees, and the divergence appears the moment the
+carry chain has to produce a day; two days lose two days, so the carry is discarded rather than
+truncated or wrapped. `addMillisec` (`qpi_date_time.h:515`) forwards to the eight-argument `add()` at
+`:271`, which carries micro → milli → sec → minute → hour, writes the time with `setTime`, and then —
+only if the resulting day carry is non-zero — folds it into `days` and tail-calls the three-argument
+`add()` to move the date. Everything through `setTime` matches; the date half does not run.
+
+**The secondary oracle could not have caught this, and the differential did.**
+`DateAddMillisecCarryChain` is one of the two archetypes in `integers-datetime.ts` deliberately shipped
+*without* hand-derived `expect` rows, on the grounds that folding five carries into a 160-line day loop
+is exactly the arithmetic that produced 47 false violations in round 6. That judgement was right — and
+the finding still landed, because the two backends disagreed. It is the clearest argument this campaign
+has produced for keeping both oracles rather than treating expect rows as the stronger one.

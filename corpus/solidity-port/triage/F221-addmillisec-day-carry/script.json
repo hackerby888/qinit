@@ -1,0 +1,20 @@
+{
+  "slot": 29,
+  "tick": 1000,
+  "epoch": 100,
+  "epochLength": 8,
+  "identities": [
+    "0707070707070707070707070707070707070707070707070707070707070707",
+    "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+  ],
+  "fund": [
+    { "id": 0, "amount": "1000000000" },
+    { "id": 1, "amount": "1000000000" }
+  ],
+  "steps": [
+    { "kind": "procedure", "entry": 1, "in": "ff7f2705000000000000000000000000", "invocator": 0, "note": "86399999 ms — one ms short of a day; both backends agree" },
+    { "kind": "function", "entry": 1 },
+    { "kind": "procedure", "entry": 1, "in": "00802705000000000000000000000000", "invocator": 0, "note": "86400000 ms — exactly one day; the day carry is dropped" },
+    { "kind": "function", "entry": 1 }
+  ]
+}
