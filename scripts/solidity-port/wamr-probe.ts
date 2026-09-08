@@ -182,4 +182,5 @@ async function main(): Promise<void> {
     }
 }
 
-await main();
+// Only when run directly: wamr-sweep.ts imports hostImports/unregisteredImports from here.
+if (import.meta.main) await main();

@@ -23,6 +23,7 @@ import { LAYOUT_MATRIX_ARCHETYPES } from "./archetypes/layout-matrices";
 import { NAMESPACE_RESOLUTION_ARCHETYPES } from "./archetypes/namespaces-resolution";
 import { NAMESPACE_SCOPING_ARCHETYPES } from "./archetypes/namespaces-scoping";
 import { NAMESPACE_VALUE_ARCHETYPES } from "./archetypes/namespaces-values";
+import { NAMESPACE_LOOKUP_ARCHETYPES } from "./archetypes/namespaces-lookup";
 import { INTERCONTRACT_ARCHETYPES } from "./archetypes/intercontract";
 import { INTERCONTRACT_DAG_ARCHETYPES } from "./archetypes/intercontract-dag";
 import { INTERCONTRACT_HOOK_ARCHETYPES } from "./archetypes/intercontract-hooks";
@@ -54,6 +55,7 @@ import { CONTAINER_ARCHETYPES } from "./archetypes/containers";
 import { CONTAINER_STRUCTURE_ARCHETYPES } from "./archetypes/containers-structures";
 import { CONTAINER_COLLECTION_ARCHETYPES } from "./archetypes/containers-collections";
 import { CONTAINER_ADVANCED_ARCHETYPES } from "./archetypes/containers-advanced";
+import { COLLECTION_POV_ARCHETYPES } from "./archetypes/containers-collection-pov";
 import { CONTAINER_PATTERN_ARCHETYPES } from "./archetypes/containers-patterns";
 import { NAMESPACE_ARCHETYPES } from "./archetypes/namespaces";
 import { UNIVERSAL_AXES } from "./types";
@@ -67,6 +69,7 @@ export const ARCHETYPES: Archetype[] = [
     ...NAMESPACE_RESOLUTION_ARCHETYPES,
     ...NAMESPACE_SCOPING_ARCHETYPES,
     ...NAMESPACE_VALUE_ARCHETYPES,
+    ...NAMESPACE_LOOKUP_ARCHETYPES,
     ...LAYOUT_ARCHETYPES,
     ...INTEGER_ARCHETYPES,
     ...SHIFT_ARCHETYPES,
@@ -84,6 +87,7 @@ export const ARCHETYPES: Archetype[] = [
     ...CONTAINER_STRUCTURE_ARCHETYPES,
     ...CONTAINER_COLLECTION_ARCHETYPES,
     ...CONTAINER_ADVANCED_ARCHETYPES,
+    ...COLLECTION_POV_ARCHETYPES,
     ...CONTAINER_PATTERN_ARCHETYPES,
     ...CONTROLFLOW_ARCHETYPES,
     ...CONTROLFLOW_STRUCTURE_ARCHETYPES,
@@ -198,7 +202,9 @@ export function expandArchetype(archetype: Archetype, maxVariants: number, exhau
         // so hashing the whole text would make two identical contracts look distinct and inflate the
         // corpus with variants that test nothing.
         const code = contract.source.replace(/^(?:\/\/[^\n]*\n)+/, "");
-        const fingerprint = createSourceHash("sha256").update(`${code}\u0000${JSON.stringify(contract.script)}`).digest("hex");
+        const fingerprint = createSourceHash("sha256")
+            .update(`${code}\u0000${JSON.stringify(contract.script)}`)
+            .digest("hex");
         if (seenSource.has(fingerprint)) continue;
         seenSource.add(fingerprint);
         const variantId = canonical === "" ? "base" : shortHash(`${archetype.name}|${canonical}|${GENERATOR_VERSION}`).slice(0, 4);

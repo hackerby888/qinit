@@ -1165,3 +1165,196 @@ known `lhost` function with a matching signature, and does not require the set t
 Three of the ten previously-unconfirmed findings now rest on something other than the two backends
 disagreeing. Seven of the remainder are unreachable for a structural reason rather than an untried one:
 a compile refusal has no artifact, and an oracle that runs artifacts cannot adjudicate it.
+
+## Round 6 summary — lane 4, the name-resolution drill
+
+Lane 4 tested a question the repo's own suite never asks. `name-shadowing.test.ts` and
+`namespace-resolution.test.ts` carry 11 tests each, and all 22 are of the form *"does this name
+resolve?"* — "custom namespace helper resolves via using namespace", "a loop counter named `i` counts
+rather than reading as `i`". Not one puts **two same-named declarations with different values** in
+scope and asks *which one* is picked. That is F213's shape, and it is why 143 test files under
+`packages/compiler/tests` did not catch a constant name being effectively global.
+
+`scripts/solidity-port/archetypes/namespaces-lookup.ts` adds 12 archetypes that all ask the second
+question. Two came back red.
+
+### F217 — a block-scope local shadowing an outer name is refused
+
+Severity: **medium (loud refusal of legal C++; a contract that builds with the default backend fails
+to build with `--compiler typescript`)**. Same class as F209, F214 and F215.
+
+Repro and full explanation: `corpus/solidity-port/triage/F217-block-scope-shadow/NOTES.md`.
+Corpus rows: `namespaces/NsBlockScopeShadowChain__*`, 12 variants, pinned through `expectedVerdict`.
+
+```cpp
+static constexpr uint64 tier = 1;
+
+locals.atOne = tier;            // no local `tier` in scope yet -> the file constant
+{
+    uint64 tier = 20;
+    locals.atTwo = tier;
+    {
+        uint64 tier = 300;
+        locals.atThree = tier;
+    }
+}
+locals.afterBlocks = tier;      // control: the file constant again
+```
+
+```
+clang      : ACCEPTED  -> 1, 20, 300, 1   (byte-identical on core's WAMR host)
+typescript : REJECTED
+  error: 'tier' is used before its declaration (or outside the scope that declares it)
+  error: 'tier' shadows a declaration in an enclosing scope — locals share one slot per name,
+         so shadowing is not supported
+```
+
+The second diagnostic is a fair statement of a design limit: the backend's locals model is flat, one
+slot per name per entry, so a block cannot introduce its own binding.
+
+**The first is the interesting one.** `locals.atOne = tier` is read *before* any block declares a local
+`tier`, so in C++ it unambiguously names the file-scope constant — there is nothing
+use-before-declaration about it. Reporting it as one means the block-local declaration is being hoisted
+over the whole entry body: the name is bound for the entire function rather than from its declaration
+to the end of its block. That hoisting is exactly what C99 block scoping exists to prevent, and it is
+what `scoping/c99_scoping_activation.sol` — the Solidity test this was ported from — was written to
+pin down. So the refusal is not only "shadowing is unsupported"; the scope model appears to place the
+inner declaration in the outer scope, which is what makes the earlier, legal read look invalid.
+
+### F213 gets broader again, and a new pairing
+
+`NsEnumConstantVersusNamespaceConstant` is 16 more red rows on the same rule. An enum constant in one
+namespace and a `static constexpr` in another, both fully qualified:
+
+```cpp
+namespace AsEnum     { enum Levels { grade = 6 }; }
+namespace AsConstant { static constexpr uint64 grade = 900; }
+
+  read                                clang   TypeScript
+  AsEnum::grade                           6          900
+  AsConstant::grade                     900          900
+  AsEnum::grade + AsConstant::grade     906         1800
+  AsEnum::grade * AsConstant::grade    5400       810000
+```
+
+Round 5 stated F213 as an enum constant colliding with a *file-scope* `constexpr`. This shows the
+collision does not need file scope at either end: **two namespaced declarations of the same constant
+name collide with each other**, and the later one wins. Both artifacts were run on core's WAMR host and
+reproduce their simulator answers exactly, so the wrong constant is in the deployable wasm.
+
+### The ten that stayed green
+
+The other ten lookup archetypes matched: using-declarations picking one of two colliding constants,
+using-directives with every read qualified, twin inner namespaces under two outers, a base member
+against a file constant, a constant name equal to a struct name, four namespaces read in reverse
+declaration order, three kinds of the same name combined in one expression, two enum types in one
+namespace, an input field named like a file constant, and a namespace alias. Each carries a
+hand-derived `expect` row, so those ten are assertions against the C++ rule and not merely two
+backends agreeing.
+
+One of them earned its own note: `NsAliasAndTargetBothNameConstants` shows the namespace-alias
+limitation is **broader than round 5 recorded**. Round 5 pinned the two-level `namespace Short =
+Long::Inner;`. Even the one-level `namespace Alias = Target;` is refused, with the same explicit
+`unsupported construct at '=' — build this contract with clang` diagnostic. Still a declared
+limitation rather than a defect, and pinned as one.
+
+### A methodological correction worth recording
+
+F217 was nearly mis-filed as "not a finding". `corpus:analyze` reported the rejection, and the
+diagnostic's wording led to an initial assumption that the build gate was shared and therefore both
+backends rejected — which would have made the row test nothing. It was marked `expectReject: true` on
+that basis.
+
+The sweep is what caught it: it reported `one-side-rejected`, not `both-rejected`. Building the same
+file through `buildContractWithClang` and `buildContractWithTypeScript` side by side settled it — the
+rule runs only on the TypeScript path, and clang accepts.
+
+There is a trap here for the next round. Checking such a rejection with the **raw** driver
+(`compileContractWithTypeScript`) reports ACCEPTED, because the raw driver skips the build gate. Only
+the `@qinit/build` wrappers — which is what the sweep uses — show the refusal. A "both backends accept
+it" conclusion drawn from the raw driver would have buried this finding twice over.
+
+## Round 6 summary — lane 2, the untouched surface
+
+The Explore pass that was supposed to inventory the QPI surface never reported, so the inventory was
+done directly: every method in `qpi_containers.h`, `qpi_context.h`, `qpi_assets.h` and
+`qpi_date_time.h` was grepped against every call site in all 411 archetypes. The result is a concrete
+never-called list rather than an impression.
+
+**Container methods with zero call sites anywhere in the corpus:**
+
+```
+pov  priority  tailIndex  prevElementIndex  getElementIndex  removeByIndex  isEmptySlot
+capacity  key  value  hash  init  setMem  addHead  addTail  cleanupIfNeeded
+isArraySorted  isArraySortedWithoutDuplicates
+```
+
+and five more with exactly **one** call site each: `cleanup`, `setRange`, `rangeEquals`,
+`needsCleanup`, `nextElementIndex`.
+
+**Host API with zero call sites:**
+
+| area | never called |
+| --- | --- |
+| assets | `acquireShares`, `releaseShares`, `numberOfOwnedShares`, `numberOfShares`, `assetName`, `issuer`, `owner`, `possessor`, `issuanceIndex`, `ownershipIndex`, `possessionIndex`, `byIssuer`, `byOwner`, `byPossessor`, `byName`, `byManagingContract`, `ownershipManagingContract`, `possessionManagingContract` |
+| IPO | `bidInIPO`, `ipoBidId`, `ipoBidPrice` |
+| mining | `computeMiningFunction`, `initMiningSeed` |
+| oracle | `queryOracle`, `subscribeOracle`, `unsubscribeOracle`, `getOracleQuery`, `getOracleReply`, `getOracleQueryStatus`, `getOcInvocationStatus`, `invokeOc` |
+| governance | `setShareholderProposal`, `setShareholderVotes` |
+| date/time | `addDays`, `addMillisec`, `addMicrosec`, `daysInMonth`, `isLeapYear`, `durationDays`, `setDate`, `setTime`, `getYear`/`Month`/`Day`/`Hour`/`Minute`/`Second`/`Millisec`, `now` |
+| safe math | `addAndComputeCarry`, `addWithoutOverflow` |
+
+The asset gap is the one that should be uncomfortable: **F69** and **F82** in campaigns 6 and 7 were
+both in `acquireShares` / `releaseShares` / `PRE_RELEASE_SHARES`, and this corpus has never called any
+of them.
+
+### What lane 2 actually covered: Collection
+
+`Collection` was the least-covered container by a wide margin — one archetype using `add`,
+`headIndex(pov)`, `nextElementIndex`, `element` and `population()`, and nothing else. It is also the
+most intricate: a set of priority queues keyed by point of view, each a **binary search tree** whose
+parent/left/right indices `add` and `remove` rebalance through `_rebuild`, `_moveElement` and
+`_updateParent`. The backward walk and the priority-bounded lookups follow tree edges the forward walk
+never touches.
+
+`scripts/solidity-port/archetypes/containers-collection-pov.ts` adds four archetypes over exactly
+those methods:
+
+- `CollectionBackwardWalkByTailIndex` — `tailIndex()` + `prevElementIndex()` against
+  `headIndex()` + `nextElementIndex()`, asserting the two walks cover the same elements and mirror
+  each other's ends.
+- `CollectionPovAndPriorityReadBack` — `pov()` and `priority()`, which read the container's own
+  bookkeeping back through an element index rather than reading a stored value.
+- `CollectionPriorityBoundedLookup` — the two-argument `headIndex(pov, maxPriority)` and
+  `tailIndex(pov, minPriority)`, plus bounds outside the range entirely.
+- `CollectionPopulationAcrossTwoPovs` — `population(pov)` against `population()` with elements split
+  across two points of view.
+
+Three carry hand-derived `expect` rows, so they assert against the C++ rule rather than only against
+the other backend.
+
+**The rest of the never-called list is not covered, and that is the honest state of lane 2.** The
+asset, oracle, IPO, mining, governance and date/time surfaces named above remain at zero call sites.
+
+## Round 6 summary — lane 3, the deliberate parser attack
+
+Lane 3 was scoped as a **refusal family**: archetypes that deliberately spell the constructs previous
+rounds worked around, each pinned through `expectReject` / `expectedVerdict` so a refusal becomes a
+standing row instead of a note in a commit message. **That family was not built this round.**
+
+What the round produced instead is two refusals found the same way F214 and F215 were — by writing
+code that happened to hit them — and one methodological result that makes the lane worth building
+properly next time:
+
+- **F217** (above) is a refusal, found by lane 4 rather than by a lane aimed at refusals.
+- **The namespace-alias limitation is broader than round 5 recorded.** Round 5 pinned the two-level
+  `namespace Short = Long::Inner;`. `NsAliasAndTargetBothNameConstants` shows even the one-level
+  `namespace Alias = Target;` is refused.
+- **The raw driver hides refusals.** `compileContractWithTypeScript` reports ACCEPTED for F217's
+  contract; only `buildContractWithTypeScript` — the `@qinit/build` wrapper the sweep uses — runs the
+  gate that refuses it. Any future refusal hunt has to go through the wrappers, or it will conclude
+  that constructs are accepted when the real build path rejects them. This nearly buried F217.
+
+The hang guard the lane called for was also not built. It remains a prerequisite for generating
+refusal candidates safely, because F210 (real non-termination) and F216 (a slow script) both score as
+`hang` and nothing yet distinguishes them.
