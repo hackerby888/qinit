@@ -230,7 +230,13 @@ describe.skipIf(!HAS_CORE)("solidity-port live slice", () => {
             // Archetypes that exist to carry an open finding: they are supposed to diverge, and a green
             // row for one of them would mean the defect had been fixed (or the harness had gone blind).
             // Anything else diverging is new and fails the control.
-            const knownDivergences = new Set(["DivQpi", "NsInheritedNamespacedTypedef", "K12OfComputedExpression", "ShiftRhsWiderThanLhs"]);
+            const knownDivergences = new Set([
+                "DivQpi",
+                "NsInheritedNamespacedTypedef",
+                "K12OfComputedExpression",
+                "ShiftRhsWiderThanLhs",
+                "NsTwinEnumSameConstantNames",
+            ]);
 
             const failures: string[] = [];
             for (const variant of slice) {

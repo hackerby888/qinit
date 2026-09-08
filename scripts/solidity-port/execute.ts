@@ -11,6 +11,25 @@ import { bytesToHex, hexToBytes } from "./encode";
 /** Fixed stand-in for the previous spectrum digest, so `qpi.getPrevSpectrumDigest()` is reproducible. */
 const PINNED_SPECTRUM_DIGEST = new Uint8Array(32).fill(0x5a);
 
+/**
+ * The simulator generates a fresh computor committee per instance, so `qpi.computor(i)` answers
+ * differently in every run — including two runs of the *same* backend. Left unpinned it manufactures a
+ * digest divergence out of nothing, which is exactly what it did the first time an archetype read it.
+ * These are stand-ins with no meaning beyond being fixed and distinct per index.
+ */
+const PINNED_COMPUTOR_COUNT = 676;
+
+function pinCommittee(sim: QubicSimulator): void {
+    for (let index = 0; index < PINNED_COMPUTOR_COUNT; index++) {
+        const key = new Uint8Array(32);
+        key[0] = 0xc0;
+        key[1] = index & 0xff;
+        key[2] = (index >> 8) & 0xff;
+        key[31] = 0x0c;
+        sim.setComputorKey(index, key);
+    }
+}
+
 /** A simulator error message that means the entry was refused, rather than the contract trapping. */
 function isRejection(message: string): boolean {
     return /reject|invalid|unknown contract|not found|unregistered/i.test(message);
@@ -35,6 +54,11 @@ export function executeScript(backend: BackendRun["backend"], wasm: Uint8Array, 
     sim.currentTick = script.tick;
     sim.currentEpoch = script.epoch;
     sim.prevSpectrumDigestOverride = PINNED_SPECTRUM_DIGEST;
+    // The simulator's clock is `timeBaseMs + tick * tickDuration`, and its default base is already a
+    // constant; setting it here says so out loud, because every date and time host call is derived from
+    // it and a wall-clock default would make the whole date family non-reproducible.
+    sim.timeBaseMs = Date.UTC(2024, 0, 1);
+    pinCommittee(sim);
     // Logs are only captured into the debug trace when debug is on, and a log divergence is one of the
     // cheapest signals a codegen difference produces.
     sim.setDebug(true);

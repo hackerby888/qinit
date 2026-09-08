@@ -12,7 +12,8 @@ export type Family =
     | "assets"
     | "logging"
     | "vulnerabilities"
-    | "intercontract";
+    | "intercontract"
+    | "hostcalls";
 
 export const FAMILIES: Family[] = [
     "namespaces",
@@ -25,6 +26,7 @@ export const FAMILIES: Family[] = [
     "logging",
     "vulnerabilities",
     "intercontract",
+    "hostcalls",
 ];
 
 /** QPI scalar spellings an archetype can be re-typed to. `uint128` has no literal suffix, so it is handled apart. */

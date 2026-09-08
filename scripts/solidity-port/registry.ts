@@ -12,25 +12,36 @@ import { assertEmittedSourceIsLegal } from "./emit";
 import { INTEGER_ARCHETYPES } from "./archetypes/integers";
 import { SHIFT_ARCHETYPES } from "./archetypes/integers-shifts";
 import { INTEGER_MATH_ARCHETYPES, K12_EXPRESSION_ARCHETYPES } from "./archetypes/integers-math";
+import { INTEGER_WIDE_ARCHETYPES } from "./archetypes/integers-wide";
 import { LAYOUT_PACKING_ARCHETYPES } from "./archetypes/layout-packing";
 import { LAYOUT_ARRAY_ARCHETYPES } from "./archetypes/layout-arrays";
+import { LAYOUT_WIDTH_ARCHETYPES } from "./archetypes/layout-widths";
 import { NAMESPACE_RESOLUTION_ARCHETYPES } from "./archetypes/namespaces-resolution";
+import { NAMESPACE_SCOPING_ARCHETYPES } from "./archetypes/namespaces-scoping";
 import { INTERCONTRACT_ARCHETYPES } from "./archetypes/intercontract";
 import { INTERCONTRACT_DAG_ARCHETYPES } from "./archetypes/intercontract-dag";
+import { INTERCONTRACT_HOOK_ARCHETYPES } from "./archetypes/intercontract-hooks";
 import { ASSET_ARCHETYPES } from "./archetypes/assets";
 import { ASSET_LEDGER_ARCHETYPES } from "./archetypes/assets-ledger";
+import { ASSET_SHARE_ARCHETYPES } from "./archetypes/assets-shares";
+import { HOSTCALL_IDENTITY_ARCHETYPES } from "./archetypes/hostcalls-identity";
+import { HOSTCALL_TIME_ARCHETYPES } from "./archetypes/hostcalls-time";
 import { CONTROLFLOW_ARCHETYPES } from "./archetypes/controlflow";
 import { CONTROLFLOW_STRUCTURE_ARCHETYPES } from "./archetypes/controlflow-structure";
+import { CONTROLFLOW_DISPATCH_ARCHETYPES } from "./archetypes/controlflow-dispatch";
 import { LIFECYCLE_ARCHETYPES } from "./archetypes/lifecycle";
 import { LIFECYCLE_CONSTRUCTION_ARCHETYPES } from "./archetypes/lifecycle-construction";
 import { LOGGING_ARCHETYPES } from "./archetypes/logging";
 import { LOGGING_PAYLOAD_ARCHETYPES } from "./archetypes/logging-payloads";
+import { LOGGING_HOOK_ARCHETYPES } from "./archetypes/logging-hooks";
 import { VULNERABILITY_ARCHETYPES } from "./archetypes/vulnerabilities";
 import { VULNERABILITY_CLASSIC_ARCHETYPES } from "./archetypes/vulnerabilities-classic";
+import { VULNERABILITY_DEFI_ARCHETYPES } from "./archetypes/vulnerabilities-defi";
 import { LAYOUT_ARCHETYPES } from "./archetypes/layout";
 import { CONTAINER_ARCHETYPES } from "./archetypes/containers";
 import { CONTAINER_STRUCTURE_ARCHETYPES } from "./archetypes/containers-structures";
 import { CONTAINER_COLLECTION_ARCHETYPES } from "./archetypes/containers-collections";
+import { CONTAINER_ADVANCED_ARCHETYPES } from "./archetypes/containers-advanced";
 import { NAMESPACE_ARCHETYPES } from "./archetypes/namespaces";
 import { UNIVERSAL_AXES } from "./types";
 import type { Archetype, AxisAssignment, AxisName, BuiltContract, Family } from "./types";
@@ -41,28 +52,39 @@ export const GENERATOR_VERSION = 1;
 export const ARCHETYPES: Archetype[] = [
     ...NAMESPACE_ARCHETYPES,
     ...NAMESPACE_RESOLUTION_ARCHETYPES,
+    ...NAMESPACE_SCOPING_ARCHETYPES,
     ...LAYOUT_ARCHETYPES,
     ...INTEGER_ARCHETYPES,
     ...SHIFT_ARCHETYPES,
     ...INTEGER_MATH_ARCHETYPES,
     ...K12_EXPRESSION_ARCHETYPES,
+    ...INTEGER_WIDE_ARCHETYPES,
     ...LAYOUT_PACKING_ARCHETYPES,
     ...LAYOUT_ARRAY_ARCHETYPES,
+    ...LAYOUT_WIDTH_ARCHETYPES,
     ...CONTAINER_ARCHETYPES,
     ...CONTAINER_STRUCTURE_ARCHETYPES,
     ...CONTAINER_COLLECTION_ARCHETYPES,
+    ...CONTAINER_ADVANCED_ARCHETYPES,
     ...CONTROLFLOW_ARCHETYPES,
     ...CONTROLFLOW_STRUCTURE_ARCHETYPES,
+    ...CONTROLFLOW_DISPATCH_ARCHETYPES,
     ...LIFECYCLE_ARCHETYPES,
     ...LIFECYCLE_CONSTRUCTION_ARCHETYPES,
     ...ASSET_ARCHETYPES,
     ...ASSET_LEDGER_ARCHETYPES,
+    ...ASSET_SHARE_ARCHETYPES,
+    ...HOSTCALL_IDENTITY_ARCHETYPES,
+    ...HOSTCALL_TIME_ARCHETYPES,
     ...LOGGING_ARCHETYPES,
     ...LOGGING_PAYLOAD_ARCHETYPES,
+    ...LOGGING_HOOK_ARCHETYPES,
     ...VULNERABILITY_ARCHETYPES,
     ...VULNERABILITY_CLASSIC_ARCHETYPES,
+    ...VULNERABILITY_DEFI_ARCHETYPES,
     ...INTERCONTRACT_ARCHETYPES,
     ...INTERCONTRACT_DAG_ARCHETYPES,
+    ...INTERCONTRACT_HOOK_ARCHETYPES,
 ];
 
 export function archetypesByFamily(): Map<Family, Archetype[]> {
@@ -187,9 +209,16 @@ export const TIERS = {
     standard: 15,
     /** A wider pairwise cover, for re-running a family after a mismatch cluster. */
     deep: 40,
-    /** Every combination of every opted-in axis where that fits under 32; a pairwise cover past that. */
-    full: 32,
-    /** A wider cap for an on-demand overnight run. */
+    /**
+     * The committed tier. Held at 12 deliberately: with six universal axes the cross product never fits
+     * under the cap anyway, so a bigger number buys more *spellings of the same archetype* rather than
+     * more shapes under test. Round 4 spent the budget the other way — 12 variants across ~250
+     * archetypes instead of 32 across 171 — because the effective sample size is the archetype count.
+     */
+    full: 12,
+    /** A wider cover of one family's axis space, for bisecting a mismatch cluster during triage. */
+    wide: 32,
+    /** A wider cap still, for an on-demand overnight run. */
     max: 64,
 } as const;
 

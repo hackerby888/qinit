@@ -167,7 +167,9 @@ async function analyzeAll(tier: Tier, only?: RegExp): Promise<number> {
             qpiHeader,
         });
         const failures = analysis.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
-        if (variant.archetype.expectReject) {
+        // An archetype that documents a divergence may be one the TypeScript front end refuses on
+        // purpose (F209 is exactly that), so its diagnostics are the point rather than a failure.
+        if (variant.archetype.expectReject || variant.archetype.expectedVerdict) {
             expectedRejections++;
             continue;
         }
@@ -177,7 +179,7 @@ async function analyzeAll(tier: Tier, only?: RegExp): Promise<number> {
             for (const failure of failures.slice(0, 3)) console.log(`      ${failure.message}`);
         }
     }
-    console.log(`${variants.length} variants analyzed · ${errors} with ERROR diagnostics · ${expectedRejections} expected-reject (not analyzed)`);
+    console.log(`${variants.length} variants analyzed · ${errors} with ERROR diagnostics · ${expectedRejections} expected-reject or documented-divergence (not analyzed)`);
     return errors;
 }
 

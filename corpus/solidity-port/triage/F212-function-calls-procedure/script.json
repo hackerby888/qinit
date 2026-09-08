@@ -1,0 +1,6 @@
+{ "slot": 29, "tick": 1000, "epoch": 100, "epochLength": 8,
+  "identities": ["0707070707070707070707070707070707070707070707070707070707070707","0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"],
+  "fund": [{"id":0,"amount":"1000000000"},{"id":1,"amount":"1000000000"}],
+  "steps": [
+    {"kind":"function","entry":1,"in":"0100000000000000","note":"a read-only entry, which returns 1 because the write happened"},
+    {"kind":"function","entry":1,"in":"0100000000000000","note":"again — returns 2 if the state really moved"} ] }

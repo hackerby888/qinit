@@ -40,10 +40,12 @@ expected results), [`crytic/not-so-smart-contracts`](https://github.com/crytic/n
 - Both findings are **width- or depth-specific**, and were invisible at the plain spelling. Neither
   would have been produced by a probe someone sat down to write.
 
-> This section is round 1. The campaign has since run twice more, at the bottom of this file. Current
-> state after **round 3**: 171 archetypes / 3,647 contracts, 3,609 matching, **five findings** — F200,
-> F201, F203, F204, F205 — and three harness defects (F202, F206, F207), each recorded where it was found
-> and each fixed. Nothing here has been confirmed against real core or WAMR.
+> This section is round 1. The campaign has since run three more times, at the bottom of this file.
+> Current state after **round 4**: 255 archetypes / 3,017 contracts, 2,986 matching, **ten findings** —
+> F200, F201, F203, F204, F205, F209, F210, F211, F212, F213 — plus four harness/engine defects (F202,
+> F206, F207, F208), each recorded where it was found and each fixed. F200 is now confirmed against a
+> third oracle (core's own headers compiled natively by g++); the rest still rest on the two backends
+> disagreeing, and nothing here has been run against real core or WAMR.
 
 ## Findings
 
@@ -681,3 +683,201 @@ Three things are specific to round 3:
   nothing about either compiler. The corpus-wide invariant test added for F207 covers the declaration
   ordering; there is no such guard for a *semantic* axis misapplication, and the honest position is that
   the next one would again show up as an unexplained `both-rejected` cluster.
+
+# Round 4 — the same 3,000 contracts, from 50% more archetypes
+
+Round 3 ended with an admission: 3,647 contracts came from 171 archetypes, and the variants-per-archetype
+ratio had got *worse*, not better. Round 4 spends the same contract budget the other way. The committed
+tier's variant cap drops from 32 to 12 and **84 new archetypes** are authored, so the corpus is
+**255 archetypes / 3,017 contracts** — the same order of size as round 3, from half again as many
+distinct shapes. It also adds the campaign's first oracle that is not one of the two backends.
+
+## Round 4 summary
+
+- **Five new findings**, four of them in the same place: how the TypeScript front end resolves names.
+  - **F213** — a qualified enum constant resolves to the **last-declared constant of that name**,
+    anywhere in the file. `Alpha::Low` returns `Beta::Low`'s value. Silent, arithmetic, no diagnostic.
+    This is the worst thing this campaign has found.
+  - **F212** — a `PUBLIC_FUNCTION` may `CALL` a `PRIVATE_PROCEDURE` under the TypeScript backend and
+    **write contract state from a read-only entry**. clang refuses the same contract outright.
+  - **F211** — a nested struct whose name matches a file-scope struct sends the analyzer into unbounded
+    recursion: `Maximum call stack size exceeded`. clang compiles it.
+  - **F210** — `namespace M { using T = N::T; }` (an alias whose name equals its target's) **hangs** the
+    front end outright. Because the clang pipeline runs the same build gate, it takes both backends down.
+  - **F209** — the global-scope qualifier `::name` is a parse error for the TypeScript backend and
+    ordinary C++ for clang.
+- **One engine/harness defect, F208**: `qpi.computor(i)` answers differently in every simulator
+  instance, so any contract reading it is non-reproducible — including between two runs of the *same*
+  backend. Pinned in the harness for the indices the simulator lets us pin.
+- **F200 is now confirmed by a third oracle.** `scripts/solidity-port/native-oracle/` compiles core's own
+  `div`/`mod` definitions natively with g++ for x86-64: `div<sint32>(INT32_MIN, -1)` faults there too, so
+  clang's trap is the correct behaviour and the TypeScript backend's `INT32_MIN` is the outlier. This is
+  the first result in this ledger that does not rest on the two backends disagreeing.
+- **F203, F204, F200 and F201 all still reproduce**, unchanged.
+
+### F213 — a qualified enum constant resolves to the last-declared constant of that name
+
+Severity: **critical (silent wrong value, no diagnostic, ordinary code triggers it)**.
+
+Repro: `corpus/solidity-port/triage/F213-twin-enum-resolution/` (`TwinEnum.h`, `script.json`, `NOTES.md`).
+Corpus rows: `namespaces/NsTwinEnumSameConstantNames__*`, all 12 red.
+
+```
+d=corpus/solidity-port/triage/F213-twin-enum-resolution
+bun run scripts/solidity-port/triage.ts $d/TwinEnum.h $d/script.json
+
+# namespace Alpha     { enum Level      { Low = 1,   High = 2   }; }
+# namespace Beta      { enum Level      { Low = 100, High = 200 }; }
+# namespace TwinName  { enum FirstKind  { Only = 7 }; }
+# namespace OtherName { enum SecondKind { Only = 9 }; }
+#
+#   read                      clang   TypeScript backend
+#   Alpha::Low                    1                  100
+#   Alpha::High                   2                  200
+#   Beta::Low                   100                  100
+#   Beta::High                  200                  200
+#   Alpha::High * Beta::Low     200                20000
+#   TwinName::Only                7                    9
+#   OtherName::Only               9                    9
+```
+
+Every read is fully qualified, so C++ has nothing to disambiguate and clang's column is simply correct.
+The TypeScript backend returns the value of the last constant declared under that name — and the last
+two rows show the collision is on the **constant identifier alone**: `FirstKind` and `SecondKind` are
+different enum types in different namespaces, and `TwinName::Only` still comes back as 9.
+
+Qualification is the fix a developer reaches for when two declarations collide. Here it is accepted and
+ignored, which is what makes this worse than F201, F205, F209 and F211: those refuse to compile, so the
+developer finds out. This one compiles, runs, and writes the wrong number into contract state.
+
+### F212 — a read-only entry can call a procedure and mutate state
+
+Severity: **high (the read-only guarantee for functions does not hold in one backend)**.
+
+Repro: `corpus/solidity-port/triage/F212-function-calls-procedure/`. Corpus rows:
+`controlflow/ReadOnlyFunctionCallsPrivateProcedure__*`, pinned through `expectedVerdict`.
+
+clang refuses the contract, because the `CALL` macro hands the caller's context straight through:
+
+```
+error: no viable conversion from 'const QPI::QpiContextFunctionCall'
+                              to 'const QPI::QpiContextProcedureCall'
+    CALL(Bump, locals.request, locals.reply);
+```
+
+The TypeScript backend compiles it and runs it: the function returns 1, meaning
+`state.mut().counter += 1` executed inside an entry that is supposed to be a query, and the contract's
+state digest moves across a *function* call. `lifecycle/FunctionMustNotMutate` exists in this corpus
+precisely to assert that never happens.
+
+### F211 — a nested struct name colliding with a file-scope struct overflows the analyzer's stack
+
+Severity: **medium (crash instead of a diagnostic; clang compiles the same file)**.
+
+Repro and full explanation: `corpus/solidity-port/triage/F211-nested-struct-name-collision/NOTES.md`.
+Corpus rows: `layout/LayoutNestedStructNameCollision__*`, pinned. Found by accident — the generator's
+`placement=nested` axis wraps state members in a struct it calls `Inner`, and an archetype that happened
+to declare a file-scope `Inner` collided with it, so 4 of that archetype's 12 variants failed.
+
+### F210 — the front end does not terminate on an alias whose name equals its target's
+
+Severity: **high (a contract source can hang the toolchain indefinitely, and it hangs the clang path too)**.
+
+Repro and controls: `corpus/solidity-port/triage/F210-same-name-alias-hang/NOTES.md`.
+
+```
+namespace Inner  { struct Payload { uint64 a; }; }
+namespace Middle { using Payload = Inner::Payload; }   // alias name == target name
+```
+
+Both `g++` and the wasi-sdk `clang++` compile that declaration pair without complaint. The qinit
+analyzer never returns. This one is deliberately **not** in the generated corpus: a hang would burn a
+shard deadline on every sweep, and the archetype that produced it was removed for that reason.
+
+### F209 — the global-scope qualifier `::name` is refused
+
+Severity: **low (loud rejection of legal C++; the workaround is to rename)**.
+
+Repro: `corpus/solidity-port/triage/F209-global-scope-qualifier/`. Corpus rows:
+`namespaces/NsGlobalScopeQualifier__*`, pinned. `Port::threshold` parses in the same file, so the refusal
+is specific to the leading `::`.
+
+### F208 — engine defect: `qpi.computor(i)` is not reproducible between runs
+
+Severity: **medium (any test that reads the committee is non-deterministic, in both backends)**.
+
+The simulator generates a committee per instance, so a contract that stores `qpi.computor(0)` produces a
+different digest on every run — including two runs of the same backend, which is how it was caught: the
+first hostcalls sweep reported a digest divergence that survived neither a re-run nor a backend swap.
+
+`QubicSimulator.setComputorKey(index, key)` pins one index, and the harness now pins 0..675 before every
+run (`scripts/solidity-port/execute.ts`). It cannot pin more than that: the override is keyed by the raw
+index while the fallback wraps modulo the committee size, so `computor(65535)` still lands on an
+unpinned entry. The corpus archetype therefore drives only the in-range indices, and says so in its
+caveat. Fixing this properly belongs in the engine, not the harness.
+
+## Round 4 suite counts
+
+```
+bun run corpus:check      3030 files, 3017 contracts, clean
+bun run corpus:analyze    3017 variants, 0 ERROR diagnostics,
+                          57 expected-reject or documented-divergence
+bun run corpus:sweep -- --tier full --workers 4
+                          3017 contracts · 2986 match · 31 not-match · 0 hang
+                          median 61ms · wall 384s
+```
+
+The 31 non-matching rows are six findings and nothing else: 12 `NsTwinEnumSameConstantNames` (F213),
+12 `K12OfComputedExpression` (F203), 3 `ShiftRhsWiderThanLhs` (F204), 2 `DivQpi` (F200) and
+2 `NsInheritedNamespacedTypedef` (F201). F205, F209, F211 and F212 are scored as matches through
+`expectedVerdict`: they pass by diverging exactly as documented and fail the moment they stop.
+
+Stimulus coverage: 2,863 of 3,017 contracts moved their state digest mid-script, 142 emitted at least one
+log, 13 produced at least one trap, **161 made a cross-contract call**, and 80 finished all-zero.
+
+Positive control: planting `uint16: 2 → 4` in `packages/compiler/src/shared/scalar-sizes.ts` turned
+**57 of the 369 layout contracts red**, and restoring it returned all 369 to green. Harness controls:
+18 pass. `bun run typecheck` (root project): clean.
+
+## What round 4 changed
+
+- **The tier cap is 12, not 32.** With six universal axes the cross product never fits under any cap, so
+  a bigger number buys more spellings of the same archetype rather than more shapes. 255 × 12 is a
+  better corpus than 171 × 32 at the same size, and the ratio finally moved the right way.
+- **84 new archetypes**, including a new family. `hostcalls` (18 archetypes) covers the QPI host
+  interface that three rounds never touched: `nextId`/`prevId`, `isContractId`, `computor`, `getEntity`,
+  `transfer`, `burn`, `signatureValidity`, `distributeDividends`, the seven calendar fields, `dayOfWeek`,
+  and the tick/epoch counters. `assets` gained five archetypes that use the **real share API** —
+  `issueAsset`, `transferShareOwnershipAndPossession`, `numberOfPossessedShares`, `isAssetIssued` — where
+  the state under test is partly in the host's asset universe rather than in the contract. The rest went
+  to wide arithmetic (mulDiv through lanes, gcd, rotate, clz, popcount, isqrt, carry chains), advanced
+  containers (`Collection`'s priority queue, engineered key collisions, an `Array` of `HashMap`s, a
+  struct holding two containers, `BitArray<2048>`), DeFi failure modes (constant-product invariant,
+  precision-loss reward split, commit-reveal, replay without a nonce), and dispatch shapes (sparse entry
+  numbers, twelve registered entries, a helper shared by a function and a procedure).
+- **A third oracle exists.** `scripts/solidity-port/native-oracle/` — see its README. Small, but it is
+  the first thing in this campaign that can say *which* backend is right rather than only that they
+  differ.
+- **Hand-derived `expect` rows.** `WidePopcountTwoWays` and `WideCountLeadingZeros` carry per-step
+  expected outputs computed from the operand rather than from either compiler, so those rows can catch
+  the two backends agreeing on a wrong answer. Twelve rows so far; the machinery has been there since
+  round 1 and was barely used.
+- **`emitContract` supports hook locals** (`END_TICK_WITH_LOCALS` and friends), which is what a
+  cross-contract call from a tick hook needs — the request and reply buffers have nowhere else to live.
+
+## Round 4 limitations
+
+- **The shared-component caveat still stands for nine of the ten findings.** Both backends share one
+  build gate, one `qpi.h` and one `QubicSimulator`; only F200 has been checked against anything else. A
+  bug in the shared parts is still invisible to this method, and the twelve `expect` rows are the only
+  place in 3,017 contracts where an answer is asserted rather than compared.
+- **The native oracle does not run contracts.** It evaluates arithmetic from core's headers. Confirming
+  a *state digest* against real core needs `contract_testing.h`, gtest, and a registered contract index;
+  that is still the obvious next step and still undone.
+- **F213 was found by one archetype.** Twelve red rows all come from one shape, and three earlier rounds
+  of namespace archetypes did not produce it — the earlier twins compared *layouts*, not *values*. That
+  is a reminder that the corpus finds what its archetypes look at, and 3,017 contracts is not a claim
+  about the ones nobody wrote.
+- **F208 is fixed only for the range the simulator lets us pin.** An archetype that reads
+  `computor(676)` would still be non-reproducible, and nothing in the harness prevents someone writing
+  one; the guard is a comment in the archetype's caveat, not a check.

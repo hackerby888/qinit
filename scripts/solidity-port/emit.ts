@@ -89,6 +89,15 @@ export interface ContractSpec {
     endTick?: string;
     beginEpoch?: string;
     endEpoch?: string;
+    /**
+     * `_locals` for a hook, which QPI spells through the `_WITH_LOCALS` form of the same macro. A hook
+     * that calls out to another contract needs them: the request and reply buffers have nowhere else to
+     * live, since a hook has no `_input` or `_output` of its own.
+     */
+    beginTickLocals?: string;
+    endTickLocals?: string;
+    beginEpochLocals?: string;
+    endEpochLocals?: string;
 }
 
 const MAX_INPUT_BYTES = 1024;
@@ -135,9 +144,10 @@ function emitEntry(entry: EntrySpec): string {
     return parts.join("\n\n");
 }
 
-function emitHook(macro: string, body: string | undefined): string | null {
+function emitHook(macro: string, body: string | undefined, locals?: string): string | null {
     if (body === undefined) return null;
-    return `    ${macro}()\n    {\n${bodyBlock(body, "        ")}\n    }`;
+    if (locals === undefined || !locals.trim()) return `    ${macro}()\n    {\n${bodyBlock(body, "        ")}\n    }`;
+    return `${structBlock(`${macro}_locals`, locals)}\n\n    ${macro}_WITH_LOCALS()\n    {\n${bodyBlock(body, "        ")}\n    }`;
 }
 
 /**
@@ -370,13 +380,13 @@ export function emitContract(input: ContractSpec): string {
             blocks.push(`    INITIALIZE()\n    {\n${bodyBlock(spec.initialize, "        ")}\n    }`);
         }
     }
-    for (const [macro, body] of [
-        ["BEGIN_TICK", spec.beginTick],
-        ["END_TICK", spec.endTick],
-        ["BEGIN_EPOCH", spec.beginEpoch],
-        ["END_EPOCH", spec.endEpoch],
+    for (const [macro, body, hookLocals] of [
+        ["BEGIN_TICK", spec.beginTick, spec.beginTickLocals],
+        ["END_TICK", spec.endTick, spec.endTickLocals],
+        ["BEGIN_EPOCH", spec.beginEpoch, spec.beginEpochLocals],
+        ["END_EPOCH", spec.endEpoch, spec.endEpochLocals],
     ] as const) {
-        const hook = emitHook(macro, body);
+        const hook = emitHook(macro, body, hookLocals);
         if (hook) blocks.push(hook);
     }
 
