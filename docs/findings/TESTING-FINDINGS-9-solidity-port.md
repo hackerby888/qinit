@@ -1034,3 +1034,134 @@ Harness controls: 18 pass. `bun run typecheck` (root project): clean.
   something about where the remaining risk is: the sweep is good at what it already knows how to spell.
 - **6,091 contracts from 411 archetypes** is 14.8 variants each. The effective sample is still the
   archetype count. Read the contract number as breadth of spellings.
+
+# Round 6 — the third oracle, built and run
+
+Every round so far ended with the same admission: both backends share one build gate, one `qpi.h` and
+one `QubicSimulator`, so "N matched" meant *they agreed with each other*. Round 6 removes that caveat
+for part of the corpus by running each backend's **artifact** on the runtime core actually uses.
+
+## Round 6 summary — lane 1
+
+- **The WAMR oracle is built and working.** `qubic_wasm_tests` now builds in this container, and the
+  existing `cross-host.test.ts` suite passes 8/8 against it — four fixtures × two backends, byte-identical
+  contract state between the qinit simulator and core's own WAMR host.
+- **F200, F213 and F204 are now confirmed on core's real runtime.** They are not simulator artifacts:
+  each backend's wasm reproduces its simulator answer exactly under WAMR.
+- **F203 cannot be settled this way**, for a precise and mechanical reason recorded below.
+- The regression gate re-ran the committed corpus before any of this landed: **6,009 match / 82
+  not-match**, identical to round 5, same rows.
+
+### How the oracle is driven
+
+Core's own gtest `WasmContracts.CrossHostStateEquivalence` (`$QINIT_CORE/test/wasm_contracts.cpp:645`)
+loads a qinit-built wasm under WAMR, runs `INITIALIZE` plus a scripted op list, and prints one
+`CROSSHOST_OP=<n>:ok:<hex>` or `CROSSHOST_OP=<n>:trap` per op followed by `CROSSHOST_STATE=<hex>`.
+`scripts/solidity-port/wamr-probe.ts` drives it per contract and prints the simulator's answer beside it.
+
+Building it needed four flags that are not the defaults, and one package:
+
+```sh
+apt-get install -y nasm          # CompilerSetup.cmake requires it even with BUILD_BINARY=OFF
+cmake -S . -B build-wasm -G Ninja -DBUILD_TESTS=ON -DLITE_WASM_SC=ON \
+      -DTESTNET=ON -DTESTNET_LITE_RAM=ON -DBUILD_BINARY=OFF -DUSE_SANITIZER=OFF -DANT_WALKER=OFF
+cmake --build build-wasm --target qubic_wasm_tests
+```
+
+`LITE_WASM_SC` refuses to configure without `TESTNET=ON TESTNET_LITE_RAM=ON`.
+
+### The calibration control, run first
+
+An oracle that has never been checked against a known answer is not an oracle. Two controls ran before
+any finding was put to it, both from `F200-sint32-div-overflow`:
+
+| control | simulator | WAMR |
+| --- | --- | --- |
+| `sint32 -6 / 2` — ordinary division, both backends agree | `-3` on both | `-3` on both |
+| `sint64 INT64_MIN / -1` — both backends trap | trap on both | **trap on both** |
+
+So WAMR reproduces both a known value and a known trap. Only then were the findings run.
+
+### F200 — confirmed on core's own runtime
+
+```
+DivOverflow, script 1:00000080ffffffff   (sint32 INT32_MIN / -1)
+
+  clang       simulator TRAP(engine faulted: Integer overflow)
+              WAMR      TRAP(at op 0)
+  typescript  simulator 00000080ffffffff 0000000000000000 0100000000000000
+              WAMR      00000080ffffffff 0000000000000000 0100000000000000
+```
+
+The TypeScript backend's artifact **runs to completion on core's real host** and writes
+`result32 = -2147483648`, `calls = 1`, where clang's traps. This is the strongest form the finding has
+taken: rounds 1–5 showed the two backends disagreeing in one simulator, round 4 added a native g++
+oracle for the `div` definition, and round 6 shows the deployable artifacts themselves behave
+differently on the runtime that will execute them.
+
+### F213 — confirmed on core's own runtime
+
+```
+TwinEnum, script 1:
+
+  clang       1  2  100  200  200  7  9   5  55
+  typescript  100 200 100 200 20000 9 9  55  55
+       (WAMR reproduces each backend's row exactly)
+```
+
+Both artifacts run cleanly under WAMR and produce the two different answers. The wrong constants are in
+the wasm that would be deployed — not an artefact of how the simulator resolves names.
+
+### F204 — confirmed on core's own runtime
+
+```
+ConstShift, script 1:0100000000000000fe
+
+  clang       foldedOutOfRange=0     runtimeOutOfRange=2^62   (self-inconsistent)
+  typescript  foldedOutOfRange=2^62  runtimeOutOfRange=2^62   (self-consistent)
+       (WAMR reproduces each backend's row exactly)
+```
+
+Still undefined behaviour and still not a defect in either backend; what round 6 adds is that clang's
+self-inconsistency is real on the production runtime, not a folding artefact of the test harness.
+
+### F203 — the oracle cannot reach it, and exactly why
+
+Both backends' artifacts **trap at op 0** under WAMR. That is not a finding: the gtest registers only
+five `lhost` natives (`beginFn`, `endFn`, `markDirty`, `acquireScratch`, `releaseScratch`) plus one
+`env` assert and three wasi fd shims. It has **no QPI host**. `K12Struct.wasm` imports `lhost.k12`,
+which nothing registers, so the call faults — symmetrically, on both sides, which is itself the tell
+that it is the harness and not the contract.
+
+Reaching F203 needs either a host shim that implements `lhost.k12`, or route B (core's native
+`contract_testing.h`). Both are outstanding.
+
+### A false start worth recording
+
+The first version of the probe gated on the import list: any module importing an unregistered `lhost`
+function was marked unreachable. That is wrong, and it briefly hid F200's confirmed result. **WAMR
+resolves imports lazily** — an unregistered import only faults when it is actually *called*. The gate
+mattered because of an asymmetry: **the TypeScript backend declares all 64 `lhost` imports on every
+contract regardless of use, while clang declares only the ones it needs** (3 for `DivOverflow`). Under a
+static gate every TypeScript artifact looks unreachable while running perfectly.
+
+That asymmetry was checked for a defect and is **not** one: `validateImports`
+(`packages/compiler/src/driver/wasm-inspection/module-validation.ts:30`) requires each import to be a
+known `lhost` function with a matching signature, and does not require the set to be minimal. So the
+64-import artifact is legal. Recorded as an observation, not a finding.
+
+### Where lane 1 leaves the twelve
+
+| finding | third-oracle status |
+| --- | --- |
+| F200 | **confirmed under WAMR** (plus round 4's native g++ oracle) |
+| F213 | **confirmed under WAMR** |
+| F204 | **confirmed under WAMR** |
+| F203 | unreachable — needs an `lhost.k12` shim; both sides trap symmetrically |
+| F201, F205, F209, F211, F212, F214, F215 | unreachable **by construction** — the divergence is a compile-time refusal, so there is no TypeScript artifact to run |
+| F210 | unreachable — hangs the front end; no artifact is produced |
+| F208 | not a compiler artifact; it is an engine/simulator defect |
+
+Three of the ten previously-unconfirmed findings now rest on something other than the two backends
+disagreeing. Seven of the remainder are unreachable for a structural reason rather than an untried one:
+a compile refusal has no artifact, and an oracle that runs artifacts cannot adjudicate it.
