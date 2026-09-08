@@ -1422,3 +1422,73 @@ have found authoring mistakes that backend-agreement could never have surfaced.
 - **Nothing here has been run against a live node.** WAMR-under-gtest is core's runtime, not core's
   node: no consensus, no ticking, no real spectrum. F73 and F68 in earlier campaigns were both node-level
   defects that no in-process harness would have seen.
+
+## Round 6 — the simulator-parity sweep, and F218 (harness)
+
+The confirmations above answer "is this finding real on core's runtime?". The sweep in
+`scripts/solidity-port/wamr-sweep.ts` asks a different and, for the campaign's central limitation, more
+important question — of each backend separately rather than of the pair:
+
+> does this artifact behave the same way on the qinit simulator and on core's real WAMR host?
+
+A contract where both backends agree with each other **and both differ from WAMR** is precisely the
+class of defect no previous round could have produced, because it lives in the component the two
+backends share.
+
+### F218 — harness: the sweep's TypeScript path used the raw driver and manufactured 28 false positives
+
+Severity: **n/a (defect in this campaign's own tooling)**. Recorded for the same reason as F202, F206,
+F207 and F216 — and with more embarrassment, because F217's own notes had already written the warning
+down one commit earlier.
+
+The first parity run reported `624 agree · 118 shim-trap · 28 DISAGREE`. All 28 were TypeScript-side,
+all on the two archetypes that are *pinned as one-side-rejected* — F217's `NsBlockScopeShadowChain`
+and `NsAliasAndTargetBothNameConstants` — and every one read:
+
+```
+DISAGREE  typescript  namespaces/NsBlockScopeShadowChain__0939
+            simulator DEPLOY-FAILED(unexpected end of module)
+            WAMR      NO_STATE
+            imports   0 lhost, 0 unregistered
+```
+
+Zero imports and "unexpected end of module" is an **empty artifact**. The sweep built its TypeScript
+side with the raw `compileContractWithTypeScript` driver, which **skips the build gate**; for a
+contract the gate refuses, it returns an empty module rather than failing. The sweep then dutifully
+compared that empty module against WAMR and called the difference a divergence.
+
+This is exactly the trap F217's `NOTES.md` describes — *"checking a rejection with the raw driver
+reports ACCEPTED, because the raw driver skips the build gate"* — written after that trap nearly buried
+F217, and then walked into again in a different tool in the same round. The fix is one import:
+`buildContractWithTypeScript`, the same wrapper the main sweep uses. Re-running the namespaces family
+afterwards turns all 28 into `build-rejected` and leaves **zero** disagreements.
+
+The general lesson is worth more than the specific one: **any tool in this harness that builds a
+contract must go through the `@qinit/build` wrappers.** The raw drivers silently model a different,
+more permissive compiler than the one the sweep, the CLI and the chain actually use.
+
+### What the parity sweep found
+
+Nothing — and that is a result worth stating precisely rather than burying.
+
+```
+385 contracts across 7 families · 770 artifact runs
+  624  agree          simulator and core's WAMR host produce byte-identical state
+  118  shim-trap      the contract calls a host function the gtest does not register
+   28  build-rejected the TypeScript build gate refuses the contract (F217, alias)
+    0  DISAGREE
+```
+
+For every contract that can actually be executed on both, **the qinit simulator and core's own runtime
+agree byte-for-byte**. That is the first direct evidence in six rounds about the shared component the
+campaign has been warning about since round 1 — "both execute in the same `QubicSimulator`, so N
+matched means they agreed with each other". For the pure-state subset, the simulator is now shown to be
+faithful to the real host rather than merely self-consistent.
+
+Two honest bounds on that claim:
+
+- **The 118 shim-traps are not covered.** Anything calling `qpi.K12`, a transfer, the clock, the asset
+  API or another contract cannot run under this harness, so the simulator's fidelity there is still
+  unmeasured — and that is where F71, F82 and F69 (earlier campaigns) all lived.
+- **A sample, not a census.** 55 contracts per family, 385 of 6,321. The families chosen are the
+  pure-state ones; hostcalls, assets, logging and intercontract were excluded by construction.

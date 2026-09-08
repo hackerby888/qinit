@@ -15,8 +15,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { buildContractWithClang } from "@qinit/build";
-import { compileContractWithTypeScript } from "@qinit/compiler/browser";
+import { buildContractWithClang, buildContractWithTypeScript } from "@qinit/build";
 import { QubicSimulator, initK12, toHex } from "@qinit/engine";
 import { hostImports, unregisteredImports } from "./wamr-probe";
 
@@ -121,14 +120,20 @@ for (const family of families) {
             else rows.push({ id: `${family}/${script.contract}`, backend: "clang", simulator: "-", wamr: "-", verdict: "build-rejected" });
         }
         if (backendFilter !== "clang") {
-            try {
-                const built = await compileContractWithTypeScript({ source: readFileSync(header, "utf8"), contractName: name, slot: script.slot });
-                const path = `${OUT}/${script.contract}.typescript.wasm`;
-                await Bun.write(path, Uint8Array.from(built.wasm));
-                artifacts.push({ backend: "typescript", path });
-            } catch {
-                rows.push({ id: `${family}/${script.contract}`, backend: "typescript", simulator: "-", wamr: "-", verdict: "build-rejected" });
-            }
+            // buildContractWithTypeScript, NOT the raw compileContractWithTypeScript driver. The raw
+            // driver skips the build gate, so for a contract the gate refuses (F217's block shadowing,
+            // the namespace alias) it returns an empty module instead of failing — which this sweep
+            // then scored as 28 simulator-vs-WAMR "disagreements" that were nothing of the kind.
+            const built = await buildContractWithTypeScript({
+                contractPath: resolve(header),
+                contractName: name,
+                slot: script.slot,
+                corePath: CORE,
+                outDir: OUT,
+                skipVerify: true,
+            });
+            if (built.ok) artifacts.push({ backend: "typescript", path: built.wasmPath! });
+            else rows.push({ id: `${family}/${script.contract}`, backend: "typescript", simulator: "-", wamr: "-", verdict: "build-rejected" });
         }
 
         for (const { backend, path } of artifacts) {
