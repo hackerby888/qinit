@@ -1852,3 +1852,75 @@ only if the resulting day carry is non-zero — folds it into `days` and tail-ca
 is exactly the arithmetic that produced 47 false violations in round 6. That judgement was right — and
 the finding still landed, because the two backends disagreed. It is the clearest argument this campaign
 has produced for keeping both oracles rather than treating expect rows as the stronger one.
+
+## Round 7 suite counts
+
+```
+6,618 contracts · 6,514 match · 104 not-match · 0 hang · 0 expect-violation · median 811 ms
+```
+
+Round 6 was `6,321 · 6,223 match · 98 not-match · 0 expect-violation`. The 22 new archetypes added 297
+contracts, and the difference in the red column is **exactly the six `DateAddMillisecCarryChain`
+variants** — F221. Everything else diverging is a finding already on the books:
+
+| rows | verdict | archetype | finding |
+| --- | --- | --- | --- |
+| 17 | step-mismatch | `K12OfComputedExpression` | F203 |
+| 16 | step-mismatch | `NsEnumConstantVersusNamespaceConstant` | F213 |
+| 15 | step-mismatch | `HostK12ExpressionVersusVariable` | F203 |
+| 13 | step-mismatch | `NsEnumConstantVersusFileConstant` | F213 |
+| 13 | step-mismatch | `NsTwinEnumsAcrossFourNamespaces` | F213 |
+| 13 | step-mismatch | `NsTwinEnumSameConstantNames` | F213 |
+| **6** | **step-mismatch** | **`DateAddMillisecCarryChain`** | **F221, new** |
+| 5 | step-mismatch | `ShiftRhsWiderThanLhs` | F204 |
+| 4 | one-side-rejected | `NsInheritedNamespacedTypedef` | F201 |
+| 2 | trap-divergence | `DivQpi` | F200 |
+
+**0 expect-violation across the whole corpus.** That covers roughly 179 hand-derived rows — about 110
+carried from earlier rounds and **69 new this round**, 40 in `integers-datetime.ts` and 29 in
+`containers-hash-removal.ts`. Every one asserts against a quoted C++ body rather than against the other
+backend, and all of them hold.
+
+The three asset-iterator archetypes score `match` because they are pinned through `expectedVerdict`:
+they diverge exactly as F220 documents, so a green row means the defect is still there and a red one
+would mean it had been fixed or the harness had gone blind.
+
+`corpus:check` is clean at 6,630 files / 6,618 contracts, and `typecheck` is clean.
+
+## Positive control
+
+```
+planted `uint16: 2 -> 4` in packages/compiler/src/shared/scalar-sizes.ts
+  708 layout contracts · 582 match · 126 not-match
+restored
+  708 layout contracts · 708 match ·   0 not-match
+```
+
+126 of 708, the same number round 6 measured. A round that cannot show its harness still detects a
+known planted bug has not measured anything, and this one can.
+
+## What round 7 did not do
+
+- **The share-management callbacks are still at zero call sites.** `acquireShares`, `releaseShares` and
+  the four `PRE_/POST_ACQUIRE/RELEASE_SHARES` hooks — where F69 and F82 both lived — need an
+  `emit.ts` `ContractSpec` change that touches every archetype's code path. Round 8's first task.
+- **The parity sample shrank**, 385 contracts to 105, because the sweep was competing for four cores
+  with the full differential run. The parallelism added this round makes a larger sample affordable
+  next time; it was added too late to help this one.
+- **Lane 5 was not run.** Quantifying the corpus's mutation-kill rate against the existing unit suite,
+  and scaling `tools/fuzz-gen.ts` past its ~20 pinned seeds, both remain open. They are the two
+  measurements that would tell us what this corpus is actually worth, as opposed to how large it is.
+- **`oracle`, IPO, mining and governance** remain unshimmed and uncalled, by choice on both counts.
+
+## The lesson this round is actually about
+
+Round 6 published a table, offered a consistency check for it, and the check was the defect's own
+fingerprint. Round 7 opened by withdrawing that table and closed by finding F220 through *reading a
+lowering function* and F221 through *an archetype deliberately shipped without an expect row*.
+
+Three different routes to three different findings, and none of them was the thing the campaign
+nominally does — sweep a large corpus and look at the red column. The corpus's contribution was to make
+F221 reproducible across six variants and to prove F220 is not a fluke of one contract. That is worth
+having. But the finding rate per hour was far higher for "read the code that lowers the feature nobody
+has called" than for "generate another thousand contracts", and the next round should be weighted
+accordingly.
