@@ -1,0 +1,1249 @@
+<title>Qinit Divergence Register</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+  :root {
+    --ground:      #eceeea;
+    --surface:     #fbfcfa;
+    --surface-alt: #e6e9e4;
+    --ink:         #15201c;
+    --ink-soft:    #3c4a45;
+    --muted:       #5f6d67;
+    --rule:        #d2d8d1;
+    --rule-strong: #b6bfb7;
+    --accent:      #0d6a5a;
+    --accent-soft: #d9ebe5;
+    --ts:          #7b3f9d;
+    --ts-soft:     #ece2f4;
+    --clang:       #1f5f8b;
+    --clang-soft:  #dde9f2;
+    --crit:        #96201b;
+    --high:        #a4531a;
+    --med:         #6d5c11;
+    --low:         #3f5b7d;
+    --harness:     #5f6d67;
+    --code-bg:     #e8ebe6;
+    --shadow:      0 1px 2px rgba(21, 32, 28, .06), 0 8px 24px -18px rgba(21, 32, 28, .35);
+    --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    --cond: "IBM Plex Sans Condensed", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #12181a;
+      --surface:     #182022;
+      --surface-alt: #1e2729;
+      --ink:         #e3eae6;
+      --ink-soft:    #bdc8c3;
+      --muted:       #8b9a94;
+      --rule:        #2b3639;
+      --rule-strong: #3b4a4d;
+      --accent:      #55cdb2;
+      --accent-soft: #16332e;
+      --ts:          #c79df0;
+      --ts-soft:     #2a2135;
+      --clang:       #7fc0ea;
+      --clang-soft:  #182935;
+      --crit:        #f08b83;
+      --high:        #e6a45f;
+      --med:         #cfbc5e;
+      --low:         #8fb4d8;
+      --harness:     #8b9a94;
+      --code-bg:     #10181a;
+      --shadow:      0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -20px rgba(0, 0, 0, .9);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #12181a;
+    --surface:     #182022;
+    --surface-alt: #1e2729;
+    --ink:         #e3eae6;
+    --ink-soft:    #bdc8c3;
+    --muted:       #8b9a94;
+    --rule:        #2b3639;
+    --rule-strong: #3b4a4d;
+    --accent:      #55cdb2;
+    --accent-soft: #16332e;
+    --ts:          #c79df0;
+    --ts-soft:     #2a2135;
+    --clang:       #7fc0ea;
+    --clang-soft:  #182935;
+    --crit:        #f08b83;
+    --high:        #e6a45f;
+    --med:         #cfbc5e;
+    --low:         #8fb4d8;
+    --harness:     #8b9a94;
+    --code-bg:     #10181a;
+    --shadow:      0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -20px rgba(0, 0, 0, .9);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15.5px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 40px 24px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+  code, .mono { font-family: var(--mono); font-size: .88em; }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { display: flex; flex-direction: column; gap: 20px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+  }
+  .eyebrow b { color: var(--accent); font-weight: 600; }
+
+  h1 {
+    font-family: var(--cond);
+    font-weight: 700;
+    font-size: clamp(34px, 6vw, 54px);
+    line-height: 1.02;
+    letter-spacing: -.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 62ch;
+    font-size: 17px;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+  .standfirst em { color: var(--ink); font-style: italic; }
+
+  .tally {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .tally div { background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+  .tally .n {
+    font-family: var(--cond);
+    font-weight: 700;
+    font-size: 30px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .tally .k {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* ---------- section furniture ---------- */
+
+  section { display: flex; flex-direction: column; gap: 20px; }
+
+  h2 {
+    font-family: var(--cond);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--rule-strong);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+  }
+  h2 span { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: none; }
+
+  .note { color: var(--muted); font-size: 14px; max-width: 68ch; margin: 0; }
+
+  /* ---------- register table ---------- */
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 14px; }
+  thead th {
+    text-align: left;
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+  tbody td { padding: 9px 14px; border-bottom: 1px solid var(--rule); vertical-align: baseline; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr.dim { opacity: .28; }
+  td.id a { font-family: var(--mono); font-weight: 600; text-decoration: none; }
+  td.id a:hover { text-decoration: underline; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; color: var(--ink-soft); }
+  td.what { color: var(--ink-soft); }
+
+  .sev {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 2px;
+    white-space: nowrap;
+    border: 1px solid currentColor;
+  }
+  .sev-critical { color: var(--crit); }
+  .sev-high     { color: var(--high); }
+  .sev-medium   { color: var(--med); }
+  .sev-low      { color: var(--low); }
+  .sev-harness  { color: var(--harness); }
+
+  .status {
+    font-family: var(--mono);
+    font-size: 11px;
+    white-space: nowrap;
+    color: var(--muted);
+  }
+  .status b { font-weight: 600; }
+  .status.red b { color: var(--crit); }
+  .status.pinned b { color: var(--accent); }
+
+  /* ---------- filters ---------- */
+
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .filters button {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .04em;
+    color: var(--ink-soft);
+    background: var(--surface);
+    border: 1px solid var(--rule-strong);
+    border-radius: 2px;
+    padding: 5px 11px;
+    cursor: pointer;
+  }
+  .filters button:hover { border-color: var(--accent); color: var(--accent); }
+  .filters button[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--ground);
+    font-weight: 600;
+  }
+  .filters .count { font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-left: auto; }
+
+  /* ---------- finding cards ---------- */
+
+  .findings { display: flex; flex-direction: column; gap: 18px; }
+
+  article.finding {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--sevcolor, var(--rule-strong));
+    border-radius: 3px;
+    padding: 20px 22px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: var(--shadow);
+    scroll-margin-top: 20px;
+  }
+  article.finding[data-severity="critical"] { --sevcolor: var(--crit); }
+  article.finding[data-severity="high"]     { --sevcolor: var(--high); }
+  article.finding[data-severity="medium"]   { --sevcolor: var(--med); }
+  article.finding[data-severity="low"]      { --sevcolor: var(--low); }
+  article.finding[hidden] { display: none; }
+
+  .fhead { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
+  .fid {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--sevcolor, var(--ink));
+    letter-spacing: .02em;
+  }
+  .ftitle {
+    font-family: var(--cond);
+    font-weight: 600;
+    font-size: 21px;
+    line-height: 1.2;
+    margin: 0;
+    flex: 1 1 340px;
+    text-wrap: balance;
+  }
+  .fmeta { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+
+  .fsum { margin: 0; max-width: 72ch; color: var(--ink-soft); }
+  .fsum strong { color: var(--ink); font-weight: 600; }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 2px; overflow: hidden; }
+  @media (max-width: 640px) { .split { grid-template-columns: 1fr; } }
+  .split > div { padding: 11px 13px; display: flex; flex-direction: column; gap: 5px; }
+  .split .backend {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .split .ts { background: var(--ts-soft); }
+  .split .ts .backend { color: var(--ts); }
+  .split .cl { background: var(--clang-soft); }
+  .split .cl .backend { color: var(--clang); }
+  .split p { margin: 0; font-size: 13.5px; color: var(--ink-soft); }
+  .split .val { font-family: var(--mono); font-size: 12.5px; color: var(--ink); word-break: break-word; }
+
+  pre {
+    margin: 0;
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 11px 13px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 12.2px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    tab-size: 2;
+  }
+  pre b { color: var(--ink); font-weight: 600; }
+  pre i { color: var(--muted); font-style: normal; }
+
+  .oracle {
+    border-left: 2px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 9px 13px;
+    border-radius: 0 2px 2px 0;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+  }
+  .oracle b {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .footrow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 22px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    border-top: 1px solid var(--rule);
+    padding-top: 11px;
+  }
+  .footrow span b { color: var(--ink-soft); font-weight: 500; }
+
+  /* ---------- harness list ---------- */
+
+  .harnesslist { display: flex; flex-direction: column; gap: 0; border-top: 1px solid var(--rule); }
+  .harnesslist > div {
+    display: grid;
+    grid-template-columns: 78px 1fr;
+    gap: 4px 18px;
+    padding: 15px 2px;
+    border-bottom: 1px solid var(--rule);
+  }
+  @media (max-width: 560px) { .harnesslist > div { grid-template-columns: 1fr; } }
+  .harnesslist .hid { font-family: var(--mono); font-weight: 600; color: var(--harness); }
+  .harnesslist h3 { font-family: var(--cond); font-weight: 600; font-size: 17px; margin: 0 0 4px; line-height: 1.25; }
+  .harnesslist p { margin: 0; font-size: 14px; color: var(--ink-soft); max-width: 72ch; }
+  .harnesslist .fix { display: block; margin-top: 6px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+
+  /* ---------- rounds chart ---------- */
+
+  .rounds { display: flex; flex-direction: column; gap: 0; }
+  .rounds .axis {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    gap: 18px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--muted);
+    letter-spacing: .06em;
+  }
+  .rounds .ticks { position: relative; height: 15px; border-bottom: 1px solid var(--rule-strong); }
+  .rounds .ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+  .rounds .ticks span::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -5px;
+    width: 1px;
+    height: 4px;
+    background: var(--rule-strong);
+  }
+  .rounds .row {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    gap: 18px;
+    align-items: center;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .rounds .rlabel { display: flex; flex-direction: column; }
+  .rounds .rlabel b { font-family: var(--cond); font-weight: 600; font-size: 15px; }
+  .rounds .rlabel span { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .rounds .bar { position: relative; height: 26px; display: flex; align-items: center; }
+  .rounds .bar .fill {
+    height: 15px;
+    background: var(--accent);
+    opacity: .30;
+    border-radius: 1px;
+  }
+  .rounds .bar .red {
+    position: absolute;
+    left: 0;
+    height: 15px;
+    background: var(--crit);
+    border-radius: 1px;
+    min-width: 2px;
+  }
+  .rounds .bar .cap {
+    margin-left: 9px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-soft);
+    white-space: nowrap;
+  }
+  .rounds .bar .cap i { color: var(--crit); font-style: normal; }
+  .rounds .bar .cap em { color: var(--muted); font-style: normal; }
+  .legend { display: flex; gap: 18px; font-family: var(--mono); font-size: 11px; color: var(--muted); padding-top: 10px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 1px; vertical-align: -1px; margin-right: 5px; }
+  .legend .sw-a { background: var(--accent); opacity: .30; }
+  .legend .sw-r { background: var(--crit); }
+
+  /* ---------- limits ---------- */
+
+  .limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 22px 34px; }
+  .limits div h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 5px;
+    font-weight: 600;
+  }
+  .limits div p { margin: 0; font-size: 14px; color: var(--ink-soft); }
+
+  footer {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    border-top: 1px solid var(--rule-strong);
+    padding-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>Test campaign 9 · Solidity-port differential</span>
+      <span>Qinit <b>bf53045</b> · core-lite <b>0397da1</b></span>
+      <span>wasi-sdk-29 · clang 21.1.4</span>
+    </div>
+    <h1>Qinit Divergence Register</h1>
+    <p class="standfirst">
+      Six thousand QPI contracts, ported from adversarial Solidity, compiled by the TypeScript backend
+      <em>and</em> by clang, executed on a byte-identical call script, and compared by the K12 digest of
+      their final state. Where the two disagree, one of them is what the chain does. This is every
+      disagreement the five rounds turned up.
+    </p>
+    <div class="tally">
+      <div><span class="n">17</span><span class="k">numbered entries</span></div>
+      <div><span class="n">12</span><span class="k">compiler findings</span></div>
+      <div><span class="n">5</span><span class="k">harness / engine</span></div>
+      <div><span class="n">6,091</span><span class="k">contracts swept</span></div>
+      <div><span class="n">411</span><span class="k">archetypes</span></div>
+      <div><span class="n">82</span><span class="k">red rows</span></div>
+    </div>
+  </header>
+
+  <section>
+    <h2>The register <span>F200 – F216 · numbering starts at F200; F86–F199 belong to the macOS campaign</span></h2>
+    <div class="filters">
+      <button type="button" data-filter="all" aria-pressed="true">All 17</button>
+      <button type="button" data-filter="compiler" aria-pressed="false">Compiler (12)</button>
+      <button type="button" data-filter="red" aria-pressed="false">Still red (5)</button>
+      <button type="button" data-filter="pinned" aria-pressed="false">Pinned (6)</button>
+      <button type="button" data-filter="harness" aria-pressed="false">Harness / engine (5)</button>
+      <span class="count" id="count">17 of 17 shown</span>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Severity</th>
+            <th>What diverges</th>
+            <th class="num">Rows</th>
+            <th>Status</th>
+            <th class="num">Round</th>
+          </tr>
+        </thead>
+        <tbody id="register">
+          <tr data-kind="compiler" data-state="red" data-id="F213">
+            <td class="id"><a href="#F213">F213</a></td>
+            <td><span class="sev sev-critical">critical</span></td>
+            <td class="what">A constant identifier is effectively global; the last declaration of the name wins, whatever its namespace, enum type or kind</td>
+            <td class="num">39</td>
+            <td><span class="status red"><b>red</b></span></td>
+            <td class="num">4</td>
+          </tr>
+          <tr data-kind="compiler" data-state="red" data-id="F200">
+            <td class="id"><a href="#F200">F200</a></td>
+            <td><span class="sev sev-high">high</span></td>
+            <td class="what"><code>QPI::div(sint32)</code> at <code>INT32_MIN / -1</code> traps under clang, wraps silently under TypeScript</td>
+            <td class="num">2</td>
+            <td><span class="status red"><b>red</b></span></td>
+            <td class="num">1</td>
+          </tr>
+          <tr data-kind="compiler" data-state="red" data-id="F203">
+            <td class="id"><a href="#F203">F203</a></td>
+            <td><span class="sev sev-high">high</span></td>
+            <td class="what"><code>qpi.K12(&lt;expression&gt;)</code> hashes different bytes than <code>qpi.K12(&lt;variable&gt;)</code> holding the same value</td>
+            <td class="num">32</td>
+            <td><span class="status red"><b>red</b></span></td>
+            <td class="num">2</td>
+          </tr>
+          <tr data-kind="compiler" data-state="triage" data-id="F210">
+            <td class="id"><a href="#F210">F210</a></td>
+            <td><span class="sev sev-high">high</span></td>
+            <td class="what">An alias whose name equals its target's does not terminate the front end — and it takes the clang path down with it</td>
+            <td class="num">—</td>
+            <td><span class="status"><b>triage only</b></span></td>
+            <td class="num">4</td>
+          </tr>
+          <tr data-kind="compiler" data-state="pinned" data-id="F212">
+            <td class="id"><a href="#F212">F212</a></td>
+            <td><span class="sev sev-high">high</span></td>
+            <td class="what">A <code>PUBLIC_FUNCTION</code> may <code>CALL</code> a private procedure and write state; clang refuses the contract</td>
+            <td class="num">—</td>
+            <td><span class="status pinned"><b>pinned</b></span></td>
+            <td class="num">4</td>
+          </tr>
+          <tr data-kind="compiler" data-state="red" data-id="F201">
+            <td class="id"><a href="#F201">F201</a></td>
+            <td><span class="sev sev-medium">medium</span></td>
+            <td class="what">A member read through a three-deep alias chain to a base class is rejected; one and two deep are accepted</td>
+            <td class="num">4</td>
+            <td><span class="status red"><b>red</b></span></td>
+            <td class="num">1</td>
+          </tr>
+          <tr data-kind="compiler" data-state="pinned" data-id="F205">
+            <td class="id"><a href="#F205">F205</a></td>
+            <td><span class="sev sev-medium">medium</span></td>
+            <td class="what">A file-scope enum constant hidden by a contract member: clang applies the class-scope lookup rule, TypeScript does not</td>
+            <td class="num">—</td>
+            <td><span class="status pinned"><b>pinned</b></span></td>
+            <td class="num">3</td>
+          </tr>
+          <tr data-kind="compiler" data-state="pinned" data-id="F211">
+            <td class="id"><a href="#F211">F211</a></td>
+            <td><span class="sev sev-medium">medium</span></td>
+            <td class="what">A nested struct name colliding with a file-scope struct overflows the analyzer's stack instead of producing a diagnostic</td>
+            <td class="num">—</td>
+            <td><span class="status pinned"><b>pinned</b></span></td>
+            <td class="num">4</td>
+          </tr>
+          <tr data-kind="compiler" data-state="pinned" data-id="F214">
+            <td class="id"><a href="#F214">F214</a></td>
+            <td><span class="sev sev-medium">medium</span></td>
+            <td class="what"><code>sizeof</code> of a template with more than one argument does not parse — which is every QPI container</td>
+            <td class="num">—</td>
+            <td><span class="status pinned"><b>pinned</b></span></td>
+            <td class="num">5</td>
+          </tr>
+          <tr data-kind="compiler" data-state="pinned" data-id="F215">
+            <td class="id"><a href="#F215">F215</a></td>
+            <td><span class="sev sev-medium">medium</span></td>
+            <td class="what"><code>SELF.u64._0</code> is refused; the identical read through a local copy compiles</td>
+            <td class="num">—</td>
+            <td><span class="status pinned"><b>pinned</b></span></td>
+            <td class="num">5</td>
+          </tr>
+          <tr data-kind="compiler" data-state="red" data-id="F204">
+            <td class="id"><a href="#F204">F204</a></td>
+            <td><span class="sev sev-low">low–med</span></td>
+            <td class="what">An out-of-range shift count diverges only when it folds — and clang's own two spellings disagree with each other</td>
+            <td class="num">5</td>
+            <td><span class="status red"><b>red</b></span></td>
+            <td class="num">2</td>
+          </tr>
+          <tr data-kind="compiler" data-state="pinned" data-id="F209">
+            <td class="id"><a href="#F209">F209</a></td>
+            <td><span class="sev sev-low">low</span></td>
+            <td class="what">The global-scope qualifier <code>::name</code> is a parse error; <code>Port::name</code> in the same file is not</td>
+            <td class="num">—</td>
+            <td><span class="status pinned"><b>pinned</b></span></td>
+            <td class="num">4</td>
+          </tr>
+          <tr data-kind="harness" data-state="fixed" data-id="F208">
+            <td class="id"><a href="#F208">F208</a></td>
+            <td><span class="sev sev-harness">engine</span></td>
+            <td class="what"><code>qpi.computor(i)</code> answers differently in every simulator instance, so any contract reading it is non-reproducible</td>
+            <td class="num">—</td>
+            <td><span class="status"><b>mitigated</b></span></td>
+            <td class="num">4</td>
+          </tr>
+          <tr data-kind="harness" data-state="fixed" data-id="F202">
+            <td class="id"><a href="#F202">F202</a></td>
+            <td><span class="sev sev-harness">harness</span></td>
+            <td class="what">The <code>placement=nested</code> rewrite also rewrote the guard member that exists to stay outside the nested struct</td>
+            <td class="num">—</td>
+            <td><span class="status"><b>fixed</b></span></td>
+            <td class="num">1</td>
+          </tr>
+          <tr data-kind="harness" data-state="fixed" data-id="F206">
+            <td class="id"><a href="#F206">F206</a></td>
+            <td><span class="sev sev-harness">harness</span></td>
+            <td class="what">The <code>temporaries</code> axis hoisted a <em>function's</em> locals into state, making a read-only entry write through <code>state.mut()</code></td>
+            <td class="num">—</td>
+            <td><span class="status"><b>fixed</b></span></td>
+            <td class="num">3</td>
+          </tr>
+          <tr data-kind="harness" data-state="fixed" data-id="F207">
+            <td class="id"><a href="#F207">F207</a></td>
+            <td><span class="sev sev-harness">harness</span></td>
+            <td class="what"><code>entryOrder=reversed</code> emitted a member before the type it names existed</td>
+            <td class="num">—</td>
+            <td><span class="status"><b>fixed</b></span></td>
+            <td class="num">3</td>
+          </tr>
+          <tr data-kind="harness" data-state="fixed" data-id="F216">
+            <td class="id"><a href="#F216">F216</a></td>
+            <td><span class="sev sev-harness">harness</span></td>
+            <td class="what">A script that advanced 3,600 ticks blew the shard deadline and was scored as a hang</td>
+            <td class="num">—</td>
+            <td><span class="status"><b>fixed</b></span></td>
+            <td class="num">5</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      <b>Rows</b> counts the corpus contracts that report the divergence in the round-5 sweep. Six findings
+      show <b>—</b> because they are <b>pinned</b>: scored as matches through <code>expectedVerdict</code>,
+      so they pass by diverging exactly as documented and fail the moment they stop. F210 is deliberately
+      absent from the generated corpus — it hangs, and a hang burns a shard deadline on every sweep.
+    </p>
+  </section>
+
+  <section>
+    <h2>The twelve compiler findings</h2>
+    <div class="findings" id="findings">
+
+      <article class="finding" id="F213" data-kind="compiler" data-state="red" data-severity="critical">
+        <div class="fhead">
+          <span class="fid">F213</span>
+          <h3 class="ftitle">A constant name is global, and the last declaration wins</h3>
+          <div class="fmeta"><span class="sev sev-critical">critical</span><span class="status red"><b>39 rows red</b></span></div>
+        </div>
+        <p class="fsum">
+          Every read below is <strong>fully qualified</strong>, so C++ has nothing to disambiguate and clang's
+          column is simply correct. The TypeScript backend returns the value of the last constant declared
+          under that name — across namespaces, across enum types, and across <em>kinds</em> of declaration: an
+          enum constant overwrites a file-scope <code>constexpr</code> of the same name. Qualification is the
+          fix a developer reaches for when two declarations collide; here it is accepted and ignored.
+        </p>
+<pre>namespace Alpha    { enum Level     { Low = 1,   High = 2   }; }
+namespace Beta     { enum Level     { Low = 100, High = 200 }; }
+namespace TwinName { enum FirstKind { Only = 7 }; }
+namespace OtherName{ enum SecondKind{ Only = 9 }; }
+static constexpr uint64 Shared = 5;
+namespace WithEnum { enum Kinds     { Shared = 55 }; }
+
+  read                                <i>clang</i>   <i>TypeScript</i>
+  Alpha::Low                              1         <b>100</b>
+  Alpha::High                             2         <b>200</b>
+  Alpha::High * Beta::Low               200       <b>20000</b>
+  TwinName::Only                          7           <b>9</b>
+  Shared      <i>(file-scope constexpr)</i>      5          <b>55</b>
+  WithEnum::Shared                       55          55</pre>
+        <div class="split">
+          <div class="ts"><span class="backend">TypeScript backend</span><p>Compiles, runs, writes the wrong number into contract state. No diagnostic, no ambiguity report.</p></div>
+          <div class="cl"><span class="backend">clang — what the chain does</span><p>Resolves each qualified name to its own declaration. A four-namespace ladder ORs to 15; TypeScript answers 8.</p></div>
+        </div>
+        <div class="oracle"><b>Why this is the worst one here</b>
+          F201, F205, F209, F211 and F214 refuse to compile, so the developer finds out. This one is silent
+          and arithmetic. Round 4 recorded it as an enum-constant problem; round 5's <em>value</em> probes —
+          same-named things whose values differ — showed the rule is broader. Three earlier rounds compared
+          struct sizes and offsets, which a mis-resolution between identically shaped types cannot disturb.
+        </div>
+        <div class="footrow">
+          <span>repro <b>triage/F213-twin-enum-resolution/</b></span>
+          <span>rows <b>namespaces/NsTwinEnum* · 39, none pinned</b></span>
+          <span>found <b>round 4, restated round 5</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F200" data-kind="compiler" data-state="red" data-severity="high">
+        <div class="fhead">
+          <span class="fid">F200</span>
+          <h3 class="ftitle"><code>QPI::div(sint32)</code> at <code>INT32_MIN / -1</code> wraps instead of trapping</h3>
+          <div class="fmeta"><span class="sev sev-high">high</span><span class="status red"><b>2 rows red</b></span></div>
+        </div>
+        <p class="fsum">
+          The contract body is one line — <code>locals.quotient = QPI::div(input.a, input.b);</code> with
+          <code>sint32 quotient</code>, driven with <code>a = 0x80000000</code>, <code>b = -1</code>. A
+          contract that halts on the real node keeps running, with a wrong quotient, under
+          <code>--compiler typescript</code>.
+        </p>
+        <div class="split">
+          <div class="ts"><span class="backend">TypeScript backend</span><p>No trap. Execution continues.</p><span class="val">result32 = -2147483648</span><span class="val">digest 786a3019b2e451a2…</span></div>
+          <div class="cl"><span class="backend">clang — what the chain does</span><p><code>FAULT engine faulted: Integer overflow</code></p><span class="val">status trap</span><span class="val">digest 12cb76febc386b6b…</span></div>
+        </div>
+<pre><i>the width sweep bounds it exactly — of 24 DivQpi variants, only sint32 diverges</i>
+match            integers/DivQpi__55a8   sint8    <i>promotes to int; -128/-1 = 128</i>
+match            integers/DivQpi__c12b   sint16   <i>same</i>
+<b>trap-divergence  integers/DivQpi__209b   sint32</b>
+<b>trap-divergence  integers/DivQpi__6157   sint32</b>
+match            integers/DivQpi__3bce   sint64   <i>both trap, digest c501bf78… identical</i></pre>
+        <div class="oracle"><b>Third oracle — this one does not rest on the two backends disagreeing</b>
+          wasm's <code>i32.div_s</code> is <em>defined</em> to trap when the quotient is not representable,
+          which is exactly this case. And <code>scripts/solidity-port/native-oracle/</code> compiles core's
+          own <code>div</code> definition natively with g++: <code>div&lt;sint32&gt;(INT32_MIN, -1)</code>
+          faults there too. clang's trap is correct; <code>-2147483648</code> is the x86 wrap the wasm
+          instruction deliberately does not produce.
+        </div>
+        <div class="footrow">
+          <span>repro <b>triage/F200-sint32-div-overflow/</b></span>
+          <span>rows <b>integers/DivQpi__* · 2</b></span>
+          <span>found <b>round 1</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F203" data-kind="compiler" data-state="red" data-severity="high">
+        <div class="fhead">
+          <span class="fid">F203</span>
+          <h3 class="ftitle"><code>qpi.K12</code> of a computed expression hashes the wrong bytes</h3>
+          <div class="fmeta"><span class="sev sev-high">high</span><span class="status red"><b>32 rows red</b></span></div>
+        </div>
+        <p class="fsum">
+          One value, hashed four ways in one contract. The two rows whose argument is a plain variable agree
+          with clang and with the external oracle; the two whose argument is a computed temporary do not.
+          A commitment or Merkle root computed inline differs from what the chain would produce, with
+          <strong>no diagnostic on either side</strong>.
+        </p>
+<pre>state.mut().ofMember            = qpi.K12(input.a);            <i>control: a member</i>
+locals.sum                      = input.a + input.b;
+state.mut().ofLocal             = qpi.K12(locals.sum);         <i>control: a named local</i>
+state.mut().ofSumExpression     = qpi.K12(input.a + input.b);  <b>the finding</b>
+state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b></pre>
+        <div class="split">
+          <div class="ts"><span class="backend">TypeScript backend</span><span class="val">61d86f04… 4e34329a…</span><span class="val"><b>dc545078… 11e55263…</b></span><p>The last two are not the K12 of any of these values.</p></div>
+          <div class="cl"><span class="backend">clang — what the chain does</span><span class="val">61d86f04… 4e34329a…</span><span class="val">4e34329a… 61d86f04…</span><p>All four hash the eight little-endian bytes of their <code>uint64</code>.</p></div>
+        </div>
+        <div class="oracle"><b>Third oracle — the engine's own KangarooTwelve</b>
+          core's K12 is one line: <code>KangarooTwelve(&amp;data, sizeof(data), &amp;digest, 32)</code>, and
+          <code>T</code> is <code>uint64</code> in all four rows. Computed directly:
+          <code>K12(1) = 61d86f04…</code>, <code>K12(2) = 4e34329a…</code>. clang produces exactly those.
+          <br><br>
+          Nobody wrote a probe for this. It fell out of <code>MerkleProofIterativeVerify</code>, a port of
+          OpenZeppelin's <code>processProof</code>, whose fold hashes <code>seed + i</code> — an archetype
+          written to test Merkle index arithmetic that caught a hashing bug instead.
+        </div>
+        <div class="footrow">
+          <span>repro <b>triage/F203-k12-expression/</b></span>
+          <span>rows <b>K12OfComputedExpression + HostK12ExpressionVersusVariable · 32</b></span>
+          <span>found <b>round 2</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F210" data-kind="compiler" data-state="triage" data-severity="high">
+        <div class="fhead">
+          <span class="fid">F210</span>
+          <h3 class="ftitle">An alias whose name equals its target's hangs the front end</h3>
+          <div class="fmeta"><span class="sev sev-high">high</span><span class="status"><b>triage only</b></span></div>
+        </div>
+        <p class="fsum">
+          Two declarations, no recursion in sight. Both <code>g++</code> and the wasi-sdk
+          <code>clang++</code> compile the pair without complaint; the qinit analyzer never returns. Because
+          the clang pipeline runs the same build gate, this <strong>takes both backends down</strong> — a
+          contract source that hangs the toolchain indefinitely.
+        </p>
+<pre>namespace Inner  { struct Payload { uint64 a; }; }
+namespace Middle { using Payload = Inner::Payload; }   <b>alias name == target name</b></pre>
+        <div class="footrow">
+          <span>repro <b>triage/F210-same-name-alias-hang/NOTES.md</b></span>
+          <span>rows <b>none — kept out of the corpus by design</b></span>
+          <span>found <b>round 4</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F212" data-kind="compiler" data-state="pinned" data-severity="high">
+        <div class="fhead">
+          <span class="fid">F212</span>
+          <h3 class="ftitle">A read-only entry can call a procedure and mutate state</h3>
+          <div class="fmeta"><span class="sev sev-high">high</span><span class="status pinned"><b>pinned</b></span></div>
+        </div>
+        <p class="fsum">
+          The read-only guarantee for functions does not hold in one backend. The function returns 1,
+          meaning <code>state.mut().counter += 1</code> executed inside an entry that is supposed to be a
+          query — and the contract's state digest moves across a <em>function</em> call.
+          <code>lifecycle/FunctionMustNotMutate</code> exists in this corpus precisely to assert that never
+          happens.
+        </p>
+        <div class="split">
+          <div class="ts"><span class="backend">TypeScript backend</span><p>Compiles and runs it.</p></div>
+          <div class="cl"><span class="backend">clang — what the chain does</span><p><code>error: no viable conversion from 'const QPI::QpiContextFunctionCall' to 'const QPI::QpiContextProcedureCall'</code></p></div>
+        </div>
+        <div class="footrow">
+          <span>repro <b>triage/F212-function-calls-procedure/</b></span>
+          <span>rows <b>controlflow/ReadOnlyFunctionCallsPrivateProcedure__*</b></span>
+          <span>found <b>round 4</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F201" data-kind="compiler" data-state="red" data-severity="medium">
+        <div class="fhead">
+          <span class="fid">F201</span>
+          <h3 class="ftitle">A member read through a three-deep alias chain is rejected</h3>
+          <div class="fmeta"><span class="sev sev-medium">medium</span><span class="status red"><b>4 rows red</b></span></div>
+        </div>
+        <p class="fsum">
+          <code>Direct</code> and <code>OneAlias</code> are members of the <strong>same contract</strong>,
+          written and read by the same entries in the same build. Only the three-deep spelling is refused,
+          so the rejection is specific to alias depth — not to inheritance, namespacing, or the member name.
+        </p>
+<pre>using BaseA = Base; using BaseB = BaseA; using BaseC = BaseB;
+
+struct Direct       : public Port::Base  { uint64 d; };   <i>control — accepted</i>
+struct OneAlias     : public Port::BaseA { uint64 d; };   <i>control — accepted</i>
+struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
+        <div class="split">
+          <div class="ts"><span class="backend">TypeScript backend</span><p><code>unsupported member read [state.get(0).threeAliases.a]</code></p></div>
+          <div class="cl"><span class="backend">clang — what the chain does</span><p>Reads 42 back through all three bases; <code>stateSize 96</code>, the correct layout for all three spellings.</p></div>
+        </div>
+        <div class="footrow">
+          <span>repro <b>triage/F201-alias-of-alias-base/</b></span>
+          <span>rows <b>namespaces/NsInheritedNamespacedTypedef__* · 4</b></span>
+          <span>found <b>round 1</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F205" data-kind="compiler" data-state="pinned" data-severity="medium">
+        <div class="fhead">
+          <span class="fid">F205</span>
+          <h3 class="ftitle">A file-scope enum constant hidden by a contract member</h3>
+          <div class="fmeta"><span class="sev sev-medium">medium</span><span class="status pinned"><b>pinned</b></span></div>
+        </div>
+        <p class="fsum">
+          The contract declares <code>enum Kind { Helper = 3, Solo = 4 };</code> at file scope and a
+          <code>PRIVATE_FUNCTION(Helper)</code> inside it, then writes <code>state.mut().hidden = Helper;</code>.
+          C++ name lookup inside a member function searches class scope first, so <code>Helper</code> is the
+          member function and the assignment is ill-formed. <code>Solo</code> is the control — the same
+          assignment through an enum constant no member hides — and both backends store 4 for it.
+        </p>
+        <div class="split">
+          <div class="ts"><span class="backend">TypeScript backend</span><p>Resolves to the enum constant and stores 3.</p></div>
+          <div class="cl"><span class="backend">clang — what the chain does</span><p><code>error: assigning to 'uint64' from incompatible type 'void (const QPI::QpiContextFunctionCall &amp;, …)'</code></p></div>
+        </div>
+        <div class="footrow">
+          <span>repro <b>triage/F205-enum-hidden-by-member/</b></span>
+          <span>rows <b>namespaces/NsEnumConstantHiddenByMember__*</b></span>
+          <span>found <b>round 3</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F211" data-kind="compiler" data-state="pinned" data-severity="medium">
+        <div class="fhead">
+          <span class="fid">F211</span>
+          <h3 class="ftitle">A nested struct name collision overflows the analyzer's stack</h3>
+          <div class="fmeta"><span class="sev sev-medium">medium</span><span class="status pinned"><b>pinned</b></span></div>
+        </div>
+        <p class="fsum">
+          A nested struct whose name matches a file-scope struct sends the analyzer into unbounded
+          recursion — <code>Maximum call stack size exceeded</code>, a crash where a diagnostic belongs.
+          clang compiles the same file. Found by accident: the generator's <code>placement=nested</code>
+          axis wraps state members in a struct it calls <code>Inner</code>, and an archetype that happened
+          to declare a file-scope <code>Inner</code> collided with it, taking 4 of its 12 variants down.
+        </p>
+        <div class="footrow">
+          <span>repro <b>triage/F211-nested-struct-name-collision/NOTES.md</b></span>
+          <span>rows <b>layout/LayoutNestedStructNameCollision__*</b></span>
+          <span>found <b>round 4</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F214" data-kind="compiler" data-state="pinned" data-severity="medium">
+        <div class="fhead">
+          <span class="fid">F214</span>
+          <h3 class="ftitle"><code>sizeof(Array&lt;uint64, 8&gt;)</code> does not parse</h3>
+          <div class="fmeta"><span class="sev sev-medium">medium</span><span class="status pinned"><b>pinned</b></span></div>
+        </div>
+        <p class="fsum">
+          <code>error: Expected r_paren but got comma (,) in sizeof expr</code>. Every QPI container takes at
+          least two template arguments, so this is how a contract asks how big its own state is. clang
+          compiles both spellings — direct, and through <code>using Aliased = Array&lt;uint64, 8&gt;;</code> —
+          and both return 64. Five of round 5's layout archetypes measured containers directly and were
+          refused; aliasing first is what isolated the finding.
+        </p>
+        <div class="footrow">
+          <span>repro <b>triage/F214-sizeof-template-comma/NOTES.md</b></span>
+          <span>rows <b>layout/SizeofMultiArgTemplate__*</b></span>
+          <span>found <b>round 5, while authoring</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F215" data-kind="compiler" data-state="pinned" data-severity="medium">
+        <div class="fhead">
+          <span class="fid">F215</span>
+          <h3 class="ftitle"><code>SELF.u64._0</code> is refused; the same read through a copy is not</h3>
+          <div class="fmeta"><span class="sev sev-medium">medium</span><span class="status pinned"><b>pinned</b></span></div>
+        </div>
+        <p class="fsum">
+          <code>error: unsupported member read [id(4).u64._0]</code>. The diagnostic naming
+          <code>id(4)</code> suggests the constant is substituted before the member read is considered.
+          clang compiles it, and both the direct read and the copied read return 29 — the contract's own
+          index. One assignment works around it.
+        </p>
+        <div class="footrow">
+          <span>repro <b>triage/F215-self-word-read/NOTES.md</b></span>
+          <span>rows <b>hostcalls/HostSelfWordDirectRead__*</b></span>
+          <span>found <b>round 5, while authoring</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F204" data-kind="compiler" data-state="red" data-severity="low">
+        <div class="fhead">
+          <span class="fid">F204</span>
+          <h3 class="ftitle">An out-of-range shift diverges only when the count folds</h3>
+          <div class="fmeta"><span class="sev sev-low">low–medium</span><span class="status red"><b>5 rows red</b></span></div>
+        </div>
+        <p class="fsum">
+          <code>x &lt;&lt; n</code> with <code>n &gt;= width</code> is undefined behaviour in C++, so
+          <strong>neither backend is wrong</strong>. What is reportable is that clang answers the same
+          expression two different ways depending on whether it folds — and that testing under
+          <code>--compiler typescript</code> therefore cannot predict the on-chain answer.
+        </p>
+<pre><i>uint64 value = 1, count = 254</i>
+                     folded count   runtime count   self-consistent
+TypeScript                  2^62            2^62   <b>yes</b>
+clang                          0            2^62   <b>no</b>
+
+<i>2^62 is 1 &lt;&lt; (254 mod 64) — what wasm's i64.shl does; it masks the count to six bits.
+in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.</i></pre>
+        <p class="fsum">
+          The width sweep bounds it: of 16 <code>ShiftRhsWiderThanLhs</code> variants, the ones that diverge
+          are exactly the 32- and 64-bit widths with <code>constSource=constexpr</code>. Narrower widths
+          agree because integer promotion widens them to <code>int</code> first. Without the
+          <code>constSource</code> axis this would have looked like an ordinary width-dependent difference.
+        </p>
+        <div class="footrow">
+          <span>repro <b>triage/F204-constant-shift-count/</b></span>
+          <span>rows <b>integers/ShiftRhsWiderThanLhs__* · 5</b></span>
+          <span>found <b>round 2</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F209" data-kind="compiler" data-state="pinned" data-severity="low">
+        <div class="fhead">
+          <span class="fid">F209</span>
+          <h3 class="ftitle">The global-scope qualifier <code>::name</code> is refused</h3>
+          <div class="fmeta"><span class="sev sev-low">low</span><span class="status pinned"><b>pinned</b></span></div>
+        </div>
+        <p class="fsum">
+          A parse error for the TypeScript backend and ordinary C++ for clang.
+          <code>Port::threshold</code> parses in the same file, so the refusal is specific to the leading
+          <code>::</code>. The workaround is to rename.
+        </p>
+        <div class="footrow">
+          <span>repro <b>triage/F209-global-scope-qualifier/</b></span>
+          <span>rows <b>namespaces/NsGlobalScopeQualifier__*</b></span>
+          <span>found <b>round 4</b></span>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <section>
+    <h2>Five defects in the harness and the engine <span>recorded because an unrecorded generator bug looks like a compiler finding the next time someone reads the scoreboard</span></h2>
+    <div class="harnesslist" id="harness">
+      <div>
+        <span class="hid">F208</span>
+        <div>
+          <h3>The simulator's committee is not reproducible between runs</h3>
+          <p>
+            <code>qpi.computor(i)</code> is generated per simulator instance, so a contract that stores
+            <code>qpi.computor(0)</code> produces a different digest on every run — including two runs of the
+            <em>same</em> backend, which is how it was caught. This is an engine defect, not a harness one.
+            <span class="fix">mitigated · the harness pins indices 0..675 before every run; it cannot pin more, because the override is keyed by raw index while the fallback wraps modulo committee size. Fixing it properly belongs in the engine.</span>
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="hid">F202</span>
+        <div>
+          <h3>The nested-placement rewrite also rewrote the out-of-struct guard</h3>
+          <p>
+            <code>placement=nested</code> moves state members into an <code>Inner</code> struct and rewrites
+            <code>state.mut().X</code> to <code>state.mut().inner.X</code>. Unconditionally — so it also
+            rewrote <code>placementGuard</code>, the member that deliberately stays outside, which is the
+            entire point of it. Thirteen contracts came back <code>both-rejected</code>, testing nothing.
+            <span class="fix">fixed with a negative lookahead · and it is this campaign's own evidence that two backends agreeing on a rejection tells you nothing about whether the contract was meant to be rejected</span>
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="hid">F206</span>
+        <div>
+          <h3>The <code>temporaries</code> axis hoisted a function's locals into state</h3>
+          <p>
+            <code>temporaries=stateScratch</code> moves an entry's locals into a scratch sub-struct of
+            <code>StateData</code>. Applied to a <em>function</em>, that makes a read-only entry write through
+            <code>state.mut()</code>, which both build gates refuse — eleven contracts came back
+            <code>both-rejected</code>.
+            <span class="fix">fixed · the axis now rewrites procedures only; the function variant renders identically and is dropped by the dedup</span>
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="hid">F207</span>
+        <div>
+          <h3><code>entryOrder</code> reordered entries whose types depend on each other</h3>
+          <p>
+            Where one entry's <code>_locals</code> names another entry's <code>_input</code>, declaring the
+            contract's entries back to front emits the member before its type exists. Three
+            <code>ModifierAsPrivateFunction</code> variants did exactly that.
+            <span class="fix">fixed · the axis stands down on such a dependency, and a corpus-wide control now walks every emitted contract asserting the invariant, so the next reordering axis cannot reintroduce it quietly</span>
+          </p>
+        </div>
+      </div>
+      <div>
+        <span class="hid">F216</span>
+        <div>
+          <h3>A 3,600-tick script reads as a hang</h3>
+          <p>
+            <code>hostcalls/TimePackedDateAndTime</code> advanced the simulator through an hour — about forty
+            seconds per backend, and with four workers competing it exceeded the shard deadline. Worth
+            recording because of what it looked like: a hang in the scoreboard is otherwise the signature of a
+            compiler that does not terminate, which is exactly F210.
+            <span class="fix">fixed · the script now advances 240 ticks and crosses the same minute and hour boundaries; the re-run is clean at 0 hang</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Five rounds <span>bar = contracts swept · overlay = rows reporting a divergence</span></h2>
+    <div class="rounds">
+      <div class="axis">
+        <span></span>
+        <div class="ticks">
+          <span style="left:0%">0</span>
+          <span style="left:24.6%">1,500</span>
+          <span style="left:49.3%">3,000</span>
+          <span style="left:73.9%">4,500</span>
+          <span style="left:98.5%">6,000</span>
+        </div>
+      </div>
+      <div class="row">
+        <div class="rlabel"><b>Round 1</b><span>68 archetypes</span></div>
+        <div class="bar">
+          <div class="fill" style="width:9.9%"></div>
+          <div class="red" style="width:0.07%"></div>
+          <div class="cap">605 · <i>4 red</i> · <em>F200 F201</em></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="rlabel"><b>Round 2</b><span>118 archetypes</span></div>
+        <div class="bar">
+          <div class="fill" style="width:19.8%"></div>
+          <div class="red" style="width:0.18%"></div>
+          <div class="cap">1,204 · <i>11 red</i> · <em>F203 F204</em></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="rlabel"><b>Round 3</b><span>171 archetypes</span></div>
+        <div class="bar">
+          <div class="fill" style="width:59.9%"></div>
+          <div class="red" style="width:0.62%"></div>
+          <div class="cap">3,647 · <i>38 red</i> · <em>F205</em></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="rlabel"><b>Round 4</b><span>255 archetypes</span></div>
+        <div class="bar">
+          <div class="fill" style="width:49.5%"></div>
+          <div class="red" style="width:0.51%"></div>
+          <div class="cap">3,017 · <i>31 red</i> · <em>F209 F210 F211 F212 F213</em></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="rlabel"><b>Round 5</b><span>411 archetypes</span></div>
+        <div class="bar">
+          <div class="fill" style="width:100%"></div>
+          <div class="red" style="width:1.35%"></div>
+          <div class="cap">6,091 · <i>82 red</i> · <em>F214 F215</em></div>
+        </div>
+      </div>
+      <div class="legend">
+        <span><i class="sw-a"></i>contracts swept (scale above, 0–6,091)</span>
+        <span><i class="sw-r"></i>rows reporting a divergence</span>
+        <span>14,564 contract-runs in total, each compiled and executed twice</span>
+      </div>
+    </div>
+    <p class="note">
+      Round 4 spent the same contract budget on half again as many distinct shapes — the variant cap dropped
+      from 32 to 12 — on the argument that <strong>the archetype count, not the contract count, is the
+      effective sample size</strong>. The red rows grow with the corpus because each finding's variants
+      multiply, not because new defects appear: every red row in every round is one of the twelve findings
+      and nothing else.
+    </p>
+  </section>
+
+  <section>
+    <h2>What the green rows are worth</h2>
+    <div class="limits">
+      <div>
+        <h3>The oracle problem</h3>
+        <p>
+          Both backends share one build gate, one <code>qpi.h</code>, and one <code>QubicSimulator</code>.
+          <b>&ldquo;6,009 matched&rdquo; means they agreed with each other</b>, not that they were right. Only
+          F200 and F203 are convicted by a third, independent oracle; the other ten still rest on the two
+          backends disagreeing.
+        </p>
+      </div>
+      <div>
+        <h3>The positive control</h3>
+        <p>
+          A suite that has never gone red is not evidence. Planting <code>uint16: 2 → 4</code> in
+          <code>scalar-sizes.ts</code> turned <b>126 of the 708 layout contracts red</b>; restoring it returned
+          all 708 to green. That also proves the compile cache's backend stamp, which would otherwise replay
+          pre-mutation wasm and report a clean bill of health.
+        </p>
+      </div>
+      <div>
+        <h3>Stimulus coverage</h3>
+        <p>
+          So the green rows are not vacuous: 5,706 of 6,091 contracts moved their state digest mid-script,
+          280 emitted a log, 18 produced a trap, <b>357 made a cross-contract call</b>, and 100 finished
+          all-zero — the variants where writing nothing is the row's point.
+        </p>
+      </div>
+      <div>
+        <h3>Not 6,091 trials</h3>
+        <p>
+          6,091 contracts from 411 archetypes is 14.8 variants each. Read the contract number as breadth of
+          spellings. The variants earn their place as the <b>axis bisector</b>: when a mismatch appears, the
+          sibling variants that differ in exactly one axis name the trigger — which is how F200 was pinned to
+          <code>sint32</code> and F204 to <code>constSource=constexpr</code>.
+        </p>
+      </div>
+      <div>
+        <h3>Only 2,780 are faithful ports</h3>
+        <p>
+          QPI has no revert, no <code>uint256</code>, no unbounded mapping and no reentrancy, so a Solidity
+          test whose point was atomicity or 256-bit wraparound becomes a <em>different</em> test after
+          porting. The corpus is a source of adversarial <b>shapes</b>, not evidence about Solidity semantics.
+        </p>
+      </div>
+      <div>
+        <h3>Where the remaining risk is</h3>
+        <p>
+          F214 and F215 were found while <em>writing</em> archetypes, not by running them. That is a
+          reasonable way to find parser gaps and a poor way to find miscompilations — the sweep is good at
+          what it already knows how to spell. Nothing here has been run against real core or WAMR; that
+          remains the obvious next step, and remains undone.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Ledger: <b>docs/findings/TESTING-FINDINGS-9-solidity-port.md</b></span>
+    <span>Harness: <b>scripts/solidity-port/</b></span>
+    <span>Repros: <b>corpus/solidity-port/triage/</b></span>
+    <span>Report only — nothing in Qinit or core-lite was changed.</span>
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var buttons = Array.prototype.slice.call(document.querySelectorAll(".filters button"));
+    var rows = Array.prototype.slice.call(document.querySelectorAll("#register tr"));
+    var cards = Array.prototype.slice.call(document.querySelectorAll("#findings .finding"));
+    var harness = document.getElementById("harness").parentNode;
+    var findingsSection = document.getElementById("findings").parentNode;
+    var count = document.getElementById("count");
+
+    function matches(el, filter) {
+      if (filter === "all") return true;
+      if (filter === "compiler") return el.dataset.kind === "compiler";
+      if (filter === "harness") return el.dataset.kind === "harness";
+      return el.dataset.state === filter;
+    }
+
+    function apply(filter) {
+      var shown = 0;
+      rows.forEach(function (row) {
+        var on = matches(row, filter);
+        row.classList.toggle("dim", !on);
+        if (on) shown++;
+      });
+      cards.forEach(function (card) {
+        card.hidden = !matches(card, filter);
+      });
+      var anyCard = cards.some(function (c) { return !c.hidden; });
+      findingsSection.hidden = !anyCard;
+      harness.hidden = (filter !== "all" && filter !== "harness");
+      count.textContent = shown + " of " + rows.length + " shown";
+      buttons.forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.dataset.filter === filter));
+      });
+    }
+
+    buttons.forEach(function (b) {
+      b.addEventListener("click", function () { apply(b.dataset.filter); });
+    });
+  })();
+</script>
