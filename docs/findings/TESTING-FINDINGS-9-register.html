@@ -386,63 +386,18 @@
   .harnesslist p { margin: 0; font-size: 14px; color: var(--ink-soft); max-width: 72ch; }
   .harnesslist .fix { display: block; margin-top: 6px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
 
-  /* ---------- proposed fixes ---------- */
+  /* ---------- inline fixes ---------- */
 
-  .fixes { display: flex; flex-direction: column; gap: 14px; }
-  .fixcard {
-    background: var(--surface);
-    border: 1px solid var(--rule);
-    border-left: 3px solid var(--confcolor, var(--rule-strong));
-    border-radius: 3px;
-    padding: 16px 18px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    scroll-margin-top: 20px;
-  }
-  .fixcard[data-conf="verified"] { --confcolor: var(--accent); }
-  .fixcard[data-conf="located"]  { --confcolor: var(--med); }
-  .fixcard[data-conf="proposed"] { --confcolor: var(--low); }
-  .fixhead { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
-  .fixhead .fid { font-family: var(--mono); font-weight: 600; font-size: 14px; color: var(--confcolor); }
-  .fixhead h3 { font-family: var(--cond); font-weight: 600; font-size: 18px; line-height: 1.25; margin: 0; flex: 1 1 300px; text-wrap: balance; }
-  .conf {
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: .09em;
-    text-transform: uppercase;
-    padding: 2px 7px;
-    border-radius: 2px;
-    border: 1px solid currentColor;
-    color: var(--confcolor);
-    white-space: nowrap;
-  }
-  .fixbody { display: grid; grid-template-columns: 88px 1fr; gap: 7px 16px; font-size: 14px; color: var(--ink-soft); }
-  @media (max-width: 560px) { .fixbody { grid-template-columns: 1fr; gap: 2px 0; } }
-  .fixbody dt {
-    font-family: var(--mono);
-    font-size: 10.5px;
-    letter-spacing: .09em;
-    text-transform: uppercase;
-    color: var(--muted);
-    padding-top: 2px;
-  }
-  .fixbody dd { margin: 0; max-width: 72ch; }
-  .fixbody dd + dt { border-top: 1px solid var(--rule); padding-top: 9px; margin-top: 2px; }
-  .fixbody dt + dd { border-top: 1px solid var(--rule); padding-top: 9px; margin-top: 2px; }
-  .fixbody dt:first-of-type, .fixbody dt:first-of-type + dd { border-top: 0; padding-top: 0; margin-top: 0; }
   .systemic {
     border: 1px solid var(--accent);
     background: var(--accent-soft);
     border-radius: 3px;
-    padding: 16px 18px;
+    padding: 13px 16px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 5px;
   }
-  .systemic h3 { font-family: var(--cond); font-weight: 600; font-size: 18px; margin: 0; }
-  .systemic p { margin: 0; font-size: 14px; color: var(--ink-soft); max-width: 74ch; }
+  .systemic p { margin: 0; font-size: 13.5px; color: var(--ink-soft); max-width: 76ch; }
   .systemic .tag {
     font-family: var(--mono);
     font-size: 10.5px;
@@ -451,6 +406,55 @@
     color: var(--accent);
     font-weight: 600;
   }
+
+
+  .fix {
+    border-left: 2px solid var(--confcolor, var(--rule-strong));
+    background: var(--surface-alt);
+    border-radius: 0 2px 2px 0;
+    padding: 10px 13px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .fix[data-conf="verified"] { --confcolor: var(--accent); }
+  .fix[data-conf="located"]  { --confcolor: var(--med); }
+  .fix[data-conf="proposed"] { --confcolor: var(--low); }
+  .fixtop { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .fixtop b {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--confcolor);
+  }
+  .fixtop .conf {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--rule-strong);
+    border-radius: 2px;
+    padding: 1px 5px;
+  }
+  .fix ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+  .fix li { font-size: 13.5px; color: var(--ink-soft); max-width: 74ch; }
+  .fix li::marker { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .fix .rec {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ground);
+    background: var(--accent);
+    border-radius: 2px;
+    padding: 1px 5px;
+    margin-right: 5px;
+    white-space: nowrap;
+  }
+  .fix .cost { display: block; margin-top: 3px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .fix > p { margin: 0; font-size: 13px; color: var(--muted); }
 
   /* ---------- rounds chart ---------- */
 
@@ -561,8 +565,8 @@
       digest of their final state. Where the two disagree, one of them is what the chain does. Round 6
       added a third opinion — core’s own WAMR runtime — but round 7 found it had been comparing one
       artifact with itself, so that table is <em>withdrawn</em> and replaced by a measured one. This is
-      every disagreement the seven rounds turned up — and, at the end, <em>a proposed fix for each one</em>,
-      none of them applied.
+      every disagreement the seven rounds turned up. Each open one carries <em>a proposed fix</em>, ranked,
+      none applied.
     </p>
     <div class="tally">
       <div><span class="n">22</span><span class="k">numbered entries</span></div>
@@ -787,7 +791,23 @@
   </section>
 
   <section>
-    <h2>The fifteen compiler findings</h2>
+    <h2>The fifteen compiler findings <span>each carries a ranked fix — nothing applied</span></h2>
+    <div class="systemic">
+      <span class="tag">F203 · F221 · F220 — one bug, three places</span>
+      <p>
+        <code>emitAddress</code> returns null and the caller <b>invents a substitute</b> instead of
+        materialising or refusing. K12 substitutes address 0. <code>argAddr</code> substitutes a throwaway
+        copy. The iterator returns <code>null</code> and falls through. One policy change covers all three:
+        <b>null address is a hard error</b>, plus real materialisation with copy-back for the two cases that
+        are legitimate. Three silent wrong answers become correct behaviour or a diagnostic.
+      </p>
+    </div>
+    <p class="note">
+      Fix badges: <b>verified</b> — root cause read in source and reproduced against a probe.
+      <b>located</b> — responsible code identified by reading, mechanism not separately confirmed.
+      <b>proposed</b> — direction only, root cause still open. Three of the fifteen are still unlocated and
+      say so.
+    </p>
     <div class="findings" id="findings">
 
       <article class="finding" id="F213" data-kind="compiler" data-state="red" data-severity="critical">
@@ -832,6 +852,14 @@ namespace WithEnum { enum Kinds     { Shared = 55 }; }
           same-named things whose values differ — showed the rule is broader. Three earlier rounds compared
           struct sizes and offsets, which a mis-resolution between identically shaped types cannot disturb.
         </div>
+        <div class="fix" data-conf="verified">
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span></div>
+          <p>Qualified reads miss because the key is never written. The bare fallback then reads a flat map.</p>
+          <ol>
+            <li><span class="rec">do this</span><code>declaration-index.ts:429</code> — add <code>scopePrefix</code> to <code>memberScopes</code> for unscoped enums. Registers <code>Alpha::Low</code>, the spelling C++ actually requires. Additive. Fixes every qualified read on its own.<span class="cost">low risk · adds keys, moves none</span></li>
+            <li>Bare name is last-write-wins. <code>registerScoped</code> + <code>BareNamePolicy</code> exist at <code>shared/enums.ts:436</code>; this loop bypasses them with a raw <code>.set()</code>. Add an <code>AMBIGUOUS</code> policy, error from <code>constant-evaluator.ts:49</code>.<span class="cost">breaks contracts that build today · run the corpus first</span></li>
+          </ol>
+        </div>
         <div class="footrow">
           <span>repro <b>triage/F213-twin-enum-resolution/</b></span>
           <span>rows <b>namespaces/NsTwinEnum* · 39, none pinned</b></span>
@@ -867,6 +895,13 @@ match            integers/DivQpi__3bce   sint64   <i>both trap, digest c501bf78�
           own <code>div</code> definition natively with g++: <code>div&lt;sint32&gt;(INT32_MIN, -1)</code>
           faults there too. clang's trap is correct; <code>-2147483648</code> is the x86 wrap the wasm
           instruction deliberately does not produce.
+        </div>
+        <div class="fix" data-conf="verified">
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span></div>
+          <p>All arithmetic runs at i64. <code>INT32_MIN / -1</code> is representable at 64 bits, so <code>i64.div_s</code> never traps and the wrap hides it.</p>
+          <ol>
+            <li><span class="rec">do this</span><code>binary-expression.ts:159</code>, <code>DIVIDE</code> — when signed and <code>cv.width === 4</code>: <code>i32.wrap_i64</code> both operands, <code>i32.div_s</code>, <code>i64.extend_i32_s</code> back. The trap fires. <code>MODULO</code> on the next line has the same bug; move it too.<span class="cost">contracts that survive today start trapping — that is what the chain does</span></li>
+          </ol>
         </div>
         <div class="footrow">
           <span>repro <b>triage/F200-sint32-div-overflow/</b></span>
@@ -904,6 +939,13 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
           Nobody wrote a probe for this. It fell out of <code>MerkleProofIterativeVerify</code>, a port of
           OpenZeppelin's <code>processProof</code>, whose fold hashes <code>seed + i</code> — an archetype
           written to test Merkle index arithmetic that caught a hashing bug instead.
+        </div>
+        <div class="fix" data-conf="verified">
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span></div>
+          <p>No address for a computed argument, so it hashes <code>sizeof(T)</code> bytes of linear memory at offset 0.</p>
+          <ol>
+            <li><span class="rec">do this</span><code>host-intrinsic-call.ts:114</code> — delete <code>?? "(i32.const 0)"</code>. Route argument 0 through <code>argAddr</code> (<code>memory-operations.ts:35</code>), which already allocates a scratch slot and stores the value.<span class="cost">low · digests change only where it was hashing address 0</span></li>
+          </ol>
         </div>
         <div class="footrow">
           <span>repro <b>triage/F203-k12-expression/</b></span>
@@ -951,6 +993,15 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
           in round 6. That judgement was right — and the finding still landed, because the two backends
           disagreed. It is the clearest argument this campaign has produced for keeping both oracles rather
           than treating the hand-derived rows as the stronger one.
+        </div>
+        <div class="fix" data-conf="verified">
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span></div>
+          <p><code>argAddr</code> (<code>memory-operations.ts:35</code>) spills a value copy when <code>emitAddress</code> returns null. Right for <code>const T&amp;</code>; drops every write for a mutable one. A scalar by-value parameter lives in a wasm local, so it always takes that path.</p>
+          <ol>
+            <li><span class="rec">do this</span>Copy back. After the call, load the scratch slot and store it to the source lvalue.<span class="cost">contained · needs a write path back to the source local</span></li>
+            <li>Address-taken promotion in <code>local-collector.ts</code>: spill any scalar local or parameter whose address is taken anywhere in the function.<span class="cost">principled · touches every frame layout · full corpus + WAMR behind it</span></li>
+            <li>Fail closed: diagnostic when a mutable reference argument is not addressable.<span class="cost">safe, but rejects DateAndTime::add itself — cannot ship alone</span></li>
+          </ol>
         </div>
         <div class="footrow">
           <span>repro <b>triage/F221-addmillisec-day-carry/</b></span>
@@ -1002,6 +1053,14 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
           <code>issuer()</code>, <code>assetName()</code>, <code>issuanceIndex()</code> and four more, and
           does not recognise <code>AssetIssuanceIterator</code> at all.
         </div>
+        <div class="fix" data-conf="verified">
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span></div>
+          <p><code>materializeSelect(context, undefined)</code> — <code>undefined</code> is the branch that builds <code>any()</code>.</p>
+          <ol>
+            <li><span class="rec">do this</span><code>containers.ts:523</code> — <code>materializeSelect(context, callArguments[1])</code>; possession select from <code>callArguments[2]</code> on <code>AssetPossessionIterator</code>, else <code>undefined</code>. The two select structs are layout-identical in <code>qpi_assets.h</code>, so the shared layout stays correct.<span class="cost">one extra 36-byte scratch slot per begin()</span></li>
+            <li>Same pass: seven accessors fall through to <code>null</code> and <code>AssetIssuanceIterator</code> is not recognised (gate at <code>:508</code>). Make them diagnostics.<span class="cost">low</span></li>
+          </ol>
+        </div>
         <div class="footrow">
           <span>repro <b>triage/F220-asset-iterator-filter/</b></span>
           <span>rows <b>assets/Asset*Iterator* · 38, pinned</b></span>
@@ -1023,6 +1082,13 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
         </p>
 <pre>namespace Inner  { struct Payload { uint64 a; }; }
 namespace Middle { using Payload = Inner::Payload; }   <b>alias name == target name</b></pre>
+        <div class="fix" data-conf="proposed">
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span></div>
+          <p><b>Root cause not located</b>, and the obvious theory is disproved — the 8-hop bounds above mean this is not alias recursion. Only finding that hangs the toolchain rather than answering wrong.</p>
+          <ol>
+            <li><span class="rec">do this</span>Locate it. Hard iteration cap that reports where it spun, or a profiler. Repro is two lines and deterministic.<span class="cost">free to investigate · highest priority of the three unlocated</span></li>
+          </ol>
+        </div>
         <div class="footrow">
           <span>repro <b>triage/F210-same-name-alias-hang/NOTES.md</b></span>
           <span>rows <b>none — kept out of the corpus by design</b></span>
@@ -1046,6 +1112,13 @@ namespace Middle { using Payload = Inner::Payload; }   <b>alias name == target n
         <div class="split">
           <div class="ts"><span class="backend">TypeScript backend</span><p>Compiles and runs it.</p></div>
           <div class="cl"><span class="backend">clang — what the chain does</span><p><code>error: no viable conversion from 'const QPI::QpiContextFunctionCall' to 'const QPI::QpiContextProcedureCall'</code></p></div>
+        </div>
+        <div class="fix" data-conf="located">
+          <div class="fixtop"><b>Fix</b><span class="conf">located</span></div>
+          <p>clang refuses this through the context type. The TypeScript backend does not model the distinction at the call site.</p>
+          <ol>
+            <li><span class="rec">do this</span>Analyzer check: an entry registered as a function may not <code>CALL</code> a procedure, and may not reach <code>state.mut()</code> through one. Entry kind is already known at registration.<span class="cost">low · closes a hole in the read-only guarantee</span></li>
+          </ol>
         </div>
         <div class="footrow">
           <span>repro <b>triage/F212-function-calls-procedure/</b></span>
@@ -1074,6 +1147,13 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           <div class="ts"><span class="backend">TypeScript backend</span><p><code>unsupported member read [state.get(0).threeAliases.a]</code></p></div>
           <div class="cl"><span class="backend">clang — what the chain does</span><p>Reads 42 back through all three bases; <code>stateSize 96</code>, the correct layout for all three spellings.</p></div>
         </div>
+        <div class="fix" data-conf="proposed">
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span></div>
+          <p><b>Root cause not located.</b> The 8-hop bound is not it — three hops is well inside it. Some other step in base-class member lookup resolves the chain only partially.</p>
+          <ol>
+            <li><span class="rec">do this</span>Diff the member-read trace for the two-deep and three-deep spellings. They differ by one <code>using</code>, so the bisect is already written.<span class="cost">unknown until located · a refusal, not a wrong answer</span></li>
+          </ol>
+        </div>
         <div class="footrow">
           <span>repro <b>triage/F201-alias-of-alias-base/</b></span>
           <span>rows <b>namespaces/NsInheritedNamespacedTypedef__* · 4</b></span>
@@ -1098,6 +1178,13 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           <div class="ts"><span class="backend">TypeScript backend</span><p>Resolves to the enum constant and stores 3.</p></div>
           <div class="cl"><span class="backend">clang — what the chain does</span><p><code>error: assigning to 'uint64' from incompatible type 'void (const QPI::QpiContextFunctionCall &amp;, …)'</code></p></div>
         </div>
+        <div class="fix" data-conf="proposed">
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span></div>
+          <p>C++ searches class scope first inside a member function, so the member hides the constant.</p>
+          <ol>
+            <li><span class="rec">do this</span>Resolve contract members before file-scope constants inside an entry body. Let the ill-formed assignment be a diagnostic.<span class="cost">changes name resolution in every entry body · sequence after F213</span></li>
+          </ol>
+        </div>
         <div class="footrow">
           <span>repro <b>triage/F205-enum-hidden-by-member/</b></span>
           <span>rows <b>namespaces/NsEnumConstantHiddenByMember__*</b></span>
@@ -1118,6 +1205,13 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           axis wraps state members in a struct it calls <code>Inner</code>, and an archetype that happened
           to declare a file-scope <code>Inner</code> collided with it, taking 4 of its 12 variants down.
         </p>
+        <div class="fix" data-conf="proposed">
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span></div>
+          <p><b>Root cause not located.</b> Not missing cycle detection: <code>resolveAliasType</code> (<code>conversions.ts:16</code>) and <code>declaration-index.ts:677</code> both stop at 8 hops. The unbounded path is elsewhere in struct-by-name resolution.</p>
+          <ol>
+            <li><span class="rec">do this</span>Locate the recursion first — stack trace from the crash. Then bound it and report the collision.<span class="cost">unknown until located</span></li>
+          </ol>
+        </div>
         <div class="footrow">
           <span>repro <b>triage/F211-nested-struct-name-collision/NOTES.md</b></span>
           <span>rows <b>layout/LayoutNestedStructNameCollision__*</b></span>
@@ -1138,6 +1232,13 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           and both return 64. Five of round 5's layout archetypes measured containers directly and were
           refused; aliasing first is what isolated the finding.
         </p>
+        <div class="fix" data-conf="proposed">
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span></div>
+          <p>The operand is parsed as an expression, which stops at the first comma.</p>
+          <ol>
+            <li><span class="rec">do this</span>Parse a type-id in <code>sizeof(...)</code>, reusing the template-argument parser. Aliasing the type first already works, so the type parser is fine — only the <code>sizeof</code> operand path is narrow.<span class="cost">keep sizeof(expr) and sizeof(type) distinguishable · test both</span></li>
+          </ol>
+        </div>
         <div class="footrow">
           <span>repro <b>triage/F214-sizeof-template-comma/NOTES.md</b></span>
           <span>rows <b>layout/SizeofMultiArgTemplate__*</b></span>
@@ -1157,6 +1258,13 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           clang compiles it, and both the direct read and the copied read return 29 — the contract's own
           index. One assignment works around it.
         </p>
+        <div class="fix" data-conf="proposed">
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span></div>
+          <p>The constant is substituted before the member read is considered, leaving a member access on a value with no address. Same family as F203 and F221.</p>
+          <ol>
+            <li><span class="rec">do this</span>Materialise the substituted constant into a scratch slot, then read the member — what the one-assignment workaround does by hand.<span class="cost">low · likely free if F221 option 2 lands</span></li>
+          </ol>
+        </div>
         <div class="footrow">
           <span>repro <b>triage/F215-self-word-read/NOTES.md</b></span>
           <span>rows <b>hostcalls/HostSelfWordDirectRead__*</b></span>
@@ -1201,6 +1309,14 @@ locals.afterBlocks = tier;      <i>control: the file constant again</i></pre>
           scoping exists to prevent, and what the Solidity test it was ported from
           (<code>scoping/c99_scoping_activation.sol</code>) was written to pin down.
         </div>
+        <div class="fix" data-conf="proposed">
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span></div>
+          <p>The backend says it itself: locals share one slot per name. The reportable half is the hoist, not the refusal.</p>
+          <ol>
+            <li><span class="rec">do this</span>Stop the hoist. A block-local declaration must not affect resolution before its block opens. Kills the false use-before-declaration; shadowing stays refused.<span class="cost">contained to the resolver</span></li>
+            <li>Key locals by <code>(name, blockDepth)</code> in <code>local-collector.ts</code> so an inner block gets its own slot.<span class="cost">real fix · touches local allocation for every entry</span></li>
+          </ol>
+        </div>
         <div class="footrow">
           <span>repro <b>triage/F217-block-scope-shadow/NOTES.md</b></span>
           <span>rows <b>namespaces/NsBlockScopeShadowChain__* · 12</b></span>
@@ -1238,6 +1354,13 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           exactly. clang’s self-inconsistency is real on the production runtime, not a folding artefact
           of the test harness.
         </div>
+        <div class="fix" data-conf="located">
+          <div class="fixtop"><b>Fix</b><span class="conf">located</span></div>
+          <p>UB in C++, and clang disagrees with itself between folded and runtime. There is no answer to match.</p>
+          <ol>
+            <li><span class="rec">do this</span><code>binary-expression.ts:139</code> — constant shift count &gt;= operand width: diagnostic, refuse. Do not pick a semantics.<span class="cost">rejects code that builds today · constant counts only, never a runtime value</span></li>
+          </ol>
+        </div>
         <div class="footrow">
           <span>repro <b>triage/F204-constant-shift-count/</b></span>
           <span>rows <b>integers/ShiftRhsWiderThanLhs__* · 5</b></span>
@@ -1256,6 +1379,13 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           <code>Port::threshold</code> parses in the same file, so the refusal is specific to the leading
           <code>::</code>. The workaround is to rename.
         </p>
+        <div class="fix" data-conf="proposed">
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span></div>
+          <p>The parser rejects an empty left-hand side.</p>
+          <ol>
+            <li><span class="rec">do this</span>Accept a leading <code>::</code> in the qualified-name production. Resolve the tail against global scope only, skipping using-directive fallback.<span class="cost">low · additive syntax</span></li>
+          </ol>
+        </div>
         <div class="footrow">
           <span>repro <b>triage/F209-global-scope-qualifier/</b></span>
           <span>rows <b>namespaces/NsGlobalScopeQualifier__*</b></span>
@@ -1364,492 +1494,6 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           </p>
         </div>
       </div>
-    </div>
-  </section>
-
-  <section>
-    <h2>Proposed fixes <span>nothing here has been applied — this is a menu, not a changelog</span></h2>
-    <p class="note">
-      Each card names where the defect actually lives, what the change would be, and what it would cost.
-      The badge says how far the investigation got: <b>verified</b> means the root cause was read in the
-      source <em>and</em> the mechanism reproduced against a probe; <b>located</b> means the responsible
-      code was identified by reading but the mechanism was not separately confirmed; <b>proposed</b> means
-      only the direction is known and the root cause is still open. Nothing below has been applied to the
-      compiler.
-    </p>
-
-    <div class="systemic">
-      <span class="tag">One change would cover three of them</span>
-      <h3>A non-addressable value gets a substitute invented for it, rather than being materialised or refused</h3>
-      <p>
-        F203 and F221 are the same mistake in two places. When <code>emitAddress</code> cannot give an
-        address for an expression — a computed temporary, or a scalar living in a wasm local — the caller
-        does not fail and does not materialise it properly. It substitutes something: <code>K12</code>
-        substitutes <b>literal address 0</b> and hashes whatever the module has at the bottom of linear
-        memory; <code>argAddr</code> substitutes <b>a throwaway copy</b>, which is right for a
-        <code>const T&amp;</code> and silently discards every write for a mutable one. F220 is the same
-        shape a third time in spirit: an unhandled iterator method returns <code>null</code> and falls
-        through to whatever handles an unrecognised call, rather than saying so.
-      </p>
-      <p>
-        So there is a policy fix available that is larger than any single card: <b>make a null address a
-        hard error at every site that currently invents a substitute</b>, and give the two legitimate
-        cases (hash a computed value, pass a mutable reference to a non-addressable lvalue) real
-        materialisation with copy-back. That converts three silent wrong answers into either correct
-        behaviour or a diagnostic, and it is the difference between a compiler that is wrong and one that
-        is honest.
-      </p>
-    </div>
-
-    <div class="fixes">
-
-      <article class="fixcard" data-conf="verified">
-        <div class="fixhead">
-          <span class="fid">F213</span>
-          <h3>Register unscoped enum members under their enclosing namespace, and stop the bare name being last-write-wins</h3>
-          <span class="conf">verified</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            <code>semantics/declaration-index.ts:429</code>. For <code>namespace Alpha { enum Level { Low }; }</code>
-            the member loop registers <code>Alpha::Level::Low</code>, <code>Level::Low</code> and the bare
-            <code>Low</code> — but <b>not <code>Alpha::Low</code></b>, which is the spelling C++ requires for an
-            unscoped enum member in a namespace. So the correctly-qualified read misses, falls through to
-            <code>scopedConstantKeys</code> in <code>constant-evaluator.ts:49</code>, and is resolved from the
-            bare tail in a <b>single flat map</b> where the last enum declared won. The same loop does
-            <code>constexprInit.delete(key)</code> on the bare key, which is how an enum constant erases a
-            file-scope <code>constexpr</code> of the same name.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Two parts. <b>(1)</b> add <code>scopePrefix</code> to <code>memberScopes</code> for unscoped enums
-            (not <code>enum class</code>), so <code>Alpha::Low</code> resolves to Alpha's own declaration —
-            additive, and on its own it fixes every qualified read in the finding. <b>(2)</b> stop the bare key
-            being claimed blindly: <code>registerScoped</code> and <code>BareNamePolicy</code> already exist
-            (<code>shared/enums.ts:436</code>) but this loop bypasses them with a raw <code>.set()</code>. Add an
-            <code>AMBIGUOUS</code> policy so a bare name claimed twice with different values is marked, and have
-            <code>resolveConst</code> emit a diagnostic instead of returning whichever won.
-          </dd>
-          <dt>Risk</dt>
-          <dd>
-            Part 1 is low — it adds keys, it does not move existing ones. Part 2 <b>will surface real
-            ambiguities in contracts that compile today</b>, as new errors; that is the point, but it wants a
-            corpus run before it ships. It also overlaps F205, whose <code>Helper</code> case is a lookup-order
-            question this policy touches.
-          </dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="verified">
-        <div class="fixhead">
-          <span class="fid">F203</span>
-          <h3>Materialise a computed K12 argument into scratch instead of hashing address 0</h3>
-          <span class="conf">verified</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            <code>backend/wasm/calls/host-intrinsic-call.ts:114</code>:
-            <code>emitAddress(context, callArguments[0]) ?? "(i32.const 0)"</code>. A computed argument —
-            <code>input.a + input.b</code>, <code>input.a * 1</code> — has no address, so the fallback fires and
-            the call hashes <code>sizeof(T)</code> bytes of linear memory <b>at offset 0</b>. That is why the
-            digest is not the K12 of any value in the contract.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Route the input through <code>argAddr</code> (<code>memory/memory-operations.ts:35</code>), which
-            already allocates a scratch slot and stores the value — the same thing every other by-value
-            aggregate argument does. Then <b>delete the <code>?? "(i32.const 0)"</code></b>: a K12 whose input
-            cannot be addressed must fail, never hash the wrong bytes.
-          </dd>
-          <dt>Risk</dt>
-          <dd>
-            Low and strictly corrective. Any contract currently hashing address 0 changes its digest — which
-            is the whole point, and none of them can have depended on the old value.
-          </dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="verified">
-        <div class="fixhead">
-          <span class="fid">F221</span>
-          <h3>A mutable reference bound to a non-addressable lvalue silently gets a copy</h3>
-          <span class="conf">verified</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            <code>memory/memory-operations.ts:35</code>, <code>argAddr</code>. When <code>emitAddress</code>
-            returns null it allocates a scratch slot, stores the <em>value</em>, and hands the callee that
-            address. Correct for <code>const T&amp;</code>; for a mutable <code>T&amp;</code> every write lands
-            in the copy and nothing reads it back. A scalar by-value parameter lives in a wasm local, which has
-            no address, so it always takes this path.
-            <br><br>
-            Confirmed by probe rather than inferred: <code>add(0,0,5, 24,0,0,0,0)</code> — five days plus a
-            24-hour carry, which the C++ folds together through
-            <code>addWithoutOverflow(days, dayCarry)</code>, writing through a reference to the by-value
-            parameter <code>days</code> — gives day <b>7</b> under clang and day <b>6</b> under the TypeScript
-            backend. References bound to <em>locals</em> propagate correctly; the whole carry chain above this
-            step works.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Three options, smallest first. <b>(a) Fail closed:</b> when a mutable reference argument is not
-            addressable, emit a diagnostic. Turns a silent wrong answer into a refusal, a few lines, no
-            behaviour to get wrong. <b>(b) Copy back:</b> after the call, load the scratch slot and store it to
-            the source lvalue. Fixes the common case; needs the call site to hold a write path back to the
-            source local. <b>(c) Address-taken promotion:</b> in <code>functions/local-collector.ts</code>,
-            spill any scalar local or parameter whose address is taken anywhere in the function to a stack
-            slot for its whole lifetime. The principled fix, and the one that makes references behave like
-            C++ everywhere rather than at call sites the compiler happens to recognise.
-          </dd>
-          <dt>Risk</dt>
-          <dd>
-            (a) is safe but will reject QPI code that works on the chain today — including
-            <code>DateAndTime::add</code> itself, so it cannot ship alone. (b) is contained. (c) touches every
-            function's frame layout and wants the full corpus plus the WAMR parity sweep behind it.
-          </dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="verified">
-        <div class="fixhead">
-          <span class="fid">F220</span>
-          <h3>Pass the iterator's selector arguments instead of discarding them</h3>
-          <span class="conf">verified</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            <code>backend/wasm/calls/containers.ts:523</code> calls
-            <code>materializeSelect(context, undefined)</code>, and <code>undefined</code> is the code path that
-            builds <code>any()</code>. The same buffer is then passed for both the ownership and the possession
-            parameter of <code>$lh_assetEnumerate</code>.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Materialise each selector from its own argument — <code>callArguments[1]</code> for ownership, and
-            <code>callArguments[2]</code> for possession on an <code>AssetPossessionIterator</code> (an
-            <code>AssetOwnershipIterator</code> keeps <code>undefined</code>, which correctly means
-            <code>any()</code>). <code>materializeSelect</code> already handles <code>any</code>,
-            <code>byOwner</code>, <code>byPossessor</code>, <code>byManagingContract</code>, brace initialisers
-            and a whole-struct copy, so no new machinery is needed. The two select structs are layout-identical
-            in <code>qpi_assets.h</code> — <code>id</code>, <code>uint16</code>, two <code>bool</code> — so
-            reusing the ownership layout stays correct.
-          </dd>
-          <dt>Risk</dt>
-          <dd>
-            Minimal: one extra 36-byte scratch slot per <code>begin()</code>. Worth fixing in the same pass:
-            the seven accessors that fall through to <code>null</code> (<code>issuer</code>,
-            <code>assetName</code>, <code>issuanceIndex</code> and friends) and the unrecognised
-            <code>AssetIssuanceIterator</code> — at minimum make them a diagnostic rather than a silent
-            fall-through.
-          </dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="verified">
-        <div class="fixhead">
-          <span class="fid">F200</span>
-          <h3>Do a 32-bit signed division at 32-bit width so wasm's defined trap can fire</h3>
-          <span class="conf">verified</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            <code>backend/wasm/expressions/binary-expression.ts:159</code>. The whole arithmetic model is i64
-            with a wrap applied afterwards for narrower types, so division emits
-            <code>i64.div_s</code> regardless of operand width. At 64-bit width
-            <code>INT32_MIN / -1</code> is representable as 2147483648, so nothing traps and the wrap then
-            produces <code>-2147483648</code>. clang divides at the declared width and gets
-            <code>i32.div_s</code>, which wasm <em>defines</em> to trap here.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            In the <code>DIVIDE</code> case, when the operands are signed and 32-bit, wrap both to i32, emit
-            <code>i32.div_s</code>, and sign-extend the result back into the i64 value model. The surrounding
-            code already has the width and signedness to hand (<code>cv.width</code>, <code>unsigned</code>) and
-            already special-cases width 4 for the other operators.
-          </dd>
-          <dt>Risk</dt>
-          <dd>
-            A contract that today survives this division starts trapping — which is what the chain does, so it
-            is a correction rather than a regression. <code>MODULO</code> on the line below has the identical
-            problem and should move with it.
-          </dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="located">
-        <div class="fixhead">
-          <span class="fid">F204</span>
-          <h3>Diagnose a constant shift count wider than its operand rather than choosing a semantics</h3>
-          <span class="conf">located</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            <code>binary-expression.ts:139</code>: <code>shiftCount</code> masks to 31 for 32-bit operands and
-            otherwise leaves the count to <code>i64.shl</code>'s implicit mask of 63. clang's constant folder and
-            its runtime path disagree with <em>each other</em>, so there is no correct answer to match — the
-            construct is undefined behaviour in C++.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Do not pick a semantics. When the shift count is a compile-time constant greater than or equal to
-            the operand width, emit a diagnostic and refuse. That is the only outcome that is right regardless
-            of which backend the developer later builds with, and it is where the two provably differ.
-          </dd>
-          <dt>Risk</dt>
-          <dd>
-            Rejects code that compiles today. Bounded to a constant count, so it cannot fire on a runtime value,
-            and any contract it rejects was already unpredictable across backends.
-          </dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="located">
-        <div class="fixhead">
-          <span class="fid">F212</span>
-          <h3>Refuse a <code>CALL</code> from a function to a procedure, as the context types already do in C++</h3>
-          <span class="conf">located</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            clang refuses this through the type system —
-            <code>no viable conversion from 'const QpiContextFunctionCall' to 'const QpiContextProcedureCall'</code>
-            — because a function body is handed the read-only context. The TypeScript backend does not model that
-            distinction at the call site, so the call is emitted and the state write goes through.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Enforce it in the analyzer: an entry compiled as a function may not <code>CALL</code> a target
-            registered as a procedure, and may not reach <code>state.mut()</code> transitively through one. The
-            entry kind is already known where entries are registered, so this is a check rather than new
-            machinery.
-          </dd>
-          <dt>Risk</dt>
-          <dd>
-            Low, and it closes a hole in the read-only guarantee that a caller may be relying on today without
-            realising the chain would reject the same contract.
-          </dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="proposed">
-        <div class="fixhead">
-          <span class="fid">F217</span>
-          <h3>Give each block its own binding instead of one local slot per name</h3>
-          <span class="conf">proposed</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            Stated by the backend's own second diagnostic: <em>locals share one slot per name, so shadowing is
-            not supported</em>. The first diagnostic — calling a read of the outer name
-            <em>before</em> any block a use-before-declaration — is the reportable half, and implies the
-            block-local declaration is hoisted over the whole entry body.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Key locals by <code>(name, blockDepth)</code> rather than by name in the local collector, so an
-            inner block gets its own slot. If that is too large, the smaller fix is to stop the hoist: a
-            block-local declaration must not affect name resolution before the block opens, which removes the
-            false use-before-declaration while leaving shadowing refused.
-          </dd>
-          <dt>Risk</dt>
-          <dd>
-            The full change touches local allocation for every entry. The smaller one is contained to the
-            resolver and only converts a wrong diagnostic into a correct one.
-          </dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="proposed">
-        <div class="fixhead">
-          <span class="fid">F214</span>
-          <h3>Parse a full template argument list inside <code>sizeof</code></h3>
-          <span class="conf">proposed</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            <code>error: Expected r_paren but got comma (,) in sizeof expr</code> — the <code>sizeof</code>
-            operand is parsed as an expression that stops at the first comma, so any multi-argument template
-            ends the parse. Every QPI container takes at least two arguments.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Parse a <em>type-id</em> in <code>sizeof(...)</code>, reusing the template-argument parser that
-            already handles <code>Array&lt;uint64, 8&gt;</code> everywhere else — aliasing the type first
-            already works, which shows the type parser is fine and only the <code>sizeof</code> operand path
-            is narrow.
-          </dd>
-          <dt>Risk</dt>
-          <dd>
-            Contained to the parser, but <code>sizeof(expr)</code> and <code>sizeof(type)</code> have to stay
-            distinguishable, which is the classic ambiguity here and wants tests on both spellings.
-          </dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="proposed">
-        <div class="fixhead">
-          <span class="fid">F215</span>
-          <h3>Allow a member read on a substituted constant by materialising it first</h3>
-          <span class="conf">proposed</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            <code>error: unsupported member read [id(4).u64._0]</code>. The diagnostic naming
-            <code>id(4)</code> rather than <code>SELF</code> says the constant is substituted before the member
-            read is considered, leaving a member access on a value with no address — the same family as F203
-            and F221 above.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Materialise the substituted constant into a scratch slot and read the member from it, which is what
-            the one-assignment workaround does by hand today.
-          </dd>
-          <dt>Risk</dt>
-          <dd>
-            Low. Likely resolved for free if the systemic address policy above is adopted.
-          </dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="proposed">
-        <div class="fixhead">
-          <span class="fid">F209</span>
-          <h3>Accept a leading <code>::</code> and resolve it at global scope</h3>
-          <span class="conf">proposed</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            The qualified-name parser does not accept an empty left-hand side, so <code>::name</code> is a parse
-            error while <code>Port::name</code> in the same file is not.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Accept a leading <code>::</code> in the qualified-name production and resolve the tail against the
-            global scope only, skipping the using-directive fallbacks — which is exactly what the qualifier
-            means, and would also give F213 a spelling that is guaranteed unambiguous.
-          </dd>
-          <dt>Risk</dt>
-          <dd>Low; additive syntax.</dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="proposed">
-        <div class="fixhead">
-          <span class="fid">F205</span>
-          <h3>Search class scope before file scope inside a member body</h3>
-          <span class="conf">proposed</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            C++ looks in class scope first inside a member function, so a
-            <code>PRIVATE_FUNCTION(Helper)</code> hides a file-scope <code>enum</code> constant of the same
-            name and the assignment becomes ill-formed. The TypeScript backend resolves to the constant and
-            stores 3.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Consult contract members before file-scope constants when resolving a bare identifier inside an
-            entry body, and let the ill-formed assignment be a diagnostic. Best sequenced <em>after</em> F213,
-            since both change constant lookup and F213's part 2 is the one that makes collisions visible at all.
-          </dd>
-          <dt>Risk</dt>
-          <dd>
-            Changes name resolution for every entry body — the highest-blast-radius item on this list relative
-            to the size of the finding.
-          </dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="proposed">
-        <div class="fixhead">
-          <span class="fid">F211</span>
-          <h3>Bound struct resolution and report the collision</h3>
-          <span class="conf">proposed</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            <b>Not located.</b> A nested struct whose name matches a file-scope struct recurses until
-            <code>Maximum call stack size exceeded</code>. The obvious guess — that alias resolution lacks a
-            depth bound — <b>was checked and is wrong</b>: <code>resolveAliasType</code>
-            (<code>expressions/conversions.ts:16</code>) and <code>declaration-index.ts:677</code> both bound
-            themselves at 8. The unbounded path is somewhere else in struct-by-name resolution.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Find the recursion first, with a stack trace from the crash. Then bound it and turn the collision
-            into a diagnostic — a name collision deserves a message, not a crash, whatever the resolution rule
-            turns out to be.
-          </dd>
-          <dt>Risk</dt>
-          <dd>Unknown until the recursion is located.</dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="proposed">
-        <div class="fixhead">
-          <span class="fid">F210</span>
-          <h3>Find the unbounded loop behind the same-name alias hang</h3>
-          <span class="conf">proposed</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            <b>Not located</b>, and the natural theory is disproved. <code>using Payload = Inner::Payload</code>
-            does not hang <code>resolveAliasType</code>, which stops after 8 hops. Something on a different
-            resolution path does not terminate, and because the build gate runs for both backends it takes the
-            clang pipeline down too.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Reproduce under a profiler or with a hard iteration cap that reports where it was spinning — the
-            repro is two lines and deterministic, so this is cheap to locate and only untouched because the
-            contract is deliberately kept out of the corpus.
-          </dd>
-          <dt>Risk</dt>
-          <dd>
-            None to investigate. Highest priority of the unlocated three: it is the only finding that hangs the
-            toolchain rather than producing a wrong answer or a refusal.
-          </dd>
-        </dl>
-      </article>
-
-      <article class="fixcard" data-conf="proposed">
-        <div class="fixhead">
-          <span class="fid">F201</span>
-          <h3>Resolve alias chains to a fixed point in base-class lookup</h3>
-          <span class="conf">proposed</span>
-        </div>
-        <dl class="fixbody">
-          <dt>Root cause</dt>
-          <dd>
-            <b>Not located.</b> One and two alias hops to a base class are accepted and three is refused with
-            <code>unsupported member read</code>. The depth bound in <code>resolveAliasType</code> is 8, so a
-            simple hop limit is <b>not</b> the explanation; some other step in base-class member lookup resolves
-            the chain only partially.
-          </dd>
-          <dt>Change</dt>
-          <dd>
-            Trace the member read for the three-deep spelling against the two-deep one and find where they
-            diverge; the pair differ by one <code>using</code> declaration, so the bisect is already written.
-          </dd>
-          <dt>Risk</dt>
-          <dd>Unknown until located; the corpus rows are 4 and it is a refusal, not a wrong answer.</dd>
-        </dl>
-      </article>
-
     </div>
   </section>
 
