@@ -54,6 +54,9 @@ export interface DeployResult {
     armed?: boolean;
     constructed?: boolean;
     reason?: string;
+    // the same two strings the human view prints, so `--json` carries the whole failure, not just `reason`.
+    detail?: string;
+    note?: string;
     idl?: ContractIdl;
     error?: string;
 }
@@ -173,10 +176,19 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
         state: "ok",
         detail: `${wasm.length}B · k12 ${hash}`,
     });
+    // only a *failed* analysis: a prebuilt artifact carrying no IDL at all is a legitimate path.
     if (build.idlError) {
-        emit({
-            note: "⚠ compiler IDL analysis failed — no typed client/state names: " + build.idlError,
-        });
+        const why = build.idlError;
+        emit({ step: "confirm", state: "fail", detail: "IDL unavailable — refusing to deploy" });
+        emit({ note: "⚠ compiler IDL analysis failed — every entry would be unreachable by name: " + why });
+        return {
+            ok: false,
+            slot,
+            reason: "idl-failed",
+            detail: "IDL unavailable — refusing to deploy",
+            note: why,
+            error: "compiler IDL analysis failed: " + why,
+        };
     }
 
     const saveIdl = () => {
@@ -424,8 +436,11 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
     }
 
     let reason: string | undefined;
+    let failureDetail: string | undefined;
+    let failureNote: string | undefined;
     if (halted) {
         reason = halted;
+        failureDetail = halted;
         emit({ step: "confirm", state: "fail", detail: halted });
     } else if (armed && !registrationMismatch) {
         try {
@@ -453,14 +468,10 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
         }
     } else if (registrationMismatch) {
         reason = "registration-mismatch";
-        emit({
-            step: "confirm",
-            state: "fail",
-            detail: "armed code has no matching WAMR registration table",
-        });
-        emit({
-            note: "slot armed with the expected hash, but the module did not register its functions/procedures — inspect the node's LITEWASM load error",
-        });
+        failureDetail = "armed code has no matching WAMR registration table";
+        failureNote = "slot armed with the expected hash, but the module did not register its functions/procedures — inspect the node's LITEWASM load error";
+        emit({ step: "confirm", state: "fail", detail: failureDetail });
+        emit({ note: failureNote });
     } else {
         const classification = classifyConfirm({
             present,
@@ -469,6 +480,8 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
             want: expectedHash,
         });
         reason = classification.reason;
+        failureDetail = classification.detail;
+        failureNote = classification.note;
         emit({ step: "confirm", state: "fail", detail: classification.detail });
         emit({ note: classification.note });
     }
@@ -482,6 +495,8 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
         armed,
         constructed,
         reason,
+        detail: failureDetail,
+        note: failureNote,
         idl: build.idl,
     };
 }

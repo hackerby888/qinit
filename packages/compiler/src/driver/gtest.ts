@@ -1,3 +1,4 @@
+import { codeUnits } from "../shared/code-units";
 import { AstKind, DiagnosticCategory, DiagnosticSeverity } from "../shared/enums";
 import type { Declaration } from "../ast";
 import { generateWasmModule } from "../backend/wasm/module/module-generator";
@@ -81,7 +82,8 @@ function extractTests(source: string): TestBlock[] {
 }
 
 function withoutTests(source: string, tests: TestBlock[]): string {
-    const chars = [...source];
+    // UTF-16 units: `start`/`end` come from RegExp.index and indexOf, which count units, not code points.
+    const chars = codeUnits(source);
     for (const test of tests) {
         for (let testItemIndex = test.start; testItemIndex < test.end; testItemIndex++) {
             if (chars[testItemIndex] !== "\n") {
@@ -97,7 +99,8 @@ function sanitize(name: string, index: number): string {
 }
 
 function stripAssertionStreams(source: string): string {
-    const chars = [...source];
+    // UTF-16 units, as in withoutTests: every offset below is a unit offset.
+    const chars = codeUnits(source);
     const assertionPattern = /\b(?:EXPECT|ASSERT)_(?:EQ|NE|LT|LE|GT|GE|TRUE|FALSE)\s*\(/g;
     for (let match = assertionPattern.exec(source); match; match = assertionPattern.exec(source)) {
         const open = source.indexOf("(", match.index);

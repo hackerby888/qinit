@@ -108,42 +108,34 @@ test("generateWasmWrapperSource: container diagnostics trap without importing li
     expect(iHash).toBeLessThan(iUndef);
 });
 
-// A callee header is spliced into the same TU, so it only sees the cheat and div shims if they come first.
-test("generateWasmWrapperSource: the shims sit between the preamble and the callee prelude", () => {
+// A callee header is spliced into the same TU, so it only sees the cheat shim if that comes first.
+test("generateWasmWrapperSource: the cheat shim sits between the preamble and the callee prelude", () => {
     const prelude = "/*__CALLEE_PRELUDE__*/\n";
     const w = generateWasmWrapperSource(opts({ calleePrelude: prelude }));
 
     const iCheat = w.indexOf("#define CC_PRINT");
-    const iDiv = w.indexOf("#define div(...) qinitDiv(__VA_ARGS__)");
     const iPrelude = w.indexOf(prelude);
     const iDefines = w.indexOf("#define CONTRACT_INDEX 7");
 
     expect(w.startsWith(buildPreamble())).toBe(true);
     expect(iCheat).toBeGreaterThanOrEqual(buildPreamble().length);
-    expect(iCheat).toBeLessThan(iDiv);
-    expect(iDiv).toBeLessThan(iPrelude);
+    expect(iCheat).toBeLessThan(iPrelude);
     expect(iPrelude).toBeLessThan(iDefines);
 });
 
-test("generateWasmWrapperSource: bare div reaches QPI in the contract only, not in what follows it", () => {
-    const w = generateWasmWrapperSource(opts());
-
-    const iDefine = w.indexOf("#define div(...) qinitDiv(__VA_ARGS__)");
-    const iContract = w.indexOf('#include "/abs/Counter.h"');
-    const iUndef = w.indexOf("#undef div");
-    const iCollection = w.indexOf("qpi/impl/qpi_collection_impl.h");
-
-    expect(iDefine).toBeGreaterThan(0);
-    expect(iDefine).toBeLessThan(iContract);
-    expect(iContract).toBeLessThan(iUndef);
-    expect(iUndef).toBeLessThan(iCollection);
+test("generateWasmWrapperSource: no div macro and no qinitDiv reach the translation unit", () => {
+    for (const w of [generateWasmWrapperSource(opts()), generateWasmWrapperSource(opts({ cheats: CheatMode.OFF }))]) {
+        expect(w).not.toContain("qinitDiv");
+        expect(w).not.toContain("#define div");
+        expect(w).not.toContain("#undef div");
+    }
 });
 
-test("generateWasmWrapperSource: a production build drops the cheat shim but keeps the div shim", () => {
+test("generateWasmWrapperSource: a production build drops the cheat shim", () => {
     const w = generateWasmWrapperSource(opts({ cheats: CheatMode.OFF }));
 
     expect(w).not.toContain("CC_PRINT");
-    expect(w).toContain("#define div(...) qinitDiv(__VA_ARGS__)");
+    expect(w).toContain('#include "/abs/Counter.h"');
 });
 
 test("generateWasmWrapperSource: includes only the Wasm support and runtime headers", () => {

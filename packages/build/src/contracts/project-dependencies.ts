@@ -58,7 +58,14 @@ function workspaceHeaders(projectRoot: string): Map<string, string[]> {
     const headers = new Map<string, string[]>();
 
     for (const headerPath of headerPaths(join(projectRoot, "contracts"))) {
-        const name = basename(headerPath, ".h");
+        // a contract's identity is the struct it declares, not the file name: a copied header would
+        // otherwise register a second contract redefining the same type.
+        let name = basename(headerPath, ".h");
+        try {
+            name = detectContractName(readFileSync(headerPath, "utf8")) ?? name;
+        } catch {
+            // unreadable headers fall back to the filename and fail later where the read is reported.
+        }
         const matching = headers.get(name) ?? [];
         matching.push(headerPath);
         headers.set(name, matching);

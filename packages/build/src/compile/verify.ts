@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { cacheRoot, readCurrent } from "@qinit/core";
@@ -82,34 +82,64 @@ async function verifyWithTool(file: string, name: string, options?: { oracle?: b
     }
 
     let target = file;
+    let temporaryFile: string | undefined;
 
     if (!oracle) {
-        const temporaryFile = join(tmpdir(), `qinit-verify-${name}-${process.pid}.h`);
+        temporaryFile = join(tmpdir(), `qinit-verify-${name}-${process.pid}.h`);
         writeFileSync(temporaryFile, concretize(readFileSync(file, "utf8"), name));
         target = temporaryFile;
     }
 
-    const child = Bun.spawn([tool, ...(oracle ? ["--oi", target] : [target])], {
-        stdout: "pipe",
-        stderr: "pipe",
-    });
-    const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    await child.exited;
+    let stdout: string;
+    let stderr: string;
+    let exitCode: number | null;
+    try {
+        const child = Bun.spawn([tool, ...(oracle ? ["--oi", target] : [target])], {
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
+        await child.exited;
+        exitCode = child.exitCode;
+    } finally {
+        // only the verifier's input; nothing reads it afterwards.
+        if (temporaryFile) {
+            try {
+                unlinkSync(temporaryFile);
+            } catch {}
+        }
+    }
 
-    const raw = (stdout + stderr).trim();
-    const allErrors = raw
-        .split("\n")
-        .filter((line) => line.includes("[ ERROR ]"))
-        .map((line) => line.replace(/.*\[ ERROR \]\s*/, "").trim());
+    // the verifier reports the temp copy it was handed; name the file the developer actually wrote.
+    const raw = (stdout + stderr).trim().split(target).join(file);
     const allowedPrefixes = options?.allowedPrefixes ?? [];
-    const errors = allErrors.filter((error) => !allowedPrefixes.some((prefix) => error === `Scope resolution with prefix ${prefix} is not allowed.`));
+    const isAllowed = (message: string) => allowedPrefixes.some((prefix) => message === `Scope resolution with prefix ${prefix} is not allowed.`);
+
+    // contractverify prints the location (`... found at line#N`, the source line, a caret) before the
+    // summary and marks only the summary with `[ ERROR ]`, so attach the preceding lines to it.
+    const lines = raw.split("\n");
+    const allErrors: string[] = [];
+    let pending: string[] = [];
+    for (const line of lines) {
+        if (!line.includes("[ ERROR ]")) {
+            if (line.trim()) {
+                pending.push(line);
+            }
+            continue;
+        }
+        const summary = line.replace(/.*\[ ERROR \]\s*/, "").trim();
+        allErrors.push(pending.length ? [summary, ...pending].join("\n") : summary);
+        pending = [];
+    }
+
+    const errors = allErrors.filter((error) => !isAllowed(error.split("\n")[0]));
     const dropped = allErrors.length - errors.length;
 
-    if (child.exitCode !== 0 && allErrors.length === 0) {
+    if (exitCode !== 0 && allErrors.length === 0) {
         return { available: false, ok: true, oracle, errors: [], raw, tool };
     }
 
-    const ok = child.exitCode === 0 || (dropped > 0 && errors.length === 0);
+    const ok = exitCode === 0 || (dropped > 0 && errors.length === 0);
 
     return { available: true, ok, oracle, errors, raw, tool };
 }

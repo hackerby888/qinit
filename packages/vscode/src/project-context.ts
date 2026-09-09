@@ -8,7 +8,7 @@ import type { ContractIdl } from "@qinit/build/compile/idl";
 import type { DynCallees } from "@qinit/build/contracts/intercontract";
 import { loadQpiHeader } from "@qinit/compiler";
 import { analyzeContract, DiagnosticSeverity, type AnalyzeContractOptions } from "@qinit/compiler/analyzer";
-import { loadConfig } from "@qinit/core/project";
+import { loadConfigSafe } from "@qinit/core/project";
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm/slot-layout";
 import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { contractStateType, findProjectRoot, QINIT_JSON } from "./project-util";
@@ -193,7 +193,8 @@ export function resolveProjectSourceDetails(options: { filePath: string; workspa
     const discoveredRoot = findProjectRoot(filePath);
     const projectRoot = discoveredRoot ?? resolve(options.workspaceRoot);
     const configPath = join(projectRoot, QINIT_JSON);
-    const config = existsSync(configPath) ? loadConfig(configPath) : {};
+    // reporting variant: a malformed qinit.json must not take the extension down with it.
+    const config = existsSync(configPath) ? loadConfigSafe(configPath).config : {};
     const corePath = config.coreDir ? resolve(projectRoot, config.coreDir) : options.fallbackCorePath;
     const toolchainCorePath = options.fallbackCorePath ?? corePath;
     const wasiSysrootPath = toolchainCorePath ? join(toolchainCorePath, "wasi-sdk", "share", "wasi-sysroot") : undefined;

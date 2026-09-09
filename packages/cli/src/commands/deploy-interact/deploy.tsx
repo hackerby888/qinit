@@ -93,7 +93,11 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                         codeHash: result.hash ?? null,
                         dependencies: result.deployments.filter((deployment) => deployment.kind !== "main"),
                         remaining: result.remainingContracts ?? [],
-                        error: result.ok ? null : (result.reason ?? result.error ?? null),
+                        // the same detail and note the human view prints, not just the bare reason code.
+                        reason: result.ok ? null : (result.reason ?? null),
+                        detail: result.ok ? null : (result.detail ?? null),
+                        note: result.ok ? null : (result.note ?? null),
+                        error: result.ok ? null : (result.error ?? result.detail ?? result.reason ?? null),
                     }) + "\n",
                 );
             process.exitCode = result.ok ? 0 : 1;

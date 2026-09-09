@@ -20,15 +20,28 @@ import {
     nodeStatus,
     nodeContracts,
     killNode,
+    defaultNodeScratchDir,
     launchNode,
     launchSimulatorNode,
     waitTicking,
 } from "../../ops/node";
 import { loadConfig, resolveCompilerBackend, resolveRuntime } from "../../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../../ui";
-import { output, type CommandArguments } from "../../args";
+import { jsonEnvelope, output, type CommandArguments } from "../../args";
 import { prepareNodeRunCore } from "../../ops/node-core";
+import { portFromRpc } from "../../ops/serve";
 import { prepareNodeRunWasiSdk } from "../../ops/node-wasi";
+
+function resolveHttpPort(flag: string | undefined, rpcBaseUrl: string): number {
+    if (flag === undefined || flag === "") {
+        return portFromRpc(rpcBaseUrl);
+    }
+    const port = Number(flag);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error(`--http-port must be a port number between 1 and 65535 (got ${JSON.stringify(flag)})`);
+    }
+    return port;
+}
 
 type Phase = { key: string; label: string; state: StepState; detail?: string };
 
@@ -158,7 +171,9 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                             ? "--restart"
                             : "node idle";
                     set("run", "active", `${why} → launching${useSimulator ? " simulator" : ""}`);
-                    await killNode();
+                    // the node this command names: `killNode()` with no argument kills whatever was
+                    // launched last, which may be an unrelated node on another port.
+                    await killNode(resolve(commandArgs.get("scratch-dir") || defaultNodeScratchDir()));
                     if (runningBackend && runningBackend !== requestedBackend && (await nodeStatus(rpcBaseUrl)).up) {
                         throw new Error(`${rpcBaseUrl} is served by an untracked ${runningBackend} node; stop it or choose another --rpc`);
                     }
@@ -182,6 +197,9 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                               scratchDirectory: commandArgs.get("scratch-dir"),
                               nodeMode: commandArgs.get("node-mode"),
                               peers: commandArgs.get("peers"),
+                              // default to the port --rpc already names, so the node and the client agree.
+                              httpPort: resolveHttpPort(commandArgs.get("http-port"), rpcBaseUrl),
+                              rpcBaseUrl,
                               preserveScratchContents: commandArgs.has("keep"),
                           });
                     scratch = launched.scratch;
@@ -234,7 +252,11 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
     }, []);
     useEffect(() => {
         if (done) {
-            if (output.json) process.stdout.write(JSON.stringify({ ok: done.ok, ...Object.fromEntries(done.rows) }) + "\n");
+            // an envelope, so a script reading ok:false has somewhere to look for why.
+            if (output.json) {
+                const rows = Object.fromEntries(done.rows);
+                process.stdout.write(JSON.stringify(jsonEnvelope(done.ok, done.ok ? null : (rows.error ?? rows.detail ?? "node did not start"), rows)) + "\n");
+            }
             process.exitCode = done.ok ? 0 : 1;
             const t = setTimeout(() => exit(), 50);
             return () => clearTimeout(t);

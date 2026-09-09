@@ -11,7 +11,7 @@ import type { TestResult } from "@qinit/engine";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { runCorpus, runStdGtest } from "../../ops/corpus-run";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
-import type { CommandArguments } from "../../args";
+import { output, type CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
 import { assignSlots } from "@qinit/build/contracts/project-slots";
 import { parseContractSlot } from "../../contracts/registry";
@@ -242,11 +242,25 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
 
     useEffect(() => {
         if (s.phase === "done") {
+            if (output.json) {
+                const tests = items.filter((item): item is Extract<Item, { kind: "test" }> => item.kind === "test").map((item) => item.t);
+                const failed = tests.filter((t) => !t.passed);
+                process.stdout.write(
+                    JSON.stringify({
+                        ok: s.ok,
+                        error: s.ok ? null : `${failed.length} of ${tests.length} test${tests.length === 1 ? "" : "s"} failed`,
+                        summary: Object.fromEntries(s.rows),
+                        tests: tests.map((t) => ({ name: t.name, ok: t.passed, ms: t.ms ?? null, message: t.message || null })),
+                        notes: items.filter((item): item is Extract<Item, { kind: "note" }> => item.kind === "note").map((item) => item.text),
+                    }) + "\n",
+                );
+            }
             process.exitCode = s.ok ? 0 : 1;
             exit();
         }
     }, [s, exit]);
 
+    if (output.json) return null;
     return (
         <Box flexDirection="column">
             <Static items={items}>

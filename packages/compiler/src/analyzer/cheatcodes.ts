@@ -2,6 +2,7 @@
 //
 // The rules exist so that stripping is provably safe: a cheat may only appear as a whole statement,
 // and may not carry a side effect, so blanking the call site can never change what the contract does.
+import { codeUnits } from "../shared/code-units";
 import { DiagnosticSeverity } from "../shared/enums";
 import { Lexer, TokenKind, type Token } from "../frontend/lexer";
 import { matchingToken } from "./rules/tokens";
@@ -216,7 +217,7 @@ function sideEffectToken(tokens: Token[], from: number, to: number): Token | und
  * surrounding control flow survive untouched.
  */
 export function stripCheatcodes(source: string): string {
-    const characters = [...source];
+    const characters = codeUnits(source);
 
     for (const call of cheatCalls(new Lexer(source).tokenize())) {
         for (let position = call.token.span.start; position < call.end; position++) {
@@ -227,4 +228,18 @@ export function stripCheatcodes(source: string): string {
     }
 
     return characters.join("");
+}
+
+/**
+ * the cheat guards `stripCheatcodes` would remove, by name, deduplicated.
+ * `--production` drops them silently, so the build reports the list instead.
+ */
+export function strippedCheatNames(source: string): string[] {
+    const names = new Set<string>();
+
+    for (const call of cheatCalls(new Lexer(source).tokenize())) {
+        names.add(call.token.text);
+    }
+
+    return [...names];
 }

@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { releasePlatformKey } from "@qinit/core";
-import { activeNodeScratchDir, ensureNodeBinary, fetchNodeBinary, killNode, nodeAlive, nodeAssetForPlatform, versionDrift } from "../../src/ops/node";
+import { activeNodeScratchDir, ensureNodeBinary, fetchNodeBinary, killNode, launchNode, nodeAlive, nodeAssetForPlatform, versionDrift } from "../../src/ops/node";
 
 test("versionDrift only compares two managed release refs", () => {
     // The pointer a --core-dir/--node-bin session leaves behind: local headers, last downloaded node.
@@ -326,4 +326,30 @@ test("an explicit latest node request never falls back to the selected cache", a
         else process.env.QINIT_CACHE = originalCache;
         rmSync(cache, { recursive: true, force: true });
     }
+});
+
+// `launchNode` writes the child's stdout to <scratch>/node.log, so a stand-in binary that echoes its argv proves the args.
+const launchedArgs = async (options: Partial<Parameters<typeof launchNode>[0]>): Promise<string> => {
+    const dir = scratch();
+    const stub = join(dir, "echo-argv.sh");
+    writeFileSync(stub, '#!/bin/sh\necho "$@"\n', { mode: 0o755 });
+    // launchNode records the active scratch under the cache root; keep it out of the real cache.
+    const previousCache = process.env.QINIT_CACHE;
+    process.env.QINIT_CACHE = join(dir, "cache");
+    try {
+        const launched = launchNode({ nodeBinary: stub, scratchDirectory: join(dir, "run"), ...options });
+        for (let i = 0; i < 50 && !readFileSync(launched.log, "utf8").trim(); i++) {
+            await new Promise((r) => setTimeout(r, 20));
+        }
+        return readFileSync(launched.log, "utf8").trim();
+    } finally {
+        if (previousCache === undefined) delete process.env.QINIT_CACHE;
+        else process.env.QINIT_CACHE = previousCache;
+        rmSync(dir, { recursive: true, force: true });
+    }
+};
+
+test("launchNode forwards --http-port only when one is given", async () => {
+    expect(await launchedArgs({ httpPort: 41941 })).toContain("--http-port 41941");
+    expect(await launchedArgs({})).not.toContain("--http-port");
 });

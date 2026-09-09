@@ -70,17 +70,16 @@ test("an unregistered fn number fails, an unregistered proc number warns and sti
     }
 }, 60_000);
 
-test("an --out that disagrees with the IDL warns but still prints, and one wider than the answer names both sizes", async () => {
+test("an --out that disagrees with the IDL is refused in either direction", async () => {
     const { run, stop } = await boot();
     try {
         const narrow = await run("--fn", String(SLOT), "Get", "--out", "uint32");
-        expect(narrow.code, narrow.stdout).toBe(0);
+        expect(narrow.code, narrow.stdout).toBe(1);
         expect(narrow.stdout).toContain("--out uint32 reads 4 bytes; Counter.Get returns { uint64 } (8 bytes)");
-        expect(narrow.stdout).toMatch(/out\s+0/);
 
         const wide = await run("--fn", String(SLOT), "Get", "--out", "id");
         expect(wide.code).toBe(1);
-        expect(wide.stdout).toContain("id reads 32 bytes, only 8 returned");
+        expect(wide.stdout).toContain("--out id reads 32 bytes; Counter.Get returns { uint64 } (8 bytes)");
     } finally {
         stop();
     }

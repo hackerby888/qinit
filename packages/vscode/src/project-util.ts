@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import type * as vscode from "vscode";
-import { loadConfig } from "@qinit/core/project";
+import { loadConfigSafe } from "@qinit/core/project";
 import { detectContractName, Lexer, TokenKind } from "@qinit/compiler/analyzer";
 
 export const QINIT_JSON = "qinit.json";
@@ -29,7 +29,7 @@ export function configuredContractIdentity(file: string): ContractIdentity {
         return {};
     }
 
-    const config = loadConfig(join(project, QINIT_JSON));
+    const config = loadConfigSafe(join(project, QINIT_JSON)).config;
     if (!config.contract || resolve(join(project, config.contract)) !== resolve(file)) {
         return {};
     }

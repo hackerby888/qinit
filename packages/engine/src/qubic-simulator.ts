@@ -108,6 +108,9 @@ export class QubicSimulator {
     private ticking: TickConsensus;
     tickDuration = 50;
     timeBaseMs = Date.UTC(2024, 0, 1);
+    // "tick": a deterministic clock the gtest corpus needs (it freezes tickDuration and sets the date
+    // directly). "real": Date.now(), the wall clock a live node has to serve.
+    clockMode: "tick" | "real" = "tick";
     private mempoolMode: boolean;
     private fees: FeeManager;
     private logStore?: QubicLogStore;
@@ -189,6 +192,10 @@ export class QubicSimulator {
                 this.cheatTickOffset += ticks;
                 this.cheatEpochOffset += epochs;
                 return BigInt(ticks ? this.cheatTickOffset : this.cheatEpochOffset);
+            },
+            clearCheatWarp: () => {
+                this.cheatTickOffset = 0;
+                this.cheatEpochOffset = 0;
             },
             pauseLog: () => this.logStore?.pause(),
             resumeLog: () => this.logStore?.resume(),
@@ -1505,7 +1512,7 @@ export class QubicSimulator {
     }
 
     nowMs(): number {
-        return this.timeBaseMs + this.currentTick * this.tickDuration;
+        return this.clockMode === "real" ? Date.now() : this.timeBaseMs + this.currentTick * this.tickDuration;
     }
 
     numberOfEntities(): number {
