@@ -102,8 +102,7 @@ async function verifyWithTool(file: string, name: string, options?: { oracle?: b
         await child.exited;
         exitCode = child.exitCode;
     } finally {
-        // The temp copy leaked one file per (name, pid) — files from earlier runs were still in /tmp
-        // hours later. It is only the verifier's input; nothing reads it afterwards.
+        // only the verifier's input; nothing reads it afterwards.
         if (temporaryFile) {
             try {
                 unlinkSync(temporaryFile);
@@ -111,16 +110,13 @@ async function verifyWithTool(file: string, name: string, options?: { oracle?: b
         }
     }
 
-    // The verifier reports the temp copy it was handed. The developer never wrote that path — and it
-    // carries a different pid on every run — so every mention of it becomes the file they did write.
+    // the verifier reports the temp copy it was handed; name the file the developer actually wrote.
     const raw = (stdout + stderr).trim().split(target).join(file);
     const allowedPrefixes = options?.allowedPrefixes ?? [];
     const isAllowed = (message: string) => allowedPrefixes.some((prefix) => message === `Scope resolution with prefix ${prefix} is not allowed.`);
 
-    // contractverify locates its errors — `Error: Unexpected 'X', ... found at line#N`, then the source
-    // line, then a caret — and marks only the *summary* with `[ ERROR ]`. Keeping just the summary threw
-    // the location away and left an unlocated message pointing at a temp file. Attach the lines that
-    // precede each summary to it, so `verify` reports where the problem is.
+    // contractverify prints the location (`... found at line#N`, the source line, a caret) before the
+    // summary and marks only the summary with `[ ERROR ]`, so attach the preceding lines to it.
     const lines = raw.split("\n");
     const allErrors: string[] = [];
     let pending: string[] = [];

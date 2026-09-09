@@ -242,7 +242,6 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
 
     useEffect(() => {
         if (s.phase === "done") {
-            // `--json` was accepted and ignored — an ANSI box on success and on test failure alike.
             if (output.json) {
                 const tests = items.filter((item): item is Extract<Item, { kind: "test" }> => item.kind === "test").map((item) => item.t);
                 const failed = tests.filter((t) => !t.passed);

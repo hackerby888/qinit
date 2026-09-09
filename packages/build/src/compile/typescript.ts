@@ -156,8 +156,7 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         };
     }
     if (!result.idl) {
-        // F138: carry the message in `idlError` as well, so a caller reading either backend's document
-        // finds the reason in the same field rather than one road having the verdict and the other the text.
+        // carried in `idlError` as well, so the reason is in the same field on either backend.
         return { ok: false, stderr: "compiler did not produce IDL", idlError: "compiler did not produce IDL" };
     }
 

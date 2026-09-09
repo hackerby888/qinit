@@ -59,7 +59,7 @@ function unreachableOrTimeout(base: string, path: string, e: any): Error {
     return new Error(`node unreachable at ${base} — is it running? (qinit node run)  [${e?.message ?? e}]`);
 }
 
-/** A spectrum amount as a non-negative decimal string; an unseen entity reports negative on core. */
+/** a spectrum amount as a non-negative decimal string: core reports a large negative one for an entity it has never seen. */
 function clampNonNegative(value: unknown): string {
     const text = String(value ?? "0");
     try {
@@ -399,10 +399,7 @@ export class LiteRpc implements NodeTransport {
         const b = j.balance ?? {};
         return {
             id: String(b.id ?? id),
-            // An identity the spectrum has never seen reads back as a large *negative* balance on core
-            // and as 0 on the simulator, so `deploy` printed a negative balance for every fresh
-            // contract. Normalise here, where both runtimes meet. BigInt, not Math.max: these are
-            // decimal strings precisely because the values run past 2^53.
+            // normalised here, where core and the simulator meet.
             balance: clampNonNegative(b.balance),
             incomingAmount: clampNonNegative(b.incomingAmount),
             outgoingAmount: clampNonNegative(b.outgoingAmount),

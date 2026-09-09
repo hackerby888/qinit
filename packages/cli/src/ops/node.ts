@@ -39,10 +39,8 @@ function rememberActiveScratch(scratch: string): void {
     writeFileSync(activeScratchFile(), scratch);
 }
 
-// `active-node-scratch` holds exactly one node, so a second one was invisible to the tooling and
-// `node stop --rpc <url>` had nothing to resolve — it stopped whatever was globally active instead.
-// This index maps each RPC endpoint to the scratch dir serving it, so a command aimed at one node
-// addresses that node.
+// `active-node-scratch` holds exactly one node; this index maps each RPC endpoint to the scratch dir
+// serving it, so `node stop --rpc <url>` can address a specific node.
 const nodeIndexFile = () => join(cacheRoot(), "node-index.json");
 
 function readNodeIndex(): Record<string, string> {
@@ -80,7 +78,7 @@ function forgetNodeScratch(scratch: string): void {
     }
 }
 
-/** The scratch dir serving this RPC endpoint, or undefined when no node was launched for it here. */
+/** the scratch dir serving this RPC endpoint, or undefined when no node was launched for it here. */
 export function scratchForRpc(rpcBaseUrl: string): string | undefined {
     const recorded = readNodeIndex()[rpcBaseUrl];
     return recorded ? resolve(recorded) : undefined;
@@ -255,10 +253,10 @@ export interface LaunchOptions {
     scratchDirectory?: string;
     nodeMode?: string;
     peers?: string;
-    // Core's HTTP/RPC listen port. Without it the node always takes its own default,
-    // so a second node cannot run beside one that already holds that port.
+    // core's HTTP/RPC listen port; without it the node takes its own default and cannot run beside one
+    // that already holds that port.
     httpPort?: number;
-    // The endpoint this node will serve, recorded so `node stop --rpc <url>` can find it again.
+    // recorded so `node stop --rpc <url>` can find this node again.
     rpcBaseUrl?: string;
     preserveScratchContents?: boolean;
 }

@@ -121,10 +121,7 @@ export type ResolvedContract = {
     name: string;
     kind: "user" | "system";
     source?: string;
-    // A system contract already carries a complete IDL and its state type (system-contracts.ts builds
-    // both). Dropping them here is what forced `call` to re-derive an IDL from source *without* the
-    // state type, which threw and left the entry unaddressable by name — while `system ls`, `build`
-    // and `gen` all handled it.
+    // a system contract already carries both, so `call` need not re-derive an IDL from source.
     idl?: ContractIdl;
     stateType?: string;
     codeHash?: string;

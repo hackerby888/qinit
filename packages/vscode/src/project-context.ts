@@ -193,7 +193,7 @@ export function resolveProjectSourceDetails(options: { filePath: string; workspa
     const discoveredRoot = findProjectRoot(filePath);
     const projectRoot = discoveredRoot ?? resolve(options.workspaceRoot);
     const configPath = join(projectRoot, QINIT_JSON);
-    // Reporting variant: a malformed qinit.json must not take the extension down with it.
+    // reporting variant: a malformed qinit.json must not take the extension down with it.
     const config = existsSync(configPath) ? loadConfigSafe(configPath).config : {};
     const corePath = config.coreDir ? resolve(projectRoot, config.coreDir) : options.fallbackCorePath;
     const toolchainCorePath = options.fallbackCorePath ?? corePath;

@@ -328,13 +328,12 @@ test("an explicit latest node request never falls back to the selected cache", a
     }
 });
 
-// The node's HTTP port must be settable, or a second node cannot run beside one that already holds the default.
 // `launchNode` writes the child's stdout to <scratch>/node.log, so a stand-in binary that echoes its argv proves the args.
 const launchedArgs = async (options: Partial<Parameters<typeof launchNode>[0]>): Promise<string> => {
     const dir = scratch();
     const stub = join(dir, "echo-argv.sh");
     writeFileSync(stub, '#!/bin/sh\necho "$@"\n', { mode: 0o755 });
-    // launchNode records the active scratch under the cache root; keep that out of the developer's real cache.
+    // launchNode records the active scratch under the cache root; keep it out of the real cache.
     const previousCache = process.env.QINIT_CACHE;
     process.env.QINIT_CACHE = join(dir, "cache");
     try {

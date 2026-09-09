@@ -217,11 +217,6 @@ function sideEffectToken(tokens: Token[], from: number, to: number): Token | und
  * surrounding control flow survive untouched.
  */
 export function stripCheatcodes(source: string): string {
-    // One space, indexed once. `[...source]` walks code points, but every lexer span is a UTF-16
-    // offset — so one astral character (an emoji, CJK Ext-B, a mathematical alphanumeric) collapsed
-    // two units into one slot and shifted the blanking window left by one for everything after it.
-    // Three emoji left exactly `CC_`, which the residue guard's /\bCC_[A-Z0-9_]/ needs one more
-    // character to catch, so `--production`, `strip` and `integrate` emitted corrupt source silently.
     const characters = codeUnits(source);
 
     for (const call of cheatCalls(new Lexer(source).tokenize())) {
@@ -236,10 +231,8 @@ export function stripCheatcodes(source: string): string {
 }
 
 /**
- * The cheat guards `stripCheatcodes` would remove, by name, in source order and deduplicated.
- * `--production` silently drops CC_ASSERT — the natural translation of Solidity's `assert`, which
- * runs in production — so the same source refuses an operation under test and completes it in what
- * ships. The build reports this list instead of leaving it to be discovered on-chain.
+ * the cheat guards `stripCheatcodes` would remove, by name, deduplicated.
+ * `--production` drops them silently, so the build reports the list instead.
  */
 export function strippedCheatNames(source: string): string[] {
     const names = new Set<string>();

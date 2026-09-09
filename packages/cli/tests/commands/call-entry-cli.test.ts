@@ -70,9 +70,6 @@ test("an unregistered fn number fails, an unregistered proc number warns and sti
     }
 }, 60_000);
 
-// F122: a narrower --out used to warn and print a *prefix* of the bytes as if it were the whole value
-// (`--out uint8` turned 1000 into 232, with ok:true), while a wider one was correctly refused. Both
-// directions are a mismatch between what the caller asked to read and what the entry returns.
 test("an --out that disagrees with the IDL is refused in either direction", async () => {
     const { run, stop } = await boot();
     try {

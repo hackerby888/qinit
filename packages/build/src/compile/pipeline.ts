@@ -120,9 +120,7 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         idlError = String(e?.message ?? e);
     }
     return {
-        // F138: a build that produced no IDL is not ok. This used to return true with the message
-        // parked in idlError while the TypeScript backend returned false for the same contract, so
-        // no caller could use one check across the two.
+        // a build that produced no IDL is not ok, on either backend.
         ok: !idlError,
         wasmPath: compiled.wasm,
         wasmSizeBytes,

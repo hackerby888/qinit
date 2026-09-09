@@ -13,9 +13,8 @@ test("build JSON includes complete failure diagnostics", () => {
         hash: null,
         idl: null,
         idlError: null,
-        // F129: one failure key across every command, alongside the compiler's own output.
         error: stderr,
-        // F144: no VerifyResult on the build means the gate did not run and must not read as "passed".
+        // no VerifyResult on the build means the gate did not run and must not read as "passed".
         protocolRules: "skipped",
         warnings: [],
         strippedCheats: [],
@@ -53,8 +52,6 @@ test("build JSON includes success artifact metadata", () => {
     });
 });
 
-// F144: the protocol verifier is optional. A build that ran without it must say so rather than
-// letting `qinit build` claim the contract "complies with qpi.h restrictions".
 test("build JSON reports the protocol gate as skipped when the verifier was unavailable", () => {
     const result = buildJsonResult(
         {
@@ -69,8 +66,6 @@ test("build JSON reports the protocol gate as skipped when the verifier was unav
     expect(result.ok).toBe(true);
 });
 
-// F154 / F158: a contract that compiles but does not do what its author wrote. The build succeeds and
-// says so; before the warning channel these diagnostics were discarded because no gate rule matched.
 test("build JSON carries non-fatal build warnings", () => {
     const result = buildJsonResult(
         {
@@ -87,9 +82,6 @@ test("build JSON carries non-fatal build warnings", () => {
     expect(result.ok).toBe(true);
 });
 
-// F138: the two backends disagreed on `ok` for the same rejected contract — clang returned true with
-// the message parked in idlError, TypeScript returned false with idlError empty. Neither gave both
-// halves, so no caller could use one check across the two.
 test("build JSON reports a failed IDL as not ok, with the reason, on either backend", () => {
     for (const compiler of ["clang", "typescript"]) {
         const result = buildJsonResult({ ok: false, idlError: "unsupported layout", stderr: "compiler IDL analysis failed: unsupported layout" }, compiler);

@@ -88,10 +88,8 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
                 writeFileSync(join(dir, "contracts", "Counter.h"), templateSource("counter", "Counter"));
             }
             writeFileSync(join(dir, "qinit.json"), JSON.stringify(cfg, null, 2) + "\n");
-            // `.qpi/` and the generated compile database hold absolute core and sysroot paths, so they
-            // are machine-specific and must not be committed. `.clangd` is deliberately NOT ignored:
-            // it is only written when the workspace root already has another build system's database,
-            // and it now carries a relative path, so it means the same thing on every clone.
+            // `.qpi/` and the compile database hold absolute core and sysroot paths; `.clangd` is left out
+            // on purpose, since it carries a relative path and means the same thing on every clone.
             writeFileSync(
                 join(dir, ".gitignore"),
                 ["dist/", "*.wasm", "*.log", "qinit.idl.json", "contracts_dyn/", ".qpi/", "compile_commands.json", ".DS_Store"].join("\n") + "\n",

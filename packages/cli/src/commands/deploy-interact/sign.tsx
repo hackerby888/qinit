@@ -6,14 +6,8 @@ import { savedSeed } from "../../config";
 import { Header, Panel, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 
-// QPI contracts verify signatures over arbitrary digests with qpi.signatureValidity(entity, digest,
-// signature). Nothing in the toolchain could *produce* one, so for every signature-based port — permit,
-// meta-transactions, off-chain order authorisation, key registries — only the rejection path was
-// reachable: every test that passed proved the guard says no. The signing primitive was already in
-// packages/core; this exposes it.
-//
-// The digest is whatever the contract hashes, most often qpi.K12() over an input struct, so this takes
-// it as raw hex rather than hashing anything itself.
+// the digest is whatever the contract hashes, usually qpi.K12() over an input struct, so it is taken
+// as raw hex here rather than hashed.
 const DIGEST_BYTES = 32;
 const SIGNATURE_BYTES = 64;
 
@@ -63,8 +57,7 @@ export async function signDigest(seed: string, digestHex: string): Promise<SignF
         signature: bytesToHex(signature),
         identity,
         publicKey: publicKeyHex,
-        // Signing and then failing to verify against the same key means the pair is unusable; say so
-        // here rather than letting the contract be the first thing that finds out.
+        // a pair that cannot verify its own signature is unusable; report it here, not on-chain.
         verified: verifySync(publicKey, digest, signature),
     };
 }

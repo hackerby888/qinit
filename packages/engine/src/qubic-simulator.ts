@@ -108,13 +108,8 @@ export class QubicSimulator {
     private ticking: TickConsensus;
     tickDuration = 50;
     timeBaseMs = Date.UTC(2024, 0, 1);
-    // "tick": nowMs() = timeBaseMs + tick x tickDuration — a deterministic clock the gtest corpus needs
-    // (it freezes tickDuration to 0 and writes the date directly through q_set_datetime).
-    // "real": nowMs() = Date.now(), which is what a live node has to serve. Deriving a live node's clock
-    // from the tick count put it ~50 minutes in the future (genesis tick is ~3000) and froze the
-    // millisecond component at whatever Date.now() returned at startup, because whole seconds never
-    // touch it — while core's own millisecond is hardcoded 0. A contract reading year/month/day agreed
-    // across the two runtimes and one reading hour/minute/second/millisecond did not.
+    // "tick": a deterministic clock the gtest corpus needs (it freezes tickDuration and sets the date
+    // directly). "real": Date.now(), the wall clock a live node has to serve.
     clockMode: "tick" | "real" = "tick";
     private mempoolMode: boolean;
     private fees: FeeManager;

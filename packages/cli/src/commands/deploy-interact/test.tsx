@@ -94,9 +94,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
 
                 const useSimulator = resolveRuntime(commandArgs.get("runtime")) === "simulator";
                 if (useSimulator) {
-                    // F152: an explicit --rpc names a simulator to run against. Starting an in-process
-                    // engine anyway ignored the flag, and the run then died against a node whose own log
-                    // showed nothing wrong. Reuse a simulator that is already serving that endpoint.
+                    // an explicit --rpc names the simulator to run against; reuse one already serving it
+                    // rather than starting an in-process engine and ignoring the flag.
                     const explicitRpc = commandArgs.get("rpc");
                     const reusable = explicitRpc && (await isTicking(explicitRpc)) ? await new LiteRpc(explicitRpc).whoami().catch(() => undefined) : undefined;
                     if (explicitRpc && reusable?.backend === "simulator") {
@@ -287,7 +286,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
             } finally {
                 try {
                     if (ownNode && !keepNode) {
-                        // The node this run launched, not whatever is globally active.
+                        // the node this run launched, not whatever is globally active.
                         await killNode(scratchForRpc(activeRpc) ?? activeNodeScratchDir());
                     }
                 } catch {}
@@ -297,9 +296,6 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
     }, []);
     useEffect(() => {
         if (s.phase === "done") {
-            // `--json` was accepted and ignored: the box was printed on success and on failure alike,
-            // so no script could read a test result. The flag was honoured only for a malformed
-            // command line, which is the one case a caller does not need it for.
             if (output.json) {
                 process.stdout.write(
                     JSON.stringify({

@@ -29,8 +29,7 @@ export const stateOf = (contract: DynamicContractRegistryEntry) =>
 
 export function lsJsonResult(user: DynamicContractRegistryEntry[], system: SystemContract[], nodeDown: boolean) {
     return {
-        // `ls` used to emit no ok/error at all, so a script could not tell "no contracts" from
-        // "the node was down".
+        // without ok/error a script cannot tell "no contracts" from "the node was down".
         ok: !nodeDown,
         error: nodeDown ? "node unreachable" : null,
         deployed: user.map((c) => ({

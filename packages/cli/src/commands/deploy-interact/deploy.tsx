@@ -93,9 +93,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                         codeHash: result.hash ?? null,
                         dependencies: result.deployments.filter((deployment) => deployment.kind !== "main"),
                         remaining: result.remainingContracts ?? [],
-                        // A failed deploy told a human "slot empty — didn't land · upload/deploy didn't
-                        // land (chunks dropped, tick missed, or seed unfunded)" and told a script
-                        // `"error": "empty"`. Both strings come off the same code path; ship both.
+                        // the same detail and note the human view prints, not just the bare reason code.
                         reason: result.ok ? null : (result.reason ?? null),
                         detail: result.ok ? null : (result.detail ?? null),
                         note: result.ok ? null : (result.note ?? null),

@@ -58,16 +58,13 @@ function workspaceHeaders(projectRoot: string): Map<string, string[]> {
     const headers = new Map<string, string[]>();
 
     for (const headerPath of headerPaths(join(projectRoot, "contracts"))) {
-        // A contract's identity is the struct it declares, not what the file happens to be called.
-        // Keying on the filename meant `Token.h` copied to `TokenOld.h` registered a *second*
-        // contract that redefines the same type, and the editor lost highlighting in the file being
-        // edited. A header that declares no contract keeps its filename key and is skipped below as
-        // a plain helper.
+        // a contract's identity is the struct it declares, not the file name: a copied header would
+        // otherwise register a second contract redefining the same type.
         let name = basename(headerPath, ".h");
         try {
             name = detectContractName(readFileSync(headerPath, "utf8")) ?? name;
         } catch {
-            // Unreadable headers fall back to the filename and fail later where the read is reported.
+            // unreadable headers fall back to the filename and fail later where the read is reported.
         }
         const matching = headers.get(name) ?? [];
         matching.push(headerPath);

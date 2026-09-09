@@ -32,8 +32,6 @@ import { prepareNodeRunCore } from "../../ops/node-core";
 import { portFromRpc } from "../../ops/serve";
 import { prepareNodeRunWasiSdk } from "../../ops/node-wasi";
 
-// `--http-port abc` used to reach the node as the literal string "NaN". A port is either a valid
-// number or the one --rpc already names; anything else is a mistake worth refusing.
 function resolveHttpPort(flag: string | undefined, rpcBaseUrl: string): number {
     if (flag === undefined || flag === "") {
         return portFromRpc(rpcBaseUrl);
@@ -173,10 +171,8 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                             ? "--restart"
                             : "node idle";
                     set("run", "active", `${why} → launching${useSimulator ? " simulator" : ""}`);
-                    // The node this command is about, not "whatever Qinit launched last". `killNode()`
-                    // with no argument defaults to a single global pointer, so starting a node on a free
-                    // port SIGKILLed an unrelated one — ignoring the --scratch-dir and --rpc given on
-                    // this very command line.
+                    // the node this command names: `killNode()` with no argument kills whatever was
+                    // launched last, which may be an unrelated node on another port.
                     await killNode(resolve(commandArgs.get("scratch-dir") || defaultNodeScratchDir()));
                     if (runningBackend && runningBackend !== requestedBackend && (await nodeStatus(rpcBaseUrl)).up) {
                         throw new Error(`${rpcBaseUrl} is served by an untracked ${runningBackend} node; stop it or choose another --rpc`);
@@ -201,7 +197,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                               scratchDirectory: commandArgs.get("scratch-dir"),
                               nodeMode: commandArgs.get("node-mode"),
                               peers: commandArgs.get("peers"),
-                              // Default to the port --rpc already names, so the node and the client agree.
+                              // default to the port --rpc already names, so the node and the client agree.
                               httpPort: resolveHttpPort(commandArgs.get("http-port"), rpcBaseUrl),
                               rpcBaseUrl,
                               preserveScratchContents: commandArgs.has("keep"),
@@ -256,8 +252,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
     }, []);
     useEffect(() => {
         if (done) {
-            // `node run --json` carried no failure key at all: a script could read ok:false and had
-            // nowhere to look for why.
+            // an envelope, so a script reading ok:false has somewhere to look for why.
             if (output.json) {
                 const rows = Object.fromEntries(done.rows);
                 process.stdout.write(JSON.stringify(jsonEnvelope(done.ok, done.ok ? null : (rows.error ?? rows.detail ?? "node did not start"), rows)) + "\n");

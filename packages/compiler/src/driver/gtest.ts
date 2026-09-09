@@ -99,7 +99,7 @@ function sanitize(name: string, index: number): string {
 }
 
 function stripAssertionStreams(source: string): string {
-    // UTF-16 units, for the same reason as withoutTests: every offset below is a unit offset.
+    // UTF-16 units, as in withoutTests: every offset below is a unit offset.
     const chars = codeUnits(source);
     const assertionPattern = /\b(?:EXPECT|ASSERT)_(?:EQ|NE|LT|LE|GT|GE|TRUE|FALSE)\s*\(/g;
     for (let match = assertionPattern.exec(source); match; match = assertionPattern.exec(source)) {

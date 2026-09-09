@@ -95,8 +95,7 @@ test.if(hasFixture)("generateClangdConfig: prefix carries the wrapper preamble; 
 
         expect(dbText.includes("\\")).toBe(false);
 
-        // F118: the database goes where clangd auto-discovers it, so no `.clangd` is written at all —
-        // the absolute, profile-specific path in that file was what broke on any other machine.
+        // the database goes where clangd auto-discovers it, so no `.clangd` is written at all.
         expect(r.dbPath).toBe(join(ws, "compile_commands.json"));
         expect(existsSync(join(ws, ".clangd"))).toBe(false);
     } finally {
@@ -213,9 +212,6 @@ test("a production wrapper defines no cheatcodes at all", () => {
     expect(wrapper).not.toContain("CC_PRINT");
 });
 
-// F118: a foreign compile_commands.json at the root belongs to a real build system, so qinit keeps out
-// of its way and falls back to `.qpi/` — and only then writes a `.clangd`, with a *relative* path so
-// the file means the same thing on every machine.
 test.if(hasFixture)("a foreign root database is not overwritten, and the fallback pointer is relative", () => {
     const ws = mkdtempSync(join(tmpdir(), "qpi-foreign-"));
     try {
@@ -225,8 +221,7 @@ test.if(hasFixture)("a foreign root database is not overwritten, and the fallbac
         const r = generateClangdConfig({ corePath: "/fake/core", workspaceRoot: ws, contractPath: COUNTER });
 
         expect(JSON.parse(readFileSync(join(ws, "compile_commands.json"), "utf8"))).toEqual(foreign);
-        // clangd validates the database schema strictly and rejects the whole file on an unknown key,
-        // so provenance is a marker file beside the generated artifacts, never a field in an entry.
+        // clangd rejects the whole database on an unknown key, so provenance is a marker file, not an entry field.
         expect(Object.keys(JSON.parse(readFileSync(r.dbPath, "utf8"))[0]).sort()).toEqual(["arguments", "directory", "file"]);
         expect(r.dbPath).toBe(join(ws, ".qpi", "clangd", "compile_commands.json"));
 
@@ -240,8 +235,6 @@ test.if(hasFixture)("a foreign root database is not overwritten, and the fallbac
     }
 });
 
-// F118: a `.clangd` the developer wrote is theirs; one carrying the extension's own marker is stale
-// state the extension must be able to correct, and correcting it has to force the clangd restart.
 test.if(hasFixture)("a stale generated .clangd is rewritten and forces a restart; a hand-written one is left alone", () => {
     const ws = mkdtempSync(join(tmpdir(), "qpi-stale-"));
     try {

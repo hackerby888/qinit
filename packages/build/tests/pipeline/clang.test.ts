@@ -123,11 +123,6 @@ test("generateWasmWrapperSource: the cheat shim sits between the preamble and th
     expect(iPrelude).toBeLessThan(iDefines);
 });
 
-// F117: the `#define div(...) qinitDiv(...)` shim is gone. It never fired for a user contract — the
-// build gate rejects bare `div()` on both backends first — and core's own bare calls are all on
-// unsigned operands, where QPI::div<T> already outranks libc++'s ::div. What it did do was put
-// `qinitDiv` into the QPI namespace and turn `div` into a macro, so the editor offered a clang-only
-// name and stopped listing div/mod/smul as namespace members at all.
 test("generateWasmWrapperSource: no div macro and no qinitDiv reach the translation unit", () => {
     for (const w of [generateWasmWrapperSource(opts()), generateWasmWrapperSource(opts({ cheats: CheatMode.OFF }))]) {
         expect(w).not.toContain("qinitDiv");

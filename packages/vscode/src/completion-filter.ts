@@ -116,7 +116,7 @@ export type CompletionScope =
 
 // A trigger character only arrives when the member access itself opened the list — Ctrl-Space after typing
 // a few letters comes through as an ordinary invocation, so the line has to be read.
-/** The partial word under the cursor, which decides whether an `_`-led member was asked for. */
+/** the partial word under the cursor, which decides whether an `_`-led member was asked for. */
 export function typedPrefix(linePrefix: string): string {
     return /[A-Za-z0-9_]*$/.exec(linePrefix)?.[0] ?? "";
 }
@@ -145,13 +145,8 @@ function completionName(label: string): string | undefined {
 const NOISE_MEMBER_PATTERN = /^(operator\b|~)/;
 
 /**
- * `typedPrefix` is the partial word the developer has already typed, when there is one.
- *
- * Dropping every `_`-prefixed member hid the three fields a Qubic log struct *must* carry —
- * `_type`, `_contractIndex`, `_terminator` — and every member of the K12 result union, whose names
- * are `_0`.._3, so `locals.h.u64.` had no member completion at all. Worse, once the filter emptied a
- * list VS Code substituted its own word-based list, which offers numeric literals as member names.
- * A developer who has typed a leading `_` has said exactly which kind of member they want.
+ * `_`-led members are hidden unless the developer typed a leading `_`: a log struct's `_type`,
+ * `_contractIndex` and `_terminator` and the K12 union's `_0`.._3 are members worth completing.
  */
 export function keepMemberLabel(label: string, typedPrefix?: string): boolean {
     if (NOISE_MEMBER_PATTERN.test(label.trim())) {
@@ -161,7 +156,7 @@ export function keepMemberLabel(label: string, typedPrefix?: string): boolean {
     if (!name?.startsWith("_")) {
         return true;
     }
-    // Generated machinery stays hidden; a reserved `__` name is never something to write by hand.
+    // a reserved `__` name is never something to write by hand.
     return !name.startsWith("__") && !!typedPrefix?.startsWith("_");
 }
 

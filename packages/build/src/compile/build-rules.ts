@@ -37,14 +37,11 @@ export const BUILD_GATE_RULES: readonly BuildGateRule[] = [
     { title: "unqualified-math", scope: "user", matches: (d) => USER_CONTRACT_RULES.has(d.code) },
 ];
 
-// Rules the build reports but does not fail on. The gate above is reject-only, so before this table a
-// diagnostic that no gate rule matched was discarded outright: the analyzer and the editor said it, and
-// `qinit build` said nothing. These are the cases where the contract compiles and ships but does not do
-// what its author wrote — a shape the developer has to be told about, and cannot be refused for.
+// reported but not failed on: the contract compiles and ships, but does not do what its author wrote.
 export const BUILD_WARN_RULES: readonly BuildGateRule[] = [
-    // F158: registered nowhere, so it ships inside the binary and is unreachable by anyone.
+    // registered nowhere, so it ships inside the binary and is unreachable by anyone.
     { title: "unregistered-entry", scope: "user", matches: (d) => d.code === "qpi/unregistered" },
-    // F154: qpi.invocator() is the null identity on the RPC query path, so a caller gate in a view is dead code.
+    // qpi.invocator() is the null identity on the RPC query path, so a caller gate in a view is dead code.
     { title: "invocator-in-function", scope: "user", matches: (d) => d.code === "qpi/invocator-in-function" },
 ];
 
@@ -70,7 +67,7 @@ export function buildGateViolations(diagnostics: readonly SourceAnalysisDiagnost
     return select(BUILD_GATE_RULES, diagnostics, resolveContext(context));
 }
 
-/** The non-fatal half: reported on a successful build instead of being dropped on the floor. */
+/** the non-fatal half, reported on a successful build. */
 export function buildGateWarnings(diagnostics: readonly SourceAnalysisDiagnostic[], context: BuildGateContext = {}): string[] {
     return select(BUILD_WARN_RULES, diagnostics, resolveContext(context));
 }

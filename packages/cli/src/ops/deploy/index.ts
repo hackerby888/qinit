@@ -54,9 +54,7 @@ export interface DeployResult {
     armed?: boolean;
     constructed?: boolean;
     reason?: string;
-    // The human view gets "slot empty — didn't land · upload/deploy didn't land (chunks dropped, tick
-    // missed, or seed unfunded)" while a script used to get `"reason": "empty"`. Both strings are
-    // produced on the same path by classifyConfirm; carry them.
+    // the same two strings the human view prints, so `--json` carries the whole failure, not just `reason`.
     detail?: string;
     note?: string;
     idl?: ContractIdl;
@@ -178,9 +176,7 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
         state: "ok",
         detail: `${wasm.length}B · k12 ${hash}`,
     });
-    // Only a *failed* IDL analysis. A prebuilt artifact deployed without one is a different, legitimate
-    // path — the finding is that a compile whose IDL threw was shipped anyway, with ok:true and
-    // error:null, leaving every entry unreachable by name.
+    // only a *failed* analysis: a prebuilt artifact carrying no IDL at all is a legitimate path.
     if (build.idlError) {
         const why = build.idlError;
         emit({ step: "confirm", state: "fail", detail: "IDL unavailable — refusing to deploy" });

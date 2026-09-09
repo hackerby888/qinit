@@ -106,8 +106,7 @@ const commandMeta = {
                 ],
             },
             status: { options: [] },
-            // --scratch-dir so a specific node can be named; without it `stop` resolves --rpc through
-            // the launch index rather than stopping whatever was started last.
+            // --scratch-dir names a specific node; otherwise `stop` resolves --rpc through the launch index.
             stop: { options: [stringOption("scratch-dir", "<path>", "node data and log directory")] },
             get: { options: [] },
         },

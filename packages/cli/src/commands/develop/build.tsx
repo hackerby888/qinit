@@ -24,14 +24,12 @@ export function buildJsonResult(r: ContractBuildResult, compiler: string) {
         hash: r.wasmK12DigestHex ?? null,
         idl: r.idl ?? null,
         idlError: r.idlError ?? null,
-        // F129: one failure key across every command. `stderr` stays for the compiler's own output.
+        // `stderr` stays for the compiler's own output.
         error: r.ok ? null : (r.stderr || r.idlError || "build failed"),
-        // F144: whether the protocol verifier actually ran. Without this a caller cannot tell a
-        // contract that passed the gate from one the gate never saw.
+        // whether the verifier ran at all: a contract it never saw must not read as one that passed.
         protocolRules: r.verify ? (r.verify.available ? "checked" : "skipped") : "skipped",
-        // F154/F158: non-fatal findings — the build succeeded and what shipped is not what was written.
         warnings: r.warnings ?? [],
-        // F151: the CC_* guards a --production build removed from the source that shipped.
+        // the CC_* guards a --production build removed from the source that shipped.
         strippedCheats: r.strippedCheats ?? [],
         stderr: r.stderr ?? "",
     };
@@ -174,8 +172,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
             ) : null}
             {compiler === "typescript" ? null : (
                 <Box marginTop={1}>
-                    {/* F144: the verifier is optional. Claiming "passed" for a contract it never saw asserts
-                        a safety property nothing checked — `qinit verify` reports this case correctly. */}
+                    {/* the verifier is optional; claiming "passed" for a contract it never saw asserts a property nothing checked. */}
                     {r.verify && !r.verify.available ? (
                         <Status ok={null} label="protocol rules" detail="skipped — verify tool not fetched (run qinit setup)" pad={16} />
                     ) : (

@@ -116,10 +116,8 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
 
     const lines: string[] = [];
 
-    // The schema constants below carry literal byte offsets. Nothing recorded which IDL they came
-    // from, so after any output-struct layout change a stale client kept decoding at the old offsets
-    // and returned plausible wrong numbers instead of failing. The digest is over the entry shapes
-    // only — the slot and the contract name are printed separately and do not affect decoding.
+    // the generated constants carry literal byte offsets, so a stale client decodes a changed layout at
+    // the old ones. over the entry shapes only: slot and contract name do not affect decoding.
     const idlDigest = bytesToHex(
         k12Sync(
             new TextEncoder().encode(

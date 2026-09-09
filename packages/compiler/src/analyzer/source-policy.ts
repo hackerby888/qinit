@@ -570,10 +570,8 @@ function logInFunctionDiagnostics(tokens: Token[], entries: EntryFunction[]): So
     return diagnostics;
 }
 
-// F154. `qpi.invocator()` is the null identity on the RPC query path — a function is reached without a
-// transaction, so there is no caller to name. The most common Solidity view shape, `function f() external
-// onlyOwner view`, therefore ports to a guard that can never pass, and nothing in verify or build says so.
-// PUBLIC only: a PRIVATE_FUNCTION is reachable from a procedure, where the invocator is real.
+// `qpi.invocator()` is the null identity on the RPC query path, so a caller check inside a function can
+// never pass. PUBLIC only: a PRIVATE_FUNCTION is reachable from a procedure, where the invocator is real.
 function invocatorInFunctionDiagnostics(tokens: Token[], entries: EntryFunction[]): SourceAnalysisDiagnostic[] {
     const diagnostics: SourceAnalysisDiagnostic[] = [];
 
@@ -583,7 +581,6 @@ function invocatorInFunctionDiagnostics(tokens: Token[], entries: EntryFunction[
         }
         for (let cursor = entry.bodyOpen + 1; cursor < entry.bodyClose; cursor++) {
             const token = tokens[cursor];
-            // `qpi . invocator (`
             if (
                 token.kind !== TokenKind.IDENTIFIER ||
                 token.text !== "qpi" ||

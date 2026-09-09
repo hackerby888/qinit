@@ -143,21 +143,6 @@ function cheatShim(mode: CheatMode): string {
     return `#define QINIT_CHEATS\n#define QINIT_CC_LINE_BASE 0\n${QINIT_CHEATS_H}`;
 }
 
-// There was a `#define div(...) qinitDiv(__VA_ARGS__)` shim here, to keep a bare `div()` from binding
-// to libc++'s ::div(long long, long long) on signed operands. It did no work for anyone and cost a
-// real defect, so it is gone:
-//   - user contracts never reached it — the build gate rejects bare `div()` on both backends first
-//     (build-rules.ts, `unqualified-math`), byte-identically;
-//   - core's own contracts do call bare `div()` (17 files, ~240 sites) but every one is on unsigned
-//     operands, where template deduction is an exact match and outranks ::div. Measured by ablation
-//     across all 35 system contracts: identical error counts with and without the shim at
-//     -ferror-limit=0, and at the shipped -O0 the only symbol-table difference was the qinitDiv
-//     pass-through itself;
-//   - meanwhile it put `qinitDiv` into the `QPI::` namespace and made `div` a macro, so the editor
-//     offered a name that exists only on the clang road and stopped listing div/mod/smul at all.
-// If a signed bare `div()` ever needs to compile here, the answer is to qualify the call, not to
-// reintroduce a macro that shadows a namespace member.
-
 // The cheat shim comes before the callee prelude so a callee header is parsed with CC_PRINT in scope,
 // and after the preamble so the PCH stays a prefix of the TU.
 export function generateWasmWrapperSource(o: ClangBuildOptions): string {

@@ -152,9 +152,7 @@ export function Tick({ commandArgs }: { commandArgs: CommandArguments }) {
             try {
                 if (o.sub === "rate") {
                     // The simulator can change its tick rate without restarting.
-                    // No argument reports. It used to *write*: `Number("")` is 0, which passed the
-                    // validator below, so a read-shaped command silently set the rate to "as fast as
-                    // possible" and there was no other way to read the value it had just destroyed.
+                    // no argument reports; `Number("")` is 0, so without this a read-shaped command wrote.
                     if (!o.arg) {
                         const current = await rpc.tickInfo();
                         const tickMs = Number((current as { tickMs?: unknown }).tickMs ?? NaN);

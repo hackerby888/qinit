@@ -116,11 +116,8 @@ export class VirtualNode implements NodeTransport {
             historyTicks: options.historyTicks,
             epochLength: options.epochLength,
         });
-        // Align the live simulator node (node run + in-process test) with core's wall clock (F71); gtest/fuzz
+        // align the live simulator node (node run + in-process test) with core's wall clock (F71); gtest/fuzz
         // build their own QubicSimulator directly and keep the deterministic 2024 base.
-        // The base alone was not enough: nowMs() then added tick x tickDuration on top, so the clock
-        // opened ~50 minutes ahead of the wall (genesis tick ~3000) and its millisecond component never
-        // moved. A live node reads the real clock.
         this.sim.timeBaseMs = Date.now();
         this.sim.clockMode = "real";
         this.slotBase = options.slotBase ?? DEFAULT_WASM_SLOT_LAYOUT.slotBase;

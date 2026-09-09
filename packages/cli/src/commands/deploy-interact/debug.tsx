@@ -170,10 +170,8 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
         };
     }, []);
 
-    // Filtering strictly by contract identity hid the callee frames a cross-contract call produced, so
-    // `qinit debug <caller>` showed a failing call with no sign of what failed. A frame from another
-    // contract that ran inside one of the target's frames — same tick, between its start and its
-    // completion — belongs to the target's story and is kept.
+    // a frame from another contract that ran inside one of the target's frames (same tick, before its
+    // completion) is a callee of this call, so it is kept alongside the target's own frames.
     const matchesTarget = (entry: DebugEntry) => nameOf(entry.index).toLowerCase() === target!.toLowerCase() || String(entry.index) === target;
     const list = target
         ? (() => {

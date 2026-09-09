@@ -67,9 +67,7 @@ for (const { name, path: contractPath } of entries) {
             name,
             dynCallees,
         });
-        // The database is no longer always beside the generated prefix headers: it goes where clangd
-        // would find it on its own, and only falls back to `config.dir` when the workspace root already
-        // has somebody else's compile_commands.json.
+        // the database is not always beside the generated prefix headers; it goes where clangd looks.
         const child = Bun.spawnSync([CLANGD, `--check=${config.contractFile}`, `--compile-commands-dir=${dirname(config.dbPath)}`, "--log=error"], {
             stdout: "pipe",
             stderr: "pipe",

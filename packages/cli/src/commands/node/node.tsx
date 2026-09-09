@@ -94,10 +94,8 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                 }
 
                 if (sub === "stop") {
-                    // Address the node this command names, not the globally-active one. An explicit
-                    // --scratch-dir wins; otherwise the endpoint --rpc names is resolved through the
-                    // launch index, and only a node this machine never launched falls back to the
-                    // global pointer.
+                    // the node this command names: --scratch-dir wins, then the launch index for --rpc, and
+                    // only a node this machine never launched falls back to the global pointer.
                     const target = commandArgs.get("scratch-dir")
                         ? resolve(commandArgs.get("scratch-dir")!)
                         : (scratchForRpc(rpcBaseUrl) ?? activeNodeScratchDir());

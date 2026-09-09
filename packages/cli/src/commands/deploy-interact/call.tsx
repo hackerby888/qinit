@@ -113,9 +113,8 @@ async function calleePrints(rpc: LiteRpc, frames: readonly DebugEntry[], warn: (
         const idl = idls.get(frame.index);
         const contract = idl?.name ?? String(frame.index);
         if (!frame.ok) {
-            // The caller only ever sees NO_CALL_ERROR with a zero-filled output, so without this the
-            // failure is invisible from its side. The node's ring already holds the callee's own
-            // decoded input, its host calls and its logs — say what it was asked and what it did.
+            // the caller only sees NO_CALL_ERROR with a zero-filled output, so the callee's own input
+            // and logs are the only record of what actually failed.
             const view = await describeTrace(frame, undefined, contract, undefined, idl);
             warn(`⚠ ${contract}${entryLabel(frame.kind, frame.entry)} trapped inside this call${frame.trap ? `: ${frame.trap}` : ""}`);
             if (view.inDecoded) {
@@ -186,8 +185,7 @@ export function Call({ commandArgs }: { commandArgs: CommandArguments }) {
     if (fn && proc) {
         invalidArgs("choose either --fn or --proc");
     }
-    // Two spellings of the same input in one command is always a mistake. `--args` silently won and
-    // `--in` was discarded without a word, so a call could run with arguments the author did not write.
+    // two spellings of the same input: refuse rather than let one silently win.
     if (commandArgs.has("in") && commandArgs.has("args")) {
         invalidArgs("choose either --in or --args, not both");
     }
@@ -273,12 +271,9 @@ function CallOneShot({
                 const calleeSources = siblingCalleeSources(mergeContracts(sets).all, idx);
                 // entry: accept a fn/proc name or an inputType number. Prefer local qinit.idl.json, else derive from the
                 // contract source (node dyn-registry source for user contracts, snapshot source for system contracts).
-                // A system contract ships a complete IDL already — `system ls` names it, `build` resolves
-                // its header and `gen` emits a full typed client from it. Only `call` used to ignore it
-                // and re-derive from source, which failed because the state type was not passed.
+                // the build artifact wins (it carries the DWARF sidecar path); a system contract's shipped
+                // IDL only supplies entry names when there is no artifact.
                 const localContractIdl = contractIdlForSlot(idlFile, idx, rc.codeHash);
-                // `localContractIdl` stays the build artifact (it also carries the DWARF sidecar path);
-                // the system contract's shipped IDL only supplies entry names when there is no artifact.
                 let contractIdl: ContractIdl | undefined = localContractIdl ?? rc.idl;
                 let entries = mode === "fn" ? contractIdl?.functions : contractIdl?.procedures;
                 if ((!entries || entries.length === 0) && rc.source) {
@@ -443,8 +438,8 @@ function CallOneShot({
                     });
                 } else {
                     const tickInfo = await rpc.tickInfo();
-                    // F132: TX_TICK_OFFSET is fixed, so two calls could never share a tick and no
-                    // ordering-dependent contract could be tested for ordering. --tick names one.
+                    // TX_TICK_OFFSET is fixed, so --tick is the only way to aim two calls at one tick and
+                    // test an ordering-dependent contract.
                     const explicitTick = commandArgs.get("tick");
                     let tick = tickInfo.tick + TX_TICK_OFFSET;
                     if (explicitTick !== undefined) {
@@ -457,10 +452,8 @@ function CallOneShot({
                         }
                         tick = wanted;
                     }
-                    // F135: once an epoch's ticks are exhausted the node never reaches the target, so the
-                    // procedure never runs — and this reported ok:true with a transaction hash, which
-                    // crossing into the next epoch does not recover. epochInfo is dev/testnet-only, so a
-                    // node that does not serve it is left alone rather than blocking the call.
+                    // a tick past the epoch's last is never reached, so the transaction is accepted and never
+                    // executed. epochInfo is dev/testnet-only, so a node without it is left alone.
                     try {
                         const epoch = await rpc.epochInfo();
                         if (epoch.epochLastTick && tick > epoch.epochLastTick) {
@@ -473,7 +466,7 @@ function CallOneShot({
                         if (String(error?.message ?? "").includes("will never be reached")) {
                             throw error;
                         }
-                        // No epoch-info endpoint on this node: nothing to check against.
+                        // no epoch-info endpoint on this node: nothing to check against.
                     }
                     const signer = await resolveFundedSigner(rpc, await resolveSeed(rpc, seed), {
                         explicit: Boolean(seed),
@@ -526,10 +519,7 @@ function CallOneShot({
                             amount,
                             input,
                             tick,
-                            // An explicit --tick is the point of the call: broadcastAndConfirm otherwise
-                            // re-signs for `now + TX_TICK_OFFSET` on a miss, which silently abandons the
-                            // tick the caller named — and two calls aimed at one tick is exactly the
-                            // ordering test --tick exists for.
+                            // a resend re-signs for `now + TX_TICK_OFFSET`, abandoning the tick the caller named.
                             resends: explicitTick !== undefined ? 0 : undefined,
                             confirm: settle,
                             rpc,
