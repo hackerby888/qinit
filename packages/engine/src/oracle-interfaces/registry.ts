@@ -1,6 +1,8 @@
 import * as DogeShareValidation from "./doge-share-validation";
+import * as EvmLogRead from "./evm-log-read";
 import * as Mock from "./mock";
 import * as Price from "./price";
+import * as QubicLogRead from "./qubic-log-read";
 
 interface OracleLayout {
     readonly SIZE: number;
@@ -40,6 +42,24 @@ export const ORACLE_INTERFACES = [
         reply: DogeShareValidation.OracleReply,
         getQueryFee(query: Uint8Array): bigint {
             return DogeShareValidation.getQueryFee(DogeShareValidation.OracleQuery.wrap(query));
+        },
+    },
+    {
+        index: EvmLogRead.ORACLE_INTERFACE_INDEX,
+        name: "EvmLogRead",
+        query: EvmLogRead.OracleQuery,
+        reply: EvmLogRead.OracleReply,
+        getQueryFee(query: Uint8Array): bigint {
+            return EvmLogRead.getQueryFee(EvmLogRead.OracleQuery.wrap(query));
+        },
+    },
+    {
+        index: QubicLogRead.ORACLE_INTERFACE_INDEX,
+        name: "QubicLogRead",
+        query: QubicLogRead.OracleQuery,
+        reply: QubicLogRead.OracleReply,
+        getQueryFee(query: Uint8Array): bigint {
+            return QubicLogRead.getQueryFee(QubicLogRead.OracleQuery.wrap(query));
         },
     },
 ] as const satisfies readonly OracleInterfaceDefinition[];
