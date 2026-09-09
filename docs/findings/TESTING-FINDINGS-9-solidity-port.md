@@ -1924,3 +1924,69 @@ F221 reproducible across six variants and to prove F220 is not a fluke of one co
 having. But the finding rate per hour was far higher for "read the code that lowers the feature nobody
 has called" than for "generate another thousand contracts", and the next round should be weighted
 accordingly.
+
+# Checked against main — 0 of 15 fixed
+
+Main moved from `bf53045` (this branch's point) to **`0d0153c`**, five commits, including
+`df4912b fix 32 findings across the CLI, build, compiler, engine and editor`. The question is whether
+any of this campaign's findings are already fixed there.
+
+Method: every triage repro rebuilt with **main's own compiler**, both backends, from a worktree of
+`origin/main` whose `@qinit/*` imports resolve to main's source (verified — `import.meta.resolve`
+returns `/tmp/qinit-main/packages/compiler/src/index.ts`). Same headers, same clang, same core. The
+comparison is TypeScript-vs-clang within each checkout, so a fix shows up as a divergence turning into
+agreement.
+
+**Control first.** On this branch the runner reports all 14 testable repros diverging, which is what
+makes a green row on main meaningful. F210 is excluded from the loop because it hangs the front end and
+would take the rest of the run with it; it is timed separately.
+
+```
+branch cdf5599   0 agree · 14 diverge
+main   0d0153c   0 agree · 14 diverge
+```
+
+**Twelve of the fourteen are byte-identical across the two checkouts** — same TypeScript state, same
+clang state, same rejection messages. F210 still hangs on both, killed at 120 s.
+
+Two rows moved, and neither is a fix:
+
+| | this branch | main |
+| --- | --- | --- |
+| F209 `::name` | TypeScript refuses · **clang compiles**, returns 1 | TypeScript refuses · **clang refuses** |
+| F217 block shadowing | TypeScript refuses · **clang compiles**, returns 1, 20, 300, 1 | TypeScript refuses · **clang refuses** |
+
+On main the clang path fails on the TypeScript frontend's own diagnostics:
+
+```
+compiler IDL analysis failed: line 42: Expected expression but got d_colon (::)
+compiler IDL analysis failed: line 64: 'tier' is used before its declaration
+```
+
+So the underlying limitation is untouched; it is now enforced on both paths. For a developer that is a
+*narrowing*: a contract that is legal C++, that clang compiled, and that the chain would accept, now
+builds with neither backend. As a campaign result it also means F209 and F217 stop being
+`one-side-rejected` rows and become `both-rejected` — which, as F202 established in round 1, is the
+verdict that tells you least.
+
+I did not isolate which of the five commits causes it. The gate refactor in
+`build/src/compile/build-rules.ts` splits violations into fatal and warning tables and adds a
+`qpi/invocator-in-function` warning, but that rule is unrelated to either repro, and the message comes
+from the IDL-analysis step rather than from `buildGateViolations`. Recorded as observed, not explained.
+
+**None of the five root-cause files are touched by main.** `containers.ts`, `host-intrinsic-call.ts`,
+`memory-operations.ts`, `binary-expression.ts`, `declaration-index.ts` and `constant-evaluator.ts` are
+all unchanged between `bf53045` and `0d0153c`, which is consistent with the empirical result.
+
+## One thing main changed that this campaign should watch
+
+`packages/build/src/compile/clang.ts` **removed `QPI_DIV_SHIM`**. That shim existed because libc++'s
+`<stdlib.h>` injects `::div(long long, long long)` globally and the exact match beats the `QPI::div`
+template on signed operands. Without it, a bare `div(a, b)` in a contract binds to libc++'s `::div` on
+the clang path, which returns `lldiv_t`.
+
+Checked rather than assumed: **the corpus has zero bare `div(` call sites** — all 16 grep hits are in
+comments, and the 739 real uses are qualified `QPI::div`. So nothing here regresses, and F200's repro
+is unaffected because it also spells the call qualified. Flagged because a contract outside this corpus
+that spells it bare now gets a different function on the clang path than it did, and no archetype would
+currently notice.
