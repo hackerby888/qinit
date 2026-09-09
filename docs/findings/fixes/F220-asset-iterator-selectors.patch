@@ -1,0 +1,58 @@
+diff --git a/packages/compiler/src/backend/wasm/calls/containers.ts b/packages/compiler/src/backend/wasm/calls/containers.ts
+index 03264e6..e19f8c1 100644
+--- a/packages/compiler/src/backend/wasm/calls/containers.ts
++++ b/packages/compiler/src/backend/wasm/calls/containers.ts
+@@ -520,15 +520,19 @@ export function emitAssetIter(
+     const record = context.programAnalysis.assetEnumerationRecord;
+     const rec = `(i32.add (global.get $assetIterBase) (i32.mul ${cursor} (i32.const ${record.size})))`;
+     if (method === "begin") {
+-        const selN = watIr.rawWatNode(context.lowering.materializeSelect(context, undefined), WatNodeType.I32);
++        // begin(asset, ownershipSelect [, possessionSelect]). Pass the arguments the contract wrote;
++        // an absent one is `undefined`, which materializeSelect already renders as any().
++        const isPossession = tn === "AssetPossessionIterator";
++        const ownSelN = context.lowering.materializeSelect(context, expression.callArguments[1], "AssetOwnershipSelect");
++        const posSelN = context.lowering.materializeSelect(context, isPossession ? expression.callArguments[2] : undefined, "AssetPossessionSelect");
+         const asset = context.lowering.materializeAssetAddress(context, expression.callArguments[0], `${tn}.begin`);
+-        const kind = tn === "AssetPossessionIterator" ? 1 : 0;
++        const kind = isPossession ? 1 : 0;
+         const enumerate = watIr.functionCall(
+             "$lh_assetEnumerate",
+             watIr.i32Constant(kind),
+             addrIr(asset),
+-            selN,
+-            selN,
++            ownSelN,
++            posSelN,
+             watIr.rawWatNode("(global.get $assetIterBase)", WatNodeType.I32),
+             watIr.i32Constant(record.capacity),
+         );
+diff --git a/packages/compiler/src/backend/wasm/calls/qpi.ts b/packages/compiler/src/backend/wasm/calls/qpi.ts
+index e046452..11fd27d 100644
+--- a/packages/compiler/src/backend/wasm/calls/qpi.ts
++++ b/packages/compiler/src/backend/wasm/calls/qpi.ts
+@@ -18,8 +18,14 @@ function parsedAggregateLayout(context: FunctionEmissionContext, name: string) {
+     };
+     return { layout, field, firstField };
+ }
+-export function materializeSelect(context: FunctionEmissionContext, expression: Expression | undefined): string {
+-    const parsed = parsedAggregateLayout(context, "AssetOwnershipSelect");
++export function materializeSelect(
++    context: FunctionEmissionContext,
++    expression: Expression | undefined,
++    selectTypeName: "AssetOwnershipSelect" | "AssetPossessionSelect" = "AssetOwnershipSelect",
++): watIr.WatNode {
++    // Materialise against the select type actually being built. The two are layout-identical in
++    // qpi_assets.h today, but reading the real one means this keeps working if they diverge.
++    const parsed = parsedAggregateLayout(context, selectTypeName);
+     const slot = context.lowering.allocateScratchSlotNode(context, parsed.layout.size);
+     context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$setMem", slot, watIr.i32Constant(parsed.layout.size), watIr.i32Constant(0)))}`);
+     const flag = (offset: number, value: number) =>
+@@ -62,7 +68,7 @@ export function materializeSelect(context: FunctionEmissionContext, expression:
+         if (!source) throw new Error("asset selector is not addressable");
+         context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", slot, addrIr(source), watIr.i32Constant(parsed.layout.size)))}`);
+     }
+-    return watIr.serializeWatNode(slot);
++    return slot;
+ }
+ export function materializeAssetAddress(context: FunctionEmissionContext, expression: Expression | undefined, bindingName: string): string {
+     if (expression?.kind === AstKind.INITIALIZER_LIST) {

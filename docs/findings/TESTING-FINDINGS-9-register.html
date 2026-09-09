@@ -438,6 +438,18 @@
     border-radius: 2px;
     padding: 1px 5px;
   }
+  .fix .tested {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .06em;
+    border-radius: 2px;
+    padding: 1px 5px;
+    white-space: nowrap;
+    color: var(--ground);
+    background: var(--accent);
+  }
+  .fix .tested.bad { background: var(--crit); }
+  .fix .tested.untested { background: transparent; color: var(--muted); border: 1px solid var(--rule-strong); }
   .fix .mainstat {
     font-family: var(--mono);
     font-size: 10px;
@@ -814,13 +826,29 @@
   <section>
     <h2>The fifteen compiler findings <span>each carries a ranked fix — nothing applied</span></h2>
     <div class="systemic">
-      <span class="tag">F203 · F221 · F220 — one bug, three places</span>
+      <span class="tag">The "one bug, three places" theory — half of it did not survive</span>
       <p>
-        <code>emitAddress</code> returns null and the caller <b>invents a substitute</b> instead of
-        materialising or refusing. K12 substitutes address 0. <code>argAddr</code> substitutes a throwaway
-        copy. The iterator returns <code>null</code> and falls through. One policy change covers all three:
-        <b>null address is a hard error</b>, plus real materialisation with copy-back for the two cases that
-        are legitimate. Three silent wrong answers become correct behaviour or a diagnostic.
+        This said F203, F221 and F220 were one mistake: <code>emitAddress</code> returns null, the caller
+        invents a substitute. <b>Prototyping disproved most of it.</b> F220 was a plain dropped argument
+        and is fixed. F221's <code>argAddr</code> copy is real and still stands. F203's substitute is in a
+        function that <b>never runs</b> for <code>qpi.K12</code>, and the unifying fix — pass every
+        reference by address — was built and fixes neither (1084 pass, 0 fail, no behaviour change).
+      </p>
+      <p>
+        What survives is narrower and still worth having: <code>argAddr</code>
+        (<code>memory-operations.ts:35</code>) hands a mutable reference a throwaway copy when the argument
+        has no address, and silently loses every write. That is one finding, not three.
+      </p>
+    </div>
+    <div class="systemic">
+      <span class="tag">Fixes prototyped and measured — 3 ship, 1 breaks more than it fixes, 1 was wrong</span>
+      <p>
+        Every fix below marked <b>tested</b> was built in a worktree and run against its repro, the
+        compiler unit suite (1084 pass / 0 fail on a clean tree) and the 6,618-contract corpus.
+        <b>F220 and F200 fix their finding with zero regressions.</b> <b>F213 part 1</b> fixes 42 of its 55
+        rows clean; <b>part 2</b> fixes the last 13 and breaks 17 elsewhere, so it does not ship as written.
+        <b>F203's published root cause was wrong</b> — the code it blamed never runs — and the card now says
+        so. Patches and the full numbers: <code>docs/findings/fixes/</code>.
       </p>
     </div>
     <p class="note">
@@ -874,7 +902,7 @@ namespace WithEnum { enum Kinds     { Shared = 55 }; }
           struct sizes and offsets, which a mis-resolution between identically shaped types cannot disturb.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · part 1 SHIP (+42 rows) · part 2 breaks 17</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p>Qualified reads miss because the key is never written. The bare fallback then reads a flat map.</p>
           <ol>
             <li><span class="rec">do this</span><code>declaration-index.ts:429</code> — add <code>scopePrefix</code> to <code>memberScopes</code> for unscoped enums. Registers <code>Alpha::Low</code>, the spelling C++ actually requires. Additive. Fixes every qualified read on its own.<span class="cost">low risk · adds keys, moves none</span></li>
@@ -918,7 +946,7 @@ match            integers/DivQpi__3bce   sint64   <i>both trap, digest c501bf78�
           instruction deliberately does not produce.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1084/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p>All arithmetic runs at i64. <code>INT32_MIN / -1</code> is representable at 64 bits, so <code>i64.div_s</code> never traps and the wrap hides it.</p>
           <ol>
             <li><span class="rec">do this</span><code>binary-expression.ts:159</code>, <code>DIVIDE</code> — when signed and <code>cv.width === 4</code>: <code>i32.wrap_i64</code> both operands, <code>i32.div_s</code>, <code>i64.extend_i32_s</code> back. The trap fires. <code>MODULO</code> on the next line has the same bug; move it too.<span class="cost">contracts that survive today start trapping — that is what the chain does</span></li>
@@ -962,10 +990,20 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
           written to test Merkle index arithmetic that caught a hashing bug instead.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
-          <p>No address for a computed argument, so it hashes <code>sizeof(T)</code> bytes of linear memory at offset 0.</p>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested bad">tested · proposed fix is WRONG</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <p>
+            <b>Root cause reopened.</b> This card previously blamed
+            <code>emitAddress(...) ?? "(i32.const 0)"</code> in <code>host-intrinsic-call.ts</code>.
+            Instrumenting that function shows <b>it is never entered</b> for <code>qpi.K12</code>. The
+            snapshot carries two definitions of <code>QpiContextFunctionCall::K12</code> and qinit's own
+            wins — <code>__lhost_k12(&amp;data, sizeof(T), &amp;digest)</code> at snapshot line 8516 — so the
+            real path is a library call whose <code>const T&amp;</code> parameter has its address taken in
+            the body.
+          </p>
           <ol>
-            <li><span class="rec">do this</span><code>host-intrinsic-call.ts:114</code> — delete <code>?? "(i32.const 0)"</code>. Route argument 0 through <code>argAddr</code> (<code>memory-operations.ts:35</code>), which already allocates a scratch slot and stores the value.<span class="cost">low · digests change only where it was hashing address 0</span></li>
+            <li>Passing every reference by address was prototyped on that theory: <b>1084 pass, 0 fail, and it fixes neither F203 nor F221</b>. Not the mechanism.<span class="cost">tried and rejected</span></li>
+            <li><span class="rec">do this</span>Find where <code>&amp;data</code> is lowered for a library-call reference parameter, and what address it ends up with. The two controls in the repro that already agree bound the search.<span class="cost">root cause unknown — do not write a fix before it is found</span></li>
+            <li>Keep the <code>(i32.const 0)</code> removal as hardening regardless: nothing should silently hash the bottom of linear memory.<span class="cost">no corpus row changes · patch in docs/findings/fixes/</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1016,7 +1054,7 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
           than treating the hand-derived rows as the stronger one.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p><code>argAddr</code> (<code>memory-operations.ts:35</code>) spills a value copy when <code>emitAddress</code> returns null. Right for <code>const T&amp;</code>; drops every write for a mutable one. A scalar by-value parameter lives in a wasm local, so it always takes that path.</p>
           <ol>
             <li><span class="rec">do this</span>Copy back. After the call, load the scratch slot and store it to the source lvalue.<span class="cost">contained · needs a write path back to the source local</span></li>
@@ -1075,7 +1113,7 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
           does not recognise <code>AssetIssuanceIterator</code> at all.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1084/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p><code>materializeSelect(context, undefined)</code> — <code>undefined</code> is the branch that builds <code>any()</code>.</p>
           <ol>
             <li><span class="rec">do this</span><code>containers.ts:523</code> — <code>materializeSelect(context, callArguments[1])</code>; possession select from <code>callArguments[2]</code> on <code>AssetPossessionIterator</code>, else <code>undefined</code>. The two select structs are layout-identical in <code>qpi_assets.h</code>, so the shared layout stays correct.<span class="cost">one extra 36-byte scratch slot per begin()</span></li>
@@ -1104,7 +1142,7 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
 <pre>namespace Inner  { struct Payload { uint64 a; }; }
 namespace Middle { using Payload = Inner::Payload; }   <b>alias name == target name</b></pre>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="mainstat">main 0d0153c · still hangs, killed at 120s</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still hangs, killed at 120s</span></div>
           <p><b>Root cause not located</b>, and the obvious theory is disproved — the 8-hop bounds above mean this is not alias recursion. Only finding that hangs the toolchain rather than answering wrong.</p>
           <ol>
             <li><span class="rec">do this</span>Locate it. Hard iteration cap that reports where it spun, or a profiler. Repro is two lines and deterministic.<span class="cost">free to investigate · highest priority of the three unlocated</span></li>
@@ -1135,7 +1173,7 @@ namespace Middle { using Payload = Inner::Payload; }   <b>alias name == target n
           <div class="cl"><span class="backend">clang — what the chain does</span><p><code>error: no viable conversion from 'const QPI::QpiContextFunctionCall' to 'const QPI::QpiContextProcedureCall'</code></p></div>
         </div>
         <div class="fix" data-conf="located">
-          <div class="fixtop"><b>Fix</b><span class="conf">located</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">located</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p>clang refuses this through the context type. The TypeScript backend does not model the distinction at the call site.</p>
           <ol>
             <li><span class="rec">do this</span>Analyzer check: an entry registered as a function may not <code>CALL</code> a procedure, and may not reach <code>state.mut()</code> through one. Entry kind is already known at registration.<span class="cost">low · closes a hole in the read-only guarantee</span></li>
@@ -1169,7 +1207,7 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           <div class="cl"><span class="backend">clang — what the chain does</span><p>Reads 42 back through all three bases; <code>stateSize 96</code>, the correct layout for all three spellings.</p></div>
         </div>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p><b>Root cause not located.</b> The 8-hop bound is not it — three hops is well inside it. Some other step in base-class member lookup resolves the chain only partially.</p>
           <ol>
             <li><span class="rec">do this</span>Diff the member-read trace for the two-deep and three-deep spellings. They differ by one <code>using</code>, so the bisect is already written.<span class="cost">unknown until located · a refusal, not a wrong answer</span></li>
@@ -1200,7 +1238,7 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           <div class="cl"><span class="backend">clang — what the chain does</span><p><code>error: assigning to 'uint64' from incompatible type 'void (const QPI::QpiContextFunctionCall &amp;, …)'</code></p></div>
         </div>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p>C++ searches class scope first inside a member function, so the member hides the constant.</p>
           <ol>
             <li><span class="rec">do this</span>Resolve contract members before file-scope constants inside an entry body. Let the ill-formed assignment be a diagnostic.<span class="cost">changes name resolution in every entry body · sequence after F213</span></li>
@@ -1227,7 +1265,7 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           to declare a file-scope <code>Inner</code> collided with it, taking 4 of its 12 variants down.
         </p>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p><b>Root cause not located.</b> Not missing cycle detection: <code>resolveAliasType</code> (<code>conversions.ts:16</code>) and <code>declaration-index.ts:677</code> both stop at 8 hops. The unbounded path is elsewhere in struct-by-name resolution.</p>
           <ol>
             <li><span class="rec">do this</span>Locate the recursion first — stack trace from the crash. Then bound it and report the collision.<span class="cost">unknown until located</span></li>
@@ -1254,7 +1292,7 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           refused; aliasing first is what isolated the finding.
         </p>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p>The operand is parsed as an expression, which stops at the first comma.</p>
           <ol>
             <li><span class="rec">do this</span>Parse a type-id in <code>sizeof(...)</code>, reusing the template-argument parser. Aliasing the type first already works, so the type parser is fine — only the <code>sizeof</code> operand path is narrow.<span class="cost">keep sizeof(expr) and sizeof(type) distinguishable · test both</span></li>
@@ -1280,7 +1318,7 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           index. One assignment works around it.
         </p>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p>The constant is substituted before the member read is considered, leaving a member access on a value with no address. Same family as F203 and F221.</p>
           <ol>
             <li><span class="rec">do this</span>Materialise the substituted constant into a scratch slot, then read the member — what the one-assignment workaround does by hand.<span class="cost">low · likely free if F221 option 2 lands</span></li>
@@ -1331,7 +1369,7 @@ locals.afterBlocks = tier;      <i>control: the file constant again</i></pre>
           (<code>scoping/c99_scoping_activation.sol</code>) was written to pin down.
         </div>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="mainstat">main 0d0153c · still there — and clang now refuses it too</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still there — and clang now refuses it too</span></div>
           <p>The backend says it itself: locals share one slot per name. The reportable half is the hoist, not the refusal.</p>
           <ol>
             <li><span class="rec">do this</span>Stop the hoist. A block-local declaration must not affect resolution before its block opens. Kills the false use-before-declaration; shadowing stays refused.<span class="cost">contained to the resolver</span></li>
@@ -1376,7 +1414,7 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           of the test harness.
         </div>
         <div class="fix" data-conf="located">
-          <div class="fixtop"><b>Fix</b><span class="conf">located</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">located</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p>UB in C++, and clang disagrees with itself between folded and runtime. There is no answer to match.</p>
           <ol>
             <li><span class="rec">do this</span><code>binary-expression.ts:139</code> — constant shift count &gt;= operand width: diagnostic, refuse. Do not pick a semantics.<span class="cost">rejects code that builds today · constant counts only, never a runtime value</span></li>
@@ -1401,7 +1439,7 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           <code>::</code>. The workaround is to rename.
         </p>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="mainstat">main 0d0153c · still there — and clang now refuses it too</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still there — and clang now refuses it too</span></div>
           <p>The parser rejects an empty left-hand side.</p>
           <ol>
             <li><span class="rec">do this</span>Accept a leading <code>::</code> in the qualified-name production. Resolve the tail against global scope only, skipping using-directive fallback.<span class="cost">low · additive syntax</span></li>

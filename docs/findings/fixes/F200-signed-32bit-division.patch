@@ -1,0 +1,25 @@
+diff --git a/packages/compiler/src/backend/wasm/expressions/binary-expression.ts b/packages/compiler/src/backend/wasm/expressions/binary-expression.ts
+index b908b85..26d66bb 100644
+--- a/packages/compiler/src/backend/wasm/expressions/binary-expression.ts
++++ b/packages/compiler/src/backend/wasm/expressions/binary-expression.ts
+@@ -155,9 +155,20 @@ export function lowerBinaryExpression(
+             return wrapS(wrapL(watIr.operation("i64.sub", valueNode, valueNodeCandidate), wrap32), swrap32);
+         case BinaryOp.MULTIPLY:
+             return wrapS(wrapL(watIr.operation("i64.mul", valueNode, valueNodeCandidate), wrap32), swrap32);
++        // A signed division has to happen at the operand's own width. wasm defines i32.div_s to trap
++        // when the quotient is not representable — INT32_MIN / -1 — and i64.div_s cannot reach that
++        // state, so widening first silently turns a trap into a wrapped value (F200). The width comes
++        // from the promoted operand type, so this is the general rule, not a case for one type: C++
++        // promotes anything narrower to int, and those genuinely do not trap.
+         case BinaryOp.DIVIDE:
++            if (!unsigned && cv.width === 4) {
++                return watIr.operation("i64.extend_i32_s", watIr.operation("i32.div_s", watIr.operation("i32.wrap_i64", lc), watIr.operation("i32.wrap_i64", rc)));
++            }
+             return watIr.operation(unsigned ? "i64.div_u" : "i64.div_s", lc, rc);
+         case BinaryOp.MODULO:
++            if (!unsigned && cv.width === 4) {
++                return watIr.operation("i64.extend_i32_s", watIr.operation("i32.rem_s", watIr.operation("i32.wrap_i64", lc), watIr.operation("i32.wrap_i64", rc)));
++            }
+             return watIr.operation(unsigned ? "i64.rem_u" : "i64.rem_s", lc, rc);
+         case BinaryOp.SHIFT_LEFT: {
+             const sh = watIr.operation("i64.shl", valueNode, shiftCount(valueNodeCandidate));

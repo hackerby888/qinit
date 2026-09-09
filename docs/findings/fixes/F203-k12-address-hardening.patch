@@ -1,0 +1,34 @@
+diff --git a/packages/compiler/src/backend/wasm/calls/host-intrinsic-call.ts b/packages/compiler/src/backend/wasm/calls/host-intrinsic-call.ts
+index f16b391..03425ca 100644
+--- a/packages/compiler/src/backend/wasm/calls/host-intrinsic-call.ts
++++ b/packages/compiler/src/backend/wasm/calls/host-intrinsic-call.ts
+@@ -110,11 +110,26 @@ function emitCheat(context: FunctionEmissionContext, op: number, a: WatNode, b:
+     context.lines.push(`    ${watIr.serializeWatNode(watIr.operation("drop", watIr.functionCall("$qpi_cheat", watIr.i32Constant(op), a, b, pointer, size)))}`);
+ }
+ 
++/** The value model's scalar width: what a materialised K12 argument needs in scratch. */
++const SCALAR_SLOT_BYTES = 8;
++
+ function emitKangarooTwelveCall(context: FunctionEmissionContext, expression: CallExpression): void {
+-    const inputAddress = expression.callArguments[0]
+-        ? (context.lowering.emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)")
+-        : "(i32.const 0)";
++    const inputExpression = expression.callArguments[0];
++    if (!inputExpression) {
++        throw new Error("KangarooTwelve input is missing");
++    }
+     const inputSize = expression.callArguments[1] ? context.lowering.lowerValueExpression(context, expression.callArguments[1]) : watIr.i64Constant(0);
++
++    // An addressable argument is hashed where it lives. A computed one — `qpi.K12(a + b)` — has no
++    // address, so materialise it into scratch and hash that. The previous fallback here was
++    // `(i32.const 0)`, which hashed whatever the module happens to hold at the bottom of linear
++    // memory: a wrong digest, silently, for every inline expression (F203).
++    //
++    // Eight bytes covers the value model's scalar width. The store is little-endian and the call
++    // hashes `inputSize` bytes from the base, so a narrower declared type reads back exactly the
++    // bytes C++ would hash — no per-width special case is needed.
++    const inputAddress =
++        context.lowering.emitAddress(context, inputExpression) ?? context.lowering.argAddr(context, inputExpression, SCALAR_SLOT_BYTES);
+     const digestAddress = context.lowering.allocateScratchSlotNode(context, 32);
+ 
+     context.lines.push(

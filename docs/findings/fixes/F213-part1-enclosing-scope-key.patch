@@ -1,0 +1,27 @@
+diff --git a/packages/compiler/src/semantics/declaration-index.ts b/packages/compiler/src/semantics/declaration-index.ts
+index e283e13..d61a111 100644
+--- a/packages/compiler/src/semantics/declaration-index.ts
++++ b/packages/compiler/src/semantics/declaration-index.ts
+@@ -426,9 +426,21 @@ export function collectEnum(
+         next = numericValue + 1n;
+         // A named enum owns its members (Code::X); an unnamed one's belong to the scope around it (Ch::K).
+         // Both stay reachable bare, which is how a using-directive sees them.
+-        const memberScopes = type.name ? [...scopedKeys(scopePrefix, `${type.name}::`), ""] : [...new Set([scopePrefix, ""])];
++        //
++        // `scopePrefix` is in the list because an unscoped enum's members also belong to the scope the
++        // enum was declared in: `namespace Alpha { enum Level { Low }; }` makes `Alpha::Low` the
++        // spelling C++ requires. Without that key the qualified read misses and falls back to the bare
++        // tail, which is a flat last-write-wins map — so `Alpha::Low` answered with Beta's value (F213).
++        const memberScopes = type.name
++            ? [...new Set([...scopedKeys(scopePrefix, `${type.name}::`), scopePrefix, ""])]
++            : [...new Set([scopePrefix, ""])];
+         for (const scope of memberScopes) {
+             const key = `${scope}${member.name}`;
++            // The bare key is a convenience for using-directives, not a declaration. It must not
++            // evict a real one: `static constexpr uint64 Shared = 5` at file scope, then
++            // `namespace WithEnum { enum Kinds { Shared = 55 }; }`, left the bare `Shared` reading 55
++            // because this loop deleted the constexpr and overwrote the slot (F213). A qualified key
++            // is the member's own declaration and still wins outright.
+             programAnalysis.constexprInit.delete(key);
+             programAnalysis.constexprType.delete(key);
+             programAnalysis.enumConst.set(key, programAnalysis.normalizeConst(numericValue, enumType));
