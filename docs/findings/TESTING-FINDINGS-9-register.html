@@ -386,6 +386,72 @@
   .harnesslist p { margin: 0; font-size: 14px; color: var(--ink-soft); max-width: 72ch; }
   .harnesslist .fix { display: block; margin-top: 6px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
 
+  /* ---------- proposed fixes ---------- */
+
+  .fixes { display: flex; flex-direction: column; gap: 14px; }
+  .fixcard {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--confcolor, var(--rule-strong));
+    border-radius: 3px;
+    padding: 16px 18px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    scroll-margin-top: 20px;
+  }
+  .fixcard[data-conf="verified"] { --confcolor: var(--accent); }
+  .fixcard[data-conf="located"]  { --confcolor: var(--med); }
+  .fixcard[data-conf="proposed"] { --confcolor: var(--low); }
+  .fixhead { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+  .fixhead .fid { font-family: var(--mono); font-weight: 600; font-size: 14px; color: var(--confcolor); }
+  .fixhead h3 { font-family: var(--cond); font-weight: 600; font-size: 18px; line-height: 1.25; margin: 0; flex: 1 1 300px; text-wrap: balance; }
+  .conf {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 2px;
+    border: 1px solid currentColor;
+    color: var(--confcolor);
+    white-space: nowrap;
+  }
+  .fixbody { display: grid; grid-template-columns: 88px 1fr; gap: 7px 16px; font-size: 14px; color: var(--ink-soft); }
+  @media (max-width: 560px) { .fixbody { grid-template-columns: 1fr; gap: 2px 0; } }
+  .fixbody dt {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding-top: 2px;
+  }
+  .fixbody dd { margin: 0; max-width: 72ch; }
+  .fixbody dd + dt { border-top: 1px solid var(--rule); padding-top: 9px; margin-top: 2px; }
+  .fixbody dt + dd { border-top: 1px solid var(--rule); padding-top: 9px; margin-top: 2px; }
+  .fixbody dt:first-of-type, .fixbody dt:first-of-type + dd { border-top: 0; padding-top: 0; margin-top: 0; }
+  .systemic {
+    border: 1px solid var(--accent);
+    background: var(--accent-soft);
+    border-radius: 3px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .systemic h3 { font-family: var(--cond); font-weight: 600; font-size: 18px; margin: 0; }
+  .systemic p { margin: 0; font-size: 14px; color: var(--ink-soft); max-width: 74ch; }
+  .systemic .tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
   /* ---------- rounds chart ---------- */
 
   .rounds { display: flex; flex-direction: column; gap: 0; }
@@ -495,7 +561,8 @@
       digest of their final state. Where the two disagree, one of them is what the chain does. Round 6
       added a third opinion — core’s own WAMR runtime — but round 7 found it had been comparing one
       artifact with itself, so that table is <em>withdrawn</em> and replaced by a measured one. This is
-      every disagreement the seven rounds turned up.
+      every disagreement the seven rounds turned up — and, at the end, <em>a proposed fix for each one</em>,
+      none of them applied.
     </p>
     <div class="tally">
       <div><span class="n">22</span><span class="k">numbered entries</span></div>
@@ -1297,6 +1364,492 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           </p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Proposed fixes <span>nothing here has been applied — this is a menu, not a changelog</span></h2>
+    <p class="note">
+      Each card names where the defect actually lives, what the change would be, and what it would cost.
+      The badge says how far the investigation got: <b>verified</b> means the root cause was read in the
+      source <em>and</em> the mechanism reproduced against a probe; <b>located</b> means the responsible
+      code was identified by reading but the mechanism was not separately confirmed; <b>proposed</b> means
+      only the direction is known and the root cause is still open. Nothing below has been applied to the
+      compiler.
+    </p>
+
+    <div class="systemic">
+      <span class="tag">One change would cover three of them</span>
+      <h3>A non-addressable value gets a substitute invented for it, rather than being materialised or refused</h3>
+      <p>
+        F203 and F221 are the same mistake in two places. When <code>emitAddress</code> cannot give an
+        address for an expression — a computed temporary, or a scalar living in a wasm local — the caller
+        does not fail and does not materialise it properly. It substitutes something: <code>K12</code>
+        substitutes <b>literal address 0</b> and hashes whatever the module has at the bottom of linear
+        memory; <code>argAddr</code> substitutes <b>a throwaway copy</b>, which is right for a
+        <code>const T&amp;</code> and silently discards every write for a mutable one. F220 is the same
+        shape a third time in spirit: an unhandled iterator method returns <code>null</code> and falls
+        through to whatever handles an unrecognised call, rather than saying so.
+      </p>
+      <p>
+        So there is a policy fix available that is larger than any single card: <b>make a null address a
+        hard error at every site that currently invents a substitute</b>, and give the two legitimate
+        cases (hash a computed value, pass a mutable reference to a non-addressable lvalue) real
+        materialisation with copy-back. That converts three silent wrong answers into either correct
+        behaviour or a diagnostic, and it is the difference between a compiler that is wrong and one that
+        is honest.
+      </p>
+    </div>
+
+    <div class="fixes">
+
+      <article class="fixcard" data-conf="verified">
+        <div class="fixhead">
+          <span class="fid">F213</span>
+          <h3>Register unscoped enum members under their enclosing namespace, and stop the bare name being last-write-wins</h3>
+          <span class="conf">verified</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            <code>semantics/declaration-index.ts:429</code>. For <code>namespace Alpha { enum Level { Low }; }</code>
+            the member loop registers <code>Alpha::Level::Low</code>, <code>Level::Low</code> and the bare
+            <code>Low</code> — but <b>not <code>Alpha::Low</code></b>, which is the spelling C++ requires for an
+            unscoped enum member in a namespace. So the correctly-qualified read misses, falls through to
+            <code>scopedConstantKeys</code> in <code>constant-evaluator.ts:49</code>, and is resolved from the
+            bare tail in a <b>single flat map</b> where the last enum declared won. The same loop does
+            <code>constexprInit.delete(key)</code> on the bare key, which is how an enum constant erases a
+            file-scope <code>constexpr</code> of the same name.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Two parts. <b>(1)</b> add <code>scopePrefix</code> to <code>memberScopes</code> for unscoped enums
+            (not <code>enum class</code>), so <code>Alpha::Low</code> resolves to Alpha's own declaration —
+            additive, and on its own it fixes every qualified read in the finding. <b>(2)</b> stop the bare key
+            being claimed blindly: <code>registerScoped</code> and <code>BareNamePolicy</code> already exist
+            (<code>shared/enums.ts:436</code>) but this loop bypasses them with a raw <code>.set()</code>. Add an
+            <code>AMBIGUOUS</code> policy so a bare name claimed twice with different values is marked, and have
+            <code>resolveConst</code> emit a diagnostic instead of returning whichever won.
+          </dd>
+          <dt>Risk</dt>
+          <dd>
+            Part 1 is low — it adds keys, it does not move existing ones. Part 2 <b>will surface real
+            ambiguities in contracts that compile today</b>, as new errors; that is the point, but it wants a
+            corpus run before it ships. It also overlaps F205, whose <code>Helper</code> case is a lookup-order
+            question this policy touches.
+          </dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="verified">
+        <div class="fixhead">
+          <span class="fid">F203</span>
+          <h3>Materialise a computed K12 argument into scratch instead of hashing address 0</h3>
+          <span class="conf">verified</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            <code>backend/wasm/calls/host-intrinsic-call.ts:114</code>:
+            <code>emitAddress(context, callArguments[0]) ?? "(i32.const 0)"</code>. A computed argument —
+            <code>input.a + input.b</code>, <code>input.a * 1</code> — has no address, so the fallback fires and
+            the call hashes <code>sizeof(T)</code> bytes of linear memory <b>at offset 0</b>. That is why the
+            digest is not the K12 of any value in the contract.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Route the input through <code>argAddr</code> (<code>memory/memory-operations.ts:35</code>), which
+            already allocates a scratch slot and stores the value — the same thing every other by-value
+            aggregate argument does. Then <b>delete the <code>?? "(i32.const 0)"</code></b>: a K12 whose input
+            cannot be addressed must fail, never hash the wrong bytes.
+          </dd>
+          <dt>Risk</dt>
+          <dd>
+            Low and strictly corrective. Any contract currently hashing address 0 changes its digest — which
+            is the whole point, and none of them can have depended on the old value.
+          </dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="verified">
+        <div class="fixhead">
+          <span class="fid">F221</span>
+          <h3>A mutable reference bound to a non-addressable lvalue silently gets a copy</h3>
+          <span class="conf">verified</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            <code>memory/memory-operations.ts:35</code>, <code>argAddr</code>. When <code>emitAddress</code>
+            returns null it allocates a scratch slot, stores the <em>value</em>, and hands the callee that
+            address. Correct for <code>const T&amp;</code>; for a mutable <code>T&amp;</code> every write lands
+            in the copy and nothing reads it back. A scalar by-value parameter lives in a wasm local, which has
+            no address, so it always takes this path.
+            <br><br>
+            Confirmed by probe rather than inferred: <code>add(0,0,5, 24,0,0,0,0)</code> — five days plus a
+            24-hour carry, which the C++ folds together through
+            <code>addWithoutOverflow(days, dayCarry)</code>, writing through a reference to the by-value
+            parameter <code>days</code> — gives day <b>7</b> under clang and day <b>6</b> under the TypeScript
+            backend. References bound to <em>locals</em> propagate correctly; the whole carry chain above this
+            step works.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Three options, smallest first. <b>(a) Fail closed:</b> when a mutable reference argument is not
+            addressable, emit a diagnostic. Turns a silent wrong answer into a refusal, a few lines, no
+            behaviour to get wrong. <b>(b) Copy back:</b> after the call, load the scratch slot and store it to
+            the source lvalue. Fixes the common case; needs the call site to hold a write path back to the
+            source local. <b>(c) Address-taken promotion:</b> in <code>functions/local-collector.ts</code>,
+            spill any scalar local or parameter whose address is taken anywhere in the function to a stack
+            slot for its whole lifetime. The principled fix, and the one that makes references behave like
+            C++ everywhere rather than at call sites the compiler happens to recognise.
+          </dd>
+          <dt>Risk</dt>
+          <dd>
+            (a) is safe but will reject QPI code that works on the chain today — including
+            <code>DateAndTime::add</code> itself, so it cannot ship alone. (b) is contained. (c) touches every
+            function's frame layout and wants the full corpus plus the WAMR parity sweep behind it.
+          </dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="verified">
+        <div class="fixhead">
+          <span class="fid">F220</span>
+          <h3>Pass the iterator's selector arguments instead of discarding them</h3>
+          <span class="conf">verified</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            <code>backend/wasm/calls/containers.ts:523</code> calls
+            <code>materializeSelect(context, undefined)</code>, and <code>undefined</code> is the code path that
+            builds <code>any()</code>. The same buffer is then passed for both the ownership and the possession
+            parameter of <code>$lh_assetEnumerate</code>.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Materialise each selector from its own argument — <code>callArguments[1]</code> for ownership, and
+            <code>callArguments[2]</code> for possession on an <code>AssetPossessionIterator</code> (an
+            <code>AssetOwnershipIterator</code> keeps <code>undefined</code>, which correctly means
+            <code>any()</code>). <code>materializeSelect</code> already handles <code>any</code>,
+            <code>byOwner</code>, <code>byPossessor</code>, <code>byManagingContract</code>, brace initialisers
+            and a whole-struct copy, so no new machinery is needed. The two select structs are layout-identical
+            in <code>qpi_assets.h</code> — <code>id</code>, <code>uint16</code>, two <code>bool</code> — so
+            reusing the ownership layout stays correct.
+          </dd>
+          <dt>Risk</dt>
+          <dd>
+            Minimal: one extra 36-byte scratch slot per <code>begin()</code>. Worth fixing in the same pass:
+            the seven accessors that fall through to <code>null</code> (<code>issuer</code>,
+            <code>assetName</code>, <code>issuanceIndex</code> and friends) and the unrecognised
+            <code>AssetIssuanceIterator</code> — at minimum make them a diagnostic rather than a silent
+            fall-through.
+          </dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="verified">
+        <div class="fixhead">
+          <span class="fid">F200</span>
+          <h3>Do a 32-bit signed division at 32-bit width so wasm's defined trap can fire</h3>
+          <span class="conf">verified</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            <code>backend/wasm/expressions/binary-expression.ts:159</code>. The whole arithmetic model is i64
+            with a wrap applied afterwards for narrower types, so division emits
+            <code>i64.div_s</code> regardless of operand width. At 64-bit width
+            <code>INT32_MIN / -1</code> is representable as 2147483648, so nothing traps and the wrap then
+            produces <code>-2147483648</code>. clang divides at the declared width and gets
+            <code>i32.div_s</code>, which wasm <em>defines</em> to trap here.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            In the <code>DIVIDE</code> case, when the operands are signed and 32-bit, wrap both to i32, emit
+            <code>i32.div_s</code>, and sign-extend the result back into the i64 value model. The surrounding
+            code already has the width and signedness to hand (<code>cv.width</code>, <code>unsigned</code>) and
+            already special-cases width 4 for the other operators.
+          </dd>
+          <dt>Risk</dt>
+          <dd>
+            A contract that today survives this division starts trapping — which is what the chain does, so it
+            is a correction rather than a regression. <code>MODULO</code> on the line below has the identical
+            problem and should move with it.
+          </dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="located">
+        <div class="fixhead">
+          <span class="fid">F204</span>
+          <h3>Diagnose a constant shift count wider than its operand rather than choosing a semantics</h3>
+          <span class="conf">located</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            <code>binary-expression.ts:139</code>: <code>shiftCount</code> masks to 31 for 32-bit operands and
+            otherwise leaves the count to <code>i64.shl</code>'s implicit mask of 63. clang's constant folder and
+            its runtime path disagree with <em>each other</em>, so there is no correct answer to match — the
+            construct is undefined behaviour in C++.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Do not pick a semantics. When the shift count is a compile-time constant greater than or equal to
+            the operand width, emit a diagnostic and refuse. That is the only outcome that is right regardless
+            of which backend the developer later builds with, and it is where the two provably differ.
+          </dd>
+          <dt>Risk</dt>
+          <dd>
+            Rejects code that compiles today. Bounded to a constant count, so it cannot fire on a runtime value,
+            and any contract it rejects was already unpredictable across backends.
+          </dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="located">
+        <div class="fixhead">
+          <span class="fid">F212</span>
+          <h3>Refuse a <code>CALL</code> from a function to a procedure, as the context types already do in C++</h3>
+          <span class="conf">located</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            clang refuses this through the type system —
+            <code>no viable conversion from 'const QpiContextFunctionCall' to 'const QpiContextProcedureCall'</code>
+            — because a function body is handed the read-only context. The TypeScript backend does not model that
+            distinction at the call site, so the call is emitted and the state write goes through.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Enforce it in the analyzer: an entry compiled as a function may not <code>CALL</code> a target
+            registered as a procedure, and may not reach <code>state.mut()</code> transitively through one. The
+            entry kind is already known where entries are registered, so this is a check rather than new
+            machinery.
+          </dd>
+          <dt>Risk</dt>
+          <dd>
+            Low, and it closes a hole in the read-only guarantee that a caller may be relying on today without
+            realising the chain would reject the same contract.
+          </dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="proposed">
+        <div class="fixhead">
+          <span class="fid">F217</span>
+          <h3>Give each block its own binding instead of one local slot per name</h3>
+          <span class="conf">proposed</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            Stated by the backend's own second diagnostic: <em>locals share one slot per name, so shadowing is
+            not supported</em>. The first diagnostic — calling a read of the outer name
+            <em>before</em> any block a use-before-declaration — is the reportable half, and implies the
+            block-local declaration is hoisted over the whole entry body.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Key locals by <code>(name, blockDepth)</code> rather than by name in the local collector, so an
+            inner block gets its own slot. If that is too large, the smaller fix is to stop the hoist: a
+            block-local declaration must not affect name resolution before the block opens, which removes the
+            false use-before-declaration while leaving shadowing refused.
+          </dd>
+          <dt>Risk</dt>
+          <dd>
+            The full change touches local allocation for every entry. The smaller one is contained to the
+            resolver and only converts a wrong diagnostic into a correct one.
+          </dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="proposed">
+        <div class="fixhead">
+          <span class="fid">F214</span>
+          <h3>Parse a full template argument list inside <code>sizeof</code></h3>
+          <span class="conf">proposed</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            <code>error: Expected r_paren but got comma (,) in sizeof expr</code> — the <code>sizeof</code>
+            operand is parsed as an expression that stops at the first comma, so any multi-argument template
+            ends the parse. Every QPI container takes at least two arguments.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Parse a <em>type-id</em> in <code>sizeof(...)</code>, reusing the template-argument parser that
+            already handles <code>Array&lt;uint64, 8&gt;</code> everywhere else — aliasing the type first
+            already works, which shows the type parser is fine and only the <code>sizeof</code> operand path
+            is narrow.
+          </dd>
+          <dt>Risk</dt>
+          <dd>
+            Contained to the parser, but <code>sizeof(expr)</code> and <code>sizeof(type)</code> have to stay
+            distinguishable, which is the classic ambiguity here and wants tests on both spellings.
+          </dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="proposed">
+        <div class="fixhead">
+          <span class="fid">F215</span>
+          <h3>Allow a member read on a substituted constant by materialising it first</h3>
+          <span class="conf">proposed</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            <code>error: unsupported member read [id(4).u64._0]</code>. The diagnostic naming
+            <code>id(4)</code> rather than <code>SELF</code> says the constant is substituted before the member
+            read is considered, leaving a member access on a value with no address — the same family as F203
+            and F221 above.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Materialise the substituted constant into a scratch slot and read the member from it, which is what
+            the one-assignment workaround does by hand today.
+          </dd>
+          <dt>Risk</dt>
+          <dd>
+            Low. Likely resolved for free if the systemic address policy above is adopted.
+          </dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="proposed">
+        <div class="fixhead">
+          <span class="fid">F209</span>
+          <h3>Accept a leading <code>::</code> and resolve it at global scope</h3>
+          <span class="conf">proposed</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            The qualified-name parser does not accept an empty left-hand side, so <code>::name</code> is a parse
+            error while <code>Port::name</code> in the same file is not.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Accept a leading <code>::</code> in the qualified-name production and resolve the tail against the
+            global scope only, skipping the using-directive fallbacks — which is exactly what the qualifier
+            means, and would also give F213 a spelling that is guaranteed unambiguous.
+          </dd>
+          <dt>Risk</dt>
+          <dd>Low; additive syntax.</dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="proposed">
+        <div class="fixhead">
+          <span class="fid">F205</span>
+          <h3>Search class scope before file scope inside a member body</h3>
+          <span class="conf">proposed</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            C++ looks in class scope first inside a member function, so a
+            <code>PRIVATE_FUNCTION(Helper)</code> hides a file-scope <code>enum</code> constant of the same
+            name and the assignment becomes ill-formed. The TypeScript backend resolves to the constant and
+            stores 3.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Consult contract members before file-scope constants when resolving a bare identifier inside an
+            entry body, and let the ill-formed assignment be a diagnostic. Best sequenced <em>after</em> F213,
+            since both change constant lookup and F213's part 2 is the one that makes collisions visible at all.
+          </dd>
+          <dt>Risk</dt>
+          <dd>
+            Changes name resolution for every entry body — the highest-blast-radius item on this list relative
+            to the size of the finding.
+          </dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="proposed">
+        <div class="fixhead">
+          <span class="fid">F211</span>
+          <h3>Bound struct resolution and report the collision</h3>
+          <span class="conf">proposed</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            <b>Not located.</b> A nested struct whose name matches a file-scope struct recurses until
+            <code>Maximum call stack size exceeded</code>. The obvious guess — that alias resolution lacks a
+            depth bound — <b>was checked and is wrong</b>: <code>resolveAliasType</code>
+            (<code>expressions/conversions.ts:16</code>) and <code>declaration-index.ts:677</code> both bound
+            themselves at 8. The unbounded path is somewhere else in struct-by-name resolution.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Find the recursion first, with a stack trace from the crash. Then bound it and turn the collision
+            into a diagnostic — a name collision deserves a message, not a crash, whatever the resolution rule
+            turns out to be.
+          </dd>
+          <dt>Risk</dt>
+          <dd>Unknown until the recursion is located.</dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="proposed">
+        <div class="fixhead">
+          <span class="fid">F210</span>
+          <h3>Find the unbounded loop behind the same-name alias hang</h3>
+          <span class="conf">proposed</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            <b>Not located</b>, and the natural theory is disproved. <code>using Payload = Inner::Payload</code>
+            does not hang <code>resolveAliasType</code>, which stops after 8 hops. Something on a different
+            resolution path does not terminate, and because the build gate runs for both backends it takes the
+            clang pipeline down too.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Reproduce under a profiler or with a hard iteration cap that reports where it was spinning — the
+            repro is two lines and deterministic, so this is cheap to locate and only untouched because the
+            contract is deliberately kept out of the corpus.
+          </dd>
+          <dt>Risk</dt>
+          <dd>
+            None to investigate. Highest priority of the unlocated three: it is the only finding that hangs the
+            toolchain rather than producing a wrong answer or a refusal.
+          </dd>
+        </dl>
+      </article>
+
+      <article class="fixcard" data-conf="proposed">
+        <div class="fixhead">
+          <span class="fid">F201</span>
+          <h3>Resolve alias chains to a fixed point in base-class lookup</h3>
+          <span class="conf">proposed</span>
+        </div>
+        <dl class="fixbody">
+          <dt>Root cause</dt>
+          <dd>
+            <b>Not located.</b> One and two alias hops to a base class are accepted and three is refused with
+            <code>unsupported member read</code>. The depth bound in <code>resolveAliasType</code> is 8, so a
+            simple hop limit is <b>not</b> the explanation; some other step in base-class member lookup resolves
+            the chain only partially.
+          </dd>
+          <dt>Change</dt>
+          <dd>
+            Trace the member read for the three-deep spelling against the two-deep one and find where they
+            diverge; the pair differ by one <code>using</code> declaration, so the bisect is already written.
+          </dd>
+          <dt>Risk</dt>
+          <dd>Unknown until located; the corpus rows are 4 and it is a refusal, not a wrong answer.</dd>
+        </dl>
+      </article>
+
     </div>
   </section>
 
