@@ -8,6 +8,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function wsUri(name) {
     return vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, name);
 }
+// the fixture workspace has no database of its own, so the generated one sits at its root.
+function compileEntries() {
+    return JSON.parse(fs.readFileSync(wsUri("compile_commands.json").fsPath, "utf8"));
+}
+
+// the prefix header is generated into the extension's storage directory, so the compile entry names it.
+function prefixFor(sourceSuffix) {
+    const entry = compileEntries().find((candidate) => candidate.file.endsWith(sourceSuffix));
+    const prefix = entry?.arguments.find((argument) => argument.endsWith(".prefix.h"));
+    assert.ok(prefix, `${sourceSuffix} should compile against a generated prefix header`);
+    return prefix;
+}
+
 async function open(name) {
     const doc = await vscode.workspace.openTextDocument(wsUri(name));
     await vscode.window.showTextDocument(doc);
@@ -98,11 +111,7 @@ suite("Qubic QPI extension", function () {
         }
         assert.strictEqual(errors.length, 0, `Proxy should resolve Counter; got ${errors.map((d) => `${d.source}:${d.message}`).join(" | ")}`);
 
-        const clangdConfig = fs.readFileSync(wsUri(".clangd").fsPath, "utf8");
-        const databaseMatch = /CompilationDatabase:\s*("[^"]+")/.exec(clangdConfig);
-        assert.ok(databaseMatch, "generated .clangd should name its compilation database");
-        const databaseDir = JSON.parse(databaseMatch[1]);
-        const prefix = fs.readFileSync(`${databaseDir}/Proxy.prefix.h`, "utf8");
+        const prefix = fs.readFileSync(prefixFor("Proxy.h"), "utf8");
         assert.match(prefix, /#define CONTRACT_STATE_TYPE Counter/);
         assert.match(prefix, /#define CONTRACT_STATE_TYPE Proxy/);
         const counterSlot = Number(/#define Counter_CONTRACT_INDEX (\d+)/.exec(prefix)?.[1]);
@@ -182,9 +191,7 @@ suite("Qubic QPI extension", function () {
         }
         assert.strictEqual(errors.length, 0, `gtest should compile against its prefix; got ${errors.map((d) => d.message).join(" | ")}`);
 
-        const clangdConfig = fs.readFileSync(wsUri(".clangd").fsPath, "utf8");
-        const databaseDir = JSON.parse(/CompilationDatabase:\s*("[^"]+")/.exec(clangdConfig)[1]);
-        const entries = JSON.parse(fs.readFileSync(`${databaseDir}/compile_commands.json`, "utf8"));
+        const entries = compileEntries();
         assert.ok(
             entries.some((entry) => entry.file.endsWith("Counter.test.cpp")),
             "the test file should have its own compile entry",
@@ -359,10 +366,11 @@ suite("Qubic QPI extension", function () {
         await open("Counter.test.cpp");
         await sleep(1500);
 
-        const config = wsUri(".clangd").fsPath;
-        assert.ok(fs.existsSync(config), ".clangd should be generated without qinit.json");
-        const text = fs.readFileSync(config, "utf8");
-        assert.match(text, /CompilationDatabase:/);
+        const files = compileEntries().map((entry) => entry.file);
+        assert.ok(
+            files.some((file) => file.endsWith("Counter.h")) && files.some((file) => file.endsWith("Counter.test.cpp")),
+            `both standalone files should have compile entries; got [${files.join(", ")}]`,
+        );
     });
 
     test("quick-fix offers Array<T, N> for a bracket violation", async () => {

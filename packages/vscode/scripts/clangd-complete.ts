@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { generateClangdConfig } from "../src/clangd-config";
 import {
@@ -102,7 +102,7 @@ const posAt = (offset: number) => posIn(PROBE, offset);
 const afterDot = (find: string, dot: string) => posAt(PROBE.indexOf(find) + dot.length);
 const callerAfterDot = (find: string, dot: string) => posIn(CALLER, CALLER.indexOf(find) + dot.length);
 
-const clangd = Bun.spawn([CLANGD, `--compile-commands-dir=${config.dir}`, "--background-index=false", "--log=error"], {
+const clangd = Bun.spawn([CLANGD, `--compile-commands-dir=${dirname(config.dbPath)}`, "--background-index=false", "--log=error"], {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
@@ -251,7 +251,7 @@ try {
     }
     if (
         !ok(
-            [stateMembers, arrayMembers, qpiMembers].every((members) => members.filter(keepMemberLabel).length === members.length),
+            [stateMembers, arrayMembers, qpiMembers].every((members) => members.filter((member) => keepMemberLabel(member)).length === members.length),
             "member lists survive the filter unchanged",
         )
     ) {

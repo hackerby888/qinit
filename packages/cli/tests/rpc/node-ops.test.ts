@@ -349,7 +349,8 @@ const launchedArgs = async (options: Partial<Parameters<typeof launchNode>[0]>):
     }
 };
 
-test("launchNode forwards --http-port only when one is given", async () => {
+// the stand-in is a `#!/bin/sh` script, which Windows cannot spawn; the argv assembly is platform-independent.
+test.skipIf(process.platform === "win32")("launchNode forwards --http-port only when one is given", async () => {
     expect(await launchedArgs({ httpPort: 41941 })).toContain("--http-port 41941");
     expect(await launchedArgs({})).not.toContain("--http-port");
 });

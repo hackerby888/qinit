@@ -95,9 +95,12 @@ test.if(hasFixture)("generateClangdConfig: prefix carries the wrapper preamble; 
 
         expect(dbText.includes("\\")).toBe(false);
 
-        // the database goes where clangd auto-discovers it, so no `.clangd` is written at all.
+        // the database goes where clangd auto-discovers it, so `.clangd` carries the settings alone.
         expect(r.dbPath).toBe(join(ws, "compile_commands.json"));
-        expect(existsSync(join(ws, ".clangd"))).toBe(false);
+        const dotClangd = readFileSync(join(ws, ".clangd"), "utf8");
+        expect(dotClangd).not.toContain("CompilationDatabase");
+        expect(dotClangd).toContain("AllScopes: No");
+        expect(dotClangd).toContain("HeaderInsertion: Never");
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }
