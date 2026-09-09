@@ -10,6 +10,9 @@ import type { CompilerBackend } from "../config";
 // Suites that need the shared-memory harness: PULSE/QTF corpora retain state pointers, NOST has a ~1 GiB
 // state, QTRY exhausts the smaller unshared arena outright, and QEARN is 33x slower through the shadow bridge.
 const HEAVY_SYSTEM_GTEST_NAMES = new Set(["PULSE", "QTF", "QTRY", "QEARN", "NOST"]);
+// Corpora whose host requirements the testing header cannot meet: QPAYHUB drives core's oracle commit/reveal
+// quorum through the `oracleEngine` global, which Qinit implements in TypeScript rather than in the shim.
+const UNHOSTABLE_SYSTEM_GTEST_NAMES = new Set(["QPAYHUB"]);
 const ARENA = 8 * 1024 * 1024;
 const SHARED_START = 0x20000000;
 const MAIN_ARENA = DEFAULT_COMPILE_ARENA_SIZE_BYTES;
@@ -70,7 +73,7 @@ function corpusPathFor(core: string, name: string, file: string): string | undef
 export function systemGtestCorpora(core: string): SystemGtestCorpus[] {
     return systemContracts(core).flatMap((contract) => {
         const corpusPath = corpusPathFor(core, contract.name, contract.file);
-        if (!corpusPath) return [];
+        if (!corpusPath || UNHOSTABLE_SYSTEM_GTEST_NAMES.has(contract.name.toUpperCase())) return [];
         return [
             {
                 name: contract.name,
