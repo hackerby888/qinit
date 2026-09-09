@@ -132,10 +132,21 @@ export function TraceView({
     // Status has no wrap of its own, so a bounded pane has to size its two halves to fit on one line.
     const pad = bounded ? Math.max(1, Math.min(Math.max(14, label.length + 1), cols - 14)) : Math.max(14, label.length + 1);
 
+    // Bounded (the `qinit debug` split pane) still clamps: that pane budgets rows as lines because Ink
+    // cannot erase a frame taller than the screen. Unbounded (`qinit call --trace`) wraps instead of
+    // cutting — an `id` renders as 60 characters, so ` in {user: "…",` is 79 wide before the second
+    // field and every field after a leading identity was unrecoverable, with no flag and no --json
+    // document that showed it. `out` had the identical clamp.
+    const decoded = (text: string) => (bounded ? <Text>{truncEnd(text, cols - 8)}</Text> : <Text wrap="wrap">{text}</Text>);
     const callRows: { label: string; node: React.ReactNode }[] = [
-        { label: "in", node: <Text>{truncEnd(view.inDecoded, cols - 8)}</Text> },
-        { label: "out", node: <Text>{truncEnd(view.outDecoded, cols - 8)}</Text> },
+        { label: "in", node: decoded(view.inDecoded) },
+        { label: "out", node: decoded(view.outDecoded) },
     ];
+    // A payable procedure that takes money and records nothing showed as `in {}` beside
+    // `state (no change)` — the reward is the only input a no-argument payable call has.
+    if (e.invocationReward) {
+        callRows.push({ label: "reward", node: <Text>{e.invocationReward.toLocaleString("en-US")} qu</Text> });
+    }
     // Unbounded, the caller is the full id so it can be copy-pasted; a pane too narrow for it truncates.
     if (e.kind === 1)
         callRows.push({

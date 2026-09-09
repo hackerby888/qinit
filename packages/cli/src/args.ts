@@ -3,6 +3,25 @@ import { META, commandOptions, type CommandMeta, type CommandName, type OptionMe
 
 export const output = { json: false, plain: false };
 
+/**
+ * Every `--json` document carries the same two keys: `ok`, and `error` holding the failure message
+ * (null on success). Before this, `build` put it in `stderr`, `verify` in `errors[]`, most commands in
+ * `error`, and `ls` and `node run` had no failure key at all — so no script could check one field
+ * across the CLI. Command-specific detail keeps its own key beside these.
+ */
+export function jsonEnvelope<T extends Record<string, unknown>>(ok: boolean, error: string | null, rest: T): { ok: boolean; error: string | null } & T {
+    return { ok, error: ok ? null : (error ?? "failed"), ...rest };
+}
+
+/** Writes an envelope to stdout when --json is set. Returns whether it wrote. */
+export function emitJson(ok: boolean, error: string | null, rest: Record<string, unknown> = {}): boolean {
+    if (!output.json) {
+        return false;
+    }
+    process.stdout.write(JSON.stringify(jsonEnvelope(ok, error, rest)) + "\n");
+    return true;
+}
+
 export function initOutput(args: string[]): void {
     output.json = args.includes("--json");
     output.plain = output.json || args.includes("--plain") || !process.stdout.isTTY || !!process.env.NO_COLOR;

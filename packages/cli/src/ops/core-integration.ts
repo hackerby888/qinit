@@ -312,7 +312,10 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
 
         const contractSource = stripCheatcodes(rawSource);
 
-        if (/\bCC_[A-Z0-9_]/.test(contractSource)) {
+        // `\bCC_` with no trailing character class: a mis-aligned blanking window can leave exactly
+        // `CC_`, which the old pattern needed one more character to see — and that was the likeliest
+        // residue, not the rarest. This is the one hand-off to Core, so it fails closed.
+        if (/\bCC_/.test(contractSource)) {
             throw new Error("internal: cheatcode residue after strip");
         }
 

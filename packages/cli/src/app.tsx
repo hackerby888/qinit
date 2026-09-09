@@ -24,6 +24,7 @@ import { State } from "./commands/deploy-interact/state";
 import { Clean } from "./commands/setup/clean";
 import { Cheat } from "./commands/misc/cheat";
 import { Seed } from "./commands/deploy-interact/seed";
+import { Sign } from "./commands/deploy-interact/sign";
 import { Tick } from "./commands/node/tick";
 import { Epoch } from "./commands/node/epoch";
 import { ThemeCmd } from "./commands/misc/theme";
@@ -158,6 +159,7 @@ const HANDLERS = {
     deploy: ({ commandArgs }) => <Deploy commandArgs={commandArgs} />,
     call: ({ commandArgs }) => <Call commandArgs={commandArgs} />,
     seed: ({ commandArgs }) => <Seed commandArgs={commandArgs} />,
+    sign: ({ commandArgs }) => <Sign commandArgs={commandArgs} />,
     ls: ({ commandArgs }) => <Ls commandArgs={commandArgs} />,
     state: ({ commandArgs }) => <State commandArgs={commandArgs} />,
     debug: ({ commandArgs }) => <Debug commandArgs={commandArgs} />,

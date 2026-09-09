@@ -2,6 +2,7 @@
 //
 // The rules exist so that stripping is provably safe: a cheat may only appear as a whole statement,
 // and may not carry a side effect, so blanking the call site can never change what the contract does.
+import { codeUnits } from "../shared/code-units";
 import { DiagnosticSeverity } from "../shared/enums";
 import { Lexer, TokenKind, type Token } from "../frontend/lexer";
 import { matchingToken } from "./rules/tokens";
@@ -216,7 +217,12 @@ function sideEffectToken(tokens: Token[], from: number, to: number): Token | und
  * surrounding control flow survive untouched.
  */
 export function stripCheatcodes(source: string): string {
-    const characters = [...source];
+    // One space, indexed once. `[...source]` walks code points, but every lexer span is a UTF-16
+    // offset — so one astral character (an emoji, CJK Ext-B, a mathematical alphanumeric) collapsed
+    // two units into one slot and shifted the blanking window left by one for everything after it.
+    // Three emoji left exactly `CC_`, which the residue guard's /\bCC_[A-Z0-9_]/ needs one more
+    // character to catch, so `--production`, `strip` and `integrate` emitted corrupt source silently.
+    const characters = codeUnits(source);
 
     for (const call of cheatCalls(new Lexer(source).tokenize())) {
         for (let position = call.token.span.start; position < call.end; position++) {
@@ -227,4 +233,20 @@ export function stripCheatcodes(source: string): string {
     }
 
     return characters.join("");
+}
+
+/**
+ * The cheat guards `stripCheatcodes` would remove, by name, in source order and deduplicated.
+ * `--production` silently drops CC_ASSERT — the natural translation of Solidity's `assert`, which
+ * runs in production — so the same source refuses an operation under test and completes it in what
+ * ships. The build reports this list instead of leaving it to be discovered on-chain.
+ */
+export function strippedCheatNames(source: string): string[] {
+    const names = new Set<string>();
+
+    for (const call of cheatCalls(new Lexer(source).tokenize())) {
+        names.add(call.token.text);
+    }
+
+    return [...names];
 }

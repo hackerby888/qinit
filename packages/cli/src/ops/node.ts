@@ -39,6 +39,53 @@ function rememberActiveScratch(scratch: string): void {
     writeFileSync(activeScratchFile(), scratch);
 }
 
+// `active-node-scratch` holds exactly one node, so a second one was invisible to the tooling and
+// `node stop --rpc <url>` had nothing to resolve — it stopped whatever was globally active instead.
+// This index maps each RPC endpoint to the scratch dir serving it, so a command aimed at one node
+// addresses that node.
+const nodeIndexFile = () => join(cacheRoot(), "node-index.json");
+
+function readNodeIndex(): Record<string, string> {
+    try {
+        const parsed = JSON.parse(readFileSync(nodeIndexFile(), "utf8"));
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function writeNodeIndex(index: Record<string, string>): void {
+    mkdirSync(cacheRoot(), { recursive: true });
+    writeFileSync(nodeIndexFile(), JSON.stringify(index, null, 2) + "\n");
+}
+
+function rememberNodeRpc(rpcBaseUrl: string | undefined, scratch: string): void {
+    if (!rpcBaseUrl) {
+        return;
+    }
+    writeNodeIndex({ ...readNodeIndex(), [rpcBaseUrl]: scratch });
+}
+
+function forgetNodeScratch(scratch: string): void {
+    const index = readNodeIndex();
+    let changed = false;
+    for (const [rpc, dir] of Object.entries(index)) {
+        if (resolve(dir) === resolve(scratch)) {
+            delete index[rpc];
+            changed = true;
+        }
+    }
+    if (changed) {
+        writeNodeIndex(index);
+    }
+}
+
+/** The scratch dir serving this RPC endpoint, or undefined when no node was launched for it here. */
+export function scratchForRpc(rpcBaseUrl: string): string | undefined {
+    const recorded = readNodeIndex()[rpcBaseUrl];
+    return recorded ? resolve(recorded) : undefined;
+}
+
 function forgetActiveScratch(scratch: string): void {
     if (activeNodeScratchDir() !== scratch) {
         return;
@@ -95,6 +142,7 @@ export async function killNode(scratch = activeNodeScratchDir()): Promise<boolea
                 // A concurrent Qinit invocation may already have removed it.
             }
             forgetActiveScratch(resolvedScratch);
+            forgetNodeScratch(resolvedScratch);
             return true;
         }
         await sleep(250);
@@ -207,6 +255,11 @@ export interface LaunchOptions {
     scratchDirectory?: string;
     nodeMode?: string;
     peers?: string;
+    // Core's HTTP/RPC listen port. Without it the node always takes its own default,
+    // so a second node cannot run beside one that already holds that port.
+    httpPort?: number;
+    // The endpoint this node will serve, recorded so `node stop --rpc <url>` can find it again.
+    rpcBaseUrl?: string;
     preserveScratchContents?: boolean;
 }
 
@@ -221,6 +274,9 @@ export function launchNode(options: LaunchOptions): { pid: number; scratch: stri
     const log = join(scratch, "node.log");
     const logFd = openSync(log, "a");
     const args = ["--peers", options.peers || LOOPBACK_HOST, "--node-mode", options.nodeMode || "3", "--ticking-delay", "1000"];
+    if (options.httpPort !== undefined) {
+        args.push("--http-port", String(options.httpPort));
+    }
     const child = spawn(options.nodeBinary, args, {
         cwd: scratch,
         stdio: ["ignore", logFd, logFd],
@@ -236,6 +292,7 @@ export function launchNode(options: LaunchOptions): { pid: number; scratch: stri
     const pid = child.pid ?? 0;
     writeFileSync(pidFile(scratch), String(pid));
     rememberActiveScratch(scratch);
+    rememberNodeRpc(options.rpcBaseUrl, scratch);
     return { pid, scratch, log };
 }
 

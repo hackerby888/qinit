@@ -7,7 +7,7 @@ import type { ContractBuildResult } from "./types";
 import { verifyForBuild, verifyRejection } from "./verify";
 import { KNOWN_LOG_HEADER_VIOLATIONS } from "../contracts/system-contracts";
 import { resolveContractSource } from "./source";
-import { buildGateRejection, buildGateViolations, type ContractKind } from "./build-rules";
+import { buildGateRejection, buildGateViolations, buildGateWarnings, type ContractKind } from "./build-rules";
 
 export interface TypeScriptCalleeBuildOptions {
     header: string;
@@ -122,10 +122,12 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         qpiHeader,
         calleeSources: calleeSources.length ? calleeSources : undefined,
     });
-    const gate = buildGateRejection(buildGateViolations(analysis.diagnostics, { contractKind: o.contractKind, buildRules: o.buildRules, rejectsLogHeader }));
+    const gateContext = { contractKind: o.contractKind, buildRules: o.buildRules, rejectsLogHeader };
+    const gate = buildGateRejection(buildGateViolations(analysis.diagnostics, gateContext));
     if (gate) {
         return gate;
     }
+    const gateWarnings = buildGateWarnings(analysis.diagnostics, gateContext);
 
     // The verifier rejects a scope prefix it does not know, so every callee this contract names — planned
     // or a system contract found in the source — is allowed, the same list the clang build passes.
@@ -154,7 +156,9 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         };
     }
     if (!result.idl) {
-        return { ok: false, stderr: "compiler did not produce IDL" };
+        // F138: carry the message in `idlError` as well, so a caller reading either backend's document
+        // finds the reason in the same field rather than one road having the verdict and the other the text.
+        return { ok: false, stderr: "compiler did not produce IDL", idlError: "compiler did not produce IDL" };
     }
 
     const warnings = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.WARNING);
@@ -177,5 +181,6 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         idl,
         verify,
         stderr: warnings.length ? warnings.map((diagnostic) => `warning: ${diagnostic.message}`).join("\n") : undefined,
+        warnings: gateWarnings.length ? gateWarnings : undefined,
     };
 }

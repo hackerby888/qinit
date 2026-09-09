@@ -18,7 +18,7 @@ import {
     layoutOf,
     TX_TICK_OFFSET,
 } from "@qinit/proto";
-import { AbiTypeKind, formatAbiType, type ContractEntry } from "@qinit/proto/contract-idl";
+import { AbiTypeKind, formatAbiType, type ContractEntry, type ContractIdl } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { describeTrace, mergePrints, type DecodedCheat, type DecodedTrace } from "../../trace/format";
 import { fmtVal, formatStateValue, bigintText } from "../../trace/state-format";
@@ -113,7 +113,19 @@ async function calleePrints(rpc: LiteRpc, frames: readonly DebugEntry[], warn: (
         const idl = idls.get(frame.index);
         const contract = idl?.name ?? String(frame.index);
         if (!frame.ok) {
-            warn(`⚠ ${contract} trapped inside this call${frame.trap ? `: ${frame.trap}` : ""}`);
+            // The caller only ever sees NO_CALL_ERROR with a zero-filled output, so without this the
+            // failure is invisible from its side. The node's ring already holds the callee's own
+            // decoded input, its host calls and its logs — say what it was asked and what it did.
+            const view = await describeTrace(frame, undefined, contract, undefined, idl);
+            warn(`⚠ ${contract}${entryLabel(frame.kind, frame.entry)} trapped inside this call${frame.trap ? `: ${frame.trap}` : ""}`);
+            if (view.inDecoded) {
+                warn(`    called with ${view.inDecoded}`);
+            }
+            if (frame.logs?.length) {
+                warn(`    emitted ${frame.logs.length} log${frame.logs.length === 1 ? "" : "s"} before trapping (\`qinit debug ${contract}\` decodes them)`);
+            }
+            decoded.push({ contract, cheats: view.cheats });
+            continue;
         }
         decoded.push({ contract, cheats: (await describeTrace(frame, undefined, contract, undefined, idl)).cheats });
     }
@@ -173,6 +185,11 @@ export function Call({ commandArgs }: { commandArgs: CommandArguments }) {
     const proc = commandArgs.has("proc");
     if (fn && proc) {
         invalidArgs("choose either --fn or --proc");
+    }
+    // Two spellings of the same input in one command is always a mistake. `--args` silently won and
+    // `--in` was discarded without a word, so a call could run with arguments the author did not write.
+    if (commandArgs.has("in") && commandArgs.has("args")) {
+        invalidArgs("choose either --in or --args, not both");
     }
 
     const mode = fn ? "fn" : proc ? "proc" : undefined;
@@ -256,8 +273,13 @@ function CallOneShot({
                 const calleeSources = siblingCalleeSources(mergeContracts(sets).all, idx);
                 // entry: accept a fn/proc name or an inputType number. Prefer local qinit.idl.json, else derive from the
                 // contract source (node dyn-registry source for user contracts, snapshot source for system contracts).
+                // A system contract ships a complete IDL already — `system ls` names it, `build` resolves
+                // its header and `gen` emits a full typed client from it. Only `call` used to ignore it
+                // and re-derive from source, which failed because the state type was not passed.
                 const localContractIdl = contractIdlForSlot(idlFile, idx, rc.codeHash);
-                let contractIdl = localContractIdl;
+                // `localContractIdl` stays the build artifact (it also carries the DWARF sidecar path);
+                // the system contract's shipped IDL only supplies entry names when there is no artifact.
+                let contractIdl: ContractIdl | undefined = localContractIdl ?? rc.idl;
                 let entries = mode === "fn" ? contractIdl?.functions : contractIdl?.procedures;
                 if ((!entries || entries.length === 0) && rc.source) {
                     // Without a core checkout there is no header to derive names from, which leaves numeric entries usable.
@@ -265,6 +287,7 @@ function CallOneShot({
                         contractIdl = extractIdl(rc.source, rc.name, {
                             slot: idx,
                             qpiHeader: loadConfiguredQpiHeader(),
+                            stateType: rc.stateType,
                             calleeSources,
                         });
                         entries = mode === "fn" ? contractIdl.functions : contractIdl.procedures;
@@ -398,8 +421,9 @@ function CallOneShot({
                     if (outputFormat && entryIdl) {
                         const outSize = outputSizeOf(outputFormat);
                         if (outSize !== undefined && outSize !== entryIdl.outSize) {
-                            addNote(
-                                `⚠ --out ${outputFormat} reads ${outSize} bytes; ${label} returns ${formatAbiType(entryIdl.output)} (${entryIdl.outSize} bytes)`,
+                            throw new Error(
+                                `--out ${outputFormat} reads ${outSize} bytes; ${label} returns ${formatAbiType(entryIdl.output)} (${entryIdl.outSize} bytes). ` +
+                                    `A narrower --out used to return a prefix of the value as if it were the whole one.`,
                             );
                         }
                     }
@@ -419,7 +443,38 @@ function CallOneShot({
                     });
                 } else {
                     const tickInfo = await rpc.tickInfo();
-                    const tick = tickInfo.tick + TX_TICK_OFFSET;
+                    // F132: TX_TICK_OFFSET is fixed, so two calls could never share a tick and no
+                    // ordering-dependent contract could be tested for ordering. --tick names one.
+                    const explicitTick = commandArgs.get("tick");
+                    let tick = tickInfo.tick + TX_TICK_OFFSET;
+                    if (explicitTick !== undefined) {
+                        const wanted = Number(explicitTick);
+                        if (!Number.isInteger(wanted) || wanted <= 0) {
+                            throw new Error(`--tick must be a positive integer (got ${JSON.stringify(explicitTick)})`);
+                        }
+                        if (wanted <= tickInfo.tick) {
+                            throw new Error(`--tick ${wanted} has already passed (the node is at ${tickInfo.tick})`);
+                        }
+                        tick = wanted;
+                    }
+                    // F135: once an epoch's ticks are exhausted the node never reaches the target, so the
+                    // procedure never runs — and this reported ok:true with a transaction hash, which
+                    // crossing into the next epoch does not recover. epochInfo is dev/testnet-only, so a
+                    // node that does not serve it is left alone rather than blocking the call.
+                    try {
+                        const epoch = await rpc.epochInfo();
+                        if (epoch.epochLastTick && tick > epoch.epochLastTick) {
+                            throw new Error(
+                                `tick ${tick} is past the last tick of epoch ${epoch.epoch} (${epoch.epochLastTick}) — it will never be reached, ` +
+                                    `so the transaction would be accepted and never executed. Advance the epoch first (\`qinit epoch advance\`).`,
+                            );
+                        }
+                    } catch (error: any) {
+                        if (String(error?.message ?? "").includes("will never be reached")) {
+                            throw error;
+                        }
+                        // No epoch-info endpoint on this node: nothing to check against.
+                    }
                     const signer = await resolveFundedSigner(rpc, await resolveSeed(rpc, seed), {
                         explicit: Boolean(seed),
                     });
@@ -471,6 +526,11 @@ function CallOneShot({
                             amount,
                             input,
                             tick,
+                            // An explicit --tick is the point of the call: broadcastAndConfirm otherwise
+                            // re-signs for `now + TX_TICK_OFFSET` on a miss, which silently abandons the
+                            // tick the caller named — and two calls aimed at one tick is exactly the
+                            // ordering test --tick exists for.
+                            resends: explicitTick !== undefined ? 0 : undefined,
                             confirm: settle,
                             rpc,
                             onProgress: ({ tick: net, target }) => setConfirm((c) => ({ start: c?.start ?? net, net, target })),

@@ -48,15 +48,26 @@ afterEach(() => {
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-test("loadConfig: missing -> {}, valid -> parsed, malformed -> {}", () => {
+test("loadConfig: missing -> {}, valid -> parsed, malformed -> throws", () => {
     const x = isolate();
     expect(loadConfig(join(x, "nope.json"))).toEqual({});
     const good = join(x, "good.json");
     writeFileSync(good, JSON.stringify({ contractName: "C", slot: 28 }));
     expect(loadConfig(good)).toEqual({ contractName: "C", slot: 28 });
+    // F166: a config that is present but unreadable is not the same as no config. It used to read as
+    // `{}`, so `build` fell through to a hardcoded fixture and reported a missing callee instead.
     const bad = join(x, "bad.json");
     writeFileSync(bad, "{not json");
-    expect(loadConfig(bad)).toEqual({});
+    expect(() => loadConfig(bad)).toThrow(/could not be read/);
+});
+
+// F166: the BOM that Notepad, Visual Studio ("UTF-8 with signature") and PowerShell 5.1's
+// `Out-File -Encoding utf8` all prepend. The bytes are otherwise a valid config.
+test("loadConfig: a UTF-8 BOM does not discard the config", () => {
+    const x = isolate();
+    const bom = join(x, "bom.json");
+    writeFileSync(bom, "\ufeff" + JSON.stringify({ contractName: "MyToken", contract: "contracts/MyToken.h" }));
+    expect(loadConfig(bom)).toEqual({ contractName: "MyToken", contract: "contracts/MyToken.h" });
 });
 
 test("seed store: round-trip, reject bad seed, ignore corrupt, clear", () => {

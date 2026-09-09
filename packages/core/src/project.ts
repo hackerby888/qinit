@@ -12,12 +12,48 @@ export interface QinitConfig {
     system?: string[]; // built-in system contracts to seed onto the simulator
 }
 
+// Notepad, Visual Studio's "UTF-8 with signature" and PowerShell 5.1's `Out-File -Encoding utf8`
+// all prepend U+FEFF. JSON.parse rejects it, so a valid config read as an absent one — and the build
+// then fell back to a hardcoded fixture and blamed a callee the developer never wrote.
+function stripBom(text: string): string {
+    return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
+export class QinitConfigError extends Error {
+    constructor(
+        readonly path: string,
+        readonly cause: unknown,
+    ) {
+        super(`qinit.json at ${path} could not be read: ${String((cause as any)?.message ?? cause)}`);
+        this.name = "QinitConfigError";
+    }
+}
+
 // Per-project config (qinit.json). Precedence at the call site: CLI flag > qinit.json > default.
+// A file that is present but unreadable throws: it is a different situation from no config at all,
+// and collapsing the two is what made a BOM look like an unrelated missing-callee error.
 export function loadConfig(path = "qinit.json"): QinitConfig {
+    if (!existsSync(path)) {
+        return {};
+    }
     try {
-        if (existsSync(path)) return JSON.parse(readFileSync(path, "utf8")) as QinitConfig;
-    } catch {}
-    return {};
+        return JSON.parse(stripBom(readFileSync(path, "utf8"))) as QinitConfig;
+    } catch (error) {
+        throw new QinitConfigError(path, error);
+    }
+}
+
+/**
+ * Never throws. The editor has to stay alive on a malformed config, so it takes the error as a value
+ * and shows it — which is still the point of F166: the reader is told the config was unreadable
+ * instead of being handed an empty one and a puzzling error from somewhere else.
+ */
+export function loadConfigSafe(path = "qinit.json"): { config: QinitConfig; error?: string } {
+    try {
+        return { config: loadConfig(path) };
+    } catch (error) {
+        return { config: {}, error: String((error as any)?.message ?? error) };
+    }
 }
 
 // Where to find core headers for compiling: explicit checkout > env > fetched snapshot cache.

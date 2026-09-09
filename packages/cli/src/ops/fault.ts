@@ -63,5 +63,9 @@ export function formatFault(fault: EngineFaultInfo, contractName?: string): stri
     const where = fault.slot === undefined ? "" : ` ${contractName ?? `slot ${fault.slot}`}`;
     const entry = fault.entry === undefined ? "" : ` ${ENTRY_LABEL[fault.kind ?? -1] ?? "entry"}#${fault.entry}`;
 
-    return `node halted:${where}${entry} trapped ${describeContractError(fault.message)} at tick ${fault.failedTick} — run \`qinit node run\` to restart it`;
+    // The transaction is the identifier a developer needs most at the moment a node halts. The engine
+    // has always carried it; core now does too, and until this line neither was rendered.
+    const tx = fault.txId ? ` (tx ${fault.txId})` : "";
+
+    return `node halted:${where}${entry} trapped ${describeContractError(fault.message)} at tick ${fault.failedTick}${tx} — run \`qinit node run\` to restart it`;
 }

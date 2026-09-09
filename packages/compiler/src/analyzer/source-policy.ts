@@ -88,6 +88,7 @@ export function analyzeQpiPolicy(
         ...localDiagnostics(source, tokens, entries),
         ...localsFormDiagnostics(tokens, entries),
         ...logInFunctionDiagnostics(tokens, entries),
+        ...invocatorInFunctionDiagnostics(tokens, entries),
         ...idlDiagnostics(tokens, entries, registrations, idl, calleeNames, calleeTypeOwners),
         ...contractNameDiagnostics(tokens),
         ...interContractErrorVarDiagnostics(source, tokens, calls),
@@ -561,6 +562,44 @@ function logInFunctionDiagnostics(tokens: Token[], entries: EntryFunction[]): So
                     `\`${token.text}\` inside function \`${entry.name}\` — logging is only allowed in procedures: a function is a read-only query ` +
                         "with no transaction to pair the log with. Move the log into a procedure.",
                     token.span,
+                ),
+            );
+        }
+    }
+
+    return diagnostics;
+}
+
+// F154. `qpi.invocator()` is the null identity on the RPC query path — a function is reached without a
+// transaction, so there is no caller to name. The most common Solidity view shape, `function f() external
+// onlyOwner view`, therefore ports to a guard that can never pass, and nothing in verify or build says so.
+// PUBLIC only: a PRIVATE_FUNCTION is reachable from a procedure, where the invocator is real.
+function invocatorInFunctionDiagnostics(tokens: Token[], entries: EntryFunction[]): SourceAnalysisDiagnostic[] {
+    const diagnostics: SourceAnalysisDiagnostic[] = [];
+
+    for (const entry of entries) {
+        if (!/^PUBLIC_FUNCTION(_WITH_LOCALS)?$/.test(entry.macro)) {
+            continue;
+        }
+        for (let cursor = entry.bodyOpen + 1; cursor < entry.bodyClose; cursor++) {
+            const token = tokens[cursor];
+            // `qpi . invocator (`
+            if (
+                token.kind !== TokenKind.IDENTIFIER ||
+                token.text !== "qpi" ||
+                tokens[cursor + 1]?.kind !== TokenKind.DOT ||
+                tokens[cursor + 2]?.text !== "invocator" ||
+                tokens[cursor + 3]?.kind !== TokenKind.L_PAREN
+            ) {
+                continue;
+            }
+            diagnostics.push(
+                diagnostic(
+                    "qpi/invocator-in-function",
+                    `\`qpi.invocator()\` inside function \`${entry.name}\` is the null identity — a function is answered as an RPC query, ` +
+                        "with no transaction and so no caller. A comparison against it can never pass. Move the check into a procedure, " +
+                        "or take the identity as an input field.",
+                    tokens[cursor + 2].span,
                 ),
             );
         }

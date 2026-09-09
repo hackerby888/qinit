@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { cacheRoot, readCurrent } from "@qinit/core";
@@ -82,34 +82,68 @@ async function verifyWithTool(file: string, name: string, options?: { oracle?: b
     }
 
     let target = file;
+    let temporaryFile: string | undefined;
 
     if (!oracle) {
-        const temporaryFile = join(tmpdir(), `qinit-verify-${name}-${process.pid}.h`);
+        temporaryFile = join(tmpdir(), `qinit-verify-${name}-${process.pid}.h`);
         writeFileSync(temporaryFile, concretize(readFileSync(file, "utf8"), name));
         target = temporaryFile;
     }
 
-    const child = Bun.spawn([tool, ...(oracle ? ["--oi", target] : [target])], {
-        stdout: "pipe",
-        stderr: "pipe",
-    });
-    const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    await child.exited;
+    let stdout: string;
+    let stderr: string;
+    let exitCode: number | null;
+    try {
+        const child = Bun.spawn([tool, ...(oracle ? ["--oi", target] : [target])], {
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
+        await child.exited;
+        exitCode = child.exitCode;
+    } finally {
+        // The temp copy leaked one file per (name, pid) — files from earlier runs were still in /tmp
+        // hours later. It is only the verifier's input; nothing reads it afterwards.
+        if (temporaryFile) {
+            try {
+                unlinkSync(temporaryFile);
+            } catch {}
+        }
+    }
 
-    const raw = (stdout + stderr).trim();
-    const allErrors = raw
-        .split("\n")
-        .filter((line) => line.includes("[ ERROR ]"))
-        .map((line) => line.replace(/.*\[ ERROR \]\s*/, "").trim());
+    // The verifier reports the temp copy it was handed. The developer never wrote that path — and it
+    // carries a different pid on every run — so every mention of it becomes the file they did write.
+    const raw = (stdout + stderr).trim().split(target).join(file);
     const allowedPrefixes = options?.allowedPrefixes ?? [];
-    const errors = allErrors.filter((error) => !allowedPrefixes.some((prefix) => error === `Scope resolution with prefix ${prefix} is not allowed.`));
+    const isAllowed = (message: string) => allowedPrefixes.some((prefix) => message === `Scope resolution with prefix ${prefix} is not allowed.`);
+
+    // contractverify locates its errors — `Error: Unexpected 'X', ... found at line#N`, then the source
+    // line, then a caret — and marks only the *summary* with `[ ERROR ]`. Keeping just the summary threw
+    // the location away and left an unlocated message pointing at a temp file. Attach the lines that
+    // precede each summary to it, so `verify` reports where the problem is.
+    const lines = raw.split("\n");
+    const allErrors: string[] = [];
+    let pending: string[] = [];
+    for (const line of lines) {
+        if (!line.includes("[ ERROR ]")) {
+            if (line.trim()) {
+                pending.push(line);
+            }
+            continue;
+        }
+        const summary = line.replace(/.*\[ ERROR \]\s*/, "").trim();
+        allErrors.push(pending.length ? [summary, ...pending].join("\n") : summary);
+        pending = [];
+    }
+
+    const errors = allErrors.filter((error) => !isAllowed(error.split("\n")[0]));
     const dropped = allErrors.length - errors.length;
 
-    if (child.exitCode !== 0 && allErrors.length === 0) {
+    if (exitCode !== 0 && allErrors.length === 0) {
         return { available: false, ok: true, oracle, errors: [], raw, tool };
     }
 
-    const ok = child.exitCode === 0 || (dropped > 0 && errors.length === 0);
+    const ok = exitCode === 0 || (dropped > 0 && errors.length === 0);
 
     return { available: true, ok, oracle, errors, raw, tool };
 }

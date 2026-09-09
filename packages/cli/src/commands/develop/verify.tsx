@@ -46,8 +46,8 @@ export function Verify({ commandArgs }: { commandArgs: CommandArguments }) {
         if (!done) return;
         if (output.json) {
             const payload = err
-                ? { ok: false, available: false, oracle: false, errors: [err] }
-                : { ok: r!.ok, available: r!.available, oracle: r!.oracle, errors: r!.errors };
+                ? { ok: false, available: false, oracle: false, error: err, errors: [err] }
+                : { ok: r!.ok, available: r!.available, oracle: r!.oracle, error: r!.ok ? null : (r!.errors[0] ?? "protocol violations"), errors: r!.errors };
             process.stdout.write(JSON.stringify(payload) + "\n");
         }
         process.exitCode = err || (r && !r.ok) ? 1 : 0;

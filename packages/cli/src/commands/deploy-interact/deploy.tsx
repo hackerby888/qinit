@@ -93,7 +93,13 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                         codeHash: result.hash ?? null,
                         dependencies: result.deployments.filter((deployment) => deployment.kind !== "main"),
                         remaining: result.remainingContracts ?? [],
-                        error: result.ok ? null : (result.reason ?? result.error ?? null),
+                        // A failed deploy told a human "slot empty — didn't land · upload/deploy didn't
+                        // land (chunks dropped, tick missed, or seed unfunded)" and told a script
+                        // `"error": "empty"`. Both strings come off the same code path; ship both.
+                        reason: result.ok ? null : (result.reason ?? null),
+                        detail: result.ok ? null : (result.detail ?? null),
+                        note: result.ok ? null : (result.note ?? null),
+                        error: result.ok ? null : (result.error ?? result.detail ?? result.reason ?? null),
                     }) + "\n",
                 );
             process.exitCode = result.ok ? 0 : 1;

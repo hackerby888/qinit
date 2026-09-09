@@ -143,21 +143,27 @@ function cheatShim(mode: CheatMode): string {
     return `#define QINIT_CHEATS\n#define QINIT_CC_LINE_BASE 0\n${QINIT_CHEATS_H}`;
 }
 
-// libc++'s <stdlib.h> injects ::div(long long, long long) globally, and that exact match beats the
-// QPI::div template on signed operands (the expression becomes lldiv_t). Route bare div() back to QPI.
-// The #undef after the contract include is the ceiling: gtest and corpus sources after it keep libc++'s
-// div, since core-lite's own test/qpi.cpp exercises it.
-const QPI_DIV_SHIM = `namespace QPI { template <typename T> inline static constexpr T qinitDiv(T a, T b) { return QPI::div<T>(a, b); } }
-using QPI::qinitDiv;
-#define div(...) qinitDiv(__VA_ARGS__)
-`;
+// There was a `#define div(...) qinitDiv(__VA_ARGS__)` shim here, to keep a bare `div()` from binding
+// to libc++'s ::div(long long, long long) on signed operands. It did no work for anyone and cost a
+// real defect, so it is gone:
+//   - user contracts never reached it — the build gate rejects bare `div()` on both backends first
+//     (build-rules.ts, `unqualified-math`), byte-identically;
+//   - core's own contracts do call bare `div()` (17 files, ~240 sites) but every one is on unsigned
+//     operands, where template deduction is an exact match and outranks ::div. Measured by ablation
+//     across all 35 system contracts: identical error counts with and without the shim at
+//     -ferror-limit=0, and at the shipped -O0 the only symbol-table difference was the qinitDiv
+//     pass-through itself;
+//   - meanwhile it put `qinitDiv` into the `QPI::` namespace and made `div` a macro, so the editor
+//     offered a name that exists only on the clang road and stopped listing div/mod/smul at all.
+// If a signed bare `div()` ever needs to compile here, the answer is to qualify the call, not to
+// reintroduce a macro that shadows a namespace member.
 
-// The shims come before the callee prelude so a callee header is parsed with CC_PRINT and div in scope,
+// The cheat shim comes before the callee prelude so a callee header is parsed with CC_PRINT in scope,
 // and after the preamble so the PCH stays a prefix of the TU.
 export function generateWasmWrapperSource(o: ClangBuildOptions): string {
     const contractType = o.stateType ?? o.contractName;
     const wrapper = `${buildPreamble()}${cheatShim(o.cheats ?? CheatMode.ON)}
-${QPI_DIV_SHIM}${o.calleePrelude ?? ""}
+${o.calleePrelude ?? ""}
 #define CONTRACT_INDEX ${o.slot}
 #define ${contractType}_CONTRACT_INDEX ${o.slot}
 #define CONTRACT_STATE_TYPE ${contractType}
@@ -167,7 +173,6 @@ ${QPI_DIV_SHIM}${o.calleePrelude ?? ""}
 #include "${CORE_WASM_HEADERS.sdk.intercontractCalls}"
 #include "${CORE_WASM_HEADERS.sdk.qpiSupport}"
 #include "${o.contractPath}"
-#undef div
 // QPI data-structure impls operate on contract-local memory. CAUTION: after the contract.
 #define printf(...) (__builtin_trap(), 0)
 // Collection + LinkedList are clean (only qpi.h + memory).

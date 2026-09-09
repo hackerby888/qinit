@@ -86,7 +86,7 @@ export { VERIFY_REPO, VERIFY_TAG, cachedVerifyToolPath, loadVerifyManifest, auto
 export type { VerifyManifest, VerifyUpdate } from "./cache/verify-tool";
 export { wasiSdkDir, managedWasiSdkStatus, wasiSdkPaths, haveWasiSdkCache, configuredWasiSdk, fetchWasiSdk } from "./cache/wasi-sdk";
 export type { ManagedWasiSdkStatus } from "./cache/wasi-sdk";
-export { loadConfig, resolveCoreDir } from "./project";
+export { loadConfig, loadConfigSafe, resolveCoreDir, QinitConfigError } from "./project";
 export type { QinitConfig } from "./project";
 export { debug } from "./debug/log";
 export { resolveTrapBacktrace, formatTrapBacktrace, decodeTrapCause } from "./debug/backtrace";

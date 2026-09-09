@@ -59,6 +59,16 @@ function unreachableOrTimeout(base: string, path: string, e: any): Error {
     return new Error(`node unreachable at ${base} — is it running? (qinit node run)  [${e?.message ?? e}]`);
 }
 
+/** A spectrum amount as a non-negative decimal string; an unseen entity reports negative on core. */
+function clampNonNegative(value: unknown): string {
+    const text = String(value ?? "0");
+    try {
+        return BigInt(text) < 0n ? "0" : text;
+    } catch {
+        return "0";
+    }
+}
+
 export class LiteRpc implements NodeTransport {
     // Set once the dev advance route 404s, so hurryToTick stops probing a node that will never have it.
     private devAdvanceMissing = false;
@@ -389,9 +399,13 @@ export class LiteRpc implements NodeTransport {
         const b = j.balance ?? {};
         return {
             id: String(b.id ?? id),
-            balance: String(b.balance ?? "0"),
-            incomingAmount: String(b.incomingAmount ?? "0"),
-            outgoingAmount: String(b.outgoingAmount ?? "0"),
+            // An identity the spectrum has never seen reads back as a large *negative* balance on core
+            // and as 0 on the simulator, so `deploy` printed a negative balance for every fresh
+            // contract. Normalise here, where both runtimes meet. BigInt, not Math.max: these are
+            // decimal strings precisely because the values run past 2^53.
+            balance: clampNonNegative(b.balance),
+            incomingAmount: clampNonNegative(b.incomingAmount),
+            outgoingAmount: clampNonNegative(b.outgoingAmount),
             numberOfIncomingTransfers: Number(b.numberOfIncomingTransfers ?? 0),
             numberOfOutgoingTransfers: Number(b.numberOfOutgoingTransfers ?? 0),
             latestIncomingTransferTick: Number(b.latestIncomingTransferTick ?? 0),

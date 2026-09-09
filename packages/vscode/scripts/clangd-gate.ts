@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { scanCallees, type DynCallees } from "@qinit/build/contracts/intercontract";
 import { generateClangdConfig } from "../src/clangd-config";
 import { clangdErrorLines } from "../src/clangd-diag";
@@ -67,7 +67,10 @@ for (const { name, path: contractPath } of entries) {
             name,
             dynCallees,
         });
-        const child = Bun.spawnSync([CLANGD, `--check=${config.contractFile}`, `--compile-commands-dir=${config.dir}`, "--log=error"], {
+        // The database is no longer always beside the generated prefix headers: it goes where clangd
+        // would find it on its own, and only falls back to `config.dir` when the workspace root already
+        // has somebody else's compile_commands.json.
+        const child = Bun.spawnSync([CLANGD, `--check=${config.contractFile}`, `--compile-commands-dir=${dirname(config.dbPath)}`, "--log=error"], {
             stdout: "pipe",
             stderr: "pipe",
         });

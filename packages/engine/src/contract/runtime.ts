@@ -180,6 +180,10 @@ export interface HostServices {
     cheatPrint(slot: number, id: number, part: number, value: bigint, bytes: Uint8Array): void;
     cheatDeal(id: Id, amount: bigint): bigint;
     cheatWarp(ticks: number, epochs: number): bigint;
+    // Core zeroes the warp offsets in createCallContext (dispatch.h:82 -> qpi_services.h:459), so a
+    // CC_WARP_* lasts exactly one dispatch frame and is not restored to the caller afterwards.
+    // Optional so a host that has no cheats at all need not implement it.
+    clearCheatWarp?(): void;
     pauseLog(): void;
     resumeLog(): void;
     transfer(slot: number, dest: Id, amount: bigint, transferType: number): bigint;
@@ -672,6 +676,12 @@ export class Contract {
     }
 
     invoke(kind: number, inputType: number, input: Uint8Array = new Uint8Array(0), context: ContractCallContext = {}): Uint8Array {
+        // A dispatch frame begins here on every path — procedures through registry.fire, read-only
+        // queries and inter-contract FUNCTION calls directly — which is why the clear belongs here and
+        // not in fire(). Without it a CC_WARP_TICK was permanent for the life of the simulator while it
+        // lasted one frame on a node, so a time-dependent branch could take a different path under test
+        // than it takes on the network.
+        this.host.clearCheatWarp?.();
         const nested = this.dispatchDepth > 0;
         let inputOffset: number;
         let outputOffset: number;
