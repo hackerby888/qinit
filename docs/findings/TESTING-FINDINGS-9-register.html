@@ -380,6 +380,7 @@
     border-bottom: 1px solid var(--rule);
   }
   @media (max-width: 560px) { .harnesslist > div { grid-template-columns: 1fr; } }
+  .harnesslist > div { scroll-margin-top: 20px; }
   .harnesslist .hid { font-family: var(--mono); font-weight: 600; color: var(--harness); }
   .harnesslist h3 { font-family: var(--cond); font-weight: 600; font-size: 17px; margin: 0 0 4px; line-height: 1.25; }
   .harnesslist p { margin: 0; font-size: 14px; color: var(--ink-soft); max-width: 72ch; }
@@ -484,36 +485,37 @@
   <header class="masthead">
     <div class="eyebrow">
       <span>Test campaign 9 · Solidity-port differential</span>
-      <span>Qinit <b>bf53045</b> · core-lite <b>0397da1</b></span>
+      <span>Qinit <b>c7baf0e</b> · core-lite <b>0397da1</b></span>
       <span>wasi-sdk-29 · clang 21.1.4</span>
     </div>
     <h1>Qinit Divergence Register</h1>
     <p class="standfirst">
-      Six thousand QPI contracts, ported from adversarial Solidity, compiled by the TypeScript backend
-      <em>and</em> by clang, executed on a byte-identical call script, and compared by the K12 digest of
-      their final state. Where the two disagree, one of them is what the chain does. Round 6 added a
-      third opinion — core’s own WAMR runtime — and three of these no longer rest on the two backends
-      disagreeing. This is every disagreement the six rounds turned up.
+      Six and a half thousand QPI contracts, ported from adversarial Solidity, compiled by the TypeScript
+      backend <em>and</em> by clang, executed on a byte-identical call script, and compared by the K12
+      digest of their final state. Where the two disagree, one of them is what the chain does. Round 6
+      added a third opinion — core’s own WAMR runtime — but round 7 found it had been comparing one
+      artifact with itself, so that table is <em>withdrawn</em> and replaced by a measured one. This is
+      every disagreement the seven rounds turned up.
     </p>
     <div class="tally">
-      <div><span class="n">19</span><span class="k">numbered entries</span></div>
-      <div><span class="n">13</span><span class="k">compiler findings</span></div>
-      <div><span class="n">6</span><span class="k">harness / engine</span></div>
-      <div><span class="n">6,321</span><span class="k">contracts swept</span></div>
-      <div><span class="n">427</span><span class="k">archetypes</span></div>
-      <div><span class="n">98</span><span class="k">red rows</span></div>
+      <div><span class="n">22</span><span class="k">numbered entries</span></div>
+      <div><span class="n">15</span><span class="k">compiler findings</span></div>
+      <div><span class="n">7</span><span class="k">harness / engine</span></div>
+      <div><span class="n">6,618</span><span class="k">contracts swept</span></div>
+      <div><span class="n">449</span><span class="k">archetypes</span></div>
+      <div><span class="n">104</span><span class="k">red rows</span></div>
     </div>
   </header>
 
   <section>
-    <h2>The register <span>F200 – F218 · numbering starts at F200; F86–F199 belong to the macOS campaign</span></h2>
+    <h2>The register <span>F200 – F221 · numbering starts at F200; F86–F199 belong to the macOS campaign</span></h2>
     <div class="filters">
-      <button type="button" data-filter="all" aria-pressed="true">All 19</button>
-      <button type="button" data-filter="compiler" aria-pressed="false">Compiler (13)</button>
-      <button type="button" data-filter="red" aria-pressed="false">Still red (5)</button>
-      <button type="button" data-filter="pinned" aria-pressed="false">Pinned (7)</button>
-      <button type="button" data-filter="harness" aria-pressed="false">Harness / engine (6)</button>
-      <span class="count" id="count">19 of 19 shown</span>
+      <button type="button" data-filter="all" aria-pressed="true">All 22</button>
+      <button type="button" data-filter="compiler" aria-pressed="false">Compiler (15)</button>
+      <button type="button" data-filter="red" aria-pressed="false">Still red (6)</button>
+      <button type="button" data-filter="pinned" aria-pressed="false">Pinned (8)</button>
+      <button type="button" data-filter="harness" aria-pressed="false">Harness / engine (7)</button>
+      <span class="count" id="count">22 of 22 shown</span>
     </div>
     <div class="tablewrap">
       <table>
@@ -551,6 +553,22 @@
             <td class="num">32</td>
             <td><span class="status red"><b>red</b></span></td>
             <td class="num">2</td>
+          </tr>
+          <tr data-kind="compiler" data-state="red" data-id="F221">
+            <td class="id"><a href="#F221">F221</a></td>
+            <td><span class="sev sev-high">high</span></td>
+            <td class="what"><code>DateAndTime::addMillisec</code> advances the time of day and never the date — a whole day of milliseconds is silently discarded</td>
+            <td class="num">6</td>
+            <td><span class="status red"><b>red</b></span></td>
+            <td class="num">7</td>
+          </tr>
+          <tr data-kind="compiler" data-state="pinned" data-id="F220">
+            <td class="id"><a href="#F220">F220</a></td>
+            <td><span class="sev sev-high">high</span></td>
+            <td class="what">The asset iterators discard their selectors, so a walk filtered to one holder enumerates every holder</td>
+            <td class="num">38</td>
+            <td><span class="status pinned"><b>pinned</b></span></td>
+            <td class="num">7</td>
           </tr>
           <tr data-kind="compiler" data-state="triage" data-id="F210">
             <td class="id"><a href="#F210">F210</a></td>
@@ -632,6 +650,14 @@
             <td><span class="status pinned"><b>pinned</b></span></td>
             <td class="num">4</td>
           </tr>
+          <tr data-kind="harness" data-state="fixed" data-id="F219">
+            <td class="id"><a href="#F219">F219</a></td>
+            <td><span class="sev sev-harness">harness</span></td>
+            <td class="what">The parity sweep gave both backends one output path, so it compared the TypeScript artifact with itself and reported it as agreement</td>
+            <td class="num">—</td>
+            <td><span class="status"><b>fixed</b></span></td>
+            <td class="num">7</td>
+          </tr>
           <tr data-kind="harness" data-state="fixed" data-id="F208">
             <td class="id"><a href="#F208">F208</a></td>
             <td><span class="sev sev-harness">engine</span></td>
@@ -684,15 +710,17 @@
       </table>
     </div>
     <p class="note">
-      <b>Rows</b> counts the corpus contracts that report the divergence in the round-5 sweep. Six findings
+      <b>Rows</b> counts the corpus contracts that report the divergence in the round-7 sweep. Seven findings
       show <b>—</b> because they are <b>pinned</b>: scored as matches through <code>expectedVerdict</code>,
-      so they pass by diverging exactly as documented and fail the moment they stop. F210 is deliberately
-      absent from the generated corpus — it hangs, and a hang burns a shard deadline on every sweep.
+      so they pass by diverging exactly as documented and fail the moment they stop. F220 is pinned too but
+      still shows its count, because its rows were only added this round and the number is the useful fact
+      about it. F210 is deliberately absent from the generated corpus — it hangs, and a hang burns a shard
+      deadline on every sweep.
     </p>
   </section>
 
   <section>
-    <h2>The thirteen compiler findings</h2>
+    <h2>The fifteen compiler findings</h2>
     <div class="findings" id="findings">
 
       <article class="finding" id="F213" data-kind="compiler" data-state="red" data-severity="critical">
@@ -814,6 +842,103 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
           <span>repro <b>triage/F203-k12-expression/</b></span>
           <span>rows <b>K12OfComputedExpression + HostK12ExpressionVersusVariable · 32</b></span>
           <span>found <b>round 2</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F221" data-kind="compiler" data-state="red" data-severity="high">
+        <div class="fhead">
+          <span class="fid">F221</span>
+          <h3 class="ftitle"><code>addMillisec</code> advances the clock but never the calendar</h3>
+          <div class="fmeta"><span class="sev sev-high">high</span><span class="status red"><b>6 rows red</b></span></div>
+        </div>
+        <p class="fsum">
+          Adding a whole day&rsquo;s worth of milliseconds moves the time of day correctly and leaves the
+          date exactly where it was. The boundary is exact: everything below one full day agrees on both
+          backends, and the divergence appears the moment the carry chain has to produce a <em>day</em>.
+          Two days lose two days, so the carry is discarded rather than truncated — and
+          <strong>the call returns <code>true</code> in every row</strong>.
+        </p>
+<pre><i>from 2024-01-01 00:00:00.000, calling addMillisec(n)</i>
+  n                                     <i>clang</i>                  <i>TypeScript</i>
+          1  <i>1 ms</i>                 2024-01-01 00:00:00.001   same
+      1,000  <i>1 s</i>                  2024-01-01 00:00:01.000   same
+     61,000  <i>1 min 1 s</i>            2024-01-01 00:01:01.000   same
+ 86,399,999  <i>one ms short of a day</i>  2024-01-01 23:59:59.999   same
+ <b>86,400,000</b>  <i>exactly one day</i>       <b>2024-01-02</b> 00:00:00.000   <b>2024-01-01</b> 00:00:00.000
+<b>172,800,000</b>  <i>two days</i>              <b>2024-01-03</b> 00:00:00.000   <b>2024-01-01</b> 00:00:00.000</pre>
+        <div class="split">
+          <div class="ts"><span class="backend">TypeScript backend</span><p>Time fields correct, date untouched, no diagnostic.</p><span class="val">addMillisec → true</span></div>
+          <div class="cl"><span class="backend">clang — what the chain does</span><p>Carries through to the date and rolls the day over.</p><span class="val">addMillisec → true</span></div>
+        </div>
+        <div class="oracle"><b>Where it comes from</b>
+          <code>addMillisec</code> (<code>qpi_date_time.h:515</code>) forwards to the eight-argument
+          <code>add()</code>, which carries micro → milli → sec → minute → hour, writes the time fields with
+          <code>setTime</code>, and only then — if the resulting <em>day carry</em> is non-zero — folds it
+          into <code>days</code> and tail-calls the three-argument <code>add()</code> to move the date.
+          Everything through <code>setTime</code> matches. The date half does not run.
+        </div>
+        <div class="oracle"><b>The secondary oracle could not have caught this, and the differential did</b>
+          <code>DateAddMillisecCarryChain</code> is one of two archetypes in this file shipped
+          <em>deliberately without</em> hand-derived <code>expect</code> rows, on the grounds that folding
+          five carries into a 160-line day loop is exactly the arithmetic that produced 47 false violations
+          in round 6. That judgement was right — and the finding still landed, because the two backends
+          disagreed. It is the clearest argument this campaign has produced for keeping both oracles rather
+          than treating the hand-derived rows as the stronger one.
+        </div>
+        <div class="footrow">
+          <span>repro <b>triage/F221-addmillisec-day-carry/</b></span>
+          <span>rows <b>integers/DateAddMillisecCarryChain__* · 6 of 13</b></span>
+          <span>found <b>round 7</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F220" data-kind="compiler" data-state="pinned" data-severity="high">
+        <div class="fhead">
+          <span class="fid">F220</span>
+          <h3 class="ftitle">The asset iterators throw their filters away</h3>
+          <div class="fmeta"><span class="sev sev-high">high</span><span class="status pinned"><b>pinned · 38 rows</b></span></div>
+        </div>
+        <p class="fsum">
+          <code>begin()</code> is lowered as <code>materializeSelect(context, <b>undefined</b>)</code> —
+          unconditionally the <code>any()</code> selector — and that one buffer is then passed for
+          <strong>both</strong> the ownership and the possession parameter of
+          <code>$lh_assetEnumerate</code>. The selectors the contract actually wrote,
+          <code>callArguments[1]</code> and <code>[2]</code>, are never read. So this compiles, runs,
+          returns no error, and enumerates every holder.
+        </p>
+<pre>locals.iter.begin(locals.asset, AssetOwnershipSelect::byOwner(locals.other));
+
+<i>1000 shares issued, 400 transferred away, so two holders exist</i>
+                       <i>clang</i>   <i>TypeScript</i>
+  filtered count          1          <b>2</b>
+  filtered shares       400       <b>1000</b>
+  unfiltered count        2          2      <i>control</i>
+  unfiltered shares    1000       1000      <i>control</i></pre>
+        <div class="split">
+          <div class="ts"><span class="backend">TypeScript backend</span><p>Credits the filtered holder with every holder&rsquo;s balance.</p><span class="val">2 holders · 1000 shares</span></div>
+          <div class="cl"><span class="backend">clang — what the chain does</span><p>Compiles core&rsquo;s real <code>AssetOwnershipIterator</code> and honours the filter.</p><span class="val">1 holder · 400 shares</span></div>
+        </div>
+        <div class="oracle"><b>Two facts that sharpen it</b>
+          The <b>unfiltered walk agrees on both backends</b>, which is what isolates the cause to the
+          discarded filter rather than to iteration, enumeration capacity, or the ledger. And the machinery
+          to do it right <b>exists and is used correctly elsewhere in the same compiler</b>:
+          <code>qpi.numberOfShares(asset, AssetOwnershipSelect::byOwner(holder))</code> answers
+          1000 / 400 / 0 for total / holder / stranger on <em>both</em> backends.
+          <code>materializeSelect</code> works when handed a real expression; <code>begin</code> simply
+          never hands it one.
+        </div>
+        <div class="oracle"><b>Why it went unseen for seven rounds</b>
+          The corpus called exactly four asset functions across 42 asset archetypes and 380 contracts.
+          Every selector and every iterator sat at <b>zero call sites</b>. This was found by reading the
+          lowering function, then confirmed by writing the first contract that had ever called
+          <code>begin()</code> with a filter. The same function also silently returns <code>null</code> for
+          <code>issuer()</code>, <code>assetName()</code>, <code>issuanceIndex()</code> and four more, and
+          does not recognise <code>AssetIssuanceIterator</code> at all.
+        </div>
+        <div class="footrow">
+          <span>repro <b>triage/F220-asset-iterator-filter/</b></span>
+          <span>rows <b>assets/Asset*Iterator* · 38, pinned</b></span>
+          <span>found <b>round 7, by reading the backend</b></span>
         </div>
       </article>
 
@@ -1075,9 +1200,26 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
   </section>
 
   <section>
-    <h2>Five defects in the harness and the engine <span>recorded because an unrecorded generator bug looks like a compiler finding the next time someone reads the scoreboard</span></h2>
+    <h2>Seven defects in the harness and the engine <span>recorded because an unrecorded generator bug looks like a compiler finding the next time someone reads the scoreboard</span></h2>
     <div class="harnesslist" id="harness">
-      <div>
+      <div id="F219">
+        <span class="hid">F219</span>
+        <div>
+          <h3>The parity sweep compared one artifact with itself</h3>
+          <p>
+            <code>buildContractWithClang</code> and <code>buildContractWithTypeScript</code> both write
+            <code>&lt;outDir&gt;/&lt;contractName&gt;.wasm</code>, and the sweep passed both the same
+            directory. The TypeScript build ran second, overwrote clang&rsquo;s artifact, and the run loop
+            then read that one file twice — once labelled <code>clang</code>, once
+            <code>typescript</code>. Round 6&rsquo;s parity table therefore describes the TypeScript
+            artifact twice, and <b>real clang coverage under the third oracle was zero</b>.
+            <span class="fix">Three confirmations: 357 of the 385 both-built contracts produced byte-identical rows, the 28 exceptions being the ones where the TypeScript build was refused and never wrote a file; and <code>AccountBookWithIterationOrder</code>&rsquo;s clang artifact imports <em>zero</em> unregistered natives yet was scored <code>shim-trap</code>, a verdict that branch cannot reach.</span>
+            <span class="fix">The part worth dwelling on is the validation. Round 6 offered &ldquo;the shim-trap set is the same 76 contracts on each backend&rdquo; as the check that made the run credible. But clang <em>inlines</em> KangarooTwelve into the module while the TypeScript backend imports it, so those sets should not have matched — their matching was the clearest possible evidence of the collision. A number was read as confirming the result when it was the disproof.</span>
+            <span class="fix">fixed with per-backend output directories, plus a guard that aborts the sweep if two independently-produced artifacts are ever byte-identical — the condition that would have caught this on day one. Third defect in two rounds caught by <em>a classification looking wrong</em>, and the second caused by an artifact-path assumption; F218 was the first, one commit earlier.</span>
+          </p>
+        </div>
+      </div>
+      <div id="F208">
         <span class="hid">F208</span>
         <div>
           <h3>The simulator's committee is not reproducible between runs</h3>
@@ -1089,7 +1231,7 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           </p>
         </div>
       </div>
-      <div>
+      <div id="F202">
         <span class="hid">F202</span>
         <div>
           <h3>The nested-placement rewrite also rewrote the out-of-struct guard</h3>
@@ -1102,7 +1244,7 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           </p>
         </div>
       </div>
-      <div>
+      <div id="F206">
         <span class="hid">F206</span>
         <div>
           <h3>The <code>temporaries</code> axis hoisted a function's locals into state</h3>
@@ -1115,7 +1257,7 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           </p>
         </div>
       </div>
-      <div>
+      <div id="F207">
         <span class="hid">F207</span>
         <div>
           <h3><code>entryOrder</code> reordered entries whose types depend on each other</h3>
@@ -1127,7 +1269,7 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           </p>
         </div>
       </div>
-      <div>
+      <div id="F218">
         <span class="hid">F218</span>
         <div>
           <h3>The parity sweep manufactured 28 false divergences</h3>
@@ -1142,7 +1284,7 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           </p>
         </div>
       </div>
-      <div>
+      <div id="F216">
         <span class="hid">F216</span>
         <div>
           <h3>A 3,600-tick script reads as a hang</h3>
@@ -1159,78 +1301,87 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
   </section>
 
   <section>
-    <h2>Six rounds <span>bar = contracts swept · overlay = rows reporting a divergence</span></h2>
+    <h2>Seven rounds <span>bar = contracts swept · overlay = rows reporting a divergence</span></h2>
     <div class="rounds">
       <div class="axis">
         <span></span>
         <div class="ticks">
           <span style="left:0%">0</span>
-          <span style="left:24.6%">1,500</span>
-          <span style="left:49.3%">3,000</span>
-          <span style="left:73.9%">4,500</span>
-          <span style="left:98.5%">6,000</span>
+          <span style="left:22.7%">1,500</span>
+          <span style="left:45.3%">3,000</span>
+          <span style="left:68.0%">4,500</span>
+          <span style="left:90.7%">6,000</span>
         </div>
       </div>
       <div class="row">
         <div class="rlabel"><b>Round 1</b><span>68 archetypes</span></div>
         <div class="bar">
-          <div class="fill" style="width:9.9%"></div>
-          <div class="red" style="width:0.07%"></div>
+          <div class="fill" style="width:9.1%"></div>
+          <div class="red" style="width:0.06%"></div>
           <div class="cap">605 · <i>4 red</i> · <em>F200 F201</em></div>
         </div>
       </div>
       <div class="row">
         <div class="rlabel"><b>Round 2</b><span>118 archetypes</span></div>
         <div class="bar">
-          <div class="fill" style="width:19.8%"></div>
-          <div class="red" style="width:0.18%"></div>
+          <div class="fill" style="width:18.2%"></div>
+          <div class="red" style="width:0.17%"></div>
           <div class="cap">1,204 · <i>11 red</i> · <em>F203 F204</em></div>
         </div>
       </div>
       <div class="row">
         <div class="rlabel"><b>Round 3</b><span>171 archetypes</span></div>
         <div class="bar">
-          <div class="fill" style="width:59.9%"></div>
-          <div class="red" style="width:0.62%"></div>
+          <div class="fill" style="width:55.1%"></div>
+          <div class="red" style="width:0.57%"></div>
           <div class="cap">3,647 · <i>38 red</i> · <em>F205</em></div>
         </div>
       </div>
       <div class="row">
         <div class="rlabel"><b>Round 4</b><span>255 archetypes</span></div>
         <div class="bar">
-          <div class="fill" style="width:49.5%"></div>
-          <div class="red" style="width:0.51%"></div>
+          <div class="fill" style="width:45.6%"></div>
+          <div class="red" style="width:0.47%"></div>
           <div class="cap">3,017 · <i>31 red</i> · <em>F209 F210 F211 F212 F213</em></div>
         </div>
       </div>
       <div class="row">
         <div class="rlabel"><b>Round 5</b><span>411 archetypes</span></div>
         <div class="bar">
-          <div class="fill" style="width:100%"></div>
-          <div class="red" style="width:1.35%"></div>
+          <div class="fill" style="width:92.0%"></div>
+          <div class="red" style="width:1.24%"></div>
           <div class="cap">6,091 · <i>82 red</i> · <em>F214 F215</em></div>
         </div>
       </div>
       <div class="row">
         <div class="rlabel"><b>Round 6</b><span>427 archetypes</span></div>
         <div class="bar">
-          <div class="fill" style="width:100%"></div>
-          <div class="red" style="width:1.55%"></div>
+          <div class="fill" style="width:95.5%"></div>
+          <div class="red" style="width:1.48%"></div>
           <div class="cap">6,321 · <i>98 red</i> · <em>F217</em></div>
         </div>
       </div>
+      <div class="row">
+        <div class="rlabel"><b>Round 7</b><span>449 archetypes</span></div>
+        <div class="bar">
+          <div class="fill" style="width:100%"></div>
+          <div class="red" style="width:1.57%"></div>
+          <div class="cap">6,618 · <i>104 red</i> · <em>F219 F220 F221</em></div>
+        </div>
+      </div>
       <div class="legend">
-        <span><i class="sw-a"></i>contracts swept (scale above, 0–6,091)</span>
+        <span><i class="sw-a"></i>contracts swept (scale above, 0–6,618)</span>
         <span><i class="sw-r"></i>rows reporting a divergence</span>
-        <span>20,885 contract-runs in total, each compiled and executed twice</span>
+        <span>27,503 contract-runs in total, each compiled and executed twice</span>
       </div>
     </div>
     <p class="note">
       Round 4 spent the same contract budget on half again as many distinct shapes — the variant cap dropped
       from 32 to 12 — on the argument that <strong>the archetype count, not the contract count, is the
       effective sample size</strong>. The red rows grow with the corpus because each finding's variants
-      multiply, not because new defects appear: every red row in every round is one of the twelve findings
-      and nothing else.
+      multiply, not because new defects appear: every red row in every round is one of the numbered findings
+      and nothing else. Round 7 is the exception that proves it — its six extra red rows are F221, a genuinely
+      new defect, in a family the corpus had never called before.
     </p>
   </section>
 
@@ -1238,25 +1389,28 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
     <h2>What the green rows are worth</h2>
     <div class="limits">
       <div>
-        <h3>The simulator itself, measured at last</h3>
+        <h3>The simulator, measured on both backends at last</h3>
         <p>
-          Round 6 ran each backend&rsquo;s artifact on <b>core&rsquo;s own WAMR host</b> and against the
-          qinit simulator, asking whether the two hosts agree — a question no two-backend comparison can
-          reach. Across 385 contracts and 770 artifact runs: <b>590 agree, 0 disagree</b>, with 152
-          unable to run (they call a host function the test shim does not register) and 28 refused by
-          the build gate. For every contract executable on both, <b>the simulator and the real runtime
-          produce byte-identical state</b>. The shim-trap set is the same 76 contracts on each backend,
-          which is the consistency check that makes the run credible.
+          Round 6&rsquo;s version of this paragraph is <b>withdrawn</b>: F219 showed it had run the
+          TypeScript artifact twice, so its clang column was never measured. Repaired and re-run, with the
+          test shim widened from 5 natives to 20: across 105 contracts and 210 artifact runs,
+          <b>195 agree, 0 disagree, 0 unreachable</b>, and 15 refused by the TypeScript build gate.
+          <b>clang 105 agree</b> — every contract built and ran — is the first real measurement of that
+          backend against core&rsquo;s runtime. The shim gap closed completely: 152 of 770 runs were
+          unreachable before, 0 of 210 now. The sample is smaller than round 6&rsquo;s 385, because the
+          sweep was competing for four cores with the full differential run.
         </p>
       </div>
       <div>
         <h3>The oracle problem</h3>
         <p>
           Both backends share one build gate, one <code>qpi.h</code>, and one <code>QubicSimulator</code>.
-          <b>&ldquo;6,223 matched&rdquo; means they agreed with each other</b>, not that they were right.
-          Round 6 narrowed this: <b>F200, F213 and F204 now run on core&rsquo;s real WAMR host</b> and
-          reproduce their answers there. Nine still rest on the two backends disagreeing, and seven of
-          those <em>cannot</em> be settled this way — a compile refusal produces no artifact to run.
+          <b>&ldquo;6,514 matched&rdquo; means they agreed with each other</b>, not that they were right.
+          <b>F200, F213 and F204 run on core&rsquo;s real WAMR host</b> and reproduce their answers there,
+          and round 7&rsquo;s widened shim brings the hash-keyed and tick-reading contracts into range too.
+          The rest still rest on the two backends disagreeing, and several <em>cannot</em> be settled this
+          way — a compile refusal produces no artifact to run, and F220 lives in the asset region the shim
+          deliberately does not cover.
         </p>
       </div>
       <div>
@@ -1271,16 +1425,17 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
       <div>
         <h3>Stimulus coverage</h3>
         <p>
-          So the green rows are not vacuous: the great majority of the 6,321 contracts move their state
-          digest mid-script, and 357 make a cross-contract call. The ~110 hand-derived <b>expect</b> rows
-          are the only assertions of <em>correctness</em> — and in round 6 they caught three of the
-          author's own errors, exactly as they caught eleven in round 5.
+          So the green rows are not vacuous: the great majority of the 6,618 contracts move their state
+          digest mid-script, and 357 make a cross-contract call. The <b>~179 hand-derived expect rows</b> —
+          69 of them added this round, for <code>DateAndTime</code> and for HashMap removal — are the only
+          assertions of <em>correctness</em>, and every one holds. They keep catching the author rather than
+          the compiler: three of his errors in round 6, eleven in round 5, two more in round 7.
         </p>
       </div>
       <div>
         <h3>Not 6,091 trials</h3>
         <p>
-          6,321 contracts from 427 archetypes is 14.8 variants each. Read the contract number as breadth of
+          6,618 contracts from 449 archetypes is 14.7 variants each. Read the contract number as breadth of
           spellings. The variants earn their place as the <b>axis bisector</b>: when a mismatch appears, the
           sibling variants that differ in exactly one axis name the trigger — which is how F200 was pinned to
           <code>sint32</code> and F204 to <code>constSource=constexpr</code>.
@@ -1297,10 +1452,13 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
       <div>
         <h3>Where the remaining risk is</h3>
         <p>
-          F214 and F215 were found while <em>writing</em> archetypes, not by running them. That is a
-          reasonable way to find parser gaps and a poor way to find miscompilations — the sweep is good at
-          what it already knows how to spell. Nothing here has been run against real core or WAMR; that
-          remains the obvious next step, and remains undone.
+          None of round 7&rsquo;s three findings came from reading a big sweep&rsquo;s red column. F219 came
+          from a classification that looked wrong, F220 from reading the function that lowers a feature
+          nobody had called, F221 from an archetype shipped without an expect row. The corpus&rsquo;s real
+          contribution was reproducing them across variants and showing F220 was not a fluke of one
+          contract — worth having, but the finding rate per hour favoured reading the code over generating
+          more of it. And the share-management API, where two earlier campaigns both found bugs, is
+          <b>still at zero call sites</b>.
         </p>
       </div>
     </div>
