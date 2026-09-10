@@ -46,9 +46,7 @@ export function tryEmitHostIntrinsicCall(context: FunctionEmissionContext, expre
     return false;
 }
 
-// CC_PRINT. String literals are interned into the IDL by collect-cheats and emit nothing here, which
-// is what keeps them out of the wasm; every other argument ships its bytes with its ordinal, so the
-// reader can pair them with the types the IDL recorded for the same call site.
+// CC_PRINT: string literals are interned into the IDL and emit nothing, keeping them out of the wasm; every other argument ships its bytes with its ordinal.
 function emitCheatPrintCall(context: FunctionEmissionContext, expression: CallExpression): void {
     const [lineArgument, ...args] = expression.callArguments;
     const line = foldCheatLine(lineArgument);
@@ -65,8 +63,7 @@ function emitCheatPrintCall(context: FunctionEmissionContext, expression: CallEx
         const tag = watIr.i64Constant((BigInt(line) << 8n) | BigInt(part));
         const resolved = resolveExpressionAddress(context, argument);
 
-        // Anything with an address ships its bytes, an empty layout included: its zero-length record still
-        // carries the ordinal, and the reader renders it from the type.
+        // Anything with an address ships its bytes, an empty layout included: its zero-length record still carries the ordinal, and the reader uses the type.
         if (resolved?.addr) {
             emitCheat(context, CHEAT_OP.print, tag, watIr.i64Constant(0n), addrIr(resolved.addr), watIr.i32Constant(resolved.size));
             return;
@@ -169,8 +166,7 @@ function emitLoggingCall(context: FunctionEmissionContext, expression: CallExpre
 function emitLogMessage(context: FunctionEmissionContext, expression: CallExpression, callName: string, logLevel: number): void {
     const argument = expression.callArguments[0];
     const payload = argument ? context.lowering.resolveExpressionAddress(context, argument) : null;
-    // Report rather than throw, so the diagnostic carries a source location and the remaining
-    // functions still get emitted. The module is discarded either way once an error is present.
+    // Report rather than throw, so the diagnostic carries a source location and the remaining functions still get emitted; the module is discarded anyway.
     const span = argument?.span ?? expression.span;
 
     if (!payload) {
@@ -185,8 +181,7 @@ function emitLogMessage(context: FunctionEmissionContext, expression: CallExpres
 
     const defect = logPayloadDefect(payload.layout);
 
-    // A misplaced header word still lowers, and analysis already reported it at the same call, so
-    // only the defects that leave nothing to emit stop here.
+    // A misplaced header word still lowers, and analysis already reported it at the same call, so only defects that leave nothing to emit stop here.
     if (defect && defect !== LogPayloadDefect.HEADER_WORD_NOT_RESERVED) {
         context.programAnalysis.error(logPayloadMessage(callName, defect), span);
         return;

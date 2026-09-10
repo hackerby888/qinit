@@ -1,6 +1,4 @@
-// gtest is a third compile path: it parses the contract through parseToAst rather than the full
-// compile driver. That reaches the same preprocessor, so cheatcodes work there too — this is the test
-// that says so, because nothing else exercises a cheat-carrying contract under gtest.
+// gtest is a third compile path, parsing through parseToAst rather than the compile driver; it reaches the same preprocessor, so cheatcodes work there too.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

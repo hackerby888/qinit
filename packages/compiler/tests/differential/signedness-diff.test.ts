@@ -1,7 +1,6 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
-// Mixed signed/unsigned conversions. width32-diff covers same-signedness width; nothing pinned the branch
-// of usualConversion that picks div_s over div_u, where a mistake is a 2^64-scale answer with no diagnostic.
+// Mixed signed/unsigned conversions: nothing pinned the branch of usualConversion picking div_s over div_u, where a mistake is a 2^64-scale silent answer.
 import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { writeFileSync, mkdtempSync, readFileSync } from "node:fs";

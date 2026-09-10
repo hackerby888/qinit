@@ -1,11 +1,5 @@
 // Two rules hold for every fixture here, because the defects this suite exists for were all silent.
-//
-// A fixture must disagree with the path it replaces: its declared body computes something the
-// fallback — byte comparison, memberwise copy, the first-declared candidate — cannot produce, so a
-// test cannot pass on the path it is meant to prove is gone.
-//
-// A test must have been seen to fail. Revert the fix and watch it go red before trusting it; a test
-// that has never failed has not been shown to test anything.
+// A fixture must disagree with the path it replaces, and a test must have been seen to fail — revert the fix and watch it go red before trusting it.
 import { beforeAll, describe, expect } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { DiagnosticSeverity } from "../../src/shared/enums";
@@ -17,8 +11,7 @@ import { ASSIGNING, COPY_ONLY, FEE_AMOUNT, HALF_KEY, HALF_KEY_BOOL, HELPER_MONEY
 const run = edgeRunner("OperatorOverload");
 const compile = edgeCompiler("OperatorOverload");
 
-// operator== deliberately ignores `b`, so {1,2} and {1,99} are equal to the operator and different
-// to memcmp. Every assertion below turns on that disagreement.
+// operator== deliberately ignores `b`, so {1,2} and {1,99} are equal to the operator and different to memcmp. Every assertion turns on that disagreement.
 
 describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     beforeAll(initK12);
@@ -61,8 +54,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         const result = await compile(source);
         const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
 
-        // Clang refuses the rewritten candidate here, naming the return type; accepting it would build
-        // something the native compiler will not.
+        // Clang refuses the rewritten candidate here, naming the return type; accepting it would build something the native compiler will not.
         expect(errors.map((diagnostic) => diagnostic.message).join(" ")).toContain("no viable operator!= for 'HalfKey'");
     });
 
@@ -77,15 +69,11 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         const result = await compile(source);
         const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
 
-        // The only one-argument constructor takes the class itself, so there is no conversion. Handing
-        // the scalar to it would pass the same argument back for its own parameter without end.
+        // The only one-argument constructor takes the class itself, so there is no conversion: handing it the scalar would pass the argument back forever.
         expect(errors.map((diagnostic) => diagnostic.message).join(" ")).toContain("aggregate argument 1 is not addressable");
     });
 
-    // Core hashes a key by its raw bytes (KangarooTwelve over sizeof(KeyT)) but probes slots with
-    // operator==. A key whose equality disagrees with its bytes therefore misses its own slot, in
-    // both backends — the map is only coherent when the two notions agree. Pinned so the behaviour
-    // is a recorded consequence rather than a surprise.
+    // Core hashes a key by raw bytes but probes slots with operator==, so a key whose equality disagrees with its bytes misses its own slot on both backends.
     fixtureTest("a byte-different probe misses its slot even when the operator calls it equal", async () => {
         const source = wrap(
             `${HALF_KEY}
@@ -99,8 +87,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
             .replace("struct StateData { uint64 result; };", "struct StateData { uint64 result; HashMap<HalfKey, Pair, 1024> map; };")
             .replace("HalfKey stored; HalfKey probe;", "HalfKey stored; HalfKey probe; Pair hit;");
 
-        // The probe differs from the stored key in `b`, so it hashes elsewhere and the declared
-        // operator is never consulted for that slot.
+        // The probe differs from the stored key in `b`, so it hashes elsewhere and the declared operator is never consulted for that slot.
         expect(await run(source)).toBe(0n);
 
         // The same key round-trips, which is the case the container is actually built for.
@@ -149,10 +136,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
-    // `Price` is also a core oracle interface (src/oracle_interfaces/Price.h), a struct with no data
-    // members. C++ resolves the nested declaration; a lookup that answers with the global one hands
-    // the operator body an empty `this`, so the comparison can never see a field. The name is taken
-    // from core on purpose — the test should break if that collision ever disappears upstream.
+    // `Price` is also a core oracle interface with no data members; a lookup answering with the global one hands the operator body an empty `this`.
     const SHADOWED = (compared: string) => `struct Price {
     uint64 a;
     uint64 b;
@@ -168,13 +152,11 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
        state.mut().result = (locals.left == locals.right) ? 1 : 0;`,
         );
 
-        // The operands differ in `b`, so only the declared body — reading the contract's own Price —
-        // answers 1.
+        // The operands differ in `b`, so only the declared body — reading the contract's own Price — answers 1.
         expect(await run(source)).toBe(1n);
     });
 
-    // Comparing the second field pins the layout rather than its mere presence: a body compiled
-    // against the wrong declaration cannot land on the right offset.
+    // Comparing the second field pins the layout rather than its mere presence: a body compiled against the wrong declaration cannot land on the right offset.
     fixtureTest("a shadowed type's operator reads its own field offsets", async () => {
         const source = wrap(
             SHADOWED("b"),
@@ -188,9 +170,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
-    // `FeeAmount(n)` is spelled as a call, so it has no address of its own. Each case below is one a
-    // Clang build accepts. The constructor scales its argument, so a field-wise fallback that skipped
-    // it would store 5 where the declared body stores 51.
+    // `FeeAmount(n)` is spelled as a call and has no address of its own; the constructor scales, so a field-wise fallback stores 5 where the body stores 51.
 
     fixtureTest("a constructor call assigns to an aggregate local", async () => {
         const source = wrap(
@@ -214,8 +194,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
-    // The parameter is `const FeeAmount&` and the argument is a number, so the converting constructor
-    // has to run: it turns 5 into 51, which is what the left operand holds.
+    // The parameter is `const FeeAmount&` and the argument a number, so the converting constructor runs: it turns 5 into 51, which the left operand holds.
     fixtureTest("a scalar converts to the parameter's class", async () => {
         const source = wrap(
             FEE_AMOUNT,
@@ -238,10 +217,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
-    // QPI::DateAndTime declares method bodies of its own, and the method index is keyed by the bare
-    // class name. The field is called `value` to match QPI's, so QPI's operator== compiles against
-    // this struct and answers wrongly instead of failing to compile — the silent case, which is the
-    // one worth pinning.
+    // QPI::DateAndTime declares its own bodies and the index is keyed by bare class name; the field is named `value` to match, so QPI's operator== answers it.
     fixtureTest("a nested class runs its own methods, not a same-named QPI type's", async () => {
         const source = wrap(
             `struct DateAndTime {
@@ -258,8 +234,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
-    // Two operator== overloads of the same arity. The class one compares, the scalar one always
-    // answers false, so picking the wrong body is visible in the result rather than in a diagnostic.
+    // Two operator== overloads of the same arity: the class one compares, the scalar one always answers false, so the wrong body shows in the result.
     const twoOverloads = (members: string) => `struct Two {
     uint64 q;
     Two() { q = 0; }
@@ -293,8 +268,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         });
     }
 
-    // An operator that returns its own class produces an rvalue with no home of its own. The
-    // constructor scales, so a comparison that skipped either body would not answer 1.
+    // An operator returning its own class produces an rvalue with no home; the constructor scales, so skipping either body would not answer 1.
 
     fixtureTest("an operator result is a comparison operand", async () => {
         const source = wrap(
@@ -388,8 +362,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         expect(await run(source)).toBe(1n);
     });
 
-    // Two scalar overloads of one arity. Which one a literal binds to is a conversion-rank question,
-    // not a source-order one, so both declaration orders must answer the same.
+    // Two scalar overloads of one arity: which one a literal binds to is a conversion-rank question, not a source-order one, so both orders answer the same.
     const SCALAR_CANDIDATES = ["uint64 pick(uint64 wide) const { return 1; }", "uint64 pick(sint32 narrow) const { return 2; }"];
 
     for (const { order, members } of bothDeclarationOrders(SCALAR_CANDIDATES)) {
@@ -409,8 +382,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
         });
     }
 
-    // m256i's own operators are x86 intrinsics, so the backend substitutes a byte compare for them.
-    // That substitution has to keep working, and has to keep meaning "all 32 bytes".
+    // m256i's own operators are x86 intrinsics, so the backend substitutes a byte compare; that substitution must keep meaning all 32 bytes.
     fixtureTest("id equality still compares the whole value", async () => {
         const equal = wrap(
             "",

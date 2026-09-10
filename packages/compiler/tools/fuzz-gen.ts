@@ -143,7 +143,7 @@ class Gen {
         return this.visibleVars().filter((v) => v.mutable);
     }
 
-    // ---- expressions ----
+    // expressions
 
     private literal(): string {
         let v: bigint;
@@ -252,7 +252,7 @@ class Gen {
         return `${sig.name}(${callArguments.join(", ")})`;
     }
 
-    // ---- statements ----
+    // statements
 
     private declStmt(indent: string): string {
         const bitDecl = this.chance(0.05);
@@ -400,7 +400,7 @@ class Gen {
         return this.block(indent, depth, 1 + this.int(3));
     }
 
-    // ---- helper functions ----
+    // helper functions
 
     // Helpers see only parameters and locals; later helpers may call earlier ones.
     private helperDef(sig: HelperSig): string {
@@ -447,7 +447,7 @@ class Gen {
         return defs;
     }
 
-    // ---- contract assembly ----
+    // contract assembly
 
     generate(seed: number): FuzzContract {
         const helperDefs = this.genHelpers();

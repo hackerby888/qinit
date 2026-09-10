@@ -121,8 +121,7 @@ export class AbiTypeBuilder {
             return this.struct(unqualifiedName, layout, false, bindings, this.programAnalysis.structOf(type, bindings) ?? undefined);
         }
 
-        // The QPI iterators are opaque handles with a known size; anything else unresolved here would be
-        // laid out as a 4-byte scalar and read back as garbage, so it fails the build instead.
+        // QPI iterators are opaque handles of known size; anything else unresolved would be laid out as a 4-byte scalar and read back as garbage.
         if (!/Iterator$/.test(type.name)) {
             throw new Error(`unknown type '${type.name}' (not a QPI scalar, enum, typedef or struct)`);
         }
@@ -381,8 +380,7 @@ function withLocalStructs(declaration: StructDecl, bindings: TemplateBindings): 
     };
 }
 
-// A template parameter or a named constant reads better as its name; a literal or an arithmetic
-// expression has no name worth showing, so name it by what it resolved to.
+// A template parameter or named constant reads better as its name; a literal or arithmetic expression has none worth showing, so name it by its result.
 function dimensionLabel(type: TypeSpec, value: number): string {
     const named = typeLabel(type);
     return named === "unknown" && Number.isFinite(value) ? String(value) : named;

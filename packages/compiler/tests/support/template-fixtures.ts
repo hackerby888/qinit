@@ -1,6 +1,4 @@
-// Probe contracts for user-declared templates. Every fixture is built so a wrong answer is a
-// different number, not a crash: an instantiation at a narrow or signed T computes something the
-// same body at uint64 would not, and the answer lands in the single `result` field.
+// Probe contracts for user-declared templates: every fixture makes a wrong answer a different number, landing in the single `result` field.
 import { wrapOperatorFixture as wrap } from "./operator-fixtures";
 
 export interface TemplateCase {
@@ -10,8 +8,7 @@ export interface TemplateCase {
     expected: bigint;
 }
 
-// `v * 3 + 1` at 100 is 301 in uint64 and 45 in uint8, so a body that does not carry T's width into
-// its own arithmetic answers 301 for both.
+// `v * 3 + 1` at 100 is 301 in uint64 and 45 in uint8, so a body not carrying T's width into its arithmetic answers 301 for both.
 const WRAP = `template <typename T> struct Wrap {
     T v;
     T scaled() const { return v * 3 + 1; }
@@ -32,8 +29,7 @@ const AMOUNT = `template <typename T> struct Amount {
 
 export const CASES: TemplateCase[] = [
     {
-        // The specialization names `unsigned char` and the instantiation names `uint8`, which is a
-        // typedef of it. Matching on the spelling would miss; matching on what each resolves to hits.
+        // The specialization names `unsigned char` and the instantiation `uint8`, a typedef of it: matching on spelling misses, matching on resolution hits.
         name: "SpecializationSpelledDifferently",
         expected: 12n,
         source: wrap(
@@ -45,8 +41,7 @@ template <> struct Tag<unsigned char> { uint64 id() const { return 2; } };`,
         ),
     },
     {
-        // Two argument lists closing together lex as one `>>`. The inner list has to end there rather
-        // than let a value argument read it as a shift, and the outer list closes on what is left.
+        // Two argument lists closing together lex as one `>>`; the inner list must end there rather than let a value argument read it as a shift.
         name: "NestedAngleBrackets",
         expected: 42007n,
         source: wrap(
@@ -58,8 +53,7 @@ template <> struct Tag<unsigned char> { uint64 id() const { return 2; } };`,
         ),
     },
     {
-        // Both cast spellings name T as their target. The method returns uint64, so nothing but the
-        // cast itself can narrow, and the sum keeps the cast away from the return.
+        // Both cast spellings name T as their target; the method returns uint64, so nothing but the cast can narrow, and the sum keeps it from the return.
         name: "CastToTemplateParameter",
         expected: 45045n,
         source: wrap(
@@ -73,8 +67,7 @@ template <> struct Tag<unsigned char> { uint64 id() const { return 2; } };`,
         ),
     },
     {
-        // `v` is also an enumerator core declares. A class member hides a namespace-scope name of the
-        // same spelling, so the shift has to read the member's own width and signedness.
+        // `v` is also an enumerator core declares; a class member hides a namespace-scope name, so the shift reads the member's own width and signedness.
         name: "MemberNamedLikeConstant",
         expected: 9223372036854775804n,
         source: wrap(
@@ -88,9 +81,7 @@ template <> struct Tag<unsigned char> { uint64 id() const { return 2; } };`,
         ),
     },
     {
-        // The control for the return conversion: no template anywhere, just a method whose declared
-        // return type is narrower than the expression it returns. `100 * 3 + 1` is 301 as an int and
-        // 45 once it converts to uint8.
+        // The control for the return conversion: no template, just a declared return narrower than the expression — 301 as int, 45 once it converts to uint8.
         name: "NarrowReturnNoTemplate",
         expected: 45n,
         source: wrap(
@@ -104,8 +95,7 @@ template <> struct Tag<unsigned char> { uint64 id() const { return 2; } };`,
         ),
     },
     {
-        // The same conversion when the declared return is signed: the low byte of 151 has its top bit
-        // set, so the value comes back negative rather than masked.
+        // The same conversion with a signed declared return: the low byte of 151 has its top bit set, so the value comes back negative rather than masked.
         name: "SignedNarrowReturnNoTemplate",
         expected: 18446744073709551511n,
         source: wrap(
@@ -130,8 +120,7 @@ template <> struct Tag<unsigned char> { uint64 id() const { return 2; } };`,
         ),
     },
     {
-        // The same two instantiations, touched the other way round. A cache that answers with
-        // whichever body compiled first fails exactly one of this pair.
+        // The same two instantiations, touched the other way round. A cache that answers with whichever body compiled first fails exactly one of this pair.
         name: "InstantiationOrder",
         expected: 45301n,
         source: wrap(
@@ -143,8 +132,7 @@ template <> struct Tag<unsigned char> { uint64 id() const { return 2; } };`,
         ),
     },
     {
-        // `>>` on a signed T is arithmetic and on an unsigned T is logical. A body that does not
-        // carry T's signedness picks one rule and applies it to both.
+        // `>>` on a signed T is arithmetic and on an unsigned T is logical. A body that does not carry T's signedness picks one rule and applies it to both.
         name: "SignednessThroughT",
         expected: 9223372036854775800n,
         source: wrap(
@@ -187,8 +175,7 @@ template <> struct Tag<unsigned char> { uint64 id() const { return 2; } };`,
         ),
     },
     {
-        // A contract template spelled like one core declares. The declaration-id fix keys plain
-        // classes by declaration; a template instance is keyed by name and arguments only.
+        // A contract template spelled like one core declares: plain classes key by declaration, a template instance by name and arguments only.
         name: "CoreTemplateNameCollision",
         expected: 12n,
         source: wrap(
@@ -213,8 +200,7 @@ template <> struct Tag<unsigned char> { uint64 id() const { return 2; } };`,
         ),
     },
     {
-        // Explicit specialization sits at file scope: specializing inside a class is not valid C++,
-        // and a fixture Clang rejects would read as a gap in our compiler.
+        // Explicit specialization sits at file scope: specializing inside a class is not valid C++, and a fixture Clang rejects would read as our gap.
         name: "ExplicitSpecialization",
         expected: 12n,
         source: wrap(
@@ -269,8 +255,7 @@ template <> struct Tag<uint8> { uint64 id() const { return 2; } };`,
         ),
     },
     {
-        // A converting constructor inside a template: the scalar has to convert through the
-        // instantiation's own T, not through whichever instantiation ranked first.
+        // A converting constructor inside a template: the scalar converts through the instantiation's own T, not whichever instantiation ranked first.
         name: "TemplateConversionConstructor",
         expected: 11n,
         source: wrap(

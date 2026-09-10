@@ -1,5 +1,4 @@
-// Running one probe contract through both compilers: ours in the simulator, Clang's from the same
-// source, so an expected value cannot be wrong in both places at once.
+// Running one probe contract through both compilers — ours in the simulator, Clang's from the same source — so an expected value cannot be wrong in both.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

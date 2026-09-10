@@ -5,8 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const SOURCE_ROOT = fileURLToPath(new URL("../../src/", import.meta.url));
 
-// The two bundler entry points. Everything else belongs to a layer directory, so the src root cannot
-// become a dumping ground the layer rules below are structurally unable to police.
+// The two bundler entry points. Everything else belongs to a layer directory, so the src root cannot become a dumping ground the rules cannot police.
 const ROOT_ENTRIES = new Set(["index.ts", "browser.ts"]);
 
 // Lowest first. `generated` holds committed build artefacts and depends on nothing.
@@ -141,8 +140,7 @@ describe("compiler module boundaries", () => {
         expect(cycles).toEqual([]);
     });
 
-    // Cross-layer cycles are the ones that matter; the type-only cycles inside a single layer are the
-    // established split-class pattern, where a class hands itself back to the parts it delegates to.
+    // Cross-layer cycles are the ones that matter; type-only cycles inside one layer are the split-class pattern, where a class delegates back to its parts.
     test("keeps type-only cycles inside a single layer", () => {
         const crossLayer = findCycles(buildGraph(sourceFiles, true))
             .filter((cycle) => new Set(cycle.map(sourceLayer)).size > 1)

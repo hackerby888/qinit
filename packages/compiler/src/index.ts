@@ -1,5 +1,4 @@
-// Stable public surface for @qinit/compiler — the in-process TypeScript backend, paired with
-// buildContractWithClang in @qinit/build. The compiler itself lives under ./driver and ./backend.
+// Stable public surface for @qinit/compiler — the in-process TypeScript backend, paired with buildContractWithClang. The compiler lives under ./driver.
 import { readFileSync } from "node:fs";
 import { compileContract } from "./driver/compile-contract";
 import { compileGtest } from "./driver/gtest";
@@ -26,8 +25,7 @@ export type { ParseAstResult } from "./driver/parse-ast";
 export { loadQpiHeader, withPrelude } from "./driver/header";
 export { snapshotInputFiles } from "./driver/qpi/snapshot";
 
-// Accepts source text or a contract path, so one options object drives this backend or buildContractWithClang.
-// `qpiHeader` wins over `corePath`; with neither, loadQpiHeader falls back to QINIT_CORE.
+// Accepts source text or a contract path, so one options object drives either backend; `qpiHeader` wins over `corePath`, and neither falls back to QINIT_CORE.
 export type TypeScriptCompileOptions = Omit<CompileOptions, "source"> & {
     source?: string;
     contractPath?: string;

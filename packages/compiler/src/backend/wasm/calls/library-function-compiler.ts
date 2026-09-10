@@ -104,8 +104,7 @@ export function deduceLibraryFunctionBindings(
     const argType = (expression: Expression): TypeSpec | null => {
         let type = context.lowering.resolveExpressionAddress(context, expression)?.type ?? null;
         if (!type) {
-            // A computed uint128 rvalue has no lvalue address until call lowering materializes it,
-            // but template deduction still sees its class type (`div(a * b, c)` in GGWP/Qswap).
+            // A computed uint128 rvalue has no lvalue address until call lowering materializes it, but template deduction still sees its class type.
             if (context.lowering.isU128Expr(context, expression)) return { kind: AstKind.NAME, name: "uint128_t" };
             const scalar = context.lowering.scalarTypeInfo(context, expression);
             if (!scalar) return null;

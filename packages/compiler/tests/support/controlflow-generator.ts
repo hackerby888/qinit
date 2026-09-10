@@ -1,10 +1,5 @@
-// Random control-flow programs for the differential fuzz. One AST is rendered twice — once as a QPI
-// entry body (locals live in a `_locals` struct) and once as plain C++ for the gtest — so clang compiles
-// the reference and Qinit compiles the contract from the same program, and any divergence is a codegen
-// difference rather than a disagreement with a number someone typed.
-//
-// Pure: no IO, no Monaco, no engine. Unit-tested, and a failing seed can be printed and shrunk without
-// rebuilding anything.
+// Random control-flow programs for the differential fuzz: one AST rendered twice — a QPI entry body and plain C++ — so divergence is a codegen difference.
+// Pure: no IO, no Monaco, no engine, so a failing seed can be printed and shrunk without rebuilding anything.
 
 export interface GeneratedProgram {
     seed: number;
@@ -18,8 +13,7 @@ export interface GeneratedProgram {
     steps: number;
 }
 
-// Same xorshift the container fuzz uses (tests/support/container-harness.ts), so a seed means the same
-// thing across both suites.
+// Same xorshift the container fuzz uses (tests/support/container-harness.ts), so a seed means the same thing across both suites.
 function rng(seed: number): () => number {
     let state = (seed ^ 0x9e3779b9) >>> 0;
     return () => {
@@ -34,8 +28,7 @@ const MAX_DEPTH = 3;
 // Keeps the product of nested loop bounds small enough that no program can run long, whatever the seed.
 const STEP_BUDGET = 4096;
 
-// Counters shared by every nested scope. They must not be copied when a loop descends, or the inner
-// scopes' work never reaches the budget the outer scope is checking against.
+// Counters shared by every nested scope: they must not be copied when a loop descends, or inner scopes' work never reaches the outer budget.
 interface Budget {
     steps: number;
     varCount: number;
@@ -53,8 +46,7 @@ interface Ctx {
 
 const pick = <T>(context: Ctx, items: readonly T[]): T => items[context.next() % items.length];
 
-// Only + - * and comparisons: `/` and `%` are prohibited by qpi.h, and both trap on zero. uint64
-// wraparound is defined, so no expression here can be undefined behaviour.
+// Only + - * and comparisons: `/` and `%` are prohibited by qpi.h and both trap on zero. uint64 wraparound is defined, so nothing here is undefined.
 function expression(context: Ctx, depth = 0): string {
     const atoms = ["sum", ...context.loopVars, String(context.next() % 17), String(context.next() % 5)];
     if (depth >= 2) {
@@ -74,8 +66,7 @@ function condition(context: Ctx, depth = 0): string {
         case 2:
         case 3:
             return compare();
-        // A logical operator whose right side is itself one forces the lowering's hoisted-temporary path
-        // rather than its inline if-expression path.
+        // A logical operator whose right side is itself one forces the lowering's hoisted-temporary path rather than its inline if-expression path.
         case 4:
             return `(${compare()} ${pick(context, ["&&", "||"])} ${condition(context, depth + 1)})`;
         default:
@@ -117,8 +108,7 @@ function statement(context: Ctx, inLoop: boolean): string[] {
 
 function loop(context: Ctx, kind: "for" | "while" | "do"): string[] {
     const variable = `v${context.budget.varCount++}`;
-    // The bound is a literal and is capped against what the enclosing loops already multiply by, so the
-    // whole program stays inside STEP_BUDGET no matter how it nests.
+    // The bound is a literal capped against what the enclosing loops already multiply by, so the whole program stays inside STEP_BUDGET however it nests.
     const headroom = Math.max(1, Math.floor(STEP_BUDGET / Math.max(1, context.factor)));
     const bound = 1 + (context.next() % Math.max(1, Math.min(6, headroom)));
 
@@ -127,8 +117,7 @@ function loop(context: Ctx, kind: "for" | "while" | "do"): string[] {
     context.budget.steps += context.factor * bound;
     const body = block(inner, true);
 
-    // `continue` in a for-loop is always safe because the update still runs. In while/do it can only go
-    // after the increment, or the loop never advances.
+    // `continue` in a for-loop is always safe because the update still runs; in while/do it can only go after the increment, or the loop never advances.
     const jump: string[] = [];
     const roll = context.next() % 4;
     if (roll === 0) {

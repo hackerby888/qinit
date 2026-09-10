@@ -65,9 +65,7 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         expect(logs.every((l) => l.hex.length === 34)).toBe(true);
     });
 
-    // Core stamps the contract index into the payload before logging and its `logMessage` copies from
-    // that pointer, so the recorded bytes — and the log digest taken over them — carry the index, not
-    // whatever the contract left there. Everything behind that word is the contract's and must survive.
+    // Core stamps the contract index into the payload before logging and copies from that pointer, so the recorded bytes carry the index, not the contract's.
     test("every record carries the stamped contract index, whatever the contract wrote there", async () => {
         const source = SOURCE.replace("locals.message._type = 9;", "locals.message._contractIndex = 7;\n    locals.message._type = 9;");
         const result = await compileContractWithTypeScript({
@@ -86,15 +84,13 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         const logs = sim.getTrace().entries.at(-1)?.logs ?? [];
 
         expect(logs).toHaveLength(5);
-        // Slot 28 little-endian. The contract's own 7 never reaches a record: the stamp overwrites it on
-        // every call, which is exactly why core clears the word afterwards.
+        // Slot 28 little-endian. The contract's own 7 never reaches a record: the stamp overwrites it, which is why core clears the word afterwards.
         expect(logs.map((l) => l.hex.slice(0, 8))).toEqual(["1c000000", "1c000000", "1c000000", "1c000000", "1c000000"]);
         // Everything behind the header word is the contract's and has to survive all five logs.
         expect(new Set(logs.map((l) => l.hex.slice(8))).size).toBe(1);
     });
 
-    // The other half of core's contract: the stamp is cleared once the record is taken, so a contract
-    // reading the word back sees a zero rather than its own index.
+    // The other half of core's contract: the stamp is cleared once the record is taken, so a contract reading the word back sees zero, not its index.
     test("the host clears the leading word once the record is taken", async () => {
         const source = SOURCE.replace("uint32 _contractIndex; uint32 _type;", "uint32 _contractIndex; uint32 seen;")
             .replace("locals.message._type = 9;", "locals.message._contractIndex = 7;\n    locals.message.seen = 9;")
@@ -117,8 +113,7 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         expect(logs).toHaveLength(5);
         // The record carries the stamp, never the contract's 7.
         expect(logs[0]!.hex.slice(0, 8)).toBe("1c000000");
-        // `seen` is read from the header word inside the contract, between the two logs: it holds what the
-        // clear left behind. A 7 — or the stamp — here would mean the word was never cleared.
+        // `seen` is read from the header word between the two logs: it holds what the clear left, so a 7 or the stamp means the word was never cleared.
         expect(logs[1]!.hex.slice(8, 16)).toBe("00000000");
     });
 
@@ -142,8 +137,7 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
         expect(new DataView(records.buffer).getUint32(26, true)).toBe(28);
     });
 
-    // Analysis reports the misplaced header word as a fidelity finding; the compile driver is what
-    // turns it into a rejection, so the corpus can still build a known-violating core contract.
+    // Analysis reports the misplaced header word as a fidelity finding; the compile driver turns it into a rejection, so the corpus can still build core's.
     test("rejects a payload that parks data in the reserved word unless strict is off", async () => {
         const source = SOURCE.replace("uint32 _contractIndex; uint32 _type;", "uint64 counter;");
         const options = {

@@ -1,7 +1,6 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { HAS_CORE } from "../../../../test-utils/paths";
-// Constexpr folding versus runtime evaluation over pinned seeds from `tools/fuzz-gen-constexpr.ts`. The two
-// evaluators are independent implementations, so neither needs a hand-written reference to check against.
+// Constexpr folding versus runtime evaluation over pinned seeds; the two evaluators are independent, so neither needs a hand-written reference.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { generate } from "../../tools/fuzz-gen-constexpr";

@@ -73,8 +73,7 @@ export function isLiteral(expression: Expression): boolean {
     );
 }
 
-// The scalar name a cast narrows to, or undefined when it is not a plain scalar — narrowConstant then
-// leaves the value alone, matching the emitter, which also only narrows resolvable scalar targets.
+// The scalar name a cast narrows to, or undefined when it is not a plain scalar — narrowConstant then leaves the value alone, matching the emitter.
 function scalarTypeName(type: TypeSpec | undefined): string | undefined {
     if (!type) return undefined;
     const unwrapped = unwrapType(type);

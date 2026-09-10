@@ -1,6 +1,4 @@
-// Names core declares as plain structs with method bodies. A contract nesting one of these shadows it
-// in C++, so the compiler must keep the two apart; enumerating from core keeps the list honest as
-// upstream moves instead of freezing today's names into a test.
+// Names core declares as plain structs with method bodies: a contract nesting one shadows it in C++, and enumerating from core keeps the list honest.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -28,12 +26,7 @@ function headerFiles(root: string): string[] {
     return out;
 }
 
-/**
- * Plain (non-template) struct names whose body declares a method with an implementation.
- *
- * A template is excluded: nesting `struct Array` in a contract shadows the template itself, which is a
- * different question from the method-table collision this list is for.
- */
+/** Plain (non-template) struct names whose body declares an implemented method; templates are excluded, since nesting one is a different question. */
 export function coreStructNamesWithMethods(corePath: string): string[] {
     const found = new Set<string>();
 
@@ -66,12 +59,7 @@ export function coreStructNamesWithMethods(corePath: string): string[] {
     return [...found].sort();
 }
 
-/**
- * Names core declares as class templates whose body declares a method with an implementation.
- *
- * A contract nesting one of these shadows the template itself. The instance is keyed by name and
- * arguments, so the contract's own instantiation and core's can claim the same key.
- */
+/** Names core declares as class templates with an implemented method: the instance is keyed by name and arguments, so a contract's own can claim the key. */
 export function coreTemplateNamesWithMethods(corePath: string): string[] {
     const found = new Set<string>();
 
@@ -83,8 +71,7 @@ export function coreTemplateNamesWithMethods(corePath: string): string[] {
                 continue;
             }
 
-            // The declaration may sit on the template line or on one of the next few, when the
-            // parameter list wraps.
+            // The declaration may sit on the template line or on one of the next few, when the parameter list wraps.
             const window = lines.slice(index, index + 4).join(" ");
             const declaration = /\b(?:struct|class)\s+(\w+)/.exec(window);
 

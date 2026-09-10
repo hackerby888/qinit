@@ -1,5 +1,4 @@
-// Standard core-lite ContractTesting fixture used by compiler differential tests. The convenience methods
-// are ordinary fixture members, so the emitted source also builds with core-lite's native gtest harness.
+// Standard core-lite ContractTesting fixture used by compiler differential tests; the convenience methods are ordinary members, so it builds natively too.
 export function coreGtest(contractType: string, tests: string): string {
     return `#define NO_UEFI
 #include "contract_testing.h"

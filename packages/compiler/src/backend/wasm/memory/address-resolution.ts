@@ -3,7 +3,7 @@ import { ProgramAnalysis } from "../../../semantics/program-analysis";
 import { StructLayout, FieldLayout, FunctionEmissionContext, ResolvedAddress, EMPTY_TEMPLATE_BINDINGS, ResolvedLvalue } from "../types";
 import type { TypeSpec, Expression, StructDecl } from "../../../ast";
 import { addressAtOffset } from "./memory-operations";
-// ---- lvalue addressing ----
+// lvalue addressing
 export function isStateAccessor(expression: Expression): boolean {
     return (
         expression.kind === AstKind.CALL &&
@@ -164,8 +164,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
             if (fieldLayout)
                 return {
                     addr: addressAtOffset(thisAddr, fieldLayout.offset),
-                    // The layout keeps the field as declared, so a member typed by a template
-                    // parameter arrives as that parameter until the instance's bindings are applied.
+                    // The layout keeps the field as declared, so a member typed by a template parameter arrives as that parameter until bindings apply.
                     type: context.programAnalysis.substInBindings(fieldLayout.type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
                     size: fieldLayout.size,
                     layout: context.programAnalysis.layoutOfType(fieldLayout.type, context.thisBind),
@@ -224,8 +223,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
             if (!inner && !materialized) return null;
             const address = inner?.addr ?? materialized!;
             const templateBindings = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
-            // A cast to T* produces a pointer value at the same wasm32 address. Keep the pointer wrapper so
-            // subsequent `+ n`, subscripting, and unary `*` scale by sizeof(T) and load the pointee.
+            // A cast to T* produces a pointer value at the same wasm32 address; keep the wrapper so `+ n`, subscripting and unary `*` scale by sizeof(T).
             if (ci.type.kind === AstKind.POINTER) {
                 return { addr: address, type: ci.type, size: 4, layout: null };
             }

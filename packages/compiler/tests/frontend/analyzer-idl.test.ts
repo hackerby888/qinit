@@ -705,8 +705,7 @@ struct InvalidExpressionLayout : public ContractBase {
     expect(result.idl).toBeUndefined();
 });
 
-// The message quotes the dimension it rejected, so the author can see which number was wrong. A literal
-// used to print as 'unknown', which is every declaration anyone actually writes.
+// The message quotes the dimension it rejected, so the author sees which number was wrong. A literal used to print as 'unknown'.
 test("rejects invalid QPI container dimensions", () => {
     for (const [field, label, requirement, quoted] of [
         ["Array<uint64, 3> invalid;", "Array length", "positive power-of-two", "'3'"],

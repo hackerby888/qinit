@@ -277,8 +277,7 @@ export interface QpiDrift {
     changed: QpiHeaderSignaturePart[];
 }
 
-// Only wasmAbi drift changes what compiled contracts import from the host; the other parts grow with every added
-// contract, oracle interface, or protocol constant and are safe to trail behind the live core.
+// Only wasmAbi drift changes what compiled contracts import from the host; the other parts grow with every added contract and are safe to trail the live core.
 export function classifyQpiDrift(liveHeader: string, pinnedHeader: string): QpiDrift {
     if (qpiHeadersEquivalent(liveHeader, pinnedHeader)) {
         return { kind: QpiDriftKind.EQUIVALENT, changed: [] };

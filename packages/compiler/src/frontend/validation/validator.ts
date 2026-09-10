@@ -44,7 +44,7 @@ export class Validator {
         this.seen.add(key);
         this.diagnostics.push({ severity: DiagnosticSeverity.ERROR, message, span: sp });
     }
-    // ---- Top level ----
+    // Top level
     runTopLevel(declarations: Declaration[]): void {
         return declarationValidator.runTopLevel(this, declarations);
     }
@@ -52,7 +52,7 @@ export class Validator {
     checkGlobalVariable(variableDeclaration: VariableDecl): void {
         return declarationValidator.checkGlobalVariable(this, variableDeclaration);
     }
-    // ---- Structs ----
+    // Structs
     checkStruct(structDeclaration: StructDecl): void {
         return declarationValidator.checkStruct(this, structDeclaration);
     }
@@ -60,7 +60,7 @@ export class Validator {
     checkRecursion(structDeclaration: StructDecl, fnBodies: Map<string, FunctionDecl>): void {
         return functionValidator.checkRecursion(this, structDeclaration, fnBodies);
     }
-    // ---- Function bodies ----
+    // Function bodies
     checkFunctionBody(fn: FunctionDecl, memberFns: Map<string, FnSig>): void {
         return functionValidator.checkFunctionBody(this, fn, memberFns);
     }
@@ -119,7 +119,7 @@ export class Validator {
     checkSwitchCases(body: Statement, allLocals: Set<string>): void {
         return controlFlowValidator.checkSwitchCases(this, body, allLocals);
     }
-    // ---- Expressions ----
+    // Expressions
     checkExpression(
         root: Expression,
         memberFns: Map<string, FnSig>,
@@ -167,7 +167,7 @@ export class Validator {
     ): boolean {
         return expressionValidator.isWritableReferenceArgument(this, argument, constParams, lookup);
     }
-    // ---- Generic walkers ----
+    // Generic walkers
     walkStatements(statement: Statement, visit: (statement: Statement) => void): void {
         return controlFlowValidator.walkStatements(this, statement, visit);
     }

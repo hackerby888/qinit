@@ -3,7 +3,7 @@ import type { Declaration } from "./declarations";
 import type { Expression } from "./expressions";
 import type { Span } from "./source-location";
 
-// ---- Statements ----
+// Statements
 export type Statement =
     | {
           kind: AstKind.EXPRESSION;

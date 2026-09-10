@@ -2,7 +2,7 @@ import { AssignOp, AstKind, BinaryOp, UnaryOp, UpdateOp } from "../shared/enums"
 import type { Span } from "./source-location";
 import type { TypeSpec } from "./types";
 
-// ---- Expressions ----
+// Expressions
 export type Expression =
     // Literals
     | {

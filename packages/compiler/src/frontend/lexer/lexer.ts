@@ -9,7 +9,7 @@ import * as operatorLexer from "./operator-lexer";
 import * as commentLexer from "./comment-lexer";
 import * as typeKeywordCollapse from "./type-keyword-collapse";
 
-// ---- Lexer ----
+// Lexer
 export class Lexer {
     src: string;
     pos: number = 0;

@@ -4,7 +4,7 @@ import type { Span } from "./source-location";
 import type { Statement } from "./statements";
 import type { TemplateParam, TypeSpec } from "./types";
 
-// ---- Declarations (top-level and member) ----
+// Declarations (top-level and member)
 export type Declaration =
     // Struct/class
     | StructDecl

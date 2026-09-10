@@ -77,7 +77,7 @@ class Gen {
         return `${prefix}${this.nameCounter++}`;
     }
 
-    // ---- scalar layer (uint64-typed material for counts, conditions, limbs) ----
+    // scalar layer (uint64-typed material for counts, conditions, limbs)
 
     private scalarLeaf(): string {
         const r = this.next();
@@ -120,7 +120,7 @@ class Gen {
         return `(${this.u128Expr(depth)} ${operator} ${this.u128Expr(depth)})`;
     }
 
-    // ---- uint128 layer ----
+    // uint128 layer
 
     // Cast shift counts to uint128 so the member operator wins overload resolution.
     private shiftCount(): string {
@@ -165,7 +165,7 @@ class Gen {
         return this.u128Leaf();
     }
 
-    // ---- statements ----
+    // statements
 
     private u128AssignStmt(indent: string): string {
         const v = this.pick(this.u128Vars);
@@ -239,7 +239,7 @@ class Gen {
         return this.forStmt(indent, depth);
     }
 
-    // ---- contract assembly ----
+    // contract assembly
 
     generate(seed: number): FuzzContract {
         this.stmtBudget = 24;

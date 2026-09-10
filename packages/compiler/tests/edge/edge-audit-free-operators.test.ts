@@ -1,11 +1,5 @@
-// An operator a type does not declare as a member is still resolvable: C++ finds a non-member candidate,
-// which is the only way to give a comparison to a type you do not own (QPI::Asset is a bare aggregate, so
-// Nostromo declares `operator==` for it at namespace scope). Both non-member spellings are covered here —
-// namespace scope and `friend` — because they differ only in where they are written.
-//
-// Every row runs the contract rather than only compiling it. `operator==` is declared many times over at
-// global scope (m256i alone contributes four), and picking the wrong candidate still compiles: it answers
-// a two-word struct with the 32-byte comparison and is simply always false.
+// An operator a type does not declare as a member is resolvable through a non-member candidate — the only way to add a comparison to a type you do not own.
+// Every row runs the contract, not just compiles it: `operator==` is declared many times globally, and the wrong candidate compiles and is always false.
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -54,8 +48,7 @@ const FREE = `${PAIR}
 inline bool operator==(const Pair& l, const Pair& r) { return l.a == r.a; }`;
 const FRIEND = `struct Pair { uint64 a;
   friend bool operator==(const Pair& l, const Pair& r) { return l.a == r.a; } };`;
-// A member and a non-member for the same operands; C++ prefers neither by spelling, but a member is what
-// this backend resolved before non-members existed, so the row pins that it still wins.
+// A member and a non-member for the same operands: C++ prefers neither by spelling, but a member is what this backend resolved before, so the row pins it.
 const MEMBER_AND_FREE = `struct Pair { uint64 a;
   bool operator==(const Pair& o) const { return true; } };
 inline bool operator==(const Pair& l, const Pair& r) { return false; }`;
@@ -96,8 +89,7 @@ describe.skipIf(!HAS_CORE)("edge audit — non-member operators", () => {
         expect(await evaluate(MEMBER_AND_FREE, differ + "state.mut().result = (x == y) ? 1 : 0;")).toBe(1n);
     });
 
-    // The 32-byte byte-wise comparison stands in for m256i's operators. A struct that declares its own
-    // must get that one, or a wide type silently compares by bytes it never asked to compare.
+    // The 32-byte byte-wise comparison stands in for m256i's operators; a struct declaring its own must get that one, or a wide type compares by raw bytes.
     test("a declared operator wins over the byte-wise substitution at 32 bytes", async () => {
         const body = "Wide x; x.a = 5; x.b = 1; Wide y; y.a = 5; y.b = 2; state.mut().result = (x == y) ? 1 : 0;";
         expect(await evaluate(WIDE, body)).toBe(1n);

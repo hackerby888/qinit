@@ -24,8 +24,7 @@ export const SCALAR_SIZE: Record<string, number> = {
     __m256i: 32,
     auto: 8, // `auto` locals in qpi.h bodies are integer counters (pointer cases carry a trailing *)
     char: 1,
-    // Native C spellings. Widths are the wasm32-wasi ones a contract actually builds against, which is
-    // ILP32 — `long` is 4 bytes here, not the 8 an x86 habit would assume.
+    // Native C spellings. Widths are the wasm32-wasi (ILP32) ones a contract builds against — `long` is 4 bytes here, not the 8 an x86 habit assumes.
     short: 2,
     "short int": 2,
     "signed short int": 2,
@@ -67,8 +66,7 @@ export const SIGNED_SCALARS = new Set([
     "signed long int",
 ]);
 
-// Constant-fold mirror of the backend's narrowCastIr: same widths, same signedness, over bigints. The two
-// must agree or a folded constant disagrees with the value the emitter produces for the same cast.
+// Constant-fold mirror of the backend's narrowCastIr: same widths and signedness over bigints, or a folded constant disagrees with the emitter's value.
 export function narrowConstant(value: bigint, typeName: string | undefined): bigint {
     if (!typeName) return value;
     const byteWidth = SCALAR_SIZE[typeName];

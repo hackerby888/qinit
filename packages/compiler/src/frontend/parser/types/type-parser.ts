@@ -98,8 +98,7 @@ export class TypeParser {
         // Check for template arguments: Name<...>
         if (this.parser.state.peek().kind === TokenKind.L_ANGLE) {
             this.parser.state.next();
-            // Inside an argument list `>` and `>>` close it rather than compare or shift, so a value
-            // argument stops at the list's own end: `Cell<Array<uint64, 2>>` closes twice.
+            // Inside an argument list `>` and `>>` close it rather than compare or shift, so a value argument stops at the list's own end, closing twice.
             this.parser.state.templateAngleDepth++;
             const callArguments: TypeSpec[] = [];
             while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_ANGLE) {
@@ -167,8 +166,7 @@ export class TypeParser {
         let index = 1;
         while (this.parser.state.peek(index).kind === TokenKind.D_COLON && this.parser.state.peek(index + 1).kind === TokenKind.IDENTIFIER) index += 2;
         const operator = this.parser.state.peek(index).kind;
-        // `>>` closes two argument lists here, so it never continues an expression: in `Cell<Cell<T>>`
-        // the inner `T` is a type, not the left side of a shift. C++ needs parentheses to shift here.
+        // `>>` closes two argument lists here and never continues an expression: in `Cell<Cell<T>>` the inner `T` is a type. C++ needs parentheses to shift.
         if (
             operator !== TokenKind.STAR &&
             operator !== TokenKind.PLUS &&

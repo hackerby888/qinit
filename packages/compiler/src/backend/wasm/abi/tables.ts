@@ -32,8 +32,7 @@ export const SYSPROC_IO: Record<
         typedIO: true,
     },
 };
-// Native C spellings, as opposed to the fixed-width QPI ones. They lower correctly at their wasm32
-// widths; this set only drives the advisory that says a contract is using them.
+// Native C spellings, as opposed to the fixed-width QPI ones. They lower correctly at wasm32 widths; this set only drives the advisory about using them.
 export const C_SCALAR_NAMES = new Set([
     "char",
     "short",
@@ -51,11 +50,9 @@ export const C_SCALAR_NAMES = new Set([
     "size_t",
     "wchar_t",
 ]);
-// QPI safe-math names whose result type follows their arguments. Their bodies are compiled from the
-// authoritative qpi.h/math_lib.h sources; this set is used only for type inference.
+// QPI safe-math names whose result type follows their arguments. Bodies come from qpi.h/math_lib.h; this set is used only for type inference.
 export const MATH_INTRINSIC_NAMES = new Set(["div", "sdiv", "mod", "min", "max", "abs", "sadd", "ssub", "smul"]);
-// Platform free-function namespaces whose bodies must lower without fidelity diagnostics.
-// Free helpers (QPI::div, math_lib::max, …); QPI context methods come from parsed core wrapper bodies.
+// Platform free-function namespaces whose bodies must lower without fidelity diagnostics — QPI::div, math_lib::max; context methods come from wrapper bodies.
 export const AUTHORITATIVE_NAMESPACES = new Set(["QPI", "math_lib"]);
 /** True when a qualified symbol lives under an authoritative platform namespace (QPI::div, math_lib::max). */
 export function isAuthoritativeSymbol(qualifiedName: string): boolean {

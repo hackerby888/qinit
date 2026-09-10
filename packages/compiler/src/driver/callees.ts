@@ -60,8 +60,7 @@ export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): 
             const isContract =
                 struct.bases?.some((base) => base.kind === AstKind.NAME && base.name === "ContractBase") || struct.name === "CONTRACT_STATE_TYPE";
             if (!isContract) {
-                // A callee's file-scope struct is visible to the caller in core's single translation unit,
-                // so it must resolve here too, or a copy through it lowers at the wrong size.
+                // A callee's file-scope struct is visible to the caller in core's single translation unit, so it must resolve here or copies lower wrong.
                 if (struct.name) {
                     contractStructs.set(struct.name, struct);
                     typeOwners.set(struct.name, callee.name);

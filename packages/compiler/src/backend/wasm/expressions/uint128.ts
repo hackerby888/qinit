@@ -129,8 +129,7 @@ export function sourceU128Result(
     if (!result) throw new Error(`void uint128_t::${method} used as a value`);
     return result;
 }
-// Materialize a uint128 expression into a 16-byte slot (low@0, high@8). Arithmetic and
-// comparisons are instantiated from the authoritative platform/uint128.h method bodies.
+// Materialize a uint128 expression into a 16-byte slot (low@0, high@8); arithmetic and comparisons come from platform/uint128.h's own method bodies.
 export function lowerUint128Expression(context: FunctionEmissionContext, expression: Expression): watIr.WatNode {
     if (expression.kind === AstKind.PAREN) return lowerUint128Expression(context, expression.expression);
     if (expression.kind === AstKind.INITIALIZER_LIST) return constructU128(context, expression.expressions);
@@ -187,8 +186,7 @@ export function lowerUint128Expression(context: FunctionEmissionContext, express
         return destination;
     }
     if (expression.kind === AstKind.BINARY_OP) {
-        // The pinned uint128_t class has no |/^ overloads. Keep these representation-level bitwise
-        // operations as compiler primitives; every defined class operator below is source-compiled.
+        // The pinned uint128_t class has no |/^ overloads, so these stay compiler primitives; every defined class operator below is source-compiled.
         if (expression.operator === BinaryOp.BITWISE_OR || expression.operator === BinaryOp.BITWISE_XOR) {
             const destination = context.lowering.allocateScratchSlotNode(context, 16);
             const left = lowerUint128Expression(context, expression.left);

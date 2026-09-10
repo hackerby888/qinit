@@ -62,8 +62,7 @@ describe.skipIf(!HAS_CORE)("edge audit — typed constexpr semantics", () => {
         expect(await run(source)).toBe(123n);
     });
 
-    // The shadow is scoped to the contract: QPI::Ch spells the letters, and a member named after one of
-    // them must not change what Ch::K means anywhere else in the same contract.
+    // The shadow is scoped to the contract: QPI::Ch spells the letters, and a member named after one must not change what Ch::K means elsewhere in it.
     test("shadowing a qpi.h constant leaves its qualified name alone", async () => {
         const shadowed = `static constexpr uint64 K = 123;`;
         expect(await run(wrap(shadowed, `state.mut().result = Ch::K;`))).toBe(75n);
@@ -78,8 +77,7 @@ describe.skipIf(!HAS_CORE)("edge audit — typed constexpr semantics", () => {
     });
 });
 
-// qpi.h reads its own namespace constants unqualified — NULL_INDEX alone appears 151 times as the
-// container "not found" sentinel. A contract constant sharing the name must not rebind any of them.
+// qpi.h reads its own namespace constants unqualified — NULL_INDEX alone appears 151 times — so a contract constant sharing the name must not rebind any.
 describe.skipIf(!HAS_CORE)("edge audit — a contract constant cannot rebind qpi.h's own", () => {
     const withMap = (constant: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};

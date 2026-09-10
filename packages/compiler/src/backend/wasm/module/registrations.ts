@@ -86,8 +86,7 @@ export function extractRegistrations(contract: StructDecl, programAnalysis: Prog
         const itArg = expression.callArguments[1];
         const evaluated = evalRegistrationConstant(itArg, programAnalysis);
         let inputType = evaluated === null ? 0 : Number(evaluated);
-        // Use the synthetic procedure ID for oracle-reply notifications. memberFnLine holds the raw-source
-        // line, which is what __LINE__ resolves to inside qpi's PUBLIC/PRIVATE_PROCEDURE macros.
+        // Use the synthetic procedure ID for oracle-reply notifications; memberFnLine holds the raw-source line __LINE__ resolves to inside the macros.
         if (isNotif && fnName) {
             inputType = (programAnalysis.memberFnLine.get(fnName) ?? 0) & 0xffff;
         }

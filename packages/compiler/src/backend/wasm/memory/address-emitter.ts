@@ -277,8 +277,7 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
             }
         }
     }
-    // a call to a helper that returns an aggregate by value (id liquidityPov(...)) → materialize into a
-    // slot. A template helper is the same call with explicit arguments, so div<uint128>(a, b) lands here too.
+    // A call to a helper returning an aggregate by value materializes into a slot; a template helper is the same call with explicit arguments.
     if ((expression.kind === AstKind.CALL || expression.kind === AstKind.TEMPLATE_CALL) && expression.callee.kind === AstKind.IDENTIFIER) {
         const call = expression as Expression & {
             kind: AstKind.CALL;
@@ -286,8 +285,7 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
         const hinfo = context.lowering.lookupHelper(context, call);
         if (hinfo?.retAgg) return context.lowering.emitAggHelperCall(context, call, hinfo);
     }
-    // An operator that returns its own class produces an rvalue with no home, exactly like the
-    // uint128 branch above but without naming a type: the slot the body wrote into is its address.
+    // An operator returning its own class produces an rvalue with no home, like the uint128 branch above but unnamed: the slot the body wrote is its address.
     if (expression.kind === AstKind.BINARY_OP) {
         const cached = context.materializedCalls?.get(expression);
         if (cached) return cached.addr;
@@ -307,12 +305,8 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
             return operatorAddress;
         }
     }
-    // `Type(args)` constructs Type, through whatever constructor the class declares. It sits after
-    // the helper lookup so a function of the same name wins the spelling, the way C++ name hiding
-    // resolves it.
-    // `Type<Args>(...)` names the same construction as `Type(...)`, just with the arguments written
-    // out. Only a declared class template spells one: `reinterpret_cast<T>(x)` has the same shape and
-    // is a cast, not a construction.
+    // `Type(args)` constructs Type through the constructor the class declares, after the helper lookup so a same-named function wins, as C++ name hiding does.
+    // `Type<Args>(...)` is the same construction with arguments written out; only a declared class template spells one, since `reinterpret_cast<T>(x)` matches.
     const constructsTemplate =
         expression.kind === AstKind.TEMPLATE_CALL &&
         expression.callee.kind === AstKind.IDENTIFIER &&

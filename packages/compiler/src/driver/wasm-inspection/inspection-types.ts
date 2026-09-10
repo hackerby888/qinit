@@ -2,8 +2,7 @@ import type { LhostValueType } from "@qinit/core";
 import { DiagnosticSeverity, InspectedMemoryMode, WasmExternalKind, WasmMemorySource, WasmModuleMemoryMode, WasmValueType } from "../../shared/enums";
 import type { LhostAbiSpec } from "../../backend/wasm/lhost";
 
-// Static inspection for the dynamic-contract Wasm ABI.
-// Parse bytes without instantiation so signature checks stay stable across engines.
+// Static inspection for the dynamic-contract Wasm ABI: parse bytes without instantiation so signature checks stay stable across engines.
 export interface WasmFunctionSignature {
     readonly params: readonly WasmValueType[];
     readonly results: readonly WasmValueType[];
@@ -74,8 +73,7 @@ export const I64 = WasmValueType.I64;
 
 export { DiagnosticSeverity, InspectedMemoryMode, WasmExternalKind, WasmMemorySource, WasmModuleMemoryMode, WasmValueType };
 
-// Enabled by both JavaScript engines and WAMR's interpreter in the release node.
-// Keep this deliberately narrow; every other detected post-MVP feature fails closed.
+// Enabled by both JavaScript engines and WAMR's interpreter in the release node. Keep deliberately narrow; every other post-MVP feature fails closed.
 export const PORTABLE_FEATURES = new Set(["bulk-memory", "sign-extension-operators"]);
 
 /** Function exports consumed by the Qinit engine and core-lite dynamic loader. */

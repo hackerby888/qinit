@@ -58,9 +58,7 @@ export function matchTemplateSpecialization(
                 continue;
             }
             if (specializationArg.kind === AstKind.NAME || specializationArg.kind === AstKind.TEMPLATE_INSTANCE) {
-                // Compare what each argument resolves to rather than how it is spelled: `uint8` and
-                // `unsigned char` name one type, and a specialization written with either has to match
-                // an instantiation written with the other.
+                // Compare what each argument resolves to rather than how it is spelled: `uint8` and `unsigned char` name one type, so either spelling matches.
                 const specialized = programAnalysis.typeKey(programAnalysis.resolveType(specializationArg, parent));
                 if (specialized !== programAnalysis.typeKey(instantiationArg)) {
                     match = false;
@@ -139,9 +137,7 @@ export function layoutOfTemplate(programAnalysis: ProgramAnalysis, name: string,
     return programAnalysis.layoutOfMembers(inst.templateDeclaration.members, inst.b, key, false, inst.templateDeclaration.bases);
 }
 
-// C++ evaluates a template's static_asserts when the template is instantiated, so a rule written in
-// qpi.h — `Array`'s power-of-two capacity, say — holds wherever the container is declared. Qinit only
-// checked the ones it rebuilt for the IDL, which left every container in a _locals struct unchecked.
+// C++ evaluates a template's static_asserts at instantiation, so a qpi.h rule holds wherever the container is declared — Qinit only checked its IDL rebuilds.
 function checkTemplateStaticAsserts(programAnalysis: ProgramAnalysis, declaration: ClassTemplate, bindings: TemplateBindings, key: string): void {
     if (programAnalysis.checkedTemplateAsserts.has(key)) {
         return;
@@ -157,8 +153,7 @@ function checkTemplateStaticAsserts(programAnalysis: ProgramAnalysis, declaratio
         try {
             value = programAnalysis.evalConstBig(member.condition, bindings);
         } catch {
-            // Not a constant under these bindings (sizeof and friends). C++ still folds it; we do not
-            // guess, so an assertion we cannot evaluate stays silent rather than firing wrongly.
+            // Not a constant under these bindings (sizeof and friends). C++ still folds it; we do not guess, so an unevaluable assertion stays silent.
             continue;
         }
 
@@ -227,8 +222,7 @@ export function bindContainer(
         if (parameter.kind === AstKind.TYPE) out.types.set(parameter.name, parameterArgument);
         else out.values.set(parameter.name, programAnalysis.evalConstFromType(parameterArgument, templateBindings));
     }
-    // Inside its own body a class template's bare name is the instantiation being compiled, so bind
-    // it like any other name: `const Key&` in Key<T> means `const Key<T>&`.
+    // Inside its own body a class template's bare name is the instantiation being compiled, so bind it: `const Key&` in Key<T> means `const Key<T>&`.
     if (!out.types.has(name)) out.types.set(name, { kind: AstKind.TEMPLATE_INSTANCE, name, callArguments: instanceArguments });
     for (const member of templateDeclaration.members) {
         if (member.kind === AstKind.STRUCT && (member as StructDecl).name && (member as StructDecl).hasBody !== false)

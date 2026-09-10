@@ -27,8 +27,7 @@ export class SemanticAnalyzer {
             category,
         });
     }
-    // ---- Constexpr evaluation ----
-    // Fold literal-only expressions; leave symbol-dependent cases to codegen.
+    // Constexpr evaluation: fold literal-only expressions and leave symbol-dependent cases to codegen.
     evaluateConstexpr(expression: Expression): bigint | null {
         try {
             return this.evalExpr(expression);

@@ -1,6 +1,6 @@
 import { TokenKind } from "../../shared/enums";
 
-// ---- Keyword map ----
+// Keyword map
 export const KEYWORDS: Record<string, TokenKind> = {
     asm: TokenKind.KW_ASM,
     auto: TokenKind.KW_AUTO,

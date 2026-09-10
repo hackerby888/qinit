@@ -8,7 +8,7 @@ import type { TypeSpec, Expression, VariableDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { tryLowerOverloadedOperator } from "./operator-overload";
 import { unsignedScalar } from "./conversions";
-// ---- value (rvalue) codegen — produces an i64 ----
+// value (rvalue) codegen — produces an i64
 const LVALUE_OPERAND_KINDS: ReadonlySet<AstKind> = new Set([AstKind.IDENTIFIER, AstKind.MEMBER_ACCESS, AstKind.SUBSCRIPT]);
 
 // A cast names its target type, which inside an instantiated method can be a template parameter.
@@ -112,16 +112,13 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                     return lowerScalarLoad(io.addr, io.size, isSignedScalarType(io.type, context.programAnalysis));
                 }
             }
-            // An aggregate local holds an address, not a scalar value, and must not reach the named-constant
-            // lookup below. qpi.h's `Ch` declares one constant per character, so a struct local named `u`
-            // silently compiled to 'u' (117) instead of being converted or refused.
+            // An aggregate local holds an address, not a scalar, and must not reach the named-constant lookup — qpi.h's `Ch` made a local `u` compile to 117.
             const aggregateLocal = context.refLocals?.get(expression.name);
             if (aggregateLocal && context.programAnalysis.isAggregateType(aggregateLocal)) {
                 reportUnsupported(context.programAnalysis, UnsupportedFeature.CLASS_TO_SCALAR_CONVERSION, expression.span, expression.name);
                 return watIr.i64Constant(0);
             }
-            // A named constant: enum constant or constexpr (incl. qualified Type::NAME). The scope the
-            // reference sits in decides, so qpi.h's own NULL_INDEX is not rebound by a contract's.
+            // A named constant: enum constant or constexpr, incl. qualified Type::NAME. The reference's scope decides, so qpi.h's NULL_INDEX is not rebound.
             const resolvedConstant = context.programAnalysis.resolveConstInScope(expression.name, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS, {
                 sourceNamespace: context.sourceNamespace,
                 usingNamespaces: context.usingNamespaces ?? [],
@@ -200,8 +197,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 );
                 if (helper !== null) return watIr.rawWatNode(helper, WatNodeType.I64, "source-compiled template helper");
             }
-            // `object.method<T>(...)` names an instance method with its template arguments written out.
-            // The handler resolves the object itself, so any object reaches it, not only `qpi`.
+            // `object.method<T>(...)` names an instance method with template arguments written out; the handler resolves the object, so any object reaches it.
             if (expression.callee.kind === AstKind.MEMBER_ACCESS) {
                 const source = context.lowering.emitTemplateContainerCall(context, expression, true);
                 if (source !== null) return watIr.rawWatNode(source, WatNodeType.I64, "source-compiled template instance method");
@@ -222,8 +218,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                     return lowerScalarLoad(resolvedAddress.addr, resolvedAddress.size, isSignedScalarType(resolvedAddress.type, context.programAnalysis));
                 }
             }
-            // Only a settled lvalue is safe to ask for a type: resolving a call materializes it, which
-            // would emit the call before we know whether an overload wants it.
+            // Only a settled lvalue is safe to ask for a type: resolving a call materializes it, emitting the call before we know an overload wants it.
             if (expression.operator !== UnaryOp.ADDRESS_OF && LVALUE_OPERAND_KINDS.has(expression.argument.kind)) {
                 const overloaded = tryLowerOverloadedOperator(context, `operator${expression.operator}`, expression.argument);
                 if (overloaded) return overloaded;
@@ -306,16 +301,13 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             // sizeof someLvalue — e.g. sizeof(*this) (the container).
             const resolvedAddress = context.lowering.resolveExpressionAddress(context, expression.expression);
             if (resolvedAddress) return watIr.i64Constant(resolvedAddress.size);
-            // A bare type name parses as an identifier here. Any real lvalue already returned above, so the
-            // name is resolved as a type first: the scalar shape of a name it cannot place is a default
-            // width, which would silently answer for a qualified type it simply failed to look up.
+            // A bare type name parses as an identifier here, so it is resolved as a type first: the scalar shape of an unplaced name is a default width.
             const sizeOfNamedType = () =>
                 expression.expression.kind === AstKind.IDENTIFIER
                     ? context.programAnalysis.sizeOfType({ kind: AstKind.NAME, name: expression.expression.name }, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS)
                     : 0;
 
-            // A name that really is a type answers ahead of the scalar shape, which reports a default width
-            // for anything it cannot place — that default used to shadow every qualified type name.
+            // A name that really is a type answers ahead of the scalar shape, whose default width used to shadow every qualified type name.
             if (expression.expression.kind === AstKind.IDENTIFIER && context.programAnalysis.namesAType(expression.expression.name)) {
                 const byteSize = sizeOfNamedType();
                 if (byteSize > 0) return watIr.i64Constant(byteSize);

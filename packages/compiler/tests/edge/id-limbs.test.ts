@@ -5,14 +5,8 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { compileContractWithTypeScript } from "../../src/index";
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
 
-// A 256-bit id is addressable as 4x uint64, 8x uint32, 16x uint16 or 32x uint8. Collapsing every limb
-// offset to zero — so `.u64._1` returns the same bytes as `._0` — passed the entire suite, because
-// nothing in the repo read a limb past `._0`. differential/limb-diff.test.ts closes that against clang,
-// but it needs a core checkout; this covers the same ground on the pinned snapshot and the simulator so
-// the fast loop catches it too.
-//
-// Expected values are read out of the same input bytes with a DataView — an independent implementation
-// of "limb N is bytes 8N..8N+7, little-endian" rather than constants copied from the compiler's output.
+// A 256-bit id is addressable as 4x uint64, 8x uint32, 16x uint16 or 32x uint8; collapsing every limb offset to zero passed the whole suite unnoticed.
+// Expected values are read from the same bytes with a DataView — an independent implementation rather than constants copied from the compiler's output.
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {

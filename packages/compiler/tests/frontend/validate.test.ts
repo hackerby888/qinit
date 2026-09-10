@@ -108,7 +108,7 @@ const translationUnit = (declarations: Declaration[]): { declarations: Declarati
 const validate = (declarations: Declaration[]) => validateAndDesugar(translationUnit(declarations));
 const hasError = (diags: ReturnType<typeof validateAndDesugar>, pattern: RegExp): boolean => diags.some((d) => pattern.test(d.message));
 
-// ---- rejection rules ----
+// rejection rules
 
 describe("validateAndDesugar — rejection rules", () => {
     test("rejects global mutable variable", () => {
@@ -359,7 +359,7 @@ describe("validateAndDesugar — rejection rules", () => {
     });
 });
 
-// ---- desugaring: default arguments ----
+// desugaring: default arguments
 
 describe("validateAndDesugar — default argument desugaring", () => {
     test("appends default expression to call with fewer args", () => {
@@ -417,7 +417,7 @@ describe("validateAndDesugar — default argument desugaring", () => {
     });
 });
 
-// ---- scope behavior ----
+// scope behavior
 
 describe("validateAndDesugar — scope rules", () => {
     test("sibling scopes can reuse names (no error)", () => {

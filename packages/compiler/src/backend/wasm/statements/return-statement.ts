@@ -6,8 +6,7 @@ import * as watIr from "../wat-ir";
 
 type ReturnStatement = Extract<Statement, { kind: AstKind.RETURN }>;
 
-// A return either writes the output struct and falls through, or yields a scalar. Inlined methods keep
-// their value on the stack instead of emitting a wasm return.
+// A return either writes the output struct and falls through, or yields a scalar; inlined methods keep their value on the stack instead of emitting a return.
 export function emitReturnStatement(context: FunctionEmissionContext, statement: ReturnStatement): void {
     if (context.inlineReturnLabel) {
         if (statement.value && context.retAddr) {

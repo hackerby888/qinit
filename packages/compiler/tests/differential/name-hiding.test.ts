@@ -1,7 +1,4 @@
-// F67: a nested type and a member procedure/function sharing a name — C++ hides the type behind the
-// function ([basic.scope.hiding]/2), so a bare use of the type after the function is declared is an error
-// clang rejects. The TypeScript backend used to resolve the type silently and emit wasm. This pins the
-// accept/reject verdict to clang's, ordering and all: a use before the function is fine, a use after is not.
+// A nested type and a member function sharing a name: C++ hides the type behind the function, so a bare use after it is an error clang rejects. Pinned to it.
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,8 +26,7 @@ struct S : public ContractBase {
   INITIALIZE() { state.mut().last.shares = 0; }
 };`;
 
-// The struct `Lock` is declared before the procedure `Lock`; each probe differs only in whether a bare
-// `Lock` type-use appears after that procedure.
+// The struct `Lock` is declared before the procedure `Lock`; each probe differs only in whether a bare `Lock` type-use appears after that procedure.
 const PROBES: { name: string; source: string; reject: boolean }[] = [
     // bare `Lock` used after the procedure (Peek_locals) — the reported bug.
     { name: "use-after-procedure", source: contract("Lock l;", "locals.l = state.get().last; output.shares = locals.l.shares;"), reject: true },

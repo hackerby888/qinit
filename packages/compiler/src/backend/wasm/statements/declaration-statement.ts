@@ -9,8 +9,7 @@ import { isProxyAliasLocal } from "../qpi-names";
 
 type DeclarationStatement = Extract<Statement, { kind: AstKind.DECLARATION }>;
 
-// Locals need storage decided before their initializer runs: scratchpads and iterators take arena slots,
-// containers and structs bind a base address, and plain scalars just take the narrowed initializer.
+// Locals need storage decided before their initializer runs: scratchpads and iterators take arena slots, containers bind a base address, scalars narrow.
 export function emitDeclarationStatement(context: FunctionEmissionContext, statement: DeclarationStatement): void {
     if (statement.declaration.kind === AstKind.VARIABLE) {
         const variableDeclaration = statement.declaration as VariableDecl;
@@ -163,8 +162,7 @@ export function emitDeclarationStatement(context: FunctionEmissionContext, state
                     `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", watIr.localGet(variableDeclaration.name, WatNodeType.I32), watIr.i32Constant(byteSize), watIr.i32Constant(0)))}`,
                 );
                 if (!variableDeclaration.initializer && concrete.kind === AstKind.NAME) {
-                    // `T local;` runs T's default constructor. Zeroing the slot without it left every
-                    // field at 0, which diverges from clang for any constructor that assigns.
+                    // `T local;` runs T's default constructor; zeroing the slot without it left every field at 0, diverging from clang.
                     const struct = context.programAnalysis.structOf(concrete, db);
                     const constructor = struct?.members.find(
                         (member) =>

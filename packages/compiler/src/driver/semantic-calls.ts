@@ -138,8 +138,7 @@ function firstIdentifier(tokens: Token[] | undefined): string | undefined {
     return tokens?.find((token) => token.kind === TokenKind.IDENTIFIER)?.text;
 }
 
-// PUBLIC/PRIVATE_PROCEDURE[_WITH_LOCALS] declare `__id_<proc> = (CONTRACT_INDEX << 22) | __LINE__`
-// (qpi_macros.h). __LINE__ is the raw-source line, which preprocessing does not preserve, so read it here.
+// PUBLIC/PRIVATE_PROCEDURE declare `__id_<proc> = (CONTRACT_INDEX << 22) | __LINE__`; __LINE__ is the raw-source line, which preprocessing does not preserve.
 const PROCEDURE_DECL = /^[ \t]*(?:PUBLIC|PRIVATE)_PROCEDURE(?:_WITH_LOCALS)?[ \t]*\([ \t]*([A-Za-z_]\w*)[ \t]*\)/;
 
 export function collectProcedureDeclLines(source: string): Map<string, number> {

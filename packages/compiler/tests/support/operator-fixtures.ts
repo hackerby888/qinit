@@ -1,5 +1,4 @@
-// Fixtures shared by the operator suites: the fast one asserts what each body should compute, the
-// differential one asserts Clang computes the same thing from the same source.
+// Fixtures shared by the operator suites: the fast one asserts what each body should compute, the differential one that Clang computes the same.
 
 /** One probe contract: declarations, procedure locals, and a body that writes StateData.result. */
 export const wrapOperatorFixture = (declarations: string, locals: string, body: string, prelude = "") => `using namespace QPI;
@@ -14,16 +13,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-// operator== deliberately ignores `b`, so {1,2} and {1,99} are equal to the operator and different to
-// memcmp. Every assertion on it turns on that disagreement.
+// operator== deliberately ignores `b`, so {1,2} and {1,99} are equal to the operator and different to memcmp. Every assertion turns on that disagreement.
 export const HALF_KEY = `struct HalfKey {
     uint64 a;
     uint64 b;
     bit operator==(const HalfKey& other) const { return a == other.a; }
   };`;
 
-// The same shape returning bool: C++20 forms the rewritten `!=` candidate only for a bool-returning
-// operator==, so the two spellings are not interchangeable.
+// The same shape returning bool: C++20 forms the rewritten `!=` candidate only for a bool-returning operator==, so the two spellings are not interchangeable.
 export const HALF_KEY_BOOL = HALF_KEY.replace("bit operator==", "bool operator==")
     .replace("HalfKey", "BoolKey")
     .replace("HalfKey", "BoolKey")
@@ -62,8 +59,7 @@ export const HELPER_MONEY = `struct Money {
   };
   static Money makeMoney(uint64 value) { Money m; m.qus = value; return m; }`;
 
-// Each compound body computes something the built-in operator would not, so a fallback that added or
-// shifted the first field cannot produce the asserted value.
+// Each compound body computes something the built-in operator would not, so a fallback that added or shifted the first field cannot produce the value.
 export const COMPOUND = `struct Acc {
     uint64 v;
     Acc() { v = 0; }
@@ -78,8 +74,7 @@ export const INDEXED = `struct Row {
     uint64 operator[](uint64 index) const { return cells[index] * 10 + index; }
   };`;
 
-// A class whose only constructor is a copy: C++ has no conversion from a scalar to it, and neither
-// have we since the argument would otherwise be handed back to the copy constructor forever.
+// A class whose only constructor is a copy: C++ has no conversion from a scalar, and neither have we — the argument would be handed back forever.
 export const COPY_ONLY = `struct Sealed {
     uint64 v;
     Sealed() { v = 0; }

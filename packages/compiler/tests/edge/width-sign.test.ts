@@ -5,15 +5,8 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { compileContractWithTypeScript } from "../../src/index";
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
 
-// Narrow-signed and 32-bit semantics were guarded only by the clang differentials: dropping the 32-bit
-// compare mask, or sint8/sint32 from the signed set, or the signed 32-bit wrap, each passed all 979
-// unit tests. Those differentials need a core checkout and the WASI SDK, so without one `bun test` is
-// 1756 pass / 712 skip and none of this is checked — while the failure mode is a wrong number, not a
-// broken build. This runs on the pinned qpi.h snapshot and the simulator, so it needs neither.
-//
-// Expectations come from BigInt.asIntN/asUintN rather than typed-out constants: an independent
-// implementation of two's complement, not a transcription of what the compiler happens to emit. Every
-// case avoids signed overflow, which is undefined in C++ and so cannot be asserted either way.
+// Narrow-signed and 32-bit semantics were guarded only by the clang differentials, which need a core checkout — so without one none of this is checked.
+// Expectations come from BigInt.asIntN/asUintN, an independent two's complement rather than a transcription; every case avoids undefined signed overflow.
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -94,8 +87,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     state.mut().result = (uint64)(locals.q * 1000 + locals.r);
   }
 
-  // Shift-left had no unit coverage at all: making it return a constant 0 broke 34 differential tests
-  // and none of the 979 unit tests. Unsigned shifts are fully defined, so they can be pinned here.
+  // Shift-left had no unit coverage at all: returning a constant 0 broke 34 differential tests and none of the 979 unit tests. Unsigned shifts are defined.
   struct Shifts_input {}; struct Shifts_output {};
   struct Shifts_locals { uint64 a; uint64 b; uint32 narrow; };
   PUBLIC_PROCEDURE_WITH_LOCALS(Shifts) {
@@ -107,9 +99,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     state.mut().result = locals.b + (uint64)locals.narrow;
   }
 
-  // C++'s usual arithmetic conversions turn the signed operand unsigned when the other side is an
-  // unsigned int of the same rank, so sint32(-2) < uint32(1) is FALSE. Comparing two sint32s never
-  // exercises that, which is why the 32-bit compare mask survived the first version of this file.
+  // C++'s usual arithmetic conversions turn the signed operand unsigned at equal rank, so sint32(-2) < uint32(1) is FALSE; two sint32s never exercise that.
   struct MixedCompare_input {}; struct MixedCompare_output {};
   struct MixedCompare_locals { sint32 negative; uint32 small; uint32 big; uint64 out; };
   PUBLIC_PROCEDURE_WITH_LOCALS(MixedCompare) {
@@ -120,8 +110,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     state.mut().result = locals.out;
   }
 
-  // A 32-bit sum stored straight into a 64-bit field: nothing narrows it on the way, so the wrap has to
-  // happen in the arithmetic. Assigning through a uint32 local hides this — storeScalar truncates.
+  // A 32-bit sum stored straight into a 64-bit field: nothing narrows it, so the wrap must happen in the arithmetic. A uint32 local would hide it.
   struct WrapToWide_input {}; struct WrapToWide_output {};
   struct WrapToWide_locals { uint32 a; };
   PUBLIC_PROCEDURE_WITH_LOCALS(WrapToWide) {
@@ -129,9 +118,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     state.mut().result = (uint64)(locals.a + 3u);
   }
 
-  // uint128 is two 64-bit halves, low at offset 0. Swapping which half .low and .high read is a
-  // silent wrong number, and it was caught only by the differentials. Qswap's LiquidityInfo carries a
-  // uint128, so this is reachable from shipping contracts.
+  // uint128 is two 64-bit halves, low at offset 0; swapping which half .low and .high read is a silent wrong number, reachable from Qswap's LiquidityInfo.
   struct U128Halves_input {}; struct U128Halves_output {};
   struct U128Halves_locals { uint128 v; };
   PUBLIC_PROCEDURE_WITH_LOCALS(U128Halves) {
@@ -192,16 +179,14 @@ describe("width and signedness — no core checkout required", () => {
     // 1 + 10 + 100: the first three comparisons hold and `a >= b` does not.
     test("signed comparison puts a negative below a positive", () => expect(run(4)).toBe(111n));
     test("right-shifting a negative is arithmetic, not logical", () => expect(run(5)).toBe(u64(sext(32, -16n) >> 2n)));
-    // Same expectation as the widened case below, different path: here the sum lands in a uint32
-    // local, so storeScalar truncates it. That is why this one does NOT catch a missing wrapL.
+    // Same expectation as the widened case below, different path: the sum lands in a uint32 local, so storeScalar truncates — which is why it misses wrapL.
     test("unsigned 32-bit addition wraps at 2^32", () => expect(run(6)).toBe(BigInt.asUintN(32, 4294967295n + 3n)));
     // 1 + 10: both hold. A signed compare would read 4000000000u as negative and fail both.
     test("unsigned comparison holds across the 2^31 boundary", () => expect(run(7)).toBe(11n));
     test("signed division truncates toward zero and the remainder keeps its sign", () => expect(run(8)).toBe(u64((-7n / 2n) * 1000n + (-7n % 2n))));
     // -2 converts to 4294967294u so it is NOT below 1; -1 converts to 4294967295u so it IS equal to big.
     test("a signed operand converts to unsigned when compared with a uint32", () => expect(run(10)).toBe(10n));
-    // Nothing narrows this one on the way to a uint64 field, so the wrap must happen in the
-    // arithmetic itself. This is the case that catches a missing wrapL.
+    // Nothing narrows this one on the way to a uint64 field, so the wrap must happen in the arithmetic itself — this is the case that catches a missing wrapL.
     test("a 32-bit sum widened to 64 bits has already wrapped", () => expect(run(11)).toBe(BigInt.asUintN(32, 4294967295n + 3n)));
     // uint128(high, low) per qpi.h's constructor order, so .low is 3 and .high is 7.
     test("uint128 .low and .high read their own halves", () => expect(run(12)).toBe(3n * 1000n + 7n));

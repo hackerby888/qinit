@@ -1,7 +1,4 @@
-// Cheatcode rules and the stripper that removes them before a contract is submitted to Core.
-//
-// The rules exist so that stripping is provably safe: a cheat may only appear as a whole statement,
-// and may not carry a side effect, so blanking the call site can never change what the contract does.
+// Cheatcode rules and the stripper that removes them before submission to Core: a cheat may only be a whole statement with no side effect, so blanking is safe.
 import { DiagnosticSeverity } from "../shared/enums";
 import { Lexer, TokenKind, type Token } from "../frontend/lexer";
 import { matchingToken } from "./rules/tokens";
@@ -41,8 +38,7 @@ const MUTATING_OPERATORS: ReadonlySet<TokenKind> = new Set([
 
 const CHEAT_PREFIX = /^CC_[A-Z0-9_]*$/;
 
-// A cheat statement may follow any of these, which is what makes `if (x) CC_PRINT(y); else f();` safe
-// to blank: the `else` still finds its `;`.
+// A cheat statement may follow any of these, which makes `if (x) CC_PRINT(y); else f();` safe to blank: the `else` still finds its `;`.
 const STATEMENT_START: ReadonlySet<TokenKind> = new Set([
     TokenKind.SEMICOLON,
     TokenKind.L_BRACE,
@@ -88,10 +84,7 @@ function cheatCalls(tokens: Token[]): CheatCall[] {
     return calls;
 }
 
-/**
- * The half-open source ranges covered by cheat arguments. A string or char literal there is interned
- * into the IDL and never lowered, so QPI's ban on them does not apply.
- */
+/** The half-open source ranges covered by cheat arguments: a literal there is interned into the IDL and never lowered, so QPI's ban does not apply. */
 export function cheatArgumentRanges(source: string): Array<{ start: number; end: number }> {
     const tokens = new Lexer(source).tokenize();
 
@@ -183,8 +176,7 @@ export function analyzeCheatcodes(source: string): SourceAnalysisDiagnostic[] {
     return diagnostics;
 }
 
-// Reads of `qpi.*()` and `state.get()` are the shapes a useful print is built from; any other call, or
-// any assignment, would vanish along with the cheat and change the contract's behaviour.
+// Reads of `qpi.*()` and `state.get()` are the shapes a useful print is built from; any other call or assignment would vanish with the cheat.
 function sideEffectToken(tokens: Token[], from: number, to: number): Token | undefined {
     for (let index = from; index < to; index++) {
         const token = tokens[index];
@@ -211,10 +203,7 @@ function sideEffectToken(tokens: Token[], from: number, to: number): Token | und
     return undefined;
 }
 
-/**
- * Blanks every cheat call, keeping the trailing `;` and every newline, so line numbers and the
- * surrounding control flow survive untouched.
- */
+/** Blanks every cheat call, keeping the trailing `;` and every newline, so line numbers and the surrounding control flow survive untouched. */
 export function stripCheatcodes(source: string): string {
     const characters = [...source];
 

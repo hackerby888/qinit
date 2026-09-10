@@ -1,7 +1,6 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
-// qpi.h's `Ch` namespace declares a constant per character (`a = 'a'`, `T = 'T'`, `_0 = '0'`, ...), so
-// any short identifier collides with one. A nearer binding must always win.
+// qpi.h's `Ch` namespace declares a constant per character, so any short identifier collides with one; a nearer binding must always win.
 import { describe, expect, test } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -49,9 +48,7 @@ async function evaluate(members: string, body: string, prelude = ""): Promise<{ 
 }
 
 describe("a template parameter hides a namespace-scope constant", () => {
-    // The original defect: sizeof inside a template method resolved `T` to Ch::T, whose underlying
-    // type is `char`, and reported that width instead of the bound type's size. It collapsed K12's
-    // digest length from 512 to 1 and silently broke every reveal in the RANDOM contract.
+    // The original defect: sizeof inside a template method resolved `T` to Ch::T, whose type is `char`, collapsing K12's digest length from 512 to 1.
     const WIDE = "struct Wide { uint64 parts[8]; };";
 
     test("sizeof(T) inside a template method is the bound type's size", async () => {
@@ -74,8 +71,7 @@ describe("a template parameter hides a namespace-scope constant", () => {
         expect(value).toBe(64n);
     });
 
-    // A namespace-scope constant of a sized type reproduces the defect without depending on `char`
-    // having a width, so this case bites today rather than waiting for the char entry to land.
+    // A namespace-scope constant of a sized type reproduces the defect without depending on `char` having a width, so this case bites today.
     test("a sized namespace constant does not hide a template parameter", async () => {
         const { value, errors } = await evaluate(
             `${WIDE} template <typename T> struct Sizer { uint64 measure(const T& v) const { return sizeof(T); } };`,
@@ -102,8 +98,7 @@ describe("a template parameter hides a namespace-scope constant", () => {
 });
 
 describe("a local hides a namespace-scope constant", () => {
-    // Ch::a is 97, Ch::i is 105, Ch::u is 117, Ch::_0 is 48 — a local resolving to one of those
-    // would read as that character code rather than its assigned value.
+    // Ch::a is 97, Ch::i is 105, Ch::u is 117, Ch::_0 is 48 — a local resolving to one would read as that character code rather than its assigned value.
     for (const [name, code] of [
         ["a", 97n],
         ["i", 105n],
@@ -135,9 +130,7 @@ describe("a local hides a namespace-scope constant", () => {
     });
 });
 
-// `char` had no SCALAR_SIZE entry and fell to type-resolver's "assume enum-sized" 4. Adding the entry
-// was blocked until the template-parameter shadowing above was fixed, because sizeof(T) then resolved
-// through Ch's char-backed constants and collapsed K12's digest length from 512 to 1.
+// `char` had no SCALAR_SIZE entry and fell to the assume-enum 4; adding it was blocked until template-parameter shadowing was fixed, or sizeof(T) collapsed.
 describe("plain char is one byte and wraps at eight bits", () => {
     test("sizeof(char) is 1, not the enum-sized fallback", async () => {
         const { value, errors } = await evaluate("", "state.mut().x = sizeof(char);");

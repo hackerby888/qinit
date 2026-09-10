@@ -1,7 +1,4 @@
-// Precedence as the parser actually resolves it, from real expression text. The constexpr tests next door
-// hand-build their trees, so they pin the evaluator's walk and not the grouping the parser chose; both
-// expression fuzzers parenthesize every subexpression, so neither can reach a precedence tier boundary.
-// Reordering BINARY_TIERS therefore used to leave the whole suite green. Every row here parses a string.
+// Precedence as the parser actually resolves it, from real expression text: the constexpr tests hand-build trees and both fuzzers fully parenthesize.
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,8 +9,7 @@ import { Lexer } from "../../src/frontend/lexer";
 import { Parser } from "../../src/frontend/parser";
 import { SemanticAnalyzer } from "../../src/semantics/semantic-analysis";
 
-// A half-consumed expression reads as a shorter, passing one, so a parse is only accepted at EOF with no
-// errors — the same guard parseLayout keeps in abi-fmt.ts.
+// A half-consumed expression reads as a shorter, passing one, so a parse is only accepted at EOF with no errors — the guard parseLayout keeps in abi-fmt.
 function parse(text: string): Expression {
     const parser = new Parser(new Lexer(text).tokenize());
     const expression = parser.expressions.parseExpression();
@@ -23,8 +19,7 @@ function parse(text: string): Expression {
     return expression;
 }
 
-// Renders the tree fully parenthesized, dropping PAREN nodes: `2 + 3 * 4` and `2 + (3 * 4)` must render
-// identically, which is what lets the paren rows below compare a bare spelling against an explicit one.
+// Renders the tree fully parenthesized, dropping PAREN nodes, so `2 + 3 * 4` and `2 + (3 * 4)` render identically and the paren rows can compare them.
 function shape(node: Expression): string {
     const expression = node as any;
 
@@ -51,11 +46,10 @@ function shape(node: Expression): string {
 const grouping = (text: string): string => shape(parse(text));
 const fold = (text: string): bigint | null => new SemanticAnalyzer().evaluateConstexpr(parse(text));
 
-// ---- grouping the parser chose ----
+// grouping the parser chose
 
 describe("precedence — the grouping the parser chose", () => {
-    // One row per BINARY_TIERS boundary, written from both sides: a tier that wrongly swallows its
-    // neighbour shows up on one side only, so a single spelling per boundary would miss half the swaps.
+    // One row per BINARY_TIERS boundary, written from both sides: a tier wrongly swallowing its neighbour shows on one side only, so one spelling misses half.
     const ADJACENT_TIERS: [string, string][] = [
         ["1 || 0 && 0", "(1 || (0 && 0))"],
         ["0 && 0 || 1", "((0 && 0) || 1)"],
@@ -107,7 +101,7 @@ describe("precedence — the grouping the parser chose", () => {
     });
 });
 
-// ---- associativity ----
+// associativity
 
 describe("precedence — associativity", () => {
     // Left-associative tiers: right-association changes the value of every one of these.
@@ -149,7 +143,7 @@ describe("precedence — associativity", () => {
     });
 });
 
-// ---- unary, ternary and assignment against the binary tiers ----
+// unary, ternary and assignment against the binary tiers
 
 describe("precedence — unary, ternary and assignment", () => {
     // A prefix operator takes only its operand, never the binary expression the operand starts.
@@ -201,11 +195,10 @@ describe("precedence — unary, ternary and assignment", () => {
     });
 });
 
-// ---- parentheses ----
+// parentheses
 
 describe("precedence — parentheses", () => {
-    // bare, the same grouping written out, and the other grouping. The third column is what keeps a row
-    // honest: it proves the row would fail under a flipped tier rather than passing by coincidence.
+    // Bare, the same grouping written out, and the other grouping — the third column proves the row would fail under a flipped tier, not pass by coincidence.
     const PAREN_ROWS: [string, string, string][] = [
         ["2 + 3 * 4", "2 + (3 * 4)", "(2 + 3) * 4"],
         ["1 << 2 + 3", "1 << (2 + 3)", "(1 << 2) + 3"],
@@ -246,10 +239,9 @@ describe("precedence — parentheses", () => {
     });
 });
 
-// ---- values ----
+// values
 
-// Every constant here was produced by natively-compiled clang, so the table is ground truth for C
-// precedence rather than a restatement of what this parser happens to do.
+// Every constant here was produced by natively-compiled clang, so the table is ground truth for C precedence rather than a restatement of this parser.
 const CLANG_VERIFIED: [string, bigint][] = [
     ["2 + 3 * 4", 14n],
     ["1 << 2 + 3", 32n],
@@ -292,10 +284,9 @@ describe("precedence — values", () => {
     });
 });
 
-// ---- generated expressions, judged by clang ----
+// generated expressions, judged by clang
 
-// The tables above cover the shapes someone thought of. These cover the ones nobody did: random trees,
-// rendered with only the parentheses precedence cannot supply, then handed to clang for the answer.
+// The tables above cover the shapes someone thought of; these cover the ones nobody did — random trees rendered with minimal parentheses, judged by clang.
 const PRECEDENCE: Record<string, number> = {
     "||": 2,
     "&&": 3,
@@ -356,8 +347,7 @@ function generate(next: () => number, depth: number): Node {
     const operator = pick(next, OPERATORS);
     const left = generate(next, depth - 1);
 
-    // `/` and `%` by zero is undefined in C, and the folder answers 0 for it; a shift needs a small
-    // non-negative count for the two to agree at all. Both get a literal right operand instead of a subtree.
+    // `/` and `%` by zero is undefined in C and the folder answers 0; a shift needs a small non-negative count, so both get a literal right operand.
     if (operator === "/" || operator === "%") {
         return { kind: "binary", operator, left, right: { kind: "literal", value: BigInt(1 + Math.floor(next() * 9)) } };
     }
@@ -381,8 +371,7 @@ const precedenceOf = (node: Node): number => {
     }
 };
 
-// Renders with only the parentheses precedence cannot supply — the whole point is that the parser has to
-// rebuild this grouping from the operators alone. The table above is the specification the parser must meet.
+// Renders with only the parentheses precedence cannot supply: the parser has to rebuild this grouping from the operators alone, against the table above.
 function renderMinimal(node: Node): string {
     switch (node.kind) {
         case "literal":
@@ -424,8 +413,7 @@ function renderExplicit(node: Node): string {
     }
 }
 
-// The folder works in arbitrary-precision BigInt while clang wraps at 64 bits, so a tree is only usable
-// while every intermediate stays small. Returns null for anything that would leave the two disagreeing.
+// The folder works in arbitrary-precision BigInt while clang wraps at 64 bits, so a tree is usable only while every intermediate stays small; else null.
 const MAGNITUDE_CAP = 1n << 40n;
 
 function evaluate(node: Node): bigint | null {
@@ -502,8 +490,7 @@ function evaluate(node: Node): bigint | null {
     }
 }
 
-// Both arms of a ternary are evaluated here even though C takes only one, so a tree is rejected unless
-// every branch stays in range — the unused arm still has to be renderable and safe.
+// Both arms of a ternary are evaluated here even though C takes one, so a tree is rejected unless every branch stays in range and renderable.
 function usable(node: Node): boolean {
     if (evaluate(node) === null) {
         return false;
@@ -575,8 +562,7 @@ describe.skipIf(CLANG === null)("precedence — generated expressions against cl
             const binary = join(directory, process.platform === "win32" ? "oracle.exe" : "oracle");
             const body = GENERATED.map(({ minimal }) => `  printf("%lld\\n", (long long)(${minimal}));`).join("\n");
 
-            // -Wno-parentheses, not -w: chained comparisons are a hard error by default and -w does not
-            // downgrade them, yet `a < b < c` is exactly the left-associativity these rows exist to pin.
+            // -Wno-parentheses, not -w: chained comparisons are a hard error by default, yet `a < b < c` is the left-associativity these rows pin.
             writeFileSync(source, `#include <stdio.h>\nint main(void) {\n${body}\n  return 0;\n}\n`);
             const build = Bun.spawnSync([CLANG!, "-Wno-parentheses", "-Wno-error", "-O0", "-o", binary, source]);
             expect(build.success ? "" : build.stderr.toString()).toBe("");

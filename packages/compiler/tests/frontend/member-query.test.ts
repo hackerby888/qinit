@@ -137,8 +137,7 @@ test("returns undefined rather than an empty list when nothing resolves", () => 
     expect(completeMembersAt({ source: CONTRACT, offset: 12, contractName: "Bank", slot: 28 })).toBeUndefined();
 });
 
-// The gtest seam: nothing here is a contract, so the root's type arrives as text and the hops after it
-// are walked by the compiler. This is the shape the clangd bug answers with an empty list.
+// The gtest seam: nothing here is a contract, so the root's type arrives as text and later hops are walked by the compiler — the clangd-bug shape.
 const CALLEES = [{ name: "Counter", source: CALLEE, slot: 29 }];
 
 function ofType(rootTypeText: string, path: string[] = []): string[] | undefined {
@@ -155,8 +154,7 @@ test("completes from a root type spelled by a language server", () => {
     expect(ofType("QPI::Array<unsigned long long, 8>")).toContain("setAll");
 });
 
-// The upstream Quottery shape: an input struct holding a sibling struct spelled bare, which is
-// registered qualified (`Quote::Info`) and so only resolves under its contract's scope.
+// The upstream Quottery shape: an input struct holding a sibling struct spelled bare, registered qualified and so resolving only under its contract's scope.
 test("completes a sibling struct the contract spells without its qualifier", () => {
     const source = `using namespace QPI;
 
@@ -185,8 +183,7 @@ test("answers nothing for a type it cannot resolve", () => {
     expect(ofType("Counter::Get_input", ["nope"])).toBeUndefined();
 });
 
-// A language server drops the statement being typed into, so hover on the root answers nothing exactly
-// when completion runs. The declaration in the text is what stays readable.
+// A language server drops the statement being typed into, so hover on the root answers nothing exactly when completion runs; the declaration in text stays.
 test("reads a root's declared type out of the source text", () => {
     const typeOf = (source: string, name: string) => declaredTypeOf(source, source.length, name);
 
@@ -196,8 +193,7 @@ test("reads a root's declared type out of the source text", () => {
     expect(typeOf("    HashMap<id, uint64, 1024> m;\n    m.", "m")).toBe("HashMap<id, uint64, 1024>");
     expect(typeOf("    Counter::Get_input gi(1);\n    gi.", "gi")).toBe("Counter::Get_input");
     expect(typeOf("void f(const Counter::Get_input& gi)\n{\n    gi.", "gi")).toBe("const Counter::Get_input&");
-    // The half-typed statement above the cursor leaves a dangling `.`, which must not hide the next
-    // declaration — this is the state the buffer is actually in while a member list is requested.
+    // The half-typed statement above the cursor leaves a dangling `.`, which must not hide the next declaration — the state the buffer is in while listing.
     expect(typeOf("    Counter::Get_input a;\n    a.x.\n\n    const Counter::Get_input& r = a;\n    r.", "r")).toBe("const Counter::Get_input&");
     // The nearest declaration before the cursor wins, and an undeclared name resolves to nothing.
     expect(typeOf("    sint16 v;\n    Counter::Get_input v;\n    v.", "v")).toBe("Counter::Get_input");

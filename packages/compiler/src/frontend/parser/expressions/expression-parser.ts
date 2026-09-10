@@ -2,8 +2,7 @@ import { AssignOp, AstKind, BinaryOp, DiagnosticSeverity, TokenKind, UnaryOp, Up
 import type { Expression, TypeSpec } from "../../../ast";
 import type { Parser } from "../parser";
 
-// Binary precedence tiers, loosest first: each maps the tokens accepted at that tier to the operator they
-// produce. parseBinaryTier walks these in order, so the array order *is* the precedence.
+// Binary precedence tiers, loosest first, each mapping accepted tokens to the operator produced; parseBinaryTier walks them, so array order is precedence.
 const enum BinaryTier {
     LOGICAL_OR,
     LOGICAL_AND,
@@ -37,8 +36,7 @@ const BINARY_TIERS: ReadonlyArray<Record<string, BinaryOp>> = [
     { [TokenKind.STAR]: BinaryOp.MULTIPLY, [TokenKind.SLASH]: BinaryOp.DIVIDE, [TokenKind.PERCENT]: BinaryOp.MODULO },
 ];
 
-// `>`, `>=` and `>>` end a template list rather than continuing an expression. They are operators only in
-// the comparison and shift tiers, so one shared guard covers both.
+// `>`, `>=` and `>>` end a template list rather than continuing an expression; they are operators only in the comparison and shift tiers, so one guard does.
 const TEMPLATE_LIST_CLOSERS = new Set<string>([TokenKind.R_ANGLE, TokenKind.GT_EQ, TokenKind.R_SHIFT]);
 
 export class ExpressionParser {

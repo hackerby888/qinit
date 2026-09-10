@@ -1,14 +1,6 @@
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
-// qpi-layout.ts is a hand-written TypeScript mirror of core's C++ container templates, and it is what the
-// decoder, `qinit state` and the IDE read live contract state with. Nothing checked it against core: the
-// compiler-x-runtime matrix never touches it (both sides of that comparison derive their layout from the
-// real qpi.h), so its only guard was eight hand-typed literals in qpi-layout.test.ts. A mutation sweep
-// found three formulas those literals cannot see, all for the same reason — every fixture uses a capacity
-// where ceil(L/32) and ceil(L/64) agree, and a value size that is already a multiple of 8.
-//
-// This asks core's own compiler instead. Each row instantiates the real template and compares sizeof and
-// alignof against what qpi-layout computes, so the check holds at every parameter rather than the handful
-// someone thought to write down.
+// qpi-layout.ts is a hand-written TypeScript mirror of core's C++ container templates, and it is what the decoder, `qinit state` and the IDE read state with.
+// Its only guard was eight hand-typed literals; this asks core's own compiler instead, comparing sizeof and alignof at every parameter rather than a handful.
 import { describe, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { runContractTesting, type TestResult } from "@qinit/engine";
@@ -32,8 +24,7 @@ const u32: Layout = { size: 4, align: 4 };
 const u64: Layout = { size: 8, align: 8 };
 const id: Layout = { size: 32, align: 8 };
 
-// Core's containers static_assert a power-of-two capacity, so 64 — not 33 — is the smallest capacity
-// where one flag word per 64 slots differs from one per 32.
+// Core's containers static_assert a power-of-two capacity, so 64 — not 33 — is the smallest capacity where one flag word per 64 slots differs from one per 32.
 const CAPS = [1, 2, 4, 8, 16, 32, 64, 128];
 // A value whose size is not a multiple of 8 is what makes the element/node padding observable.
 const VALUES: [string, Layout][] = [
@@ -80,16 +71,12 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Nop, 1); }
 };`;
 
-// sizeof and alignof cannot see an internal member offset that the element stride's final round-up
-// absorbs — the container is the same total size either way. Those offsets are private, so offsetof will
-// not compile from outside. Instead: place a known value through the public API and check it lands where
-// qpi-layout says it does.
+// sizeof and alignof cannot see an internal offset the stride's round-up absorbs, and those offsets are private — so place a value and check where it lands.
 const ll32 = linkedListGeometry(u32, 8);
 const coll32 = collectionGeometry(u32, 8);
 
 const OFFSET_GTEST = `TEST(Geometry, InternalOffsetsLandWhereQpiLayoutSaysTheyDo) {
-  // LinkedList<uint32,8>: a uint32 value leaves the node's next index padded up to 8, so a wrong
-  // nextOffset reads the wrong slot even though sizeof is unchanged.
+  // LinkedList<uint32,8>: a uint32 value pads the node's next index up to 8, so a wrong nextOffset reads the wrong slot even though sizeof is unchanged.
   QPI::LinkedList<QPI::uint32, 8> list;
   list.reset();
   QPI::sint64 first = list.addTail(11u);

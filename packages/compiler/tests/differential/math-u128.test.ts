@@ -74,7 +74,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-// ---- BigInt reference (math_lib.h / qpi.h semantics) ----
+// BigInt reference (math_lib.h / qpi.h semantics)
 
 const I64_MIN = -(2n ** 63n);
 const I64_MAX = 2n ** 63n - 1n;
@@ -84,8 +84,7 @@ const S = (v: bigint) => BigInt.asIntN(64, v);
 const U = (v: bigint) => BigInt.asUintN(64, v);
 
 function refMath(sa: bigint, sb: bigint, ua: bigint, ub: bigint) {
-    // Mirror the pinned math_lib.h implementation byte-for-byte. Its signed sadd performs the
-    // overflow checks after the native-width addition (so MIN+MIN wraps to zero and is not clamped).
+    // Mirror the pinned math_lib.h implementation byte-for-byte: its signed sadd checks overflow after the native-width addition, so MIN+MIN wraps to zero.
     const wrappedSum = S(sa + sb);
     const sourceSadd = sa < 0n && sb < 0n && wrappedSum > 0n ? I64_MIN : sa > 0n && sb > 0n && wrappedSum < 0n ? I64_MAX : wrappedSum;
     return {
@@ -134,7 +133,7 @@ function refU128(a: bigint, b: bigint, sh: bigint) {
     };
 }
 
-// ---- vectors ----
+// vectors
 
 const S_EDGES = [
     0n,
@@ -298,7 +297,7 @@ describe.skipIf(!HAS_CORE)("safe-math + uint128 semantics vs BigInt reference", 
     });
 });
 
-// ---- native differential: pin the boundary semantics against clang-compiled qpi.h itself ----
+// native differential: pin the boundary semantics against clang-compiled qpi.h itself
 
 const GTEST = coreGtest(
     "M128",

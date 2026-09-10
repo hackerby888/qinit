@@ -1,11 +1,7 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
-// Differential gtest for the id/m256i limb views. A 256-bit id is addressable as 4x uint64, 8x uint32,
-// 16x uint16 or 32x uint8, and ID_VIEWS (address-resolution.ts limbLayout) gives each limb its offset.
-// Collapsing every one of those offsets to zero — so `.u64._1` reads the same bytes as `._0` — passed the
-// entire suite: no fixture or unit test reads a limb past _0, and the system contracts that do are only
-// ever checked for "does it build", which a wrong offset still does. Real contracts depend on it; QRaffle
-// mixes all four u64 limbs of two digests into its RNG seed.
+// Differential gtest for the id/m256i limb views: a 256-bit id is addressable as 4x uint64 down to 32x uint8, and ID_VIEWS gives each limb its offset.
+// Collapsing every offset to zero passed the entire suite — nothing reads past _0 — yet QRaffle mixes all four u64 limbs of two digests into its RNG seed.
 import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
@@ -48,8 +44,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     output.v = locals.seed.u64._0 + locals.seed.u64._1 * 3 + locals.seed.u64._2 * 5 + locals.seed.u64._3 * 7;
   }
 
-  // A constructed m256i used inline rather than assigned. QRaffle builds its RNG seed this way,
-  // qpi.K12(m256i(a, b, c, d)), so the shape is worth pinning even though it shares the resolver above.
+  // A constructed m256i used inline rather than assigned: QRaffle builds its RNG seed this way, so the shape is worth pinning even if it shares a resolver.
   struct Temp_input { id x; }; struct Temp_output { uint64 same; uint64 swapped; };
   PUBLIC_FUNCTION(Temp) {
     // Rebuilt from x's own limbs, in order, the temporary must equal x.

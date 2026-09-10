@@ -38,8 +38,7 @@ export function scalarKindForName(name: string): AbiScalarKind | undefined {
         char: AbiScalarKind.SINT8,
         "signed char": AbiScalarKind.SINT8,
         "unsigned char": AbiScalarKind.UINT8,
-        // Native C spellings, one row per spelling SCALAR_SIZE knows. A spelling missing here falls back to
-        // scalarKindForSize, which reports unsigned, so a signed field would silently lose its sign.
+        // Native C spellings, one row per spelling SCALAR_SIZE knows. A missing spelling falls back to scalarKindForSize, which reports unsigned.
         short: AbiScalarKind.SINT16,
         "short int": AbiScalarKind.SINT16,
         "signed short": AbiScalarKind.SINT16,
@@ -51,8 +50,7 @@ export function scalarKindForName(name: string): AbiScalarKind | undefined {
         "signed int": AbiScalarKind.SINT32,
         unsigned: AbiScalarKind.UINT32,
         "unsigned int": AbiScalarKind.UINT32,
-        // No row for long / unsigned long / size_t: they are 4 bytes on wasm32 but 8 on Core (LP64), so a
-        // contract using them would test at one layout and ship at another. They fail as unknown types.
+        // No row for long / unsigned long / size_t: 4 bytes on wasm32 but 8 on Core, so a contract using them would test and ship at different layouts.
         wchar_t: AbiScalarKind.SINT32, // __WCHAR_TYPE__ is int on wasm32
         "long long": AbiScalarKind.SINT64,
         "signed long long": AbiScalarKind.SINT64,

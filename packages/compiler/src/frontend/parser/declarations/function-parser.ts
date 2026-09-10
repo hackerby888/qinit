@@ -268,8 +268,7 @@ export class FunctionParser {
         while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_PAREN) {
             let type = this.parser.types.parseTypeSpec();
             let name = "";
-            // Function pointers remain addresses in the parsed ABI and still participate in overload
-            // resolution; generated Wasm does not call their pointee signatures.
+            // Function pointers remain addresses in the parsed ABI and still participate in overload resolution; generated Wasm never calls their pointee.
             if (this.parser.state.peek().kind === TokenKind.L_PAREN && this.parser.state.peek(1).kind === TokenKind.STAR) {
                 this.parser.state.next();
                 this.parser.state.next();

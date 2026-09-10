@@ -23,8 +23,7 @@ export interface CompileOptions {
     onPhase?: (phase: string) => void | Promise<void>;
     strict?: boolean;
     constructionEpoch?: number;
-    // Cheatcodes are on for ordinary builds. "noop" is the reference build the strip is proved
-    // against; "off" injects nothing at all, which is what Core sees.
+    // Cheatcodes are on for ordinary builds; noop is the reference build the strip is proved against, and off injects nothing at all, which is what Core sees.
     cheats?: CheatMode;
 }
 

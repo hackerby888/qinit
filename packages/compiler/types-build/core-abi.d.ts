@@ -1,5 +1,4 @@
-// Declaration-build shim only. Runtime/browser bundling resolves @qinit/core's authoritative values;
-// keeping this structural avoids pulling a sibling workspace's source tree under compile's rootDir.
+// Declaration-build shim only: runtime bundling resolves @qinit/core's real values, and staying structural avoids pulling a sibling workspace under rootDir.
 declare module "@qinit/core" {
     export type LhostValueType = "i32" | "i64";
     export interface LhostFunctionSignature {

@@ -196,8 +196,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         const inspection = inspectWasmModule(wasm);
         expect(inspection.ok, inspection.diagnostics.map((item) => item.message).join("; ")).toBe(true);
         expect(inspection.imports.every((item) => item.module === "lhost")).toBe(true);
-        // The state-write journal copies blocks with memory.copy, so bulk-memory is expected; nothing
-        // outside the portable set may appear.
+        // The state-write journal copies blocks with memory.copy, so bulk-memory is expected; nothing outside the portable set may appear.
         expect(inspection.features.filter((feature) => !PORTABLE_FEATURES.has(feature))).toEqual([]);
 
         // WAMR maps offset 0 to nullptr, so resident state must start above it.

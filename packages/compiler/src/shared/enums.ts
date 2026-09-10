@@ -427,11 +427,7 @@ export enum LogPayloadDefect {
     FIELD_AFTER_TERMINATOR = "field_after_terminator",
 }
 
-/**
- * A C++ construct the TypeScript compiler does not fully implement.
- *
- * Grep a member to find every site that reports it; that set is the work list for implementing it.
- */
+/** A C++ construct the TypeScript compiler does not fully implement. Grep a member to find every site that reports it; that set is the work list. */
 // Which declaration wins the bare, unqualified key when two scopes share a name.
 export enum BareNamePolicy {
     OVERWRITE = "overwrite",
@@ -457,7 +453,6 @@ export enum QpiDriftKind {
     DRIFT = "drift",
 }
 
-// There is no static_cast keyword, so `static_cast<T>(x)` reaches the AST as a template call on this name.
-// Only static_cast converts the value; the other two keep it and change the type.
+// There is no static_cast keyword, so `static_cast<T>(x)` reaches the AST as a template call on this name; only static_cast converts the value.
 export const CAST_TEMPLATE_NAMES = new Set(["static_cast", "reinterpret_cast", "const_cast"]);
 export const VALUE_CONVERTING_CAST = "static_cast";

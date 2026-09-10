@@ -4,9 +4,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { compileContractWithTypeScript } from "../../src/index";
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
 
-// qpi.h states its container rules as static_asserts, and C++ evaluates those when the template is
-// instantiated. Qinit only checked the containers it rebuilt for the IDL, so a `_locals` container
-// skipped every rule: `Array<uint64, 3>` compiled here and failed core's build with a static_assert.
+// qpi.h states container rules as static_asserts, evaluated at instantiation; Qinit only checked the containers it rebuilt, so a `_locals` one skipped them.
 const source = (state: string, locals: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct AssertProbe : public ContractBase {

@@ -1,6 +1,4 @@
-// Builds the `cheats` IDL table from the AST rather than from emission, so the analyzer path — which
-// never generates WAT, and which is what feeds the clang backend's IDL and both editors — produces the
-// same table as a full compile.
+// Builds the `cheats` IDL table from the AST rather than emission, so the analyzer path, which never generates WAT, produces the same table as a full compile.
 import type { AbiType, ContractCheat, ContractCheatPart } from "@qinit/proto/contract-idl";
 import { AstKind, BinaryOp } from "../../../shared/enums";
 import type { CallExpression } from "../calls/call-expression";
@@ -98,8 +96,7 @@ function partFor(scope: CheatScope, argument: Expression): ContractCheatPart {
     };
 }
 
-// The type must describe exactly the bytes the emitter ships, which is the layout of whatever the
-// argument addresses. An rvalue has no address and travels by register, so uint64 describes it.
+// The type must describe exactly the bytes the emitter ships, so it is the layout the argument addresses; an rvalue travels by register, hence uint64.
 function partType(scope: CheatScope, argument: Expression): AbiType | undefined {
     const root = rootLayout(scope.roots, argument);
 
@@ -145,9 +142,7 @@ function argumentType(scope: CheatScope, expression: Expression): TypeSpec | und
     return undefined;
 }
 
-// A container method's declared return type under the instance's bindings: the element `Array::get`
-// and `Collection::element` hand back, the key `HashMap::key` does, the `sint64` of a `priority`, the
-// `bit` a BitArray holds. A struct the method returns by value is still materialised, so its bytes ship.
+// A container method's declared return type under the instance's bindings — the element, key, priority or bit it hands back; a by-value struct still ships.
 function containerMethodType(scope: CheatScope, owner: TypeSpec, method: string): TypeSpec | undefined {
     const resolved = scope.programAnalysis.resolveType(owner, EMPTY_TEMPLATE_BINDINGS);
 
@@ -161,8 +156,7 @@ function containerMethodType(scope: CheatScope, owner: TypeSpec, method: string)
         return undefined;
     }
 
-    // A concrete name stays as declared: `id` must not resolve through its typedef to m256i, which
-    // would print a PoV as hex rather than as an identity.
+    // A concrete name stays as declared: `id` must not resolve through its typedef to m256i, which would print a PoV as hex rather than an identity.
     const declared = stripPtrRefConst(found.definition.returnType);
 
     return declared.kind === AstKind.NAME && !found.ownerBindings.types.has(declared.name)
@@ -170,8 +164,7 @@ function containerMethodType(scope: CheatScope, owner: TypeSpec, method: string)
         : scope.programAnalysis.resolveType(declared, found.ownerBindings);
 }
 
-// `qpi.<method>()` carries the return type the context declares, searched through its bases the way
-// the address emitter binds the call.
+// `qpi.<method>()` carries the return type the context declares, searched through its bases the way the address emitter binds the call.
 function qpiReturnType(scope: CheatScope, method: string): TypeSpec | undefined {
     const contextParameter = scope.declaration.params[0];
 
@@ -236,8 +229,7 @@ function rootLayout(roots: PayloadRoots, expression: Expression): StructLayout |
     return undefined;
 }
 
-// `__LINE__ - QINIT_CC_LINE_BASE` reaches the AST unfolded, because the preprocessor substitutes text
-// rather than evaluating it. Both users of the id fold it the same way so their ordinals line up.
+// `__LINE__ - QINIT_CC_LINE_BASE` reaches the AST unfolded, since the preprocessor substitutes text; both users fold it the same way so ordinals line up.
 export function foldCheatLine(argument: Expression | undefined): number {
     if (!argument) {
         return 0;
@@ -262,8 +254,7 @@ function scalarUint64(): TypeSpec {
     return { kind: AstKind.NAME, name: "uint64" } as TypeSpec;
 }
 
-// The label a reader sees next to the value. Rendered from the AST so the analyzer path, which never
-// holds the user's source text, produces the same label as a full compile.
+// The label a reader sees next to the value, rendered from the AST so the analyzer path — which holds no user source text — produces the same label.
 function expressionText(expression: Expression): string {
     switch (expression.kind) {
         case AstKind.IDENTIFIER:
