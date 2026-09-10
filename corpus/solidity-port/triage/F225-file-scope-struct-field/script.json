@@ -1,0 +1,13 @@
+{
+  "contract": "FileScopeField",
+  "slot": 27,
+  "tick": 1000,
+  "epoch": 100,
+  "epochLength": 8,
+  "identities": ["0707070707070707070707070707070707070707070707070707070707070707"],
+  "fund": [{ "id": 0, "amount": "1000000000" }],
+  "steps": [
+    { "kind": "procedure", "entry": 1, "invocator": 0, "note": "measure both sizes" },
+    { "kind": "function", "entry": 1 }
+  ]
+}
