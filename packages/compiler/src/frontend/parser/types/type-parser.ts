@@ -74,7 +74,6 @@ export class TypeParser {
         if (isTypeKeyword(tok.kind)) {
             return this.parser.types.parseBuiltinType();
         }
-        // struct / enum / class / union prefix
         if (tok.kind === TokenKind.KW_STRUCT || tok.kind === TokenKind.KW_ENUM || tok.kind === TokenKind.KW_CLASS || tok.kind === TokenKind.KW_UNION) {
             this.parser.state.next();
             const name = this.parser.state.next().text;
@@ -190,7 +189,6 @@ export class TypeParser {
     }
 
     parseAccessAndType(): TypeSpec {
-        // public Type / protected Type / private Type
         this.parser.state.tryConsumeKeyword("public");
         this.parser.state.tryConsumeKeyword("protected");
         this.parser.state.tryConsumeKeyword("private");

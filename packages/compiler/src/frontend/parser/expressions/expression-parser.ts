@@ -480,7 +480,6 @@ export class ExpressionParser {
             this.parser.state.expect(TokenKind.R_BRACE, "initializer list");
             return { kind: AstKind.INITIALIZER_LIST, expressions, span: tok.span };
         }
-        // Identifier or qualified name
         const name = this.parser.types.parseQualifiedName();
         if (name) {
             return { kind: AstKind.IDENTIFIER, name, span: tok.span };

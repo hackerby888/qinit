@@ -74,7 +74,6 @@ export class FunctionParser {
             }
             return this.parser.functions.parseFunctionRest(name, type, isConstexpr, isStatic, isInline, isVirtual, isExtern);
         }
-        // Variable: name; or name = init;
         return this.parser.functions.parseVariableRest(name, type, isConstexpr, isStatic);
     }
 

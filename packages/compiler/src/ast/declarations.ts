@@ -22,7 +22,6 @@ export type Declaration =
     | NamespaceDecl
     // Static assert (top-level)
     | StaticAssertDecl
-    // Extern block
     | ExternBlockDecl
     // Friend
     | FriendDecl
