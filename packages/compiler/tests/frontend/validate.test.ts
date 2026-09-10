@@ -262,16 +262,21 @@ describe("validateAndDesugar — rejection rules", () => {
         expect(hasError(diags, /const|read-only/i)).toBe(true);
     });
 
-    test("rejects shadowing: inner scope reuses outer name", () => {
+    test("accepts shadowing: inner scope reuses outer name, and renames it apart", () => {
+        const inner = varDecl("v", nt("uint64"), { initializer: iLit("2") });
         const s = structDecl("S", [
             funcDecl("f", [], vd(), [
                 declStmt(varDecl("v", nt("uint64"), { initializer: iLit("1") })),
-                compStmt([declStmt(varDecl("v", nt("uint64"), { initializer: iLit("2") })), eStmt(ident("v"))]),
+                compStmt([declStmt(inner), eStmt(ident("v"))]),
                 retStmt(),
             ]),
         ]);
         const diags = validate([s]);
-        expect(hasError(diags, /shadow/i)).toBe(true);
+        expect(hasError(diags, /shadow/i)).toBe(false);
+        // The two bindings must not share a slot: block-scope resolution renames the inner one and
+        // records the name as written, which is what keeps the outer `v` readable after the block.
+        expect(inner.name).not.toBe("v");
+        expect(inner.blockScopedFrom).toBe("v");
     });
 
     test("rejects use-before-declaration", () => {
