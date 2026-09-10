@@ -11,11 +11,15 @@ toolchain test.
 The patches are cumulative in the worktree and were measured stacked, in the order below. Two of them
 touch `semantics/struct-layout.ts` (F201 adds a constant F211 uses), so apply F201 before F211.
 
+**Ship ≠ fixes the finding.** Fourteen patches ship; they fix **twelve** findings. `F213 part 1` ships
+and leaves F213 red (13 of 55 rows still diverge), and `F204` ships as a refusal rather than an answer.
+Read the "repro" column, not the "verdict" column, for whether a finding is closed.
+
 | patch | repro | unit suite | verdict |
 | --- | --- | --- | --- |
 | `F220-asset-iterator-selectors.patch` | fixed | 1084 / 0 | **ship** |
 | `F200-signed-32bit-division.patch` | fixed | 1084 / 0 | **ship** |
-| `F213-part1-enclosing-scope-key.patch` | partly fixed (42 of 55 rows) | 1084 / 0 | **ship** |
+| `F213-part1-enclosing-scope-key.patch` | **does not fix F213** — 42 of 55 rows, 13 still red | 1084 / 0 | **ship** as progress |
 | `F210-identity-alias-hang.patch` | fixed — 320ms, was a hang | 1084 / 0 | **ship** |
 | `F209-global-scope-qualifier.patch` | fixed | 1084 / 0 | **ship** |
 | `F214-sizeof-type-id.patch` | fixed | 1084 / 0 | **ship** |
@@ -27,7 +31,7 @@ touch `semantics/struct-layout.ts` (F201 adds a constant F211 uses), so apply F2
 | `F211-nested-struct-scope.patch` | fixed — crash became a result | 1085 / 0 | **ship** |
 | `F221-mutable-reference-write-back.patch` | fixed | 1085 / 0 | **ship** |
 | `F222-overload-viability-default-arguments.patch` | fixed (new finding) | 1085 / 0 | **ship** |
-| `F213-both-parts.patch` (adds part 2) | fixed | 1084 / 0 | **do not ship** — +55 fixed, **−17 broken** |
+| `F213-both-parts.patch` (adds part 2) | clears the repro | 1084 / 0 | **do not ship** — fixes 13, breaks 17, and picks a winner by kind of declaration rather than by scope |
 | `F203-k12-address-hardening.patch` | does **not** fix F203 | 1084 / 0 | hardening only |
 
 ## Corpus effect, all patches stacked

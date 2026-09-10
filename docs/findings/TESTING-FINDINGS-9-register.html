@@ -598,7 +598,7 @@
       <div><span class="n">7</span><span class="k">harness / engine</span></div>
       <div><span class="n">6,618</span><span class="k">contracts swept</span></div>
       <div><span class="n">449</span><span class="k">archetypes</span></div>
-      <div><span class="n">14</span><span class="k">patches that ship</span></div>
+      <div><span class="n">12</span><span class="k">findings closed</span></div>
     </div>
   </header>
 
@@ -852,21 +852,27 @@
       </p>
     </div>
     <div class="systemic">
-      <span class="tag">Every fix built and measured — 14 patches ship, 1 breaks more than it fixes, 1 still unlocated</span>
+      <span class="tag">Every fix built and measured — 14 patches ship, and they close 12 findings, not 14</span>
       <p>
         Each fix below was built in a worktree, run against its triage repro, then against the compiler
         unit suite and the corpus. Gate: <b>1084 pass / 0 fail</b> on a clean tree, <b>1085 / 0</b> once
-        F217 adds its toolchain test. <b>F200, F201, F209, F210, F211, F212, F213 part 1, F214, F215,
-        F217, F220, F221 and the new F222 each fix their finding</b> — thirteen. <b>F204</b> is the
-        fourteenth and ships as a <em>refusal</em>, not an answer: the expression is undefined behaviour
-        and clang contradicts itself about it, so there is nothing to match.
+        F217 adds its toolchain test. <b>F200, F201, F209, F210, F211, F212, F214, F215, F217, F220, F221
+        and the new F222 each fix their finding</b> — twelve. <b>F204</b> ships as a <em>refusal</em>, not
+        an answer: the expression is undefined behaviour and clang contradicts itself about it, so there
+        is nothing to match.
       </p>
       <p>
-        Three do not. <b>F213 part 2</b> fixes the last 13 rows and breaks 17 elsewhere, so it does not
-        ship as written. <b>F203 is still open</b> — its published root cause was wrong, and the follow-up
-        theory was built and fixes nothing. <b>F205</b> was not attempted: its card sequences it after the
-        F213 scope work, which is not done. Patches and the full numbers:
-        <code>docs/findings/fixes/</code>.
+        <b>Shipping a patch is not the same as closing a finding, and an earlier revision of this page
+        counted F213 as fixed. It is not.</b> Part 1 ships and moves 42 of its 55 rows; <b>13 still
+        diverge</b>, so F213 is still red. Part 2 would clear those 13 and turn <b>17 other rows red</b>,
+        and net −4 is not the reason to refuse it — both drafts pick a winner by <em>kind</em> of
+        declaration, where the C++ rule is scope-aware. A patch that moves most of a finding's rows is
+        progress, not a fix.
+      </p>
+      <p>
+        Also still red: <b>F203</b> — its published root cause was wrong, and the follow-up theory was
+        built and fixes nothing. <b>F205</b> was not attempted; its card sequences it after the F213 scope
+        work. Patches and the full numbers: <code>docs/findings/fixes/</code>.
       </p>
     </div>
     <p class="note">
@@ -902,7 +908,7 @@
         <div class="fhead">
           <span class="fid">F213</span>
           <h3 class="ftitle">A constant name is global, and the last declaration wins</h3>
-          <div class="fmeta"><span class="sev sev-critical">critical</span><span class="status red"><b>55 rows red</b></span></div>
+          <div class="fmeta"><span class="sev sev-critical">critical</span><span class="status red"><b>55 rows red · 13 after part 1</b></span></div>
         </div>
         <p class="fsum">
           Every read below is <strong>fully qualified</strong>, so C++ has nothing to disambiguate and clang's
@@ -941,11 +947,12 @@ namespace WithEnum { enum Kinds     { Shared = 55 }; }
           struct sizes and offsets, which a mis-resolution between identically shaped types cannot disturb.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · part 1 SHIP (+42 rows) · part 2 breaks 17</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested bad">still red · part 1 ships, 42 of 55 rows · 13 remain</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p>Qualified reads miss because the key is never written. The bare fallback then reads a flat map.</p>
           <ol>
             <li><span class="rec">do this</span><code>declaration-index.ts:429</code> — add <code>scopePrefix</code> to <code>memberScopes</code> for unscoped enums. Registers <code>Alpha::Low</code>, the spelling C++ actually requires. Additive. Fixes every qualified read on its own.<span class="cost">low risk · adds keys, moves none</span></li>
-            <li>Bare name is last-write-wins. <code>registerScoped</code> + <code>BareNamePolicy</code> exist at <code>shared/enums.ts:436</code>; this loop bypasses them with a raw <code>.set()</code>. Add an <code>AMBIGUOUS</code> policy, error from <code>constant-evaluator.ts:49</code>.<span class="cost">breaks contracts that build today · run the corpus first</span></li>
+            <li>The remaining 13 rows are enum-vs-<code>constexpr</code> on the <em>bare</em> key: the enum loop calls <code>constexprInit.delete(key)</code> and evicts a real file-scope constant. Stopping that eviction was built — it clears those 13 and turns <b>17 <code>LogPayloadWithIdField</code> rows red</b>, because the resulting rule is "a <code>constexpr</code> always beats a later enum member", the mirror of the original bug. <b>Not shipped, and not because of the arithmetic:</b> it picks a winner by kind of declaration where C++ picks by scope.<span class="cost">measured · 13 fixed, 17 broken · docs/findings/fixes/F213-both-parts.patch</span></li>
+            <li><span class="rec">do this next</span>Write the scope-aware rule: nearest declaration wins, equal-scope collision is <b>ambiguous and a diagnostic</b>. <code>registerScoped</code> + <code>BareNamePolicy</code> already exist at <code>shared/enums.ts:436</code> and this loop bypasses them with a raw <code>.set()</code>; an <code>AMBIGUOUS</code> policy erroring from <code>constant-evaluator.ts:49</code> is the shape. An earlier "first declaration wins" draft resolved <code>enum E { A = 4, B, C = 9, D }</code> to 66 and 68 — the ASCII values — because a snapshot enum owned the bare keys first.<span class="cost">the real fix · larger than either draft · rejects code that builds today</span></li>
           </ol>
         </div>
         <div class="footrow">

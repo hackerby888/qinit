@@ -2003,7 +2003,12 @@ a clean tree, **1085 / 0** once F217 adds its toolchain test.
 
 ## Result
 
-Thirteen findings fixed, one refused deliberately, one new finding, two published root causes corrected.
+**Twelve findings fixed** — F200, F201, F209, F210, F211, F212, F214, F215, F217, F220, F221 and the new
+F222. One refused deliberately (F204). Two published root causes corrected.
+
+**F213 is not among them, and was miscounted as fixed in the first revision of this section.** Part 1
+ships and fixes 42 of its 55 rows, but 13 rows still diverge, so the finding is still red. A patch that
+moves most of a finding's rows is progress, not a fix, and the count now says so.
 
 | finding | before | after | root cause |
 | --- | --- | --- | --- |
@@ -2019,9 +2024,29 @@ Thirteen findings fixed, one refused deliberately, one new finding, two publishe
 | F221 | `verified` — **and wrong** | fixed | the scratch copy is deliberate; the *read-back* was emitted for locals and not for by-value parameters |
 | F222 | — | **new** | overload viability compared parameter count for equality, so an overload with defaults was non-viable for every under-supplied call and the first-declared one won by being the seed |
 
-Not fixed: **F203** (root cause still open — the published one was wrong and the follow-up theory fixes
-nothing) and **F205** (its card sequences it after the F213 scope work, which is not done).
-**F213 part 2** still breaks 17 rows and does not ship.
+Still red after this pass:
+
+| finding | state | why |
+| --- | --- | --- |
+| **F213** | 42 of 55 rows fixed, **13 still red** | part 1 ships; part 2 fixes the last 13 and breaks 17 elsewhere, so it does not ship — see below |
+| **F203** | unchanged | root cause still open; the published one was wrong and the follow-up theory fixes nothing |
+| **F205** | not attempted | its card sequences it after the F213 scope work, which is not done |
+
+### Why part 2 is not a fix, and why "13 fixed, 17 broken" is not a trade to take
+
+The 13 remaining F213 rows are enum-vs-`constexpr` on the *bare* name: the enum loop calls
+`constexprInit.delete(key)` on the bare key and evicts a real file-scope constant. Stopping that
+eviction fixes those 13 — and turns 17 `LogPayloadWithIdField` rows red, because the resulting rule is
+"a `constexpr` always beats a later enum member", which is just the mirror of the original bug rather
+than the C++ rule.
+
+Net −4 rows, but the arithmetic is beside the point: both drafts pick a winner by *kind of declaration*.
+The actual rule is scope-aware — nearest declaration wins, and an equal-scope collision is **ambiguous
+and should be a diagnostic**. Until that is written, part 2 is a different wrong answer, not a fix.
+
+An earlier draft ("first declaration wins") was worse still: it resolved `enum E { A = 4, B, C = 9, D }`
+to 66 and 68 — the ASCII values — because a snapshot enum already owned the bare keys and the contract's
+own enum could no longer claim them. The unit suite caught that one.
 
 Patches, one per finding, with the measured numbers: `docs/findings/fixes/`.
 
