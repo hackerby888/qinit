@@ -219,10 +219,7 @@ export function stripCheatcodes(source: string): string {
     return characters.join("");
 }
 
-/**
- * the cheat guards `stripCheatcodes` would remove, by name, deduplicated.
- * `--production` drops them silently, so the build reports the list instead.
- */
+/** the cheat guards `stripCheatcodes` would remove, by name, deduplicated. `--production` drops them silently, so the build reports the list instead. */
 export function strippedCheatNames(source: string): string[] {
     const names = new Set<string>();
 

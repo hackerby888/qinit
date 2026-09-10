@@ -136,10 +136,7 @@ function completionName(label: string): string | undefined {
 // Assignment operators and destructors come with every struct and none can be written after a dot in QPI, so a member list drops them and the reserved names.
 const NOISE_MEMBER_PATTERN = /^(operator\b|~)/;
 
-/**
- * `_`-led members are hidden unless the developer typed a leading `_`: a log struct's `_type`,
- * `_contractIndex` and `_terminator` and the K12 union's `_0`.._3 are members worth completing.
- */
+/** `_`-led members are hidden unless the developer typed a leading `_`: a log struct's `_type` and the K12 union's `_0`.._3 are members worth completing. */
 export function keepMemberLabel(label: string, typedPrefix?: string): boolean {
     if (NOISE_MEMBER_PATTERN.test(label.trim())) {
         return false;

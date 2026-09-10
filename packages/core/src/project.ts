@@ -12,8 +12,7 @@ export interface QinitConfig {
     system?: string[]; // built-in system contracts to seed onto the simulator
 }
 
-// Notepad, Visual Studio ("UTF-8 with signature") and PowerShell 5.1's `Out-File -Encoding utf8` all
-// prepend U+FEFF, which JSON.parse rejects.
+// Notepad, Visual Studio ("UTF-8 with signature") and PowerShell 5.1's `Out-File -Encoding utf8` all prepend U+FEFF, which JSON.parse rejects.
 function stripBom(text: string): string {
     return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }

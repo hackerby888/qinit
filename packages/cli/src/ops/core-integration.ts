@@ -311,8 +311,7 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
 
         const contractSource = stripCheatcodes(rawSource);
 
-        // no trailing character class: a mis-aligned blanking window can leave exactly `CC_`, and this
-        // is the one hand-off to Core, so it fails closed.
+        // no trailing character class: a mis-aligned blanking window can leave exactly `CC_`, and this is the one hand-off to Core, so it fails closed.
         if (/\bCC_/.test(contractSource)) {
             throw new Error("internal: cheatcode residue after strip");
         }

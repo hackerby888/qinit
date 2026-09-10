@@ -12,8 +12,7 @@ export async function initK12(): Promise<void> {
         return;
     }
 
-    // Static CJS require so bun bundles one instance; ESM import resolved a second, uninit one under --compile.
-    // @ts-ignore - require is provided by bun
+    // Static CJS require so bun bundles one instance; ESM import resolved a second, uninit one under --compile. @ts-ignore - require is provided by bun
     const cryptoMod: any = require("@qubic-lib/qubic-ts-library/dist/crypto");
     _schnorrq = (await (cryptoMod.default ?? cryptoMod)).schnorrq;
 }

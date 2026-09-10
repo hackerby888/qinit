@@ -252,8 +252,7 @@ export interface LaunchOptions {
     scratchDirectory?: string;
     nodeMode?: string;
     peers?: string;
-    // core's HTTP/RPC listen port; without it the node takes its own default and cannot run beside one
-    // that already holds that port.
+    // core's HTTP/RPC listen port; without it the node takes its own default and cannot run beside one that already holds that port.
     httpPort?: number;
     // recorded so `node stop --rpc <url>` can find this node again.
     rpcBaseUrl?: string;

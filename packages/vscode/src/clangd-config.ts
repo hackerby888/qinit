@@ -133,8 +133,7 @@ function sourceDetails(o: ClangdInputs): {
     return { contractFile, name, slot, dir, options };
 }
 
-// a separate marker file rather than a key in the database: clangd validates the schema strictly and
-// refuses the whole file on an unknown key.
+// a separate marker file rather than a key in the database: clangd validates the schema strictly and refuses the whole file on an unknown key.
 const DB_OWNER_FILE = "owns-root-db";
 
 function ownsDatabase(generatedDir: string, dbPath: string): boolean {

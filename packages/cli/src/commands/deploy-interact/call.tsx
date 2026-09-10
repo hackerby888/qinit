@@ -109,8 +109,7 @@ async function calleePrints(rpc: LiteRpc, frames: readonly DebugEntry[], warn: (
         const idl = idls.get(frame.index);
         const contract = idl?.name ?? String(frame.index);
         if (!frame.ok) {
-            // the caller only sees NO_CALL_ERROR with a zero-filled output, so the callee's own input
-            // and logs are the only record of what actually failed.
+            // the caller only sees NO_CALL_ERROR with a zero-filled output, so the callee's own input and logs are the only record of what actually failed.
             const view = await describeTrace(frame, undefined, contract, undefined, idl);
             warn(`⚠ ${contract}${entryLabel(frame.kind, frame.entry)} trapped inside this call${frame.trap ? `: ${frame.trap}` : ""}`);
             if (view.inDecoded) {
@@ -426,8 +425,7 @@ function CallOneShot({
                     });
                 } else {
                     const tickInfo = await rpc.tickInfo();
-                    // TX_TICK_OFFSET is fixed, so --tick is the only way to aim two calls at one tick and
-                    // test an ordering-dependent contract.
+                    // TX_TICK_OFFSET is fixed, so --tick is the only way to aim two calls at one tick and test an ordering-dependent contract.
                     const explicitTick = commandArgs.get("tick");
                     let tick = tickInfo.tick + TX_TICK_OFFSET;
                     if (explicitTick !== undefined) {
