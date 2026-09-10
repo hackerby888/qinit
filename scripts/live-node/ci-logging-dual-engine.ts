@@ -1,5 +1,4 @@
-// Compile Logger once with the TS compiler, then compare the exact LOG_* bytes produced by QubicSimulator and the
-// release-configured core-lite WAMR node. QINIT_CORE and a ticking node at QINIT_RPC are required.
+// Compile Logger once, then compare exact LOG_* bytes from QubicSimulator and the release-configured core-lite WAMR node. Needs QINIT_CORE + QINIT_RPC.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEFAULT_RPC_BASE, initK12, k12Hex, LiteRpc } from "@qinit/core";

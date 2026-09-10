@@ -74,8 +74,7 @@ describe("source configuration sync", () => {
         expect(() => syncSources(root)).toThrow("expected 1 match(es)");
     });
 
-    // Git checks out with CRLF by default on Windows. A replacement that spans newlines must keep the
-    // file's endings, or --check reports drift that syncing can never settle.
+    // Git checks out CRLF on Windows, so a replacement spanning newlines must keep the file's endings or --check reports drift syncing cannot settle.
     test("reports no drift in a CRLF checkout", () => {
         const root = copySources();
         for (const relativePath of synchronizedSourceFiles) {

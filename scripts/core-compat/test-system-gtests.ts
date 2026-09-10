@@ -1,5 +1,4 @@
-// Run real core-lite system-contract gtests with a WASI-Clang-compiled test harness and TS-compiled
-// contract Wasm. The routine default is the light tier; heavy state/dispatch suites are explicit.
+// Real core-lite system-contract gtests: WASI-Clang harness, TS-compiled contract Wasm. Light tier by default; heavy state/dispatch suites are explicit.
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";

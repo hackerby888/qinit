@@ -106,8 +106,7 @@ export const wasmFixtureManifest = {
     Vault: fixture("Vault.h", VAULT_SOURCE, "Vault", 28),
     Vault29: fixture("Vault.h", VAULT_SOURCE, "Vault", 29),
     Watcher: fixture("Watcher.h", WATCHER_SOURCE, "Watcher", 28),
-    // A 64 KiB journal holds ~250 blocks against a 2048-block state, so the overflow rung stays
-    // reachable without a state large enough to exhaust the real budget.
+    // A 64 KiB journal holds ~250 blocks against a 2048-block state, so overflow stays reachable without a huge state.
     WideWrite: fixture("WideWrite.h", WIDE_WRITE_SOURCE, "WideWrite", 28, undefined, 64 * 1024),
 } as const;
 

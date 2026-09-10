@@ -1,8 +1,5 @@
-// Every contract failure class on both runtimes: a function abort fails only its query, a procedure trap
-// or abort halts the node behind a fault and a trace frame, and a migration abort halts the same way.
-// The simulator leg runs in-process. The core node at QINIT_RPC runs one case (QINIT_FAULT_CASE =
-// fn|trap|abort|migrate) with one compiler (QINIT_FAULT_COMPILER = TS|Clang), because a halted node
-// does not come back; without QINIT_FAULT_CASE only the simulator leg runs, every case and compiler.
+// Every contract failure class on both runtimes; the simulator leg runs in-process, every case and compiler.
+// Set QINIT_FAULT_CASE (fn|trap|abort|migrate) + QINIT_FAULT_COMPILER (TS|Clang) to add the QINIT_RPC node — one case only, since a halted node never returns.
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";

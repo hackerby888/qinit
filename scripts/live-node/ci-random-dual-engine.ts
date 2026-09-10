@@ -1,5 +1,4 @@
-// Compile once, execute the exact artifact on the release-configured WAMR node,
-// then replay the node's captured chain context in QubicSimulator and compare state bytes.
+// Compile once, run the exact artifact on the release-configured WAMR node, then replay its captured chain context in QubicSimulator and compare state bytes.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEFAULT_RPC_BASE, hexToBytes, initK12, k12Hex, LiteRpc } from "@qinit/core";

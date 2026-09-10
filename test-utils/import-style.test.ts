@@ -1,5 +1,4 @@
-// Workspace packages are imported by `@qinit/*` alias, never by relative path: relative cross-package
-// imports break on file moves and hide package boundaries.
+// Workspace packages are imported by `@qinit/*` alias, never relative path: relative cross-package imports break on moves and hide boundaries.
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -7,8 +6,7 @@ import { join, resolve } from "node:path";
 const root = resolve(import.meta.dir, "..");
 const SKIPPED_DIRS = new Set(["node_modules", "dist", ".generated", ".git"]);
 
-// Requiring a package name followed by /src/ matches both drifted shapes (../../packages/core/src/x,
-// ../../../proto/src/x) without catching within-package or non-package targets.
+// Requiring a package name followed by /src/ matches both drifted shapes without catching within-package or non-package targets.
 const RELATIVE_PACKAGE_IMPORT = /from\s+"(?:\.\.\/)+(?:packages\/)?(?:build|cli|compiler|core|engine|proto)\/src\/[^"]*"/;
 
 // Pruned before descending: walking node_modules first and filtering afterwards is what made this slow on Windows.
