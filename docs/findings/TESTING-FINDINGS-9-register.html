@@ -872,6 +872,16 @@
         dump, F213 took asking what C++ decides by. An unbuilt root cause is a guess.
       </p>
     </div>
+    <div class="systemic">
+      <span class="tag">Reading the two chips on each fix</span>
+      <p>
+        They describe <b>different trees</b>. The green chip is the measured result <b>with the patch
+        applied</b> in a worktree. The red chip is whether the finding <b>still reproduces upstream on
+        main</b>, unpatched — it is the answer to "has someone else already fixed this?", and for every
+        finding here that answer is no. A card reading <em>"with this patch: fixed"</em> beside
+        <em>"unpatched, on main: still hangs"</em> is not contradicting itself.
+      </p>
+    </div>
     <p class="note">
       Fix badges: <b>verified</b> — root cause read in source, reproduced against a probe, and the fix
       built and measured. <b>located</b> / <b>proposed</b> remain for the one finding whose cause is still
@@ -940,7 +950,7 @@ namespace WithEnum { enum Kinds     { Shared = 55 }; }
           struct sizes and offsets, which a mis-resolution between identically shaped types cannot disturb.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still reproduces</span></div>
           <p>
             Two mechanisms. Qualified reads missed because the key was never written; the bare spelling
             then fell through to a flat last-write-wins map. Both are scope questions, and neither is
@@ -990,7 +1000,7 @@ match            integers/DivQpi__3bce   sint64   <i>both trap, digest c501bf78�
           instruction deliberately does not produce.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1084/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1084/0</span><span class="mainstat">unpatched, on main 0d0153c: still reproduces</span></div>
           <p>All arithmetic runs at i64. <code>INT32_MIN / -1</code> is representable at 64 bits, so <code>i64.div_s</code> never traps and the wrap hides it.</p>
           <ol>
             <li><span class="rec">do this</span><code>binary-expression.ts:159</code>, <code>DIVIDE</code> — when signed and <code>cv.width === 4</code>: <code>i32.wrap_i64</code> both operands, <code>i32.div_s</code>, <code>i64.extend_i32_s</code> back. The trap fires. <code>MODULO</code> on the next line has the same bug; move it too.<span class="cost">contracts that survive today start trapping — that is what the chain does</span></li>
@@ -1034,7 +1044,7 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
           written to test Merkle index arithmetic that caught a hashing bug instead.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still reproduces</span></div>
           <p>
             <b>Located, on the third attempt.</b> Two published root causes were wrong. Dumping the
             wasm settled it in one step: the contract compiles <b>two</b> K12 instantiations, and they
@@ -1105,7 +1115,7 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
           than treating the hand-derived rows as the stronger one.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still reproduces</span></div>
           <p>
             <b>Published root cause corrected.</b> This card blamed <code>argAddr</code> for handing a
             mutable <code>T&amp;</code> a throwaway scratch copy. The copy is real and <em>deliberate</em>:
@@ -1162,7 +1172,7 @@ static void narrow(Box&amp;, sint64 a, sint64 b, sint64 c,
           because the first was being read closely.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · not checked</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: not checked</span></div>
           <p>C++ viability: an overload with P parameters of which D carry defaults accepts P−D through P arguments.</p>
           <ol>
             <li><span class="rec">do this</span>Carry the declared default onto the compiled parameter; make viability the <code>[minArgs, maxArgs]</code> range; prefer an exact arity match between two viable candidates; seed the search with a viable candidate so nothing can win by being first; supply the default at the call site.<span class="cost">both backends now answer 615</span></li>
@@ -1219,7 +1229,7 @@ static void narrow(Box&amp;, sint64 a, sint64 b, sint64 c,
           does not recognise <code>AssetIssuanceIterator</code> at all.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1084/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1084/0</span><span class="mainstat">unpatched, on main 0d0153c: still reproduces</span></div>
           <p><code>materializeSelect(context, undefined)</code> — <code>undefined</code> is the branch that builds <code>any()</code>.</p>
           <ol>
             <li><span class="rec">do this</span><code>containers.ts:523</code> — <code>materializeSelect(context, callArguments[1])</code>; possession select from <code>callArguments[2]</code> on <code>AssetPossessionIterator</code>, else <code>undefined</code>. The two select structs are layout-identical in <code>qpi_assets.h</code>, so the shared layout stays correct.<span class="cost">one extra 36-byte scratch slot per begin()</span></li>
@@ -1248,7 +1258,7 @@ static void narrow(Box&amp;, sint64 a, sint64 b, sint64 c,
 <pre>namespace Inner  { struct Payload { uint64 a; }; }
 namespace Middle { using Payload = Inner::Payload; }   <b>alias name == target name</b></pre>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still hangs, killed at 120s</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still hangs</span></div>
           <p>
             <b>Located.</b> An alias is also registered under its bare name, so a qualified lookup can fall
             through to it and get itself back: resolving <code>Inner::Payload</code> answered
@@ -1286,7 +1296,7 @@ namespace Middle { using Payload = Inner::Payload; }   <b>alias name == target n
           <div class="cl"><span class="backend">clang — what the chain does</span><p><code>error: no viable conversion from 'const QPI::QpiContextFunctionCall' to 'const QPI::QpiContextProcedureCall'</code></p></div>
         </div>
         <div class="fix" data-conf="located">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · both backends now refuse · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: both backends refuse, as clang does · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still reproduces</span></div>
           <p>
             <b>Located, and the mechanism is exact.</b> qpi.h states the rule in the type system and clang
             enforces it there — <code>QpiContextProcedureCall : public QpiContextFunctionCall</code>, so a
@@ -1327,7 +1337,7 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           <div class="cl"><span class="backend">clang — what the chain does</span><p>Reads 42 back through all three bases; <code>stateSize 96</code>, the correct layout for all three spellings.</p></div>
         </div>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still reproduces</span></div>
           <p>
             <b>Located.</b> <code>baseContribution</code> followed the base's typedef <em>exactly one
             hop</em>. <code>Port::BaseC</code> resolved to the name <code>Port::BaseB</code>, which names no
@@ -1364,7 +1374,7 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           <div class="cl"><span class="backend">clang — what the chain does</span><p><code>error: assigning to 'uint64' from incompatible type 'void (const QPI::QpiContextFunctionCall &amp;, …)'</code></p></div>
         </div>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · both backends now refuse · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: both backends refuse, as clang does · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still reproduces</span></div>
           <p>C++ searches class scope first inside a member function, so the member hides the constant and the assignment is ill-formed.</p>
           <ol>
             <li><span class="rec">do this</span>Check class scope before the named-constant lookup in the identifier path. <code>hasStateParam</code> is the boundary — it marks the contract's own entries — so a qpi.h body using a constant that shares a name with some contract's entry is unaffected.<span class="cost">both backends refuse it, which is what clang does · the Solo control still stores 4</span></li>
@@ -1391,7 +1401,7 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           to declare a file-scope <code>Inner</code> collided with it, taking 4 of its 12 variants down.
         </p>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still reproduces</span></div>
           <p>
             <b>Located.</b> Name lookup inside a class body runs class scope, then the scopes <em>that
             class</em> is nested in — never the scope of whatever field led there. Both the layout walk and
@@ -1426,7 +1436,7 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           refused; aliasing first is what isolated the finding.
         </p>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still reproduces</span></div>
           <p>The operand is parsed as an expression, which stops at the first comma.</p>
           <ol>
             <li><span class="rec">do this</span>When an identifier is followed by <code>&lt;</code>, attempt a backtracking type-id parse and take it only if it consumes cleanly to the closing paren; otherwise restore the position and the diagnostic count and run the expression path unchanged. <code>sizeof(expr)</code> and <code>sizeof(type)</code> stay distinguishable.<span class="cost">both backends: direct 64, viaAlias 64, scalar 8</span></li>
@@ -1452,7 +1462,7 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           index. One assignment works around it.
         </p>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still reproduces</span></div>
           <p>
             <b>Located.</b> Selecting a member of a class prvalue materialises a temporary
             (<code>[class.temporary]/2</code>). The resolver had three special cases for that — an inline
@@ -1509,7 +1519,7 @@ locals.afterBlocks = tier;      <i>control: the file constant again</i></pre>
           (<code>scoping/c99_scoping_activation.sol</code>) was written to pin down.
         </div>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes both halves · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still there — and clang now refuses it too</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still there — clang now refuses it too</span></div>
           <p>
             <b>Both diagnostics come from one missing step:</b> nothing ever resolved names against the
             block structure. Neither ranked option was right on its own — stopping the hoist leaves the
@@ -1559,7 +1569,7 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           of the test harness.
         </div>
         <div class="fix" data-conf="located">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still reproduces</span></div>
           <p>
             <b>A previous revision of this card refused the expression</b>, arguing that it is undefined
             behaviour and clang contradicts itself, so there is nothing to match. That was a policy
@@ -1598,7 +1608,7 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           <code>::</code>. The workaround is to rename.
         </p>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still there — and clang now refuses it too</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">with this patch: fixed · suite 1085/0</span><span class="mainstat">unpatched, on main 0d0153c: still there — clang now refuses it too</span></div>
           <p>The parser rejects an empty left-hand side.</p>
           <ol>
             <li><span class="rec">do this</span><code>parseQualifiedName</code> — consume a leading <code>::</code> when an identifier follows it.<span class="cost">additive syntax · both backends agree</span></li>
