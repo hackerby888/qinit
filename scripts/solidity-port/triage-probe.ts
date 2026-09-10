@@ -19,7 +19,7 @@
 //
 // State is printed as little-endian u64 words rather than hex: a wrong digest is unreadable as hex and
 // obvious as a list of numbers, and the fields of a StateData line up one per column.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { buildContractWithClang, buildContractWithTypeScript } from "@qinit/build";
 import { QubicSimulator, initK12, toHex } from "@qinit/engine";
 
@@ -57,7 +57,8 @@ for (const [backend, build] of [
     // a contract the TS parser declines reads here as a CLANG rejection. That is the same misattribution
     // already fixed in compile.ts, and it made this probe report `clang REJECTED` for a contract clang
     // had in fact compiled. The probe deploys the wasm and drives entries by number; it never reads the IDL.
-    const producedArtifact = backend === "clang" ? Boolean(built.wasmPath) : built.ok && Boolean(built.wasmPath);
+    const wroteWasm = Boolean(built.wasmPath) && existsSync(built.wasmPath!);
+    const producedArtifact = backend === "clang" ? wroteWasm : built.ok && wroteWasm;
     if (!producedArtifact) {
         const firstError = (built.stderr ?? "")
             .split("\n")

@@ -205,7 +205,10 @@ async function buildOne(
         // `ok: !idlError`, so a contract the TS parser declines was being recorded as a CLANG rejection —
         // scoring `both-rejected` where the truth is `one-side-rejected`. The IDL is not used here: the
         // sweep deploys the wasm and drives entries by number. Keep the error visible as a diagnostic.
-        const producedArtifact = backend === "clang" ? Boolean(built.wasmPath) : built.ok && Boolean(built.wasmPath);
+        // The path is where the artifact would go, not proof it was written: clang refusing a contract
+        // still reports one, and reading it threw ENOENT in place of clang's own error. Require the file.
+        const wroteWasm = Boolean(built.wasmPath) && existsSync(built.wasmPath!);
+        const producedArtifact = backend === "clang" ? wroteWasm : built.ok && wroteWasm;
         if (producedArtifact && built.wasmPath) {
             const diagnostics = built.ok ? [] : [built.stderr ?? "build reported not-ok but produced a wasm"];
             return { ok: true, wasm: new Uint8Array(readFileSync(built.wasmPath)), diagnostics, ms: Date.now() - started, cached: false };
