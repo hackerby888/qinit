@@ -55,6 +55,12 @@ function iterProbe(meta: Omit<Archetype, "build">, spec: (axis: AxisAssignment) 
             const source = emitContract({
                 axis,
                 name: meta.name,
+                // Pinned, not opted out of: `temporaries` is a universal axis that registry.ts unions
+                // into every archetype, so dropping it from `axes` has no effect. Setting it here wins,
+                // because withAxis takes `spec.temporaries ?? axis.temporaries`. An iterator moved into
+                // StateData is digested, and the backend models it as a transient count+cursor rather
+                // than the ~88-byte QPI class clang fills — F224, and not a shape a contract writes.
+                temporaries: "locals",
                 header: {
                     archetype: meta.name,
                     family: meta.family,
@@ -104,10 +110,6 @@ export const ASSET_ITERATOR_ARCHETYPES: Archetype[] = [
                 "an AssetOwnershipIterator opened with AssetOwnershipSelect::byOwner — the filter is accepted, compiles and runs, and the walk it produces is compared against the same walk opened with any()",
             caveat:
                 "The Solidity original enumerates a mapping it controls; QPI enumerates the host's ledger, so the port mirrors what it reads into state to make the difference visible to a state digest.",
-            // No `temporaries` axis: it moves every temporary into StateData, and an iterator there is
-            // digested. The backend models an iterator as a transient count+cursor, not the ~88-byte QPI
-            // class clang fills, so those bytes cannot agree — a separate finding, and not a shape a
-            // contract would write.
             axes: ["placement"],
         },
         () => ({
@@ -154,10 +156,6 @@ export const ASSET_ITERATOR_ARCHETYPES: Archetype[] = [
             stresses:
                 "the possession iterator's two-selector begin(), where the ownership and possession filters are separate arguments — the lowering passes one buffer for both, so this asks whether either survives",
             caveat: "ERC721Enumerable indexes tokens per owner in its own storage; the QPI analogue is a host-side ledger walk.",
-            // No `temporaries` axis: it moves every temporary into StateData, and an iterator there is
-            // digested. The backend models an iterator as a transient count+cursor, not the ~88-byte QPI
-            // class clang fills, so those bytes cannot agree — a separate finding, and not a shape a
-            // contract would write.
             axes: ["placement"],
         },
         () => ({
@@ -201,10 +199,6 @@ export const ASSET_ITERATOR_ARCHETYPES: Archetype[] = [
             stresses:
                 "a filter naming an id that holds none of the asset — under a lowering that honours filters the walk is empty, and under one that discards them it returns every holder, so the two answers are maximally far apart",
             caveat: "Chosen so the expected result is zero rather than a count: an empty walk is the least ambiguous evidence that a filter was applied at all.",
-            // No `temporaries` axis: it moves every temporary into StateData, and an iterator there is
-            // digested. The backend models an iterator as a transient count+cursor, not the ~88-byte QPI
-            // class clang fills, so those bytes cannot agree — a separate finding, and not a shape a
-            // contract would write.
             axes: ["placement"],
         },
         () => ({

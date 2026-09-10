@@ -10,6 +10,8 @@ export const KNOWN_DIVERGENCES: Record<string, string> = {
     K12OfComputedExpression: "F203 — template argument deduction discards a computed argument's type, so K12 hashes the wrong width",
     HostK12ExpressionVersusVariable: "F203 — the same deduction defect reached through the host intrinsic",
     DateAddMillisecCarryChain: "F221 — a mutable reference to a by-value parameter is never read back, so addMillisec drops the day carry",
+    LayoutNestedStructNameCollision:
+        "F211 residual — the nested-type scope fix closes the shapes it was measured on, but widestLast+nested+stateScratch still recurses forever; the ABI guard reports it as a named error instead of a stack overflow, and clang compiles the contract",
 };
 
 export function isKnownDivergence(archetype: string): boolean {
