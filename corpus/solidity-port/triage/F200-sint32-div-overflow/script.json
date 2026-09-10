@@ -1,0 +1,44 @@
+{
+  "slot": 29,
+  "tick": 1000,
+  "epoch": 100,
+  "epochLength": 8,
+  "identities": [
+    "0707070707070707070707070707070707070707070707070707070707070707",
+    "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+  ],
+  "fund": [
+    {
+      "id": 0,
+      "amount": "1000000000"
+    },
+    {
+      "id": 1,
+      "amount": "1000000000"
+    }
+  ],
+  "steps": [
+    {
+      "kind": "procedure",
+      "entry": 1,
+      "in": "faffffff02000000",
+      "invocator": 0,
+      "note": "control: sint32 -6 / 2 = -3, both backends agree"
+    },
+    {
+      "kind": "function",
+      "entry": 1
+    },
+    {
+      "kind": "procedure",
+      "entry": 1,
+      "in": "00000080ffffffff",
+      "invocator": 0,
+      "note": "THE FINDING: sint32 INT32_MIN / -1"
+    },
+    {
+      "kind": "function",
+      "entry": 1
+    }
+  ]
+}
