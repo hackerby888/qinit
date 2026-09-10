@@ -2522,6 +2522,26 @@ rejection. While F211 was unfixed the probe printed `clang REJECTED: build faile
 clang had compiled — the wasm was sitting in the output directory. It nearly cost a wrong conclusion.
 Fixed the same way: a clang build that produced a wasm succeeded, whatever the IDL says.
 
+## The first cut of this fix broke the real contracts
+
+Worth recording, because the plan named the risk and the first implementation still got it wrong.
+`withLocalStructs` discarded the caller's struct map for *every* declaration, on the assumption that an
+empty parent chain means file scope. It does not: a struct nested in a **class template** —
+`Collection`'s `Element`, among others — is registered by the template machinery, not the declaration
+index, so its nesting was never recorded. Its chain came back empty, the visible names narrowed to its
+own members, and the sibling types it needed were gone with the inherited map.
+
+The core-compat check caught it immediately and precisely: `sizeof(QPI::Collection<QX::AssetOrder,
+2097152>)` came out 235,405,328 against clang's 302,514,192 — exactly 32 bytes per element short, the
+element's value type contributing nothing. `sizeof(QX::StateData)` and `sizeof(QUOTTERY::StateData)`
+were wrong by the same mechanism.
+
+The distinction that was missing is between *"no parent recorded"* and *"recorded as having no
+parent"*. A `structScopeKnown` set now carries it, and a declaration outside that set keeps the
+inherited map — the behaviour that carried it before. The plan called for failing open on an unknown
+scope; the first cut failed silently narrow instead, which is the same class of defect this campaign
+keeps finding.
+
 ## Not in scope
 
 F203, F215, F221, F223 share a different root cause — enumerate the known shapes, return `null`, let

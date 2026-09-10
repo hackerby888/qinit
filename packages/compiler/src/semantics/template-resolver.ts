@@ -180,7 +180,11 @@ export function withLocalStructs(
     templateBindings: TemplateBindings,
     owner?: StructDecl,
 ): TemplateBindings {
-    if (owner) {
+    // Only when the owner's nesting was actually recorded. A struct nested in a class template is
+    // registered by the template machinery, not by the declaration index, so its chain would come back
+    // as "file scope" and silently narrow the visible names — which showed up as a Collection element
+    // losing its value type. Those keep the inherited map, which is what carried them before.
+    if (owner && programAnalysis.structScopeKnown.has(owner)) {
         return {
             types: templateBindings.types,
             values: templateBindings.values,

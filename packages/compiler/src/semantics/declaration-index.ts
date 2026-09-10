@@ -117,8 +117,9 @@ export function unqualifiedLookupKeys(name: string, context: NamespaceLookupCont
     return keys;
 }
 
-/** Record the lexical nesting of every struct declared inside `parent`, recursively. */
+/** Record the lexical nesting of `parent` and every struct declared inside it, recursively. */
 function recordNestedParents(programAnalysis: ProgramAnalysis, parent: StructDecl): void {
+    programAnalysis.structScopeKnown.add(parent);
     for (const member of parent.members) {
         if (member.kind !== AstKind.STRUCT) continue;
         const nested = member as StructDecl;

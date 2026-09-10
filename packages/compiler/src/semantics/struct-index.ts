@@ -15,6 +15,7 @@ export function collectNested(programAnalysis: ProgramAnalysis, contract: Struct
             if (structDeclaration.hasBody === false) continue;
             programAnalysis.nested.set(structDeclaration.name, structDeclaration);
             programAnalysis.structParent.set(structDeclaration, contract);
+            programAnalysis.structScopeKnown.add(structDeclaration);
             programAnalysis.captureStructMethods(structDeclaration, [structDeclaration.name]);
             // Also register structs nested INSIDE this one under their qualified name (`Outer::Inner`), recursively.
             programAnalysis.collectNestedStructs(structDeclaration, structDeclaration.name);
@@ -75,6 +76,7 @@ export function registerCalleeContractDeclarations(programAnalysis: ProgramAnaly
                     if (nested.hasBody === false) continue;
                     programAnalysis.globalStructs.set(`${name}::${nested.name}`, nested);
                     programAnalysis.structParent.set(nested, structDeclaration);
+                    programAnalysis.structScopeKnown.add(nested);
                     programAnalysis.collectNestedStructs(nested, `${name}::${nested.name}`);
                 } else if (member.kind === AstKind.TYPEDEF_DECL) {
                     const td = member as {
@@ -149,6 +151,7 @@ export function collectNestedStructs(programAnalysis: ProgramAnalysis, parent: S
             if (structDeclaration.hasBody === false) continue;
             const key = `${prefix}::${structDeclaration.name}`;
             programAnalysis.structParent.set(structDeclaration, parent);
+            programAnalysis.structScopeKnown.add(structDeclaration);
             if (!programAnalysis.nested.has(key)) programAnalysis.nested.set(key, structDeclaration);
             // Register nested structs unqualified for references within their owner.
             if (!programAnalysis.nested.has(structDeclaration.name) && !programAnalysis.globalStructs.has(structDeclaration.name))
