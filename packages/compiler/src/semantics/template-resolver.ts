@@ -185,11 +185,21 @@ export function withLocalStructs(
     // as "file scope" and silently narrow the visible names — which showed up as a Collection element
     // losing its value type. Those keep the inherited map, which is what carried them before.
     if (owner && programAnalysis.structScopeKnown.has(owner)) {
+        // `structs` stays what it has always been — the declaration's own nested types, and only those,
+        // because inlineNestedStruct turns everything in it into an anonymous INLINE_STRUCT. Putting the
+        // enclosing scope in here cost sibling types their names, and operator lookup resolves by name.
+        const ownStructs = new Map<string, StructDecl>();
+        for (const member of owner.members) {
+            if (member.kind === AstKind.STRUCT && (member as StructDecl).name && (member as StructDecl).hasBody !== false) {
+                ownStructs.set((member as StructDecl).name, member as StructDecl);
+            }
+        }
         return {
             types: templateBindings.types,
             values: templateBindings.values,
-            structs: programAnalysis.structsVisibleIn(owner),
+            structs: ownStructs,
             scopeIsKnown: true,
+            scopeStructs: programAnalysis.structsVisibleIn(owner),
         };
     }
 

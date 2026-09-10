@@ -37,6 +37,8 @@ export interface TemplateBindings {
     structs: Map<string, StructDecl>; // nested structs visible in the current layout scope (e.g. HashMap::Element)
     /** Set inside a struct body whose own scope chain was resolved: the contract's flat nested table must not answer here. */
     scopeIsKnown?: boolean;
+    /** What that scope chain can see. Consulted for name resolution only — `structs` alone decides what is inlined. */
+    scopeStructs?: Map<string, StructDecl>;
 }
 
 export interface ResolvedSourceMethod {

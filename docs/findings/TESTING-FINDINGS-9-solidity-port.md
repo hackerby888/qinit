@@ -2542,6 +2542,22 @@ inherited map — the behaviour that carried it before. The plan called for fail
 scope; the first cut failed silently narrow instead, which is the same class of defect this campaign
 keeps finding.
 
+## And the second cut broke operator lookup
+
+The `structs` binding map was already doing two jobs, and putting the enclosing scope into it conflated
+them. `inlineNestedStruct` turns anything in that map into an anonymous `INLINE_STRUCT`, so once a
+sibling contract type was visible there, `Go_locals { HalfKey left; }` stopped carrying the name
+`HalfKey` — and `operatorOwner` resolves by *name*. Every declared `operator==`, `operator=` and
+compound assignment on a contract-nested struct silently fell back to a memberwise copy: 19 tests, and
+not one of them a layout test.
+
+The two jobs are now separate channels. `structs` is what gets inlined and stays exactly what it was —
+the declaration's own nested types. `scopeStructs` is what bare names resolve against, and is the only
+thing that stands in for the contract's flat table.
+
+Three cuts, three different failures, each caught by a check the previous cut had not reached: the
+core-compat ABI probe, then the operator-overload edge suite. Both were already in the repository.
+
 ## Not in scope
 
 F203, F215, F221, F223 share a different root cause — enumerate the known shapes, return `null`, let

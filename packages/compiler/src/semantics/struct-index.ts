@@ -197,7 +197,10 @@ export function structByName(programAnalysis: ProgramAnalysis, name: string, tem
     // the right answer for a name written in contract code, and the wrong one for a name written inside a
     // struct whose own scope chain we already resolved — there the bindings are complete and this would
     // reach into a scope C++ cannot see.
-    const contractNested = templateBindings.scopeIsKnown ? undefined : programAnalysis.nested;
+    // Inside a struct whose scope chain is known, that chain answers where the contract's flat nested
+    // table would have. Everywhere else the table is still right: a name written in contract code means
+    // the contract's type.
+    const contractNested = templateBindings.scopeIsKnown ? templateBindings.scopeStructs : programAnalysis.nested;
     const hit = templateBindings.structs.get(name) ?? contractNested?.get(name) ?? programAnalysis.globalStructs.get(name);
     if (hit) return hit;
     const index = name.lastIndexOf("::");
