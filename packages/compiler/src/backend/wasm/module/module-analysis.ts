@@ -166,6 +166,7 @@ export function registerModuleDeclarations(
     // Last, so a name written before its declaration still resolves; enum members evaluate while registering, which can lay out a struct under earlier names.
     programAnalysis.qualifyDeclarationsInScope(declarations);
     programAnalysis.layoutCache.clear();
+    programAnalysis.structsVisible.clear();
 }
 
 export function prepareContractState(

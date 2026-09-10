@@ -6,6 +6,9 @@ import { raiseUnsupported } from "./unsupported";
 import { followScopedTypedef, registerScoped } from "./declaration-index";
 
 export function collectNested(programAnalysis: ProgramAnalysis, contract: StructDecl): void {
+    // The contract's nesting lands here, after registration. Anything cached from a layout that ran
+    // during registration predates it, and a visible-name map is only correct once the parents are in.
+    programAnalysis.structsVisible.clear();
     for (const member of contract.members) {
         if (member.kind === AstKind.STRUCT) {
             const structDeclaration = member as StructDecl;
