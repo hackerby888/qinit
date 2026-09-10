@@ -2271,3 +2271,99 @@ one-side-rejected → match, 2 trap-divergence → match, and **zero rows move f
 mismatch**.
 
 All sixteen compiler findings are closed. Unit suite 1085 pass / 0 fail.
+
+
+# Auditing the three enumerative fixes — every one was a fix for one call path
+
+F203, F215 and F221 are the three fixes in this campaign that add a case to an enumeration rather than
+change a rule. The other thirteen change a rule. That distinction turned out to predict which fixes were
+incomplete: **all three of the enumerative ones were.**
+
+The audit method was one probe per site, each row hashing or computing a value two ways — through a form
+known to work, and through the form under test — with clang as the arbiter. A row where both backends
+agree is not a bug even when the two spellings differ, which is worth stating because one row looked
+like a finding and was not.
+
+## Site 1 — template argument deduction (F203)
+
+| row | clang | typescript | |
+| --- | --- | --- | --- |
+| qualified namespace constant | 1 | 1 | fine |
+| `qpi.K12(qpi.tick())` | 0 | 0 | **not a bug** — `tick()` is narrower than the local, and both backends agree it is |
+| helper returning **more than 8 bytes** | 1 | 0 | **hole** |
+| unary negation | 1 | 1 | fine |
+| control, `a + 1` | 1 | 1 | the F203 fix holds |
+
+`scalarTypeInfo`'s call branch reads a helper's declared return type and then discards it when it is
+wider than 8 bytes. So `qpi.K12(widen(x))` with `uint128 widen(uint64)` deduced nothing and fell back to
+`sizeof(T) == 1` — F203's own defect, surviving behind F203's fix.
+
+Fixed by consulting the callee's declared return type directly, which is authoritative and has no width
+ceiling.
+
+## Site 2 — member access on a class prvalue (F215)
+
+A member read off a **ternary** is still refused:
+
+    ((input.a > 0) ? locals.left : locals.right).u64._0
+    // clang 7; TypeScript: error: unsupported member read [paren.u64._0]
+
+Not fixed. It is a refusal rather than a wrong answer, which is the right failure mode, but it refuses
+code clang accepts. Recorded, not closed.
+
+## Site 3 — write-back through a mutable reference (F221)
+
+| row | clang | typescript | |
+| --- | --- | --- | --- |
+| member off a helper-returned aggregate | 5 | 5 | fine |
+| **write-back into a by-value parameter** | 15 | 5 | **hole** |
+| write-back into an addressable local | 6 | 6 | fine |
+
+This is F221 again, in a call path the fix never touched. `this-call.ts` handles container and `qpi`
+methods, which is where `DateAndTime::add` lives and therefore the only path the repro exercised. A
+contract's own `static void bump(uint64& slot, uint64 by)` goes through `helperCallOps` → `argAddr`,
+which has **no write-back at all** — every write through a mutable scalar reference was dropped.
+
+The addressable-local row passing is the giveaway: `locals.counter` is a member of the locals struct, so
+it has a real address and no copy is made. Only storage with no address loses the write, and a helper's
+own parameters are exactly that.
+
+Fixed, and the rule now lives once in `backend/wasm/memory/reference-arguments.ts`, which both call
+paths consult. Duplicating it is what let the two drift in the first place.
+
+# F223 — assigning a helper's aggregate return stores a default-constructed value
+
+Found while chasing the site-1 hole; it is a separate defect and a serious one. The wasm computes the
+call correctly, into scratch, and then ignores the result:
+
+```wat
+(call $h_widen (local.get $__qinit_tmp9) (i64.load (local.get $__qinit_in)))   ;; result -> tmp9
+(call $T2_uint128_t_uint128_t (local.get $__qinit_tmp8) (i64.const 0))         ;; construct uint128_t(0)
+(call $copyMem (i32.add (local.get $__qinit_locals) (i32.const 16))
+               (local.get $__qinit_tmp8) (i32.const 16))                       ;; copy THAT, not tmp9
+```
+
+`emitLibraryCall` materialises an aggregate return into scratch and then returns `(i64.const 0)` in
+value context, throwing the address away. The assignment sees a scalar zero and runs the type's
+converting constructor on it.
+
+Measured: `locals.returned = widen(5)` reads **0** on the TypeScript backend and 5 on clang. Pinned at
+`triage/F223-aggregate-return-assignment/`, with an out-parameter control that both backends get right,
+so the finding is about the return path and not about aggregates generally.
+
+Not fixed. `x = f()` where `f` returns an aggregate is ordinary code, so this deserves its own
+root-cause pass rather than being folded into the audit.
+
+# The fail-closed guard — built, and it should not ship as written
+
+An unbound template type parameter is now a build error rather than `sizeof(T) == 1`. It fires
+correctly on genuinely undeducible arguments.
+
+It also rejects `qpi.K12(qpi.tick())`, whose callee is a member access that `scalarTypeInfo` does not
+type. **clang compiles that**, and before the guard both backends agreed on it.
+
+That is the F204 mistake wearing different clothes: converting a silently wrong answer into a wrongly
+rejected program is still not matching the oracle. The guard is right in principle — the recognised
+shapes should be a fast path, not the correctness boundary — but it must not land until deduction
+covers the shapes clang can obviously type. Recorded as built and measured, and deliberately not
+recommended for landing in this state.
