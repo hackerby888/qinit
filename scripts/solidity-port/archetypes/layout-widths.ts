@@ -33,7 +33,7 @@ export const LAYOUT_WIDTH_ARCHETYPES: Archetype[] = [
         solidity: `${SOL}/struct_packing.sol`,
         stresses:
             "a uint128 with a uint8 either side — the widest scalar QPI has, whose alignment decides how much padding the two narrow members are pushed apart by",
-        caveat: "Solidity has no uint128 alignment question: everything is slot-packed. The port is about C++ layout only.",
+        caveat: "Solidity has no uint128 alignment question: everything is slot-packed. The port is about C++ layout only. The low word is read as `.low`, not a `(uint64)` cast: uint128_t's only conversion operator is `explicit operator bool`, so the cast used to yield 1 or 0 and both backends agreed on a value that meant nothing.",
         axes: ["placement", "layout"],
         build(axis) {
             const source = emitContract({
@@ -76,7 +76,7 @@ export const LAYOUT_WIDTH_ARCHETYPES: Archetype[] = [
                             locals.middle = state.get().wide.middle;
                             output.before = state.get().wide.before;
                             output.after = state.get().wide.after;
-                            output.middleLow = (uint64)locals.middle;
+                            output.middleLow = locals.middle.low;
                             output.canaryBefore = state.get().canaryBefore;
                             output.canaryAfter = state.get().canaryAfter;
                             output.size = state.get().size;

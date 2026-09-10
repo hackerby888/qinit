@@ -239,8 +239,8 @@ export const LAYOUT_MATRIX_ARCHETYPES: Archetype[] = [
                 state.mut().wide.set(3, locals.value + (uint128)1);
                 state.mut().arraySize = sizeof(WideArray);
                 state.mut().elementSize = sizeof(uint128);
-                state.mut().firstLow = (uint64)state.get().wide.get(0);
-                state.mut().lastLow = (uint64)state.get().wide.get(3);
+                state.mut().firstLow = state.get().wide.get(0).low;
+                state.mut().lastLow = state.get().wide.get(3).low;
             `,
             output: "uint64 arraySize;\nuint64 elementSize;\nuint64 firstLow;\nuint64 lastLow;\nuint64 canary;",
             readBody: `

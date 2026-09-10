@@ -475,12 +475,11 @@ export const NAMESPACE_LOOKUP_ARCHETYPES: Archetype[] = [
 
     lookupProbe(
         {
-            name: "NsAliasAndTargetBothNameConstants",
+            name: "NsTwinNamespacesBothNameConstants",
             family: "namespaces",
             solidity: `${SOL}/constants/constant_variables.sol`,
-            stresses: "a namespace alias pointing at one of two same-named namespaces, with the constant read through the alias, the target and the twin",
-            caveat: "Round 5 pinned the two-level form `namespace Short = Long::Inner;` as a declared limitation. This row shows the limitation is broader than that: even the one-level `namespace Alias = Target;` is refused, with the same explicit `unsupported construct at '=' — build this contract with clang` diagnostic. A declared limitation rather than a defect, pinned so the row notices if support ever lands.",
-            expectedVerdict: "one-side-rejected",
+            stresses: "two sibling namespaces declaring the same constant name, each read through its own qualification and then combined",
+            caveat: "This row carried a `namespace Alias = Target;` prelude until the alias was dropped: the TypeScript front end declines a namespace alias by design, naming clang as the way to build it, and no QPI contract would contain one. What the row is actually for — a name that means two different constants depending on qualification — is unchanged.",
         },
         () => ({
             prelude: [
@@ -493,15 +492,12 @@ export const NAMESPACE_LOOKUP_ARCHETYPES: Archetype[] = [
                 "{",
                 "static constexpr uint64 mark = 640;",
                 "}",
-                "",
-                "namespace Alias = Target;",
             ].join("\n"),
-            members: ["viaAlias", "viaTarget", "viaTwin", "sum"],
+            members: ["viaTarget", "viaTwin", "sum"],
             body: `
-                state.mut().viaAlias = Alias::mark;
                 state.mut().viaTarget = Target::mark;
                 state.mut().viaTwin = Twin::mark;
-                state.mut().sum = Alias::mark + Twin::mark;
+                state.mut().sum = Target::mark + Twin::mark;
             `,
         }),
     ),

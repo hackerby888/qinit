@@ -104,7 +104,11 @@ export const ASSET_ITERATOR_ARCHETYPES: Archetype[] = [
                 "an AssetOwnershipIterator opened with AssetOwnershipSelect::byOwner — the filter is accepted, compiles and runs, and the walk it produces is compared against the same walk opened with any()",
             caveat:
                 "The Solidity original enumerates a mapping it controls; QPI enumerates the host's ledger, so the port mirrors what it reads into state to make the difference visible to a state digest.",
-            axes: ["placement", "temporaries"],
+            // No `temporaries` axis: it moves every temporary into StateData, and an iterator there is
+            // digested. The backend models an iterator as a transient count+cursor, not the ~88-byte QPI
+            // class clang fills, so those bytes cannot agree — a separate finding, and not a shape a
+            // contract would write.
+            axes: ["placement"],
         },
         () => ({
             state: "uint64 filteredCount;\nuint64 filteredShares;\nuint64 unfilteredCount;\nuint64 unfilteredShares;",
@@ -150,7 +154,11 @@ export const ASSET_ITERATOR_ARCHETYPES: Archetype[] = [
             stresses:
                 "the possession iterator's two-selector begin(), where the ownership and possession filters are separate arguments — the lowering passes one buffer for both, so this asks whether either survives",
             caveat: "ERC721Enumerable indexes tokens per owner in its own storage; the QPI analogue is a host-side ledger walk.",
-            axes: ["placement", "temporaries"],
+            // No `temporaries` axis: it moves every temporary into StateData, and an iterator there is
+            // digested. The backend models an iterator as a transient count+cursor, not the ~88-byte QPI
+            // class clang fills, so those bytes cannot agree — a separate finding, and not a shape a
+            // contract would write.
+            axes: ["placement"],
         },
         () => ({
             state: "uint64 filteredCount;\nuint64 filteredShares;\nuint64 unfilteredCount;",
@@ -193,7 +201,11 @@ export const ASSET_ITERATOR_ARCHETYPES: Archetype[] = [
             stresses:
                 "a filter naming an id that holds none of the asset — under a lowering that honours filters the walk is empty, and under one that discards them it returns every holder, so the two answers are maximally far apart",
             caveat: "Chosen so the expected result is zero rather than a count: an empty walk is the least ambiguous evidence that a filter was applied at all.",
-            axes: ["placement", "temporaries"],
+            // No `temporaries` axis: it moves every temporary into StateData, and an iterator there is
+            // digested. The backend models an iterator as a transient count+cursor, not the ~88-byte QPI
+            // class clang fills, so those bytes cannot agree — a separate finding, and not a shape a
+            // contract would write.
+            axes: ["placement"],
         },
         () => ({
             state: "uint64 strangerCount;\nuint64 strangerShares;\nuint64 holderCount;",

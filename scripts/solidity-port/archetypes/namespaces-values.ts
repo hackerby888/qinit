@@ -453,24 +453,21 @@ export const NAMESPACE_VALUE_ARCHETYPES: Archetype[] = [
 
     valueProbe(
         {
-            name: "NsConstantsThroughAliasChain",
+            name: "NsConstantThroughNestedPath",
             family: "namespaces",
             solidity: `${SOL}/libraries/using_library_structs.sol`,
-            stresses: "a value reached through a namespace alias — `namespace Short = Long::Inner;` — next to the same value reached through the full path",
-            caveat: "Namespace aliases have no Solidity equivalent at all; the nearest original is `using L for T`. Kept as a pinned divergence because the TypeScript backend refuses the construct *and says so*: `unsupported construct at '=' — the TypeScript compiler cannot parse this; build this contract with clang`. That is a declared limitation rather than a defect, which is exactly what distinguishes it from F209, and this row is what would notice if support ever landed.",
-            expectedVerdict: "one-side-rejected",
-            divergenceNote:
-                "Declared limitation, not a defect: the TypeScript backend refuses a namespace alias with a diagnostic naming clang as the way to build it; clang compiles the contract.",
+            stresses: "a constant declared two namespaces deep, read through its full path from the entry body and again inside an expression",
+            caveat: "This row read the same constant through a `namespace Short = Long::Inner;` alias until that was dropped: the TypeScript front end declines a namespace alias by design, naming clang as the way to build it, and no QPI contract would contain one. The nested-path read it was really about is unchanged.",
         },
         () => ({
-            prelude: "namespace Long\n{\nnamespace Inner\n{\nstatic constexpr uint64 depth = 33;\n}\n}\n\nnamespace Short = Long::Inner;",
-            members: ["viaAlias", "viaFullPath", "equal"],
+            prelude: "namespace Long\n{\nnamespace Inner\n{\nstatic constexpr uint64 depth = 33;\n}\n}",
+            members: ["viaFullPath", "viaExpression", "equal"],
             body: `
-                state.mut().viaAlias = Short::depth;
                 state.mut().viaFullPath = Long::Inner::depth;
-                state.mut().equal = Short::depth == Long::Inner::depth ? 1 : 0;
+                state.mut().viaExpression = Long::Inner::depth * 2 - Long::Inner::depth;
+                state.mut().equal = Long::Inner::depth == state.get().viaFullPath ? 1 : 0;
             `,
-            expect: { values: [33n, 33n, 1n], note: "the alias and the full path name one constant" },
+            expect: { values: [33n, 33n, 1n], note: "the nested path names one constant however it is reached" },
         }),
     ),
 

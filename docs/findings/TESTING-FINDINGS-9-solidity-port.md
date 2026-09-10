@@ -2367,3 +2367,47 @@ rejected program is still not matching the oracle. The guard is right in princip
 shapes should be a fast path, not the correctness boundary — but it must not land until deduction
 covers the shapes clang can obviously type. Recorded as built and measured, and deliberately not
 recommended for landing in this state.
+
+# F224 — an asset iterator held in state does not match its declared layout
+
+Severity: **medium (a state-digest divergence, and an ABI difference for any contract that stores one)**.
+
+Found while landing the harness on the fix branch, from a clean axis correlation: of 46 asset-iterator
+rows, **26 diverged and every one of them had `temporaries: stateScratch`** — and no stateScratch row
+matched. The `locals` rows were all green.
+
+The first read of that was wrong, and worth recording. It looked like F220 being incomplete — a
+selector reached through state rather than a local. It is not: `materializeSelect`'s fall-through
+handles a state-resident argument correctly through `emitAddress` → `resolveExpressionAddress`, and
+F220's own fix is sound. The filter counters agree on both backends.
+
+The cause is the iterator object itself. `emitAssetIter`
+(`packages/compiler/src/backend/wasm/calls/containers.ts:485-526`) models an iterator as exactly **two
+i32s** — a match count at offset 0 and a cursor at offset 4 — with the records living in the
+`$assetIterBase` global. The QPI-declared class is about 88 bytes:
+
+```cpp
+class AssetOwnershipIterator
+{
+protected:
+    Asset _issuance;                  // id issuer (32) + uint64 assetName (8)
+    unsigned int _issuanceIdx;
+    AssetOwnershipSelect _ownership;  // id owner (32) + uint16 managingContract + 2 bools
+    unsigned int _ownershipIdx;
+```
+
+clang's `begin()` fills all of it. The TypeScript build writes a record count into the first four bytes
+of `_issuance.issuer`, a zero cursor into the next four, and leaves the remaining ~80 bytes untouched.
+
+While the iterator lives in `_locals` nothing observes those bytes. The `temporaries: stateScratch`
+axis moves every temporary into `StateData`, the sweep's verdict *is* the state digest, and the
+difference becomes visible immediately.
+
+The corpus no longer generates that shape — the three iterator archetypes dropped the `temporaries`
+axis, because an iterator persisted in `StateData` is not something a contract would write and the
+backend models it as a transient cursor deliberately. That removes the red rows without hiding
+anything the `locals` rows cover.
+
+**Not fixed.** The real fix is to materialise the declared layout, which changes `sizeof(StateData)`
+for any contract holding an iterator — an ABI change that deserves its own PR and its own
+verification, not a patch folded into a fix branch.

@@ -200,8 +200,15 @@ async function buildOne(
             backend === "clang"
                 ? await buildContractWithClang({ ...shared, arenaSizeBytes: env.arenaSizeBytes })
                 : await buildContractWithTypeScript(shared);
-        if (built.ok && built.wasmPath) {
-            return { ok: true, wasm: new Uint8Array(readFileSync(built.wasmPath)), diagnostics: [], ms: Date.now() - started, cached: false };
+        // A clang build that produced a wasm succeeded, whatever the IDL says. buildContractWithClang
+        // re-runs the TypeScript front end for metadata after the artifact is written and reports
+        // `ok: !idlError`, so a contract the TS parser declines was being recorded as a CLANG rejection —
+        // scoring `both-rejected` where the truth is `one-side-rejected`. The IDL is not used here: the
+        // sweep deploys the wasm and drives entries by number. Keep the error visible as a diagnostic.
+        const producedArtifact = backend === "clang" ? Boolean(built.wasmPath) : built.ok && Boolean(built.wasmPath);
+        if (producedArtifact && built.wasmPath) {
+            const diagnostics = built.ok ? [] : [built.stderr ?? "build reported not-ok but produced a wasm"];
+            return { ok: true, wasm: new Uint8Array(readFileSync(built.wasmPath)), diagnostics, ms: Date.now() - started, cached: false };
         }
         return { ok: false, diagnostics: [built.stderr ?? `${backend} build failed with no stderr`], ms: Date.now() - started, cached: false };
     } catch (error: any) {
