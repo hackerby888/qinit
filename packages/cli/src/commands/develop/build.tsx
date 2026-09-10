@@ -81,8 +81,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                     outDir,
                     skipVerify: commandArgs.has("skip-verify"),
                     buildRules: !commandArgs.has("no-build-rules"),
-                    // Production means what Core compiles: no shim at all, and the cheats already gone
-                    // from the source. Anything left over is then an undeclared identifier, not a no-op.
+                    // Production means what Core compiles: no shim, and the cheats already gone from the source, so anything left is an undeclared identifier.
                     cheats: commandArgs.has("production") ? CheatMode.OFF : CheatMode.ON,
                 });
                 const r: ContractBuildResult = project.ok

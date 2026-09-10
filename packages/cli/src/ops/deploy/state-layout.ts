@@ -4,8 +4,7 @@ import type { LiteRpc } from "@qinit/core";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { siblingCalleeSources } from "../../contracts/registry";
 
-// The IDL of what the slot holds now: the local record when it describes the deployed code, else one derived
-// from the source the node kept. Undefined when neither exists — then there is nothing to compare against.
+// The IDL of what the slot holds now: the local record when it describes the deployed code, else one derived from the node's source. Undefined when neither.
 export async function deployedStateIdl(rpc: LiteRpc, slot: number, corePath: string, idlPath?: string): Promise<ContractIdl | undefined> {
     const contracts = (await rpc.dynRegistry()).contracts ?? [];
     const occupant = contracts.find((contract) => contract.index === slot && contract.armed);
@@ -36,8 +35,7 @@ export async function deployedStateIdl(rpc: LiteRpc, slot: number, corePath: str
     }
 }
 
-// Why a redeploy of `next` over `previous` must not proceed, or null when the state bytes stay readable:
-// a changed StateData layout with no MIGRATE handler is reinterpreted at the new offsets, silently.
+// Why a redeploy of `next` over `previous` must not proceed, or null when the bytes stay readable: a changed layout with no MIGRATE handler is reinterpreted.
 export function stateCarryoverRejection(name: string, previous: ContractIdl, next: ContractIdl): string | null {
     const before = previous.state;
     const after = next.state;

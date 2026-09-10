@@ -200,7 +200,7 @@ export class EngineServer {
             });
         }
 
-        // ---- Explorer routes, mirroring core-lite's shapes so one client works against both backends.
+        // Explorer routes, mirroring core-lite's shapes so one client works against both backends.
 
         if (path === "/explorer/data") {
             engine.sim.assertOperational();
@@ -400,14 +400,12 @@ export class EngineServer {
     async start(port = 0, tickMs = 50, peerPort?: number): Promise<EngineServerHandle> {
         await initK12();
 
-        // A node records from boot: a debugger attached later still finds the calls that already ran. The
-        // ring is bounded, and `setDebug(false)` over RPC remains for anyone who wants the cycles back.
+        // A node records from boot, so a debugger attached later still finds the calls that already ran; the ring is bounded and setDebug(false) remains.
         this.engine.setDebug(true);
 
         const engine = this.engine;
 
-        // The engine's own warnings (a dormant slot skipping a tx, for one) otherwise go nowhere; the node
-        // log is where a developer looks for them.
+        // The engine's own warnings otherwise go nowhere, and the node log is where a developer looks for them.
         if (!engine.onLog) {
             engine.onLog = (event) => console.error(`[${event.level}] tick ${event.tick} ${event.cat}: ${event.msg}`);
         }

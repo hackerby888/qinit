@@ -1,5 +1,4 @@
-// Project config + global seed/theme stores + resolution precedence. A bug here silently signs with the
-// wrong seed or builds against the wrong core, so every path is asserted (incl. the validation/throw edges).
+// Project config, global seed/theme stores and resolution precedence: a bug here silently signs with the wrong seed or builds against the wrong core.
 import { test, expect, afterEach } from "bun:test";
 import { DEFAULT_FUNDED_SEED } from "@qinit/core";
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";

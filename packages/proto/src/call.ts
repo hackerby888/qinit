@@ -1,5 +1,4 @@
-// Contract call/invoke, qubic-cli style, over the built-in RPC.
-//   function (read)  -> POST /live/v1/querySmartContract
+// Contract call/invoke, qubic-cli style, over the built-in RPC — a function (read) goes to POST /live/v1/querySmartContract.
 import { LiteRpc, buildSignedTx, broadcastTx, type BroadcastResult, type SignedTx } from "@qinit/core";
 import { decodeOutput, encodeInput, encodeInputJson } from "./abi-fmt";
 import type { AbiType } from "./contract-idl";
@@ -10,8 +9,7 @@ export interface TypedContractInput {
     value: unknown;
 }
 
-// Resolve a deployment inside the node's advertised dynamic window.
-// Reuse a same-named contract's slot (upgrade); otherwise use the first free slot.
+// Resolve a deployment inside the node's advertised dynamic window: reuse a same-named contract's slot (upgrade), otherwise take the first free slot.
 export async function resolveDeploymentSlot(rpc: LiteRpc, name: string, override?: number): Promise<{ slot: number; reused: boolean }> {
     const reg = await rpc.dynRegistry();
     const contracts = reg.contracts ?? [];
@@ -91,8 +89,7 @@ const MAX_TX_RESENDS = 3;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Poll until the node has processed the tx's target tick. Undefined means the node cannot say: it has no
-// tx-status route, or the wait ran out — either way the tx's fate is unknown and must not be assumed.
+// Poll until the node has processed the tx's target tick. Undefined means the node cannot say, so the tx's fate is unknown and must not be assumed.
 async function awaitProcessed(rpc: LiteRpc, txId: string, tick: number, opts: SubmitOptions): Promise<{ found: boolean; moneyFlew: boolean } | undefined> {
     const deadline = Date.now() + (opts.confirmTimeoutMs ?? 30000);
     for (;;) {
@@ -120,10 +117,7 @@ async function awaitProcessed(rpc: LiteRpc, txId: string, tick: number, opts: Su
     }
 }
 
-// Broadcast a signed tx and, when asked, poll until its target tick has executed. Shared by every
-// submission path — a contract procedure and a plain transfer differ only in how the tx was built.
-// A tx the node processed without including is resent for a later tick; an unknown fate never is,
-// because a blind resend of a tx that did land would execute it twice.
+// Broadcast a signed tx, polling its target tick when asked. A processed-but-unincluded tx is resent; an unknown fate never is — a resend could run it twice.
 async function broadcastAndConfirm(buildTx: TransactionBuilder, opts: SubmitOptions): Promise<SubmittedTx> {
     const rpc = opts.rpc ?? new LiteRpc(opts.rpcBaseUrl);
     const resends = opts.resends ?? MAX_TX_RESENDS;
@@ -179,8 +173,7 @@ export async function sendTransfer(
     return broadcastAndConfirm(buildTx, opts);
 }
 
-// Invoke a contract procedure (signed tx). tick must be a near-future, accepted tick.
-// With confirmation, poll tx status until processed or fall back to tick advancement.
+// Invoke a contract procedure (signed tx); tick must be a near-future accepted tick. With confirmation, poll tx status or fall back to tick advancement.
 export async function invokeProcedure(
     opts: SubmitOptions & {
         seed: string;

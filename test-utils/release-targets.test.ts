@@ -1,5 +1,4 @@
-// The matrix and installers agree on file names by convention only (bun target triple vs uname output), so
-// a mismatch 404s on a user's download — compared here rather than at release time.
+// Matrix and installers agree on file names by convention only, so a mismatch 404s a user's download — caught here, not at release.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

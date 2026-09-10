@@ -1,6 +1,4 @@
-// The line a cheat reports is the join key between the wire and the IDL, and both backends compute it
-// independently. It is derived from the real prelude rather than pinned, because injecting the shim
-// changes the prelude's length — these tests fail if anyone freezes the number.
+// The line a cheat reports joins the wire to the IDL, computed independently by both backends and derived from the real prelude rather than pinned.
 import { expect, test } from "bun:test";
 import { compileContract } from "../../src/driver/compile-contract";
 import { loadQpiHeader } from "../../src/driver/header";
@@ -42,7 +40,6 @@ test.if(HAS_CORE)("the reported line tracks padding, so the base is derived rath
 });
 
 test("the scaffold is what the base is measured from, so its size is not assumed anywhere", () => {
-    // A guard for the derivation itself: if this constant is ever inlined into a base, this test is
-    // the one that goes stale first.
+    // A guard for the derivation itself: if this constant is ever inlined into a base, this test is the one that goes stale first.
     expect(SCAFFOLD_MACROS.split("\n").length).toBeGreaterThan(50);
 });

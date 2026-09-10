@@ -1,5 +1,4 @@
-// Pure formatting helpers behind the explorer's stat tiles. fmtCompact is the interesting one: it has to
-// stay correct past 2^53, where Number-based scaling silently drifts.
+// Pure formatting helpers behind the explorer's stat tiles. fmtCompact is the interesting one: it has to stay correct past 2^53, where Number scaling drifts.
 import { test, expect } from "bun:test";
 import { fmtCompact, fmtMs, truncMid, truncEnd, windowOf } from "../../src/ui";
 import { filterItems, type SelItem } from "../../src/ui/prompt";
@@ -33,8 +32,7 @@ test("fmtCompact passes through anything that is not a plain integer", () => {
     expect(fmtCompact("12.5")).toBe("12.5");
 });
 
-// The explorer's shell budgets terminal rows from this line count, so a wrap it did not predict pushes
-// the control bar off-screen.
+// The explorer's shell budgets terminal rows from this line count, so a wrap it did not predict pushes the control bar off-screen.
 test("hintLines wraps to fit the terminal and never drops a hint", () => {
     const keys: [string, string][] = [
         ["1", "overview"],
@@ -115,8 +113,7 @@ test("wallet input is classified by shape", () => {
     expect(classifyWalletInput("")).toBe("empty");
     expect(classifyWalletInput("   ")).toBe("empty");
 
-    // Half-typed is not wrong yet — it must not show as an error while the user is still going.
-    // 55 uppercase is a partly typed identity, not a seed: case decides which target it is measured against.
+    // Half-typed is not wrong yet. 55 uppercase is a partly typed identity, not a seed, so case decides which target it is measured against.
     expect(classifyWalletInput("a".repeat(54))).toBe("partial");
     expect(classifyWalletInput("A".repeat(59))).toBe("partial");
     expect(classifyWalletInput("A".repeat(55))).toBe("partial");
@@ -128,8 +125,7 @@ test("wallet input is classified by shape", () => {
     expect(classifyWalletInput("a".repeat(54) + "1")).toBe("invalid");
 });
 
-// No live backend reaches these branches: the simulator's pool is small and always present, so a
-// truncated reply and a missing route only ever appear against a real core node.
+// No live backend reaches these branches: the simulator's pool is small and always present, so a truncated reply only ever appears against a real core node.
 test("funded-pool lookup separates a miss from an unreachable route", () => {
     const identity = "A".repeat(60);
     const pool = {
@@ -193,8 +189,7 @@ test("fmtMs switches to seconds at exactly one second", () => {
     expect(fmtMs(1949)).toBe("1.9s");
 });
 
-// The pickers budget their height from windowOf, so an off-by-one here is a frame that reaches the
-// terminal height and makes ink clear and reprint on every keystroke.
+// The pickers budget their height from windowOf, so an off-by-one is a frame that reaches the terminal height and makes ink reprint on every keystroke.
 test("windowOf slices around the selection and clamps at both ends", () => {
     const rows = Array.from({ length: 30 }, (_, index) => index);
 

@@ -150,8 +150,7 @@ export function emitInlineStructMethod(
                 : context.lowering.lowerValueExpression(context, argument);
             context.lines.push(`    ${context.lowering.setLocal(context, slot, value)}`);
         }
-        // Keep dependent fields concrete inside the inlined body. Leaving `T` here made a `const T&`
-        // parameter fall back to a signed 32-bit load even when the owning container bound T=uint64.
+        // Keep dependent fields concrete inside the inlined body: leaving `T` made a `const T&` parameter fall back to a signed 32-bit load.
         params.set(parameter.name, {
             wasmType: cls.wasmType,
             isAddr: cls.isAddr,

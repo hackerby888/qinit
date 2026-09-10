@@ -5,16 +5,14 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { compileContractWithTypeScript } from "../../src/index";
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
 
-// Struct geometry and aggregate passing were caught only by the clang differentials, which need a core
-// checkout. This runs the same semantics on the pinned qpi.h and the simulator, which need neither.
+// Struct geometry and aggregate passing were caught only by the clang differentials; this runs the same semantics on the pinned qpi.h and the simulator.
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct StructLayout : public ContractBase {
   struct StateData { uint64 result; };
   struct X_input {}; struct X_output {};
 
-  // sizeof is 16, not 9: the tail pads out to the widest member's alignment. Reading element 1 of an
-  // array proves the stride, which a struct end taken from the last field would get wrong.
+  // sizeof is 16, not 9: the tail pads out to the widest member's alignment, and reading element 1 proves the stride a last-field end would get wrong.
   struct Padded { uint64 big; uint8 tail; };
   struct ArrayStride_input {}; struct ArrayStride_output {};
   struct ArrayStride_locals { Array<Padded, 4> items; uint64 index; };

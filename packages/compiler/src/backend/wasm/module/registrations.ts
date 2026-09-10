@@ -86,8 +86,7 @@ export function extractRegistrations(contract: StructDecl, programAnalysis: Prog
         const itArg = expression.callArguments[1];
         const evaluated = evalRegistrationConstant(itArg, programAnalysis);
         let inputType = evaluated === null ? 0 : Number(evaluated);
-        // Use the synthetic procedure ID for oracle-reply notifications. memberFnLine holds the raw-source
-        // line, which is what __LINE__ resolves to inside qpi's PUBLIC/PRIVATE_PROCEDURE macros.
+        // Use the synthetic procedure ID for oracle-reply notifications; memberFnLine holds the raw-source line __LINE__ resolves to inside the macros.
         if (isNotif && fnName) {
             inputType = (programAnalysis.memberFnLine.get(fnName) ?? 0) & 0xffff;
         }
@@ -249,8 +248,7 @@ function validateRegistrationLayouts(registration: ContractRegistration, program
         programAnalysis.error(`entry '${registration.fnName}' is missing required type '${outputName}'`, registration.line);
     }
 
-    // the plain macro forms typedef `<fn>_locals` to NoData, so a missing type means the entry was
-    // declared _WITH_LOCALS and the struct was never written.
+    // the plain macro forms typedef `<fn>_locals` to NoData, so a missing type means the entry was declared _WITH_LOCALS and the struct was never written.
     if (!layouts.hasType(localsName)) {
         programAnalysis.error(
             `entry '${registration.fnName}' is declared _WITH_LOCALS but is missing required type '${localsName}' — declare 'struct ${localsName} { … };' or use the plain macro form`,

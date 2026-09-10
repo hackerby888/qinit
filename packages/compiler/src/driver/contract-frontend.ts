@@ -19,9 +19,7 @@ export interface PreprocessedContractSource {
 }
 
 export function preprocessContractSource(options: CompileOptions, seedMacros: PreprocessorInput["seedMacros"]): PreprocessedContractSource {
-    // `__LINE__` counts physical lines, directives included, so the base is measured from the real
-    // prefix rather than assumed: the macro block shifts user code down by its own length too. The
-    // block's line count does not depend on the number it carries, so one placeholder pass settles it.
+    // `__LINE__` counts physical lines, directives included, so the base is measured from the real prefix; the block's length is independent of its number.
     const prelude = [SCAFFOLD_MACROS, `struct ${USER_BOUNDARY} {};`].join("\n");
     const mode = options.cheats ?? CheatMode.ON;
     // +1 because the preprocessor prepends its own newline before this source (preprocessor-core.ts).

@@ -1,5 +1,4 @@
-// Entity balance ledger with an incremental depth-24 spectrum Merkle tree.
-// Ports spectrum.h: increaseEnergy takes a key and creates, decreaseEnergy takes an index and guards.
+// Entity balance ledger with an incremental depth-24 spectrum Merkle tree. Ports spectrum.h: increaseEnergy takes a key, decreaseEnergy an index.
 import type { Entity } from "../contract/runtime";
 import type { Id } from "../support/bytes";
 import { toHex, k12Bytes } from "../support/k12";
@@ -187,8 +186,7 @@ export class SpectrumLedger {
         return rec.bytes;
     }
 
-    // getSpectrumDigest — the root of the incremental 2^24 merkle. Only entities whose balance changed since the
-    // last call are rehashed (24 nodes each); empty subtrees collapse to a precomputed hash. leaf = K12(EntityRecord).
+    // getSpectrumDigest — the incremental 2^24 merkle root. Only entities whose balance changed are rehashed; empty subtrees collapse to a precomputed hash.
     getSpectrumDigest(): Uint8Array {
         if (!this.tree) {
             this.tree = new SparseMerkle(k12Bytes(new Uint8Array(64)), SPECTRUM_DEPTH);
@@ -204,8 +202,7 @@ export class SpectrumLedger {
         return this.tree.root();
     }
 
-    // The merkle proof for an entity: its leaf index + the 24 sibling hashes from the leaf to the spectrum root. A
-    // client recomputes the root from (EntityRecord, index, siblings) and checks it against spectrumDigest.
+    // The merkle proof for an entity: its leaf index plus 24 sibling hashes, so a client recomputes the root and checks it against spectrumDigest.
     spectrumProof(id: Id): { record: Uint8Array; index: number; siblings: Uint8Array[] } {
         this.getSpectrumDigest(); // flush pending leaf updates so the tree reflects the current state
         const k = this.key(id);

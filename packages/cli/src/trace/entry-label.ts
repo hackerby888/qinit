@@ -1,5 +1,4 @@
-// A trace records what it invoked as a kind plus a number. Both are shown — the number is what the wire
-// carries and what a bug report quotes — with the name beside it whenever it can be resolved.
+// A trace records what it invoked as a kind plus a number. Both are shown — the number is what the wire carries — with the name beside it when resolvable.
 import { SYSTEM_PROCEDURES } from "@qinit/core";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 

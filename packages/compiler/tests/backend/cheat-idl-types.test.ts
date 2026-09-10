@@ -1,6 +1,4 @@
-// The IDL must describe exactly the bytes each printed argument ships, for every shape a contract can
-// hand CC_PRINT. The reader decodes by that type and shows a mismatch raw, so a wrong type here is a
-// print a dev cannot read.
+// The IDL must describe exactly the bytes each printed argument ships; the reader decodes by that type and shows a mismatch raw, so a wrong type is unreadable.
 import { expect, test } from "bun:test";
 import { AbiTypeKind, type ContractCheat } from "@qinit/proto/contract-idl";
 import { compileContractWithTypeScript } from "@qinit/compiler/browser";
@@ -55,9 +53,7 @@ test("a literal occupies an ordinal but carries no type, and an all-literal prin
     expect(marker.parts).toEqual([{ lit: "flag set" }]);
 });
 
-// Every container accessor, printed. A by-reference or by-value element ships its bytes and must be
-// typed as that element; a scalar the accessor returns rides the register and keeps its declared
-// width and sign, so a priority reads negative, a bit reads as one and a bool as the byte it is.
+// Every container accessor, printed: an element ships its bytes and must be typed as that element, while a scalar rides the register with its declared width.
 test("a container accessor prints as what it hands back", async () => {
     const source = `using namespace QPI;
 struct Acc2 {};

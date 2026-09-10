@@ -365,8 +365,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Emit, 1); }
 };`;
 
-    // The LOG_INFO call sits on line 9 of the raw source. Asserting it proves the span was remapped
-    // back from preprocessed coordinates rather than reported in them.
+    // The LOG_INFO call sits on line 9 of the raw source, so asserting it proves the span was remapped back from preprocessed coordinates.
     const LOG_CALL_LINE = 9;
 
     function compilerDiagnostics(source: string) {
@@ -415,8 +414,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(compilerDiagnostics(source)).toEqual([]);
     });
 
-    // The host overwrites the first four bytes with the contract index, so a wider field there loses
-    // them. Reported as a fidelity finding, which the compile driver promotes to an error.
+    // The host overwrites the first four bytes with the contract index, so a wider field loses them — a fidelity finding the driver promotes to an error.
     test("a payload whose leading field spans the reserved word is reported", () => {
         const source = LOGGING_SOURCE.replace("uint32 _contractIndex; uint32 _type;", "uint64 counter;");
         const findings = compilerDiagnostics(source);
@@ -497,8 +495,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         ).toEqual([]);
     });
 
-    // Lifecycle hooks run inside tick processing, so their logs are recorded despite MIGRATE
-    // sharing the function context type.
+    // Lifecycle hooks run inside tick processing, so their logs are recorded despite MIGRATE sharing the function context type.
     test("logs in lifecycle hooks are allowed", () => {
         expect(
             compilerMessages(

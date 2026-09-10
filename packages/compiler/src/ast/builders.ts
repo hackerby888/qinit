@@ -5,7 +5,7 @@ import type { Statement } from "./statements";
 import type { Span } from "./source-location";
 import type { TypeSpec } from "./types";
 
-// ---- Helper constructors (for codegen tests and WAT emission) ----
+// Helper constructors (for codegen tests and WAT emission)
 export function nameType(name: string): TypeSpec {
     return { kind: AstKind.NAME, name };
 }

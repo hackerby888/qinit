@@ -128,8 +128,7 @@ test("buildCalleePrelude emits guarded callee CONTRACT_INDEX + inputType constan
         const prelude = buildCalleePrelude(root, "CALL_OTHER_CONTRACT_FUNCTION(QX, in, out);", {
             QX: { header: callee, slot: 1 },
         });
-        // the QUtil fix: a contract using `id(QX_CONTRACT_INDEX, …)` needs the callee index in the single-
-        // contract TU (no contract_def.h) — guarded so the full build's #define still wins.
+        // The QUtil fix: `id(QX_CONTRACT_INDEX, …)` needs the callee index in the single-contract TU, guarded so the full build's #define still wins.
         expect(prelude).toContain("#ifndef QX_CONTRACT_INDEX");
         expect(prelude).toContain("#define QX_CONTRACT_INDEX 1");
         expect(prelude).toContain("QX_Get_inputType = 1");

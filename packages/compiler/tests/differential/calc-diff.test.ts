@@ -22,12 +22,12 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   struct SumTo_locals { uint64 i; uint64 s; };
   struct SignedDiv_input { sint64 a; sint64 b; }; struct SignedDiv_output { sint64 q; sint64 r; };
   PUBLIC_FUNCTION(Div) {
-    output.q = div(input.a, input.b);
-    output.r = mod(input.a, input.b);
+    output.q = QPI::div(input.a, input.b);
+    output.r = QPI::mod(input.a, input.b);
   }
   PUBLIC_FUNCTION(SignedDiv) {
-    output.q = div(input.a, input.b);
-    output.r = mod(input.a, input.b);
+    output.q = QPI::div(input.a, input.b);
+    output.r = QPI::mod(input.a, input.b);
   }
   PUBLIC_FUNCTION_WITH_LOCALS(SumTo) {
     locals.s = 0;

@@ -1,5 +1,4 @@
-// Read models for the core-lite HTTP RPC. Kept apart from the client so a consumer that only needs
-// the shapes does not pull the LiteRpc implementation in with them.
+// Read models for the core-lite HTTP RPC, kept apart from the client so a consumer needing only the shapes does not pull in LiteRpc.
 export interface TickInfo {
     tick: number;
     epoch: number;
@@ -68,8 +67,7 @@ export interface DynamicContractUploadStatus {
     lastProgressTick?: number;
 }
 
-// `ord` is the record's place in the node's emission order, shared across every frame of one call, so
-// a callee's prints can be read back in the order they ran among the caller's. Older nodes omit it.
+// `ord` is the record's place in the node's emission order, shared by every frame of one call, so a callee's prints read back in order. Older nodes omit it.
 export interface DebugHostCall {
     name: string;
     detail: string;
@@ -122,8 +120,7 @@ export interface DebugTrace {
     entries: DebugEntry[];
 }
 
-// Explorer read models. Amounts stay strings end to end: core encodes them as JSON numbers,
-// which loses precision above 2^53, so nothing downstream should widen them back to Number.
+// Explorer read models. Amounts stay strings end to end: core encodes them as JSON numbers, which loses precision above 2^53.
 export interface ExplorerTx {
     hash: string;
     amount: string;

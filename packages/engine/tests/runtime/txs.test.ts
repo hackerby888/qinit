@@ -159,8 +159,7 @@ test("procedure tx: an amount the PIT callback returns still counts as moneyFlew
     const source = new Uint8Array(32).fill(0x11);
     sim.fund(source, 100n);
 
-    // Core seeds the action tracker when the user procedure starts, after the callback has run, so the
-    // callback's refund never cancels the invocation reward the way a refund from the procedure would.
+    // Core seeds the action tracker when the user procedure starts, after the callback has run, so the callback's refund never cancels the invocation reward.
     const result = sim.processTickTransaction(source, contractAddress(28), 25n, 1, new Uint8Array(0), "callback-refunded");
 
     expect(result.moneyFlew).toBe(true);

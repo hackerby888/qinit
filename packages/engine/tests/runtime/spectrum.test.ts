@@ -1,5 +1,4 @@
-// SpectrumLedger (spectrum.ts) in isolation — no QubicSimulator. The entity-balance ledger + the spectrum merkle extracted
-// from the simulator: energy/increaseEnergy/decreaseEnergy, nextId/prevId iteration, the digest + proof.
+// SpectrumLedger (spectrum.ts) in isolation: energy, increaseEnergy/decreaseEnergy, nextId/prevId iteration, and the digest plus proof.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12, toHex } from "../../src/support/k12";
 import { SpectrumLedger } from "../../src/ledger/spectrum";
@@ -75,8 +74,7 @@ test("decreaseEnergy never creates a record, and a negative amount is refused", 
     expect(spectrum.energy(spectrum.spectrumIndex(id(1)))).toBe(100n);
 });
 
-// The mirror of the case above. increaseEnergy takes an unvalidated amount straight from
-// QubicSimulator.fund, so a negative one would destroy Qu rather than create it.
+// The mirror of the case above: increaseEnergy takes an unvalidated amount straight from QubicSimulator.fund, so a negative one would destroy Qu.
 test("increaseEnergy refuses a negative amount", () => {
     const { spectrum } = ledger();
     const a = id(1);
@@ -87,8 +85,7 @@ test("increaseEnergy refuses a negative amount", () => {
     expect(spectrum.getEntity(a)!.numberOfIncomingTransfers).toBe(1);
 });
 
-// totalAmount is the explorer's circulatingSupply, and nothing else recomputes it — so a wrong sign
-// here is a wrong number on the API with no other symptom.
+// totalAmount is the explorer's circulatingSupply and nothing else recomputes it, so a wrong sign here is a wrong number on the API with no other symptom.
 test("totalAmount is the sum of balances, not of gross flows", () => {
     const { spectrum } = ledger();
     const a = id(1);

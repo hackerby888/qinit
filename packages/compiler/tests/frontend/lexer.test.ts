@@ -3,7 +3,7 @@ import { Lexer, TokenKind, isTypeKeyword, parseIntLiteral } from "../../src/fron
 
 const kinds = (src: string): TokenKind[] => new Lexer(src).tokenize().map((t) => t.kind);
 
-// ---- keywords ----
+// keywords
 
 describe("keywords", () => {
     test("all C++ keywords tokenize correctly", () => {
@@ -79,7 +79,7 @@ describe("keywords", () => {
     });
 });
 
-// ---- operators and punctuators ----
+// operators and punctuators
 
 describe("operators and punctuators", () => {
     test("all single-char punctuators", () => {
@@ -226,7 +226,7 @@ describe("operators and punctuators", () => {
     });
 });
 
-// ---- integer literals ----
+// integer literals
 
 describe("integer literals", () => {
     test("decimal integers", () => {
@@ -301,7 +301,7 @@ describe("integer literals", () => {
     });
 });
 
-// ---- parseIntLiteral() value extraction ----
+// parseIntLiteral() value extraction
 
 describe("parseIntLiteral", () => {
     test("decimal values", () => {
@@ -350,7 +350,7 @@ describe("parseIntLiteral", () => {
     });
 });
 
-// ---- float literals ----
+// float literals
 
 describe("float literals", () => {
     test("simple floats", () => {
@@ -369,7 +369,7 @@ describe("float literals", () => {
     });
 });
 
-// ---- char literals ----
+// char literals
 
 describe("char literals", () => {
     test("simple char literal", () => {
@@ -393,7 +393,7 @@ describe("char literals", () => {
     });
 });
 
-// ---- string literals ----
+// string literals
 
 describe("string literals", () => {
     test("simple string literal", () => {
@@ -421,7 +421,7 @@ describe("string literals", () => {
     });
 });
 
-// ---- multi-word type keyword collapsing ----
+// multi-word type keyword collapsing
 
 describe("multi-word type keyword collapsing", () => {
     test("unsigned long long → kw_unsigned_long_long", () => {
@@ -494,7 +494,7 @@ describe("multi-word type keyword collapsing", () => {
     });
 });
 
-// ---- spans ----
+// spans
 
 describe("spans", () => {
     test("tokens carry correct span: start, end, line, col", () => {
@@ -532,7 +532,7 @@ describe("spans", () => {
     });
 });
 
-// ---- comments ----
+// comments
 
 describe("comments are skipped", () => {
     test("line comment: // to end of line", () => {
@@ -562,7 +562,7 @@ describe("comments are skipped", () => {
     });
 });
 
-// ---- identifiers ----
+// identifiers
 
 describe("identifiers", () => {
     test("simple identifiers", () => {
@@ -592,7 +592,7 @@ describe("identifiers", () => {
     });
 });
 
-// ---- isTypeKeyword ----
+// isTypeKeyword
 
 describe("isTypeKeyword", () => {
     test("returns true for builtin type keywords", () => {
@@ -633,7 +633,7 @@ describe("isTypeKeyword", () => {
     });
 });
 
-// ---- edge cases ----
+// edge cases
 
 describe("edge cases", () => {
     test("empty source produces only eof", () => {

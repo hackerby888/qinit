@@ -1,5 +1,4 @@
-// wasi-sdk (clang + wasi-sysroot for `qinit build`).
-// Version 33 exposes getrusage, breaking the toolchain assumptions. The supported pin lives in config.
+// wasi-sdk (clang + wasi-sysroot for `qinit build`). Version 33 exposes getrusage and breaks the toolchain assumptions; the supported pin lives in config.
 import { existsSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fetchWithTimeout } from "../net/http";
@@ -92,8 +91,7 @@ export function configuredWasiSdk(): string | null {
     const usesManagedCache = pathFromManagedRoot === "" || (!pathFromManagedRoot.startsWith("..") && !isAbsolute(pathFromManagedRoot));
     return usesManagedCache ? sdk.root : null;
 }
-// Fetch the pinned host SDK. Existing caches stay untouched unless upgrade is requested.
-// Upstream sha256 is best-effort; if absent, rely on HTTPS transport integrity.
+// Fetch the pinned host SDK, leaving existing caches untouched unless upgrade is requested. Upstream sha256 is best-effort; otherwise rely on HTTPS.
 export async function fetchWasiSdk(
     onProgress?: (recv: number, total: number) => void,
     options?: { upgrade?: boolean },

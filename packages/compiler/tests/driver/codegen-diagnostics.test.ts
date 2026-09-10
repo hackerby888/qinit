@@ -1,5 +1,4 @@
-// Backend failures used to surface at line 0, column 0. emitStatement tags them with the statement span,
-// so a codegen error now points at the offending line in the user's file rather than the qpi.h prelude.
+// Backend failures used to surface at line 0, column 0; emitStatement tags them with the statement span, so an error points at the user's own line.
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { describe, expect, test } from "bun:test";

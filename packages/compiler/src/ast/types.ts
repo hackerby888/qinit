@@ -3,7 +3,7 @@ import type { StructDecl } from "./declarations";
 import type { Expression } from "./expressions";
 import type { Span } from "./source-location";
 
-// ---- Types ----
+// Types
 export type TypeSpec =
     | {
           kind: AstKind.NAME;
@@ -94,7 +94,7 @@ export interface TypedefDecl {
     span: Span;
 }
 
-// ---- Template parameters ----
+// Template parameters
 export type TemplateParam =
     | {
           kind: AstKind.TYPE;

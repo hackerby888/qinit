@@ -1,5 +1,4 @@
-// Inheritance, built by both compilers from the same source. A derived class shares its base's
-// fields, methods and operators, and constructs the base before its own body runs.
+// Inheritance, built by both compilers from one source: a derived class shares its base's fields, methods and operators, and constructs the base first.
 import { beforeAll, describe, expect } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";

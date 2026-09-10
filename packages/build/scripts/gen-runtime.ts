@@ -1,5 +1,4 @@
-// Bundle the test-SDK (src/generate/sdk-entry.ts) into one self-contained string from the real @qinit source. Bun calls
-// generateRuntimeMacro at Qinit bundle time and inlines the result, so there is no generated source artifact.
+// Bundle the test-SDK (src/generate/sdk-entry.ts) into one self-contained string from real @qinit source; Bun inlines it at build time, so no artifact exists.
 import { join } from "node:path";
 
 const BUILD = join(import.meta.dir, "..");
@@ -49,8 +48,7 @@ export async function generateRuntime(): Promise<string> {
     return HEADER + code;
 }
 
-// Bun forbids nested builds while the outer bundler waits on its macro worker.
-// Run the generator in a short-lived Bun process and inline its stdout instead.
+// Bun forbids nested builds while the outer bundler waits on its macro worker, so the generator runs in a short-lived Bun process and its stdout is inlined.
 export function generateRuntimeMacro(): string {
     const result = Bun.spawnSync([process.execPath, import.meta.path]);
     if (result.exitCode !== 0) {

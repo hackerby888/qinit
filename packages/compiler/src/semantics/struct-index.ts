@@ -26,8 +26,7 @@ export function collectNested(programAnalysis: ProgramAnalysis, contract: Struct
             // Register nested templates and their inline methods like file-scope templates.
             const ct = member as any;
             if (ct.hasBody === false) continue;
-            // A contract's own template shadows a core one of the same name whole, parameter list
-            // included, so it is kept apart rather than compared by member count.
+            // A contract's own template shadows a core one of the same name whole, parameter list included, so it is kept apart rather than compared.
             programAnalysis.nestedTemplates.set(ct.name, ct);
             const prev = programAnalysis.templates.get(ct.name);
             if (!prev || (prev.members?.length ?? 0) < (ct.members?.length ?? 0)) programAnalysis.templates.set(ct.name, ct);
@@ -95,14 +94,12 @@ export function registerCalleeContractDeclarations(programAnalysis: ProgramAnaly
 
 export function captureStructMethods(programAnalysis: ProgramAnalysis, structDeclaration: StructDecl, names: string[]): void {
     for (const mm of structDeclaration.members) {
-        // A member function template is a method like any other; its template parameters are its own
-        // rather than the class's, which a plain struct does not have.
+        // A member function template is a method like any other; its template parameters are its own rather than the class's, which a plain struct lacks.
         const isMethodTemplate = mm.kind === AstKind.FUNCTION_TEMPLATE;
         if ((mm.kind !== AstKind.FUNCTION && !isMethodTemplate) || !(mm as FunctionDecl | FunctionTemplateDecl).body) continue;
         const fn = mm as FunctionDecl | FunctionTemplateDecl;
         if (fn.name.startsWith("~")) {
-            // Destructors are never invoked -- no scope-exit lowering exists -- so a body with statements
-            // is silently lost. An empty one is a genuine no-op and stays allowed.
+            // Destructors are never invoked — no scope-exit lowering exists — so a body with statements is silently lost; an empty one stays allowed.
             if (fn.body?.kind === AstKind.COMPOUND && fn.body.body.length > 0) {
                 raiseUnsupported(programAnalysis, UnsupportedFeature.DESTRUCTOR, fn.span, fn.name);
             }
@@ -120,8 +117,7 @@ export function captureStructMethods(programAnalysis: ProgramAnalysis, structDec
             span: fn.span,
         };
         const akey = `${fn.name}/${functionParameters.length}`;
-        // Overloads of one arity are told apart by their first parameter's type, the same key
-        // declaration-index writes for file-scope structs.
+        // Overloads of one arity are told apart by their first parameter's type, the same key declaration-index writes for file-scope structs.
         const typedKey = functionParameters[0] ? `${akey}@${programAnalysis.typeKey(programAnalysis.derefType(functionParameters[0].type))}` : null;
 
         for (const cls of names) {
@@ -132,8 +128,7 @@ export function captureStructMethods(programAnalysis: ProgramAnalysis, structDec
             if (!into.has(fn.name)) into.set(fn.name, def);
         }
 
-        // The same entries under the declaration itself: the name-keyed table is first-writer-wins,
-        // so a class whose name a qpi type already claimed would otherwise never see its own bodies.
+        // The same entries under the declaration itself: the name-keyed table is first-writer-wins, so a class a qpi type already named would lose its bodies.
         if (!programAnalysis.methodsByDeclaration.has(structDeclaration)) programAnalysis.methodsByDeclaration.set(structDeclaration, new Map());
         const owned = programAnalysis.methodsByDeclaration.get(structDeclaration)!;
         if (typedKey) owned.set(typedKey, def);

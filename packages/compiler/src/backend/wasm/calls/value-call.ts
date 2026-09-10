@@ -126,8 +126,7 @@ export function emitCallValueIr(
     const containerCallText = context.lowering.emitContainerCall(context, expression, true);
     if (containerCallText !== null) return watIr.rawWatNode(containerCallText, WatNodeType.I64, "source-compiled instance method");
     context.lowering.emitQpiCall(context, expression);
-    // Narrow functional scalar casts to the target width. The cast may name its type through an alias, so
-    // the chain is followed first — `N::W(x)` narrows exactly as the scalar it ends at.
+    // Narrow functional scalar casts to the target width; the cast may name its type through an alias, so the chain is followed first.
     if (expression.callee.kind === AstKind.IDENTIFIER && expression.callArguments.length === 1) {
         const bound = context.thisBind?.types.get(expression.callee.name);
         const calleeName = bound?.kind === AstKind.NAME ? bound.name : expression.callee.name;

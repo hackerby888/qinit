@@ -1,5 +1,4 @@
-// Browser entry for @qinit/compiler. Same exported names as the root entry, but the QPI header comes from the
-// generated snapshot instead of disk — `contractPath`/`corePath` have no meaning without a filesystem.
+// Browser entry for @qinit/compiler: same exported names as the root entry, but the QPI header comes from the generated snapshot — no filesystem paths apply.
 import type { CompileOptions, CompileResult, GtestCompileResult } from "./driver/types";
 import { compileContract } from "./driver/compile-contract";
 import { compileGtest } from "./driver/gtest";
@@ -33,8 +32,7 @@ export const qpiSnapshot: string = QPI_SNAPSHOT;
 
 export type BrowserCompileOptions = Omit<CompileOptions, "qpiHeader"> & { qpiHeader?: string };
 
-// The root entry's contractPath/corePath need a filesystem. Untyped JS callers would otherwise get the
-// generic "source is required" diagnostic and no hint that they picked the wrong entry.
+// The root entry's contractPath/corePath need a filesystem; without this, untyped JS callers get a generic diagnostic and no hint they picked the wrong entry.
 function browserOptions(options: BrowserCompileOptions): CompileOptions {
     const filesystemOnly = ["contractPath", "corePath"].filter((key) => (options as Record<string, unknown>)[key] !== undefined);
     if (filesystemOnly.length) {

@@ -1,5 +1,4 @@
-// Minimal LEB128 and section primitives for rewriting a contract module. The compiler's
-// `wasm-inspection` reader is read-only; this side has to emit too, so it keeps its own codec.
+// Minimal LEB128 and section primitives for rewriting a contract module: the compiler's reader is read-only, and this side has to emit too.
 
 export const WASM_MAGIC = Object.freeze([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
 

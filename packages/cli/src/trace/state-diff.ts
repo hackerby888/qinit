@@ -1,5 +1,4 @@
-// Diffs read as fields/elements/members, not offsets and hex — container internals come from the member
-// tables in @qinit/proto/qpi-layout.
+// Diffs read as fields/elements/members, not offsets and hex — container internals come from the member tables in @qinit/proto/qpi-layout.
 import { decodeOutput, decodedJsonValue } from "@qinit/proto";
 import { AbiScalarKind, AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import {
@@ -16,9 +15,7 @@ import type { DebugStateRegion } from "@qinit/core";
 import { holdsContainer, keyLabel, scalarText, type StateField, type StateLine } from "./state-format";
 import { hexToBytes } from "@qinit/core";
 
-// A diff row keeps both label forms: `label` is what the default view shows, `detail` the full resolved
-// path. `internal` marks container bookkeeping a contract author never wrote, hidden until the full view.
-// `before`/`after` carry the decoded values for machine readers; a partial run keeps them as hex text.
+// A diff row keeps both label forms: `label` for the default view, `detail` the full path; `internal` marks container bookkeeping hidden until the full view.
 export type StateDiffLine = StateLine & { detail: string; internal: boolean; before?: unknown; after?: unknown; change?: "new" | "removed" };
 
 // Container bookkeeping is not in the IDL — its indices and counters are plain 64-bit words.
@@ -35,12 +32,10 @@ const WORD_TYPES: Record<WordType, AbiType> = {
     id: word(AbiScalarKind.ID, 32),
 };
 
-// `payload` is a value the contract itself wrote, `count` a container's entry total, and `internal` the
-// bookkeeping — occupation flags, list links, free-list heads — that only the full view shows.
+// `payload` is a value the contract wrote, `count` a container's entry total, and `internal` the bookkeeping only the full view shows.
 type LeafClass = MemberRole;
 
-// Two names per leaf: the resolved path through the container, and the shorter label the default view
-// shows for it. They differ only where a path runs through container internals.
+// Two names per leaf: the resolved path through the container and the shorter default label. They differ only where a path runs through container internals.
 type Names = { path: string; short: string };
 
 const child = (names: Names, suffix: string, shortSuffix = suffix): Names => ({
@@ -48,8 +43,7 @@ const child = (names: Names, suffix: string, shortSuffix = suffix): Names => ({
     short: names.short + shortSuffix,
 });
 
-// A record of a keyed container, with where its key sits so the row can be labelled by the key the
-// contract wrote instead of the bucket the entry hashed into. `member` is the path the label replaces.
+// A keyed container's record plus where its key sits, so the row is labelled by the key the contract wrote rather than the bucket it hashed into.
 type KeyedLeaf = {
     part: "key" | "value";
     container: string;
@@ -60,13 +54,10 @@ type KeyedLeaf = {
     keyType: AbiType;
 };
 
-// The flags run of a keyed container, with the record geometry that lets a flag name the entry it
-// belongs to when nothing else in the window does.
+// The flags run of a keyed container, with the record geometry that lets a flag name the entry it belongs to when nothing else in the window does.
 type Owner = { container: string; containerPath: string; recordsOff: number; stride: number; keyOff: number; keyType: AbiType };
 
-// A decodable value at an absolute state offset, or packed bits to report one changed index at a time.
-// `keyed` marks a value inside a keyed container's record, `owner` the flags run that says whether those
-// records gained or lost an entry.
+// A decodable value at an absolute state offset, or packed bits reporting one changed index at a time; `keyed` marks a value inside a keyed record.
 type Leaf = Names & { keyed?: KeyedLeaf; owner?: Owner } & (
         | { kind: "value"; cls: LeafClass; off: number; type: AbiType }
         | {
@@ -79,9 +70,7 @@ type Leaf = Names & { keyed?: KeyedLeaf; owner?: Owner } & (
           }
     );
 
-// What a row contributes to its record's entry line. The value images are the rendered strings, and both
-// key images are kept because whether the entry arrived or left is only known once its flag turns up —
-// possibly from a window resolved later. None of this leaves the module.
+// What a row contributes to its record's entry line. Both key images are kept because whether the entry arrived or left is only known once its flag turns up.
 type EntrySite = {
     part: "key" | "value";
     container: string;
@@ -112,8 +101,7 @@ const at = (names: Names, off: number, type: AbiType, cls: LeafClass = "payload"
     type,
 });
 
-// The member of `type` that byte `offset` (relative to `base`) falls in. Indexed collections always
-// resolve per element; a struct stops as one row when `covered` says the region holds all of it.
+// The member of `type` that byte `offset` falls in. Indexed collections resolve per element; a struct stops as one row when `covered` covers all of it.
 function leafAt(names: Names, base: number, type: AbiType, offset: number, covered: (off: number, size: number) => boolean): Leaf {
     switch (type.kind) {
         case AbiTypeKind.STRUCT: {
@@ -124,8 +112,7 @@ function leafAt(names: Names, base: number, type: AbiType, offset: number, cover
 
             const field = type.fields.find((candidate) => offset >= candidate.offset && offset < candidate.offset + candidate.size);
             if (!field) {
-                // Padding inside the struct names nothing; a zero-count bits leaf moves the walk to the next
-                // field, or to the struct's end when the padding is trailing.
+                // Padding inside the struct names nothing; a zero-count bits leaf moves the walk to the next field, or to the struct's end.
                 const next = type.fields.find((candidate) => candidate.offset > offset);
                 return bitsLeaf(names, base + offset, (next?.offset ?? type.size) - offset, 1, 0, "internal");
             }
@@ -172,8 +159,7 @@ function leafAt(names: Names, base: number, type: AbiType, offset: number, cover
     }
 }
 
-// Matching takes the first member whose end passes the offset, so C padding belongs to the member that
-// follows it and the leaf always ends past `offset` — what keeps stateDiffLines moving.
+// Matching takes the first member whose end passes the offset, so C padding belongs to the member after it and the leaf always ends past `offset`.
 function memberLeaf(
     names: Names,
     base: number,
@@ -216,8 +202,7 @@ function memberLeaf(
 
     const found = region.members.find((candidate) => inner < candidate.off + candidate.size);
     if (!found) {
-        // Trailing pad after a record's last member names nothing. A zero-count bits leaf reports no row and
-        // still moves the walk past the rest of the record, which reading the pad as a word did not.
+        // Trailing pad after a record's last member names nothing: a zero-count bits leaf reports no row and still moves the walk past the record.
         return bitsLeaf(record, recordBase + inner, region.stride - inner, 1, 0, "internal");
     }
 
@@ -270,9 +255,7 @@ async function renderValue(bytes: Uint8Array, type: AbiType): Promise<{ text: st
     return { text: scalarText(decoded, type), data };
 }
 
-// Occupation flags and BitArrays are packed, so report the indices that moved, not the raw words.
-// `firstIndex` is the index the visible slice starts at, so a window opening inside the flags reports too.
-// `entry` is the record a packed value belongs to, so each of its bits reads by the entry's key.
+// Occupation flags and BitArrays are packed, so report the indices that moved, not the raw words; `firstIndex` is where the visible slice starts.
 function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, after: Uint8Array, firstIndex: number, entry?: EntryBase): SitedRow[] {
     const rows: SitedRow[] = [];
     const siteOf = (index: number, from: number, to: number): { site: RowSite } | Record<never, never> => {
@@ -291,8 +274,7 @@ function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, afte
         return (byte >> (bit & 7)) & mask;
     };
 
-    // The slice only covers a bounded run of indices. Without this the loop walks the whole capacity and
-    // only `valueAt`'s bounds check keeps it quiet — 33M no-op turns per window on a 536 MB map.
+    // The slice only covers a bounded run of indices; without this the loop walks the whole capacity — 33M no-op turns per window on a 536 MB map.
     const visibleBits = Math.min(before.length, after.length) * 8;
     const lastIndex = Math.min(leaf.count, firstIndex + Math.floor(visibleBits / leaf.bitsPer));
 
@@ -319,12 +301,10 @@ function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, afte
 
 const groupOf = (site: RowSite) => `${site.containerPath}#${site.slot}`;
 
-// A record is zeroed when its slot is vacated, so only an entry that arrived still has its key in the
-// after image. Undefined means the window never carried the key, and the row stays as it was resolved.
+// A record is zeroed when its slot is vacated, so only an arriving entry still has its key in the after image; undefined means the window never carried it.
 const labelKey = (site: EntrySite, flag: FlagSite | undefined) => (flag && flag.to !== 1 ? site.keyBefore : site.keyAfter);
 
-// An entry that just arrived has a zero before image, so `= v` says more than `0 → v` does; one that left
-// keeps its arrow, because the value it was holding is the part worth reading.
+// An entry that just arrived has a zero before image, so `= v` says more than `0 → v`; one that left keeps its arrow, since the value it held is what matters.
 function entryText(site: EntrySite, flag: FlagSite | undefined): string {
     if (flag?.to === 1) {
         return `= ${site.after} (new)`;
@@ -335,8 +315,7 @@ function entryText(site: EntrySite, flag: FlagSite | undefined): string {
     return `${site.before} → ${site.after}`;
 }
 
-// A record's rows all describe one entry, so they read as one line labelled by the key the contract wrote.
-// The bucket the entry hashed into stays on the full path, which is where an implementation detail belongs.
+// A record's rows all describe one entry, so they read as one line labelled by the key the contract wrote; the bucket stays on the full path.
 function collapseEntries(rows: SitedRow[]): StateDiffLine[] {
     const flags = new Map<string, FlagSite>();
     const valued = new Set<string>();
@@ -382,8 +361,7 @@ function collapseEntries(rows: SitedRow[]): StateDiffLine[] {
             return key === undefined ? line : { ...line, label: labelled, text: entryText(site, flag), change: changeOf(flag) };
         }
 
-        // The entry line already names the key, so a key row of its own is noise — unless nothing else
-        // carries the entry, which is what a value that was and stays zero leaves behind.
+        // The entry line already names the key, so a key row is noise — unless nothing else carries the entry, as with a value that was and stays zero.
         if (collapsed.has(group)) {
             return { ...line, internal: true };
         }
@@ -396,8 +374,7 @@ function collapseEntries(rows: SitedRow[]): StateDiffLine[] {
 
 const changeOf = (flag: FlagSite | undefined): "new" | "removed" | undefined => (flag?.to === 1 ? "new" : flag?.to === 2 ? "removed" : undefined);
 
-// A value straddling two regions can only be decoded once they are one range — core reports per dirty
-// page, so a record crossing a page boundary arrives split.
+// A value straddling two regions can only be decoded once they are one range — core reports per dirty page, so a record crossing a page arrives split.
 function joinedRegions(regions: DebugStateRegion[]): DebugStateRegion[] {
     const joined: DebugStateRegion[] = [];
 
@@ -415,8 +392,7 @@ function joinedRegions(regions: DebugStateRegion[]): DebugStateRegion[] {
     return joined;
 }
 
-// Every changed window, resolved and decoded. Regions may be minimal runs (a core node) or aligned
-// windows (the simulator); a run that does not cover a whole value keeps its bytes rather than guessing.
+// Every changed window, resolved and decoded. Regions may be minimal runs or aligned windows; a run not covering a whole value keeps its bytes.
 export async function stateDiffLines(fields: StateField[], regions: DebugStateRegion[]): Promise<StateDiffLine[]> {
     const rows: SitedRow[] = [];
 
@@ -428,8 +404,7 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
 
         const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeOutput(bytes, type), type);
 
-        // The key labelling a record is read from the window rather than from the rows: an update leaves the
-        // key bytes alone, so it never produces a row of its own.
+        // The key labelling a record is read from the window, not the rows: an update leaves the key bytes alone, so it never produces a row of its own.
         const entrySiteOf = async (keyed: KeyedLeaf, short: string): Promise<EntryBase | undefined> => {
             const keyEnd = keyed.keyOff + keyed.keyType.size;
             if (keyed.keyOff < region.off || keyEnd > end) {
@@ -447,8 +422,7 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
             };
         };
 
-        // A flag that opened or closed an entry carries its key when the record is in the window, which is
-        // the only name an entry whose key and value are both zero can ever get.
+        // A flag that opened or closed an entry carries its key when the record is in the window — the only name an all-zero entry can ever get.
         const namedFlags = (flagged: SitedRow[], owner: Owner): Promise<SitedRow[]> =>
             Promise.all(
                 flagged.map(async (row) => {
@@ -482,8 +456,7 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
             if (!field) {
                 const next = fields.find((candidate) => candidate.off > position);
 
-                // Alignment padding between two fields belongs to neither, so step over it. Stopping here
-                // drops every later row in the window, and the bytes are only worth a row if they moved.
+                // Alignment padding between two fields belongs to neither, so step over it: stopping here drops every later row in the window.
                 if (next && next.off < end) {
                     if (!bytesEqual(slice(before, position, next.off), slice(after, position, next.off))) {
                         unnamed();
@@ -492,8 +465,7 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
                     continue;
                 }
 
-                // Past the last field, alignment slack and a region longer than the whole state look the
-                // same from here, and the second is worth saying out loud.
+                // Past the last field, alignment slack and a region longer than the whole state look the same, and the second is worth saying.
                 unnamed();
                 break;
             }

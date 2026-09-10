@@ -1,6 +1,4 @@
-// The operator edge suite asserts what each declared body should compute. This one builds the same
-// source with Clang and asserts both compilers land on the same state, so an expectation cannot be
-// wrong in both places at once.
+// The operator edge suite asserts what each declared body should compute; this builds the same source with Clang, so an expectation cannot be wrong in both.
 import { beforeAll, describe, expect } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";

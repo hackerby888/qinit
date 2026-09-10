@@ -1,5 +1,4 @@
-// Generates the browser snapshot committed with Qinit. Core-lite is a generation-time input only;
-// browser consumers import the tracked module and never need a core checkout.
+// Generates the browser snapshot committed with Qinit; core-lite is a generation-time input only, so browser consumers never need a core checkout.
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

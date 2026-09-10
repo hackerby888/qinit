@@ -1,5 +1,4 @@
-// Instruction emitter for the journal helpers. Branch targets are named and resolved from a label
-// stack, because hand-counting `br` depths through nested blocks is where this kind of code goes wrong.
+// Instruction emitter for the journal helpers. Branch targets are named and resolved from a label stack, since hand-counting `br` depths goes wrong.
 import { ByteWriter } from "./wasm-binary";
 
 export const WasmType = {

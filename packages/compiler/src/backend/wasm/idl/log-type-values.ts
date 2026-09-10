@@ -6,9 +6,7 @@ import { collectPayloadRoots, resolvePayload, visitStatement } from "../module/l
 
 export const LOG_TYPE_FIELD = "_type";
 
-// The `_type` values a contract writes into each log struct, keyed by the struct's bare name. Two log
-// structs of one logged size are told apart by this word alone, so only values the analysis can fold
-// are recorded: a value copied from a variable adds nothing rather than a guess.
+// The `_type` values a contract writes into each log struct, keyed by bare name: two structs of one size are told apart by this word, so only foldable values.
 export function collectLogTypeValues(prepared: PreparedContractModule): Map<string, Set<bigint>> {
     const values = new Map<string, Set<bigint>>();
     const contract = prepared.contract;

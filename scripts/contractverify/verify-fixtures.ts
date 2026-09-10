@@ -7,8 +7,7 @@ import { autoUpdateVerifyTool } from "@qinit/core";
 // Best effort: fetch contractverify on a clean runner.
 await autoUpdateVerifyTool().catch(() => {});
 
-// Inter-contract fixtures: the tool flags `<Callee>::Type` scope resolution because it can't see the
-// declared callee. Whitelist those prefixes (verifyContract drops exactly those false positives).
+// Inter-contract fixtures: the tool flags `<Callee>::Type` because it cannot see the declared callee, so whitelist those prefixes as known false positives.
 const CALLEES: Record<string, string[]> = {
     CallOutState: ["Counter"],
     Gauntlet: ["QX"],

@@ -1,5 +1,4 @@
-// The terminal component kit. Commands import from "…/ui"; the modules behind this barrel are seams,
-// not separate public entry points.
+// The terminal component kit. Commands import from the ui barrel; the modules behind it are seams, not separate public entry points.
 export { THEMES, THEME_NAMES, theme, applyTheme, Grad, GradLine, darken } from "./theme";
 export type { Theme } from "./theme";
 export { fmtMs, termCols, termRows, fmtCompact, truncEnd, truncMid, sevColor, windowOf } from "./format";

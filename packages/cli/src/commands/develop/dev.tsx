@@ -165,8 +165,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     useEffect(() => {
         if (coreErr) process.exitCode = 1;
     }, [coreErr]);
-    // The session reports its last redeploy. `result` is null only mid-rebuild, which holds the
-    // previous outcome rather than flickering to success.
+    // The session reports its last redeploy. `result` is null only mid-rebuild, which holds the previous outcome rather than flickering to success.
     useEffect(() => {
         if (result) process.exitCode = result.ok ? 0 : 1;
     }, [result]);

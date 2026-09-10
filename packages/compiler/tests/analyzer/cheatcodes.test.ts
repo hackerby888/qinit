@@ -1,5 +1,4 @@
-// Stripping has to be provably harmless: the scanner rules exist only to guarantee that blanking a
-// cheat call can never change what the contract does.
+// Stripping has to be provably harmless: the scanner rules exist only to guarantee that blanking a cheat call can never change what the contract does.
 import { expect, test } from "bun:test";
 import { analyzeCheatcodes, stripCheatcodes } from "../../src/analyzer/cheatcodes";
 

@@ -184,8 +184,7 @@ for (let i = 0; i < 8; i++) {
     const inc = (trace.entries ?? []).filter((entry) => entry.index === counterSlot && entry.kind === 1 && entry.stateDiff.length).pop();
     if (inc) {
         console.log("debug: Inc stateDiff " + JSON.stringify(inc.stateDiff));
-        // The node reports changed bytes as a window rather than the minimal run, so the counter is the
-        // leading little-endian uint64 of the region that starts at the state's offset 0.
+        // The node reports changed bytes as a window, so the counter is the leading little-endian uint64 of the region starting at state offset 0.
         debugOk = inc.stateDiff.some((diff) => diff.off === 0 && diff.before.startsWith("0200000000000000") && diff.after.startsWith("0300000000000000"));
         break;
     }
@@ -248,8 +247,7 @@ if (counterV2Value !== 4n || migrationTickAfterCall !== migratedAtTick) {
     fail(`CounterV2 post-migration call failed: counter=${counterV2Value}, ` + `tick=${migrationTickAfterCall}`);
 }
 
-// The migration itself is a traced dispatch: its input is the whole old state (v1's single uint64) and
-// its diff is the new layout, written over a state the node zeroed first.
+// The migration is itself a traced dispatch: input is the whole old state (v1's single uint64), diff is the new layout over a state the node zeroed.
 const migration = ((await rpc.debugTrace(0, 256)).entries ?? []).find((entry) => entry.index === counterSlot && entry.kind === 3);
 if (!migration || !migration.ok || migration.inSize !== 8) {
     fail("debug trace missing the migration entry: " + JSON.stringify(migration ?? null));

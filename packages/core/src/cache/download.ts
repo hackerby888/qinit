@@ -10,8 +10,7 @@ export function sha256Hex(buf: Uint8Array): string {
     return createHash("sha256").update(buf).digest("hex");
 }
 
-// Write a file atomically: a kill mid-write must never leave a torn file that existsSync treats as a
-// valid cache hit. Write a sibling tmp, then rename (atomic on the same filesystem).
+// Write a file atomically: a kill mid-write must never leave a torn file existsSync treats as a cache hit, so write a sibling tmp and rename.
 export function atomicWrite(file: string, data: Uint8Array | string): void {
     const tempFile = `${file}.tmp.${process.pid}.${Date.now()}`;
     writeFileSync(tempFile, data);
@@ -130,8 +129,7 @@ function finish(asset: AssetRef, part: string, destPath: string, hash: Hash, siz
     renameSync(part, destPath);
 }
 
-// Stream an asset to disk through a `.part` file: retried with backoff, resumed with HTTP Range where the
-// server allows it, verified against the manifest sha256, and renamed into place only when complete.
+// Stream an asset to disk through a `.part` file: retried with backoff, resumed by HTTP Range where allowed, sha256-verified, renamed only when complete.
 export async function downloadVerifiedAssetToFile(
     asset: AssetRef,
     destPath: string,
@@ -191,8 +189,7 @@ export async function extractTarGz(tarGz: Uint8Array | string, destDir: string):
                 : "`tar` not found on PATH — install it with your package manager (e.g. `apt install tar`).",
         );
     }
-    // Extract via the spawn cwd, not `tar -C <dir>`: on Windows the Git-bash MSYS tar mangles a
-    // `C:\...` path passed to -C ("Cannot open"). cwd is applied by the OS, so tar never parses it.
+    // Extract via the spawn cwd, not `tar -C <dir>`: Windows Git-bash MSYS tar mangles a drive path passed to -C, while cwd is applied by the OS.
     const tarProcess = Bun.spawn(["tar", "xzf", "-"], {
         stdin: typeof tarGz === "string" ? Bun.file(tarGz) : tarGz,
         cwd: destDir,

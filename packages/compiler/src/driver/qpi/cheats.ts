@@ -1,9 +1,5 @@
-// Development cheatcodes. Injected ahead of user source and stripped again before a contract is
-// submitted to Core, so nothing here may outlive a dev build.
-//
-// CC_PRINT is variadic and takes any mix of string literals and typed values. Literals never reach the
-// wasm: the compiler interns them in the IDL and emits nothing, which is what keeps QPI's string ban
-// intact and works around the backend having no string codegen at all.
+// Development cheatcodes, injected ahead of user source and stripped before submission to Core, so nothing here may outlive a dev build.
+// CC_PRINT is variadic; literals never reach the wasm — the compiler interns them in the IDL, which keeps QPI's string ban intact with no string codegen.
 
 import { CheatMode } from "../../shared/enums";
 
@@ -18,8 +14,7 @@ const ACTIVE = `#define QINIT_CC_LINE_BASE __QINIT_CC_LINE_BASE__
 #define CC_UNPRANK() __qinit_cheat_call(6u, 0, 0, NULL_ID);
 `;
 
-// Same names, no bodies. This is the reference build the strip is proved against: it must erase the
-// call sites exactly as stripping does, so the two artifacts can be compared byte for byte.
+// Same names, no bodies: the reference build the strip is proved against, erasing call sites exactly as stripping does so the artifacts compare byte for byte.
 const NEUTERED = `#define CC_PRINT(...)
 #define CC_ASSERT(c)
 #define CC_PAY(dest, amount)
@@ -30,18 +25,13 @@ const NEUTERED = `#define CC_PRINT(...)
 #define CC_UNPRANK()
 `;
 
-/**
- * The macro block to inject ahead of user source. `lineBase` is how many lines the caller prepended,
- * so `__LINE__` reports the user's own line; it is computed from the real prelude rather than pinned,
- * because injecting this block changes it.
- */
+/** The macro block to inject ahead of user source. `lineBase` is how many lines the caller prepended, computed from the real prelude since this shifts it. */
 export function cheatMacros(mode: CheatMode, lineBase: number): string {
     if (mode === CheatMode.OFF) {
         return "";
     }
 
-    // No trailing newline: the caller joins with one, and a spare blank line here would shift every
-    // user line by one and land in the diagnostics the remapper reports.
+    // No trailing newline: the caller joins with one, and a spare blank line would shift every user line by one and land in the remapped diagnostics.
     const block = mode === CheatMode.NOOP ? NEUTERED : ACTIVE.replace("__QINIT_CC_LINE_BASE__", String(lineBase));
 
     return block.replace(/\n$/, "");

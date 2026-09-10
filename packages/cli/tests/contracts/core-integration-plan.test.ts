@@ -1,13 +1,11 @@
-// planMutations decides the whole Core wiring from in-memory text, so these cases need no checkout,
-// no clone and no git — the disk facts it used to read are the three injected inputs.
+// planMutations decides the whole Core wiring from in-memory text, so these need no checkout, clone or git — the disk facts are three injected inputs.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { planMutations, type ContractDefinitions, type CoreFiles, type PlanMutationsOptions, type TextFile } from "../../src/ops/core-integration-plan";
 
 const CRLF = "\r\n";
 
-// The plan joins its paths with node:path, so expectations have to be built the same way or they all
-// fail on Windows.
+// The plan joins its paths with node:path, so expectations have to be built the same way or they all fail on Windows.
 const coreFile = (...segments: string[]) => join("/core", ...segments);
 
 function textFile(lines: string[], bom = false): TextFile {
@@ -123,8 +121,7 @@ describe("a new contract", () => {
         expect(plan.warnings).toEqual(["contract_token.cpp references Base without INIT_CONTRACT(Base)"]);
     });
 
-    // A bare `X::Member` is only a callee reference once a project header names X — otherwise it reads
-    // as a plain qualified type and the plan ignores it.
+    // A bare `X::Member` is only a callee reference once a project header names X — otherwise it reads as a plain qualified type and the plan ignores it.
     test("counts a bare reference as a callee only when a project header names that type", () => {
         const contractSource = "struct Token : public ContractBase { Ghost::Row row; };\n";
 

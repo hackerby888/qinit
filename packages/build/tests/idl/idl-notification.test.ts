@@ -1,6 +1,4 @@
-// REGISTER_USER_PROCEDURE_NOTIFICATION ids are (CONTRACT_INDEX << 22) | __LINE__ truncated to 16 bits, where
-// __LINE__ is the raw-source line of the procedure's macro. Preprocessing shifts spans, so this pins the
-// value the node's registry actually reports — a mismatch silently unnames the entry everywhere.
+// Notification ids are (CONTRACT_INDEX << 22) | __LINE__ truncated to 16 bits on the raw-source line, so this pins what the node's registry actually reports.
 import { expect, test } from "bun:test";
 import { extractIdl } from "../../src/compile/idl";
 
@@ -33,8 +31,7 @@ const TAIL = `
 };
 `;
 
-// Pad between the head and the declarations so the notification's source line is unmistakably not the
-// preprocessed one — without padding the two can coincide and the regression hides.
+// Pad between the head and the declarations so the notification's source line is unmistakably not the preprocessed one, which would hide the regression.
 const source = (padLines: number) => HEAD + "\n".repeat(padLines) + TAIL;
 
 const notifyLine = (text: string) => text.split("\n").findIndex((line) => line.includes("PRIVATE_PROCEDURE_WITH_LOCALS(Notify)")) + 1;

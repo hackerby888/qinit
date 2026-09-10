@@ -132,9 +132,7 @@ test("element fmts (consumed by the decoders) are the single source", () => {
     expect(collectionElemFmt("uint64")).toBe("uint64, sint64, sint64, sint64, sint64, sint64");
 });
 
-// Nothing in the ABI carries the names of a container's internals, so the member tables spell them out.
-// The qpi.h snapshot embeds the header verbatim and is regenerated whenever the core-lite pin moves, which
-// makes it the one place a rename upstream can be caught.
+// Nothing in the ABI carries a container's internal names, so the member tables spell them out; the qpi.h snapshot moves with the core pin and catches renames.
 const SNAPSHOT = readFileSync(new URL("../../../compiler/src/generated/qpi-snapshot.ts", import.meta.url), "utf8");
 
 // Only the private block declares members; the public methods below it repeat the same words.
@@ -166,8 +164,7 @@ test("container member names still match the ones core declares", () => {
 
     for (const [declaration, names] of containers) {
         const block = privateBlock(declaration);
-        // The leading boundary rejects a longer name that merely ends with this one — `headIndex` must not
-        // be satisfied by Collection's own `_headIndex()`.
+        // The leading boundary rejects a longer name merely ending with this one — `headIndex` must not be satisfied by Collection's `_headIndex()`.
         const missing = names.filter((name) => !new RegExp(`(?<!\\w)${name}\\b`).test(block));
         if (missing.length) {
             drifted[declaration] = missing;

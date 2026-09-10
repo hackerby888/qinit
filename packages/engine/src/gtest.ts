@@ -83,8 +83,7 @@ export async function runContractTesting(
     const runnerMemory = (): WebAssembly.Memory | undefined => runner?.exports?.memory as WebAssembly.Memory | undefined;
 
     const deployAll = () => {
-        // The corpus `system` proxy (epoch / tick / chain clock) mirrors real Qubic's persistent global `system`:
-        // constructing a ContractTesting fixture resets spectrum/universe/contract states but never system.epoch/tick.
+        // The corpus `system` proxy mirrors real Qubic's persistent global: constructing a fixture resets spectrum/universe/contract states but never system.
         const previousEpoch = sim?.currentEpoch;
         const previousTick = sim?.currentTick;
         const previousTimeBase = sim?.timeBaseMs;
@@ -94,14 +93,11 @@ export async function runContractTesting(
             fees: "off",
             liteTicking: true,
         });
-        // pin the corpus clock to the native harness's fixed date (wasm_contract_testing.h:298 utcTime=2024-01-01)
-        // so it does not follow VirtualNode's wall-clock override (F71); the preservation below still wins on redeploy.
+        // Pin the corpus clock to the native harness's fixed date so it does not follow VirtualNode's wall-clock override; preservation wins on redeploy.
         sim.timeBaseMs = Date.UTC(2024, 0, 1);
-        // Native-harness clock semantics: etalonTick's date fields ARE the chain time and never move on their
-        // own — a corpus advances time only by writing them (q_set_datetime). Freeze the per-tick advance.
+        // Native-harness clock semantics: etalonTick's date fields ARE the chain time and only move when a corpus writes them. Freeze the per-tick advance.
         sim.tickDuration = 0;
-        // Native etalonTick.prevSpectrumDigest is a zero-initialized global the corpus may pin; contracts read
-        // exactly that value, not a live digest of the throwaway chain.
+        // Native etalonTick.prevSpectrumDigest is a zero-initialized global the corpus may pin; contracts read exactly that, not a live digest.
         sim.prevSpectrumDigestOverride = previousDigest ?? new Uint8Array(32);
         if (previousEpoch !== undefined) {
             sim.currentEpoch = previousEpoch;
@@ -123,8 +119,7 @@ export async function runContractTesting(
             if (shared && !runnerMemory()) throw new Error(`gtest: contract slot ${idx} is a shared-memory build but the runner is not instantiated yet`);
             handles[Number(idx)] = sim.deploy(Number(idx), wasm, shared ? runnerMemory() : undefined);
         }
-        // slot -> share-asset ticker (contract_def.h contractDescriptions.assetName) — distributeDividends
-        // iterates the possessors of this asset.
+        // slot -> share-asset ticker (contract_def.h contractDescriptions.assetName) — distributeDividends iterates this asset's possessors.
         for (const [slot, name] of Object.entries(opts.assetNames ?? {})) {
             sim.setContractAssetName(Number(slot), name as string | bigint);
         }
@@ -194,8 +189,7 @@ export async function runContractTesting(
             /* contracts pre-deployed in deployAll */
         },
 
-        // A contract trap (OOB, unreachable) inside a dispatch fails the CURRENT TEST, not the whole corpus run
-        // — the native harness likewise contains a contract fault per test. `trap()` records it for t_report.
+        // A contract trap inside a dispatch fails the CURRENT TEST, not the whole run, as the native harness does; `trap()` records it for t_report.
         q_invoke: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number => {
             if (env_.QINIT_GTEST_PROGRESS && ++dispatchCount % 500 === 0) {
                 (globalThis as any).process?.stderr?.write?.(
@@ -226,8 +220,7 @@ export async function runContractTesting(
             if (env_.QINIT_GTEST_WATCH_SLOT) {
                 const ws = Number(env_.QINIT_GTEST_WATCH_SLOT);
                 const bal = sim.balance((sim as any).contractId(ws));
-                // QINIT_GTEST_WATCH_OFF=<byteOff>: also print the u64 at that state offset (e.g. a counter field
-                // identified by a snapshot diff).
+                // QINIT_GTEST_WATCH_OFF=<byteOff>: also print the u64 at that state offset, e.g. a counter identified by a snapshot diff.
                 let fld = "";
                 if (env_.QINIT_GTEST_WATCH_OFF) {
                     const off = Number(env_.QINIT_GTEST_WATCH_OFF);
@@ -329,8 +322,7 @@ export async function runContractTesting(
                 id32(dstPtr),
             ) as bigint;
         },
-        // transferShareOwnershipAndPossession free helper (index-based): move `shares` of asset (issuer, name) from the
-        // owner/possessor holding to newOwner, managed by mgmt. Returns the source's remaining shares (<0 on failure).
+        // transferShareOwnershipAndPossession: move `shares` of asset (issuer, name) to newOwner under mgmt, returning the source's remaining shares.
         q_transfer_holding: (name: bigint, issuerPtr: number, ownerPtr: number, newOwnerPtr: number, shares: bigint, mgmt: number): bigint => {
             const issuer = id32(issuerPtr);
             const owner = id32(ownerPtr);
@@ -345,8 +337,7 @@ export async function runContractTesting(
             ) as bigint;
         },
 
-        // Native spectrumIndex: -1 when the identity has NO spectrum record (never funded) — corpora gate
-        // invocations on that (an unknown user can't invoke even with amount 0).
+        // Native spectrumIndex: -1 when the identity has no spectrum record, which corpora gate invocations on — an unknown user cannot invoke at all.
         q_spectrum: (idPtr: number): number => {
             if (!sim.getEntity(id32(idPtr))) return -1;
             const h = hex(id32(idPtr));
@@ -409,8 +400,7 @@ export async function runContractTesting(
 
         q_state_size: (i: number): number => (handles[i]?.stateSize ?? 0) >>> 0,
 
-        // Shared-memory mode: the contract's state lives in the runner's own memory — hand back its absolute
-        // address so contractStates[i] is the live state (no shadow, no sync). 0 => shadow-buffer fallback.
+        // Shared-memory mode: the contract's state lives in the runner's memory, so hand back its absolute address; 0 means the shadow-buffer fallback.
         q_state_addr: (i: number): number => {
             const c = handles[i];
             return c && c.sharedMem ? c.stateAddr >>> 0 : 0;
@@ -438,8 +428,7 @@ export async function runContractTesting(
             touched.add(i);
         },
 
-        // Assertion-time refresh (see the shim's qbSyncThen): re-sync every engine-dirty shadow so a cached
-        // getState() pointer reads live values, paying the diff scan only when a dispatch actually intervened.
+        // Assertion-time refresh: re-sync every engine-dirty shadow so a cached getState() reads live values, paying the scan only when a dispatch ran.
         q_state_sync: () => {
             for (const i of engineDirty) {
                 const m = materialized.get(i);
@@ -463,15 +452,13 @@ export async function runContractTesting(
         q_set_prev_spectrum_digest: (ptr: number) => {
             sim.prevSpectrumDigestOverride = read(ptr, 32);
         },
-        // updateQpiTime() in the corpus harness pushes its utcTime fields here; set the chain clock so the qpi
-        // date accessors (year/month/day/...) return them. timeBaseMs is chosen so nowMs() == the requested UTC.
+        // updateQpiTime() pushes its utcTime fields here; set the chain clock so the qpi date accessors return them, with timeBaseMs chosen to match.
         q_set_datetime: (y: number, mo: number, d: number, h: number, mi: number, s: number) => {
             const ms = Date.UTC(y >>> 0, (mo >>> 0) - 1, d >>> 0, h >>> 0, mi >>> 0, s >>> 0);
             sim.timeBaseMs = ms - sim.currentTick * sim.tickDuration;
         },
 
-        // The proposal-voting corpora seed their committee by writing broadcastedComputors.computors.publicKeys[i];
-        // the harness header routes each write here so qpi.computor(i) in the engine returns the same identity.
+        // Proposal-voting corpora seed their committee via broadcastedComputors.publicKeys[i]; the harness routes each write here so qpi.computor(i) matches.
         q_set_computor: (i: number, idPtr: number) => {
             sim.setComputorKey(i >>> 0, id32(idPtr));
         },
@@ -495,8 +482,7 @@ export async function runContractTesting(
         },
     };
 
-    // Bun 1.3.14 cannot Proxy an import object for i64-param imports ("Invalid argument type in ToBigInt").
-    // Cast is safe: runner bytes are a plain ArrayBuffer; the DOM lib's BufferSource omits SharedArrayBuffer views.
+    // Bun 1.3.14 cannot Proxy an import object for i64-param imports. The cast is safe: runner bytes are a plain ArrayBuffer, which BufferSource omits.
     const mod = await WebAssembly.compile(runnerWasm as Uint8Array<ArrayBuffer>);
     const noopVal = (..._args: unknown[]): number => 0;
     const noopBig = (..._args: unknown[]): bigint => 0n;
@@ -529,12 +515,10 @@ export async function runContractTesting(
         millisecond: () => dateFields(sim.nowMs()).milli,
         now: (out: number) => new DataView(mem().buffer).setBigUint64(out >>> 0, packDateAndTime(sim.nowMs()), true),
         prevSpectrumDigest: (out: number) => mem().set((sim.prevSpectrumDigestOverride ?? new Uint8Array(32)).subarray(0, 32), out >>> 0),
-        // Real host transfer, not a noop: QTF's CheckContractBalance reads qpi.getEntity(SELF) balances,
-        // and delegating keeps the deployed runtime's semantics (PIT guards, amount bounds, transfer logging).
+        // Real host transfer, not a noop: QTF's CheckContractBalance reads qpi.getEntity(SELF), and delegating keeps the deployed runtime's semantics.
         transfer: (destOff: number, amount: bigint): bigint => sim.host.transfer(mainSlot, id32(destOff), amount, 2 /*qpiTransfer*/),
         burn: (amount: bigint, ciBurnedFor: number): bigint => sim.host.burn(mainSlot, amount, ciBurnedFor >>> 0),
-        // In-runner inter-contract calls (QTF's ProcessTierPayout invokes QRP's top-up procedure through the
-        // corpus qpi context). Caller is the contract under test; reward moves caller -> callee like runtime.ts.
+        // In-runner inter-contract calls via the corpus qpi context: the caller is the contract under test, and reward moves caller -> callee as in runtime.ts.
         liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number): number => {
             const out = sim.query(calleeIdx >>> 0, inputType & 0xffff, read(inOff, inSize));
             if (out.length) write(outOff, out.subarray(0, Math.min(outSize >>> 0, out.length)));
@@ -584,23 +568,20 @@ export async function runContractTesting(
             dv.setUint32(nwritten >>> 0, total >>> 0, true);
             return 0;
         },
-        // Real wall-clock: the native harness seeds etalonTick from std::chrono::system_clock::now() (QTRY's
-        // updateEtalonTime); a zero stub would put the corpus clock at 1970 while the oracle runs at today.
+        // Real wall-clock: the native harness seeds etalonTick from system_clock::now(), so a zero stub puts the corpus at 1970 while the oracle runs today.
         clock_time_get: (_id: number, _precision: bigint, timePtr: number): number => {
             new DataView(mem().buffer).setBigUint64(timePtr >>> 0, BigInt(Date.now()) * 1_000_000n, true);
             return 0;
         },
     };
 
-    // Fill in explicit safeNoop stubs for every import the module declares that we haven't wired yet, so no
-    // Proxy is needed in the import object that Bun sees.
+    // Fill in explicit safeNoop stubs for every import the module declares but we have not wired, so no Proxy is needed in the import object Bun sees.
     for (const imp of WebAssembly.Module.imports(mod)) {
         const entry = imp.module === "lhost" ? lhost : imp.module === "env" ? envObj : imp.module === "wasi_snapshot_preview1" ? wasiObj : null;
         if (entry && !(imp.name in entry)) {
             const results: string[] = ((imp as any).type?.results ?? []) as string[];
             const zero = results.includes("i64") ? noopBig : noopVal;
-            // A stub is indistinguishable from a host function that legitimately returns zero, so say so on
-            // first call — a declared-but-never-called import is normal and stays quiet.
+            // A stub is indistinguishable from a host function legitimately returning zero, so say so on first call; a never-called import stays quiet.
             let warned = false;
             (entry as any)[imp.name] = (...args: unknown[]) => {
                 if (!warned) {
@@ -635,8 +616,7 @@ export async function runContractTesting(
     const filterRaw = ((globalThis as any).process?.env?.QINIT_GTEST_FILTER ?? "") as string;
     const filters = [...(opts.filterTests ?? []), ...filterRaw.split(",")].map((s) => s.trim().toLowerCase()).filter(Boolean);
     const excludedTests = opts.excludeTests ?? [];
-    // Name lookups write into the runner's io scratch, so they need a real io_base; writing to a bogus base
-    // (0) would corrupt the runner's memory. Names are also how a trapped test gets identified, so always resolve.
+    // Name lookups write into the runner's io scratch, so they need a real io_base — and names are how a trapped test is identified, so always resolve.
     const ioBase = ((runner.exports.io_base as Function)?.() ?? 0) >>> 0;
     const traceName = (i: number): string => {
         if (!ioBase) return `#${i}`;
@@ -657,8 +637,7 @@ export async function runContractTesting(
         const before = results.length;
         const tt = now();
         trapNotes.length = 0;
-        // A trap that escapes the harness rather than a dispatch would reject the whole run, losing this
-        // test's row and every later one. Report it as this test's failure and keep going.
+        // A trap escaping the harness rather than a dispatch would reject the whole run; report it as this test's failure and keep going.
         try {
             (runner.exports.run_test as Function)(i);
         } catch (e: any) {

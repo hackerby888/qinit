@@ -1,6 +1,6 @@
 // Define zero-copy struct views with C-style natural alignment and derived offsets and sizes.
 
-// ---- codec combinator: a struct is composed from these primitives; offsets/sizes are derived, never typed. ----
+// codec combinator: a struct is composed from these primitives; offsets/sizes are derived, never typed.
 export interface Backing {
     readonly bytes: Uint8Array;
     readonly dv: DataView;
@@ -194,11 +194,10 @@ export const sub = <T extends { bytes: Uint8Array }>(klass: { SIZE: number; wrap
     },
 });
 
-// Bitwise rounding coerces to int32, so anything at or past 2GB truncates to a small, negative or zero
-// value that still looks like a valid size. Contract states already run past 1GB.
+// Bitwise rounding coerces to int32, so anything at or past 2GB truncates to a value that still looks valid. Contract states already run past 1GB.
 export const roundUp = (n: number, align: number): number => Math.ceil(n / align) * align;
 
-// ---- shared view base: a zero-copy window plus its DataView. ----
+// shared view base: a zero-copy window plus its DataView.
 export abstract class View implements Backing {
     readonly bytes: Uint8Array;
     readonly dv: DataView;
@@ -212,8 +211,7 @@ export abstract class View implements Backing {
 export type FieldType<C> = C extends Codec<infer T> ? T : never;
 export type StructFields<S> = { [K in keyof S]: FieldType<S[K]> };
 
-// A live struct view: every wire field as a read/write property (writes go straight through to `.bytes`), plus
-// `.clone()` for a detached copy you can mutate without touching the original buffer.
+// A live struct view: every wire field as a read/write property writing straight through to `.bytes`, plus `.clone()` for a detached mutable copy.
 export type StructInstance<S extends Record<string, Codec<any>>> = View & StructFields<S> & { clone(): StructInstance<S> };
 
 export interface StructClass<S extends Record<string, Codec<any>>> {
@@ -249,8 +247,7 @@ export function defineStruct<S extends Record<string, Codec<any>>>(name: string,
             super(buf, off, size);
         }
 
-        // Detached copy: a fresh size-byte buffer with the same contents. Mutating the clone never touches the
-        // original (its signature/digest stay valid); re-sign the clone if you need it valid after edits.
+        // Detached copy with the same contents: mutating the clone never touches the original, so re-sign the clone if it must stay valid after edits.
         clone(): Struct {
             return new Struct(this.bytes.slice());
         }

@@ -1,5 +1,4 @@
-// A trace names what it invoked from a kind and a number, and both the list and the detail header read it
-// off this one helper — so the numbering rules it encodes are worth pinning.
+// A trace names what it invoked from a kind and a number, and both the list and the detail header read it off this one helper — so its rules are pinned.
 import { expect, test } from "bun:test";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 import { entryLabel } from "../../src/trace/entry-label";

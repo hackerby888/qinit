@@ -30,8 +30,7 @@ export async function fetchWithTimeout(url: string, init?: RequestInit, ms = 100
     }
 }
 
-// Stream a response body chunk by chunk with an inactivity watchdog that resets after every chunk.
-// `total` is the content-length (0 when the server sent none).
+// Stream a response body chunk by chunk with an inactivity watchdog that resets after every chunk; `total` is the content-length (0 when absent).
 export async function readResponseChunksWithTimeout(
     r: Response,
     stallMs: number,

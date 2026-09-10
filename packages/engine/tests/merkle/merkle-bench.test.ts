@@ -122,8 +122,7 @@ test("SpectrumLedger: one leaf update on a large spectrum is bounded work, not a
     led.getSpectrumDigest();
     const dt = performance.now() - t0;
 
-    // A single 24-hash path costs well under a millisecond; an O(2^24) rebuild would take seconds. The loose bound
-    // is a catastrophic-regression guard, not a micro-benchmark.
+    // A single 24-hash path costs well under a millisecond; an O(2^24) rebuild would take seconds. A catastrophic-regression guard, not a micro-benchmark.
     expect(dt).toBeLessThan(100);
 });
 

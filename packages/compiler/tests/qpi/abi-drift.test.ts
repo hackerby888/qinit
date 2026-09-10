@@ -18,8 +18,7 @@ test.skipIf(!HAS_CORE)("live qpi.h context layout matches the engine ABI", () =>
     expect(layout.invocationReward).toBe(O.invocationReward);
 });
 
-// The last-resort mapping for an unresolvable named type in a public struct — an unexpected width silently
-// becomes UINT32 on the wire, so the fallback is pinned alongside the sizes it does recognise.
+// The last-resort mapping for an unresolvable named type in a public struct — an unexpected width silently becomes UINT32, so the fallback is pinned too.
 test.skipIf(!HAS_CORE)("scalar widths map to their wire kinds", () => {
     const kinds: Record<number, AbiScalarKind> = {
         1: AbiScalarKind.UINT8,

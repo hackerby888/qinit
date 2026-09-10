@@ -17,12 +17,7 @@ import type {
 import type { ProgramAnalysis } from "./program-analysis";
 import { raiseUnsupported } from "./unsupported";
 
-/**
- * Index one declaration under both the name that addresses it from outside its scope and its bare name.
- * Without the qualified key two scopes sharing a name collapse into whichever registered last; without the
- * bare key a using-directive cannot reach it. `barePolicy` keeps each caller's existing precedence: a
- * namespace's later declaration wins, a name nested in a struct keeps the first one seen.
- */
+/** Index a declaration under both its addressable name and its bare name: without the qualified key two scopes collapse, without the bare one a using fails. */
 export function registerScoped<Value>(
     map: Map<string, Value>,
     scopePrefix: string,
@@ -39,11 +34,7 @@ export function registerScoped<Value>(
     }
 }
 
-/**
- * The keys a scoped name may be indexed under, most specific first: the name as written, the scopes it can be
- * reached from, then the bare tail a using-directive registered it under. One order for every scoped table, so
- * tightening it later is one edit rather than fifteen.
- */
+/** The keys a scoped name may be indexed under, most specific first: as written, the scopes it can be reached from, then the bare tail a using gave it. */
 export function scopedLookupKeys(name: string, context: NamespaceLookupContext = { usingNamespaces: [] }): string[] {
     const keys: string[] = [];
     const add = (key: string) => {
@@ -73,11 +64,7 @@ export function lookupScoped<Value>(map: ReadonlyMap<string, Value>, name: strin
     return undefined;
 }
 
-/**
- * C++ unqualified lookup order for a name written inside a scope: the innermost enclosing scope first, then
- * each enclosing one outward, then the visible using-directives, and only then the global name. A name that
- * already carries a qualifier is looked up as written instead, which `scopedLookupKeys` handles.
- */
+/** C++ unqualified lookup order: innermost scope first, then each enclosing one, then visible using-directives, then the global. Qualified names differ. */
 export function unqualifiedLookupKeys(name: string, context: NamespaceLookupContext = { usingNamespaces: [] }): string[] {
     if (name.includes("::")) {
         return scopedLookupKeys(name, context);
@@ -96,8 +83,7 @@ export function unqualifiedLookupKeys(name: string, context: NamespaceLookupCont
         scope = separator > 0 ? scope.slice(0, separator) : undefined;
     }
 
-    // The bare name carries both globals and the contract's own members, and either hides a name that a
-    // using-directive merely made visible — so the directives are the last resort, not the first.
+    // The bare name carries both globals and the contract's own members, and either hides a using-directive's name — so directives are the last resort.
     add(name);
     for (const usingNamespace of context.usingNamespaces) {
         add(`${usingNamespace}::${name}`);
@@ -177,8 +163,7 @@ export function registerTopLevelDeclarations(
                         }
                     }
                     if (!into.has(fn.name)) into.set(fn.name, def);
-                    // Also under the declaration itself — see captureStructMethods for why the
-                    // name-keyed table alone cannot tell two classes spelled the same apart.
+                    // Also under the declaration itself — see captureStructMethods for why the name-keyed table cannot tell two classes spelled alike apart.
                     if (!programAnalysis.methodsByDeclaration.has(structDeclaration)) programAnalysis.methodsByDeclaration.set(structDeclaration, new Map());
                     const owned = programAnalysis.methodsByDeclaration.get(structDeclaration)!;
                     if (fn.params[0]) owned.set(`${akey}@${programAnalysis.typeKey(programAnalysis.derefType(fn.params[0].type))}`, def);
@@ -211,15 +196,13 @@ export function registerTopLevelDeclarations(
                 if (nsPrefix) {
                     programAnalysis.templates.set(`${nsPrefix}${ct.name}`, templateDeclaration);
                 }
-                // The bare name is shared, so the fullest body wins it — a forward declaration must not
-                // displace the definition that follows it.
+                // The bare name is shared, so the fullest body wins it: a forward declaration must not displace the definition that follows it.
                 const existing = programAnalysis.templates.get(ct.name);
                 if (!existing || (ct.members?.length ?? 0) >= existing.members.length) {
                     programAnalysis.templates.set(ct.name, templateDeclaration);
                 }
             }
-            // Capture inline methods, including templates, so call-site types can complete their
-            // bindings lazily.
+            // Capture inline methods, including templates, so call-site types can complete their bindings lazily.
             for (const classMember of ct.specializationArgs ? [] : ct.members) {
                 if (
                     (classMember.kind !== AstKind.FUNCTION && classMember.kind !== AstKind.FUNCTION_TEMPLATE) ||
@@ -410,8 +393,7 @@ export function collectEnum(
         }
     }
     if (type.name && type.underlyingType?.kind === AstKind.NAME) {
-        // An aliased underlying type is stored resolved, so every consumer sees the scalar it really is, and the
-        // alias is read from the scope the enum was written in — `namespace N { typedef uint8 W; enum class C : W }`.
+        // An aliased underlying type is stored resolved, so consumers see the real scalar, and the alias is read from the scope the enum was written in.
         const declaredName = resolvedKeyInScope(programAnalysis, type.underlyingType.name, scopePrefix, NO_SHADOWED_NAMES) ?? type.underlyingType.name;
         const scalarName = resolvedScalarName(programAnalysis, declaredName);
         const underlyingType = scalarName === declaredName ? type.underlyingType : { ...type.underlyingType, name: scalarName };
@@ -424,8 +406,7 @@ export function collectEnum(
     for (const member of type.members) {
         const numericValue = member.value ? programAnalysis.evalConstBig(member.value, EMPTY_TEMPLATE_BINDINGS) : next;
         next = numericValue + 1n;
-        // A named enum owns its members (Code::X); an unnamed one's belong to the scope around it (Ch::K).
-        // Both stay reachable bare, which is how a using-directive sees them.
+        // A named enum owns its members (Code::X); an unnamed one's belong to the scope around it (Ch::K). Both stay reachable bare for using-directives.
         const memberScopes = type.name ? [...scopedKeys(scopePrefix, `${type.name}::`), ""] : [...new Set([scopePrefix, ""])];
         for (const scope of memberScopes) {
             const key = `${scope}${member.name}`;
@@ -438,11 +419,7 @@ export function collectEnum(
     }
 }
 
-/**
- * The type a typedef names, seen from the scope the alias was declared in. `namespace Beta { typedef Rec Alias; }`
- * means Beta's Rec — and so does `typedef Array<Rec, 4> Buffer`, so every unqualified name the target carries is
- * re-pointed, not just a bare one.
- */
+/** The type a typedef names, seen from the alias's own scope: `typedef Rec Alias` inside Beta means Beta's Rec, so every unqualified name is re-pointed. */
 export function typedefTarget(programAnalysis: ProgramAnalysis, key: string): TypeSpec | undefined {
     const target = programAnalysis.typedefs.get(key);
     const scope = programAnalysis.typedefScope.get(key);
@@ -451,8 +428,7 @@ export function typedefTarget(programAnalysis: ProgramAnalysis, key: string): Ty
 
 const NO_SHADOWED_NAMES: ReadonlySet<string> = new Set();
 
-// Does any declaration table hold this key? One combined test rather than one per kind: C++ looks up names,
-// and a template argument can name a type or a constant with nothing here telling the two apart.
+// Does any declaration table hold this key? One combined test, since C++ looks up names and a template argument can name a type or a constant alike.
 function declaresName(programAnalysis: ProgramAnalysis, key: string): boolean {
     return (
         programAnalysis.typedefs.has(key) ||
@@ -465,11 +441,7 @@ function declaresName(programAnalysis: ProgramAnalysis, key: string): boolean {
     );
 }
 
-/**
- * The key a name written in this scope really means, or null to leave the spelling alone. C++ looks outward from
- * the innermost scope, so a namespace's own declaration wins over a same-named one further out; a name an inner
- * scope declares itself is shadowed and never re-pointed.
- */
+/** The key a name written in this scope really means, or null to leave it alone: C++ looks outward, and a name an inner scope declares is never re-pointed. */
 function resolvedKeyInScope(programAnalysis: ProgramAnalysis, name: string, scope: string, shadowed: ReadonlySet<string>): string | null {
     if (!scope || name.includes("::") || shadowed.has(name)) {
         return null;
@@ -484,11 +456,7 @@ function resolvedKeyInScope(programAnalysis: ProgramAnalysis, name: string, scop
     return null;
 }
 
-/**
- * Re-point every unqualified name a type carries at the scope it was written in, wherever the name sits in the
- * shape: the type itself, an array's element and bound, a template's name and arguments. A name that scope does
- * not declare is left alone, so an outer or global one still resolves the way it always did.
- */
+/** Re-point every unqualified name a type carries at the scope it was written in — the type, an array's element and bound, a template's name and arguments. */
 export function qualifyNamesInScope(
     programAnalysis: ProgramAnalysis,
     type: TypeSpec,
@@ -532,11 +500,7 @@ export function qualifyNamesInScope(
     return type;
 }
 
-/**
- * The same re-pointing for the names an integral constant expression reads — `uint64 v[N]` and `v[N * 2]` name
- * their bound from the scope they were written in too. Returns a new node rather than editing in place: the
- * expressions in `constexprInit` are shared.
- */
+/** The same re-pointing for names a constant expression reads. Returns a new node rather than editing in place: `constexprInit` expressions are shared. */
 function qualifyConstantIdentifiers(programAnalysis: ProgramAnalysis, expression: Expression, scope: string, shadowed: ReadonlySet<string>): Expression {
     if (expression.kind === AstKind.IDENTIFIER) {
         const key = resolvedKeyInScope(programAnalysis, expression.name, scope, shadowed);
@@ -571,12 +535,7 @@ function qualifyConstantIdentifiers(programAnalysis: ProgramAnalysis, expression
     return expression;
 }
 
-/**
- * Re-point the names every declaration in a namespace writes unqualified at the scope it was written in, so a
- * namespace's own type or constant wins over a same-named one elsewhere. Runs over the contract's own
- * translation unit only: the qpi.h AST is parsed once and shared, and keeps the bare spellings it was indexed
- * under. Idempotent — an already-qualified name is skipped — so re-running over the same AST changes nothing.
- */
+/** Re-point the unqualified names a namespace's declarations write, over the contract's own TU only — the shared qpi.h AST keeps its bare spellings. */
 export function qualifyDeclarationsInScope(
     programAnalysis: ProgramAnalysis,
     declarations: Declaration[],
@@ -620,11 +579,7 @@ function qualifyRecordInScope(
     }
 }
 
-/**
- * The names that keep their own meaning inside a record: what it declares itself and what it binds as a template
- * parameter. Template bindings and member typedefs are matched by exact name, so qualifying one of these would
- * point it away from the declaration that is actually closer.
- */
+/** The names that keep their meaning inside a record: what it declares and what it binds as a template parameter — matched by name, so never qualified. */
 function shadowedNames(record: StructDecl | ClassTemplateDecl, outerShadowed: ReadonlySet<string>): ReadonlySet<string> {
     const shadowed = new Set(outerShadowed);
     if (record.kind === AstKind.CLASS_TEMPLATE) {
@@ -650,10 +605,7 @@ export function followScopedTypedef(programAnalysis: ProgramAnalysis, name: stri
     return undefined;
 }
 
-/**
- * Does this name refer to a type at all? sizeOfType answers with a default for a name it cannot place, so a
- * caller that must tell `sizeof(SomeType)` from `sizeof(someLocal)` has to ask first rather than trust the size.
- */
+/** Does this name refer to a type at all? sizeOfType answers with a default for a name it cannot place, so telling a type from a local must ask here. */
 export function namesAType(programAnalysis: ProgramAnalysis, name: string): boolean {
     return scopedLookupKeys(name).some(
         (key) =>
@@ -666,11 +618,7 @@ export function namesAType(programAnalysis: ProgramAnalysis, name: string): bool
     );
 }
 
-/**
- * The scalar name an alias chain ends at, followed from each link's own scope: `enum class C : N::W` has to
- * size as N's W does. Returns the name unchanged when it never reaches a scalar, so callers keep their own
- * fallback for a name that is not an alias at all.
- */
+/** The scalar an alias chain ends at, followed from each link's own scope; returns the name unchanged when it never reaches one, so callers keep a fallback. */
 export function resolvedScalarName(programAnalysis: ProgramAnalysis, name: string): string {
     let current = name;
 

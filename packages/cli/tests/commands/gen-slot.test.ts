@@ -1,5 +1,4 @@
-// With a callee in the project the main contract does not sit at the window base, so a client generated
-// from that base points at the callee. The deploy already wrote the right slot to qinit.idl.json.
+// With a callee in the project the main contract does not sit at the window base, so a client generated from that base points at the callee instead.
 import { expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

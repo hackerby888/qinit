@@ -1,5 +1,4 @@
-// A compiler that loops takes the whole suite's timeout with it and names no fixture, so these
-// compile in a child process that gets killed. Every case here is code Clang accepts.
+// A compiler that loops takes the whole suite's timeout with it and names no fixture, so these compile in a child process that gets killed.
 import { describe, expect, test } from "bun:test";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 
@@ -66,8 +65,7 @@ const EQUALITY = (parameter: string) => `bool operator==(${parameter}& other) co
 const COMPARE = "state.mut().result = (locals.l == locals.r) ? 1 : 0;";
 
 describe.skipIf(!HAS_CORE)("a template instantiation terminates", () => {
-    // Writing the arguments out is the same declaration as the injected name. Compiling the operator
-    // against an unbound instantiation left T with nothing to bind to and never finished.
+    // Writing the arguments out is the same declaration as the injected name; compiling the operator against an unbound instantiation never finished.
     for (const parameter of ["const K", "const K<T>"]) {
         for (const width of ["uint8", "uint64"]) {
             test(`operator== taking \`${parameter}&\` at ${width}`, async () => {

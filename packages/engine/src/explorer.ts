@@ -1,6 +1,4 @@
-// The explorer read models. These mirror core-lite's /explorer/data and /query/v1/* response shapes so
-// the TUI explorer can run against either backend without branching. Fields the simulator genuinely has
-// no source for (peers, contract construction epochs) are reported as zeros rather than invented.
+// The explorer read models, mirroring core-lite's response shapes so the TUI runs against either backend; fields the simulator cannot source report as zeros.
 import type { ContractCallsPage, ContractListEntry, DynamicContractRegistry, ExplorerData, ExplorerTickData, ExplorerTx, IdentityTransfer } from "@qinit/core";
 import { bytesToIdentity, hexToBytes } from "@qinit/core";
 import type { QubicSimulator } from "./qubic-simulator";
@@ -38,8 +36,7 @@ export class ExplorerReadModel {
         return String(Math.floor(ms / 1000));
     }
 
-    // A recorded tx in core's transactionToJson shape. inputSize/inputData/signature come from the stored raw
-    // bytes; a tx applied directly (no broadcast) has none, so those stay empty instead of being faked.
+    // A recorded tx in core's transactionToJson shape; a tx applied directly has no raw bytes, so those fields stay empty rather than being faked.
     private async tx(record: TxRecord): Promise<ExplorerTx> {
         const raw = this.node.rawTx(record.txId);
         let inputSize = 0;
@@ -74,8 +71,7 @@ export class ExplorerReadModel {
         const pending = this.sim.mempoolCounts();
         const spectrum = this.sim.spectrumInfo();
 
-        // Never reach past the retained history: a pruned tick has no record left and would be reported as an
-        // empty tick rather than as one the node no longer remembers.
+        // Never reach past the retained history: a pruned tick has no record and would be reported as empty rather than as one the node no longer remembers.
         const reach = Math.min(RECENT_TICK_COUNT, this.sim.tickHistoryDepth);
         const recentTicks: ExplorerData["recentTicks"] = [];
         for (let t = Math.max(initialTick, tick - reach + 1); t <= tick; t++) {
@@ -143,8 +139,7 @@ export class ExplorerReadModel {
         return record ? this.tx(record) : null;
     }
 
-    // Scans the retained tick window newest-first. Older history is pruned by the chain, so this is a recent
-    // view rather than the entity's whole life.
+    // Scans the retained tick window newest-first; older history is pruned by the chain, so this is a recent view rather than the entity's whole life.
     async transfersForIdentity(
         identity: string,
         direction: "in" | "out" | "both",

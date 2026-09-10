@@ -1,5 +1,4 @@
-// Shapes that leave a class without an entry of its own, crossed with the operations that consult one.
-// Clang answers each cell, so no expectation here is arithmetic anyone did by hand.
+// Shapes that leave a class without an entry of its own, crossed with the operations that consult one. Clang answers each cell, so no expectation is by hand.
 import { beforeAll, describe, expect } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";

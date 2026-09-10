@@ -6,8 +6,7 @@ import { savedSeed } from "../../config";
 import { Header, Panel, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 
-// the digest is whatever the contract hashes, usually qpi.K12() over an input struct, so it is taken
-// as raw hex here rather than hashed.
+// the digest is whatever the contract hashes, usually qpi.K12() over an input struct, so it is taken as raw hex here rather than hashed.
 const DIGEST_BYTES = 32;
 const SIGNATURE_BYTES = 64;
 

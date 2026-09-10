@@ -1,5 +1,4 @@
-// TickData consensus — each tick's leader (computor[tick % N]) packs the tick's per-tx digests into a signed
-// TickData; the quorum votes commit transaction = K12(TickData), and the bridge serves that exact artifact.
+// TickData consensus: each tick's leader packs the per-tx digests into a signed TickData, the quorum votes commit K12(TickData), and the bridge serves it.
 import { test, expect } from "bun:test";
 import { initK12, k12Bytes, toHex, verifySync } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";

@@ -29,7 +29,7 @@ const lines = (source: string, options?: Parameters<typeof pp>[1]): string[] =>
         .map((l) => l.trim())
         .filter((l) => l.length > 0);
 
-// ---- object-like macros ----
+// object-like macros
 
 describe("object-like macros", () => {
     test("simple substitution", () => {
@@ -59,7 +59,7 @@ describe("object-like macros", () => {
     });
 });
 
-// ---- function-like macros ----
+// function-like macros
 
 describe("function-like macros", () => {
     test("simple two-arg macro", () => {
@@ -99,7 +99,7 @@ describe("function-like macros", () => {
     });
 });
 
-// ---- token paste (##) ----
+// token paste (##)
 
 describe("token paste (##)", () => {
     test("simple concatenation", () => {
@@ -118,7 +118,7 @@ describe("token paste (##)", () => {
     });
 });
 
-// ---- stringification (#) ----
+// stringification (#)
 
 describe("stringification (#)", () => {
     test("simple stringification", () => {
@@ -143,7 +143,7 @@ describe("stringification (#)", () => {
     });
 });
 
-// ---- recursion guard ----
+// recursion guard
 
 describe("recursion guard", () => {
     test("direct self-reference stops after one expansion", () => {
@@ -159,7 +159,7 @@ describe("recursion guard", () => {
     });
 });
 
-// ---- chained expansion ----
+// chained expansion
 
 describe("chained expansion", () => {
     test("two-level chain: A → B → 42", () => {
@@ -179,7 +179,7 @@ describe("chained expansion", () => {
     });
 });
 
-// ---- conditional directives ----
+// conditional directives
 
 describe("#ifdef / #ifndef / #else / #endif", () => {
     test("#ifdef defined macro emits the branch", () => {
@@ -240,7 +240,7 @@ describe("#ifdef / #ifndef / #else / #endif", () => {
     });
 });
 
-// ---- #elif ----
+// #elif
 
 describe("#elif", () => {
     test("#elif after untaken #if evaluates", () => {
@@ -265,7 +265,7 @@ describe("#elif", () => {
     });
 });
 
-// ---- #if constant expression ----
+// #if constant expression
 
 describe("#if constant expression", () => {
     test("#if with equality comparison", () => {
@@ -329,7 +329,7 @@ describe("#if constant expression", () => {
     });
 });
 
-// ---- __LINE__ ----
+// __LINE__
 
 describe("__LINE__", () => {
     test("__LINE__ expands to a number", () => {
@@ -349,7 +349,7 @@ describe("__LINE__", () => {
     });
 });
 
-// ---- built-in defines ----
+// built-in defines
 
 describe("built-in defines", () => {
     test("CONTRACT_INDEX expands to the index", () => {
@@ -383,7 +383,7 @@ describe("built-in defines", () => {
     });
 });
 
-// ---- #undef ----
+// #undef
 
 describe("#undef", () => {
     test("#undef removes a macro", () => {
@@ -403,7 +403,7 @@ describe("#undef", () => {
     });
 });
 
-// ---- varargs ----
+// varargs
 
 describe("variadic macros (...)", () => {
     test("varargs macro with __VA_ARGS__", () => {
@@ -428,7 +428,7 @@ describe("variadic macros (...)", () => {
     });
 });
 
-// ---- backslash line continuation ----
+// backslash line continuation
 
 describe("backslash line continuation", () => {
     test("backslash-newline joins lines in macro body", () => {
@@ -442,7 +442,7 @@ describe("backslash line continuation", () => {
     });
 });
 
-// ---- seed macros ----
+// seed macros
 
 describe("seed macros", () => {
     test("seed macros are available before preprocessing", () => {
@@ -461,7 +461,7 @@ describe("seed macros", () => {
     });
 });
 
-// ---- getDefines() ----
+// getDefines()
 
 describe("getDefines", () => {
     test("getDefines returns the macro table after preprocessing", () => {
@@ -493,7 +493,7 @@ describe("getDefines", () => {
     });
 });
 
-// ---- edge cases ----
+// edge cases
 
 describe("edge cases", () => {
     test("empty source produces only built-in expansion", () => {

@@ -1,7 +1,4 @@
-// A functional scalar cast may name its target through an alias: `N::W(x)` narrows exactly as the scalar
-// the alias chain ends at. The lookup that decides this also decides whether a one-argument call is a cast
-// at all, so the negative rows are the point — a real call, a struct alias and a container alias must all
-// keep falling through to ordinary call handling rather than being narrowed to a scalar.
+// A functional scalar cast may name its target through an alias; the lookup that decides this also decides whether a one-argument call is a cast at all.
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -79,8 +76,7 @@ describe.skipIf(!HAS_CORE)("edge audit — functional casts through an alias", (
         expect(await evaluate("uint64 wide = 70000; state.mut().result = (uint64)Narrow::Word(wide);")).toBe(4464n);
     });
 
-    // Deciding a name is a scalar is what turns a one-argument call into a cast, so anything that is NOT a
-    // scalar has to keep reaching ordinary call handling.
+    // Deciding a name is a scalar is what turns a one-argument call into a cast, so anything that is NOT a scalar has to keep reaching ordinary call handling.
     test("a one-argument call that is not a scalar cast still behaves as a call", async () => {
         expect(await evaluate("state.mut().buffer.set(0, 77); state.mut().result = state.get().buffer.get(0);")).toBe(77n);
         expect(await evaluate("state.mut().result = div(100ULL, 7ULL);")).toBe(14n);

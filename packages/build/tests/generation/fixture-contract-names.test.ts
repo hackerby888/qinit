@@ -1,10 +1,5 @@
-// A fixture is compiled under the contractName the manifest gives it, and clang's wrapper turns that
-// name into `#define CONTRACT_STATE_TYPE <name>` before including the header. So a header whose struct
-// is called something else does not compile there — `use of undeclared identifier`.
-//
-// The TypeScript compiler finds the contract struct by discovery rather than by name, so every local
-// test kept passing while CI's deploy-smoke failed for nine runs on `struct CounterV2` deployed as
-// `Counter`. This compares the two names directly, which needs neither clang nor a core checkout.
+// A fixture compiles under the manifest's contractName, which clang turns into `#define CONTRACT_STATE_TYPE` — a differently-named struct will not compile.
+// The TypeScript compiler finds the struct by discovery, so local tests passed while CI failed nine runs on `struct CounterV2` deployed as `Counter`.
 import { test, expect } from "bun:test";
 import { wasmFixtureManifest } from "../../../../test-utils/wasm-fixtures";
 

@@ -195,8 +195,7 @@ test("document identifiers cover what the author already wrote", () => {
 });
 
 test("cheatcodes survive the QPI narrowing", () => {
-    // They are declared in a qinit-owned header outside <core>/src, so the allowed set never sees
-    // them; clangd resolves them from the prefix header and the filter must not throw them away.
+    // Declared outside <core>/src, so the allowed set never sees them; clangd resolves them from the prefix header and the filter must not throw them away.
     const allowed = new Set<string>();
     const inDocument = new Set<string>();
 

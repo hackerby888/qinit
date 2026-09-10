@@ -1,5 +1,4 @@
-// The last host imports: spectrum iteration (nextId/prevId) and shareholder governance
-// (setShareholderProposal -> the callee's SET_SHAREHOLDER_PROPOSAL sysproc).
+// The last host imports: spectrum iteration (nextId/prevId) and shareholder governance (setShareholderProposal into the callee's sysproc).
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/support/k12";

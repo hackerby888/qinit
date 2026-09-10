@@ -21,8 +21,7 @@ export interface StateDumpOptions {
     onProgress?: (writtenBytes: number, totalBytes: number) => void;
 }
 
-// The name comes from the node's registry, so this is also what stops a hostile one escaping the
-// dump directory.
+// The name comes from the node's registry, so this is also what stops a hostile one escaping the dump directory.
 function dumpFileName(name: string, slot: number): string {
     const safe = name.trim().replace(/[^A-Za-z0-9._-]/g, "_");
     return `${safe || `slot-${slot}`}_dump.bin`;
@@ -65,14 +64,12 @@ export async function dumpContractState(rpc: StateDumpRpc, slot: number, name: s
             }
 
             total = read.stateSize;
-            // The simulator answers for an unlisted slot with an empty state rather than an error, so an
-            // empty dump means no such contract — every deployed one carries a state struct.
+            // The simulator answers for an unlisted slot with an empty state rather than an error, so an empty dump means no such contract.
             if (!total) {
                 throw new Error(`slot ${slot} has no state — is a contract deployed there?`);
             }
 
-            // Advance by what actually arrived: the response echoes the requested length even when its
-            // slice came up short, and the node's state size can move between requests.
+            // Advance by what actually arrived: the response echoes the requested length even when short, and the node's state size can move between requests.
             const chunk = hexToBytes(read.hex);
             if (!chunk.length && written < total) {
                 throw new Error(`state read stalled at ${written} of ${total} bytes`);

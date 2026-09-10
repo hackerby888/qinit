@@ -6,8 +6,7 @@ export const termRows = () => Math.max(10, process.stdout.rows || 24);
 
 const COMPACT_UNITS = ["", "K", "M", "B", "T", "P", "E"];
 
-// Compact a decimal amount string for a narrow cell: "32000000000000" -> "32.0 T". Works on the digit
-// string rather than Number, so amounts past 2^53 stay correct.
+// Compact a decimal amount string for a narrow cell (32000000000000 -> 32.0 T). Works on the digit string rather than Number, so amounts past 2^53 stay exact.
 export function fmtCompact(amount: string): string {
     const negative = amount.startsWith("-");
     const digits = (negative ? amount.slice(1) : amount).replace(/^0+(?=\d)/, "");
@@ -39,8 +38,7 @@ export const truncMid = (s: string, max: number) => {
     return s.slice(0, head) + "…" + s.slice(s.length - tail);
 };
 
-// Slice a list around the selected row. `budget` is the rows left after the caller's own fixed block, so a
-// long list can never grow past the frame and push what sits below it off-screen.
+// Slice a list around the selected row. `budget` is the rows left after the caller's fixed block, so a long list can never push what sits below it off-screen.
 export function windowOf<T>(rows: T[], selected: number, budget: number): { win: T[]; offset: number } {
     const size = Math.max(1, budget);
     const offset = Math.max(0, Math.min(selected - Math.floor(size / 2), rows.length - size));

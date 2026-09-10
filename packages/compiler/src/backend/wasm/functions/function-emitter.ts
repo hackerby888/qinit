@@ -32,8 +32,7 @@ export function emitArrayInitializer(
         }
     });
 }
-// ---- function body codegen ----
-// A scratch i32 local (holds an address). Declared lazily; emitted in the function's local list.
+// Function body codegen: a scratch i32 local holding an address, declared lazily and emitted in the function's local list.
 export function allocateTemporaryLocalName(context: FunctionEmissionContext): string {
     let temporaryName: string;
     do temporaryName = `__qinit_tmp${context.tmpCount++}`;

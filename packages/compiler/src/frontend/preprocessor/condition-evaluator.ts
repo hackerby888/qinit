@@ -9,8 +9,7 @@ export function evalConstCondition(preprocessor: Preprocessor, expression: strin
     // Replace defined(X) / defined X → 1/0
     let text = expression.replace(/defined\s*\(\s*(\w+)\s*\)/g, (_m, exprItemIndex) => (preprocessor.defines.has(exprItemIndex) ? "1" : "0"));
     text = text.replace(/defined\s+(\w+)/g, (_m, sItemIndex) => (preprocessor.defines.has(sItemIndex) ? "1" : "0"));
-    // Expand remaining identifiers: a defined macro's body if numeric, else 0.
-    // Numeric literals are matched first so a hex literal is never mistaken for an identifier.
+    // Expand remaining identifiers to a defined macro's numeric body, else 0; numeric literals match first so a hex literal is never taken for an identifier.
     text = text.replace(/0[xX][0-9a-fA-F]+|\b\d\w*|\b([A-Za-z_]\w*)\b/g, (match, id) => {
         if (id === undefined) return match;
         if (id === "true") return "1";

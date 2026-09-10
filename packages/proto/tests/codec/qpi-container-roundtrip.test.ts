@@ -1,7 +1,4 @@
-// Generated container states, written by qpi-writers and read back by the views. The hand-built fixtures
-// in qpi-container-view.test.ts cover shapes someone chose; these cover the slot sets, list orders and
-// PoV splits nobody typed out — which is where the flag packing, the next/prev chain and the PoV tree
-// stop being obvious.
+// Generated container states written by qpi-writers and read back by the views: the slot sets, list orders and PoV splits nobody typed out by hand.
 import { test, expect } from "bun:test";
 import { QpiCollectionView, QpiHashMapView, QpiHashSetView, QpiLinkedListView, qpiSnapshotSource } from "../../src";
 import { collectionGeometry, hashMapGeometry, hashSetGeometry, linkedListGeometry } from "../../src/qpi-layout";
@@ -36,8 +33,7 @@ const PAYLOADS: [name: string, type: AbiType][] = [
 
 const CAPACITIES = [1, 2, 4, 8, 32, 64];
 
-// Pick `count` distinct slots below `capacity`, spread rather than contiguous so the view's range
-// grouping has both runs and gaps to handle.
+// Pick `count` distinct slots below `capacity`, spread rather than contiguous so the view's range grouping has both runs and gaps to handle.
 function pickSlots(next: () => number, capacity: number, count: number): number[] {
     const slots = new Set<number>();
     while (slots.size < count) {
@@ -147,8 +143,7 @@ test("a generated Collection reads back in PoV then priority order", async () =>
     expect(sawMultiPov).toBe(true);
 });
 
-// One corruption per kind, each a single field flipped on an otherwise valid state. The writer is what
-// makes these cheap: build a container the view accepts, then break exactly one thing.
+// One corruption per kind, each a single field flipped on an otherwise valid state — the writer makes these cheap: build, then break exactly one thing.
 test("a HashMap whose population disagrees with its flags is rejected", async () => {
     const type = validated(hm(u64, u64, 8));
     const written = await writeHashMap(type, [1, 3, 6]);

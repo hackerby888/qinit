@@ -191,8 +191,7 @@ export function expandRecursive(preprocessor: Preprocessor, text: string): strin
                 const ident = preprocessor.readIdentAt(result, resultItemIndex);
                 const def = preprocessor.defines.get(ident);
                 if (ident === "__LINE__") {
-                    // Defined as a self-referential macro and resolved by tryExpandMacro at top level; a
-                    // nested reference reaches here instead, where the recursion guard would keep it literal.
+                    // Defined as a self-referential macro and resolved by tryExpandMacro at top level; a nested reference reaches here, where the guard holds.
                     expanded += String(preprocessor.line);
                     resultItemIndex += ident.length - 1;
                 } else if (def && def.params === null && !preprocessor.expanding.has(ident)) {

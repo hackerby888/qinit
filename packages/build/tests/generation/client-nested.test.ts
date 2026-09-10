@@ -44,7 +44,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 const geoClient = generateClient(extractIdl(GEO, "Geo"), 5);
 const incl = (s: string) => expect(geoClient.includes(s)).toBe(true);
 
-// ---- generated-source shape ----
+// generated-source shape
 
 test("nested struct output -> inline object type", () => {
     incl("export interface GetPt_output {\n  p: { x: bigint; y: bigint };\n}");
@@ -91,7 +91,7 @@ test.skipIf(!have("Qx"))("real QX: nested order row + Asset input are fully type
     expect(qx).not.toContain("async TransferShareManagementRights(inputFormat: string");
 });
 
-// ---- run the generated client against a fake RPC (byte-exact encode + typed decode) ----
+// run the generated client against a fake RPC (byte-exact encode + typed decode)
 
 const tmp: string[] = [];
 async function loadGenerated(code: string, tag: string): Promise<any> {

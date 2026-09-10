@@ -141,14 +141,10 @@ export function linkedListGeometry(value: Layout, capacity: number) {
     };
 }
 
-// ---------- container members ----------
-// The geometry above says where a container's bytes are; the tables below say what each run of them is
-// called, under the name core gives it in qpi_containers.h. A drift test pins every `source` to that
-// header, so a rename upstream fails a test instead of quietly showing the wrong label.
+// Container members: geometry above says where a container's bytes are, these tables what each run is called in qpi_containers.h — pinned by a drift test.
 
 export type MemberRole = "payload" | "count" | "internal";
-// Container bookkeeping is not in the IDL, so a member either names one of the container's own IDL types
-// or the fixed word it is stored as.
+// Container bookkeeping is not in the IDL, so a member names either one of the container's own IDL types or the fixed word it is stored as.
 export type WordType = "sint64" | "uint64" | "id";
 export type MemberType = WordType | "key" | "value";
 
@@ -193,8 +189,7 @@ export type ContainerRegion =
           role: MemberRole;
       };
 
-// A displayed name is core's own with a dot in front of it, so the member a path pins is the path
-// without that dot. Only the record arrays are shown under a different name and pass their own.
+// A displayed name is core's own with a dot in front, so the member a path pins is the path without that dot; only record arrays pass their own name.
 const sourceOf = (path: string) => path.replace(/^\./, "");
 
 const member = (off: number, size: number, path: string, type: MemberType, role: MemberRole, short = path): ContainerMember => ({
@@ -306,8 +301,7 @@ export function linkedListMembers(value: Layout, capacity: number): ContainerReg
     ];
 }
 
-// Sub-record field-token shapes (abi-fmt fmt fragments; alignment handled by abi-fmt's parseLayout).
-//   Collection PoV{ id value; uint64 population; sint64 head, tail, bstRoot }
+// Sub-record field-token shapes (abi-fmt fragments; alignment handled by parseLayout), e.g. PoV{ id value; uint64 population; sint64 head, tail, bstRoot }.
 export const COLLECTION_POV_FMT = "id, uint64, sint64, sint64, sint64";
 //   Collection Element trailer after the T value: sint64 priority, povIndex, bstParent, bstLeft, bstRight
 export const COLLECTION_ELEM_TRAILER_FMT = "sint64, sint64, sint64, sint64, sint64";

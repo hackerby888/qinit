@@ -1,5 +1,4 @@
-// Browser- and Node-safe public API for the Qubic contract simulation engine.
-// The Bun-only HTTP adapter is exported from "@qinit/engine/server".
+// Browser- and Node-safe public API for the Qubic contract simulation engine; the Bun-only HTTP adapter is exported from @qinit/engine/server.
 export { Contract, CONTRACT_ENTRY_KIND, ContractAbort } from "./contract/runtime";
 export type { HostServices } from "./contract/runtime";
 export { SYSTEM_PROCEDURES } from "@qinit/core";

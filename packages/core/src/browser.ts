@@ -1,5 +1,4 @@
-// Browser-safe entry for @qinit/core. The package index re-exports ./fetch, ./project, ./backtrace, which
-// pull node:fs / child_process; this entry exposes only browser-safe identity, tx signing, and signing helpers.
+// Browser-safe entry for @qinit/core: the package index re-exports modules pulling node:fs, so this exposes only identity, tx signing and signing helpers.
 export * from "./codec/struct"; // zero-copy struct-view kit — node-free, safe in the browser bundle
 export * from "./crypto/bytes";
 export {
@@ -69,6 +68,5 @@ export type { NodeTransport, TxStatus, StateRead, EntityInfo, TxInfo } from "./n
 export { k12Sync, deriveKeysSync, verifySync } from "./crypto/qubic";
 export type { KeyPair } from "./crypto/qubic";
 
-// The engine's tick path needs a sync signer; ./crypto/sign-sync-esm keeps the @qubic-lib import out of
-// this file so `qinit gen` can stub it and keep the generated SDK dependency-free.
+// The engine's tick path needs a sync signer; ./crypto/sign-sync-esm keeps the @qubic-lib import out of this file so `qinit gen` can stub it.
 export { initK12, signSync } from "./crypto/sign-sync-esm";

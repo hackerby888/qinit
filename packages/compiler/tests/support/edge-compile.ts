@@ -1,5 +1,4 @@
-// Shared compile helpers for the edge-audit suites, which all build one probe contract at slot 27 and
-// differ only in the contract name.
+// Shared compile helpers for the edge-audit suites, which all build one probe contract at slot 27 and differ only in the contract name.
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { expect } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
@@ -21,8 +20,7 @@ export function edgeCompiler(contractName: string): (source: string) => Promise<
         });
 }
 
-// Compiles, deploys, runs procedure 1, and answers with the first uint64 of the resulting state — the
-// value the edge suites assert on.
+// Compiles, deploys, runs procedure 1, and answers with the first uint64 of the resulting state — the value the edge suites assert on.
 export function edgeRunner(contractName: string): (source: string) => Promise<bigint> {
     const compile = edgeCompiler(contractName);
 

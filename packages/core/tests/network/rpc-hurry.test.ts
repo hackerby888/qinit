@@ -1,5 +1,4 @@
-// hurryToTick latches off the dev advance-tick route only when the node says 404. A 5xx or a timeout is
-// transient, and latching on those would leave the client on the slow path for the rest of its life.
+// hurryToTick latches off the dev advance-tick route only on a 404: a 5xx or timeout is transient, and latching would leave the client slow for its whole life.
 import { test, expect, afterEach } from "bun:test";
 import { LiteRpc } from "../../src/net/rpc/client";
 

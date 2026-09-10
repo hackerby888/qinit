@@ -1,13 +1,7 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
-// Runs core's own contract_gqmprop.cpp against a Qinit-compiled GeneralQuorumProposal.
-//
-// GQMPROP is the contract that exercises the `qpi(state.mut().proposals).setProposal(...)` proxy — a
-// two-argument call whose arguments are placed by callProxy in calls/proxy.ts. A mutation sweep changed
-// that placement so every parameter received argument 0, sending the originator id where the proposal
-// data belongs, and nothing failed: GQMPROP's wasm changes (verified by hash), but the only test that
-// touches the contract is integration/sweep.test.ts, which asserts it *builds* — which a wrong argument
-// still does. GeneralQuorumProposal and ComputorControlledFund both ship with this call shape.
+// Runs core's own contract_gqmprop.cpp against a Qinit-compiled GeneralQuorumProposal, exercising the `setProposal` proxy whose arguments callProxy places.
+// A mutation sweep sent argument 0 to every parameter and nothing failed: the only test touching GQMPROP asserts it builds, which a wrong argument still does.
 import { readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -1,5 +1,4 @@
-// The build gate every backend runs on the analyzer's findings before compiling: one table of rules, each
-// scoped to user contracts or to every contract (core's own system contracts are built here too).
+// The build gate every backend runs on the analyzer's findings: one rule table, each scoped to user contracts or to all — core's contracts build here too.
 import { USER_CONTRACT_RULES, type SourceAnalysisDiagnostic } from "@qinit/compiler/analyzer";
 import { LOG_HEADER_WORD_HINT } from "@qinit/compiler";
 

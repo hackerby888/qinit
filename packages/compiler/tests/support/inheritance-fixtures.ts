@@ -1,5 +1,4 @@
-// Probe contracts for inheritance. Every fixture makes the derived body compute something a base-only
-// or memberwise guess would not, so a wrong answer is a different number rather than a crash.
+// Probe contracts for inheritance: every fixture makes the derived body compute something a base-only or memberwise guess would not, so wrong is a number.
 import { wrapOperatorFixture as wrap } from "./operator-fixtures";
 
 export interface InheritanceCase {

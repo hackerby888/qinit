@@ -1,5 +1,4 @@
-// Contract ABI format-string codec (qubic-cli compatible).
-//   types : uint8/16/32/64, sint8/16/32/64, id, bit ; struct { t, t } ; array [N; elem]
+// Contract ABI format-string codec (qubic-cli compatible): uint8/16/32/64, sint8/16/32/64, id, bit; struct { t, t }; array [N; elem].
 import { bytesToIdentity, hexToBytes, identityToBytes, roundUp } from "@qinit/core";
 import { AbiScalarKind, AbiTypeKind, forbiddenPublicType, formatAbiType, type AbiStruct, type AbiType } from "./contract-idl";
 import { createQpiContainerView } from "./qpi-container-view";
@@ -69,8 +68,7 @@ function sizeOf(n: TypeNode): number {
     }
 }
 
-// Byte offset + size of each top-level field of a layout (matches the decode/struct alignment). Used to map
-// a changed state byte offset back to a field name (the debugger's field-level state diff).
+// Byte offset + size of each top-level field of a layout, mapping a changed state byte offset back to a field name for the debugger's state diff.
 export function structFieldOffsets(fmt: string | AbiStruct): { off: number; size: number }[] {
     if (typeof fmt !== "string") {
         return fmt.fields.map((field) => ({
@@ -119,7 +117,7 @@ function nodeOf(type: AbiType): TypeNode {
     return parseLayout(formatAbiType(type));
 }
 
-// ---------- type-grammar parser (output layout / decode schema) ----------
+// type-grammar parser (output layout / decode schema)
 function parseType(s: string, i: number): [TypeNode, number] {
     while (i < s.length && /\s/.test(s[i])) i++;
     if (s[i] === "{") {
@@ -131,8 +129,7 @@ function parseType(s: string, i: number): [TypeNode, number] {
         };
         while (true) {
             skipSpace();
-            // A separator is required between fields, so a dropped ',' is an error rather than a
-            // shorter struct. One trailing ',' before the '}' stays legal.
+            // A separator is required between fields, so a dropped ',' is an error rather than a shorter struct; one trailing ',' stays legal.
             if (fields.length && s[i] !== "}") {
                 if (s[i] !== ",") throw new Error(`struct fields are separated by ',' (got '${s[i]}' at position ${i})`);
                 i++;
@@ -179,8 +176,7 @@ export function parseLayout(fmt: string): TypeNode {
     const t = fmt.trim();
     if (!t) return { kind: "struct", fields: [] };
     const parts = splitTop(t); // top-level list: 1 -> that node; >1 -> implicit struct (symmetric with encode)
-    // parseType stops at the end of one type, so anything left in the part is text the caller meant as
-    // another field. Dropping it would read a missing ',' as a shorter layout.
+    // parseType stops at the end of one type, so leftover text is another field the caller meant — dropping it would read a missing ',' as a shorter layout.
     const one = (p: string): TypeNode => {
         const [node, end] = parseType(p, 0);
         const rest = p.slice(end).trim();
@@ -191,7 +187,7 @@ export function parseLayout(fmt: string): TypeNode {
     return { kind: "struct", fields: parts.map(one) };
 }
 
-// ---------- output decode (aligned; async: id -> 60-char identity) ----------
+// output decode (aligned; async: id -> 60-char identity)
 async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[any, number]> {
     switch (node.kind) {
         case "scalar": {
@@ -348,8 +344,7 @@ function readUint128(view: DataView, offset: number): bigint {
     return (high << 64n) | low;
 }
 
-// The format dialect reads field by field, so a layout wider than the bytes surfaces as the DataView's
-// own RangeError; name both sizes instead, the way the typed path does.
+// The format dialect reads field by field, so a layout wider than the bytes surfaces as the DataView's RangeError; name both sizes, as the typed path does.
 async function decodeFormat(view: DataView, fmt: string): Promise<any> {
     const node = parseLayout(fmt);
     try {
@@ -382,9 +377,7 @@ export async function decodeOutput(bytes: Uint8Array, fmt: string | AbiType): Pr
     return decoded;
 }
 
-// ---------- decoded value -> JSON shape ----------
-// The decoder yields positional arrays for structs; this names them so a machine consumer reads the tree
-// the IDL describes. Scalars stay as decoded: bigint for 64/128-bit, identity text for id.
+// Decoded value -> JSON shape. Structs come back positional and are named here; scalars stay as decoded — bigint for 64/128-bit, identity text for id.
 export function abiJsonValue(value: any, type: AbiType): unknown {
     switch (type.kind) {
         case AbiTypeKind.SCALAR:
@@ -427,7 +420,7 @@ export async function decodeAbiValue(bytes: Uint8Array, type: AbiType): Promise<
     return await decodeAbiType(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), 0, type);
 }
 
-// ---------- input encode (value-driven, aligned, async for id) ----------
+// input encode (value-driven, aligned, async for id)
 async function encodeAbiType(view: DataView, offset: number, type: AbiType, value: any): Promise<void> {
     assertBounds(view, offset, type.size);
 
@@ -629,8 +622,7 @@ function splitTop(s: string): string[] {
     }
     parts.push(cur);
     const trimmed = parts.map((x) => x.trim());
-    // One trailing ',' is allowed, so only the last entry may be empty — anything else is a doubled or
-    // leading separator, which both dialects would otherwise read as a shorter list.
+    // One trailing ',' is allowed, so only the last entry may be empty — anything else is a doubled or leading separator, read otherwise as a shorter list.
     for (let k = 0; k < trimmed.length - 1; k++) {
         if (!trimmed[k]) throw new Error(`empty entry between ',' separators at position ${k}`);
     }
@@ -682,8 +674,7 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
     tok = tok.trim();
     if (!tok) return;
     if (tok[0] === "{") {
-        // lastIndexOf returns -1 when the closer is absent, and slice(1, -1) would silently drop the last
-        // character instead — so an unterminated or mismatched bracket has to be caught here.
+        // lastIndexOf returns -1 when the closer is absent and slice(1, -1) would silently drop the last character, so a mismatched bracket is caught here.
         if (tok[tok.length - 1] !== "}") throw new Error(`struct value is missing its closing '}': '${tok}'`);
         const parts = expandReps(splitTop(tok.slice(1, -1)));
         const sa = parts.length ? Math.max(...parts.map(tokenAlign)) : 1;
@@ -701,8 +692,7 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
         const semi = inner.indexOf(";");
         const parts = expandReps(splitTop(semi >= 0 ? inner.slice(semi + 1) : inner));
         if (semi >= 0) {
-            // Same strictness as the type dialect: parseInt would read '2uint64' as 2 and leave NaN
-            // counts unchecked, so a junk header got less validation than a real one.
+            // Same strictness as the type dialect: parseInt would read '2uint64' as 2 and leave NaN counts unchecked.
             const rawCount = inner.slice(0, semi).trim();
             if (!/^\d+$/.test(rawCount)) throw new Error(`array count '${rawCount}' must be a non-negative integer`);
             const count = parseInt(rawCount, 10);
@@ -786,8 +776,7 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
     for (const x of buf) out.push(x);
 }
 
-// A <number><type> token. Hex and exponent spellings are named outright: the generic regex would split
-// '0x10uint64' at the 'x' and blame an unknown type.
+// A <number><type> token. Hex and exponent spellings are named outright: the generic regex would split '0x10uint64' at the 'x' and blame an unknown type.
 function scalarToken(tok: string): { numStr: string; type: string } {
     if (/^-?0x/i.test(tok)) throw new Error(`hex is not accepted, write '${tok}' in decimal`);
     if (/^-?\d+e\d/i.test(tok)) throw new Error(`exponent notation is not accepted, write '${tok}' in full`);
@@ -798,8 +787,7 @@ function scalarToken(tok: string): { numStr: string; type: string } {
     return { numStr, type };
 }
 
-// ---------- JSON -> input value-format (field-name keyed; reuses the encodeInput grammar) ----------
-// Build encodeInput's value format from named JSON fields or positional nested arrays.
+// JSON -> input value-format, field-name keyed: builds encodeInput's value format from named JSON fields or positional nested arrays.
 function jsonValueToFmt(typeTok: string, value: any): string {
     typeTok = typeTok.trim();
     if (typeTok[0] === "{") {
@@ -853,8 +841,7 @@ export function jsonToInputFormat(fields: InputFields, json: any): string {
     return fields.map((f, i) => jsonValueToFmt(f.type, arr[i])).join(", ");
 }
 
-// JSON.parse rounds an integer past 2^53 before any range check can see it. The reviver's source text
-// keeps such a literal exact as a string, which every integer encoder below already accepts.
+// JSON.parse rounds an integer past 2^53 before any range check sees it; the reviver's source text keeps such a literal exact as a string.
 export function parseInputJson(text: string): any {
     type Reviver = (this: any, key: string, value: any, context?: { source?: string }) => any;
     const exact: Reviver = (_key, value, context) => {
@@ -927,8 +914,7 @@ function bitArrayValue(bitCount: number, value: any): number[] {
     return value;
 }
 
-// Build an ALL-ZERO input value-format from a type-format (the input scheme) — same grammar encodeInput
-// consumes — so a user whose input fails to parse gets a valid, copy-pasteable sample matching their entry.
+// Build an ALL-ZERO input value-format from a type-format, so a user whose input fails to parse gets a valid, copy-pasteable sample matching their entry.
 export function zeroInputFormat(fmt: string | AbiType): string {
     if (typeof fmt !== "string" && hasOverlappingAbiType(fmt)) {
         return `[${fmt.size}; 0uint8 ×${fmt.size}]`;
@@ -990,7 +976,7 @@ export async function encodeInput(fmt: string): Promise<Uint8Array> {
     return new Uint8Array(out);
 }
 
-// ---------- --in against the IDL: every token checked against the field it lands in ----------
+// --in against the IDL: every token checked against the field it lands in
 export type InputStruct = { kind: "struct"; items: InputNode[]; raw: string };
 export type InputNode =
     InputStruct | { kind: "array"; count: number | null; items: InputNode[]; raw: string } | { kind: "scalar"; type: string; text: string; raw: string };
@@ -1031,8 +1017,7 @@ function parseInputToken(tok: string): InputNode {
     return { kind: "scalar", type, text: numStr, raw: tok };
 }
 
-// `--in` with the entry's schema in hand: tokens are checked field by field and written at the schema's own
-// offsets, so a reordered or wrong-width spelling is refused instead of laid out as spelled.
+// `--in` with the entry's schema in hand: tokens are checked field by field and written at the schema's offsets, so a wrong-width spelling is refused.
 export async function encodeInputTyped(type: AbiType, fmt: string): Promise<Uint8Array> {
     const root = parseInputTokens(fmt);
     const node = type.kind === AbiTypeKind.STRUCT ? unwrapInputBraces(root, type) : root.items.length === 1 ? root.items[0] : root;
@@ -1088,8 +1073,7 @@ async function writeInputNode(view: DataView, offset: number, type: AbiType, nod
             return;
         }
         default:
-            // Bit arrays are spelled as their physical words and containers have no value dialect of their own,
-            // so those keep the spelling's bytes, checked only for size.
+            // Bit arrays are spelled as their physical words and containers have no value dialect, so those keep the spelling's bytes, checked only for size.
             await writeSpelledNode(view, offset, type, node, path);
     }
 }
@@ -1109,8 +1093,7 @@ function inputScalarValue(node: InputNode & { kind: "scalar" }): string {
     return node.text;
 }
 
-// encodeInput sees only values, never the schema, so a self-consistent but wrong-shaped input encodes
-// fine and the engine then zero-fills or truncates it silently. Size against the IDL is the cross-check.
+// encodeInput sees only values, never the schema, so a self-consistent but wrong-shaped input encodes fine and the engine silently zero-fills or truncates.
 export function checkInputSize(type: AbiType, bytes: Uint8Array, label: string): void {
     if (bytes.length === type.size) return;
     const shape = type.format ? ` (${type.format})` : " (no input)";

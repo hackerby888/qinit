@@ -1,5 +1,4 @@
-// The Node and browser entry points are hand-maintained barrels over the same modules, so they drift
-// silently. The browser surface is a subset of the main one — anything it exports must exist in both.
+// The Node and browser entries are hand-maintained barrels over the same modules, so they drift silently — the browser surface must be a subset of the main.
 import { expect, test } from "bun:test";
 import * as browserEntry from "../../src/browser";
 import * as nodeEntry from "../../src/index";

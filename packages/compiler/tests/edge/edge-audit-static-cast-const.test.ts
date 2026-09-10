@@ -1,7 +1,4 @@
-// `static_cast<T>(x)` has no keyword in the lexer, so it reaches the AST as a template call on the name
-// `static_cast`. The constant folder has to recognise that shape, or a registration input type written as
-// `static_cast<uint16>(EProcedureId::X)` — the form the system contracts use — is rejected as non-constant.
-// The parity rows are the point: a folded cast must equal what the emitter produces for the same cast.
+// `static_cast<T>(x)` has no lexer keyword and reaches the AST as a template call, so the folder must recognise that shape or reject a registration input type.
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";

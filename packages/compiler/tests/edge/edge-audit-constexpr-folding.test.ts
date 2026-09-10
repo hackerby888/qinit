@@ -1,5 +1,4 @@
-// Regression net for the constexpr folder in analysis/constant-evaluator.ts, which used to answer 0 for
-// logical operators and for sizeof applied to a type name — both silent, since the runtime path is right.
+// Regression net for the constexpr folder, which used to answer 0 for logical operators and for sizeof on a type name — both silent, since runtime is right.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { edgeRunner } from "../support/edge-compile";

@@ -12,8 +12,7 @@ export interface QinitConfig {
     system?: string[]; // built-in system contracts to seed onto the simulator
 }
 
-// Notepad, Visual Studio ("UTF-8 with signature") and PowerShell 5.1's `Out-File -Encoding utf8` all
-// prepend U+FEFF, which JSON.parse rejects.
+// Notepad, Visual Studio ("UTF-8 with signature") and PowerShell 5.1's `Out-File -Encoding utf8` all prepend U+FEFF, which JSON.parse rejects.
 function stripBom(text: string): string {
     return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
@@ -50,8 +49,7 @@ export function loadConfigSafe(path = "qinit.json"): { config: QinitConfig; erro
     }
 }
 
-// Where to find core headers for compiling: explicit checkout > env > fetched snapshot cache.
-// No checkout and no fetched snapshot => actionable error.
+// Where to find core headers for compiling: explicit checkout > env > fetched snapshot cache; neither present gives an actionable error.
 export function resolveCoreDir(cliCoreDir?: string, configCoreDir?: string): string {
     const explicit = cliCoreDir || configCoreDir || process.env.QINIT_CORE;
     if (explicit) return resolve(explicit);
@@ -60,8 +58,7 @@ export function resolveCoreDir(cliCoreDir?: string, configCoreDir?: string): str
     throw new Error("no core headers: run `qinit setup` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>");
 }
 
-// Lean, Bun-free re-exports of the toolchain readers, so a consumer can import everything
-// project-related from "@qinit/core/project" without dragging in the crypto/rpc barrel.
+// Lean, Bun-free re-exports of the toolchain readers, so a consumer can import everything project-related without dragging in the crypto/rpc barrel.
 export { readCurrent, currentPath, cacheRoot } from "./cache/paths";
 export type { CurrentPointer } from "./cache/paths";
 export { wasiSdkPaths } from "./cache/wasi-sdk";

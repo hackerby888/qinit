@@ -1,6 +1,4 @@
-// The wire carries only (line, part, bytes); the words and the types live in the IDL. This is where
-// the two are put back together into the line a dev actually reads — and where a row the IDL cannot
-// explain is shown raw rather than dropped.
+// The wire carries only (line, part, bytes); words and types live in the IDL. This puts them back together, and a row the IDL cannot explain stays raw.
 import { expect, test } from "bun:test";
 import { collectionGeometry, hashMapGeometry, hashSetGeometry, linkedListGeometry } from "@qinit/proto";
 import {
@@ -416,8 +414,7 @@ test("a block whose bytes do not add up prints raw and keeps its siblings", asyn
     ]);
 });
 
-// A print that runs more than once — in a loop — shows once per run. The records of one run sit
-// together, so a repeated part ordinal is where the next run starts, whatever order parts arrive in.
+// A print that runs more than once shows once per run: the records of one run sit together, so a repeated part ordinal is where the next run starts.
 const LOOP = siteOf([{ lit: "i =" }, { type: UINT64, expr: "locals.i" }, { lit: "squared" }, { type: UINT64, expr: "locals.i * locals.i" }]);
 const run = (i: number) => [
     { id: 60, part: 1, size: 8, value: "0", hex: words(i) },

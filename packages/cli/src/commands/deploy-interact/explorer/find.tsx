@@ -3,8 +3,7 @@ import { Box, Text } from "ink";
 import { SectionHeader, TextPrompt, theme, truncMid } from "../../../ui";
 import type { View, ViewProps } from "./chrome";
 
-// One field for every jump target, told apart by shape: identities are 60 uppercase and a tx id is the
-// same alphabet lowercased (the engine lowercases it in transport.ts), so nothing is typed twice.
+// One field for every jump target, told apart by shape: identities are 60 uppercase and a tx id the same alphabet lowercased, so nothing is typed twice.
 export function parseFindQuery(value: string): View | null {
     const query = value.trim();
     if (/^\d+$/.test(query)) {
@@ -19,14 +18,13 @@ export function parseFindQuery(value: string): View | null {
     return null;
 }
 
-// ---- find ---------------------------------------------------------------------------------------
+// find
 
 export function FindView({ rpc, refreshToken, rowCount, columns, onSubmit }: ViewProps & { onSubmit: (view: View) => void }) {
     const [head, setHead] = useState<{ first: number; last: number } | null>(null);
     const [err, setErr] = useState("");
 
-    // Only feeds the placeholder and the range hint, so the prompt is usable before this lands — and still
-    // usable if it never does.
+    // Only feeds the placeholder and the range hint, so the prompt is usable before this lands — and still usable if it never does.
     useEffect(() => {
         let alive = true;
         rpc.explorerData()

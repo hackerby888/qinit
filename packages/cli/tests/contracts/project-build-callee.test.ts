@@ -1,5 +1,4 @@
-// A callee is spliced into its caller's TU, so it has to compile under whatever the caller compiles under:
-// with the cheat shim in scope, or, in a production build, with its own cheats stripped first.
+// A callee is spliced into its caller's TU, so it must compile under whatever the caller does: with the cheat shim in scope, or with its own cheats stripped.
 import { expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

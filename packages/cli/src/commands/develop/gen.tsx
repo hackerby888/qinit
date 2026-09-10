@@ -15,8 +15,7 @@ function deployedSlot(name: string): number | undefined {
     return Object.values(loadContractIdlFile().contracts).find((contract) => contract.name === name)?.slot;
 }
 
-// The contracts this one calls, resolved the way `build` resolves them, so a state or locals field typed by a
-// callee gets its real layout in the client. A project that does not resolve keeps generating without them.
+// The contracts this one calls, resolved as `build` resolves them, so a field typed by a callee gets its real layout; a project that cannot resolve still runs.
 function projectCalleeSources(core: string, contractPath: string, contractName: string, slot: number): CalleeSource[] {
     try {
         const resolved = resolveContracts({
@@ -61,8 +60,7 @@ export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
                 qpiHeader: loadQpiHeader(core),
                 calleeSources: projectCalleeSources(core, contractPath, name, slot),
             });
-            // Emit a SELF-CONTAINED client: the client pulls LiteRpc/codec from a sibling runtime.ts (only needs the
-            // crypto is bundled in), not from the unpublished @qinit/* monorepo packages — so the output works outside it.
+            // Emit a SELF-CONTAINED client: it pulls LiteRpc/codec from a sibling runtime.ts, not the unpublished @qinit/* packages, so it works outside.
             const ts = generateClient(idl, slot, { runtimeImport: "./runtime" });
             const outDir = resolve(commandArgs.get("out") ?? "dist/clients");
             mkdirSync(outDir, { recursive: true });

@@ -158,7 +158,7 @@ test("bit round-trips 0/1", async () => {
     expect(await decodeOutput(await encodeInput("0bit"), "bit")).toBe(0);
 });
 
-// ---- structFieldOffsets / layoutOf / parseLayout: the alignment math decode-log + state-diff rely on ----
+// structFieldOffsets / layoutOf / parseLayout: the alignment math decode-log + state-diff rely on
 test("structFieldOffsets: internal padding (uint8 then uint64 lands at 8)", () => {
     expect(structFieldOffsets("uint8, uint64")).toEqual([
         { off: 0, size: 1 },
@@ -241,7 +241,7 @@ test("zeroInputFormat: the sample is valid input — encodes to exactly the layo
     }
 });
 
-// ---- grammar rejections: a malformed layout must name what is wrong, not crash or corrupt silently ----
+// grammar rejections: a malformed layout must name what is wrong, not crash or corrupt silently
 test("parseLayout rejects a malformed array instead of looping or yielding NaN", () => {
     expect(() => parseLayout("[2 uint8]")).toThrow(/array needs a ';'/); // used to recurse until the stack blew
     expect(() => parseLayout("[abc; uint8]")).toThrow(/array count 'abc' must be a non-negative integer/);
@@ -264,8 +264,7 @@ test("encodeInput rejects an array whose declared count does not match its value
 });
 
 test("the value dialect needs the bracket that closes what it opened", async () => {
-    // slice(1, lastIndexOf(...)) chopped the last character when the closer was absent, so whether a
-    // truncated token failed depended on whether that character happened to break the last type name.
+    // slice(1, lastIndexOf(...)) chopped the last character when the closer was absent, so a truncated token failed only by luck of the character removed.
     expect(await encodeInput("[2; 1uint8, 2uint8]")).toEqual(new Uint8Array([1, 2]));
     for (const bad of ["[2; 1uint8, 2uint88", "[2; 1uint8, 2uint8}", "[2; 1uint8, 2uint8)", "[2; 1uint8, 2uint8]junk"]) {
         await expect(encodeInput(bad)).rejects.toThrow(`array value is missing its closing ']': '${bad}'`);
@@ -277,9 +276,7 @@ test("the value dialect needs the bracket that closes what it opened", async () 
     expect((await encodeInput("[1; 1uint64]x2")).length).toBe(16);
 });
 
-// Every other type in these suites is small, so nothing reached the size where a bitwise roundUp used
-// to truncate to int32 — the parser reported a negative or zero size while the validator reported the
-// real one. Live contract states already run past 1GB, so 2GB is the next size up, not a hypothetical.
+// Nothing else here reaches the size where a bitwise roundUp truncated to int32 and reported a negative size. Live states pass 1GB, so 2GB is the next size up.
 test("a type larger than 2GB sizes the same through the validator and the parser", () => {
     for (const count of [2 ** 27, 2 ** 28, 2 ** 29]) {
         const type = validated(st(arr(u64, count), u8));
@@ -292,16 +289,14 @@ test("a type larger than 2GB sizes the same through the validator and the parser
 test("container geometry past 2GB keeps its zones in order", () => {
     const type = validated(hm(u64, u64, 2 ** 27));
     expect(type.size).toBeGreaterThan(2 ** 31);
-    // The zones have to stay ascending; truncation used to send flagsOffset negative and leave
-    // populationOffset below it, which no consistency check downstream would have questioned.
+    // The zones must stay ascending; truncation used to send flagsOffset negative and leave populationOffset below it, which nothing downstream questioned.
     const geometry = hashMapGeometry(u64, u64, 2 ** 27);
     expect(geometry.flagsOffset).toBe(2 ** 31);
     expect(geometry.populationOffset).toBeGreaterThan(geometry.flagsOffset);
     expect(layoutOf(formatAbiType(type)).size).toBe(type.size);
 });
 
-// The values that sit exactly on each width's limit, with the bytes they must produce. Range checks are
-// only ever wrong by one, and every existing case sits well inside the range where an off-by-one hides.
+// The values exactly on each width's limit, with the bytes they must produce — range checks are only ever wrong by one, and other cases sit well inside.
 const BOUNDS: [type: string, low: string, lowHex: string, high: string, highHex: string][] = [
     ["uint8", "0", "00", "255", "ff"],
     ["uint16", "0", "0000", "65535", "ffff"],
@@ -338,8 +333,7 @@ test("bit takes 0 and 1 and nothing either side", async () => {
     await expect(encodeInput("-1bit")).rejects.toThrow("bit must be 0 or 1, got -1");
 });
 
-// One malformed shape, written in both dialects. Every hole found so far was one dialect being
-// stricter than the other, so the two columns are asserted together rather than in separate tests.
+// One malformed shape in both dialects. Every hole found so far was one dialect being stricter than the other, so the two are asserted together.
 const MALFORMED: [case_: string, typeFormat: string, valueFormat: string][] = [
     ["a missing separator", "uint64 uint8", "1uint64 2uint8"],
     ["a missing separator inside a struct", "{ uint64 uint8 }", "{ 1uint64 2uint8 }"],
@@ -383,8 +377,7 @@ test.each(WELL_FORMED)("both dialects accept %s", async (_case, typeFormat, valu
 });
 
 test("a missing separator is an error, not a shorter layout", () => {
-    // parseLayout used to keep the node parseType returned and drop the index saying where it stopped,
-    // so the tail of the part vanished and a dropped ',' read back as a layout with fewer fields.
+    // parseLayout used to keep parseType's node and drop the index saying where it stopped, so a dropped ',' read back as a layout with fewer fields.
     expect(layoutOf("uint64, uint8")).toEqual({ size: 16, align: 8 });
     expect(() => layoutOf("uint64 uint8")).toThrow("unexpected 'uint8' after the type (fields are separated by ',')");
     expect(() => layoutOf("{ uint8 } { uint64 }")).toThrow("unexpected '{ uint64 }' after the type");
@@ -405,8 +398,7 @@ test("struct fields need a comma between them, with one trailing comma still all
 });
 
 test("the value dialect rejects the same junk array counts the type dialect does", async () => {
-    // parseInt used to read '2uint64' as 2 and hand back NaN for 'abc', which skipped the count check
-    // entirely — so a nonsense header was validated less than a real one.
+    // parseInt used to read '2uint64' as 2 and hand back NaN for 'abc', skipping the count check — so a nonsense header was validated less than a real one.
     for (const bad of ["2uint64", "2.9", "0x10", "abc", "-1", " "]) {
         await expect(encodeInput(`[${bad}; 1uint64, 2uint64]`)).rejects.toThrow(`array count '${bad.trim()}' must be a non-negative integer`);
         expect(() => parseLayout(`[${bad};uint64]`)).toThrow(`array count '${bad.trim()}' must be a non-negative integer`);
@@ -422,7 +414,7 @@ test("the count check counts values after ×N expansion, so the existing shortha
     expect((await encodeInput("[4; 9uint32 ×4]")).length).toBe(16);
 });
 
-// ---- sint128: a valid AbiScalarKind that the string dialect used to reject outright ----
+// sint128: a valid AbiScalarKind that the string dialect used to reject outright
 test("sint128 parses, sizes, and round-trips as a signed 128-bit value", async () => {
     expect(parseLayout("sint128")).toEqual({ kind: "sint128" });
     expect(layoutOf("sint128")).toEqual({ size: 16, align: 8 });
@@ -453,9 +445,7 @@ test("sint128 aligns and pads like uint128 inside a struct", async () => {
     expect((await encodeInput("[2; 0sint128 ×2]")).length).toBe(32);
 });
 
-// ---- properties: the three layers (qpi-layout geometry, formatAbiType, the string parser) must agree ----
-// Each row is a type built from the geometry oracle, run through parseContractIdl, then re-parsed from
-// its own format string. Any drift between the C++ mirror and the grammar fails here first.
+// The three layers (qpi-layout geometry, formatAbiType, the parser) must agree: each row is built from the oracle, validated, then re-parsed from its format.
 const LAYOUT_ROWS: [label: string, type: AbiType, size: number, align: number, format?: string][] = [
     ["HashMap with a struct key and a LinkedList value", hm(st(arr(id, 2), u64), ll(u64, 2), 2), 360, 8],
     ["Collection of a struct holding a BitArray and a uint128", co(st(ba(64), u128), 2), 280, 8],
@@ -483,8 +473,7 @@ test("every container kind's format string re-parses to its own size and alignme
     }
 });
 
-// The two decoders share no code: one walks a TypeNode it parsed from a string, the other walks the
-// IDL's own offsets. Container roots are excluded — the typed path returns {slot,key,value} entries there.
+// The two decoders share no code: one walks a parsed TypeNode, the other the IDL's offsets. Container roots are excluded — the typed path differs there.
 const CROSS_PATH_ROWS: [label: string, type: AbiType, size: number, format: string][] = [
     [
         "every scalar width in one struct",
@@ -534,8 +523,7 @@ test("the decoders read the same wide scalars, not just the same shape", async (
     expect(decoded[11]).toMatch(/^[0-9a-f]{64}$/); // m256i stays raw hex
 });
 
-// zeroInputFormat is the sample a user gets back when their --in fails to parse, so it has to be
-// valid input for the very layout it was built from: same byte count, all zeros.
+// zeroInputFormat is the sample a user gets when --in fails to parse, so it must be valid input for the layout it came from: same byte count, all zeros.
 const ZERO_ROWS: [fmt: string, sample: string, size: number][] = [
     ["{}", "", 1],
     ["[0;uint8]", "[0; 0uint8 ×0]", 0],
@@ -629,8 +617,7 @@ test("a ×0 repeat contributes no values and satisfies a zero-length array", asy
     await expect(encodeInput("[1; 1uint8 ×0]")).rejects.toThrow(/array of 1 needs 1 values, got 0/);
 });
 
-// A value format that is self-consistent can still be the wrong shape for the entry it is sent to, and
-// encodeInput cannot see that. These pin the size cross-check the two call sites run afterwards.
+// A self-consistent value format can still be the wrong shape for its entry, and encodeInput cannot see that — these pin the size cross-check the callers run.
 test("checkInputSize passes an input whose encoding matches the entry", async () => {
     const type = validated(st(arr(u16, 4), u32));
     expect(type.size).toBe(12);
@@ -640,8 +627,7 @@ test("checkInputSize passes an input whose encoding matches the entry", async ()
 
 test("checkInputSize rejects a self-consistent input of the wrong shape", async () => {
     const type = validated(st(arr(u16, 4), u32));
-    // Declares a 2-element array, so it encodes cleanly at 8 bytes — the engine would zero-fill the rest
-    // and the contract would read the uint32 as the array's third element.
+    // Declares a 2-element array, so it encodes cleanly at 8 bytes — the engine would zero-fill and the contract would read the uint32 as a third element.
     const short = await encodeInput("[2; 1uint16, 2uint16], 9uint32");
     expect(short.length).toBe(8);
     expect(() => checkInputSize(type, short, "proc 1/2")).toThrow("encodes to 8 bytes, proc 1/2 wants 12 ({ [4;uint16], uint32 })");
@@ -666,7 +652,7 @@ test("checkInputSize names an over-long input against an entry that takes none",
     expect(() => checkInputSize(type, extra, "proc 1/1")).toThrow(/encodes to 8 bytes, proc 1\/1 wants 1/);
 });
 
-// ---------- --in checked against the schema ----------
+// --in checked against the schema
 const IDENTITY = "BZBQFLLBNCXEMGLOBHUVFTLUPLVCPQUASSILFABOFFBCADQSSUPNWLZBQEXK";
 const MIRROR = named(
     ["a", u8],

@@ -3,8 +3,7 @@ import { SYSTEM_PROCEDURES } from "@qinit/core";
 import { Contract, type HostServices, CONTRACT_ENTRY_KIND } from "./runtime";
 import { k12Bytes } from "../support/k12";
 
-// The wasm K12 mallocs its whole input; ~8 MB is the safe ceiling before it overflows. Contract states above
-// this (the mainnet-sized order books of QX/QSWAP) get a zero computer-digest leaf instead — see getComputerDigest.
+// The wasm K12 mallocs its whole input, so ~8 MB is the safe ceiling; contract states above this get a zero computer-digest leaf instead.
 export const K12_MAX_LEAF_BYTES = 8 * 1024 * 1024;
 import { merkleRoot, MAX_NUMBER_OF_CONTRACTS } from "../chain/consensus";
 import { TraceRecorder } from "../logging/trace";
@@ -74,14 +73,12 @@ export class ContractRegistry {
         return c;
     }
 
-    // Remove a deployed contract (dev convenience — `qinit system rm`). Single-authority engine, so no consensus
-    // implication; the slot simply goes empty.
+    // Remove a deployed contract (`qinit system rm`). Single-authority engine, so no consensus implication — the slot simply goes empty.
     undeploy(slot: number): boolean {
         return this.contracts.delete(slot);
     }
 
-    // Run a mutating entry and charge its measured cost against the fee reserve when metering is enabled.
-    // Read-only queries bypass this path.
+    // Run a mutating entry and charge its measured cost against the fee reserve when metering is on; read-only queries bypass this path.
     fire(c: Contract, kind: number, it: number, input: Uint8Array, ctx: FireContext): Uint8Array {
         const out = c.invoke(kind, it, input, ctx);
         if (this.fees.metered) {
@@ -95,8 +92,7 @@ export class ContractRegistry {
         return this.contracts.get(slot)!.digest();
     }
 
-    // The faithful K12 merkle over MAX_NUMBER_OF_CONTRACTS contract-state leaves (leaf =
-    // K12(StateData); an empty slot is zero). The one system digest the sim reproduces exactly vs core-lite.
+    // The faithful K12 merkle over MAX_NUMBER_OF_CONTRACTS state leaves (leaf = K12(StateData), empty slot zero) — the one digest reproduced exactly.
     getComputerDigest(): Uint8Array {
         const leaves = new Map<number, Uint8Array>();
         for (const [slot, c] of this.contracts) {

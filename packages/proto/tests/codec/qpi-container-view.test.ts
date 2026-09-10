@@ -385,9 +385,7 @@ test("snapshot sources copy their bytes", async () => {
     expect(await new QpiArrayView(singleType, snapshot).get(0)).toBe(7);
 });
 
-// Real system contracts hold containers of hundreds of megabytes, and listing one used to cost a walk of
-// the whole capacity however few entries it held. A sparse source keeps that testable: bytes are zero
-// unless a case seeded them, so a 545 MB container never has to be allocated.
+// Listing a container used to cost a walk of its whole capacity. A sparse source keeps that testable: bytes are zero unless seeded, so nothing is allocated.
 function sparseSourceOf(byteLength: number, seeded: Map<number, number>, maxReadLength = 4 * 1024 * 1024): QpiByteSource {
     return {
         byteLength,
@@ -446,8 +444,7 @@ test("HashMap view lists a sparse 545 MB map without walking every slot", async 
         { slot: 9822, key: 101n, value: 201n },
         { slot: HUGE_CAPACITY - 1, key: 102n, value: 202n },
     ]);
-    // One flag word read per 32 slots rather than one per slot. Against this source the old scan takes
-    // ~2700 ms and the current one ~150 ms, so the bound sits well clear of both.
+    // One flag word read per 32 slots rather than one per slot: the old scan takes ~2700 ms here and the current one ~150 ms, so the bound clears both.
     expect(performance.now() - started).toBeLessThan(1000);
 });
 
@@ -478,8 +475,7 @@ test("HashSet view lists a sparse large set by slot", async () => {
     ]);
 });
 
-// Skipping empty flag words must not skip a broken one: an 0b11 pair still has to be caught, and named by
-// the slot it sits in rather than by the word it shares.
+// Skipping empty flag words must not skip a broken one: an 0b11 pair still has to be caught, and named by its slot rather than the word it shares.
 test("HashMap view still rejects an invalid flag in a populated word", async () => {
     const capacity = 1 << 20;
     const geometry = hashMapGeometry(uint64Type, uint64Type, capacity);
@@ -501,8 +497,7 @@ test("HashMap view still rejects an invalid flag in a populated word", async () 
     await expect(new QpiHashMapView(type, sparseSourceOf(type.size, seeded)).entries()).rejects.toThrow("invalid occupation flag at slot 500003");
 });
 
-// A capacity below one flag word leaves bits past the end of the container. They are not slots, and a
-// stale one must not turn into an entry.
+// A capacity below one flag word leaves bits past the end of the container; they are not slots, and a stale one must not turn into an entry.
 test("HashMap view ignores flag bits past a capacity shorter than one word", async () => {
     const geometry = hashMapGeometry(uint64Type, uint64Type, 4);
     const type: AbiHashMap = {
@@ -525,14 +520,13 @@ test("HashMap view ignores flag bits past a capacity shorter than one word", asy
     expect(await new QpiHashMapView(type, qpiSnapshotSource(bytes)).entries()).toEqual([{ slot: 1, key: 11n, value: 101n }]);
 });
 
-// ---- containers nested inside containers: no fixture above reaches past one container level ----
+// containers nested inside containers: no fixture above reaches past one container level
 const setNested = {
     u64: (bytes: Uint8Array, offset: number, value: bigint | number) => setUint64(bytes, offset, value),
     i64: (bytes: Uint8Array, offset: number, value: bigint | number) => setInt64(bytes, offset, value),
 };
 
-// HashMap<struct{ Array<id,2>; uint64 }, LinkedList<uint64,2>, 2> — a struct key holding an id array,
-// and a value that is itself a container with its own flags, links and population.
+// HashMap<struct{ Array<id,2>; uint64 }, LinkedList<uint64,2>, 2> — a struct key holding an id array, and a value that is itself a container.
 const NESTED_KEY = st(arr(id, 2), u64);
 const NESTED_VALUE = ll(u64, 2);
 const NESTED_MAP = validated(hm(NESTED_KEY, NESTED_VALUE, 2));
@@ -593,8 +587,7 @@ test("an inconsistent nested container fails from inside the outer one", async (
     await expect(decodeAbiValue(nestedMapBytes().slice(0, NESTED_MAP.size - 1), NESTED_MAP)).rejects.toThrow(RangeError);
 });
 
-// Collection<struct{ BitArray<64>; uint128 }, 2> — the PoV table, the element trailer, and a value
-// whose 8-byte alignment carries a 16-byte member.
+// Collection<struct{ BitArray<64>; uint128 }, 2> — the PoV table, the element trailer, and a value whose 8-byte alignment carries a 16-byte member.
 const COLLECTION_ELEMENT = st(ba(64), u128);
 const NESTED_COLLECTION = validated(co(COLLECTION_ELEMENT, 2));
 const nestedCollectionGeometry = collectionGeometry(COLLECTION_ELEMENT, 2);

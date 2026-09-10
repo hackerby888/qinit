@@ -30,8 +30,7 @@ export function allocateScratchSlotNode(context: FunctionEmissionContext, size: 
 export function allocateScratchSlot(context: FunctionEmissionContext, size: number): string {
     return watIr.serializeWatNode(allocateScratchSlotNode(context, size));
 }
-// Address of an argument: use an existing lvalue directly, or materialize a
-// temporary according to the declaration's concrete parameter type.
+// Address of an argument: use an existing lvalue directly, or materialize a temporary matching the declaration's concrete parameter type.
 export function argAddr(
     context: FunctionEmissionContext,
     expression: Expression,

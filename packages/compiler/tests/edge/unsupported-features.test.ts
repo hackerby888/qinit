@@ -102,8 +102,7 @@ describe.skipIf(!HAS_CORE)("native C scalar types are advisory, not fatal", () =
     });
 });
 
-// A destructor body never runs: no scope-exit lowering exists, and both declaration indexes drop
-// `~`-named functions outright.
+// A destructor body never runs: no scope-exit lowering exists, and both declaration indexes drop `~`-named functions outright.
 const destructorContract = (body: string) => `
 using namespace QPI;
 
@@ -144,8 +143,7 @@ describe.skipIf(!HAS_CORE)("a destructor with a body is refused, not dropped", (
         expect(errors.some((diagnostic) => /build this contract with clang/.test(diagnostic.message))).toBe(true);
     });
 
-    // The old failure was a parser fidelity warning about a stray token, which named neither the
-    // construct nor the remedy. Guard against regressing to it.
+    // The old failure was a parser fidelity warning about a stray token, naming neither the construct nor the remedy. Guard against regressing to it.
     test("no longer reports an unparseable token", async () => {
         const { errors } = await compileDestructor(" mark = 999; ");
 
@@ -161,8 +159,7 @@ describe.skipIf(!HAS_CORE)("a destructor with a body is refused, not dropped", (
     });
 });
 
-// A token the declaration parser cannot model used to be a fidelity warning that skipped one token and
-// let the rest re-parse as something else. Not knowing what the code says is a parse error.
+// A token the declaration parser cannot model used to be a fidelity warning that skipped one token and let the rest re-parse as something else.
 describe.skipIf(!HAS_CORE)("an unparseable declaration is a parse error", () => {
     const withMember = (member: string) => `
 using namespace QPI;
@@ -221,8 +218,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(wasm.length).toBeGreaterThan(0);
     });
 
-    // These two reached the same backstop until they got handlers. qpi.h uses both -- `typename` for a
-    // dependent oracle reply field, `volatile` on m256i's assignment operators -- so they must parse.
+    // These two reached the same backstop until they got handlers; qpi.h uses both — `typename` for a dependent field, `volatile` on m256i — so both parse.
     test("a volatile member parses, with the qualifier dropped", async () => {
         const { wasm, errors } = await compileMember("volatile uint64 v;");
 
@@ -238,8 +234,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     });
 });
 
-// `T local;` runs T's default constructor in C++. Zeroing the slot and skipping the body left every
-// field at 0; clang returns 42 for this contract.
+// `T local;` runs T's default constructor in C++; zeroing the slot and skipping the body left every field at 0, while clang returns 42 for this contract.
 describe.skipIf(!HAS_CORE)("a default constructor runs for a struct local", () => {
     const CTOR_SRC = `
 using namespace QPI;
@@ -270,8 +265,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     });
 });
 
-// qpi.h's `Ch` namespace declares one constant per character, so a struct local named `u` used as a
-// value resolved to 'u' (117) instead of being converted or refused.
+// qpi.h's `Ch` namespace declares one constant per character, so a struct local named `u` used as a value resolved to 'u' (117) instead of converting.
 describe.skipIf(!HAS_CORE)("an aggregate local never resolves to a named constant", () => {
     const classToScalar = (localName: string) => `
 using namespace QPI;

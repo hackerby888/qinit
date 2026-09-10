@@ -1,5 +1,4 @@
-// A node serves RPC before it loads its epoch, so it always jumps once (0 -> the epoch's initial tick);
-// that lone jump used to read as progress — a dead core node passed CI for months.
+// A node serves RPC before it loads its epoch, so it always jumps once; that lone jump used to read as progress — a dead core node passed CI for months.
 import { test, expect } from "bun:test";
 import { waitTicking } from "../../src/ops/node";
 

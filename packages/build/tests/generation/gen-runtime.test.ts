@@ -1,7 +1,4 @@
-// The runtime is generated directly from canonical source and embedded by a Bun macro. These tests retain the
-// portability gate that protects generated clients from monorepo and node-only dependencies.
-// Both go through generateRuntimeMacro (a spawned build) rather than an in-process Bun.build: that is the path
-// production uses, and a nested in-process build cannot resolve the bundled crypto packages.
+// The runtime is generated from canonical source and embedded by a Bun macro; both tests go through generateRuntimeMacro, the path production uses.
 import { test, expect } from "bun:test";
 import { generateRuntimeMacro } from "../../scripts/gen-runtime";
 import { testRuntimeSource } from "../../src/generate/test-scaffold";

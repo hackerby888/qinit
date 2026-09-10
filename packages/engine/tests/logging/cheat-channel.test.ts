@@ -1,5 +1,4 @@
-// The cheat channel is the point of the design: CC_PRINT has to be readable from a function, and it
-// must never appear as a protocol log. These tests pin both halves.
+// The cheat channel is the point of the design: CC_PRINT must be readable from a function and must never appear as a protocol log. Both halves are pinned.
 import { expect, test } from "bun:test";
 import { AbiTypeKind } from "@qinit/proto/contract-idl";
 import { loadWasmFixture as wasm, loadWasmFixtureIdl } from "../../../../test-utils/wasm-fixtures";
@@ -51,20 +50,16 @@ test("each printed value carries its own ordinal, and a literal contributes none
     sim.procedure(28, ADD, new Uint8Array(new BigUint64Array([7n]).buffer));
 
     const entry = sim.getTrace().entries.at(-1)!;
-    // `CC_PRINT("adding", input.amount)` and `CC_PRINT("total is now", state.get().total)`: the two
-    // literals emit nothing, so only the two values reach the wire, each at ordinal 1 of its call.
+    // Two CC_PRINT calls whose literals emit nothing, so only the two values reach the wire, each at ordinal 1 of its call.
     expect(entry.cheats).toHaveLength(2);
     expect(entry.cheats.map((cheat) => cheat.part)).toEqual([1, 1]);
     expect(new Set(entry.cheats.map((cheat) => cheat.id)).size).toBe(2);
 
-    // Assert the bytes, not just their length. A payload dropped on the way to the host still reports
-    // the size it was asked for, so size alone cannot tell a real read from a lost one — which is how
-    // a native-side bug reading state at guest offset 0 survived every simulator test.
+    // Assert the bytes, not just their length: a payload dropped on the way to the host still reports the size asked for, which is how a native bug survived.
     expect(entry.cheats.map((cheat) => cheat.hex)).toEqual(["0700000000000000", "0700000000000000"]);
 });
 
-// The trace leaves the node as JSON on /live/v1/debug-trace, so a bigint anywhere in an entry is a 500
-// for every caller of that route — and cheats are the only part of an entry a plain contract can't reach.
+// The trace leaves the node as JSON, so a bigint anywhere in an entry is a 500 for every caller of that route — and cheats are the part a contract can reach.
 test("a trace carrying a CC_PRINT survives the JSON the debug-trace route sends", async () => {
     const { sim } = await deployCheats();
 
@@ -97,9 +92,7 @@ async function runShapes(): Promise<QubicSimulator> {
     return sim;
 }
 
-// The reader decodes a record by the type the IDL holds for its part, so the two must agree on the size
-// for every shape a contract can print. This is the arbiter for the IDL typer: an argument it fails to
-// type ships its real bytes against a uint64 and lands here.
+// The reader decodes a record by the type the IDL holds for its part, so both must agree on size for every shape a contract can print — the typer's arbiter.
 test("every record is exactly its IDL type's size, or a register-borne scalar", async () => {
     const sim = await runShapes();
     const sites = new Map((await loadWasmFixtureIdl("CheatShapes")).cheats.map((cheat) => [cheat.id, cheat]));

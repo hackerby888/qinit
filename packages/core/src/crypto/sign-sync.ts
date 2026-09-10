@@ -1,5 +1,4 @@
-// The last @qubic-lib use: @qubic.org/crypto's schnorrq.sign is sync but unexported (only the async
-// wrapper is), and the tick path is sync end to end.
+// The last @qubic-lib use: @qubic.org/crypto's schnorrq.sign is sync but unexported (only the async wrapper is), and the tick path is sync end to end.
 import type { KeyPair } from "./qubic";
 
 interface SchnorrQ {
@@ -13,8 +12,7 @@ export async function initK12(): Promise<void> {
         return;
     }
 
-    // Static CJS require so bun bundles one instance; ESM import resolved a second, uninit one under --compile.
-    // @ts-ignore - require is provided by bun
+    // Static CJS require so bun bundles one instance; ESM import resolved a second, uninit one under --compile. @ts-ignore - require is provided by bun
     const cryptoMod: any = require("@qubic-lib/qubic-ts-library/dist/crypto");
     _schnorrq = (await (cryptoMod.default ?? cryptoMod)).schnorrq;
 }

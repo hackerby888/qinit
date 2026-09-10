@@ -1,5 +1,4 @@
-// Every cheatcode lowers to the `cheat` lhost import. Checked only where the module is emitted — the
-// clang backend links its own copy and borrows this analysis for the IDL alone.
+// Every cheatcode lowers to the `cheat` lhost import. Checked only where the module is emitted — the clang backend links its own copy and borrows the analysis.
 import { AstKind } from "../../../shared/enums";
 import type { FunctionDecl, Statement } from "../../../ast";
 import { hasLhostImport } from "../lhost";
@@ -34,8 +33,7 @@ export function validateCheatCalls(prepared: PreparedContractModule): void {
     }
 }
 
-// The whole statement, not an argument: a cheatcode macro generates its own arguments, so only the
-// statement span survives the remap back to the line the user wrote.
+// The whole statement, not an argument: a cheatcode macro generates its own arguments, so only the statement span survives the remap to the user's line.
 function reportUnsupportedCheat(prepared: PreparedContractModule, statement: Statement): void {
     if (statement.kind !== AstKind.EXPRESSION) {
         return;

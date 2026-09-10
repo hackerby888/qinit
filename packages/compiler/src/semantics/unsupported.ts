@@ -28,30 +28,17 @@ function describe(feature: UnsupportedFeature, detail: string | undefined): stri
     return detail ? `${FEATURE_TEXT[feature].noun} '${detail}'` : FEATURE_TEXT[feature].noun;
 }
 
-/**
- * Refuse the contract outright, with no strict-mode opt-out.
- *
- * For gaps that corrupt memory or the host ABI, where even a lax build must not produce wasm.
- */
+/** Refuse the contract outright, with no strict-mode opt-out — for gaps that corrupt memory or the host ABI, where even a lax build must not produce wasm. */
 export function raiseUnsupported(programAnalysis: ProgramAnalysis, feature: UnsupportedFeature, at: number | Span, detail?: string): void {
     programAnalysis.error(`unsupported ${describe(feature, detail)} — ${CLANG_REMEDY}`, at);
 }
 
-/**
- * Refuse the contract unless strict mode is off.
- *
- * For gaps that cannot be lowered faithfully, so allowing them through yields wrong answers.
- */
+/** Refuse the contract unless strict mode is off — for gaps that cannot be lowered faithfully, so allowing them through yields wrong answers. */
 export function reportUnsupported(programAnalysis: ProgramAnalysis, feature: UnsupportedFeature, at: number | Span, detail?: string): void {
     programAnalysis.warn(`unsupported ${describe(feature, detail)} — ${CLANG_REMEDY}`, at);
 }
 
-/**
- * Warn but keep building, even under strict mode.
- *
- * For constructs that lower correctly and are merely non-canonical. Refusing these would break
- * working contracts to fix a problem they do not have.
- */
+/** Warn but keep building, even under strict mode — for constructs that lower correctly and are merely non-canonical; refusing breaks working contracts. */
 export function adviseUnsupported(programAnalysis: ProgramAnalysis, feature: UnsupportedFeature, at: number | Span, detail?: string): void {
     programAnalysis.advise(`non-canonical ${describe(feature, detail)} — ${FEATURE_TEXT[feature].advice}`, at);
 }

@@ -11,8 +11,7 @@ export function asUint8Array(bytes: Uint8Array | ArrayBuffer): Uint8Array {
     return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 }
 
-// Inspect a module against the production Wasm module ABI and JS+WAMR portability profile.
-// No imports are invoked and the module is never instantiated.
+// Inspect a module against the production Wasm module ABI and JS+WAMR portability profile; no imports are invoked and the module is never instantiated.
 export function inspectWasmModule(input: Uint8Array | ArrayBuffer, options: WasmModuleInspectionOptions = {}): WasmModuleInspection {
     const bytes = asUint8Array(input);
     const parsed = emptyParsed();

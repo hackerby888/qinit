@@ -213,8 +213,7 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
         }
     };
 
-    // A reused slot keeps its state bytes; a changed StateData with no MIGRATE handler would read them at the
-    // wrong offsets, so the redeploy is refused unless the carry-over is deliberate.
+    // A reused slot keeps its state bytes; a changed StateData with no MIGRATE handler would read them at the wrong offsets, so the redeploy is refused.
     if (reused && build.idl && !options.allowStateCarryover) {
         const previous = await deployedStateIdl(rpc, slot, options.core, options.idlPath);
         const rejection = previous ? stateCarryoverRejection(options.name, previous, build.idl) : null;
@@ -252,8 +251,7 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
         return { ok: true, slot, reused, hash, armed: true, constructed: true, idl: build.idl };
     }
 
-    // Only this path signs anything — the direct route above deploys without a transaction, so a node that
-    // reports no balance for the seed cannot fail a simulator deploy.
+    // Only this path signs anything — the direct route deploys without a transaction, so a node reporting no balance cannot fail a simulator deploy.
     const signer = await resolveFundedSigner(rpc, seed, {
         explicit: Boolean(options.seed),
     });
@@ -297,10 +295,7 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
 
     emit({ step: "deploy", state: "active" });
 
-    // A DEPLOY names the tick it must execute in, so a client that spends longer than TX_TICK_OFFSET
-    // ticks signing and broadcasting has its transaction dropped for a tick that already passed. The
-    // node clears the upload session on a successful deploy, so a resend of one that did land is
-    // refused at the session check rather than re-arming the slot.
+    // A DEPLOY names the tick it must execute in, so signing past TX_TICK_OFFSET drops it; the node clears the session on success, so a resend is refused.
     const broadcastDeploy = async () => {
         const tick = (await readTick()) + TX_TICK_OFFSET;
         const result = await rpc.broadcastTx(
@@ -366,8 +361,7 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
         try {
             const tickInfo = await rpc.tickInfo();
             lastTick = tickInfo.tick;
-            // A MIGRATE or INITIALIZE that trapped halts the node before the slot reports constructed; a
-            // node without the route is simply not halted.
+            // A MIGRATE or INITIALIZE that trapped halts the node before the slot reports constructed; a node without the route is simply not halted.
             const fault = await readFault(rpc).catch(() => null);
             if (fault) {
                 halted = await describeFault(rpc, fault);
@@ -411,8 +405,7 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
                 }
             }
 
-            // Its tick is well past and the slot has not changed, so the transaction is gone. A fresh
-            // one costs a tick; waiting out the rest of this poll costs minutes and still fails.
+            // Its tick is well past and the slot has not changed, so the transaction is gone: a fresh one costs a tick, waiting out this poll costs minutes.
             if (lastTick > deployTick + DEPLOY_MISS_GRACE_TICKS && deployResends < DEPLOY_MAX_RESENDS) {
                 const missedTick = deployTick;
                 deployResends++;

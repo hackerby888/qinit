@@ -30,11 +30,7 @@ function snapshotDiffForced(): boolean {
     return stateDiffMode() === "snapshot";
 }
 
-/**
- * `QINIT_STATE_DIFF=verify` runs both mechanisms on every dispatch and throws when they disagree. It
- * turns any suite into a journal validator: a write path the rewriter missed shows up as a mismatch on
- * the contract and call that made it, rather than as a diff nobody notices is short.
- */
+/** `QINIT_STATE_DIFF=verify` runs both mechanisms every dispatch and throws on disagreement, so a write path the rewriter missed shows up where it happened. */
 function journalVerifyEnabled(): boolean {
     return stateDiffMode() === "verify";
 }
@@ -292,8 +288,7 @@ export interface ContractCallContext {
     entryPoint?: number;
 }
 
-// Host imports that mutate chain state, so a contract *function* must not reach them. Typed against the
-// generated ABI: a renamed or dropped import fails to compile rather than silently losing its guard.
+// Host imports that mutate chain state, so a contract *function* must not reach them. Typed against the generated ABI, so a dropped import fails to compile.
 export const MUTATING_LHOST_IMPORTS: readonly LhostImportName[] = [
     "markDirty",
     "pauseLog",
@@ -360,16 +355,13 @@ export class Contract {
     arenaEnd = 0;
     sysMask = 0;
     metering = false;
-    // The previous state, kept across invocations so the before-image costs no copy. Contract states run to
-    // hundreds of megabytes, and both metering and trace diffs need one every call.
+    // The previous state, kept across invocations so the before-image costs no copy — states run to hundreds of MB and every call needs one.
     private shadow: Uint8Array | null = null;
     private shadowStale = true;
-    // The contract's own write journal, when the artifact carries one. It reports what changed without a
-    // copy of the state, so the shadow above is never allocated for a contract that has it.
+    // The contract's own write journal, when the artifact carries one: it reports what changed without a state copy, so no shadow is allocated for it.
     private journalBase = 0;
     private journal: JournalHeader | null = null;
-    // Set once the journal overflows: from the next call this contract falls back to the shadow, which is
-    // slower but cannot run out of room. The overflowing call itself can only report truncation.
+    // Set once the journal overflows: from the next call this contract falls back to the shadow. The overflowing call itself can only report truncation.
     private journalOverflowed = false;
     private dispatchDepth = 0;
     private executionKinds: number[] = [];
@@ -472,8 +464,7 @@ export class Contract {
         return new Contract(slot, host, wasmModule, externalMemory, extraImports);
     }
 
-    // Fresh views each use — memory.grow detaches the underlying ArrayBuffer, so never hold a view
-    // across a dispatch.
+    // Fresh views each use — memory.grow detaches the underlying ArrayBuffer, so never hold a view across a dispatch.
     private u8() {
         return new Uint8Array(this.mem.buffer);
     }
@@ -551,11 +542,7 @@ export class Contract {
         this.shadowStale = true;
     }
 
-    /**
-     * Finds the write journal an instrumented artifact carries. The module reports the region as
-     * unavailable through `io_size()`, so it sits exactly at the arena end and no host hands it out.
-     * The reset export initialises it; a module without one simply has no journal.
-     */
+    /** Finds the write journal an instrumented artifact carries: `io_size()` reports it unavailable, so it sits at the arena end and no host hands it out. */
     private attachJournal(): void {
         if (typeof this.ex.__q_journal_reset !== "function" || snapshotDiffForced()) {
             return;
@@ -571,11 +558,7 @@ export class Contract {
         this.journal = header;
     }
 
-    /**
-     * What the journal recorded during the dispatch that just ran. Counters move during the call, so the
-     * header is re-read rather than reused. An overflow arms the shadow fallback for the next call — the
-     * before-image of the blocks it missed is already gone, so this call can only report truncation.
-     */
+    /** What the journal recorded during the dispatch that just ran. Counters move during the call, so the header is re-read; an overflow arms the fallback. */
     private journalOutcome(): { stateDiff: DebugStateRegion[]; stateChanged: boolean; stateTruncated: boolean } {
         const memory = this.u8();
         const header = readJournalHeader(memory, this.journalBase);
@@ -591,11 +574,7 @@ export class Contract {
         return { stateDiff, stateChanged: stateDiff.length > 0 || header.overflowed, stateTruncated: header.overflowed };
     }
 
-    /**
-     * Compares what the journal reported against a real before/after diff of the same dispatch, and
-     * throws on any disagreement. A truncated diff is skipped: overflow reports an incomplete diff by
-     * design, and the fallback covers it from the next call.
-     */
+    /** Compares the journal's report against a real before/after diff and throws on disagreement. A truncated diff is skipped: overflow reports one anyway. */
     private verifyJournal(before: Uint8Array, outcome: { stateDiff: DebugStateRegion[]; stateTruncated: boolean }, kind: number, inputType: number): void {
         if (outcome.stateTruncated) {
             return;
@@ -613,10 +592,7 @@ export class Contract {
         );
     }
 
-    /**
-     * Records a host write into contract state. Store instrumentation only sees the contract's own
-     * stores, and several lhost imports write through an out-pointer a contract may aim at its state.
-     */
+    /** Records a host write into contract state: store instrumentation only sees the contract's own stores, and lhost imports write through an out-pointer. */
     private noteGuestWrite(destination: number, length: number): void {
         if (this.journal) {
             noteHostWrite(this.u8(), this.journalBase, this.journal, this.stateAddr, destination, length);
@@ -732,14 +708,11 @@ export class Contract {
         const verifying = journalVerifyEnabled();
         const wantState = metering || recorder != null || verifying;
         const snapshotLimit = this.stateSize;
-        // A nested frame keeps explicit copies: it would otherwise advance the shadow mid-call and destroy the
-        // outer frame's before-image.
-        // A nested frame re-enters this same contract, so it would clear the outer frame's journal too.
+        // A nested frame keeps explicit copies and would otherwise advance the shadow mid-call, destroying the outer frame's before-image and journal.
         const useJournal = wantState && !nested && this.journal !== null && !this.journalOverflowed;
         const useShadow = wantState && !nested && !useJournal;
         if (useJournal) {
-            // Safe to clear per dispatch because a contract can only call lower slots, so this instance is
-            // never re-entered mid-call. Deploy-time writeState/zeroState notes are cleared here too.
+            // Safe to clear per dispatch because a contract can only call lower slots, so this instance is never re-entered mid-call.
             resetJournal(this.u8(), this.journalBase, this.journal!);
         }
         const stateBefore = wantState && !useJournal ? (useShadow ? this.shadowBefore() : this.stateSnapshot(snapshotLimit)) : EMPTY;
@@ -784,8 +757,7 @@ export class Contract {
                     execNs: (performance.now() - startedAt) * 1e6,
                 });
             }
-            // Checked after the trace entry closes: a trap leaves partial writes behind, which is exactly
-            // where a missed write path would hide.
+            // Checked after the trace entry closes: a trap leaves partial writes behind, which is exactly where a missed write path would hide.
             if (trapOutcome && verifying) {
                 this.verifyJournal(verifyBefore, trapOutcome, kind, inputType);
             }
@@ -828,8 +800,7 @@ export class Contract {
         if (useShadow && stateChanged) {
             this.syncShadow(stateAfter);
         }
-        // Journal mode leaves the shadow untouched, so anything it still holds is older than this call.
-        // Marking it stale keeps the fallback correct if the journal later overflows and hands back over.
+        // Journal mode leaves the shadow untouched, so marking it stale keeps the fallback correct if the journal later overflows and hands back over.
         if (useJournal && stateChanged) {
             this.shadowStale = true;
         }
@@ -986,10 +957,7 @@ export class Contract {
                 }
             },
             logBytes: (_ci: number, level: number, msgOff: number, size: number) => {
-                // Core stamps the contract index over the payload's leading word, logs, then clears it
-                // (logging.h `__logContract*Message`). Its `logMessage` copies from the pointer it is given,
-                // so the bytes that reach the record — and the log digest taken over them — are the stamped
-                // ones. Reading the payload after the stamp is what keeps every reader agreeing with core.
+                // Core stamps the contract index over the payload's leading word before logging and copies from that pointer, so readers see the stamped bytes.
                 this.writeGuest(msgOff, contractIndexWord(this.slot));
                 const payload = u8().slice(msgOff, msgOff + size);
                 this.host.log(this.slot, level, payload);
@@ -1003,8 +971,7 @@ export class Contract {
         };
     }
 
-    // `cheat` is deliberately absent from MUTATING_LHOST_IMPORTS: that list is a per-import ban, and it
-    // would block CC_PRINT from every function. The mutating opcodes check the entry kind themselves.
+    // `cheat` is deliberately absent from MUTATING_LHOST_IMPORTS: that list is a per-import ban and would block CC_PRINT everywhere. Opcodes check the kind.
     private cheatCall(u8: () => Uint8Array, op: number, a: bigint, b: bigint, pointer: number, len: number): bigint {
         if (op === CHEAT_OP.print) {
             this.host.cheatPrint(this.slot, Number(a >> 8n), Number(a & 0xffn), b, len ? u8().slice(pointer, pointer + len) : new Uint8Array(0));
@@ -1030,8 +997,7 @@ export class Contract {
         }
     }
 
-    // Rewrites the guest's context view only. The engine's own caller attribution is untouched, so a
-    // prank changes what the contract reads and nothing about how the call is accounted.
+    // Rewrites the guest's context view only: the engine's caller attribution is untouched, so a prank changes what the contract reads, not the accounting.
     private cheatPrank(caller: Id | null, invocationReward: bigint, len: number): bigint {
         if (caller && len !== 32) {
             return CHEAT_ERR.unknownOp;
@@ -1047,8 +1013,7 @@ export class Contract {
             return view.invocationReward;
         }
 
-        // The context accessors hand back views into guest memory, so what is saved must be a copy,
-        // or the prank's own overwrite rewrites the values an unprank is meant to restore.
+        // The context accessors hand back views into guest memory, so what is saved must be a copy or the prank overwrites the values unprank restores.
         this.prankSaved ??= { originator: view.originator.slice() as Id, invocator: view.invocator.slice() as Id, invocationReward: view.invocationReward };
         view.originator = caller;
         view.invocator = caller;
@@ -1209,8 +1174,7 @@ export class Contract {
     // lhost: share management rights — qpi acquireShares / releaseShares.
     private shareRightsImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
         return {
-            // share management rights — qpi acquireShares / releaseShares (qpi_asset_impl.h). The lhost imports are
-            // provided here; a wasm contract reaches them once the qpi wasm binding declares the imports.
+            // Share management rights — qpi acquireShares / releaseShares. The lhost imports are provided here; a wasm contract reaches them via the binding.
             acquireShares: (
                 name: bigint,
                 issOff: number,

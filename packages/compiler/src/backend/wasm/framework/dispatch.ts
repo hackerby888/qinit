@@ -13,8 +13,7 @@ export function emitDispatch(spec: ModuleSpecification, usesPrng: boolean): stri
     lines.push("  ;; ---- dispatch ----");
     lines.push("  (func $dispatch (param $kind i32) (param $it i32) (param $inOff i32) (param $outOff i32) (param $localsOff i32)");
     if (usesPrng) {
-        // The wrapper is the PRNG frame boundary. Wasm locals survive a synchronous
-        // reentrant host call, so they hold the caller stream while the nested dispatch
+        // The wrapper is the PRNG frame boundary: wasm locals survive a reentrant host call, so they hold the caller's stream across a nested dispatch.
         lines.push("    (local $saved0 i64) (local $saved1 i64) (local $saved2 i64) (local $saved3 i64) (local $savedCounter i64) (local $nested i32)");
         lines.push("    (local.set $saved0 (global.get $prngSeed0))");
         lines.push("    (local.set $saved1 (global.get $prngSeed1))");

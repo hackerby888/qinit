@@ -1,5 +1,4 @@
-// Every template ships a bun:test spec written against its own entries, so a fresh project's first
-// `qinit test` exercises the contract it actually has rather than a counter it does not.
+// Every template ships a bun:test spec written against its own entries, so a fresh project's first `qinit test` exercises the contract it actually has.
 import { test, expect } from "bun:test";
 import { TEMPLATE_KINDS, templateGtest, templateSource, templateTest } from "../../src/generate/templates";
 import { testRuntimeSource } from "../../src/generate/test-scaffold";

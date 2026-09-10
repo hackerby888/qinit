@@ -1,5 +1,4 @@
-// The resolver had only ever met containers small enough to fit in one or two 256-byte windows. Real
-// contracts run to hundreds of megabytes, where the occupation flags alone span thousands of them.
+// The resolver had only met containers small enough for one or two 256-byte windows; real contracts run to hundreds of MB, flags alone spanning thousands.
 import { test, expect } from "bun:test";
 import type { DebugStateRegion } from "@qinit/core";
 import { collectionGeometry, hashMapGeometry, hashSetGeometry, linkedListGeometry } from "@qinit/proto/qpi-layout";
@@ -14,8 +13,7 @@ const U64 = { size: 8, align: 8 };
 const rowsFor = async (fields: StateField[], regions: DebugStateRegion[]) =>
     (await stateDiffLines(fields, regions)).map((line) => `${line.label} ${line.text}`);
 
-// Keyed containers pack 0b00 free, 0b01 occupied, 0b10 marked for removal into two bits per slot; a
-// list's occupied flags take one. Both runs are addressed the same way, by index rather than by word.
+// Keyed containers pack free/occupied/removing into two bits per slot; a list's occupied flags take one. Both runs are addressed by index, not by word.
 const packedByte = (flagsOff: number, index: number, bitsPer: number) => flagsOff + ((index * bitsPer) >> 3);
 const packedBits = (index: number, bitsPer: number, value: number) => value << ((index * bitsPer) & 7);
 
@@ -27,9 +25,7 @@ const HUGE = hashMapGeometry(U64, U64, HUGE_CAPACITY);
 const HUGE_FIELDS = fieldsOf("Huge", `HashMap<uint64, uint64, ${HUGE_CAPACITY}> m;`);
 const HUGE_FLAGS = offsetOf(HUGE_FIELDS, "m") + HUGE.flagsOffset;
 
-// At this capacity the flags start 512 MB into the state and span 32768 windows, so a slot's flag almost
-// never lands in the window the run begins in — the shape every container in the old suite was too small
-// to produce.
+// At this capacity the flags start 512 MB in and span 32768 windows, so a slot's flag almost never lands in the window its run begins in.
 test("a flag deep inside a 545 MB map still reports its slot", async () => {
     for (const slot of [9822, 1_000_000, HUGE_CAPACITY - 1]) {
         const window = diffWindow(flagByte(HUGE_FLAGS, slot), 1, undefined, (bytes) => (bytes[0] = flagBits(slot, 1)));
@@ -38,8 +34,7 @@ test("a flag deep inside a 545 MB map still reports its slot", async () => {
     }
 });
 
-// Reporting a window used to cost a walk of the whole capacity, since only the bounds check inside
-// `valueAt` stopped it. These same 64 rows took about 11 seconds at this size.
+// Reporting a window used to cost a walk of the whole capacity, since only `valueAt`'s bounds check stopped it. These 64 rows took about 11 seconds.
 test("resolving 64 flag windows does not walk the whole capacity", async () => {
     const windows = Array.from({ length: 64 }, (_, index) => diffWindow(HUGE_FLAGS + 4096 + index * 512, 256, undefined, (bytes) => (bytes[0] = 1)));
 
@@ -50,8 +45,7 @@ test("resolving 64 flag windows does not walk the whole capacity", async () => {
     expect(performance.now() - started).toBeLessThan(3000);
 });
 
-// A uint32 value under a uint64 key leaves four pad bytes at the end of every record. They used to
-// resolve back to the record base — the key — and report it once per pad byte, four rows of noise.
+// A uint32 value under a uint64 key leaves four pad bytes per record; they used to resolve back to the key and report it once per pad byte, four noise rows.
 const NARROW_CAPACITY = 8;
 const NARROW = hashMapGeometry(U64, { size: 4, align: 4 }, NARROW_CAPACITY);
 const NARROW_FIELDS = fieldsOf("Narrow", `HashMap<uint64, uint32, ${NARROW_CAPACITY}> narrow;`);
@@ -128,8 +122,7 @@ test("a multi-megabyte BitArray reports the bit that flipped", async () => {
     expect(await rowsFor(WIDE_FIELDS, [window])).toEqual([`wide[${bit}] 0 → 1`]);
 });
 
-// A container's internal boundaries are nowhere near a window boundary once it is big, so a real diff
-// hands over windows that straddle records into flags, or flags into the counters that follow them.
+// A container's internal boundaries are nowhere near a window boundary once it is big, so a real diff hands over windows straddling records into flags.
 const MID_CAPACITY = 1 << 22;
 const MID = hashMapGeometry(U64, U64, MID_CAPACITY);
 const MID_FIELDS = fieldsOf("Mid", `HashMap<uint64, uint64, ${MID_CAPACITY}> m;`);
@@ -164,8 +157,7 @@ test("a window opening exactly at the flags run reports from its first slot", as
     expect(await rowsFor(MID_FIELDS, [window])).toEqual(["m._occupationFlags[1] 0 → 1"]);
 });
 
-// A journal coalesces consecutive dirty blocks, so an insert burst arrives as one region covering the
-// records, the flags and the counters at once. Every window-sized test stops short of that shape.
+// A journal coalesces consecutive dirty blocks, so an insert burst arrives as one region covering records, flags and counters at once.
 const SPAN_CAPACITY = 4096;
 const SPAN = hashMapGeometry(U64, U64, SPAN_CAPACITY);
 const SPAN_FIELDS = fieldsOf("Span", `HashMap<uint64, uint64, ${SPAN_CAPACITY}> m;`);
@@ -188,8 +180,7 @@ test("one region covering a whole container resolves every zone in it", async ()
     ]);
 });
 
-// A core node reports minimal runs, so only the tail of a value can be dirty. Resolving that back to the
-// start of the value is the same mistake the flags run used to make.
+// A core node reports minimal runs, so only the tail of a value can be dirty; resolving that back to the value's start is the flags run's old mistake.
 test("a window opening inside a value keeps the bytes it was given", async () => {
     const key = offsetOf(HUGE_FIELDS, "m") + 9822 * HUGE.recordStride;
     const window = diffWindow(key + 4, 4, undefined, (bytes) => writeLe(bytes, 0, 7, 4));
@@ -241,8 +232,7 @@ test("a window carrying only the value keeps the row on its slot path", async ()
     ]);
 });
 
-// Region hygiene. Nothing upstream emits these shapes today, so what the resolver does with them is
-// recorded here rather than left to be rediscovered.
+// Region hygiene. Nothing upstream emits these shapes today, so what the resolver does with them is recorded here rather than rediscovered.
 const NUMS_FIELDS = fieldsOf("Nums", `Array<uint64, ${1 << 23}> nums;`);
 const NUMS_AT = 8_000_000;
 const NUMS_INDEX = NUMS_AT / 8;
@@ -258,8 +248,7 @@ test("regions handed over out of order resolve the same as sorted ones", async (
     expect(await rowsFor(NUMS_FIELDS, [third, first, second])).toEqual(expected);
 });
 
-// Regions are joined on exact adjacency, so an overlapping pair is walked twice and the shared value is
-// reported twice with it. Pinned as it stands, not as it should be.
+// Regions are joined on exact adjacency, so an overlapping pair is walked twice and the shared value reported twice. Pinned as it stands, not as it should be.
 test("overlapping regions report the bytes they share twice", async () => {
     const left = diffWindow(NUMS_AT, 16, undefined, (bytes) => {
         writeLe(bytes, 0, 11);
@@ -301,8 +290,7 @@ const midFlag = (slot: number, from: number, to: number) =>
         (bytes) => (bytes[0] = flagBits(slot, to)),
     );
 
-// One call can move a key: the old bucket is vacated and a new one takes it. Both halves name the same
-// key, so grouping by bucket is the only thing keeping them from collapsing into each other.
+// One call can move a key: the old bucket is vacated and a new one takes it. Both halves name the same key, so grouping by bucket keeps them apart.
 test("a key that moves buckets in one call reports as a removal and an insert", async () => {
     const left = diffWindow(
         midRecord(100),
@@ -323,8 +311,7 @@ test("a key that moves buckets in one call reports as a removal and an insert", 
     expect(rows).toEqual(["m[11] 101 → (removed)", "m[11] = 202 (new)"]);
 });
 
-// A HashSet slot is the key alone, so its removal is the one shape where the key row has to carry the
-// entry line by itself. Nothing exercised it before.
+// A HashSet slot is the key alone, so its removal is the one shape where the key row has to carry the entry line by itself. Nothing exercised it before.
 const SET_BASE = offsetOf(WIDE_FIELDS, "s");
 const SET_SLOT = 300_000;
 const setFlag = (from: number, to: number) =>
@@ -359,8 +346,7 @@ test("a HashSet slot reused from a tombstone reads as a new entry", async () => 
     expect(await payloadRowsFor(WIDE_FIELDS, [record, setFlag(2, 1), population])).toEqual(["s[77] (new)", "s 0 → 1 entries"]);
 });
 
-// Sixty-four inserts scattered over a 545 MB map, each arriving as its own record window and its own flag
-// window a long way off. Every entry has to find its own key and its own flag among 128 regions.
+// Sixty-four inserts scattered over a 545 MB map, each its own record window and its own flag window far off — every entry finds its key among 128 regions.
 test("many inserts across scattered windows each keep their own key", async () => {
     const slots = [0, 9822, HUGE_CAPACITY - 1, ...Array.from({ length: 61 }, (_, index) => 500_000 + index * 100_003)];
     const base = offsetOf(HUGE_FIELDS, "m");
@@ -460,9 +446,7 @@ test("a BitArray held as a map value reports the bit that flipped", async () => 
     expect(await rowsFor(NESTED_FIELDS, [window])).toEqual([`nested.slot[${slot}].key 0 → 11`, `nested[11][3] 0 → 1`]);
 });
 
-// A wide write reports one row per changed byte and nothing caps that. 64 KiB is the affordable slice of
-// a ceiling worth writing down: about 1.05M rows and 1.7s per dirty MiB, against a journal that admits
-// 63 MiB of dirty state per dispatch.
+// A wide write reports one row per changed byte and nothing caps that: 64 KiB is the affordable slice of a ceiling worth writing down, ~1.05M rows per MiB.
 test("a fully dirty region reports one row per changed byte", async () => {
     const BLOB_FIELDS = fieldsOf("Blob", `Array<uint8, ${1 << 28}> data;`);
     const length = 64 * 1024;
@@ -471,8 +455,7 @@ test("a fully dirty region reports one row per changed byte", async () => {
     expect(await stateDiffLines(BLOB_FIELDS, [window])).toHaveLength(length);
 });
 
-// C alignment padding between two state fields belongs to neither, and the walk used to stop dead on it.
-// Every field after the gap went unreported, with no error and no warning.
+// C alignment padding between two state fields belongs to neither, and the walk used to stop dead on it — every field after the gap went unreported.
 const GAP_FIELDS = fieldsOf("Gap", "sint8 flag; uint64 counter; uint64 tail;");
 
 test("fields after an alignment gap are still reported", async () => {
@@ -485,8 +468,7 @@ test("fields after an alignment gap are still reported", async () => {
     expect(await rowsFor(GAP_FIELDS, [window])).toEqual(["flag 0 → 1", "counter 0 → 42", "tail 0 → 99"]);
 });
 
-// Padding bytes cannot move through a typed QPI write, so if they did the reader wants to know — and the
-// walk still has to carry on to the field on the far side.
+// Padding bytes cannot move through a typed QPI write, so if they did the reader wants to know — and the walk still has to reach the field beyond.
 test("a change inside an alignment gap is reported without stopping the walk", async () => {
     const window = diffWindow(0, 24, undefined, (bytes) => {
         bytes[0] = 1;
@@ -503,8 +485,7 @@ test("an untouched alignment gap costs no row", async () => {
     expect(await rowsFor(GAP_FIELDS, [window])).toEqual(["tail 0 → 99"]);
 });
 
-// Past the last field, alignment slack and a region longer than the whole state are indistinguishable, so
-// that row stays unconditional — trace-format.test.ts leans on it to spot a degraded IDL.
+// Past the last field, alignment slack and a region longer than the whole state are indistinguishable, so that row stays unconditional.
 test("a region running past the last field still says so", async () => {
     const window = diffWindow(0, 32, undefined, (bytes) => writeLe(bytes, 16, 99));
 
@@ -524,8 +505,7 @@ test("a gap in the middle of a large state does not stop the walk", async () => 
     expect(await rowsFor(FAR_GAP_FIELDS, [window])).toEqual(["narrow 0 → 5", "after 0 → 77"]);
 });
 
-// The gap is not hypothetical: 10 of the 28 system contracts have one, QX included, where the four bytes
-// after _tradeFee used to hide the whole order book from any window that reached them.
+// The gap is not hypothetical: 10 of 28 system contracts have one, QX included, where the four bytes after _tradeFee hid the whole order book.
 function stateGaps(fields: StateField[]): { end: number; next: StateField }[] {
     const gaps: { end: number; next: StateField }[] = [];
 

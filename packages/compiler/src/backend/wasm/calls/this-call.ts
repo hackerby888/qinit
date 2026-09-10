@@ -28,8 +28,7 @@ export function emitThisCall(
         }
         return "";
     }
-    // Resolve the dependent static call through the actual HashFunc template binding. This is important
-    // both for the default HashFunction<KeyT> body and for contract-provided custom hashers.
+    // Resolve the dependent static call through the actual HashFunc binding — for the default HashFunction<KeyT> body and for contract-provided hashers.
     if (methodName.endsWith("::hash")) {
         const targetName = methodName.slice(0, methodName.lastIndexOf("::"));
         const bound = context.thisBind?.types.get(targetName);

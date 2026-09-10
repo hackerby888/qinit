@@ -44,14 +44,11 @@ export class DeclarationParser {
                 return this.parser.declarations.parseFriend();
             case TokenKind.KW_TYPENAME:
             case TokenKind.KW_VOLATILE:
-                // `typename` only disambiguates a dependent type, and `volatile` has no meaning for a
-                // single-threaded contract. Both qualify the declaration that follows, so drop the
-                // qualifier and parse it.
+                // `typename` only disambiguates a dependent type and `volatile` is meaningless here; both qualify what follows, so drop and parse it.
                 this.parser.state.next();
                 return this.parser.declarations.parseDeclaration();
             case TokenKind.TILDE: {
-                // A destructor has no return type. Without this case the '~' falls to the default branch
-                // and is skipped, leaving `Foo(){}` to re-parse as a constructor.
+                // A destructor has no return type; without this case the '~' falls to the default branch, leaving `Foo(){}` to re-parse as a constructor.
                 this.parser.state.next();
                 const destructorName = this.parser.state.expect(TokenKind.IDENTIFIER, "destructor name");
                 if (!destructorName) {
@@ -112,8 +109,7 @@ export class DeclarationParser {
                 return this.parser.functions.parseFunctionRest(`operator ${targetName}`, targetType, false, false, false, false, false);
             }
             default:
-                // Not understanding a token means not knowing what the code says, so continuing would
-                // reinterpret the rest of the declaration as something else. Refuse instead.
+                // Not understanding a token means not knowing what the code says, so continuing would reinterpret the rest of the declaration. Refuse.
                 this.parser.state.diagnostics.push({
                     severity: DiagnosticSeverity.ERROR,
                     message: `unsupported construct at '${tok.text}' (${tok.kind}) — the TypeScript compiler cannot parse this; build this contract with clang`,

@@ -18,8 +18,7 @@ export function useFrame(interval = 80): number {
     return frame;
 }
 
-// Terminal size that re-renders on resize — for full-height layouts that pin something to the last row.
-// termCols() in ./format stays for one-shot commands that only need the width once.
+// Terminal size that re-renders on resize, for full-height layouts pinning something to the last row; termCols() stays for one-shot commands.
 export function useTerminalSize(): { columns: number; rows: number } {
     const { stdout } = useStdout();
     const read = () => ({

@@ -1,21 +1,5 @@
-// Mutation sweep: break one line of source, run the tests, record whether anything failed, restore.
-// A mutation that survives is code nothing guards.
-//
-//   QINIT_CORE=~/qubic-core-lite bun run scripts/mutation-sweep.ts mutations.json
-//   QINIT_CORE=~/qubic-core-lite bun run scripts/mutation-sweep.ts --reach
-//
-// The list is JSON: [{ "label", "file", "from", "to", "fast"?, "slow"? }], where "file" is
-// repo-relative and "fast"/"slow" override the default test subsets for that one mutation.
-//
-// Two phases per mutation, because most mutants die in the fast one and the slow subset costs
-// minutes. The anchor must match exactly once or the mutation is skipped: an ambiguous anchor
-// mutates the wrong line, or nothing, and either reads as a clean pass.
-//
-// Classifying survivors matters more than counting them. A survivor is either a real gap or a
-// mutant that cannot change behaviour, and the two call for opposite responses. Re-run it against
-// the whole suite first, since the subsets skip entire directories. Then --reach, which compiles
-// every system contract and hashes the wasm: identical bytes mean the line never ran. Different
-// bytes prove only that it ran — run the contract and compare values before calling it a gap.
+// Mutation sweep: break one source line, run tests, restore — a survivor is code nothing guards. JSON list: [{ label, file, from, to, fast?, slow? }].
+// An anchor must match exactly once or the mutation is skipped: an ambiguous anchor mutates the wrong line, or nothing, and either reads as a clean pass.
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -32,8 +16,7 @@ interface Mutation {
     slow?: string;
 }
 
-// Without a core checkout the differentials skip instead of running, which turns every mutation
-// they would have caught into a false survivor.
+// Without a core checkout the differentials skip, turning every mutation they would have caught into a false survivor.
 const corePath = process.env.QINIT_CORE;
 if (!corePath) {
     throw new Error("QINIT_CORE is required: without it the slow phase skips rather than runs, and every survivor it reports is false");
@@ -110,9 +93,7 @@ function runList(listPath: string): void {
     }
 }
 
-// Every sibling is offered as a callee so inter-contract calls resolve without a dependency table.
-// A few contracts still produce no wasm that way; they are reported rather than hidden, because a
-// contract that stops compiling under a mutation is itself a result.
+// Every sibling is offered as a callee so inter-contract calls resolve without a dependency table; one that then fails to compile is reported, not hidden.
 async function runReachProbe(): Promise<void> {
     await initK12();
     const qpiHeader = loadQpiHeader(core);

@@ -1,7 +1,4 @@
-// Every bug this pattern produced came from a lookup keyed by a class's name that answered only when
-// the class owned an entry of its own. The shapes below are the ones that leave a class without one;
-// the operations are the ones that consult such a lookup. Their product is generated rather than
-// written out, so the combinations nobody thought of are covered too.
+// Every bug this pattern produced came from a lookup keyed by class name that answered only when the class owned an entry; the product is generated here.
 
 /** A class shape, plus how to spell the type and reach a uint64 field named `v`. */
 export interface Shape {

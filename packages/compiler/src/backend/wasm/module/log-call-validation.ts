@@ -27,8 +27,7 @@ interface ResolvedPayload {
     type: TypeSpec | null;
 }
 
-// Report LOG_* calls that cannot reach the chain, and payloads that break the host contract.
-// Running here rather than in emission is what lets the editor see them.
+// Report LOG_* calls that cannot reach the chain, and payloads that break the host contract; running here rather than in emission lets the editor see them.
 export function validateLogCalls(prepared: PreparedContractModule): void {
     const contract = prepared.contract;
 
@@ -38,8 +37,7 @@ export function validateLogCalls(prepared: PreparedContractModule): void {
 
     const rootsByFunction = collectPayloadRoots(prepared);
 
-    // Only the contract's own members are walked. In gtest's second pass the contract is the runner,
-    // so the target's calls sit in a sibling declaration and are never reported twice.
+    // Only the contract's own members are walked: in gtest's second pass the contract is the runner, so the target's calls sit in a sibling declaration.
     for (const member of contract.members) {
         if (member.kind !== AstKind.FUNCTION) {
             continue;
@@ -60,8 +58,7 @@ export function validateLogCalls(prepared: PreparedContractModule): void {
     }
 }
 
-// A log is recorded against the current transaction, which a function is never invoked by.
-// Lifecycle hooks share the function context type but do run inside tick processing.
+// A log is recorded against the current transaction, which a function is never invoked by; lifecycle hooks share the context type but run inside ticking.
 function logsCannotReachTheChain(prepared: PreparedContractModule, declaration: FunctionDecl): boolean {
     if (declaration.name === MIGRATION_IMPLEMENTATION || prepared.systemProcedureIndex.idsByImplementation.has(declaration.name)) {
         return false;
@@ -77,8 +74,7 @@ function logsCannotReachTheChain(prepared: PreparedContractModule, declaration: 
     return resolved.kind === AstKind.NAME && resolved.name === QPI_FUNCTION_CONTEXT;
 }
 
-// Helper functions are deliberately absent: emission binds them empty layouts, so their bodies
-// carry no resolvable payload root.
+// Helper functions are deliberately absent: emission binds them empty layouts, so their bodies carry no resolvable payload root.
 export function collectPayloadRoots(prepared: PreparedContractModule): Map<string, PayloadRoots> {
     const layouts = prepared.layouts;
     const state = prepared.stateLayout;
@@ -96,8 +92,7 @@ export function collectPayloadRoots(prepared: PreparedContractModule): Map<strin
     const systemProcedures = prepared.systemProcedureIndex;
 
     for (const name of systemProcedures.idsByImplementation.keys()) {
-        // System procedures name their locals after the macro, not the implementation symbol, and
-        // take their I/O structs from the ABI table rather than a `${name}_input` convention.
+        // System procedures name their locals after the macro, not the implementation symbol, and take their I/O structs from the ABI table.
         const localsPrefix = systemProcedures.prefixesByImplementation.get(name) ?? name;
         const io = SYSPROC_IO[name];
 
@@ -170,8 +165,7 @@ function checkLogStatement(programAnalysis: ProgramAnalysis, roots: PayloadRoots
     const span = argument.span ?? statement.span;
     const message = logPayloadMessage(call.callee.name, defect);
 
-    // Reported as a fidelity warning so it hardens into an error for ordinary builds while
-    // `strict: false` can still compile a known-violating contract from the core corpus.
+    // Reported as a fidelity warning so it hardens into an error for ordinary builds while `strict: false` can still compile a known-violating contract.
     if (defect === LogPayloadDefect.HEADER_WORD_NOT_RESERVED) {
         programAnalysis.warn(message, span);
         return;
@@ -180,8 +174,7 @@ function checkLogStatement(programAnalysis: ProgramAnalysis, roots: PayloadRoots
     programAnalysis.error(message, span);
 }
 
-// ponytail: depth-1 payloads only (locals.x / state.get().x); deeper chains need codegen's typedef
-// and template member-type resolution, so they fall through to the codegen check.
+// Depth-1 payloads only (locals.x / state.get().x); deeper chains need codegen's typedef and template member-type resolution, so they fall through.
 export function resolvePayload(programAnalysis: ProgramAnalysis, roots: PayloadRoots, expression: Expression): ResolvedPayload | null {
     const direct = rootLayout(roots, expression);
 
@@ -195,8 +188,7 @@ export function resolvePayload(programAnalysis: ProgramAnalysis, roots: PayloadR
 
     const base = rootLayout(roots, expression.object);
 
-    // An unresolved prefix and qpi.h's `typedef NoData <fn>_locals` both arrive as an empty layout,
-    // and neither says anything about the payload.
+    // An unresolved prefix and qpi.h's `typedef NoData <fn>_locals` both arrive as an empty layout, and neither says anything about the payload.
     if (!base || base.fields.size === 0) {
         return null;
     }

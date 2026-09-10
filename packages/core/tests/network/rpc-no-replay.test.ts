@@ -1,5 +1,4 @@
-// A relative advance that times out may already have run on the node, so the client must not re-send
-// it. Absolute routes keep the retry: replaying them changes nothing.
+// A relative advance that times out may already have run, so the client must not re-send it; absolute routes keep the retry since replaying changes nothing.
 import { test, expect, afterEach } from "bun:test";
 import { ADVANCE_EPOCH_TIMEOUT_MS, ADVANCE_TICK_TIMEOUT_MS, LiteRpc, RpcTimeoutError } from "../../src/net/rpc/client";
 import { RequestTimeoutError } from "../../src/net/http";

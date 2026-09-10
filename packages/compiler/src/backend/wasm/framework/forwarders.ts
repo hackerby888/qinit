@@ -2,8 +2,7 @@ import type { QpiContextLayout } from "./framework-types";
 import { hasLhostImport, type LhostAbiSpec } from "../lhost";
 
 export function emitForwarders(contextLayout: QpiContextLayout, lhostAbi?: LhostAbiSpec): string {
-    // `cheat` is the one optional import: headers predating the cheatcodes never declare it, and a
-    // forwarder to an undeclared import fails the WAT encode for every contract, cheatcode or not.
+    // `cheat` is the one optional import: headers predating cheatcodes never declare it, and a forwarder to an undeclared import fails the WAT encode.
     const cheatForwarder = hasLhostImport(lhostAbi, "cheat")
         ? `\n  (func $qpi_cheat (param $op i32) (param $a i64) (param $b i64) (param $ptr i32) (param $len i32) (result i64) (call $lh_cheat (local.get $op) (local.get $a) (local.get $b) (local.get $ptr) (local.get $len)))`
         : "";

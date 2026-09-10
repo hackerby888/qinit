@@ -329,8 +329,7 @@ test("bridge request/response structs: SIZE == C++ sizeof", () => {
 });
 
 test("RespondSystemInfo is packed: no alignment padding (u64 at the unaligned @68)", () => {
-    // Under natural alignment the i32 solutionThreshold @64 would force 4 bytes of pad before the u64; #pragma
-    // pack(1) places it at @68 instead. The derived offsets must reproduce that.
+    // Under natural alignment the i32 solutionThreshold @64 would force 4 bytes of pad; #pragma pack(1) places it at @68, and the offsets must reproduce that.
     expect(RespondSystemInfo.OFFSETS).toMatchObject({
         version: 0,
         epoch: 2,

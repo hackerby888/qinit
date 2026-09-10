@@ -51,16 +51,11 @@ function scalarWidth(programAnalysis: ProgramAnalysis, type: TypeSpec): number |
     return SCALAR_SIZE[storage.name] ?? SCALAR_SIZE[base] ?? null;
 }
 
-/**
- * How well an argument type binds to a parameter type, by the ranking C++ uses to pick an overload.
- *
- * Expressed in width and signedness rather than type names, so it holds for any scalar spelling.
- */
+/** How well an argument type binds to a parameter type, by the ranking C++ uses. Expressed in width and signedness, so it holds for any scalar spelling. */
 export function conversionRank(programAnalysis: ProgramAnalysis, from: TypeSpec, to: TypeSpec): number {
     const target = programAnalysis.derefType(to);
 
-    // Reaching a class from a scalar needs a converting constructor, which ranks below every
-    // standard conversion.
+    // Reaching a class from a scalar needs a converting constructor, which ranks below every standard conversion.
     if (programAnalysis.isAggregateType(target)) {
         return CONVERSION_RANK.userDefined;
     }

@@ -68,9 +68,7 @@ function memberSnippet(item: FallbackItem): vscode.SnippetString {
     return snippet;
 }
 
-// Only `label.detail` renders inline, directly after the name — `label.description` sits far right and
-// `CompletionItem.detail` only reaches the details pane. So a field annotates its type there, the way a
-// method already shows its parameters, and both also fill the details pane.
+// Only `label.detail` renders inline after the name, so a field annotates its type there as a method shows its parameters; both also fill the details pane.
 function fallbackCompletionItem(item: FallbackItem): vscode.CompletionItem {
     if (item.kind !== "method") {
         const field = new vscode.CompletionItem(
@@ -105,8 +103,7 @@ function fallbackCompletionItem(item: FallbackItem): vscode.CompletionItem {
 const TYPED_WORD = /[A-Za-z0-9_]*$/;
 const HOVER_TYPE = /^Type:\s*(.+)$/m;
 
-// clangd prints a variable's type on its own hover line, and resolves it correctly even where the
-// completion bug leaves the member list empty — so that line is the seam for a general-C++ receiver.
+// clangd prints a variable's type on its own hover line and resolves it even where the completion bug empties the member list, so that line is the seam.
 async function hoverTypeAt(doc: vscode.TextDocument, offset: number): Promise<string | undefined> {
     const hovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", doc.uri, doc.positionAt(offset));
     for (const hover of hovers ?? []) {
@@ -118,8 +115,7 @@ async function hoverTypeAt(doc: vscode.TextDocument, offset: number): Promise<st
     return undefined;
 }
 
-// clangd's member completion breaks on preamble types with template members (member-fallback.ts),
-// so an empty list is retried through the QPI compiler, which resolves the same types.
+// clangd's member completion breaks on preamble types with template members (member-fallback.ts), so an empty list is retried through the QPI compiler.
 async function fallbackMemberCompletions(
     doc: vscode.TextDocument,
     position: vscode.Position,
@@ -145,8 +141,7 @@ async function fallbackMemberCompletions(
     return items.filter((item) => keepMemberLabel(item.name, typedPrefix(linePrefix))).map(fallbackCompletionItem);
 }
 
-// A member list is already scoped by its type, so only the names QPI reserves have to go — and when
-// Sema resolved nothing (an empty list, or one padded with word-list items) the compiler answers.
+// A member list is already scoped by its type, so only QPI's reserved names go; when Sema resolved nothing the compiler answers instead.
 async function memberCompletions(
     doc: vscode.TextDocument,
     position: vscode.Position,
@@ -177,16 +172,14 @@ async function filterCompletions(
         return result;
     }
 
-    // A null result still goes through the member branch: the clangd bug the fallback covers can
-    // surface as an absent list, not only as an empty or word-list one.
+    // A null result still goes through the member branch: the clangd bug can surface as an absent list, not only an empty or word-list one.
     const items = result ? (Array.isArray(result) ? result : result.items) : [];
     const linePrefix = doc.lineAt(position.line).text.slice(0, position.character);
     const scope = completionScope(linePrefix);
     // clangd truncates its result set, so the list stays incomplete and is re-requested as the user types.
     const incomplete = result !== null && result !== undefined && !Array.isArray(result) ? result.isIncomplete : false;
 
-    // A gtest may write std:: and the gtest macros, so only the member step applies there: narrowing
-    // a test to the QPI surface would hide what it legitimately needs.
+    // A gtest may write std:: and the gtest macros, so only the member step applies — narrowing it to the QPI surface would hide what it needs.
     if (isTestDoc(doc)) {
         if (scope.kind !== "member") return result;
         const members = await memberCompletions(doc, position, linePrefix, items, token, out);
@@ -216,8 +209,7 @@ async function filterCompletions(
 
 // `State` from vscode-languageclient, which this extension does not depend on directly.
 const CLANGD_CLIENT_RUNNING = 2;
-// vscode-clangd replaces the client without waiting for the old one to release its commands, which
-// only completes promptly once that client is past its own startup. Grace after it reports Running.
+// vscode-clangd replaces the client without waiting for the old one to release its commands, so grace is needed after it reports Running.
 const CLANGD_SETTLE_MS = 1500;
 const CLANGD_SETTLE_POLL_MS = 250;
 const CLANGD_SETTLE_TIMEOUT_MS = 15000;
@@ -237,8 +229,7 @@ interface ClangdApi {
     };
 }
 
-// The clangd extension exposes its language client's middleware hook, read per request, so wrapping it
-// here filters without taking the provider over; clangd.restart rebuilds the client, hence the re-check.
+// The clangd extension exposes its client's middleware hook per request, so wrapping it filters without owning the provider; clangd.restart forces a re-check.
 function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChannel): boolean {
     const initialCore = contractCorePath ?? core;
     if (!initialCore) return false;
@@ -262,8 +253,7 @@ function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChan
     return true;
 }
 
-// The clangd client comes up asynchronously; a document event may run before it exists, so keep
-// retrying until the middleware is wrapped (and again after `clangd.restart` builds a new client).
+// The clangd client comes up asynchronously, so keep retrying until the middleware is wrapped — and again after `clangd.restart` builds a new client.
 let filterRetryActive = false;
 function scheduleCompletionFilter(core: string | undefined, out: vscode.OutputChannel): void {
     if (ensureCompletionFilter(core, out) || filterRetryActive) return;
@@ -282,8 +272,7 @@ function clangdClient(): ClangdApi["languageClient"] {
     return vscode.extensions.getExtension("llvm-vs-code-extensions.vscode-clangd")?.exports?.getApi?.(1)?.languageClient;
 }
 
-// clangd never re-reads a database that appears after it resolved a file, so a new entry needs the
-// restart; restarting a still-starting client kills it, and one that never comes up reads the DB itself.
+// clangd never re-reads a database that appears after it resolved a file, and restarting a still-starting client kills it — hence the retry and self-read.
 async function clangdSettled(): Promise<boolean> {
     const deadline = Date.now() + CLANGD_SETTLE_TIMEOUT_MS;
     while (Date.now() < deadline) {
@@ -297,8 +286,7 @@ async function clangdSettled(): Promise<boolean> {
 }
 
 function refreshClangd(root: string, out: vscode.OutputChannel, core?: string): void {
-    // Opening a contract and then its test writes two entries. Dropping the second request would
-    // leave that file on clangd's fallback flags, so a request arriving mid-restart runs after it.
+    // Opening a contract then its test writes two entries; dropping the second would leave that file on clangd's fallback flags, so it runs after the restart.
     if (restartingRoots.has(root)) {
         pendingRefreshRoots.add(root);
         return;
@@ -361,8 +349,7 @@ function regenerateContract(doc: vscode.TextDocument, context: vscode.ExtensionC
     }
 }
 
-// From a gtest the contract is an external module spelled `Counter::Get_input`, which is exactly how a
-// callee's structs are keyed — so the contract analyzes as one more callee of its own test.
+// From a gtest the contract is an external module spelled `Counter::Get_input`, exactly how a callee's structs are keyed — so it analyzes as one more callee.
 function testAnalysisContext(details: ProjectSourceDetails): ProjectAnalysisContext {
     const open = vscode.workspace.textDocuments.find((candidate) => candidate.fileName === details.contractPath);
     let source: string;

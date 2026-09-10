@@ -258,9 +258,7 @@ try {
         failures++;
     }
 
-    // Cross-call probes. clangd cannot complete members through a field whose preamble type carries a
-    // template member (upstream, clangd 17-22); the extension covers that with a clang fallback. This
-    // canary asserts the raw breakage, so a fixed clangd release flips it and retires the fallback.
+    // Cross-call canary: clangd (17-22) cannot complete members through a field whose preamble type carries a template member; a fix here retires the fallback.
     send("textDocument/didOpen", { textDocument: { uri: callerUri, languageId: "cpp", version: 1, text: CALLER } }, true);
     await new Promise((resolve) => setTimeout(resolve, 4000));
 
@@ -285,8 +283,7 @@ try {
         failures++;
     }
 
-    // `std::` is a qualified scope, and the standard namespace is not part of the QPI surface — even though
-    // this probe spells `std` in its own source, which is what the document-identifier rescue goes by.
+    // `std::` is a qualified scope outside the QPI surface, even though this probe spells `std` — which is what the document-identifier rescue goes by.
     const stdScopeKept = completionScope("    locals.x = std::").kind === "qualified" && keepQualifiedScope("std", allowed, documentNames);
     console.log(
         `std::        -> ${stdScope.length} raw, ${stdScopeKept ? stdScope.length : 0} filtered; std offered at value scope: ${filtered.includes("std")}`,

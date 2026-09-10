@@ -144,8 +144,7 @@ export function replaceExactly(source: string, edit: Edit, label: string): strin
         throw new Error(`${label}: expected ${expected} match(es) for ${edit.pattern}, found ${matches.length}`);
     }
 
-    // Replacements are written with LF. A checkout with CRLF endings (git's Windows default) would
-    // otherwise be rewritten to LF at every match, so --check reports drift that syncing can never settle.
+    // Replacements are written LF, so a CRLF checkout (git's Windows default) would be rewritten at every match and --check would report unsettleable drift.
     const replacement = source.includes("\r\n") ? edit.replacement.replace(/\r?\n/g, "\r\n") : edit.replacement;
     return source.replace(pattern, () => replacement);
 }

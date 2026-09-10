@@ -36,8 +36,7 @@ export function planEditorProjectSlots(nodes: readonly ResolvedContract[], layou
     return assignSlots(nodes, layout);
 }
 
-// Eagerly indexed siblings take slots too, so a workspace with more contracts than the dynamic window
-// would stop planning altogether. Drop them and keep the contracts the project actually builds.
+// Eagerly indexed siblings take slots too, so a workspace with more contracts than the dynamic window would stop planning; drop them and keep what it builds.
 function planWithSiblings(nodes: readonly ResolvedContract[], layout: { slotBase: number; slotCount: number }): SlottedContract[] {
     try {
         return planEditorProjectSlots(nodes, layout);
@@ -89,8 +88,7 @@ function catalogIdl(node: SlottedContract, catalog: readonly SystemContract[]): 
     };
 }
 
-// Every project contract the edited one could name: the ones it already calls, plus the siblings the
-// editor indexed eagerly so `Sibling::` resolves before the first reference is written.
+// Every project contract the edited one could name: those it calls, plus siblings indexed eagerly so `Sibling::` resolves before the first reference exists.
 function visibleDependencies(contract: SlottedContract, nodes: readonly SlottedContract[]): SlottedContract[] {
     const dependencies = calleeClosure(contract, nodes);
     const referenced = new Set(dependencies.map((node) => node.stateType));
@@ -122,8 +120,7 @@ function analysisContext(contract: SlottedContract, nodes: readonly SlottedContr
             });
             idl = result.idl;
             if (!idl) {
-                // A sibling this contract does not call is offered for completion only, so its own
-                // errors belong on its own document rather than on the one being edited.
+                // A sibling this contract does not call is offered for completion only, so its errors belong on its own document.
                 if (!referenced.has(dependency.stateType)) {
                     continue;
                 }

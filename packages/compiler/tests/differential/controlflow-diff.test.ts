@@ -1,11 +1,7 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
-// Differential gtest for control flow. The other 40 differentials cover math and containers well but
-// almost no branching: across their embedded C++ there is no `do…while`, no `continue`, no `&&`, no
-// `||` and no nested loop. What coverage existed lived in edge/edge-audit-controlflow.test.ts, which
-// compiled with Qinit, ran on Qinit's simulator and compared against hand-written constants — compiler
-// and expectation could be wrong together. Here the gtest is built by clang and computes each expected
-// value inline, so clang's codegen judges ours.
+// Differential gtest for control flow: the other 40 differentials cover math and containers but almost no branching — no do…while, continue, && or nested loop.
+// The gtest is built by clang and computes each expected value inline, so clang's codegen judges ours rather than hand-written constants judging both.
 import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
@@ -132,8 +128,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     output.value = locals.sum * 100 + locals.tail;
   }
 
-  // The condition is re-evaluated every iteration, and the right side must stay unevaluated once the
-  // left is false.
+  // The condition is re-evaluated every iteration, and the right side must stay unevaluated once the left is false.
   struct ShortCircuitLoop_input {}; struct ShortCircuitLoop_output { uint64 value; };
   struct ShortCircuitLoop_locals { uint64 i; uint64 probes; uint64 sum; };
   PUBLIC_FUNCTION_WITH_LOCALS(ShortCircuitLoop) {
@@ -142,8 +137,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     output.value = locals.sum * 100 + locals.probes;
   }
 
-  // A logical operator whose right side is itself a logical operator: the lowering hoists that into a
-  // branch with a temporary instead of an inline if-expression, which is a separate code path.
+  // A logical operator whose right side is itself one: the lowering hoists that into a branch with a temporary rather than an inline if-expression.
   struct NestedLogical_input {}; struct NestedLogical_output { uint64 value; };
   struct NestedLogical_locals { uint64 a; uint64 b; uint64 c; uint64 hits; uint64 out; };
   PUBLIC_FUNCTION_WITH_LOCALS(NestedLogical) {
@@ -206,8 +200,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     output.value = locals.out * 10 + locals.hits;
   }
 
-  // WASM has no arbitrary jump, so returning out of two loops is the case most likely to get the block
-  // depth wrong.
+  // WASM has no arbitrary jump, so returning out of two loops is the case most likely to get the block depth wrong.
   struct EarlyReturn_input {}; struct EarlyReturn_output { uint64 value; };
   struct EarlyReturn_locals { uint64 i; uint64 j; uint64 sum; };
   PUBLIC_FUNCTION_WITH_LOCALS(EarlyReturn) {
@@ -221,8 +214,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     output.value = 999999;
   }
 
-  // Raw division by zero traps, so an eagerly evaluated right side faults the contract instead of
-  // returning a plausible number. fidelity-edges uses the same probe for the ternary.
+  // Raw division by zero traps, so an eagerly evaluated right side faults the contract instead of returning a plausible number.
   struct LazyTrap_input { uint64 zero; }; struct LazyTrap_output { uint64 value; };
   struct LazyTrap_locals { uint64 out; };
   PUBLIC_FUNCTION_WITH_LOCALS(LazyTrap) {
@@ -255,8 +247,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-// Each reference is the same program written as plain C++ and compiled by clang, so the assertion
-// compares two compilers on one source rather than our output against a number someone typed.
+// Each reference is the same program as plain C++ compiled by clang, so the assertion compares two compilers on one source rather than against a constant.
 const FLOW_GTEST = coreGtest(
     "Flow",
     `static uint64 refForContinue() { uint64 s = 0; for (uint64 i = 0; i < 5; i++) { if (i == 2) continue; s += i; } return s; }

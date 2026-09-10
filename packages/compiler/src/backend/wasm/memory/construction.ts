@@ -45,12 +45,7 @@ export function resolveContainerElem(
     return result;
 }
 // Zero an aggregate destination, then initialize each supplied field.
-/**
- * Run each direct base's constructor on its own subobject.
- *
- * A derived class constructs its bases before its own body runs, whether or not it declares a
- * constructor of its own; without this a base that initialises its fields leaves them zero.
- */
+/** Run each direct base's constructor on its own subobject: a derived class constructs its bases first, or a base that initialises fields leaves them zero. */
 function emitBaseConstructors(context: FunctionEmissionContext, dstAddr: string, type: TypeSpec): void {
     const bind = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
     const layout = context.programAnalysis.layoutOfType(type, bind);
@@ -99,8 +94,7 @@ export function emitConstruct(context: FunctionEmissionContext, dstAddr: string,
     context.lines.push(
         `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", watIr.localGet(destinationBase, WatNodeType.I32), watIr.i32Constant(layout.size), watIr.i32Constant(0)))}`,
     );
-    // With no arguments this is default construction, so the bases construct themselves. A braced
-    // initialiser instead assigns the fields below, which is what aggregate initialisation means.
+    // With no arguments this is default construction, so the bases construct themselves; a braced initialiser instead assigns the fields below.
     if (callArguments.length === 0) emitBaseConstructors(context, `(local.get $${destinationBase})`, type);
     for (let index = 0; index < callArguments.length && index < fields.length; index++) {
         const field = fields[index];

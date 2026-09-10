@@ -1,5 +1,4 @@
-// ESM twin of ./sign-sync for the bundled entries: same FourQ module, but sign-sync's CJS `require` (needed
-// by `bun build --compile`) cannot run in a page bundle. Kept off browser.ts so gen-runtime can stub it.
+// ESM twin of ./sign-sync for bundled entries: same FourQ module, but sign-sync's CJS `require` cannot run in a page bundle. Kept off browser.ts for stubbing.
 import cryptoModule from "@qubic-lib/qubic-ts-library/dist/crypto/index.js";
 
 interface SchnorrQ {

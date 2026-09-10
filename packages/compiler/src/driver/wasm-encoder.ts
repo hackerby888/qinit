@@ -5,8 +5,7 @@ import { inspectWasmModule } from "./wasm-inspection";
 import { toWasmFunctionSignatures } from "./wasm-inspection/inspection-types";
 import type { CompileOptions } from "./types";
 
-// ArrayBuffer-backed, not just `Uint8Array`: the browser's DOM lib types `BufferSource` as
-// ArrayBuffer-only, so a possibly-shared view is not a valid `WebAssembly.validate` argument.
+// ArrayBuffer-backed, not just `Uint8Array`: the browser's DOM lib types `BufferSource` as ArrayBuffer-only, so a possibly-shared view is not valid.
 export async function encodeWat(wat: string, sourceName: string): Promise<Uint8Array<ArrayBuffer>> {
     const wabt = await import("wabt");
     const wabtModule = await wabt.default();
@@ -25,8 +24,7 @@ export function stateJournalDisabled(): boolean {
 export async function encodeAndInspectWat(wat: string, options: CompileOptions, metadata: GeneratedContractMetadata): Promise<Uint8Array> {
     const encoded = await encodeWat(wat, "contract.wat");
 
-    // Baked in before inspection, so the module that ships is the one the ABI gate checked. Shared
-    // memory reserves no journal room, so it is skipped.
+    // Baked in before inspection, so the module that ships is the one the ABI gate checked; shared memory reserves no journal room, so it is skipped.
     const bakeJournal = options.sharedMemoryBaseOffsetBytes === undefined && !stateJournalDisabled();
     const journalOptions = options.journalCapBytes === undefined ? {} : { journalCapBytes: options.journalCapBytes };
     const wasm = bakeJournal ? instrumentStateJournal(encoded, journalOptions).wasm : encoded;

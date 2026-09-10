@@ -7,8 +7,7 @@ import { resolveSeed } from "../../../config";
 import { KV, SectionHeader, Spinner, Status, TextPrompt, theme, truncEnd, truncMid } from "../../../ui";
 import { SectionBody, errText, fmtAmount, type ViewProps } from "./chrome";
 
-// Ask for more than either backend holds so the whole pool always arrives. Never 0: core reads that as
-// "all", the simulator as "none".
+// Ask for more than either backend holds so the whole pool always arrives. Never 0: core reads that as all, the simulator as none.
 const FUNDED_POOL_LIMIT = 256;
 
 const FIELD_COUNT = 3;
@@ -54,8 +53,7 @@ export interface FundedPool {
     total: number;
 }
 
-// A node without the route and a genuine miss are different failures and must never share a message —
-// the route is compile-gated on core, so "unavailable" is a real and common case.
+// A node without the route and a genuine miss are different failures and must never share a message — the route is compile-gated on core.
 export function poolSeedForIdentity(identity: string, pool: FundedPool | null, poolError: string): string {
     if (poolError) {
         throw new Error(`funded-seed route unavailable — the node is not a TESTNET build (${poolError})`);
@@ -74,8 +72,7 @@ export function poolSeedForIdentity(identity: string, pool: FundedPool | null, p
     return seed;
 }
 
-// `max` is a word rather than an autofill: the prompt owns its own buffer, so writing into it from the
-// outside would mean remounting the field and losing the caret.
+// `max` is a word rather than an autofill: the prompt owns its buffer, so writing into it from outside would mean remounting the field and losing the caret.
 function parseAmount(text: string, balance: bigint | null): AmountState {
     if (text === "") {
         return { status: "idle" };
@@ -94,8 +91,7 @@ function parseAmount(text: string, balance: bigint | null): AmountState {
         const over = fmtAmount((wanted - balance).toString());
         return { status: "error", message: `over the sender's balance by ${over} qu` };
     }
-    // buildSignedTx takes a number, and anything past 2^53 would round silently — signing an amount other
-    // than the one on screen.
+    // buildSignedTx takes a number, and anything past 2^53 would round silently — signing an amount other than the one on screen.
     if (!Number.isSafeInteger(Number(wanted))) {
         return { status: "error", message: "too large to sign exactly" };
     }
@@ -115,8 +111,7 @@ function shapeHint(kind: WalletInputKind, value: string): string {
     return "";
 }
 
-// Hints must stay on one row — the shell budgets body rows by counting them. A 60-char identity plus a
-// balance overflows 80 columns, and the balance is the part worth keeping, so the identity gives.
+// Hints must stay on one row — the shell budgets body rows by counting them. A 60-char identity plus a balance overflows 80 columns, so the identity gives.
 function HintLine({ state, extra, columns }: { state: PartyState; extra?: string; columns: number }) {
     const budget = Math.max(20, columns - 4);
 
@@ -192,8 +187,7 @@ export function WalletView({
     rowCount.current = 0;
     openRow.current = () => {};
 
-    // The pool and the default sender are both needed before the fields mount: TextPrompt captures its
-    // initial value once, so a seed arriving later would never reach the field.
+    // The pool and the default sender are both needed before the fields mount: TextPrompt captures its initial value once, so a late seed never lands.
     useEffect(() => {
         let alive = true;
 
@@ -288,15 +282,13 @@ export function WalletView({
         void (async () => {
             try {
                 const identity = kind === "seed" ? (await deriveIdentity(value)).identity : value;
-                // The node does not check identities at all, so this checksum is the only thing between a typo
-                // and a transfer into an address nobody holds.
+                // The node does not check identities at all, so this checksum is the only thing between a typo and a transfer nobody can claim.
                 const destination = identityToBytes(identity);
                 if (alive) {
                     setTo({ status: "ok", identity, destination });
                 }
             } catch (error) {
-                // The shape already passed, so the only way to land here is a bad checksum — and the library's
-                // "expected 60 uppercase letters" would point at the wrong thing.
+                // The shape already passed, so only a bad checksum lands here, and the library's own message would point at the wrong thing.
                 if (alive) {
                     setTo({
                         status: "error",
@@ -314,8 +306,7 @@ export function WalletView({
     const amount = parseAmount(amountInput.trim(), balance);
     const complete = from.status === "ok" && to.status === "ok" && amount.status === "ok";
 
-    // A target tick past the epoch's last would never execute. epoch-info is testnet-only, so its absence
-    // just means no warning.
+    // A target tick past the epoch's last would never execute. epoch-info is testnet-only, so its absence just means no warning.
     useEffect(() => {
         if (stage !== "review") {
             return;
@@ -491,8 +482,7 @@ export function WalletView({
             <SectionBody>
                 <TextPrompt
                     label="from — seed signs directly, identity is looked up in the funded pool"
-                    // Seeded from state, not a fixed default: the prompts unmount while a transfer is in flight,
-                    // so `n` remounts them and a fixed initial value would show one sender while another signs.
+                    // Seeded from state, not a fixed default: the prompts unmount mid-transfer, so a fixed value would show one sender while another signs.
                     initial={fromInput}
                     isActive={editing && focus === 0}
                     onChange={setFromInput}

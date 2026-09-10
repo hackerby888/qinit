@@ -269,8 +269,7 @@ export function seededOperations(family: string, seed: number, count: number): C
             e: BigInt(next()),
         };
         const opcode = Number(operation.operator);
-        // Random scripts stay inside each method's documented preconditions; dedicated boundary scripts
-        // carry the invalid cases, so stress runs avoid native UB and billion-iteration Array::setRange calls.
+        // Random scripts stay inside each method's documented preconditions; boundary scripts carry the invalid cases, so stress runs avoid native UB.
         if (family === "Array" && (opcode === 2 || opcode === 3)) {
             operation.a = operation.a! % 10n;
             operation.b = operation.b! % 10n;

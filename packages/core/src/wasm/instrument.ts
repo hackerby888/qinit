@@ -1,10 +1,5 @@
-// Bakes the state-write journal into a compiled contract module: every store that can land in the
-// contract state first records the original bytes of the block it is about to overwrite.
-//
-// The rewrite only appends types, functions, globals and one export, so no existing index moves, and
-// it injects no wasm block or loop into user code, so no branch depth changes. A store's `offset` is a
-// static immediate, so `i64.store offset=N` becomes `i32.const N` + `call $__q_i64_store` and the
-// helper owns the address arithmetic — which is why no function needs extra locals.
+// Bakes the state-write journal in: every store that can land in the contract state first records the original bytes of the block it is about to overwrite.
+// It only appends types, functions, globals and one export, so no index moves and no branch depth changes; the helper owns addressing, so no extra locals.
 import {
     JOURNAL_BLOCK_BYTES,
     JOURNAL_BLOCK_SHIFT,
@@ -87,11 +82,7 @@ export interface InstrumentResult {
     readonly stateSize: number;
     readonly storesInstrumented: number;
     readonly bulkInstrumented: number;
-    /**
-     * Piecewise map from pristine to instrumented module offsets, ascending by `from`: an offset at or
-     * after `from` (and before the next entry) moves by `shift`. A debug line map built from the
-     * pristine module is remapped through this, so trap backtraces still symbolize.
-     */
+    /** Piecewise pristine -> instrumented offset map, ascending by `from`: an offset at or after `from` moves by `shift`, so a pristine line map resolves. */
     readonly offsetMap: readonly { from: number; shift: number }[];
 }
 
@@ -354,10 +345,7 @@ interface BodyRewrite {
     readonly newContentStart: number;
 }
 
-/**
- * Copies a function body verbatim except at write instructions, which are replaced by a call to the
- * matching helper.
- */
+/** Copies a function body verbatim except at write instructions, which are replaced by a call to the matching helper. */
 function rewriteBody(body: Uint8Array, helperOf: (opcode: number, bulkOperation?: number) => number): BodyRewrite {
     const reader = new ByteReader(body);
     reader.u32("body size");
@@ -557,8 +545,7 @@ export function instrumentStateJournal(wasm: Uint8Array, options: InstrumentOpti
     const ioBase = constantAccessorValue(view, "io_base");
     const ioSize = constantAccessorValue(view, "io_size");
 
-    // The journal sits past what io_size() reports, in memory reserved beside the arena, so the contract
-    // keeps every byte of scratch and a host that ignores the journal still sees the region it expects.
+    // The journal sits past what io_size() reports, so the contract keeps every byte of scratch and a host that ignores the journal sees the region it expects.
     const capBytes = Math.max(JOURNAL_ENTRY_BYTES, options.journalCapBytes ?? DEFAULT_JOURNAL_CAP_BYTES);
     const capacityBlocks = capacityFittingRegion(capacityBlocksFor(stateSize, capBytes));
 
@@ -570,8 +557,7 @@ export function instrumentStateJournal(wasm: Uint8Array, options: InstrumentOpti
         throw new InstrumentError(`a ${journalBytes}-byte journal exceeds the ${JOURNAL_REGION_BYTES}-byte reserved region`);
     }
 
-    // Instrumenting twice would duplicate the export and double-wrap every store, so it fails loudly
-    // rather than producing a module that still validates but journals nonsense.
+    // Instrumenting twice would duplicate the export and double-wrap every store, so it fails loudly rather than journalling nonsense from a valid module.
     if (view.exportedFunctions.has(JOURNAL_RESET_EXPORT)) {
         throw new InstrumentError("module already carries a state journal");
     }
@@ -683,10 +669,7 @@ function sectionLength(section: WasmSection): number {
     return 1 + new ByteWriter().u32(section.payload.length).length + section.payload.length;
 }
 
-/**
- * Where every pristine code offset lands in the instrumented module. Bodies move because the sections
- * ahead of the code section grew, and again because each rewritten site inside them is longer.
- */
+/** Where every pristine code offset lands: bodies move because the sections ahead grew, and again because each rewritten site inside them is longer. */
 function buildOffsetMap(
     wasm: Uint8Array,
     view: ModuleView,
@@ -715,8 +698,7 @@ function buildOffsetMap(
         const rewrite = rewrites[index]!;
         const oldBody = view.bodies[index]!;
         const finalBody = finalBodies[index]!;
-        // Read from the body that is actually emitted: the io_size accessor is re-encoded after the
-        // rewrite pass, and its size prefix can change width.
+        // Read from the body that is actually emitted: the io_size accessor is re-encoded after the rewrite pass, and its size prefix can change width.
         const sizeReader = new ByteReader(finalBody);
         sizeReader.u32("final body size");
         const newContentStart = sizeReader.position;
@@ -812,10 +794,7 @@ function emitReset(context: HelperContext): Uint8Array {
     return code.finish();
 }
 
-/**
- * Records the original bytes of each block this write is the first to touch. Membership lives in a
- * fixed open-addressed table, so the cost does not grow with the state size.
- */
+/** Records the original bytes of each block this write first touches; membership lives in a fixed open-addressed table, so cost ignores state size. */
 function emitNote(context: HelperContext): Uint8Array {
     const address = 0;
     const length = 1;
@@ -909,10 +888,7 @@ function emitNote(context: HelperContext): Uint8Array {
     return code.finish();
 }
 
-/**
- * Wraps one store opcode. The range test is inlined so a store that misses the state region — most of
- * them — costs a compare rather than a second call.
- */
+/** Wraps one store opcode. The range test is inlined so a store that misses the state region — most of them — costs a compare rather than a second call. */
 function emitStoreHelper(context: HelperContext, kind: StoreKind): Uint8Array {
     const baseAddress = 0;
     const value = 1;

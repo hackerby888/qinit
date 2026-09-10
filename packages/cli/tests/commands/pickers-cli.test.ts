@@ -35,8 +35,7 @@ test(
     CLI_TEST_TIMEOUT_MS,
 );
 
-// The wizard's own useInput asks ink for raw mode as soon as it mounts, so the refusal has to come first
-// — otherwise the user reads ink's "Raw mode is not supported" instead of the two flags that would work.
+// The wizard's useInput asks ink for raw mode as soon as it mounts, so the refusal must come first or the user reads ink's error instead of the two flags.
 test(
     "the call wizard refuses to mount without a terminal and names the flags instead",
     async () => {

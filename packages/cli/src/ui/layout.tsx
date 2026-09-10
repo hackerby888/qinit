@@ -52,8 +52,7 @@ export function Panel({ title, color = theme.info, children }: { title?: string;
     );
 }
 
-// A titled section divider: `▌ RECENT TICKS  20 newest first ─────────`. The trailing hairline is what
-// separates one region from the next without spending a whole bordered box on it.
+// A titled section divider; the trailing hairline separates one region from the next without spending a whole bordered box on it.
 export function SectionHeader({
     title,
     detail,

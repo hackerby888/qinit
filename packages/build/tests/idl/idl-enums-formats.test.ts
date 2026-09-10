@@ -1,6 +1,4 @@
-// Two pieces of the IDL nothing downstream recomputes: an enum's underlying scalar, and the `format`
-// string stored on a nested type. The root's format is rebuilt from the tree, but a nested struct's is
-// the string the CLI prints for that field, so its braces are load-bearing.
+// Two IDL pieces nothing recomputes: an enum's underlying scalar and a nested type's `format` string — the CLI prints it, so its braces are load-bearing.
 import { expect, test } from "bun:test";
 import { AbiScalarKind, AbiTypeKind, extractIdl } from "../../src/compile/idl";
 
@@ -59,10 +57,7 @@ test("a nested struct keeps its own name and layout beside the format", () => {
     expect(box.align).toBe(4);
 });
 
-// One row per native C spelling the compiler accepts. A spelling the kind map misses falls through to
-// scalarKindForSize, which answers unsigned for every width — so asserting `size` alone would pass on a
-// field that silently lost its sign. Every row pins `format`, which is the only place signedness shows.
-// long, unsigned long and size_t have no row: 4 bytes on wasm32 but 8 on Core, so they are rejected below.
+// One row per native C spelling; a missed one falls through to scalarKindForSize, which answers unsigned at every width — so each row pins the sign.
 const NATIVE_SCALARS: [string, string][] = [
     ["bool", "uint8"],
     ["char", "sint8"],
@@ -143,8 +138,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     expect(state.size).toBe(24);
 });
 
-// A width that differs between wasm32 and Core (LP64) would test at one layout and ship at another, and an
-// unknown spelling used to lower silently as a 4-byte scalar: both fail the analysis now.
+// A width that differs between wasm32 and Core (LP64) would test at one layout and ship at another, and an unknown spelling used to lower as a 4-byte scalar.
 test("long, size_t and an unknown type name are rejected instead of laid out as 4 bytes", () => {
     // size_t is spelled `unsigned long` once the qpi typedef is followed, so that is the name reported.
     const rejected: [spelling: string, reportedName: string][] = [

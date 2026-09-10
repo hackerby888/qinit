@@ -1,5 +1,4 @@
-// Qubic peer-protocol codec — the pure, framework-free wire layer for the TCP bridge (peer-server.ts).
-// Mirrors core-lite src/network_messages/{header.h, network_message_type.h, entity.h, tick.h, contract.h}.
+// Qubic peer-protocol codec — the pure wire layer for the TCP bridge, mirroring core-lite src/network_messages/{header,network_message_type,entity,tick}.h.
 import {
     M256i,
     RequestResponseHeader,
@@ -112,7 +111,7 @@ export function exchangePublicPeers(): Uint8Array {
     return frame(MSG.EXCHANGE_PUBLIC_PEERS, new Uint8Array(16), 0);
 }
 
-// ---- request decoders ----
+// request decoders
 export interface ContractFunctionRequest {
     contractIndex: number;
     inputType: number;
@@ -328,7 +327,7 @@ export function encodePruneResult(result: number): Uint8Array {
     return out;
 }
 
-// ---- response encoders ----
+// response encoders
 export interface EntityFields {
     incomingAmount: bigint;
     outgoingAmount: bigint;
@@ -338,8 +337,7 @@ export interface EntityFields {
     latestOutgoingTransferTick: number;
 }
 
-// RespondEntity (entity.h): EntityRecord(64) + tick(4) + spectrumIndex(4) + siblings[SPECTRUM_DEPTH*32]. The
-// siblings are the merkle proof; a client recomputes the spectrum root from EntityRecord and spectrumIndex.
+// RespondEntity (entity.h): EntityRecord(64) + tick(4) + spectrumIndex(4) + siblings; the siblings are the merkle proof for recomputing the spectrum root.
 export function encodeRespondEntity(id: Id, e: EntityFields, tick: number, spectrumIndex: number, siblings: Uint8Array[] = []): Uint8Array {
     const r = RespondEntity.alloc();
 
@@ -404,8 +402,7 @@ export function encodeSystemInfo(s: SystemInfoFields): Uint8Array {
     return r.bytes;
 }
 
-// RespondTxStatus (the addon): currentTick(4) tick(4) txCount(4) moneyFlew[(TXS_PER_TICK+7)/8] +
-// txDigests[txCount*32]. moneyFlew is a per-index bitmask of which txs moved money.
+// RespondTxStatus (the addon): currentTick(4) tick(4) txCount(4) moneyFlew bitmask + txDigests — moneyFlew says per index which txs moved money.
 export function encodeTxStatus(currentTick: number, tick: number, txDigests: Uint8Array[], moneyFlew: boolean[]): Uint8Array {
     const flagBytes = (TXS_PER_TICK + 7) >> 3;
     const buf = new Uint8Array(RespondTxStatusHeader.SIZE + flagBytes + txDigests.length * 32);

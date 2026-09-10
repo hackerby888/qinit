@@ -62,10 +62,7 @@ export function resolveConst(programAnalysis: ProgramAnalysis, name: string, tem
                 return BigInt(candidate.index);
             }
         }
-        // A partly-qualified name (Ch::K under `using namespace QPI`) reaches its declaration only once the
-        // visible using-directives are applied, so try those before the bare tail they would otherwise hit.
-        // Only a candidate that is really declared is followed: recursing on every spelling lets two names
-        // that each fall back to the other spin forever.
+        // A partly-qualified name reaches its declaration only once using-directives apply, so try those before the bare tail; only real declarations recurse.
         for (const candidate of programAnalysis.scopedConstantKeys(name)) {
             if (candidate === name) continue;
 
@@ -240,12 +237,7 @@ export function scopedConstantKeys(programAnalysis: ProgramAnalysis, name: strin
     });
 }
 
-/**
- * Resolve a constant the way C++ would from the scope the reference sits in: the innermost enclosing
- * namespace wins over the global name, so a contract constant cannot rebind one qpi.h reads unqualified.
- * Only a candidate that is really declared is followed, and it resolves under its own key so the cache
- * never hands one scope's value to another.
- */
+/** Resolve a constant as C++ would from the reference's scope: the innermost namespace wins over the global, so a contract cannot rebind qpi.h's. */
 export function resolveConstInScope(
     programAnalysis: ProgramAnalysis,
     name: string,

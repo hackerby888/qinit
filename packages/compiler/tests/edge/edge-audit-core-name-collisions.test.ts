@@ -1,6 +1,4 @@
-// A contract may nest a struct under a name core already declares. C++ resolves the nested one; the
-// compiler indexes types and methods by name, so the two can be confused silently. The names come from
-// core rather than a frozen list, so the matrix follows upstream instead of yesterday's headers.
+// A contract may nest a struct under a name core declares; C++ resolves the nested one, but name-keyed indexing can confuse them. Names come from core itself.
 import { beforeAll, describe, expect } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { SCALAR_SIZE } from "../../src/shared/scalar-sizes";
@@ -39,8 +37,7 @@ describe.skipIf(!HAS_CORE)("a nested struct keeps its own layout and methods", (
 
     for (const name of HAS_CORE ? coreStructNamesWithMethods(CORE_PATH).filter(shadowable) : []) {
         fixtureTest(`shadowing core's ${name}`, async () => {
-            // The constructor keys as `${name}/0`, the same key core's type claims, and only the
-            // contract's own body sets marker. Its own `own()` then answers 42.
+            // The constructor keys as `${name}/0`, the same key core's type claims, and only the contract's own body sets marker, so `own()` answers 42.
             expect(await run(fixture(name))).toBe(42n);
         });
     }

@@ -15,8 +15,7 @@ export interface TypeScriptCalleeBuildOptions {
     stateType?: string;
 }
 
-// Every field here is spelled as in ClangBuildOptions, so one options object drives either backend.
-// Clang-only knobs (wasmClang, extraCompileFlags) have no meaning for this backend.
+// Every field is spelled as in ClangBuildOptions so one options object drives either backend; clang-only knobs have no meaning here.
 export interface TypeScriptBuildOptions {
     contractPath?: string; // supply this or `source`
     source?: string;
@@ -129,8 +128,7 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
     }
     const gateWarnings = buildGateWarnings(analysis.diagnostics, gateContext);
 
-    // The verifier rejects a scope prefix it does not know, so every callee this contract names — planned
-    // or a system contract found in the source — is allowed, the same list the clang build passes.
+    // The verifier rejects a scope prefix it does not know, so every callee this contract names is allowed — the same list the clang build passes.
     const calleeNames = [...new Set([...dynamicCallees.map((callee) => callee.name), ...analysis.calls.map((call) => call.callee)])];
     const verify = await verifyForBuild({ contractPath, stateType: contractStateType, calleeNames, skipVerify: o.skipVerify });
     const rejected = verifyRejection(verify);

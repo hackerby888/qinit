@@ -6,9 +6,7 @@ import { describeFault, readFault } from "../../ops/fault";
 import { Header, Spinner, Bar, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 
-// qinit tick                     -> show the current-epoch tick window
-// qinit tick advance <n>         -> advance the chain by n ticks (capped at the epoch's last tick)
-// Drive system.tick to `target` via repeated bounded advance-tick calls. Returns the tick reached.
+// `qinit tick` shows the current-epoch tick window; `qinit tick advance <n>` drives system.tick toward a target via bounded advance-tick calls.
 export async function advanceTo(rpc: LiteRpc, target: number, from: number, onProgress: (cur: number) => void): Promise<{ cur: number; capped: boolean }> {
     let cur = from,
         stalls = 0,
@@ -29,8 +27,7 @@ export async function advanceTo(rpc: LiteRpc, target: number, from: number, onPr
     return { cur, capped };
 }
 
-// A tick costs whatever the deployed contracts make it cost, so the span is sized from the last round
-// trip: small enough to stay well inside the client's timeout, large enough not to crawl.
+// A tick costs whatever the deployed contracts make it cost, so the span is sized from the last round trip: inside the client's timeout, but not a crawl.
 const FIRST_CHUNK_TICKS = 32;
 const CHUNK_TARGET_MS = 3000;
 
@@ -40,8 +37,7 @@ function nextChunk(chunk: number, elapsedMs: number): number {
     return Math.max(1, Math.min(2048, Math.round(scaled)));
 }
 
-// A halted node answers the advance route with 503, or on a core node never answers it at all, and the
-// tick number alone would say nothing. Whatever the failure, the fault route is asked once first.
+// A halted node answers the advance route with 503, or on core never at all, and the tick number alone says nothing — so the fault route is asked first.
 export async function advanceChunk(rpc: LiteRpc, span: number, from = 0) {
     try {
         return await rpc.advanceTick(span);
@@ -82,8 +78,7 @@ export async function haltedNodeError(rpc: LiteRpc): Promise<Error | null> {
     }
 }
 
-// The rendered rows are display strings — `tick` reads "120 → 145" after an advance and "145" otherwise —
-// so --json reports the numbers each sub-path actually saw instead of reparsing them back out.
+// The rendered rows are display strings (tick reads 120 → 145 after an advance), so --json reports the numbers each sub-path actually saw.
 export type TickFacts = {
     epoch: number | null;
     tick: number | null;

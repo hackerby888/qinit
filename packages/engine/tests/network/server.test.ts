@@ -1,5 +1,4 @@
-// EngineServer (server.ts) — the HTTP adapter. Spins it up on an ephemeral port over an VirtualNode and
-// drives qubic-core-lite RPC routes: tick info, faucet balance, and contract query over HTTP.
+// EngineServer (server.ts) — the HTTP adapter, driven over an ephemeral port against core-lite RPC routes: tick info, faucet balance, and contract query.
 import { test, expect, beforeAll } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/support/k12";
@@ -41,8 +40,7 @@ test("/tick-info reports the engine's tick + epoch", async () => {
     }
 });
 
-// The client asks for the prefixed route, which core-lite answers wrapped in an envelope; a client written
-// against the older flat answer still finds tick and epoch at the top.
+// The client asks for the prefixed route, which core-lite answers wrapped in an envelope; a client written against the older flat answer still finds both.
 test("/live/v1/tick-info carries core-lite's envelope and keeps the flat keys", async () => {
     const { base, stop, engine } = await serve();
     try {

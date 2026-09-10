@@ -161,8 +161,7 @@ function hasErrors(diagnostics: ParserDiagnostic[]): boolean {
 
 const UNKNOWN_SPAN = { start: 0, end: 0, line: 0, column: 0 };
 
-// A tagged span addresses the preprocessed source, so it needs the same remap as analysis diagnostics —
-// untagged errors keep the unknown location.
+// A tagged span addresses the preprocessed source, so it needs the same remap as analysis diagnostics; untagged errors keep the unknown location.
 function appendCompilerError(diagnostics: ParserDiagnostic[], stage: string, error: any, preprocessed?: PreprocessedContractSource): void {
     const diagnostic: ParserDiagnostic = {
         severity: DiagnosticSeverity.ERROR,

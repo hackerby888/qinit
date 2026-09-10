@@ -5,8 +5,7 @@ import { cacheInfo, wipeCache, human, type CacheItem } from "../../ops/cache";
 import { Header, Status, Spinner, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 
-// qinit clean [--dry-run]
-// Remove ALL qinit cache (~/.cache/qinit or $QINIT_CACHE): fetched node, core-headers, wasi-sdk/clang artifacts.
+// qinit clean [--dry-run]: remove ALL qinit cache (~/.cache/qinit or $QINIT_CACHE) — fetched node, core-headers, wasi-sdk/clang artifacts.
 type S = {
     phase: "run" | "empty" | "done" | "err";
     items?: CacheItem[];

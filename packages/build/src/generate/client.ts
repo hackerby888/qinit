@@ -208,8 +208,7 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
     const optsType = "{ seed?: string; amount?: number | bigint; confirm?: boolean }";
     for (const entry of idl.procedures) {
         const inputRequired = hasInput(entry.input);
-        // An empty-input procedure accepts both `Name(opts)` and `Name({}, opts)`: with only `(opts)`, a
-        // caller writing the uniform `Name({}, { amount })` had its opts land in the wrong slot and the payment dropped.
+        // An empty-input procedure accepts both `Name(opts)` and `Name({}, opts)`: with only `(opts)`, a uniform `Name({}, { amount })` dropped the payment.
         const parameters = inputRequired
             ? `args: ${entry.name}_input, opts: ${optsType} = {}`
             : `argsOrOpts: ${entry.name}_input | ${optsType} = {}, maybeOpts?: ${optsType}`;

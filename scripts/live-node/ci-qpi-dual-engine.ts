@@ -1,5 +1,4 @@
-// Compile the same driver/callee sources with Qinit and Clang, deploy every
-// exact artifact through both node RPC paths, and compare complete state.
+// Compile the same driver/callee sources with Qinit and Clang, deploy every exact artifact through both node RPC paths, and compare complete state.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";

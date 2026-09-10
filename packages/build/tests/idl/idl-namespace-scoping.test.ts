@@ -1,6 +1,4 @@
-// Every kind of declaration a namespace can hold has to stay addressable by its qualified name. Indexed by
-// bare name alone, two namespaces sharing a name collapse into whichever registered last — silently, with
-// the loser's width changing under it. The table below is the invariant: one row per declaration kind.
+// Every declaration a namespace holds must stay addressable by qualified name; indexed bare, two namespaces sharing a name collapse into whichever came last.
 import { expect, test } from "bun:test";
 import { AbiScalarKind, extractIdl, parseContractIdl } from "../../src/compile/idl";
 
@@ -14,8 +12,7 @@ ${stateFields}
   INITIALIZE() {}
 };`;
 
-// Every fixture is round-tripped through the validator: it recomputes size, align and format from the type
-// tree, so any two resolution paths disagreeing about one field is rejected here rather than shipped.
+// Every fixture round-trips through the validator, which recomputes size, align and format from the tree, so two resolution paths disagreeing is rejected here.
 const idlOf = (declarations: string, stateFields: string) => {
     const idl = extractIdl(contract(declarations, stateFields), "Scoped", { slot: 15 });
     expect(() => parseContractIdl(idl)).not.toThrow();
@@ -194,8 +191,7 @@ namespace Beta { struct Rec { uint64 v; }; typedef Array<Rec, 4> Buffer; }`;
     ]);
 });
 
-// A base named through a typedef is the one bug in this family the validator cannot catch: every path
-// agrees on the wrong base, so the IDL is self-consistent. Only the concrete C++ layout tells them apart.
+// A base named through a typedef is the one bug here the validator cannot catch: every path agrees on the wrong base, so only the concrete C++ layout differs.
 test("a base class named through a namespaced typedef comes from that namespace", () => {
     const declarations = `
 namespace Alpha { struct Base { uint8 v; }; typedef Base B; }
@@ -258,8 +254,7 @@ namespace Beta { struct Owner { struct Inner { uint64 a; uint64 b; }; }; typedef
     ]);
 });
 
-// A base written unqualified inside a namespace means that namespace's type. Nothing recorded where a
-// struct was declared before this, so `Beta::D` inherited whichever Base owned the bare name.
+// A base written unqualified in a namespace means that namespace's type; nothing recorded where a struct was declared, so `Beta::D` inherited the bare name.
 test("a struct inherits the base of its own namespace, not a same-named one", () => {
     const declarations = `
 namespace Alpha { struct Base { uint8 v; }; struct D : public Base { uint8 e; }; typedef D T; }
@@ -275,9 +270,7 @@ namespace Beta { struct Base { uint64 a; uint64 b; }; struct D : public Base { u
     ]);
 });
 
-// An enum's underlying type can be named through an alias, and both the width it lays out at and the scalar
-// the IDL reports come from separate lookups — so the table pins each spelling on both, and the last row
-// keeps the fallback honest for an underlying type that is not a scalar at all.
+// An enum's underlying type can be aliased, and its layout width and reported scalar come from separate lookups, so each spelling is pinned on both.
 const enumIdl = (declarations: string, stateFields: string) => {
     const idl = extractIdl(contract(declarations, stateFields), "Scoped", { slot: 31 });
     expect(() => parseContractIdl(idl)).not.toThrow();
@@ -328,9 +321,7 @@ test("an underlying type that is not a scalar still falls back", () => {
     expect(idl.enums.find((entry) => entry.name === "Choice")?.underlying).toBe(AbiScalarKind.SINT32);
 });
 
-// A name written unqualified inside a namespace means that namespace's declaration. Resolved from the bare
-// name instead, a sibling's or the global's width silently takes its place — the layout is wrong and every
-// path agrees on it, so the table below states the C++ size for one row per declaration kind.
+// A name written unqualified in a namespace means that namespace's declaration; resolved bare, a sibling's or the global's width silently takes its place.
 const UNQUALIFIED_CASES: { kind: string; declarations: string; stateFields: string; sizes: [string, number][] }[] = [
     {
         kind: "typedef shadowing a global one",
@@ -450,8 +441,7 @@ for (const unqualified of UNQUALIFIED_CASES) {
     });
 }
 
-// The other half of the same rule: a name an inner scope declares itself still wins there. Re-pointing one
-// of these at the namespace breaks the exact-name lookups template bindings and member typedefs rely on.
+// The other half of the rule: a name an inner scope declares itself still wins there. Re-pointing one at the namespace breaks exact-name lookups.
 const SHADOWING_CONTROLS: { kind: string; declarations: string; stateFields: string; sizes: [string, number][] }[] = [
     {
         kind: "a namespace declaring no such name leaves the global one",
@@ -498,8 +488,7 @@ namespace Beta { typedef uint64 W; enum class C : W { X }; }`;
     expect(idl.enums.filter((entry) => entry.name === "C").map((entry) => entry.underlying)).toEqual([AbiScalarKind.UINT8, AbiScalarKind.UINT64]);
 });
 
-// An enum nested in a struct is keyed under that struct, so reporting it from the namespace key alone loses
-// its width — the reported kind has to reach the same scalar the field lays out at.
+// An enum nested in a struct is keyed under that struct, so reporting it from the namespace key alone loses its width.
 test("an enum nested in a namespaced struct still reports its underlying scalar", () => {
     const idl = enumIdl("namespace Alpha { struct Holder { enum class Choice : uint16 { Only }; }; }", "    Alpha::Holder::Choice c;\n    uint8 tail;");
     expect(idl.state.fields.map((field) => [field.name, field.size])).toEqual([

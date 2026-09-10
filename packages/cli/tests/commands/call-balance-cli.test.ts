@@ -1,5 +1,4 @@
-// A transfer the signer cannot cover is accepted by the node and dropped at tick assembly, so the
-// procedure never runs; the call has to refuse it before signing instead of reporting a tx id.
+// A transfer the signer cannot cover is accepted then dropped at tick assembly, so the call has to refuse it before signing rather than report a tx id.
 import { beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

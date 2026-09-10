@@ -1,5 +1,4 @@
-// Every changed byte window has to resolve back to the field, element and member it covers — that is the
-// whole difference between a trace that reads like `qinit state` and one that reads like a hex dump.
+// Every changed byte window must resolve back to the field, element and member it covers — the whole difference between a readable trace and a hex dump.
 import { test, expect } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import { stateFieldsOf } from "../../src/trace/state-format";
@@ -79,8 +78,7 @@ test("a struct element decodes whole, with its member names", async () => {
     ).toEqual(["points[2] 0 → {x: 508, y: 842}"]);
 });
 
-// A HashMap write touches the record, the occupation flags and the population counter. The record reads as
-// one entry named by its key; the bucket it hashed into stays on the full path, with the flags, below.
+// A HashMap write touches record, flags and counter. The record reads as one entry named by its key; the bucket it hashed into stays on the full path.
 test("a HashMap insert reads as one entry named by its key", async () => {
     const map = offsetOf("map");
     const lines = await linesFor(
@@ -179,8 +177,7 @@ test("a HashSet insert reads as one entry named by its key", async () => {
     ]);
 });
 
-// An entry's own history — an update, a removal, a reused tombstone — needs a before image that already
-// holds something, so these seed the state instead of starting from zero.
+// An entry's own history — update, removal, reused tombstone — needs a before image that already holds something, so these seed the state.
 const MAP = offsetOf("map");
 const MAP_FLAGS = MAP + 128;
 const MAP_POPULATION = MAP + 136;
@@ -215,8 +212,7 @@ const liveEntry = (state: Uint8Array) => {
     writeLe(state, MAP_POPULATION, 1, 8);
 };
 
-// Nothing about the slot changes on an update, so the key never gets a row of its own — it is read from the
-// window instead, which is the only reason the line can still name it.
+// Nothing about the slot changes on an update, so the key never gets a row of its own; it is read from the window, which is why the line can still name it.
 test("a HashMap update names the live key and keeps the arrow", async () => {
     expect(await changeRows(liveEntry, (after) => writeLe(after, mapValue(4), 202, 8), [WHOLE_MAP])).toEqual([["map[11]", "101 → 202", false]]);
 });
@@ -282,8 +278,7 @@ test("a slot vacated outright is named by the key it held", async () => {
     ]);
 });
 
-// A zero value writes no bytes that differ, so there is no value row to carry the entry and the key row has
-// to. Without that the insert would show up as nothing but a population bump.
+// A zero value writes no differing bytes, so no value row carries the entry and the key row must — otherwise the insert shows only as a population bump.
 test("an entry whose value stays zero is still reported", async () => {
     const rows = await changeRows(
         () => {},
@@ -406,8 +401,7 @@ test("a run that does not cover a whole value keeps its bytes", async () => {
     expect(await rowsFor((after) => writeLe(after, nums + 8, 3195, 8), { off: nums + 8, length: 2 })).toEqual(["nums[1]+0 0x0000 → 0x7b0c"]);
 });
 
-// A value under 8 bytes leaves padding before the next member. That pad has to resolve forward, to the
-// member after it — resolving it back to the value re-reports the value once per padding byte.
+// A value under 8 bytes leaves padding before the next member; that pad must resolve forward, since resolving it back re-reports the value per padding byte.
 const PADDED_SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -432,8 +426,7 @@ test("a node value smaller than its slot is reported once", async () => {
     expect(lines.map((line) => [line.label, line.detail, line.text])).toEqual([["list[1]", "list._nodes[1].value", "0 → 7"]]);
 });
 
-// The padding after a Collection element's value used to fall back to the whole element, so a value write
-// was reported twice: once decoded, and again as the 8 bytes it shares with the pad read as a sint64.
+// The padding after a Collection element's value used to fall back to the whole element, so a value write was reported twice — once decoded, once as sint64.
 test("a Collection element value smaller than its slot is reported once", async () => {
     const queue = paddedOffsetOf("queue");
     const elements = queue + 4 * 64 + 8; // PoV records, then the occupation flags
@@ -446,8 +439,7 @@ test("a Collection element value smaller than its slot is reported once", async 
     expect(lines.map((line) => [line.label, line.detail, line.text])).toEqual([["queue[1]", "queue._elements[1].value", "0 → 9"]]);
 });
 
-// Packed flags run past one 256-byte window as soon as a container is big, and core reports the window
-// that changed, not the run that contains it. Resolving from the run's start dropped every such row.
+// Packed flags outrun one 256-byte window once a container is big, and core reports the changed window, not the run — resolving from the run's start lost it.
 const BIG_SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -484,8 +476,7 @@ test("a BitArray reports from a window that opens past its first block", async (
     expect(await bigRowsFor((after) => (after[wide + 375] = 1), { off: wide + 256, length: 256 })).toEqual(["wide[3000] 0 → 1"]);
 });
 
-// A window can stop inside a struct value, and an id key is what a real contract keys a map by — both have
-// to survive being folded onto one entry line.
+// A window can stop inside a struct value, and an id key is what a real contract keys a map by — both have to survive being folded onto one entry line.
 const KEYED_SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {

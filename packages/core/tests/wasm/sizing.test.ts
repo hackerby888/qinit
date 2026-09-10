@@ -4,11 +4,7 @@ import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "../../src/wasm/headers";
 import { DEFAULT_ARENA_BYTES, INPUT_BUFFER_BYTES, IO_BUFFER_BYTES, JOURNAL_REGION_BYTES, LOCALS_BUFFER_BYTES, OUTPUT_BUFFER_BYTES } from "../../src/wasm/sizing";
 
-/**
- * core-lite declares the same layout as a C++ array and carries its own arena default, so the two
- * definitions can drift silently — nothing in either language references the other. Every core
- * checkout reachable from here is checked, the in-repo IDE copy included.
- */
+/** core-lite declares the same layout in C++ with its own arena default, so the two can drift silently; every reachable checkout is checked. */
 function moduleStorageHeaders(): { label: string; source: string }[] {
     const roots: [string, string][] = [
         ["vscode resources", join(import.meta.dir, "../../../vscode/resources/core-headers/src")],
@@ -61,8 +57,7 @@ test("core-lite's module_storage.h agrees with the shared sizing constants", () 
         }
     }
 
-    // A vendored snapshot may predate the journal, but the checkout the build compiles against must not:
-    // the region has to exist in C++ or an instrumented artifact writes past its own memory.
+    // A vendored snapshot may predate the journal, but the checkout the build compiles against must not, or an instrumented artifact writes past its memory.
     if (process.env.QINIT_CORE?.trim()) {
         expect(journalChecked, "the core checkout defines no WASM_JOURNAL_SIZE").toBe(true);
     }

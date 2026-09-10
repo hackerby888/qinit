@@ -35,8 +35,7 @@ const KEYWORD_RULES: Record<string, { code: string; message: string }> = {
 // Names a contract may not write, for callers that suppress rather than diagnose them.
 export const QPI_BANNED_KEYWORDS: readonly string[] = Object.keys(KEYWORD_RULES);
 
-// QPI math helpers a user contract must spell with their namespace: with `using namespace QPI`, MSVC's C runtime
-// declares a global `lldiv_t div(long long, long long)` that beats `QPI::div<T>`, so Core's Windows build rejects a bare call.
+// QPI math helpers a user contract must namespace: with `using namespace QPI`, MSVC's C runtime declares a global `div` that beats `QPI::div<T>` on Windows.
 const UNQUALIFIED_MATH: Record<string, { code: string; message: string }> = {
     div: {
         code: "qpi/unqualified-div",
@@ -97,8 +96,7 @@ export function analyzeQpiPolicy(
     return diagnostics.sort(compareDiagnostics);
 }
 
-// Every inter-contract macro declares its error variable in the caller's own scope, so two calls sharing
-// one error name in one block are a C++ redefinition — which clang reports from inside the macro.
+// Every inter-contract macro declares its error variable in the caller's scope, so two calls sharing one error name in a block are a C++ redefinition.
 function interContractErrorVarDiagnostics(source: string, tokens: readonly Token[], calls: readonly SourceContractCall[]): SourceAnalysisDiagnostic[] {
     const diagnostics: SourceAnalysisDiagnostic[] = [];
 
@@ -145,8 +143,7 @@ function collidingCalls(scope: readonly SourceContractCall[]): Map<string, Sourc
     return byErrorVar;
 }
 
-// Group the calls by the offset of their innermost enclosing `{`. Calls arrive in source order and carry
-// raw-source spans, so one pass over the tokens with a brace stack places every one of them.
+// Group the calls by the offset of their innermost enclosing `{`: calls arrive in source order with raw spans, so one pass with a brace stack places them.
 function callScopes(tokens: readonly Token[], calls: readonly SourceContractCall[]): Map<number, SourceContractCall[]> {
     const scopes = new Map<number, SourceContractCall[]>();
     const openBraces: number[] = [];
@@ -196,8 +193,7 @@ function errorVarNames(calls: readonly SourceContractCall[], source: string): st
     return names;
 }
 
-// Rewrite every colliding call, the first one included: renaming only the later calls would leave the
-// first still owning the shared name, which reads as an arbitrary split.
+// Rewrite every colliding call, the first included: renaming only later calls would leave the first owning the shared name, which reads as an arbitrary split.
 function rewriteToExplicitErrorVars(source: string, calls: readonly SourceContractCall[], names: readonly string[]): SourceFix[] | undefined {
     const edits: Array<{ start: number; end: number; newText: string }> = [];
 
@@ -225,11 +221,8 @@ function rewriteToExplicitErrorVars(source: string, calls: readonly SourceContra
     return [sourceFix("Use the _E variants with distinct error variables", source, edits, true)];
 }
 
-// Core wraps every contract include in `#define CONTRACT_STATE_TYPE <Name>` / `#undef`, so a struct that
-// names itself with the macro compiles there — but it has no name of its own. Read on its own, by clangd
-// or a reviewer, the struct is literally `CONTRACT_STATE_TYPE` and nothing can refer to it: another
-// contract's `RANDOM::BuyEntropy_input` only resolves because RANDOM declares its own name. All 36 core
-// contracts do. Advisory, because Qinit defines the macro too and the contract still builds here.
+// Core wraps every contract include in `#define CONTRACT_STATE_TYPE <Name>` / `#undef`, so a struct naming itself with the macro has no name of its own.
+// Read alone, by clangd or a reviewer, it is literally `CONTRACT_STATE_TYPE`. Advisory, because Qinit defines the macro too and the contract still builds.
 function contractNameDiagnostics(tokens: readonly Token[]): SourceAnalysisDiagnostic[] {
     const diagnostics: SourceAnalysisDiagnostic[] = [];
 
@@ -521,8 +514,7 @@ function localsFormDiagnostics(tokens: Token[], entries: EntryFunction[]): Sourc
     return diagnostics;
 }
 
-// The spelling of a native C type whose width differs between wasm32 (4 bytes) and Core's LP64 build (8 bytes),
-// or null for any other token. `long long` is lexed as one keyword, so a lone `long` is never part of it.
+// The spelling of a native C type whose width differs between wasm32 and Core's LP64 build; `long long` lexes as one keyword, so a lone `long` is never part.
 function lp64WidthSpelling(tokens: Token[], index: number): string | null {
     const token = tokens[index];
 
@@ -542,8 +534,7 @@ function lp64WidthSpelling(tokens: Token[], index: number): string | null {
 
 const LOG_MACROS = new Set(["LOG_DEBUG", "LOG_ERROR", "LOG_INFO", "LOG_WARNING"]);
 
-// A function is a read-only query with no transaction to pair a log with: core's guide forbids it, the node
-// drops the record, and the TypeScript backend cannot compile it — so both backends refuse it here.
+// A function is a read-only query with no transaction to pair a log with: core's guide forbids it, the node drops the record, so both backends refuse it.
 function logInFunctionDiagnostics(tokens: Token[], entries: EntryFunction[]): SourceAnalysisDiagnostic[] {
     const diagnostics: SourceAnalysisDiagnostic[] = [];
 
@@ -570,8 +561,7 @@ function logInFunctionDiagnostics(tokens: Token[], entries: EntryFunction[]): So
     return diagnostics;
 }
 
-// `qpi.invocator()` is the null identity on the RPC query path, so a caller check inside a function can
-// never pass. PUBLIC only: a PRIVATE_FUNCTION is reachable from a procedure, where the invocator is real.
+// `qpi.invocator()` is the null identity on the query path, so a caller check inside a function can never pass. PUBLIC only: a procedure has a real invocator.
 function invocatorInFunctionDiagnostics(tokens: Token[], entries: EntryFunction[]): SourceAnalysisDiagnostic[] {
     const diagnostics: SourceAnalysisDiagnostic[] = [];
 
@@ -605,9 +595,7 @@ function invocatorInFunctionDiagnostics(tokens: Token[], entries: EntryFunction[
     return diagnostics;
 }
 
-// A type another contract declares, spelled at `cursor` inside a public interface struct: `Callee::Type`
-// (a nested struct of a known callee) or a callee's file-scope struct name. Core's verifier cannot see the
-// callee, so it refuses the interface; the message here names the owner instead of a "not allowed" verdict.
+// A type another contract declares, spelled inside a public interface struct: core's verifier cannot see the callee, so the message names the owner instead.
 function calleeTypeAt(
     tokens: Token[],
     cursor: number,

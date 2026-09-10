@@ -1,5 +1,4 @@
-// Pure rendering of decoded state: values to text, container entries to rows. No I/O — everything
-// here takes already-decoded bytes, so it is unit-testable without an RPC client.
+// Pure rendering of decoded state: values to text, container entries to rows. No I/O, so it is unit-testable without an RPC client.
 import { AbiTypeKind, type AbiType, type ContractIdl } from "@qinit/proto/contract-idl";
 
 export type StateContainerLayout =
@@ -42,8 +41,7 @@ export type StateField = {
     container?: StateContainerLayout;
     bad?: boolean;
 };
-// One rendered row of a state block. The label is the bracket token the view highlights, and `filled`
-// separates an occupied slot from a skipped range.
+// One rendered row of a state block: the label is the bracket token the view highlights, and `filled` separates an occupied slot from a skipped range.
 export type StateLine = { label: string; text: string; filled: boolean };
 
 // JSON.stringify throws on a bigint, and a uint64 past 2^53 would lose digits as a number anyway.
@@ -174,8 +172,7 @@ export function formatStateValue(value: unknown, type: AbiType, full: boolean, t
     }
 }
 
-// A value on its own: a string (an id, an m256i) reads bare, and anything nested keeps the quoted form
-// `fmtVal` gives it, so a whole field, a print and a diff row all agree.
+// A value on its own: a string (an id, an m256i) reads bare, and anything nested keeps `fmtVal`'s quoted form, so field, print and diff row agree.
 export function scalarText(value: unknown, type: AbiType): string {
     if (typeof value === "string") {
         return value;
@@ -283,8 +280,7 @@ export function containerLayoutOf(type: AbiType): StateContainerLayout | undefin
     }
 }
 
-// A container reached through plain struct fields still deserves its own block. One inside a container's
-// element does not: a block per element would bury the container it lives in, so those stay inline.
+// A container reached through plain struct fields deserves its own block; one inside a container's element does not, since a block per element would bury it.
 export function holdsContainer(type: AbiType): boolean {
     if (containerLayoutOf(type)) {
         return true;

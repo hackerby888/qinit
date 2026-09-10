@@ -1,5 +1,4 @@
-// The node ticks by itself between requests, so a boundary reached by the fast-forward may already have
-// been crossed when the transition is requested; asking again would cross a second epoch.
+// The node ticks by itself between requests, so a boundary reached by the fast-forward may already be crossed when the transition is asked for.
 import { expect, test } from "bun:test";
 import { RpcTimeoutError, type LiteRpc } from "@qinit/core";
 import { advanceEpochOrFault, crossEpoch } from "../../src/commands/node/epoch";

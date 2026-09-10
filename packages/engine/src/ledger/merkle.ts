@@ -1,5 +1,4 @@
-// Incremental sparse Merkle tree.
-// Stores occupied paths while precomputed hashes represent empty subtrees.
+// Incremental sparse Merkle tree: stores occupied paths while precomputed hashes represent empty subtrees.
 import { k12Bytes } from "../support/k12";
 import { SPECTRUM_DEPTH } from "@qinit/proto";
 

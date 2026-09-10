@@ -36,8 +36,7 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
     const [items, setItems] = useState<Item[]>([]);
     const [i, setI] = useState(0);
-    // Selected index in a ref too: ink only re-subscribes useInput after React commits, so a fast arrow→↵ can hit
-    // the pre-move handler and save the previously-highlighted seed. The ref updates synchronously per key event.
+    // Selected index in a ref too: ink re-subscribes useInput only after commit, so a fast arrow→↵ could save the previously-highlighted seed.
     const sel = useRef(0);
     const move = (d: number): void => {
         if (!items.length) {

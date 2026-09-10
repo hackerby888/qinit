@@ -1,5 +1,4 @@
-// A callee's prints belong in the caller's stream where they ran, tagged with the contract that made
-// them: a stream that merely lists every frame's prints one frame after another hides the execution path.
+// A callee's prints belong in the caller's stream where they ran, tagged with the contract that made them — listing frame after frame hides the path.
 import { expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

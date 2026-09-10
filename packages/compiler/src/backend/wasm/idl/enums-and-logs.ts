@@ -22,10 +22,7 @@ export function contractEnums(prepared: PreparedContractModule): ContractEnum[] 
         if (!name) {
             continue;
         }
-        // Registration already followed the alias chain from the enum's own scope and stored the scalar it
-        // reaches, so the reported kind is read from there rather than resolved a second time — two resolutions
-        // are two chances to disagree with the width the layout used.
-        // An enum nested in a struct is keyed under the struct, not the namespace, so the bare key answers for it.
+        // Registration followed the alias chain and stored the scalar, so the kind is read from there; an enum nested in a struct is keyed under the struct.
         const scope = prepared.programAnalysis.namespaceContextOf(enumDeclaration).sourceNamespace;
         const stored = prepared.programAnalysis.enumUnderlying.get(scope ? `${scope}::${name}` : name) ?? prepared.programAnalysis.enumUnderlying.get(name);
         const underlyingName = stored?.kind === AstKind.NAME ? stored.name : "sint32";

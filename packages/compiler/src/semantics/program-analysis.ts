@@ -94,12 +94,11 @@ export class ProgramAnalysis {
     constructor(sema: SemanticAnalyzer) {
         this.sema = sema;
     }
-    // ---- register declarations from the parsed TU into codegen lookup tables ----
+    // register declarations from the parsed TU into codegen lookup tables
     registerTopLevelDeclarations(declarations: Declaration[], nsPrefix = "", inheritedUsing: string[] = []): void {
         return declarationIndex.registerTopLevelDeclarations(this, declarations, nsPrefix, inheritedUsing);
     }
-    // Point the names a namespace's declarations write unqualified at that namespace, once every declaration
-    // they could name is registered.
+    // Point the names a namespace's declarations write unqualified at that namespace, once every declaration they could name is registered.
     qualifyDeclarationsInScope(declarations: Declaration[]): void {
         return declarationIndex.qualifyDeclarationsInScope(this, declarations);
     }
@@ -116,14 +115,7 @@ export class ProgramAnalysis {
     namespaceContextOf(declaration?: object | null): NamespaceLookupContext {
         return declarationIndex.namespaceContextOf(this, declaration);
     }
-    /**
-     * Ordered lookup keys for a free helper / lib-fn call.
-     * 1. exact qualified name
-     * 2. lexical sourceNamespace variant (if available)
-     * 3. active `using namespace` directives (declaration order)
-     * 4. bare/unqualified name (global), only when name is unqualified
-     * First hit wins; no hardcoded QPI:: fallback.
-     */
+    /** Ordered lookup keys for a free helper or lib-fn call: exact qualified name, lexical namespace, active using-directives, then bare. First hit wins. */
     namespaceCandidates(name: string, sourceNamespace?: string, usingNamespaces: string[] = []): string[] {
         return declarationIndex.namespaceCandidates(name, sourceNamespace, usingNamespaces);
     }
@@ -170,7 +162,7 @@ export class ProgramAnalysis {
     resolveConst(name: string, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): bigint | null {
         return constantEvaluator.resolveConst(this, name, templateBindings);
     }
-    // ---- struct sizing (binding-aware: template params resolve through `b`) ----
+    // struct sizing (binding-aware: template params resolve through `b`)
     sizeDepth = 0;
     sizeOfType(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {
         return typeResolver.sizeOfType(this, type, templateBindings);
@@ -350,7 +342,7 @@ export class ProgramAnalysis {
     alignUp(count: number, argument: number): number {
         return typeLayout.alignUp(this, count, argument);
     }
-    // ---- collect nested structs ----
+    // collect nested structs
     collectNested(contract: StructDecl): void {
         return structIndex.collectNested(this, contract);
     }
@@ -365,17 +357,12 @@ export class ProgramAnalysis {
     collectNestedStructs(parent: StructDecl, prefix: string): void {
         return structIndex.collectNestedStructs(this, parent, prefix);
     }
-    // ---- type → layout / field resolution (used by body codegen for address computation) ----
+    // type → layout / field resolution (used by body codegen for address computation)
     alignOfType(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {
         return typeLayout.alignOfType(this, type, templateBindings);
     }
     // Resolve structs through binding, nested, and global tables.
-    /**
-     * The class template a name resolves to, contract-local declarations first.
-     *
-     * A contract nesting `Array` or `HashMap` shadows core's whole declaration, parameter list
-     * included, the same way a nested struct shadows a global one.
-     */
+    /** The class template a name resolves to, contract-local first: a contract nesting `Array` shadows core's whole declaration, parameter list included. */
     templateByName(name: string): ClassTemplate | undefined {
         const hit = this.nestedTemplates.get(name) ?? this.templates.get(name);
         if (hit) return hit;
@@ -433,7 +420,7 @@ export class ProgramAnalysis {
     fieldOf(type: TypeSpec, member: string, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): FieldLayout | null {
         return typeLayout.fieldOf(this, type, member, templateBindings);
     }
-    // ---- public helpers for compiling instantiated container methods ----
+    // public helpers for compiling instantiated container methods
     typeKeyOf(type: TypeSpec): string {
         return typeResolver.typeKeyOf(this, type);
     }
@@ -441,8 +428,7 @@ export class ProgramAnalysis {
     containerLayout(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): StructLayout {
         return containerLayout.containerLayout(this, name, callArguments, templateBindings);
     }
-    // template params → concrete args (KeyT→id, L→1024), including authoritative defaults such as
-    // HashFunc = HashFunction<KeyT>.
+    // template params → concrete args (KeyT→id, L→1024), including authoritative defaults such as HashFunc = HashFunction<KeyT>.
     bindContainer(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): TemplateBindings {
         return templateResolver.bindContainer(this, name, callArguments, templateBindings);
     }

@@ -1,5 +1,4 @@
-// The three failure classes a contract can hit, each with the trace it must leave behind: a function
-// failure fails only its query, a procedure trap halts with the trap text, a migration abort halts too.
+// The three failure classes a contract can hit, each with the trace it must leave: a function fails only its query, a procedure trap halts, a migration too.
 import { expect, test } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { CONTRACT_ENTRY_KIND, ContractExecutionError } from "../../src/contract/runtime";

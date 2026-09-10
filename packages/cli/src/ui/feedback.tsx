@@ -7,8 +7,7 @@ import { lerp, theme } from "./theme";
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-// Step and StepRow share a label column so their details line up wherever the two are mixed. Wide
-// enough for the longest label any command registers ("check contract") plus a two-space gutter.
+// Step and StepRow share a label column so details line up wherever the two are mixed — wide enough for the longest label plus a two-space gutter.
 export const STEP_LABEL_PAD = 16;
 
 export function Spinner({ label, color = theme.info }: { label: string; color?: string }) {

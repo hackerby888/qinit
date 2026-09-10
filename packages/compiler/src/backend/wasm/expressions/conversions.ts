@@ -162,9 +162,7 @@ export function scalarTypeInfo(
                       context.refLocals?.get(expression.name) ??
                       context.localVars.get(expression.name)?.type ??
                       context.lowering.resolveExpressionAddress(context, expression)?.type ??
-                      // A template parameter is nearer than a namespace-scope constant of the same
-                      // spelling. qpi.h's `Ch` declares one per letter, so `T` would otherwise resolve
-                      // to the character constant 'T' and report its underlying `char` width.
+                      // A template parameter is nearer than a namespace-scope constant of the same spelling, so `T` must not resolve to qpi.h's `Ch` constant.
                       (context.thisBind?.types.has(expression.name) ? null : context.programAnalysis.typeOfConstant(expression.name)) ??
                       null)
                     : (context.lowering.resolveExpressionAddress(context, expression)?.type ?? null);

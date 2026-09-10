@@ -3,8 +3,7 @@ import { FunctionEmissionContext } from "../types";
 import type { Statement } from "../../../ast";
 import { emitDeclarationStatement } from "./declaration-statement";
 import { emitReturnStatement } from "./return-statement";
-// Tags backend errors with the statement being emitted, so the driver can report a real line.
-// Nested statements tag first, leaving the innermost span.
+// Tags backend errors with the statement being emitted so the driver reports a real line; nested statements tag first, leaving the innermost span.
 export function emitStatement(context: FunctionEmissionContext, statement: Statement): void {
     try {
         emitStatementByKind(context, statement);

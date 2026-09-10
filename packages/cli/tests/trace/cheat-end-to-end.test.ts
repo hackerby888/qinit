@@ -1,7 +1,4 @@
-// The whole chain in one test: compile a contract that prints, run it, and read back the line the dev
-// wrote. The unit tests either stop at the wire or start from synthetic records; this is what proves
-// the two halves actually meet — including through the IDL file a deploy leaves behind, which is what
-// `qinit call` really reads.
+// The whole chain in one test: compile a contract that prints, run it, and read back the line — including through the IDL file a deploy leaves behind.
 import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,8 +19,7 @@ const PUT = 1;
 const ADD = 1;
 
 const REPORTED_LINES = ["Counter is 0", "Counter is 2 after adding 2", "input={}", "output=0", "state.get()"];
-// The whole state under its head, in the rows `qinit state` draws: every container empty, the owner an
-// all-zero id, and the HashMap inside `inner` a block of its own rather than a line of JSON.
+// The whole state under its head, in the rows `qinit state` draws: every container empty, the owner an all-zero id, and the inner HashMap its own block.
 const STATE_SCALARS = [expect.stringMatching(/^counter \d+$/), expect.stringMatching(/^owner [A-Z]{60}$/), expect.stringMatching(/^inner\.value \d+$/)];
 const STATE_BLOCKS = ["nums", "items", "balances", "inner.map"];
 

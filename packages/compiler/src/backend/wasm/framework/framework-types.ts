@@ -94,9 +94,7 @@ export function computeLayout(
     const arenaBase = localsBase + LOCALS_SZ;
     const arenaEnd = arenaBase + arenaSize;
     const ioSize = IN_SZ + OUT_SZ + LOCALS_SZ + arenaSize;
-    // The write journal lives immediately past what io_size() reports, so a host finds it at
-    // io_base() + io_size() without the contract losing any arena. Shared-memory builds carry no
-    // journal and are packed by a stride the caller computes, so they must not reserve it.
+    // The write journal lives immediately past what io_size() reports, so a host finds it without the contract losing arena; shared-memory builds carry none.
     const journalBytes = reserveJournal ? JOURNAL_REGION_BYTES : 0;
     // Reserve an aligned buffer for asset-iterator enumeration results.
     const iterBufBase = align(arenaEnd + journalBytes, 16);

@@ -9,7 +9,7 @@ import { emitIntrinsics } from "./intrinsics";
 import { emitMetadata } from "./metadata";
 import { emitDispatch, emitInitialize } from "./dispatch";
 
-// ---- The complete module assembler ----
+// The complete module assembler
 export function emitModule(spec: ModuleSpecification): string {
     resetLhostCallSigs();
     const usesPrng = spec.capabilities?.includes(PlatformCapability.CHAIN_PRNG) ?? false;

@@ -1,5 +1,4 @@
-// Member completion for editors: the members of the type left of the cursor's `.`/`->`.
-// Covers a clangd bug (17-22) that returns an empty list through a preamble type holding a template member.
+// Member completion for editors: the members of the type left of the cursor's `.`/`->`, covering a clangd bug (17-22) that empties a preamble template type.
 import type { Declaration, Expression, FunctionDecl, Statement, StructDecl, TypeSpec } from "../ast";
 import { AstKind, MemberCompletionKind } from "../shared/enums";
 import { Lexer } from "../frontend/lexer";
@@ -28,9 +27,7 @@ export type MemberQueryOptions = Omit<AnalyzeContractOptions, "source"> & {
     offset: number;
 };
 
-// A gtest is general C++, so its receiver is not resolved from a contract AST. The caller supplies the
-// root's type as text — from the language server, which resolves that correctly — and the field hops
-// after it are QPI types this compiler already knows.
+// A gtest is general C++, so its receiver is not resolved from a contract AST: the caller supplies the root's type as text, and later hops are QPI types.
 export type TypeMemberQueryOptions = Omit<AnalyzeContractOptions, "source"> & {
     /** The root's declared type as spelled, e.g. `QUOTTERY::CreateEvent_input`. */
     rootTypeText: string;
@@ -47,8 +44,7 @@ export interface MemberCompletion {
     parameters: string[];
 }
 
-// A resolved receiver. Plain structs carry their members directly; a template instance carries the
-// primary template's members plus the separately indexed inline methods, both under one binding set.
+// A resolved receiver: plain structs carry their members directly, a template instance the primary's members plus indexed inline methods, under one binding.
 interface Target {
     members: Declaration[];
     methods: Map<string, Declaration>;
@@ -61,8 +57,7 @@ interface Target {
     scope?: string;
 }
 
-// Render the type as spelled, substituting template parameters so `KeyT` reads as `id`. The compiler's
-// bindings hold resolved types, so going through them would print `m256i` instead of the QPI names.
+// Render the type as spelled, substituting template parameters so `KeyT` reads as `id`; the compiler's bindings hold resolved types and would print m256i.
 function describeType(type: TypeSpec | undefined, spelled: Map<string, TypeSpec> | undefined, depth = 0): string | undefined {
     if (!type || depth > 12) return undefined;
     const nested = (inner: TypeSpec | undefined) => describeType(inner, spelled, depth + 1) ?? "?";
@@ -100,8 +95,7 @@ function receiverEndOf(source: string, offset: number): number | undefined {
     return undefined;
 }
 
-// Where the receiver begins, over a balanced call/subscript tail so `state.mut().q` survives whole.
-// Textual because every node on a line shares the statement's span — the tree cannot locate the cursor.
+// Where the receiver begins, over a balanced call/subscript tail so `state.mut().q` survives whole. Textual, because the tree cannot locate the cursor.
 function receiverStartOf(source: string, receiverEnd: number): number {
     let index = receiverEnd;
     let depth = 0;
@@ -138,10 +132,7 @@ function splitSegments(text: string): string[] {
     return segments;
 }
 
-/**
- * Split the receiver at the cursor into its root and the plain-identifier hops after it.
- * Undefined when there is no member operator, or when a hop carries a call or subscript.
- */
+/** Split the receiver at the cursor into its root and the plain-identifier hops after it; undefined with no member operator, or a hop carrying a call. */
 export function splitReceiver(source: string, offset: number): { rootText: string; rootOffset: number; path: string[] } | undefined {
     const receiverEnd = receiverEndOf(source, offset);
     if (receiverEnd === undefined) return undefined;
@@ -156,15 +147,10 @@ export function splitReceiver(source: string, offset: number): { rootText: strin
     return { rootText, rootOffset: receiverStart + text.length - text.trimStart().length, path };
 }
 
-/**
- * The declared type of `name`, read from its nearest declaration before `before`.
- * A language server drops the whole statement while it is being typed, so the root's type has to be
- * recoverable from the text alone. Undefined when no declaration of that name precedes the cursor.
- */
+/** The declared type of `name`, from its nearest declaration before `before`: a language server drops the statement being typed, so text has to answer. */
 export function declaredTypeOf(source: string, before: number, name: string): string | undefined {
     if (!IDENTIFIER.test(name)) return undefined;
-    // From a statement, parameter or line boundary, over a type that may be qualified, templated or a
-    // reference. Line starts count because the statement above is often the half-typed one.
+    // From a statement, parameter or line boundary, over a type that may be qualified, templated or a reference; line starts count for a half-typed line.
     const declaration = new RegExp(`(?:^|[;{}(),])\\s*((?:const\\s+)?[A-Za-z_]\\w*(?:::\\w+)*\\s*(?:<[^;{}()]*>)?\\s*[&*]?)\\s+${name}\\s*(?=[;=,)[(])`, "gm");
 
     const text = source.slice(0, before);
@@ -183,8 +169,7 @@ function isFunction(declaration: Declaration): declaration is FunctionDecl {
     return declaration.kind === AstKind.FUNCTION;
 }
 
-// The probe statement is alone on its line, so the line identifies it where collapsed spans cannot.
-// Nested kinds mirror `walkStatements`: a contract body is mostly branches and loops.
+// The probe statement is alone on its line, so the line identifies it where collapsed spans cannot. Nested kinds mirror `walkStatements`.
 function statementOnLine(statement: Statement, line: number): Expression | undefined {
     if (statement.kind === AstKind.EXPRESSION) return statement.span.line === line ? statement.expression : undefined;
     const nested: Array<Statement | undefined> = [];
@@ -234,16 +219,14 @@ function structTarget(programAnalysis: ProgramAnalysis, structDeclaration: Struc
     };
 }
 
-// A callee's structs are registered qualified (`QUOTTERY::QtryEventInfo`) but spelled bare inside the
-// contract, so an unqualified miss is retried under the enclosing contract's name.
+// A callee's structs are registered qualified but spelled bare inside the contract, so an unqualified miss is retried under the enclosing contract's name.
 function structInScope(programAnalysis: ProgramAnalysis, type: TypeSpec, bindings: TemplateBindings, scope?: string): StructDecl | null {
     const direct = programAnalysis.structOf(type, bindings);
     if (direct || !scope || type.kind !== AstKind.NAME || type.name.includes("::")) return direct;
     return programAnalysis.structOf({ ...type, name: `${scope}::${type.name}` }, bindings);
 }
 
-// `structOf` returns null for a template instance, so an instantiation is the only way to reach
-// HashMap/Array/Collection members — the case the clangd bug returns empty for.
+// `structOf` returns null for a template instance, so an instantiation is the only way to reach HashMap/Array members — the case clangd returns empty for.
 function targetOfType(programAnalysis: ProgramAnalysis, type: TypeSpec | undefined, bindings: TemplateBindings, scope?: string): Target | undefined {
     if (!type) return undefined;
     let resolved: TypeSpec;
@@ -341,8 +324,7 @@ function completionsOf(target: Target): MemberCompletion[] {
     return completions;
 }
 
-// The QPI library plus every callee's structs. `own` is the queried document's own declarations, which
-// a gtest does not have — it reaches the contract's types under their qualified names instead.
+// The QPI library plus every callee's structs. `own` is the queried document's own declarations, which a gtest lacks — it uses the qualified names instead.
 function queryProgramAnalysis(compileOptions: CompileOptions, qpiContext: QpiContext, own?: Declaration[]): ProgramAnalysis {
     const programAnalysis = new ProgramAnalysis(new SemanticAnalyzer());
     registerLibraryMetadata(programAnalysis, qpiContext.lib);
@@ -360,8 +342,7 @@ function queryProgramAnalysis(compileOptions: CompileOptions, qpiContext: QpiCon
     return programAnalysis;
 }
 
-// Turn a spelled type back into a TypeSpec by parsing it as a field declaration, the one context where
-// every form a language server prints — `const X&`, `Array<uint64, 8>`, `A::B` — is valid on its own.
+// Turn a spelled type back into a TypeSpec by parsing it as a field declaration, the one context where every form a language server prints is valid alone.
 function parseTypeText(text: string): TypeSpec | undefined {
     const declared = text.replace(/\bQPI::/g, "").trim();
     if (declared === "") return undefined;
@@ -416,8 +397,7 @@ export function completeMembersAt(options: MemberQueryOptions): MemberCompletion
     const receiverEnd = receiverEndOf(options.source, options.offset);
     if (receiverEnd === undefined) return undefined;
 
-    // Replace the receiver's line with the receiver alone, so it parses as a statement of its own
-    // whatever it was nested in. Inner newlines become spaces to keep every later line's number.
+    // Replace the receiver's line with the receiver alone so it parses as its own statement; inner newlines become spaces to keep later line numbers.
     const receiverStart = receiverStartOf(options.source, receiverEnd);
     const lineStart = options.source.lastIndexOf("\n", receiverStart) + 1;
     const lineEnd = options.source.indexOf("\n", receiverEnd);

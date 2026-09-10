@@ -1,5 +1,4 @@
-// Peer-protocol server — integration over a real TCP socket. Starts a PeerServer on an ephemeral port, connects
-// with Bun.connect, sends raw request packets, and asserts decoded responses including the handshake.
+// Peer-protocol server over a real TCP socket: starts a PeerServer on an ephemeral port, sends raw request packets, and asserts decoded responses.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, k12Bytes, toHex, verifySync } from "../../src/support/k12";
@@ -15,8 +14,7 @@ interface Frame {
     payload: Uint8Array;
 }
 
-// Connect, send `request`, collect the stream for a short window, and split it into frames (the leading
-// ExchangePublicPeers handshake is included — callers filter by type).
+// Connect, send `request`, collect the stream briefly, and split it into frames — the leading ExchangePublicPeers handshake is included, so callers filter.
 async function exchange(port: number, request: Uint8Array): Promise<Frame[]> {
     const chunks: Uint8Array[] = [];
     const sock = await Bun.connect({

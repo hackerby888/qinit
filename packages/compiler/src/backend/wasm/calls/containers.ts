@@ -7,8 +7,7 @@ import { firstInfidelitySince } from "../../../semantics/analysis-diagnostics";
 import type { TypeSpec, Expression, FunctionTemplateDecl, ParamDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { CONVERSION_RANK, conversionRank, integerLiteralType } from "./overload-ranking";
-// ---- compiling instantiated container methods from the real qpi.h bodies ----
-// A method parameter's wasm calling convention: references/pointers and aggregates pass by address (i32), scalars pass by value (i64).
+// Compiling instantiated container methods from the real qpi.h bodies: references and aggregates pass by address (i32), scalars by value (i64).
 export function classifyMethodParam(
     programAnalysis: ProgramAnalysis,
     parameter: ParamDecl,
@@ -85,8 +84,7 @@ export function compileContainerMethod(
         });
         ownerBindings = { ...ownerBindings, types, values };
     }
-    // Infer member-template types structurally from concrete call arguments instead of assigning
-    // semantics to specific method names.
+    // Infer member-template types structurally from concrete call arguments instead of assigning semantics to specific method names.
     if (resolvedMethod.requiresMethodTemplateInference && definition.params.some((param) => param.kind === AstKind.TYPE)) {
         const types = new Map(ownerBindings.types);
         const templateTypeNames = new Set(definition.params.filter((param) => param.kind === AstKind.TYPE).map((param) => param.name));
@@ -142,8 +140,7 @@ function methodTypeKey(
     context: ProgramAnalysis,
 ): string {
     const argumentKeys = type.callArguments.map((argument) => context.typeKeyOf(argument)).join(",");
-    // A plain class carries its declaration's id: without it two classes spelled alike share one
-    // instantiation, and whichever compiled first answers for both.
+    // A plain class carries its declaration's id: without it two classes spelled alike share one instantiation, and whichever compiled first answers for both.
     const declaration = type.callArguments.length === 0 ? context.structByName(type.name, EMPTY_TEMPLATE_BINDINGS) : undefined;
     const identity = declaration ? `#${context.declarationId(declaration)}` : "";
     return `${type.name}${identity}<${argumentKeys}>`;
@@ -175,8 +172,7 @@ export function emitTemplateMethod(
         params: new Map(),
         retIsValue: cm.retKind === WatNodeType.I64,
         retIsAddr: cm.retKind === WatNodeType.I32,
-        // `return e` converts e to the declared return type. The type is the instantiated one, so a
-        // method returning T narrows to whatever T became.
+        // `return e` converts e to the declared return type, which is the instantiated one, so a method returning T narrows to whatever T became.
         retTypeName: cm.retType?.kind === AstKind.NAME ? cm.retType.name : undefined,
         thisLayout,
         thisType: type,
@@ -208,8 +204,7 @@ export function emitTemplateMethod(
     const tail = cm.retKind === WatNodeType.I64 ? ["    (i64.const 0)"] : cm.retKind === WatNodeType.I32 ? ["    (i32.const 0)"] : [];
     return [header, ...localDecls, ...context.lines, ...tail, "  )"].join("\n");
 }
-// The class an argument names in the source: `Type{...}` and `Type(args)` say what they build without
-// being lowered, which is what lets an overload be picked before anything is emitted.
+// The class an argument names in the source: `Type{...}` and `Type(args)` say what they build without being lowered, so an overload is picked before emission.
 function syntacticArgumentType(context: FunctionEmissionContext, argument: Expression): TypeSpec | null {
     if (argument.kind === AstKind.CONSTRUCT) {
         return context.programAnalysis.derefType(argument.type);
@@ -223,12 +218,7 @@ function syntacticArgumentType(context: FunctionEmissionContext, argument: Expre
     return null;
 }
 
-/**
- * Tell same-arity overloads apart by their first parameter's type, the way C++ picks a candidate.
- *
- * Only a class that declares more than one candidate pays for resolving the argument, which keeps
- * the single-overload case — nearly every call — from asking the address resolver anything.
- */
+/** Tell same-arity overloads apart by their first parameter's type, as C++ does; only a class with more than one candidate pays to resolve the argument. */
 function overloadDiscriminator(
     context: FunctionEmissionContext,
     type: TypeSpec & {
@@ -357,15 +347,11 @@ export function callCompiled(
             }
             const direct = context.lowering.emitAddress(context, callArgument);
             if (direct) return direct;
-            // An argument with no address of its own converts through the parameter class's
-            // one-argument constructor, when it declares one. A class that declares none has no such
-            // conversion in C++ either, and initialising its fields instead would accept calls Clang
-            // rejects — `qpi.nextId(7)` for an id built only from four limbs.
+            // An argument with no address converts through the parameter class's one-argument constructor; a class declaring none has no conversion in C++.
             const resolvedParam = context.programAnalysis.resolveType(paramType, bind);
             const paramOwner = resolvedParam.kind === AstKind.NAME || resolvedParam.kind === AstKind.TEMPLATE_INSTANCE ? resolvedParam.name : null;
             const singleArgument = paramOwner ? context.programAnalysis.templateMethods.get(paramOwner)?.get(`${paramOwner}/1`) : undefined;
-            // A copy constructor takes one argument too, and converts nothing: feeding it a scalar
-            // would send the same argument back through this branch for its own `const T&` parameter.
+            // A copy constructor takes one argument too and converts nothing: feeding it a scalar would send the same argument back for its own `const T&`.
             const convertsFromScalar =
                 !!singleArgument &&
                 !context.programAnalysis.isAggregateType(context.programAnalysis.derefType(singleArgument.functionParameters?.[0]?.type ?? paramType));
@@ -454,9 +440,7 @@ export function emitContainerCall(
             callArguments: [],
         } as TypeSpec;
     }
-    // A class is a class whether or not it declares methods of its own: one that inherits all of them
-    // has no entry in the method table, and asking the scoped resolver finds a nested declaration the
-    // global map never held.
+    // A class is a class whether or not it declares methods: one inheriting all of them has no table entry, and the scoped resolver finds nested declarations.
     if (
         ct?.kind === AstKind.NAME &&
         (context.programAnalysis.globalStructs.has(ct.name) ||

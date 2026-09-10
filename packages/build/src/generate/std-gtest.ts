@@ -1,5 +1,4 @@
-// Scaffold a STANDARD gtest (core-lite `contract_testing.h`) from a contract's IDL — the real Qubic SC-test
-// format (a `ContractTesting<Name>` fixture over the `ContractTesting` base, one TEST per procedure/function).
+// Scaffold a standard gtest (core-lite `contract_testing.h`) from a contract's IDL: a `ContractTesting<Name>` fixture with one TEST per procedure/function.
 import type { ContractEntry, ContractIdl } from "@qinit/proto/contract-idl";
 
 const SAMPLE_SEED_ID = "id::randomValue()";

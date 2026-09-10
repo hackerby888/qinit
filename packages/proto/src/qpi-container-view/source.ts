@@ -84,8 +84,7 @@ export function qpiBorrowedSource(bytes: Uint8Array): QpiByteSource {
     return byteArraySource(bytes);
 }
 
-// Two occupation bits per slot, 32 slots to a word. Reading each word once instead of once per slot, and
-// skipping the empty ones, turns a full-capacity walk into work proportional to the slots in use.
+// Two occupation bits per slot, 32 slots to a word: reading each word once and skipping empty ones makes a walk proportional to slots in use, not capacity.
 export function occupiedSlots(flags: Uint8Array, capacity: number): number[] {
     const slots: number[] = [];
 

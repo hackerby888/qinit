@@ -1,7 +1,4 @@
-// `sizeof(X)` only parses as a type when X starts with a type keyword; every other spelling arrives as an
-// expression, where an unplaceable name used to answer with a default width. The table covers the whole
-// family — keyword, alias, struct, enum, container, qualified or not — because fixing one spelling here
-// moves the shared ordering that decides all of them, and the lvalue rows are what catch that.
+// `sizeof(X)` parses as a type only when X starts with a type keyword; every other spelling arrives as an expression, where an unplaceable name defaulted.
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -72,8 +69,7 @@ describe.skipIf(!HAS_CORE)("edge audit — sizeof spellings", () => {
         expect(await sizeOf("Wide::Buffer")).toBe(32n);
     });
 
-    // The name-is-a-type lookup runs before the scalar fallback, so a name that is NOT a type has to keep
-    // reaching that fallback — sizeOfType answers with a default for anything it cannot place.
+    // The name-is-a-type lookup runs before the scalar fallback, so a name that is NOT a type must keep reaching it — sizeOfType defaults for the unplaceable.
     test("a value keeps reporting its own width, not a type's", async () => {
         expect(await measure("uint64 v = 1; state.mut().result = sizeof(v);")).toBe(8n);
         expect(await measure("uint8 v = 1; state.mut().result = sizeof(v);")).toBe(1n);

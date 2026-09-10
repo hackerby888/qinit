@@ -1,6 +1,4 @@
-// Seeded generator for constexpr-fold parity tests (deterministic, no I/O). Each contract stores the same
-// expression twice — once folded at compile time, once evaluated at runtime — so the two evaluators check
-// each other without a hand-written reference implementation.
+// Seeded generator for constexpr-fold parity tests: each contract stores one expression twice, folded and evaluated, so the two evaluators check each other.
 
 export interface FuzzConstexprContract {
     seed: number;
@@ -8,8 +6,7 @@ export interface FuzzConstexprContract {
     expression: string;
 }
 
-// Literals and depth are bounded so no generated expression can leave the uint64 range, where an overflow
-// would fail at WAT encode instead of exercising the fold.
+// Literals and depth are bounded so no generated expression leaves the uint64 range, where an overflow would fail at WAT encode instead of exercising the fold.
 const MAX_LITERAL = 255;
 const MAX_DEPTH = 3;
 const MAX_SHIFT = 20;

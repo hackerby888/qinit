@@ -27,10 +27,10 @@ const ceval = (sema: SemanticAnalyzer, expression: Expression): bigint | null =>
 
 const makeSema = () => new SemanticAnalyzer();
 
-// ---- constexpr evaluation ----
+// constexpr evaluation
 
 describe("SemanticAnalyzer — constexpr evaluation", () => {
-    // ---- literals ----
+    // literals
     describe("literals", () => {
         test("integer literals", () => {
             const s = makeSema();
@@ -58,7 +58,7 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
         });
     });
 
-    // ---- unary operators ----
+    // unary operators
     describe("unary operators", () => {
         test("logical NOT: !0 = 1, !1 = 0, !42 = 0", () => {
             const s = makeSema();
@@ -95,7 +95,7 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
         });
     });
 
-    // ---- binary operators ----
+    // binary operators
     describe("binary operators", () => {
         test("arithmetic: + - * / %", () => {
             const s = makeSema();
@@ -149,8 +149,7 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
             expect(ceval(s, bin(iLit("0"), BinaryOp.LOGICAL_OR, iLit("1")))).toBe(1n);
         });
 
-        // Builds the tree by hand, so it pins the evaluator's walk rather than the parser's grouping.
-        // expression-precedence.test.ts covers precedence itself, by parsing the text.
+        // Builds the tree by hand, so it pins the evaluator's walk rather than the parser's grouping; expression-precedence.test.ts covers precedence itself.
         test("evaluates a nested multiply before the add above it", () => {
             const s = makeSema();
             const expression = bin(iLit("2"), BinaryOp.ADD, bin(iLit("3"), BinaryOp.MULTIPLY, iLit("4")));
@@ -158,7 +157,7 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
         });
     });
 
-    // ---- ternary ----
+    // ternary
     describe("ternary", () => {
         test("true ? 1 : 2 → 1", () => {
             const s = makeSema();
@@ -177,7 +176,7 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
         });
     });
 
-    // ---- casts ----
+    // casts
     describe("casts", () => {
         test("c-style cast evaluates inner expression", () => {
             const s = makeSema();
@@ -196,7 +195,7 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
         });
     });
 
-    // ---- safe math calls ----
+    // safe math calls
     describe("safe math calls in constexpr context", () => {
         test("div(x,y) → x/y", () => {
             const s = makeSema();
@@ -234,7 +233,7 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
         });
     });
 
-    // ---- symbol-dependent expressions yield null ----
+    // symbol-dependent expressions yield null
     describe("symbol-dependent expressions", () => {
         test("identifiers return null (resolved by codegen's constant table)", () => {
             const s = makeSema();
@@ -252,7 +251,7 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
         });
     });
 
-    // ---- complex expressions ----
+    // complex expressions
     describe("complex constexpr expressions", () => {
         test("chained operations: ((2+3)*4 - 5)/3 = 5", () => {
             const s = makeSema();
@@ -283,7 +282,7 @@ describe("SemanticAnalyzer — constexpr evaluation", () => {
     });
 });
 
-// ---- diagnostics channel ----
+// diagnostics channel
 
 describe("SemanticAnalyzer — diagnostics", () => {
     test("error and warning collection", () => {

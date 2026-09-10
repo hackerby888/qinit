@@ -36,8 +36,7 @@ const DEPENDENCIES: Record<string, DependencySpec> = {
     QTF: { name: "QTF", path: join(SYSTEM, "QThirtyFour.h"), slot: 22 },
 };
 
-// Inter-contract source needs both the callee IDL (ABI sizes/entry IDs) and source (qualified constants/helpers).
-// Keep dependency order topological because later callees may themselves call earlier ones.
+// Inter-contract source needs both the callee IDL and source; keep dependency order topological, because later callees may themselves call earlier ones.
 const LINKED_DEPENDENCIES: Record<string, string[]> = {
     Proxy: ["Counter"],
     QUtil: ["QX"],
@@ -102,9 +101,7 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
     const name = structName(src);
     const dependencyNames = LINKED_DEPENDENCIES[displayName] ?? [];
 
-    // The macro names its callee literally, so a table entry that has fallen behind the contract is
-    // detectable here. Without this it surfaces as a pile of "unsupported" diagnostics pointing at the
-    // contract's own source, when the fault is a missing line in this file.
+    // The macro names its callee literally, so a table entry that has fallen behind is detectable here rather than as unsupported diagnostics on the contract.
     const undeclared = [...new Set(Array.from(src.matchAll(INTER_CONTRACT_CALL), (match) => match[1]))].filter((callee) => !dependencyNames.includes(callee));
     if (undeclared.length) {
         row.parse = "DEPS";

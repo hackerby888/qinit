@@ -93,10 +93,7 @@ export function blamedContract(stderr: string, plan: readonly SlottedContract[])
     return file ? plan.find((contract) => basename(contract.sourcePath) === basename(file)) : undefined;
 }
 
-/**
- * A production build compiles what Core will receive: the cheatcodes stripped, and no shim to define
- * them. The stripped copy goes to a scratch file — a build never rewrites the contract being worked on.
- */
+/** A production build compiles what Core receives: cheatcodes stripped, no shim. The stripped copy goes to a scratch file, never the worked-on contract. */
 function productionSource(sourcePath: string): string {
     const raw = readFileSync(sourcePath, "utf8");
     const violations = analyzeCheatcodes(raw);

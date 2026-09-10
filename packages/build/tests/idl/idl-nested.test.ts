@@ -80,8 +80,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     expect(input.format).toBe("id, id, id, id, sint64, sint64");
 });
 
-// A container inside a container never appeared in these fixtures, yet it is what the state viewer meets
-// on real contracts. The sizes below must match what proto computes from the same type tree.
+// A container inside a container never appeared in these fixtures, yet it is what the state viewer meets on real contracts; sizes must match proto's.
 const NESTED_CONTAINERS = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -122,10 +121,7 @@ test("containers nested inside containers keep the layout proto computes for the
     }
 });
 
-// A typedef a struct declares itself names its type only inside that struct: the layout binds it while sizing
-// the members, but the field type is read back downstream without those bindings. Stored as written, the IDL
-// re-resolves a name nothing declares and falls back to an assumed width — the size stays right while the
-// scalar it reports does not, so these rows pin the reported type, not only the byte count.
+// A struct's own typedef names its type only inside it, so the IDL re-resolves a name nothing declares and assumes a width — these rows pin the reported type.
 const MEMBER_TYPEDEF_SOURCE = `
 using namespace QPI;
 struct CONTRACT_STATE_TYPE : public ContractBase {

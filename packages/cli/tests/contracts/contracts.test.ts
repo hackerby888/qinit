@@ -1,5 +1,4 @@
-// resolveContract is the single target-resolution path for call / ls / state: a name or index must map to
-// the same contract everywhere, with user (dyn-registry) entries shadowing built-in system contracts.
+// resolveContract is the single target-resolution path for call / ls / state: a name or index maps to the same contract, user entries shadowing system ones.
 import { test, expect } from "bun:test";
 import { missingContractMessage, parseContractSlot, resolveContract, systemAsDyn, type ContractSets } from "../../src/contracts/registry";
 

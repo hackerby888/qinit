@@ -161,8 +161,7 @@ export function registerModuleDeclarations(
         programAnalysis.registerCalleeContractDeclarations(callee.contractName, callee.declarations);
     }
 
-    // Last, so a name written before the declaration it means still resolves. Enum members are evaluated while
-    // registering, which can lay out a namespaced struct under its pre-qualification names, so that goes too.
+    // Last, so a name written before its declaration still resolves; enum members evaluate while registering, which can lay out a struct under earlier names.
     programAnalysis.qualifyDeclarationsInScope(declarations);
     programAnalysis.layoutCache.clear();
 }

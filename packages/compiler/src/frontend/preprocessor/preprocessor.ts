@@ -46,7 +46,7 @@ export class Preprocessor {
     handleDirective(): void {
         return directiveHandler.handleDirective(this);
     }
-    // ---- conditional stack ----
+    // conditional stack
     pushCond(condition: boolean): void {
         return directiveHandler.pushCond(this, condition);
     }
@@ -83,7 +83,7 @@ export class Preprocessor {
     handlePragma(): void {
         return directiveHandler.handlePragma(this);
     }
-    // ---- Macro expansion ----
+    // Macro expansion
     tryExpandMacro(name: string): string | null {
         return macroExpander.tryExpandMacro(this, name);
     }
@@ -119,7 +119,7 @@ export class Preprocessor {
     readIdentAt(text: string, start: number): string {
         return sourceScanner.readIdentAt(this, text, start);
     }
-    // ---- Helpers ----
+    // Helpers
     isIdStart(ch: string): boolean {
         return sourceScanner.isIdStart(ch);
     }

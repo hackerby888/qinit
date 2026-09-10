@@ -202,8 +202,7 @@ export function CallInteractive({ rpcBaseUrl, onRun }: { rpcBaseUrl: string; onR
         }
     };
 
-    // The contract and entry stages mount a Select, which owns esc there — binding it here too would pop the
-    // stage and leave its search at the same time. Listed positively so a new Select stage fails inert.
+    // The contract and entry stages mount a Select, which owns esc there — binding it here too would pop the stage and clear its search. Listed positively.
     useInput((_i, key) => {
         if (key.escape && (wizard.stage === "input" || wizard.stage === "output" || wizard.stage === "amount")) {
             back();

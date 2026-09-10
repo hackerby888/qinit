@@ -1,5 +1,4 @@
-// Integer literal edges the main lexer suite stops short of — the largest value it asserts is 2^64-1 —
-// plus the token cursor, whose peek/reset/getTokens are only ever reached through the parser.
+// Integer literal edges the main lexer suite stops short of, plus the token cursor, whose peek/reset/getTokens are only ever reached through the parser.
 import { describe, expect, test } from "bun:test";
 import { Lexer, parseIntLiteral } from "../../src/frontend/lexer";
 import { TokenKind } from "../../src/shared/enums";

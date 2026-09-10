@@ -1,5 +1,4 @@
-// Peer-protocol codec — the pure wire layer. Asserts the 8-byte header round-trips, the request decoders read
-// the protocol struct layouts, and the response encoders place fields at the offsets a client reads.
+// Peer-protocol codec — the pure wire layer: the 8-byte header round-trips, decoders read the struct layouts, encoders place fields where clients read them.
 import { test, expect } from "bun:test";
 import * as codec from "../../src/protocol/peer-codec";
 import { MSG } from "../../src/protocol/peer-codec";

@@ -5,8 +5,7 @@ import { join } from "node:path";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { buildContractWithTypeScript } from "../../src/ops/typescript-build";
 
-// A callee's slot-sized type sits in the state, not in a public input: core's verifier refuses another
-// contract's types in an input/output, and the build gate now says so before compiling.
+// A callee's slot-sized type sits in the state, not a public input: core's verifier refuses another contract's types there, and the gate now says so first.
 const MAIN = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {

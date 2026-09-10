@@ -6,9 +6,7 @@ import { extractIdl, type ContractIdl } from "../compile/idl";
 import { scanCallees } from "./intercontract";
 import { generateWasmContractTestingHeader } from "../compile/clang";
 
-// Core contracts that log a payload whose leading word the host overwrites with the contract index:
-// AddressChangeLogger opens with an id, QRWALogger with a uint64. Both ship as they are, so builds
-// keep compiling them with the log-header gate off until the contracts change.
+// Core contracts whose leading log word the host overwrites with the contract index — AddressChangeLogger opens with an id, QRWALogger a uint64; gate off.
 export const KNOWN_LOG_HEADER_VIOLATIONS: ReadonlySet<string> = new Set(["VottunBridge.h", "qRWA.h"]);
 
 export interface SystemContract {

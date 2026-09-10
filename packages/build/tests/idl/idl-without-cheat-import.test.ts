@@ -1,5 +1,4 @@
-// The clang backend links its own cheat import and borrows the TypeScript analyzer for the IDL alone,
-// so stale core headers must not cost it the cheats table — a client with no typed names is a real loss.
+// The clang backend links its own cheat import and borrows the TypeScript analyzer for the IDL, so stale core headers must not cost it the cheats table.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

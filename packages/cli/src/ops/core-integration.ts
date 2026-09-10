@@ -301,8 +301,7 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
             throw new Error("contract source must be outside the Core output checkout");
         }
 
-        // The only hand-off to Core, so it is the one place cheatcodes must not survive. Violations are
-        // a hard failure here rather than a build diagnostic: analyzer severity gates nothing on this path.
+        // The only hand-off to Core, so the one place cheatcodes must not survive. A violation is a hard failure here, since analyzer severity gates nothing.
         const rawSource = readFileSync(contractPath, "utf8");
         const violations = analyzeCheatcodes(rawSource);
 
@@ -312,8 +311,7 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
 
         const contractSource = stripCheatcodes(rawSource);
 
-        // no trailing character class: a mis-aligned blanking window can leave exactly `CC_`, and this
-        // is the one hand-off to Core, so it fails closed.
+        // no trailing character class: a mis-aligned blanking window can leave exactly `CC_`, and this is the one hand-off to Core, so it fails closed.
         if (/\bCC_/.test(contractSource)) {
             throw new Error("internal: cheatcode residue after strip");
         }

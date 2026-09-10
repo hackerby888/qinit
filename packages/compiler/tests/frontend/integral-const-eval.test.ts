@@ -1,5 +1,4 @@
-// Direct unit tests for the validation-side constant evaluator. It answers null where the analysis-side
-// folder answers 0n (divide-by-zero), pinning which evaluator does what before anyone unifies them.
+// Direct unit tests for the validation-side constant evaluator: it answers null where the analysis-side folder answers 0n, pinning which does what.
 import { describe, expect, test } from "bun:test";
 import { AstKind, BinaryOp, UnaryOp } from "../../src/shared/enums";
 import { constKey, evalIntegralConst, isZeroLiteral, paramSignature, typeKey } from "../../src/frontend/validation/validation-helpers";
@@ -113,8 +112,7 @@ describe("integral constant evaluation", () => {
         expect(evalIntegralConst(call("min", [int("1"), identifier("FOO")]))).toBeNull();
     });
 
-    // A folded cast has to land on the value the emitter's narrowCastIr produces for the same cast, or a
-    // constant disagrees with the runtime expression it was folded from.
+    // A folded cast has to land on the value narrowCastIr produces for the same cast, or a constant disagrees with the expression it was folded from.
     test("a C-style cast narrows to its target type", () => {
         const cast = (type: string, value: string): Expression =>
             ({ kind: AstKind.C_CAST, type: named(type), expression: int(value), span: SPAN }) as Expression;

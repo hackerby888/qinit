@@ -1,5 +1,4 @@
-// The proof that stripping is safe, in two halves. Stating only the second would be a tautology: a
-// no-op shim erases a *missed* cheat too, so byte-equality alone proves nothing about coverage.
+// The proof that stripping is safe, in two halves: stating only the second would be a tautology, since a no-op shim erases a missed cheat too.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,14 +20,12 @@ for (const contractName of CONTRACTS) {
         const source = sourceOf(contractName);
         const options = { contractName, slot: 28, qpiHeader: loadQpiHeader() };
 
-        // Half one: with no shim, a cheat the stripper missed is an undeclared identifier. This is what
-        // Core does, so a clean compile here is what proves nothing was left behind.
+        // Half one: with no shim, a cheat the stripper missed is an undeclared identifier — what Core does, so a clean compile proves nothing was left behind.
         const stripped = await compileContractWithTypeScript({ ...options, source: stripCheatcodes(source), cheats: CheatMode.OFF });
 
         expect(stripped.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
 
-        // Half two: the same contract built with the cheats defined away. Equal bytes prove the strip
-        // removed only cheat text and perturbed nothing else.
+        // Half two: the same contract with cheats defined away. Equal bytes prove the strip removed only cheat text and perturbed nothing else.
         const neutered = await compileContractWithTypeScript({ ...options, source, cheats: CheatMode.NOOP });
 
         expect(Buffer.from(stripped.wasm).equals(Buffer.from(neutered.wasm))).toBe(true);

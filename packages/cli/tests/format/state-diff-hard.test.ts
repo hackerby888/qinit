@@ -1,6 +1,4 @@
-// Windows the engine cannot aim on purpose: one opening inside a struct element ahead of the member
-// that moved, one covering a struct that holds a container, entries that leave nothing but a flag
-// behind, packed values inside keyed records, nested and negative keys. Each pins the rows a dev reads.
+// Windows the engine cannot aim on purpose: one opening inside a struct element, one covering a struct holding a container, entries leaving only a flag.
 import { expect, test } from "bun:test";
 import { collectionGeometry, hashMapGeometry, hashSetGeometry } from "@qinit/proto/qpi-layout";
 import { stateDiffLines, type StateDiffLine } from "../../src/trace/state-diff";
@@ -24,8 +22,7 @@ const ORDERS = fieldsOf("Orders", "Collection<Order, 8> orders;", ORDER);
 const ORDERS_GEOMETRY = collectionGeometry({ size: 48, align: 8 }, 8);
 
 test("a window opening inside a struct element ahead of the changed member reports that member once", async () => {
-    // Order's last four bytes are padding. Opening 24 bytes into element 1 used to make the padding step
-    // resolve to the whole struct, whose partial image then repeated the change as a raw hex row.
+    // Order's last four bytes are padding. Opening 24 bytes into element 1 used to make the padding step resolve to the whole struct and repeat the change.
     const element = offsetOf(ORDERS, "orders") + ORDERS_GEOMETRY.elementsOffset + ORDERS_GEOMETRY.elementStride;
     const window = diffWindow(element + 24, ORDERS_GEOMETRY.elementStride - 24, undefined, (bytes) => {
         writeLe(bytes, 8, -2n);
@@ -205,8 +202,7 @@ const PADDED = fieldsOf("Padded", "Rec rec; uint64 tail;", REC);
 const REC_ARRAY = fieldsOf("PaddedArray", "Array<Rec, 2> recs;", REC);
 
 test("a window opening inside a struct's interior padding still reports every later field", async () => {
-    // Rec pads 4..8 and 20..24. Opening in the first pad used to size the padding step to the struct's end,
-    // so b and d were walked over without a row.
+    // Rec pads 4..8 and 20..24. Opening in the first pad used to size the padding step to the struct's end, so b and d were walked over without a row.
     const window = diffWindow(offsetOf(PADDED, "rec") + 4, 28, undefined, (bytes) => {
         writeLe(bytes, 4, 42n);
         writeLe(bytes, 20, 44n);

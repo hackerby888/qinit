@@ -53,9 +53,7 @@ const fakeRpc = (state: Uint8Array | number[], calls: StateReadCall[] = []): Sta
     };
 };
 
-// A state field whose type a callee declares cannot be resolved from this contract's source alone, so
-// deriving the IDL here reports it as a short scalar and leaves its tail bytes unowned. The build
-// already produced the right IDL; describeTrace has to use it rather than recompute a worse one.
+// A state field typed by a callee cannot be resolved from this source, so deriving the IDL here reports a short scalar; describeTrace must use the build's.
 test("describeTrace: prefers the build's IDL over one derived from source", async () => {
     const CALLEE_TYPED_SRC = `
 using namespace QPI;
@@ -116,8 +114,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         logs: [],
     };
 
-    // Source alone: the callee's type cannot be resolved, and an unresolved type no longer degrades to a
-    // short scalar — no IDL is derived, so the state is shown undecoded rather than wrong.
+    // Source alone: the callee's type cannot be resolved, and an unresolved type no longer degrades to a short scalar — the state shows undecoded, not wrong.
     const derived = await describeTrace(entry, CALLEE_TYPED_SRC, "CallOutState");
     expect(derived.fields).toEqual([]);
     expect(derived.stateDiff).toEqual([]);
@@ -538,8 +535,7 @@ test("readState: BitArray ignores high padding bits", async () => {
     });
 });
 
-// A container two structs down is still a container: it takes the block a top-level one would, named for
-// the path that reaches it and numbered like one, rather than a line of JSON inside its parent's value.
+// A container two structs down is still a container: it takes the block a top-level one would, named for its path, rather than a line of JSON in its parent.
 test("readState: a BitArray nested under two structs becomes its own block", async () => {
     const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct Bits { BitArray<128> value; }; struct Box { Bits bits; }; struct StateData { Box nested; }; INITIALIZE() {} };`;
     const bytes = new Uint8Array(16);
@@ -967,8 +963,7 @@ test("fmtVal: run-length-group long runs, keep short literal, cap unless full", 
     ).toBe(`[["A", "0"] ×6]`); // nested struct run
 });
 
-// A container key is decoded positionally like any other value, so it needs its type to read as a record
-// rather than as the tuple the ABI decoder hands back.
+// A container key is decoded positionally like any other value, so it needs its type to read as a record rather than the tuple the ABI decoder returns.
 test("keyLabel names a struct key's fields", () => {
     const sint32: AbiType = {
         kind: AbiTypeKind.SCALAR,

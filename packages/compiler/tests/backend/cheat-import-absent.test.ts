@@ -1,5 +1,4 @@
-// Core headers that predate the cheatcodes declare no `cheat` import. The module still has to encode,
-// and a contract that does use a cheatcode has to be told why rather than shown a dangling WAT call.
+// Core headers predating the cheatcodes declare no `cheat` import; the module still has to encode, and a contract using one must be told why.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -47,8 +46,7 @@ test.if(HAS_CORE)("a CC_PRINT against those headers names the fix instead of fai
     const compiled = await compileContractWithTypeScript({ source, contractName: "Cheats", slot: 28, qpiHeader: qpiHeaderWithoutCheatImport(loadQpiHeader()) });
     const errors = errorsOf(compiled.diagnostics);
 
-    // One per CC_PRINT and none for the CC_ASSERT between them: the check is on the two intrinsics
-    // that lower to the import, not on every CC_ macro.
+    // One per CC_PRINT and none for the CC_ASSERT between them: the check is on the two intrinsics that lower to the import, not on every CC_ macro.
     expect(errors).toHaveLength(3);
     expect(errors[0]).toContain("qinit setup");
     // The reader is pointed at their own CC_PRINT, not at generated WAT.

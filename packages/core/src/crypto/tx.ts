@@ -23,8 +23,7 @@ export interface TxInput {
     payload: Uint8Array;
 }
 
-// A Qubic seed is exactly 55 lowercase letters (a-z). Reject anything else loudly — signing with a malformed
-// seed otherwise silently produces a wrong identity / unspendable tx.
+// A Qubic seed is exactly 55 lowercase letters. Reject anything else loudly — signing with a malformed seed silently produces a wrong identity.
 export function assertSeed(seed: string): void {
     if (!/^[a-z]{55}$/.test(seed)) {
         throw new Error(`invalid seed: must be 55 lowercase letters a-z (got ${seed.length} char(s))`);

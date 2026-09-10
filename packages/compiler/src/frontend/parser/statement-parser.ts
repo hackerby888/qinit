@@ -60,7 +60,6 @@ export class StatementParser {
             this.parser.state.next();
             return { kind: AstKind.LABEL, name: tok.text, span: tok.span };
         }
-        // static_assert
         if (tok.kind === TokenKind.KW_STATIC_ASSERT) {
             const sa = this.parser.declarations.parseStaticAssertDecl();
             return {

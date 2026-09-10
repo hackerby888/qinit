@@ -4,10 +4,7 @@ import type { Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { classOperandName, isM256Operand, tryLowerOverloadedOperator } from "./operator-overload";
 
-// The byte-wise intrinsics stand in for m256.h's operators. They apply when an operand is known to
-// be m256i, and also when neither operand's type can be inferred — a by-value `id::zero()` has no
-// address to resolve a type from, and rejecting those would fail code Clang accepts. A class we did
-// resolve gets no substitution: it must declare the operator, which is what C++ requires.
+// Byte-wise intrinsics stand in for m256.h's operators when an operand is known m256i or neither type infers; a class we did resolve must declare the operator.
 function usesByteEquality(context: FunctionEmissionContext, left: Expression, right: Expression): boolean {
     if (isM256Operand(context, left) || isM256Operand(context, right)) {
         return true;
@@ -34,8 +31,7 @@ export function lowerBinaryExpression(
     // Whatever the class declared wins, for every operator, the same way C++ resolves it.
     const overloaded = tryLowerOverloadedOperator(context, `operator${expression.operator}`, expression.left, expression.right);
     if (overloaded) return overloaded;
-    // m256i's own operator== is written in x86 intrinsics, so byte equality substitutes for it here.
-    // The two agree by construction: the intrinsic body compares all 32 bytes.
+    // m256i's own operator== is written in x86 intrinsics, so byte equality substitutes: the intrinsic body compares all 32 bytes, so they agree.
     if (expression.operator === BinaryOp.EQUAL || expression.operator === BinaryOp.NOT_EQUAL) {
         const substitutes = usesByteEquality(context, expression.left, expression.right);
         const la = substitutes ? context.lowering.aggOperand(context, expression.left) : null;
@@ -84,8 +80,7 @@ export function lowerBinaryExpression(
             return watIr.operation("i64.extend_i32_u", watIr.operation("i32.eqz", leftAddressAndSize(la, ra)));
         }
     }
-    // A class operand that reached here has no candidate: report the C++ error rather than let it
-    // fail as an unreadable aggregate deeper in the generic path.
+    // A class operand that reached here has no candidate: report the C++ error rather than fail as an unreadable aggregate deeper in the generic path.
     if (COMPARISON_OPERATORS.has(expression.operator)) {
         const operandClass = classOperandName(context, expression.left) ?? classOperandName(context, expression.right);
 

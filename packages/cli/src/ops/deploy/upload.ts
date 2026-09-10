@@ -1,5 +1,4 @@
-// Broadcasting a chunk is not the same as it landing in a tick, so every phase re-reads the node's upload
-// status and resends what is still missing rather than trusting the broadcast result.
+// Broadcasting a chunk is not the same as it landing in a tick, so every phase re-reads the node's upload status and resends what is still missing.
 import { LiteRpc, buildSignedTx } from "@qinit/core";
 import { LITE_TX, TX_TICK_OFFSET, createUploadSessionId, encodeUploadBegin, encodeUploadChunk, splitUploadChunks } from "@qinit/proto";
 import type { DeploymentEvent } from "./steps";
@@ -77,8 +76,7 @@ export interface UploadOpts {
     waitForTick: (target: number, attempts?: number) => Promise<number>;
 }
 
-// On success the caller gets the session id it must name in its DEPLOY transaction. On failure the upload
-// step has already been marked failed via `emit`, so the caller only has to surface the message.
+// On success the caller gets the session id it must name in its DEPLOY. On failure the upload step is already marked failed, so the caller only surfaces it.
 export type UploadResult = { ok: true; session: bigint; assembled: boolean } | { ok: false; error: string };
 
 export async function uploadContract({ rpc, seed, wasm, hash, emit, readTick, waitForTick }: UploadOpts): Promise<UploadResult> {

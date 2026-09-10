@@ -24,8 +24,7 @@ export interface Manifest {
     headers?: AssetRef;
 }
 
-// A manifest may name an asset by filename instead of a full URL; expand it against the release tag.
-// Anything that is neither a plain https URL nor a safe filename is rejected rather than fetched.
+// A manifest may name an asset by filename instead of a URL; expand it against the release tag and reject anything that is neither https nor a safe filename.
 export function resolveReleaseAsset(asset: AssetRef, repo: string, tag: string, label: string): AssetRef {
     const value = asset?.url;
     if (typeof value !== "string") {

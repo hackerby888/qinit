@@ -1,5 +1,4 @@
-// Keyboard-driven input widgets. Both grab the terminal with useInput, so exactly one may be mounted
-// at a time — a caller that has its own key handling must stand down while a prompt is up.
+// Keyboard-driven input widgets. Both grab the terminal with useInput, so exactly one may be mounted at a time and a caller must stand down while one is up.
 import { useEffect, useState, type ReactNode } from "react";
 import { Box, Text, useInput } from "ink";
 import { windowOf } from "./format";
@@ -19,8 +18,7 @@ const firstSelectable = <T,>(items: SelItem<T>[]) =>
         items.findIndex((item) => !item.header),
     );
 
-// Case-insensitive substring match on the label. A group header never matches on its own text, and one
-// survives only when a row under it does.
+// Case-insensitive substring match on the label. A group header never matches on its own text, and survives only when a row under it does.
 export function filterItems<T>(items: SelItem<T>[], query: string): SelItem<T>[] {
     if (!query) {
         return items;
@@ -48,8 +46,7 @@ export function filterItems<T>(items: SelItem<T>[], query: string): SelItem<T>[]
     return kept;
 }
 
-// A vertical picker. `header` items are non-selectable group labels that ↑/↓ skips over. The list is
-// windowed to the terminal, and `/` opens a filter over the labels.
+// A vertical picker: `header` items are non-selectable group labels ↑/↓ skips. The list is windowed to the terminal, and `/` opens a filter over the labels.
 export function Select<T>({
     label,
     items,
@@ -87,8 +84,7 @@ export function Select<T>({
         });
     };
 
-    // Reseat the cursor on every list change here rather than in an effect — callers rebuild `items` each
-    // render, so an effect keyed on it would never settle.
+    // Reseat the cursor on every list change here rather than in an effect — callers rebuild `items` each render, so an effect keyed on it would never settle.
     const retype = (nextQuery: string) => {
         setQuery(nextQuery);
         setSelected(firstSelectable(filterItems(items, nextQuery)));
@@ -128,8 +124,7 @@ export function Select<T>({
         }
     });
 
-    // Doubles as the scroll position and the match count, which is what a windowed list would otherwise
-    // spend two rows saying.
+    // Doubles as the scroll position and the match count, which is what a windowed list would otherwise spend two rows saying.
     const rank = visible.slice(0, selected + 1).filter((item) => !item.header).length;
     const total = visible.filter((item) => !item.header).length;
     const keys = searching ? `/${query} ⌫ · esc clear` : "/ search · esc back";
@@ -173,8 +168,7 @@ export function Select<T>({
     );
 }
 
-// `isActive: false` parks the field: still renders dimmed but takes no keys — which is how a form can
-// mount several at once and still honour the one-keyboard-owner rule above.
+// `isActive: false` parks the field: still rendered dimmed but taking no keys, which is how a form mounts several and still honours one keyboard owner.
 export function TextPrompt({
     label,
     initial,

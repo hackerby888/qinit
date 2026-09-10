@@ -1,12 +1,7 @@
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
-// Generated control-flow programs, judged by clang. controlflow-diff.test.ts pins the shapes someone
-// thought of; this covers the ones nobody did. Every seed is rendered twice from one AST — as a contract
-// entry and as a plain C++ reference in the gtest — so a mismatch is a codegen divergence between the two
-// compilers on identical source.
-//
-// All seeds live in ONE contract so the suite pays for a single clang build and a single Qinit build
-// rather than one per seed.
+// Generated control-flow programs judged by clang: controlflow-diff pins the shapes someone thought of, this covers the ones nobody did.
+// Every seed renders twice from one AST — contract entry and C++ reference — and all live in ONE contract, so the suite pays for a single build of each.
 import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
@@ -21,8 +16,7 @@ const HEADERS = () => loadQpiHeader(CORE);
 
 // Widening the sweep is an env var, not an edit — the same knobs container-parity.test.ts exposes.
 const SEED_START = Number(process.env.QINIT_CONTROLFLOW_SEED_START ?? 0);
-// 128 rather than 32: the whole sweep is one compile, so the extra seeds cost ~2s and roughly quadruple
-// the hit rate on the rarer codegen mutations.
+// 128 rather than 32: the whole sweep is one compile, so the extra seeds cost ~2s and roughly quadruple the hit rate on the rarer codegen mutations.
 const SEEDS = Number(process.env.QINIT_CONTROLFLOW_SEEDS ?? 128);
 const PROGRAMS = generatePrograms(SEED_START, SEEDS);
 
@@ -82,8 +76,7 @@ describe.skipIf(!HAS_CORE)(`differential gtest — generated control flow (seeds
         await initK12();
     });
 
-    // Termination is a property of the generator, not of the runner's timeout: every loop bound is a
-    // literal and nesting is capped, so assert it here rather than discovering a hang.
+    // Termination is a property of the generator, not the runner's timeout: every loop bound is a literal and nesting is capped, so assert it here.
     test("every generated program has a bounded step count", () => {
         for (const program of PROGRAMS) {
             expect({ seed: program.seed, bounded: program.steps <= 4096 }).toEqual({ seed: program.seed, bounded: true });

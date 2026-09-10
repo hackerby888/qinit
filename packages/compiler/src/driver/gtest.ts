@@ -58,8 +58,7 @@ function lineAt(source: string, offset: number): number {
     return source.slice(0, offset).split("\n").length;
 }
 
-// TEST is a source macro boundary, not a second C++ language. We only locate its balanced body here;
-// every statement and expression inside the body is parsed and lowered by the normal compiler frontend.
+// TEST is a source macro boundary, not a second C++ language: only its balanced body is located here, and everything inside is parsed by the normal frontend.
 function extractTests(source: string): TestBlock[] {
     const tests: TestBlock[] = [];
     const testPattern = /\bTEST\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*\)\s*\{/g;
@@ -267,8 +266,7 @@ export async function compileGtest(options: CompileOptions & { testSource: strin
     diagnostics.push(...runner.diagnostics);
     if (diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR)) return { diagnostics };
 
-    // Runner declarations come first so findContractStruct selects it. The target contract AST is still present
-    // as a normal global struct, providing the authoritative nested input/output/state layouts used by fixtures.
+    // Runner declarations come first so findContractStruct selects it; the target contract AST stays a normal global struct with the authoritative layouts.
     const declarations: Declaration[] = [...runner.ast.declarations, ...target.ast.declarations];
     const targetStruct = findContractStruct(target.ast);
     const targetTypes = new Map<string, StructDecl>();

@@ -83,8 +83,7 @@ export function App({ command, args }: { command: string; args: string[] }) {
     );
 }
 
-// Point removed or renamed commands at their replacement instead of a fuzzy
-// "did you mean" suggestion.
+// Point removed or renamed commands at their replacement instead of a fuzzy did-you-mean suggestion.
 const REMOVED = new Map([["up", "node run"]]);
 
 const ALIASES = new Map<string, CommandName>([

@@ -1,5 +1,4 @@
-// broadcastTx verdict logic + the response-body stall watchdog. broadcastTx must only report ok when the node
-// actually accepted+relayed the tx (peers >= 1, no error code) — a false ok would hide a dropped tx.
+// broadcastTx verdict logic plus the response-body stall watchdog: ok may only be reported when the node accepted and relayed the tx, or a dropped tx hides.
 import { test, expect, afterEach } from "bun:test";
 import { DEFAULT_RPC_BASE, RequestTimeoutError, broadcastTx, fetchWithTimeout, readResponseBodyWithTimeout } from "../../src/net/http";
 

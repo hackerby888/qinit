@@ -49,8 +49,7 @@ export async function serveEngine(
     process.stdout.write(`qinit simulator: rpc ${rpcBaseUrl} · peer ${LOOPBACK_HOST}:${peerPort}\n`);
     await seedSystemContracts(srv, system, compiler);
 
-    // Keep the process alive indefinitely — EngineServer auto-advances ticks on its own interval, and the
-    // process is reaped by killNode (SIGKILL), so there is nothing to await or clean up here.
+    // Keep the process alive indefinitely — EngineServer auto-advances ticks on its own interval and is reaped by killNode, so there is nothing to await.
     await new Promise<never>(() => {});
     throw new Error("unreachable");
 }

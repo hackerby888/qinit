@@ -1,11 +1,5 @@
-// The container views only decode; every fixture so far had to place flag bits, records and links by
-// hand, which is why they all use uint64 keys. These writers go the other way — logical entries in,
-// container bytes out — so a test can state what a container holds and let the view prove it reads it.
-//
-// Record payloads are deterministic filler rather than encoded values, and the expected entry decodes
-// the same slice the view is supposed to read. That keeps these focused on the bookkeeping the writers
-// own — flags, population, stride, links, the PoV tree — and leaves value decoding to the format fuzz.
-// Geometry is shared with the views on purpose: it is pinned separately against formatAbiType.
+// The reverse of the views: logical entries in, container bytes out, so a test states what a container holds and lets the view prove it reads it.
+// Payloads are deterministic filler, keeping these on the bookkeeping the writers own — flags, population, stride, links, the PoV tree — not value decoding.
 import { decodeAbiValue } from "../../src/abi-fmt";
 import {
     AbiScalarKind,
@@ -26,8 +20,7 @@ const view = (bytes: Uint8Array) => new DataView(bytes.buffer, bytes.byteOffset,
 export const setUint64 = (bytes: Uint8Array, offset: number, value: number | bigint) => view(bytes).setBigUint64(offset, BigInt(value), true);
 export const setSint64 = (bytes: Uint8Array, offset: number, value: number | bigint) => view(bytes).setBigInt64(offset, BigInt(value), true);
 
-// hash_map / hash_set / collection: two bits per slot, 1 occupied and 2 deleted. 3 is the invalid pattern
-// the view rejects, so it is never written here.
+// hash_map / hash_set / collection: two bits per slot, 1 occupied and 2 deleted; 3 is the invalid pattern the view rejects, so it is never written here.
 export const setPairFlag = (bytes: Uint8Array, flagsOffset: number, slot: number, flag: 1 | 2) => {
     bytes[flagsOffset + (slot >> 2)] |= flag << ((slot & 3) * 2);
 };
@@ -139,9 +132,7 @@ export interface WrittenCollection {
     entries: { povSlot: number; elementIndex: number; pov: unknown; priority: bigint; value: unknown }[];
 }
 
-// Elements are stored packed at 0..population-1 because the view reads them as one run, so each PoV owns
-// a contiguous slice of that index space and holds a balanced BST over it. In-order of a balanced tree
-// built from ascending indices is ascending, which is what makes head the first index and tail the last.
+// Elements are packed at 0..population-1 since the view reads them as one run, so each PoV owns a contiguous slice with a balanced BST — head first, tail last.
 export async function writeCollection(type: AbiCollection, povs: CollectionPovSpec[], deleted: number[] = []): Promise<WrittenCollection> {
     const geometry = collectionGeometry(type.value, type.capacity);
     const bytes = new Uint8Array(type.size);

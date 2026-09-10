@@ -16,8 +16,7 @@ export function canonTypeKey(validator: Validator, type: TypeSpec): string {
                     return numericValue.toString();
                 }
             }
-            // A literal or constant expression argument keys by its value, so `Array<uint8, 4>` and
-            // `Array<uint8, 8>` are different types and `Array<uint8, CAP>` equals the spelled-out one.
+            // A literal or constant argument keys by value, so `Array<uint8, 4>` and `Array<uint8, 8>` differ while `Array<uint8, CAP>` equals the spelled one.
             if (argument.kind === AstKind.EXPR_VALUE) {
                 const evaluated = evalIntegralConst(argument.expression, (name) => validator.constants.get(name) ?? null);
                 if (evaluated !== null) {
@@ -51,9 +50,7 @@ export function runTopLevel(validator: Validator, declarations: Declaration[]): 
             declaration.name &&
             !isForwardDecl
         ) {
-            // A specialization declares a different entity from the primary template, so it is keyed by
-            // its arguments too: `template <> struct Tag<uint8>` and `template <typename T> struct Tag`
-            // coexist, while two specializations over the same arguments still collide.
+            // A specialization declares a different entity from the primary, so it is keyed by its arguments too; two over the same arguments still collide.
             const specializationArgs = (declaration as { specializationArgs?: TypeSpec[] }).specializationArgs;
             const declared = specializationArgs?.length
                 ? `${declaration.name}<${specializationArgs.map((argument) => typeKey(unwrapType(argument))).join(",")}>`
@@ -142,9 +139,7 @@ export function checkStruct(validator: Validator, structDeclaration: StructDecl)
     const typeNames = new Set<string>();
     const fnBodies = new Map<string, FunctionDecl>();
     const fnSigs = new Map<string, FnSig>();
-    // F67: a nested type and a member function sharing a name — C++ hides the type behind the function
-    // ([basic.scope.hiding]/2), so a bare use of that type after the function is declared is an error clang
-    // rejects. Qinit has no elaborated `struct T` form, so reject it too rather than silently resolving the type.
+    // A nested type and a member function sharing a name: C++ hides the type behind the function, and Qinit has no elaborated `struct T` form, so reject it.
     const seenFnNames = new Set<string>();
     const scopeTypeNames = new Set<string>();
     for (const typeMember of structDeclaration.members) {

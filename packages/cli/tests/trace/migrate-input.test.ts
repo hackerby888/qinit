@@ -1,5 +1,4 @@
-// A migration's input is the old state, and it has no entry number to look a type up by. Without the
-// IDL's OldStateData the whole old buffer renders as hex, which on a real contract is hundreds of KB.
+// A migration's input is the old state and has no entry number to look a type up by; without the IDL's OldStateData the whole buffer renders as hex.
 import { expect, test } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/engine/support/k12";

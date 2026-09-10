@@ -102,9 +102,7 @@ export function resolveSourceMethodDefinition(
         (methodArgumentCount !== undefined ? methods?.get(`${methodName}/${methodArgumentCount}`) : undefined) ??
         methods?.get(methodName);
 
-    // The class the name resolves to owns the search. structByName applies C++ scoping — a nested
-    // declaration shadows a global one — so a contract's own class is asked before any qpi type that
-    // happens to share its name. Names remain the fallback for templates and inherited methods.
+    // The class the name resolves to owns the search: structByName applies C++ scoping, so a contract's own class is asked before a qpi type sharing its name.
     const ownerDeclaration = programAnalysis.structByName(ownerTypeName, ownerBindings);
     definition = ownerDeclaration ? select(programAnalysis.methodsByDeclaration.get(ownerDeclaration)) : undefined;
 

@@ -1,5 +1,4 @@
-// The seeds a Qubic testnet node prefunds at genesis: its broadcast computors. A dev node that funds the
-// same eight lets one saved seed sign on either runtime, so the default signer is drawn from here first.
+// The seeds a Qubic testnet node prefunds at genesis: its broadcast computors. A dev node funding the same eight lets one saved seed sign on either runtime.
 export const TESTNET_FUNDED_SEEDS: readonly string[] = [
     "eraaastggldisjhoojaekgyimrsddjxbvgaawswfvnvaygqmusnkevv",
     "sgwnpzidgxbclnisgehigeculaejjxedzdkjyyfrzgzvuojrhdzywfh",

@@ -98,8 +98,7 @@ test("journal diffs match snapshot diffs byte for byte", async () => {
     }
 });
 
-// getEntity fills a caller-provided struct, so the host writes the state and no wasm store is involved.
-// Without a host-side note this reports no change at all.
+// getEntity fills a caller-provided struct, so the host writes the state and no wasm store is involved; without a host-side note this reports no change.
 test("a state field written by the host, not by the contract, still reaches the diff", async () => {
     const { journal, snapshot } = await bothMechanisms({
         fixture: "HostWrite",
@@ -110,8 +109,7 @@ test("a state field written by the host, not by the contract, still reaches the 
     expect(journal).toEqual(snapshot);
 });
 
-// An inter-contract call's output buffer can be a state field, and then lh_liteCallFunction writes the
-// state through an out-pointer. Same blind spot as getEntity, reached by a different import.
+// An inter-contract call's output buffer can be a state field, so lh_liteCallFunction writes state through an out-pointer — the same blind spot as getEntity.
 test("an inter-contract call that writes its output straight into state still reaches the diff", async () => {
     const { journal, snapshot } = await bothMechanisms({
         fixture: "CallOutState",
@@ -128,8 +126,7 @@ test("an inter-contract call that writes its output straight into state still re
     expect(journal).toEqual(snapshot);
 });
 
-// More blocks than the journal holds: that call can only say "truncated", and the contract falls back
-// to snapshot diffing from the next call, which must then be complete again.
+// More blocks than the journal holds: that call can only say truncated, and the contract falls back to snapshot diffing, which must then be complete again.
 test("an overflowing call truncates, arms the fallback, and the next call is complete", async () => {
     const slot = wasmFixtureManifest.WideWrite.slot;
     const bytes = await wasm("WideWrite");
@@ -190,8 +187,7 @@ test("QINIT_STATE_DIFF=snapshot ignores a baked journal", async () => {
     }
 });
 
-// Verify mode exists to catch a write path the journal misses. It only earns that if it checks calls
-// nobody traced, so this drives an untraced contract and plants a host write the journal cannot see.
+// Verify mode exists to catch a write path the journal misses, so this drives an untraced contract and plants a host write the journal cannot see.
 test("QINIT_STATE_DIFF=verify checks dispatches no recorder asked about", async () => {
     const saved = process.env.QINIT_STATE_DIFF;
     process.env.QINIT_STATE_DIFF = "verify";
@@ -203,8 +199,7 @@ test("QINIT_STATE_DIFF=verify checks dispatches no recorder asked about", async 
         // Debug was never switched on, so the only reason state was diffed at all is verify mode.
         expect(sim.getTrace().entries.length).toBe(0);
 
-        // Blind the journal to the state it covers. It then under-reports exactly as a missed write path
-        // would, and verify mode has to notice a write the contract really made.
+        // Blind the journal to the state it covers: it then under-reports exactly as a missed write path would, and verify mode has to notice.
         const view = contract as unknown as { mem: WebAssembly.Memory; arenaEnd: number };
         new DataView(view.mem.buffer).setUint32(view.arenaEnd + JournalHeaderOffset.STATE_SIZE, 0, true);
         expect(() => sim.procedure(28, 1)).toThrow(/journal disagrees with the snapshot/);
@@ -217,9 +212,7 @@ test("QINIT_STATE_DIFF=verify checks dispatches no recorder asked about", async 
     }
 });
 
-// Reset retires a generation instead of scrubbing the table, so the one dangerous moment is the wrap
-// back to the first generation: a leftover slot stamped with that exact value would read as live and
-// the block behind it would never be recorded. Both reset paths must clear on wrap.
+// Reset retires a generation instead of scrubbing the table, so the dangerous moment is the wrap: a leftover slot with that value would read as live.
 test("a generation wrap clears leftovers stamped with the first generation", async () => {
     const bytes = await wasm("Counter");
     withJournalEnabled(() => {
@@ -235,8 +228,7 @@ test("a generation wrap clears leftovers stamped with the first generation", asy
         const before = sim.getTrace().entries.at(-1)!.stateDiff;
         expect(before.length).toBe(1);
 
-        // Restamp the slot the dispatch just claimed as if it were written 2^32 dispatches ago, then
-        // wrap onto it. Without a clear, block 0 reads as already-recorded and drops out of the diff.
+        // Restamp the slot the dispatch just claimed as if written 2^32 dispatches ago, then wrap onto it: without a clear, block 0 drops out of the diff.
         const staleSlot = tableAt() + JOURNAL_SLOT_BYTES * (header().tableSlots - 1);
         for (let slot = tableAt(); slot < tableAt() + header().tableSlots * JOURNAL_SLOT_BYTES; slot += JOURNAL_SLOT_BYTES) {
             view().setUint32(slot, JOURNAL_FIRST_GENERATION, true);

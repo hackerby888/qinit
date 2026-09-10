@@ -29,8 +29,7 @@ export function baseContribution(
         const bound = parentB.types.get(resolvedBaseType.name);
         if (bound) resolvedBaseType = bound;
         else {
-            // A base named through a typedef resolves in the scope that typedef was declared in, so
-            // `struct D : Beta::B` inherits Beta's type and not a same-named one from elsewhere.
+            // A base named through a typedef resolves in that typedef's scope, so `struct D : Beta::B` inherits Beta's type, not a same-named one elsewhere.
             const td = followScopedTypedef(programAnalysis, resolvedBaseType.name);
             if (td) resolvedBaseType = td;
         }
@@ -147,8 +146,7 @@ export function structCacheKey(programAnalysis: ProgramAnalysis, struct: StructD
 export function layoutOfStruct(programAnalysis: ProgramAnalysis, struct: StructDecl, templateBindings: TemplateBindings): StructLayout {
     if (struct.hasBody === false) return { size: 0, align: 1, fields: new Map() };
 
-    // `namespace Beta { struct D : public Base {}; }` means Beta's Base, so the bases are resolved from
-    // the scope the struct was written in before anything downstream looks them up by name.
+    // `namespace Beta { struct D : public Base {}; }` means Beta's Base, so bases are resolved from the struct's own scope before anything looks them up.
     const scope = programAnalysis.structScope.get(struct);
     const bases = scope ? struct.bases.map((base) => qualifyNamesInScope(programAnalysis, base, scope)) : struct.bases;
     return programAnalysis.layoutOfMembers(struct.members, templateBindings, programAnalysis.structCacheKey(struct), struct.isUnion, bases);
@@ -175,11 +173,7 @@ function withMemberTypedefs(templateBindings: TemplateBindings, members: Declara
     return types === templateBindings.types ? templateBindings : { types, values: templateBindings.values, structs: templateBindings.structs };
 }
 
-/**
- * What a name means here, substituted before the field records it: a member typedef or a template parameter binds
- * the name only inside this member list, and everything downstream reads the field type back without those
- * bindings — where the name reaches no declaration at all and falls back to an assumed width.
- */
+/** What a name means here, substituted before the field records it: a member typedef or template parameter binds only inside this member list. */
 function boundMemberType(type: TypeSpec, templateBindings: TemplateBindings, depth = 0): TypeSpec {
     if (depth > 24) return type;
 

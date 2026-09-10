@@ -1,5 +1,4 @@
-// Qubic peer-protocol TCP server backed by an in-process VirtualNode.
-// Lets external clients communicate with the simulation over TCP.
+// Qubic peer-protocol TCP server backed by an in-process VirtualNode, letting external clients talk to the simulation over TCP.
 import { VirtualNode } from "./transport";
 import { initK12, toHex } from "./support/k12";
 import { DEFAULT_PEER_PORT, LOOPBACK_HOST } from "@qinit/core";
@@ -320,8 +319,7 @@ export class PeerServer {
         return concatBytes(frames);
     }
 
-    // REQUEST_OWNED_ASSETS — stream a RespondOwnedAssets per holding the queried account owns, with
-    // the asset's issuance record attached, then END_RESPONSE.
+    // REQUEST_OWNED_ASSETS — stream a RespondOwnedAssets per holding the queried account owns, with the asset's issuance record attached, then END_RESPONSE.
     private respondOwnedAssets(payload: Uint8Array, dejavu: number): Uint8Array {
         const owner = payload.subarray(0, 32);
         const frames: Uint8Array[] = [];
@@ -349,8 +347,7 @@ export class PeerServer {
         return concatBytes(frames);
     }
 
-    // REQUEST_POSSESSED_ASSETS — stream a RespondPossessedAssets per holding the queried account possesses (with
-    // the possession's managing contract, the ownership record, and the issuance record), then END_RESPONSE.
+    // REQUEST_POSSESSED_ASSETS — stream a RespondPossessedAssets per holding possessed (with managing contract, ownership and issuance), then END_RESPONSE.
     private respondPossessedAssets(payload: Uint8Array, dejavu: number): Uint8Array {
         const possessor = payload.subarray(0, 32);
         const frames: Uint8Array[] = [];

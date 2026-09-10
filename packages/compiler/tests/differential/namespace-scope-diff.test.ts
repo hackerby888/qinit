@@ -1,6 +1,4 @@
-// A name written unqualified inside a namespace means that namespace's declaration. Resolved from a flat bare
-// name instead, the state lays out at a different size than clang gives it — and every internal path agrees on
-// the wrong answer, so only the native build tells them apart.
+// A name written unqualified inside a namespace means that namespace's declaration; resolved from a flat bare name, every internal path agrees on a wrong size.
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { HEAVY_HOOK_TIMEOUT_MS } from "../support/fixture-shapes";
@@ -16,8 +14,7 @@ import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const SLOT = 27;
 
-// Each contract writes through the fields whose width is in question, so a wrong size shows up as differing
-// bytes and not only as a differing state length.
+// Each contract writes through the fields whose width is in question, so a wrong size shows up as differing bytes and not only as a differing state length.
 const CONTRACTS = [
     {
         name: "ArrayBound",

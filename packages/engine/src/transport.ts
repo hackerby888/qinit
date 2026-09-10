@@ -116,8 +116,7 @@ export class VirtualNode implements NodeTransport {
             historyTicks: options.historyTicks,
             epochLength: options.epochLength,
         });
-        // align the live simulator node (node run + in-process test) with core's wall clock (F71); gtest/fuzz
-        // build their own QubicSimulator directly and keep the deterministic 2024 base.
+        // Align the live simulator node with core's wall clock; gtest and fuzz build their own QubicSimulator and keep the deterministic 2024 base.
         this.sim.timeBaseMs = Date.now();
         this.sim.clockMode = "real";
         this.slotBase = options.slotBase ?? DEFAULT_WASM_SLOT_LAYOUT.slotBase;
@@ -779,8 +778,7 @@ export class VirtualNode implements NodeTransport {
         if (this.fundedSeedPool) {
             return this.fundedSeedPool;
         }
-        // The testnet seeds come first so a picker offers one that works on a real testnet node too; the
-        // derived pool behind them keeps the arbitrator seed and the rest of the old accounts funded.
+        // The testnet seeds come first so a picker offers one that works on a real testnet node; the derived pool behind them keeps the old accounts funded.
         const encoder = new TextEncoder();
         const seeds = [...TESTNET_FUNDED_SEEDS, "a".repeat(55)];
 

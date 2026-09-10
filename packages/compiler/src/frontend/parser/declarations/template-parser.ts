@@ -25,7 +25,6 @@ export class TemplateParser {
                 span: struct.span,
             } as ClassTemplateDecl;
         }
-        // Function template
         return this.parser.templates.parseFunctionTemplate(params);
     }
 

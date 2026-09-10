@@ -1,5 +1,4 @@
-// The mutating opcodes, driven from inside a contract rather than by calling the host directly, so the
-// whole path — macro, import, entry-kind check, host — is what is under test.
+// The mutating opcodes driven from inside a contract, not by calling the host directly, so the whole path — macro, import, entry-kind check, host — is tested.
 import { expect, test } from "bun:test";
 import { compileContractWithTypeScript } from "@qinit/compiler/browser";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
@@ -39,8 +38,7 @@ async function deployed(): Promise<QubicSimulator> {
     return sim;
 }
 
-// A contract abort surfaces as an error naming the code the contract passed, and the trace entry
-// carries the same text, so a dev reading either sees which cheat refused and where.
+// A contract abort surfaces as an error naming the code the contract passed, and the trace entry carries the same text, so either shows which cheat refused.
 function abortOf(code: number): RegExp {
     return new RegExp(`abort\\(${code >>> 0}\\)`);
 }
@@ -105,8 +103,7 @@ test("CC_ASSERT aborts with the line it stands on, and a passing assert costs no
     expect(sim.getTrace().entries.at(-1)?.trap).toMatch(abortOf(0xcc000000 | ASSERT_LINE));
 });
 
-// The scanner refuses this shape in a project, so it is compiled here directly: the host's own refusal
-// must still reach the dev as an abort naming the opcode, not vanish into a dropped return value.
+// The scanner refuses this shape in a project, so it is compiled here directly: the host's refusal must still reach the dev as an abort naming the opcode.
 test("a mutator called from a function aborts with its opcode", async () => {
     const source = `
 using namespace QPI;

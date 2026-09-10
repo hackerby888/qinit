@@ -1,6 +1,4 @@
-// rangesEqual has two implementations — Buffer.compare under node, a DataView word walk in the browser —
-// and every state/journal diff funnels through it. These pin both against each other, including the
-// mismatched-offset case journalRegions relies on, which a same-offset test cannot catch.
+// rangesEqual has two implementations — Buffer.compare under node, a DataView walk in the browser — and every state/journal diff funnels through it.
 import { describe, expect, test } from "bun:test";
 import { bytesEqual, rangesEqual } from "../../src/support/bytes";
 
@@ -37,8 +35,7 @@ describe("rangesEqual", () => {
         expect(rangesEqual(a, 0, b, 0, 3)).toBe(false);
     });
 
-    // journalRegions compares a journal copy against live state — two different offsets in ONE buffer.
-    // Passing the offsets to Buffer.compare in the wrong order still passes every same-offset test.
+    // journalRegions compares a journal copy against live state — two different offsets in one buffer, where wrong order still passes every same-offset test.
     test("honours differing source and target offsets", () => {
         const buf = bytes(1, 2, 3, 4, 0, 0, 1, 2, 3, 4);
         expect(rangesEqual(buf, 0, buf, 6, 4)).toBe(true);
@@ -85,9 +82,7 @@ describe("rangesEqual", () => {
     });
 });
 
-// Under bun, `typeof Buffer !== "undefined"` is always true, so every case above exercised only the node
-// path. Hide Buffer and replay the same matrix through the branch the browser actually runs — the one the
-// IDE hit as "Buffer is not defined".
+// Under bun `typeof Buffer !== undefined` is always true, so the cases above only exercised the node path; hide Buffer and replay through the browser branch.
 describe("rangesEqual without Buffer (the browser branch)", () => {
     const withoutBuffer = <T>(run: () => T): T => {
         const real = globalThis.Buffer;

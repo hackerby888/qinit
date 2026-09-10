@@ -1,5 +1,4 @@
-// Decode a contract LOG_* call. Qubic SCs cannot use strings (qpi forbids ""), so logs are NUMERIC STRUCTS.
-// A log ends at its `sint8 _terminator`; the node records every preceding byte.
+// Decode a contract LOG_* call. Qubic SCs cannot use strings, so logs are numeric structs ending at `sint8 _terminator`; the node records every preceding byte.
 import { abiJsonValue, decodeOutput, structFieldOffsets } from "./abi-fmt";
 import { LOG_SEVERITY as SEVERITY } from "./protocol";
 import { AbiTypeKind, type AbiStruct, type ContractLog } from "./contract-idl";
@@ -12,8 +11,7 @@ export interface DecodedLog {
     name?: string;
     typeName?: string;
     fields?: Record<string, unknown>;
-    // The log struct and its field values in declaration order, so a renderer holding both can name every
-    // nested field — `fields` only carries the top level.
+    // The log struct and its field values in declaration order, so a renderer holding both can name every nested field — `fields` carries only the top level.
     abi?: AbiStruct;
     values?: unknown[];
     hex: string;
@@ -27,8 +25,7 @@ export function loggedSizeOf(fmt: string | AbiStruct): number {
     return last.off + last.size;
 }
 
-// Match a log's full byte size (NOT the possibly-capped hex) against the catalog; a unique struct decodes.
-// `enums` (value -> member name) resolves the `_type` discriminator field to its enum name (DecodedLog.typeName).
+// Match a log's full byte size (not the capped hex) against the catalog; `enums` resolves the `_type` discriminator to its enum name.
 export async function decodeLog(type: number, size: number, hex: string, catalog: ContractLog[], enums?: Record<string, string>): Promise<DecodedLog> {
     const severity = SEVERITY[type] ?? `type${type}`;
     const base: DecodedLog = {
@@ -67,8 +64,7 @@ export async function decodeLog(type: number, size: number, hex: string, catalog
     return base; // 0 or >1 size matches, or decode threw -> hex + severity only
 }
 
-// Same-size structs are told apart by the `_type` word each declares, against the values the build saw the
-// contract write there. An entry with no recorded values stays a candidate rather than being guessed away.
+// Same-size structs are told apart by the `_type` word each declares; an entry with no recorded values stays a candidate rather than being guessed away.
 function byTypeWord(candidates: ContractLog[], hex: string): ContractLog[] {
     const bytes = hexToBytes(hex);
     return candidates.filter((entry) => {

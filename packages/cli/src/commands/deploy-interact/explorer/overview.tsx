@@ -4,7 +4,7 @@ import type { ExplorerData } from "@qinit/core";
 import { SectionHeader, Sparkline, Spinner, Table, TileRow, darken, fmtCompact, theme, type Column } from "../../../ui";
 import { SectionBody, errText, fmtClock, sectionTableWidth, windowOf, type ViewProps } from "./chrome";
 
-// ---- overview -----------------------------------------------------------------------------------
+// overview
 
 // What a tick row always spends, plus the gap Table puts between columns.
 const TICK_WIDTH = 9;
@@ -20,8 +20,7 @@ const COLUMN_GAP = 2;
 // How far the oldest visible row's rail is blended toward black.
 const RAIL_FADE = 0.75;
 
-// The leader identity takes what it can and the rail fills the exact remainder; sized here because Table's
-// overflow loop truncates with truncMid, which on a rail would render as `───…───`.
+// The leader identity takes what it can and the rail fills the exact remainder; sized here because Table truncates with truncMid, which mangles a rail.
 function tickLayout(tableWidth: number, railColor: (rowIndex: number) => string): { columns: Column[]; railWidth: number } {
     const fixedWidth = TICK_WIDTH + TXS_WIDTH + TIME_WIDTH;
     const flexWithRail = tableWidth - fixedWidth - COLUMN_GAP * 4;
@@ -106,8 +105,7 @@ export function OverviewView({ rpc, refreshToken, selected, push, rowCount, open
             value: `${network.connectedPeers} ↑${network.outgoing} ↓${network.incoming}`,
         },
     ];
-    // Fixed rows this view owns: tile block (its margin + 3 per wrapped row), the mempool section header
-    // (margin + line) and its body, then the ticks header and the table's own column row.
+    // Fixed rows this view owns: the tile block, the mempool section header and body, then the ticks header and the table's own column row.
     const tileRows = 1 + 3 * Math.ceil(tiles.length / Math.max(1, Math.floor(columns / 19)));
     const mempoolRows = 2 + Math.max(1, pending.length);
     const { win, offset } = windowOf(ticks, selected, bodyRows - tileRows - mempoolRows - 3);

@@ -1,5 +1,4 @@
-// Interactive chain explorer — a TUI port of core-lite's web explorer; this file is the navigation/
-// key-handling shell around the views.
+// Interactive chain explorer — a TUI port of core-lite's web explorer; this file is the navigation and key-handling shell around the views.
 import { useEffect, useRef, useState } from "react";
 import { Box, useApp, useInput } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
@@ -55,12 +54,10 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
 
     const top = stack[stack.length - 1];
     const view = top.view;
-    // Derived, not state: the find view and the identity view without an id *are* prompts. Tracking this in
-    // an effect instead would leave the first frame advertising keys the prompt has already taken.
+    // Derived, not state: the find view and the identity view without an id are prompts. An effect would leave the first frame advertising taken keys.
     const searching = view.kind === "find" || (view.kind === "identity" && !view.id);
 
-    // Contract names and IDLs, loaded once and reused across every view to label contract addresses and to
-    // name and decode the calls made to them. Either can be missing without costing the other.
+    // Contract names and IDLs, loaded once and reused to label contract addresses and decode calls to them. Either can be missing without costing the other.
     const [contractNames, setContractNames] = useState<Map<number, string>>(new Map());
     const [contractIdls, setContractIdls] = useState<ContractIdls>(new Map());
     useEffect(() => {
@@ -83,8 +80,7 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
 
     const push = (next: View) => setStack((s) => [...s, frameOf(next)]);
     const replaceRoot = (next: View) => setStack([frameOf(next)]);
-    // esc always means "back". From a drilled-in view that is the previous frame; from a section root it is
-    // the overview, which is the explorer's home. Only esc on the overview itself leaves — as does q, always.
+    // esc always means back: the previous frame, or the overview from a section root. Only esc on the overview itself leaves — as does q, always.
     const pop = () =>
         setStack((s) => {
             if (s.length > 1) {
@@ -112,14 +108,12 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
 
     useInput(
         (input, key) => {
-            // The wallet is a multi-field form with its own esc, so the shell binds nothing there — and q/r are
-            // legal seed characters that must not quit or refresh mid-typing.
+            // The wallet is a multi-field form with its own esc, so the shell binds nothing there — and q/r are legal seed characters.
             if (view.kind === "wallet") {
                 return;
             }
 
-            // esc is the only way out of the search; ink blanks `input` for escape, so the prompt never sees
-            // this keypress.
+            // esc is the only way out of the search; ink blanks `input` for escape, so the prompt never sees this keypress.
             if (searching) {
                 if (key.escape) {
                     pop();
@@ -143,8 +137,7 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
                 // Pushed, so esc returns to the identity the user was reading rather than to the overview.
                 push({ kind: "wallet", to: view.id });
             } else if (input === "/") {
-                // Pushed, not a new root: the prompt replaces itself with the hit, so esc lands back where / was
-                // pressed rather than on the overview.
+                // Pushed, not a new root: the prompt replaces itself with the hit, so esc lands back where / was pressed.
                 push({ kind: "find" });
             } else if (input === "t") {
                 const next = THEME_NAMES[(THEME_NAMES.indexOf(themeName) + 1) % THEME_NAMES.length];
@@ -184,8 +177,7 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
         columns,
     };
 
-    // Fixed height + a growing body is what pins the control bar to the last rows. Sizing the shell to
-    // exactly `rows` makes the terminal scroll by one line and the pin breaks, hence rows - 1.
+    // Fixed height plus a growing body pins the control bar to the last rows; sizing the shell to exactly `rows` scrolls the terminal, hence rows - 1.
     return (
         <Box flexDirection="column" height={rows - 1}>
             <Header cmd="explorer" />

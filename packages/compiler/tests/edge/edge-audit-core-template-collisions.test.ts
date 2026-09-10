@@ -1,6 +1,4 @@
-// The sibling of the struct-name matrix, for templates. A contract may declare its own `Array` or
-// `Collection`; C++ resolves the nested one, while an instance keyed by name and arguments alone lets
-// the contract's instantiation and core's claim the same key.
+// The sibling of the struct-name matrix, for templates: an instance keyed by name and arguments alone lets the contract's instantiation and core's share a key.
 import { beforeAll, describe, expect } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { SCALAR_SIZE } from "../../src/shared/scalar-sizes";
@@ -16,8 +14,7 @@ const SKELETON_NAMES = new Set(["ContractBase", "StateData", "ContractState"]);
 
 const shadowable = (name: string) => !SKELETON_NAMES.has(name) && SCALAR_SIZE[name] === undefined;
 
-// Two parameters whatever arity core gives the name it shares: a nested declaration hides the outer
-// one whole, so the contract's own parameter list is the only one in scope.
+// Two parameters whatever arity core gives the shared name: a nested declaration hides the outer one whole, so the contract's parameter list is the only scope.
 const fixture = (name: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -39,8 +36,7 @@ describe.skipIf(!HAS_CORE)("a nested template keeps its own body", () => {
 
     for (const name of HAS_CORE ? coreTemplateNamesWithMethods(CORE_PATH).filter(shadowable) : []) {
         fixtureTest(`shadowing core's ${name}`, async () => {
-            // `own()` reads the contract's own L. Core's same-named template declares no such method,
-            // so answering 42 means the contract's instantiation was the one compiled.
+            // `own()` reads the contract's own L, and core's same-named template declares no such method, so answering 42 means the contract's one compiled.
             expect(await run(fixture(name))).toBe(42n);
         });
     }
