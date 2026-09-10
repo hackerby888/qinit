@@ -93,6 +93,7 @@ const commandMeta = {
                     stringOption("history-ticks", "<n>", "retained finalized-tick window (default: unlimited)"),
                     booleanOption("full-tick", "record quorum/votes for empty ticks too (disable lite ticking)"),
                     stringOption("peer-port", "<n>", `simulator peer port (default: ${DEFAULT_PEER_PORT})`),
+                    stringOption("http-port", "<n>", "Core node HTTP/RPC port (default: the port in --rpc)"),
                     stringOption("wait", "<s>", "node start timeout in seconds"),
                     stringOption("scratch-dir", "<path>", "node data and log directory"),
                     stringOption("node-mode", "<n>", "Core node mode"),
@@ -105,7 +106,8 @@ const commandMeta = {
                 ],
             },
             status: { options: [] },
-            stop: { options: [] },
+            // --scratch-dir names a specific node; otherwise `stop` resolves --rpc through the launch index.
+            stop: { options: [stringOption("scratch-dir", "<path>", "node data and log directory")] },
             get: { options: [] },
         },
     },
@@ -251,6 +253,7 @@ const commandMeta = {
         summary: "call a contract function or procedure",
         usage: '[ --fn|--proc <contract> <fn|proc> ] [--in "<fmt>"] [--out <type> ]',
         options: [
+            stringOption("tick", "<n>", "target tick for the transaction (default: current + 3)"),
             booleanOption("fn", "make a read-only call"),
             booleanOption("proc", "send a signed call and wait for it"),
             stringOption("args", "<json>", "JSON input"),
@@ -276,6 +279,14 @@ const commandMeta = {
         summary: "manage the transaction signer seed",
         usage: "[<seed>]",
         options: [booleanOption("show", "show the saved seed"), booleanOption("clear", "remove the saved seed"), stringOption("rpc", "<url>", "RPC URL")],
+    },
+    sign: {
+        group: "deploy & interact",
+        json: true,
+        summary: "sign a digest for a contract's signatureValidity check",
+        usage: "<hex-digest>",
+        options: [stringOption("digest", "<hex>", "32-byte digest to sign, as the contract computed it"), stringOption("seed", "<seed>", "signer seed (default: the saved seed)")],
+        examples: ["qinit sign 3f2a…  # 64 hex chars", "qinit sign --digest 3f2a… --seed <55 letters> --json"],
     },
     ls: {
         group: "deploy & interact",
@@ -313,6 +324,7 @@ const commandMeta = {
         options: [stringOption("contract", "<name|slot>", "contract name or slot"), stringOption("rpc", "<url>", "RPC URL")],
     },
     test: {
+        json: true,
         group: "deploy & interact",
         summary: "deploy and test a contract",
         usage: "[<file.h>]",
@@ -340,6 +352,7 @@ const commandMeta = {
         ],
     },
     gtest: {
+        json: true,
         group: "deploy & interact",
         summary: "run Core-style contract tests",
         usage: "[<test.cpp>]",

@@ -12,12 +12,42 @@ export interface QinitConfig {
     system?: string[]; // built-in system contracts to seed onto the simulator
 }
 
+// Notepad, Visual Studio ("UTF-8 with signature") and PowerShell 5.1's `Out-File -Encoding utf8` all
+// prepend U+FEFF, which JSON.parse rejects.
+function stripBom(text: string): string {
+    return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
+export class QinitConfigError extends Error {
+    constructor(
+        readonly path: string,
+        readonly cause: unknown,
+    ) {
+        super(`qinit.json at ${path} could not be read: ${String((cause as any)?.message ?? cause)}`);
+        this.name = "QinitConfigError";
+    }
+}
+
 // Per-project config (qinit.json). Precedence at the call site: CLI flag > qinit.json > default.
+// a present but unreadable file throws: that is not the same situation as no config at all.
 export function loadConfig(path = "qinit.json"): QinitConfig {
+    if (!existsSync(path)) {
+        return {};
+    }
     try {
-        if (existsSync(path)) return JSON.parse(readFileSync(path, "utf8")) as QinitConfig;
-    } catch {}
-    return {};
+        return JSON.parse(stripBom(readFileSync(path, "utf8"))) as QinitConfig;
+    } catch (error) {
+        throw new QinitConfigError(path, error);
+    }
+}
+
+/** never throws: the editor has to stay alive on a malformed config and show the error rather than read it as absent. */
+export function loadConfigSafe(path = "qinit.json"): { config: QinitConfig; error?: string } {
+    try {
+        return { config: loadConfig(path) };
+    } catch (error) {
+        return { config: {}, error: String((error as any)?.message ?? error) };
+    }
 }
 
 // Where to find core headers for compiling: explicit checkout > env > fetched snapshot cache; neither present gives an actionable error.

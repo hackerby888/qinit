@@ -1,7 +1,7 @@
 import { LiteRpc, debug, type DynamicContractRegistryEntry } from "@qinit/core";
 import { systemContracts, type CalleeSource, type SystemContract } from "@qinit/build";
 import { MAX_NUMBER_OF_CONTRACTS } from "@qinit/proto";
-import type { ContractEntry } from "@qinit/proto/contract-idl";
+import type { ContractEntry, ContractIdl } from "@qinit/proto/contract-idl";
 import { resolveCoreDir } from "../config";
 
 export type ContractSets = {
@@ -118,6 +118,9 @@ export type ResolvedContract = {
     name: string;
     kind: "user" | "system";
     source?: string;
+    // a system contract already carries both, so `call` need not re-derive an IDL from source.
+    idl?: ContractIdl;
+    stateType?: string;
     codeHash?: string;
 };
 
@@ -144,6 +147,8 @@ export function resolveContract(target: string, sets: ContractSets): ResolvedCon
             name: systemContract.name,
             kind: "system",
             source: systemContract.source,
+            idl: systemContract.idl,
+            stateType: systemContract.stateType,
         };
     }
 

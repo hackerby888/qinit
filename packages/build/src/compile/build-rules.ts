@@ -36,19 +36,39 @@ export const BUILD_GATE_RULES: readonly BuildGateRule[] = [
     { title: "unqualified-math", scope: "user", matches: (d) => USER_CONTRACT_RULES.has(d.code) },
 ];
 
+// reported but not failed on: the contract compiles and ships, but does not do what its author wrote.
+export const BUILD_WARN_RULES: readonly BuildGateRule[] = [
+    // registered nowhere, so it ships inside the binary and is unreachable by anyone.
+    { title: "unregistered-entry", scope: "user", matches: (d) => d.code === "qpi/unregistered" },
+    // qpi.invocator() is the null identity on the RPC query path, so a caller gate in a view is dead code.
+    { title: "invocator-in-function", scope: "user", matches: (d) => d.code === "qpi/invocator-in-function" },
+];
+
 /** QINIT_BUILD_RULES=off switches the user-scope rules off everywhere a flag cannot reach (dev, test, CI). */
 export function buildRulesEnabled(): boolean {
     return !/^(0|off|false|no)$/i.test(process.env.QINIT_BUILD_RULES?.trim() ?? "");
 }
 
-export function buildGateViolations(diagnostics: readonly SourceAnalysisDiagnostic[], context: BuildGateContext = {}): string[] {
-    const resolved: Required<BuildGateContext> = {
+function resolveContext(context: BuildGateContext): Required<BuildGateContext> {
+    return {
         contractKind: context.contractKind ?? "user",
         buildRules: (context.buildRules ?? true) && buildRulesEnabled(),
         rejectsLogHeader: context.rejectsLogHeader ?? true,
     };
-    const rules = BUILD_GATE_RULES.filter((rule) => rule.scope === "all" || (rule.scope === resolved.contractKind && resolved.buildRules));
+}
+
+function select(table: readonly BuildGateRule[], diagnostics: readonly SourceAnalysisDiagnostic[], resolved: Required<BuildGateContext>): string[] {
+    const rules = table.filter((rule) => rule.scope === "all" || (rule.scope === resolved.contractKind && resolved.buildRules));
     return diagnostics.filter((diagnostic) => rules.some((rule) => rule.matches(diagnostic, resolved))).map(describe);
+}
+
+export function buildGateViolations(diagnostics: readonly SourceAnalysisDiagnostic[], context: BuildGateContext = {}): string[] {
+    return select(BUILD_GATE_RULES, diagnostics, resolveContext(context));
+}
+
+/** the non-fatal half, reported on a successful build. */
+export function buildGateWarnings(diagnostics: readonly SourceAnalysisDiagnostic[], context: BuildGateContext = {}): string[] {
+    return select(BUILD_WARN_RULES, diagnostics, resolveContext(context));
 }
 
 // A rejection in the build result's own shape, so neither backend needs a second error path.

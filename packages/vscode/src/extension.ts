@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import * as vscode from "vscode";
-import { loadConfig } from "@qinit/core/project";
+import { loadConfigSafe } from "@qinit/core/project";
 import { QpiCodeActions } from "./codeactions";
 import { generateClangdConfig, generateTestClangdConfig } from "./clangd-config";
-import { completionScope, documentIdentifiers, keepCompletionLabel, keepMemberLabel, keepQualifiedScope, qpiAllowedIdentifiers } from "./completion-filter";
+import { completionScope, documentIdentifiers, keepCompletionLabel, keepMemberLabel, keepQualifiedScope, qpiAllowedIdentifiers, typedPrefix } from "./completion-filter";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
 import { memberFallbackCompletions, type FallbackItem } from "./member-fallback";
@@ -138,7 +138,7 @@ async function fallbackMemberCompletions(
         fallbackReported = true;
         out.appendLine(`member completion answered by the QPI compiler: ${items.length} items`);
     }
-    return items.filter((item) => keepMemberLabel(item.name)).map(fallbackCompletionItem);
+    return items.filter((item) => keepMemberLabel(item.name, typedPrefix(linePrefix))).map(fallbackCompletionItem);
 }
 
 // A member list is already scoped by its type, so only QPI's reserved names go; when Sema resolved nothing the compiler answers instead.
@@ -150,7 +150,7 @@ async function memberCompletions(
     token: vscode.CancellationToken,
     out: vscode.OutputChannel,
 ): Promise<vscode.CompletionItem[]> {
-    const kept = items.filter((item) => keepMemberLabel(labelOf(item)));
+    const kept = items.filter((item) => keepMemberLabel(labelOf(item), typedPrefix(linePrefix)));
     const unresolved = items.length === 0 || items.every((item) => item.kind === undefined || item.kind === vscode.CompletionItemKind.Text);
     if (!unresolved) return kept;
 
@@ -195,7 +195,7 @@ async function filterCompletions(
     if (scope.kind === "member") {
         kept = await memberCompletions(doc, position, linePrefix, items, token, out);
     } else if (scope.kind === "qualified") {
-        kept = keepQualifiedScope(scope.qualifier, allowed, documentNames) ? items.filter((item) => keepMemberLabel(labelOf(item))) : [];
+        kept = keepQualifiedScope(scope.qualifier, allowed, documentNames) ? items.filter((item) => keepMemberLabel(labelOf(item), typedPrefix(linePrefix))) : [];
     } else {
         kept = items.filter((item) => keepCompletionLabel(labelOf(item), allowed, documentNames));
     }
@@ -366,7 +366,7 @@ function testAnalysisContext(details: ProjectSourceDetails): ProjectAnalysisCont
 function regenerateTest(doc: vscode.TextDocument, context: vscode.ExtensionContext, fallbackCore: string | undefined, out: vscode.OutputChannel): void {
     const root = workspaceRoot(doc);
     const project = findProjectRoot(doc.fileName);
-    const config = project ? loadConfig(join(project, QINIT_JSON)) : {};
+    const config = project ? loadConfigSafe(join(project, QINIT_JSON)).config : {};
     const configuredContract = project && config.contract ? resolve(join(project, config.contract)) : undefined;
 
     let contractPath = configuredContract && existsSync(configuredContract) ? configuredContract : undefined;

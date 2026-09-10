@@ -248,6 +248,15 @@ function validateRegistrationLayouts(registration: ContractRegistration, program
         programAnalysis.error(`entry '${registration.fnName}' is missing required type '${outputName}'`, registration.line);
     }
 
+    // the plain macro forms typedef `<fn>_locals` to NoData, so a missing type means the entry was
+    // declared _WITH_LOCALS and the struct was never written.
+    if (!layouts.hasType(localsName)) {
+        programAnalysis.error(
+            `entry '${registration.fnName}' is declared _WITH_LOCALS but is missing required type '${localsName}' — declare 'struct ${localsName} { … };' or use the plain macro form`,
+            registration.line,
+        );
+    }
+
     const inputSize = layouts.resolve(inputName).size;
     const outputSize = layouts.resolve(outputName).size;
     const localsSize = layouts.resolve(localsName).size;

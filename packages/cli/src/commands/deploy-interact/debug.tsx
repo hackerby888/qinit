@@ -166,7 +166,20 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
         };
     }, []);
 
-    const list = target ? entries.filter((entry) => nameOf(entry.index).toLowerCase() === target.toLowerCase() || String(entry.index) === target) : entries;
+    // a frame from another contract that ran inside one of the target's frames (same tick, before its
+    // completion) is a callee of this call, so it is kept alongside the target's own frames.
+    const matchesTarget = (entry: DebugEntry) => nameOf(entry.index).toLowerCase() === target!.toLowerCase() || String(entry.index) === target;
+    const list = target
+        ? (() => {
+              const own = entries.filter(matchesTarget);
+              const spans = own.map((frame) => ({ tick: frame.tick, seq: frame.seq }));
+              return entries.filter(
+                  (entry) =>
+                      matchesTarget(entry) ||
+                      spans.some((span) => entry.tick === span.tick && entry.seq < span.seq && !own.some((frame) => frame.seq === entry.seq)),
+              );
+          })()
+        : entries;
     visibleEntriesRef.current = list;
 
     // The frame is pinned to the terminal, so both panes size from what is left under the chrome. Ink cannot erase a frame taller than the screen.

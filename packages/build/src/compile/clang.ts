@@ -130,17 +130,11 @@ function cheatShim(mode: CheatMode): string {
     return `#define QINIT_CHEATS\n#define QINIT_CC_LINE_BASE 0\n${QINIT_CHEATS_H}`;
 }
 
-// libc++'s <stdlib.h> injects a global ::div that beats QPI::div on signed operands, so bare div() routes back; the #undef after the include is the ceiling.
-const QPI_DIV_SHIM = `namespace QPI { template <typename T> inline static constexpr T qinitDiv(T a, T b) { return QPI::div<T>(a, b); } }
-using QPI::qinitDiv;
-#define div(...) qinitDiv(__VA_ARGS__)
-`;
-
-// The shims come before the callee prelude so a callee header parses with CC_PRINT and div in scope, and after the preamble so the PCH stays a prefix.
+// The cheat shim comes before the callee prelude so a callee header parses with CC_PRINT in scope, and after the preamble so the PCH stays a prefix of the TU.
 export function generateWasmWrapperSource(o: ClangBuildOptions): string {
     const contractType = o.stateType ?? o.contractName;
     const wrapper = `${buildPreamble()}${cheatShim(o.cheats ?? CheatMode.ON)}
-${QPI_DIV_SHIM}${o.calleePrelude ?? ""}
+${o.calleePrelude ?? ""}
 #define CONTRACT_INDEX ${o.slot}
 #define ${contractType}_CONTRACT_INDEX ${o.slot}
 #define CONTRACT_STATE_TYPE ${contractType}
@@ -149,7 +143,6 @@ ${QPI_DIV_SHIM}${o.calleePrelude ?? ""}
 #include "${CORE_WASM_HEADERS.sdk.intercontractCalls}"
 #include "${CORE_WASM_HEADERS.sdk.qpiSupport}"
 #include "${o.contractPath}"
-#undef div
 // QPI data-structure impls operate on contract-local memory. CAUTION: after the contract.
 #define printf(...) (__builtin_trap(), 0)
 // Collection + LinkedList are clean (only qpi.h + memory).

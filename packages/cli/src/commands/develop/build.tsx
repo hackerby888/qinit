@@ -24,6 +24,13 @@ export function buildJsonResult(r: ContractBuildResult, compiler: string) {
         hash: r.wasmK12DigestHex ?? null,
         idl: r.idl ?? null,
         idlError: r.idlError ?? null,
+        // `stderr` stays for the compiler's own output.
+        error: r.ok ? null : (r.stderr || r.idlError || "build failed"),
+        // whether the verifier ran at all: a contract it never saw must not read as one that passed.
+        protocolRules: r.verify ? (r.verify.available ? "checked" : "skipped") : "skipped",
+        warnings: r.warnings ?? [],
+        // the CC_* guards a --production build removed from the source that shipped.
+        strippedCheats: r.strippedCheats ?? [],
         stderr: r.stderr ?? "",
     };
 }
@@ -145,9 +152,31 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                     <Text color={theme.warn}>IDL unavailable: {r.idlError}</Text>
                 </Box>
             ) : null}
+            {r.warnings?.length ? (
+                <Box flexDirection="column" marginTop={1}>
+                    {r.warnings.map((warning, i) => (
+                        <Text key={i} color={theme.warn} wrap="wrap">
+                            ⚠ {warning}
+                        </Text>
+                    ))}
+                </Box>
+            ) : null}
+            {r.strippedCheats?.length ? (
+                <Box marginTop={1}>
+                    <Text color={theme.warn} wrap="wrap">
+                        ⚠ --production removed {r.strippedCheats.length} cheat guard{r.strippedCheats.length === 1 ? "" : "s"}: {r.strippedCheats.join(", ")} — what
+                        ships no longer refuses what they refused under test.
+                    </Text>
+                </Box>
+            ) : null}
             {compiler === "typescript" ? null : (
                 <Box marginTop={1}>
-                    <Status ok={true} label="protocol rules" detail="passed — complies with qpi.h restrictions" pad={16} />
+                    {/* the verifier is optional; claiming "passed" for a contract it never saw asserts a property nothing checked. */}
+                    {r.verify && !r.verify.available ? (
+                        <Status ok={null} label="protocol rules" detail="skipped — verify tool not fetched (run qinit setup)" pad={16} />
+                    ) : (
+                        <Status ok={true} label="protocol rules" detail="passed — complies with qpi.h restrictions" pad={16} />
+                    )}
                 </Box>
             )}
         </Box>

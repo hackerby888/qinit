@@ -118,6 +118,7 @@ export class VirtualNode implements NodeTransport {
         });
         // Align the live simulator node with core's wall clock; gtest and fuzz build their own QubicSimulator and keep the deterministic 2024 base.
         this.sim.timeBaseMs = Date.now();
+        this.sim.clockMode = "real";
         this.slotBase = options.slotBase ?? DEFAULT_WASM_SLOT_LAYOUT.slotBase;
         this.slotCount = options.slotCount ?? DEFAULT_WASM_SLOT_LAYOUT.slotCount;
         this.verifySignatures = options.verifySigs ?? true;

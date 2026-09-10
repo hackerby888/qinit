@@ -109,6 +109,11 @@ export type CompletionScope =
     | { kind: "qualified"; qualifier: string };
 
 // A trigger character only arrives when the member access opened the list; Ctrl-Space mid-word arrives as an ordinary invocation, so the line has to be read.
+/** the partial word under the cursor, which decides whether an `_`-led member was asked for. */
+export function typedPrefix(linePrefix: string): string {
+    return /[A-Za-z0-9_]*$/.exec(linePrefix)?.[0] ?? "";
+}
+
 export function completionScope(linePrefix: string): CompletionScope {
     const beforeWord = linePrefix.replace(/[A-Za-z0-9_]*$/, "").trimEnd();
     if (/(\.|->)$/.test(beforeWord)) {
@@ -131,11 +136,20 @@ function completionName(label: string): string | undefined {
 // Assignment operators and destructors come with every struct and none can be written after a dot in QPI, so a member list drops them and the reserved names.
 const NOISE_MEMBER_PATTERN = /^(operator\b|~)/;
 
-export function keepMemberLabel(label: string): boolean {
+/**
+ * `_`-led members are hidden unless the developer typed a leading `_`: a log struct's `_type`,
+ * `_contractIndex` and `_terminator` and the K12 union's `_0`.._3 are members worth completing.
+ */
+export function keepMemberLabel(label: string, typedPrefix?: string): boolean {
     if (NOISE_MEMBER_PATTERN.test(label.trim())) {
         return false;
     }
-    return !completionName(label)?.startsWith("_");
+    const name = completionName(label);
+    if (!name?.startsWith("_")) {
+        return true;
+    }
+    // a reserved `__` name is never something to write by hand.
+    return !name.startsWith("__") && !!typedPrefix?.startsWith("_");
 }
 
 // Whether a `<qualifier>::` list is worth showing: the author's own types qualify through the document, but a blocked namespace stays blocked.

@@ -176,6 +176,9 @@ export interface HostServices {
     cheatPrint(slot: number, id: number, part: number, value: bigint, bytes: Uint8Array): void;
     cheatDeal(id: Id, amount: bigint): bigint;
     cheatWarp(ticks: number, epochs: number): bigint;
+    // core zeroes the warp offsets in createCallContext (dispatch.h:82 -> qpi_services.h:459), so a
+    // CC_WARP_* lasts exactly one dispatch frame. optional: a host with no cheats need not implement it.
+    clearCheatWarp?(): void;
     pauseLog(): void;
     resumeLog(): void;
     transfer(slot: number, dest: Id, amount: bigint, transferType: number): bigint;
@@ -648,6 +651,9 @@ export class Contract {
     }
 
     invoke(kind: number, inputType: number, input: Uint8Array = new Uint8Array(0), context: ContractCallContext = {}): Uint8Array {
+        // every dispatch frame begins here — registry.fire, read-only queries and inter-contract FUNCTION
+        // calls alike — so the per-frame warp reset belongs here rather than in fire().
+        this.host.clearCheatWarp?.();
         const nested = this.dispatchDepth > 0;
         let inputOffset: number;
         let outputOffset: number;

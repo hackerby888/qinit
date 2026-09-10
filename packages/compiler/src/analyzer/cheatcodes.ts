@@ -1,4 +1,5 @@
 // Cheatcode rules and the stripper that removes them before submission to Core: a cheat may only be a whole statement with no side effect, so blanking is safe.
+import { codeUnits } from "../shared/code-units";
 import { DiagnosticSeverity } from "../shared/enums";
 import { Lexer, TokenKind, type Token } from "../frontend/lexer";
 import { matchingToken } from "./rules/tokens";
@@ -205,7 +206,7 @@ function sideEffectToken(tokens: Token[], from: number, to: number): Token | und
 
 /** Blanks every cheat call, keeping the trailing `;` and every newline, so line numbers and the surrounding control flow survive untouched. */
 export function stripCheatcodes(source: string): string {
-    const characters = [...source];
+    const characters = codeUnits(source);
 
     for (const call of cheatCalls(new Lexer(source).tokenize())) {
         for (let position = call.token.span.start; position < call.end; position++) {
@@ -216,4 +217,18 @@ export function stripCheatcodes(source: string): string {
     }
 
     return characters.join("");
+}
+
+/**
+ * the cheat guards `stripCheatcodes` would remove, by name, deduplicated.
+ * `--production` drops them silently, so the build reports the list instead.
+ */
+export function strippedCheatNames(source: string): string[] {
+    const names = new Set<string>();
+
+    for (const call of cheatCalls(new Lexer(source).tokenize())) {
+        names.add(call.token.text);
+    }
+
+    return [...names];
 }

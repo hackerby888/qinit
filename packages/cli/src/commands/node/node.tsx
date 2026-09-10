@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
+import { resolve } from "node:path";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { DEFAULT_RPC_BASE, readCurrent, LiteRpc } from "@qinit/core";
-import { ensureNodeBinary, killNode, nodeAlive, nodeStatus, versionDrift } from "../../ops/node";
+import { activeNodeScratchDir, ensureNodeBinary, killNode, nodeAlive, nodeStatus, scratchForRpc, versionDrift } from "../../ops/node";
 import { describeFault } from "../../ops/fault";
 import { output, type CommandArguments } from "../../args";
 const dlLabel = (recv: number, total: number) =>
@@ -92,13 +93,18 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                 }
 
                 if (sub === "stop") {
-                    if (!nodeAlive()) {
+                    // the node this command names: --scratch-dir wins, then the launch index for --rpc, and
+                    // only a node this machine never launched falls back to the global pointer.
+                    const target = commandArgs.get("scratch-dir")
+                        ? resolve(commandArgs.get("scratch-dir")!)
+                        : (scratchForRpc(rpcBaseUrl) ?? activeNodeScratchDir());
+                    if (!nodeAlive(target)) {
                         add("no node running", true);
                         setS({ phase: "done", title: "stopped", color: theme.info, lines, facts: { stopped: true, wasRunning: false } });
                         return;
                     }
                     // Trust the pid outcome: a rescan by image name still lists the process mid-teardown on Windows.
-                    const dead = await killNode();
+                    const dead = await killNode(target);
                     add(dead ? "node stopped" : "node still alive (kill failed)", dead);
                     setS({
                         phase: "done",

@@ -5,16 +5,19 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 
 import { loadConfig, resolveCompilerBackend, resolveCoreDir, resolveRuntime } from "../../config";
 import type { DeploymentEvent } from "../../ops/deploy";
 import { deployProjectContracts } from "../../ops/project-deploy";
-import { activeNodeScratchDir, ensureNodeBinary, killNode, launchNode, waitTicking } from "../../ops/node";
+import { activeNodeScratchDir, ensureNodeBinary, killNode, launchNode, scratchForRpc, waitTicking } from "../../ops/node";
+import { portFromRpc } from "../../ops/serve";
 import { DEFAULT_FUNDED_SEED, DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
+import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { testRuntimeSource, generateClient, extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import { EngineServer } from "@qinit/engine/server";
+import { VirtualNode } from "@qinit/engine";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { DEFAULT_IDL_PATH, loadContractIdlFile } from "../../contracts/idl-file";
 import { parseCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
-import type { CommandArguments } from "../../args";
+import { output, type CommandArguments } from "../../args";
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const STEP_LABEL: Record<string, string> = {
@@ -93,12 +96,26 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
 
                 const useSimulator = resolveRuntime(commandArgs.get("runtime")) === "simulator";
                 if (useSimulator) {
-                    spin("starting in-process simulator");
-                    engineSrv = new EngineServer();
-                    activeRpc = (await engineSrv.start()).rpcBaseUrl;
-                    // A test run reads assertions, not traces — skip the per-call state snapshot a node keeps.
-                    engineSrv.engine.setDebug(false);
-                    add("node", true, `simulator @ ${activeRpc}`);
+                    // an explicit --rpc names the simulator to run against; reuse one already serving it
+                    // rather than starting an in-process engine and ignoring the flag.
+                    const explicitRpc = commandArgs.get("rpc");
+                    const reusable = explicitRpc && (await isTicking(explicitRpc)) ? await new LiteRpc(explicitRpc).whoami().catch(() => undefined) : undefined;
+                    if (explicitRpc && reusable?.backend === "simulator") {
+                        activeRpc = explicitRpc;
+                        add("node", true, `simulator @ ${activeRpc} (reused)`);
+                    } else if (explicitRpc && reusable) {
+                        add("node", false, `${explicitRpc} is served by a ${reusable.backend} node, not a simulator`);
+                        setS({ phase: "done", lines, ok: false, output: "", rows: [] });
+                        return;
+                    } else {
+                        spin("starting in-process simulator");
+                        // same window the node runs, so a slot a test exercises is the slot production gets.
+                        engineSrv = new EngineServer(new VirtualNode(loadCoreWasmSlotLayout(core)));
+                        activeRpc = (await engineSrv.start()).rpcBaseUrl;
+                        // A test run reads assertions, not traces — skip the per-call state snapshot a node keeps.
+                        engineSrv.engine.setDebug(false);
+                        add("node", true, `simulator @ ${activeRpc}`);
+                    }
                 } else {
                     spin("checking node");
                     const ticking = await isTicking(activeRpc);
@@ -117,7 +134,12 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                             nodeBinary = r.nodeBinaryPath;
                             if (r.cached) nodeNote = ` · cached ${r.version}`;
                         }
-                        await killNode();
+                        if (keepNode) {
+                            add("node", false, `${activeRpc} is not a ticking core node and --keep-node forbids replacing it`);
+                            setS({ phase: "done", lines, ok: false, output: "", rows: [] });
+                            return;
+                        }
+                        await killNode(scratchForRpc(activeRpc) ?? activeNodeScratchDir());
                         if (runningBackend && runningBackend !== "core" && (await isTicking(activeRpc))) {
                             add("node", false, `${activeRpc} is served by an untracked ${runningBackend} node`);
                             setS({ phase: "done", lines, ok: false, output: "", rows: [] });
@@ -127,6 +149,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                             nodeBinary,
                             nodeMode: commandArgs.get("node-mode"),
                             peers: commandArgs.get("peers"),
+                            rpcBaseUrl: activeRpc,
+                            httpPort: portFromRpc(activeRpc),
                         });
                         ownNode = true;
                         spin("waiting for ticking");
@@ -265,7 +289,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
             } finally {
                 try {
                     if (ownNode && !keepNode) {
-                        await killNode();
+                        // the node this run launched, not whatever is globally active.
+                        await killNode(scratchForRpc(activeRpc) ?? activeNodeScratchDir());
                     }
                 } catch {}
                 engineSrv?.stop();
@@ -274,11 +299,23 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
     }, []);
     useEffect(() => {
         if (s.phase === "done") {
+            if (output.json) {
+                process.stdout.write(
+                    JSON.stringify({
+                        ok: s.ok,
+                        error: s.ok ? null : (s.lines.find((line) => line.ok === false)?.detail ?? "tests failed"),
+                        steps: s.lines.map((line) => ({ label: line.label, ok: line.ok ?? null, detail: line.detail ?? null })),
+                        summary: Object.fromEntries(s.rows),
+                        output: s.output,
+                    }) + "\n",
+                );
+            }
             process.exitCode = s.ok ? 0 : 1;
             exit();
         }
     }, [s, exit]);
 
+    if (output.json) return null;
     const lines = s.lines;
     return (
         <Box flexDirection="column">

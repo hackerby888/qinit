@@ -18,7 +18,7 @@ import { generateWasmContractTestingHeaderForCore, KNOWN_LOG_HEADER_VIOLATIONS, 
 import { k12Hex } from "@qinit/core";
 import { analyzeContract } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
-import { buildGateRejection, buildGateViolations, type ContractKind } from "./build-rules";
+import { buildGateRejection, buildGateViolations, buildGateWarnings, type ContractKind } from "./build-rules";
 
 export async function buildContractWithClang(input: ClangBuildOptions): Promise<ContractBuildResult> {
     let source: string;
@@ -54,16 +54,16 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         calleeSources,
     });
     // The same gate the TypeScript backend runs (build-rules.ts), so both compilers reject the same contracts.
-    const gate = buildGateRejection(
-        buildGateViolations(analysis.diagnostics, {
-            contractKind: o.contractKind,
-            buildRules: o.buildRules,
-            rejectsLogHeader: o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(o.contractPath)),
-        }),
-    );
+    const gateContext = {
+        contractKind: o.contractKind,
+        buildRules: o.buildRules,
+        rejectsLogHeader: o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(o.contractPath)),
+    };
+    const gate = buildGateRejection(buildGateViolations(analysis.diagnostics, gateContext));
     if (gate) {
         return gate;
     }
+    const warnings = buildGateWarnings(analysis.diagnostics, gateContext);
     const calls = analysis.calls;
     const calleeNames = [...new Set([...Object.keys(o.dynCallees ?? {}), ...calls.map((call) => call.callee)])];
     const verify = await verifyForBuild({ contractPath: o.contractPath, stateType: o.stateType ?? o.contractName, calleeNames, skipVerify: o.skipVerify });
@@ -116,13 +116,16 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         idlError = String(e?.message ?? e);
     }
     return {
-        ok: true,
+        // a build that produced no IDL is not ok, on either backend.
+        ok: !idlError,
         wasmPath: compiled.wasm,
         wasmSizeBytes,
         wasmK12DigestHex,
         idl,
         idlError,
+        stderr: idlError ? `compiler IDL analysis failed: ${idlError}` : undefined,
         verify,
+        warnings: warnings.length ? warnings : undefined,
         debugWasmPath: compiled.debugWasmPath,
         lineMapPath: compiled.lineMapPath,
     };

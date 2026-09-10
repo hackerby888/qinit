@@ -3,6 +3,20 @@ import { META, commandOptions, type CommandMeta, type CommandName, type OptionMe
 
 export const output = { json: false, plain: false };
 
+/** every `--json` document carries `ok` and `error` (null on success), so one field works across the CLI; command-specific detail keeps its own key. */
+export function jsonEnvelope<T extends Record<string, unknown>>(ok: boolean, error: string | null, rest: T): { ok: boolean; error: string | null } & T {
+    return { ok, error: ok ? null : (error ?? "failed"), ...rest };
+}
+
+/** writes an envelope to stdout when --json is set; returns whether it wrote. */
+export function emitJson(ok: boolean, error: string | null, rest: Record<string, unknown> = {}): boolean {
+    if (!output.json) {
+        return false;
+    }
+    process.stdout.write(JSON.stringify(jsonEnvelope(ok, error, rest)) + "\n");
+    return true;
+}
+
 export function initOutput(args: string[]): void {
     output.json = args.includes("--json");
     output.plain = output.json || args.includes("--plain") || !process.stdout.isTTY || !!process.env.NO_COLOR;

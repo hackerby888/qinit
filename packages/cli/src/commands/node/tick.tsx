@@ -147,6 +147,16 @@ export function Tick({ commandArgs }: { commandArgs: CommandArguments }) {
             try {
                 if (o.sub === "rate") {
                     // The simulator can change its tick rate without restarting.
+                    // no argument reports; `Number("")` is 0, so without this a read-shaped command wrote.
+                    if (!o.arg) {
+                        const current = await rpc.tickInfo();
+                        const tickMs = Number((current as { tickMs?: unknown }).tickMs ?? NaN);
+                        factsRef.current = { ...NO_TICK_FACTS, tickMs: Number.isFinite(tickMs) ? tickMs : null };
+                        setRows([["tick rate", Number.isFinite(tickMs) ? `${tickMs} ms/tick${tickMs === 0 ? "  (fastest)" : ""}` : "not reported by this node"]]);
+                        setProg(null);
+                        setBusy("");
+                        return;
+                    }
                     const ms = Number(o.arg);
                     if (!Number.isInteger(ms) || ms < 0) throw new Error(`rate <ms>: '${o.arg}' is not a non-negative integer`);
                     const r = await rpc.setTickMs(ms);
