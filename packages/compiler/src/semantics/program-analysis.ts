@@ -58,6 +58,7 @@ export class ProgramAnalysis {
     constexprInit: Map<string, Expression> = new Map(); // named constexpr → its init expression
     constexprType: Map<string, TypeSpec> = new Map(); // named constexpr → declared scalar type
     constexprScope: Map<string, string> = new Map(); // named constexpr → the scope prefix it was declared in
+    bareNameScope: Map<string, string> = new Map(); // bare name → scope prefix of the declaration that owns it
     constantScopes: string[] = []; // scope prefixes of the constants whose initializers are being evaluated
     enumConst: Map<string, bigint> = new Map(); // enum constant (NAME and Type::NAME) → value
     checkedTemplateAsserts: Set<string> = new Set(); // template instantiations whose static_asserts already ran

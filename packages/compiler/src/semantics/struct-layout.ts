@@ -16,6 +16,10 @@ export function layoutOf(programAnalysis: ProgramAnalysis, struct: StructDecl): 
     return programAnalysis.layoutOfStruct(struct, EMPTY_TEMPLATE_BINDINGS);
 }
 
+const ALIAS_HOPS = 8;
+
+const EMPTY_STRUCT_BINDINGS: Map<string, StructDecl> = new Map();
+
 export function baseContribution(
     programAnalysis: ProgramAnalysis,
     baseType: TypeSpec,
@@ -25,14 +29,18 @@ export function baseContribution(
     consts: Map<string, bigint>;
 } | null {
     let resolvedBaseType: TypeSpec = baseType;
-    if (resolvedBaseType.kind === AstKind.NAME) {
+    // A typedef-name denotes its target however many aliases deep, so follow the chain to a fixed point
+    // rather than one step; an identity alias returns nothing, so a self-referential `using` terminates.
+    for (let hop = 0; hop < ALIAS_HOPS && resolvedBaseType.kind === AstKind.NAME; hop++) {
         const bound = parentB.types.get(resolvedBaseType.name);
-        if (bound) resolvedBaseType = bound;
-        else {
-            // A base named through a typedef resolves in that typedef's scope, so `struct D : Beta::B` inherits Beta's type, not a same-named one elsewhere.
-            const td = followScopedTypedef(programAnalysis, resolvedBaseType.name);
-            if (td) resolvedBaseType = td;
+        if (bound) {
+            resolvedBaseType = bound;
+            break;
         }
+        // A base named through a typedef resolves in that typedef's scope, so `struct D : Beta::B` inherits Beta's type, not a same-named one elsewhere.
+        const td = followScopedTypedef(programAnalysis, resolvedBaseType.name);
+        if (!td) break;
+        resolvedBaseType = td;
     }
     if (resolvedBaseType.kind === AstKind.TEMPLATE_INSTANCE) {
         const templateDeclaration = programAnalysis.templates.get(resolvedBaseType.name);
@@ -149,7 +157,13 @@ export function layoutOfStruct(programAnalysis: ProgramAnalysis, struct: StructD
     // `namespace Beta { struct D : public Base {}; }` means Beta's Base, so bases are resolved from the struct's own scope before anything looks them up.
     const scope = programAnalysis.structScope.get(struct);
     const bases = scope ? struct.bases.map((base) => qualifyNamesInScope(programAnalysis, base, scope)) : struct.bases;
-    return programAnalysis.layoutOfMembers(struct.members, templateBindings, programAnalysis.structCacheKey(struct), struct.isUnion, bases);
+    // A struct declared at file scope has no enclosing class, so the nested types of whatever class led
+    // here are not visible in its body — carrying them in made the two contain each other and never end.
+    const memberBindings =
+        struct.name && programAnalysis.globalStructs.get(struct.name) === struct && templateBindings.structs.size > 0
+            ? { types: templateBindings.types, values: templateBindings.values, structs: EMPTY_STRUCT_BINDINGS }
+            : templateBindings;
+    return programAnalysis.layoutOfMembers(struct.members, memberBindings, programAnalysis.structCacheKey(struct), struct.isUnion, bases);
 }
 
 export function bindingSig(programAnalysis: ProgramAnalysis, templateBindings: TemplateBindings): string {

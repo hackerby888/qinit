@@ -432,6 +432,8 @@ export enum LogPayloadDefect {
 export enum BareNamePolicy {
     OVERWRITE = "overwrite",
     KEEP = "keep",
+    /** Qualified keys only — the declaration is not the nearest one to own this bare name. */
+    SKIP = "skip",
 }
 
 export enum UnsupportedFeature {

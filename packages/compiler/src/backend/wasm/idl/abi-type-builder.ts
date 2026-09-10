@@ -23,6 +23,8 @@ import { evalIntegralConst } from "../../../frontend/validation/validation-helpe
 import { scalarKindForName, scalarKindForSize } from "./scalars";
 
 export class AbiTypeBuilder {
+    /** The struct declarations currently being expanded, to catch a declaration that contains itself. */
+    private readonly expanding = new Set<StructDecl>();
     constructor(private readonly programAnalysis: ProgramAnalysis) {}
 
     entryType(name: string, layout: StructLayout, declaration?: StructDecl): AbiType {
@@ -254,7 +256,15 @@ export class AbiTypeBuilder {
     }
 
     private struct(name: string | undefined, layout: StructLayout, root: boolean, bindings: TemplateBindings, declaration?: StructDecl): AbiStruct {
-        const localBindings = declaration ? withLocalStructs(declaration, bindings) : bindings;
+        const localBindings = declaration ? withLocalStructs(this.programAnalysis, declaration, bindings) : bindings;
+        // A struct whose fields lead back to itself has no finite ABI, so bound the walk and name the
+        // struct rather than exhausting the stack.
+        if (declaration) {
+            if (this.expanding.has(declaration)) {
+                throw new Error(`struct '${name ?? declaration.name}' contains itself, directly or through its fields`);
+            }
+            this.expanding.add(declaration);
+        }
         const fields: AbiField[] = [...layout.fields.values()].map((field) => {
             const type = this.type(field.type, localBindings);
             return {
@@ -264,6 +274,7 @@ export class AbiTypeBuilder {
                 type: withExactSize(type, field.size),
             };
         });
+        if (declaration) this.expanding.delete(declaration);
         const body = fields.map((field) => formatAbiType(field.type)).join(", ");
 
         return {
@@ -364,8 +375,12 @@ function withExactSize(type: AbiType, size: number): AbiType {
     } as AbiType;
 }
 
-function withLocalStructs(declaration: StructDecl, bindings: TemplateBindings): TemplateBindings {
-    const structs = new Map(bindings.structs);
+/** The bindings to resolve `declaration`'s field types under: its own nested structs, over the scope it
+ * was declared in. A struct declared at file scope has no enclosing class, so it starts from an empty
+ * set rather than inheriting the nested types of whatever field led here. */
+function withLocalStructs(programAnalysis: ProgramAnalysis, declaration: StructDecl, bindings: TemplateBindings): TemplateBindings {
+    const declaredAtFileScope = declaration.name ? programAnalysis.globalStructs.get(declaration.name) === declaration : false;
+    const structs = declaredAtFileScope ? new Map<string, StructDecl>() : new Map(bindings.structs);
 
     for (const member of declaration.members) {
         if (member.kind === AstKind.STRUCT && member.name && member.hasBody !== false) {
