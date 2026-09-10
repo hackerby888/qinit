@@ -89,8 +89,7 @@ export function testContractType(source: string): string | undefined {
     return fallback;
 }
 
-// How closely a contract sits to the test: how much of the path they share, then how far apart they
-// are. Sharing `<project>/` beats sharing only the workspace root, even at equal step counts.
+// How closely a contract sits to the test: shared path length, then distance. Sharing `<project>/` beats sharing only the workspace root at equal step counts.
 function pathProximity(candidatePath: string, testPath: string): { shared: number; distance: number } {
     const candidateParts = resolve(candidatePath).split(sep);
     const testParts = resolve(testPath).split(sep);
@@ -104,8 +103,7 @@ function pathProximity(candidatePath: string, testPath: string): { shared: numbe
     };
 }
 
-// One contract name can exist in several directories, so a tie is broken by the file name the test
-// carries (`Counter.test.cpp` → `Counter.h`) and then by proximity. Still tied stays ambiguous.
+// One name can exist in several directories, so ties break by the test's file name (`Counter.test.cpp` → `Counter.h`) then proximity; still tied is ambiguous.
 function closestCandidate(matches: ContractCandidate[], testPath?: string): ContractCandidate | undefined {
     if (!testPath) return undefined;
 

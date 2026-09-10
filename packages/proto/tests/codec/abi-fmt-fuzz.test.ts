@@ -1,6 +1,4 @@
-// Generated type trees, run through every layer that has to agree about them: the qpi-layout geometry
-// the builders use, the format string formatAbiType emits, the string parser, and the two decoders.
-// Hand-written cases only cover shapes someone thought of; these cover the ones nobody did.
+// Generated type trees run through every layer that must agree: qpi-layout geometry, formatAbiType, the parser and both decoders — shapes nobody thought of.
 import { test, expect } from "bun:test";
 import { decodeAbiValue, decodeOutput, encodeInput, layoutOf, structFieldOffsets, zeroInputFormat } from "../../src/abi-fmt";
 import { formatAbiType, type AbiType } from "../../src/contract-idl";
@@ -115,8 +113,7 @@ test("every field a generated struct reports sits inside the struct and after th
     }
 });
 
-// The random shapes above rarely isolate one scalar's alignment, so pair every scalar with every other
-// exhaustively: a wrong align for one type shows up in the pair where it is the only one demanding it.
+// Random shapes rarely isolate one scalar's alignment, so pair every scalar with every other: a wrong align shows up where it is the only type demanding it.
 const NAMED_LEAVES: [string, AbiType][] = [
     ["uint8", u8],
     ["uint16", u16],

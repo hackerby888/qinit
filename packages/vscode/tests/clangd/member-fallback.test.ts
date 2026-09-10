@@ -1,8 +1,7 @@
 import { test, expect } from "bun:test";
 import { memberFallbackCompletions, type FallbackRequest } from "../../src/member-fallback";
 
-// No qpiHeader is supplied, so the query uses the generated snapshot: these run with no core checkout,
-// no clang++ and no wasi-sdk — the environment an editor-only user has.
+// No qpiHeader is supplied, so the query uses the generated snapshot: no core checkout, no clang++, no wasi-sdk — the environment an editor-only user has.
 const COUNTER_SOURCE = `using namespace QPI;
 
 struct Counter : public ContractBase {
@@ -66,8 +65,7 @@ async function names(request: FallbackRequest): Promise<string[]> {
     return ((await memberFallbackCompletions(request)) ?? []).map((item) => item.name);
 }
 
-// The user-reported repro: a callee's input struct reached through locals, which the clangd bug
-// answers with an empty list because the struct holds a template member.
+// The user-reported repro: a callee's input struct reached through locals, which the clangd bug empties because the struct holds a template member.
 test("completes locals.gi. members on the cross-call repro", async () => {
     expect(await names(requestAt("    locals.gi."))).toEqual(expect.arrayContaining(["bc", "a"]));
 });
@@ -134,8 +132,7 @@ test("returns undefined rather than an empty list when nothing resolves", async 
     expect(await memberFallbackCompletions({ ...requestAt("    locals.gi."), character: 2 })).toBeUndefined();
 });
 
-// A gtest is general C++, so nothing here parses as a contract: the root's type comes from the language
-// server (stubbed offline) and only the hops after it are resolved by the compiler.
+// A gtest is general C++, so nothing parses as a contract: the root's type comes from the language server (stubbed offline), later hops from the compiler.
 const GTEST_SOURCE = `#include "contract_testing.h"
 
 TEST(ContractCounter, Get)
@@ -169,8 +166,7 @@ test("a gtest answers nothing without a resolvable root type", async () => {
     expect(await memberFallbackCompletions(unknown)).toBeUndefined();
 });
 
-// The state the buffer is actually in while completion runs: the statement is half-typed, so the
-// language server drops it and hover on the root answers nothing. The declaration in the text does.
+// The state the buffer is in while completion runs: the statement is half-typed, so the server drops it and hover answers nothing — the declaration does.
 test("completes a half-typed receiver when hover answers nothing", async () => {
     const probeLine = "    gi.bc.";
     const bufferText = GTEST_SOURCE.replace("    gi.bc.", `${probeLine}\n\n    Counter::Get_output go;\n    go.`);

@@ -1,5 +1,4 @@
-// The validator branches the main contract-idl suite does not reach: enums, migration, the registry
-// file, entry metadata, and how deep a type tree may go before anything gives.
+// Validator branches the main contract-idl suite misses: enums, migration, the registry file, entry metadata, and how deep a type tree may go.
 import { expect, test } from "bun:test";
 import {
     AbiScalarKind,
@@ -108,8 +107,7 @@ test("the registry file keys contracts by slot and validates its artifact string
     expect([parsed.contracts["1"].codeHash, parsed.contracts["1"].debugWasm, parsed.contracts["1"].linesJson]).toEqual(["aa", "bb", "cc"]);
 });
 
-// Every `format` in the document is advisory: the validator recomputes it from the type tree, so a
-// stale one from an older generator cannot mislead a decoder.
+// Every `format` in the document is advisory — the validator recomputes it from the type tree, so a stale one from an older generator cannot mislead a decoder.
 const lieAboutFormats = (type: AbiType): AbiType => {
     const lied = { ...type, format: "lies" } as unknown as Record<string, unknown>;
     if (Array.isArray(lied.fields)) {
@@ -179,14 +177,8 @@ test("a 300-deep type chain parses without special handling", () => {
     expect(validated(arrays)).toMatchObject({ size: 1, align: 1 });
 });
 
-// The rest of this file covers malformed input *shapes* — bad enum keys, non-slot file keys, wrong
-// migration sizes. What it missed is the validator's *recomputation consistency*: the IDL carries a
-// redundant size and align beside each type, and the validator recomputes both from the field tree and
-// rejects a disagreement. A mutation sweep removed each of those two checks and nothing failed.
-//
-// The consequence is not cosmetic. Unlike `format`, which parseContractIdl overwrites with its own
-// computation, a field's `size` is *kept* — so an IDL claiming a uint64 field is 999 bytes is believed,
-// and every field after it reads at the wrong offset.
+// The validator recomputes each type's redundant size and align and rejects a disagreement — a mutation sweep removed both checks and nothing failed.
+// Unlike `format`, a field's `size` is kept, so an IDL claiming a uint64 is 999 bytes is believed and every field after it reads at the wrong offset.
 test("a field size that disagrees with its type is rejected, not believed", () => {
     const good = contractIdl(named(["counter", u64], ["flag", u8]) as AbiStruct) as Record<string, unknown>;
     expect(() => parseContractIdl(good)).not.toThrow();
@@ -207,8 +199,7 @@ test("an alignment that is not a power of two is rejected", () => {
     }
 });
 
-// A union whose widest member is not its last one: the struct's extent is the furthest field end, not the
-// end of whichever field happens to come last. With byte alignment there is no padding to hide the difference.
+// A union whose widest member is not its last: the struct's extent is the furthest field end, and byte alignment leaves no padding to hide the difference.
 test("a struct spans its furthest field, not its last one", () => {
     const union: AbiStruct = {
         kind: AbiTypeKind.STRUCT,

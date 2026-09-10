@@ -1,5 +1,4 @@
-// The typed encode path (an AbiType rather than a format string) reaches its own validation: the
-// string dialect's tests never run these branches, so a dropped range or identity check survives there.
+// The typed encode path (AbiType, not a format string) has its own validation the string dialect's tests never reach, so a dropped check survives there.
 import { test, expect } from "bun:test";
 import { encodeInputJson, parseInputJson, decodeOutput, zeroInputFormat, encodeInput } from "../../src/abi-fmt";
 import { AbiScalarKind, AbiTypeKind, type AbiStruct, type AbiType } from "../../src/contract-idl";
@@ -129,8 +128,7 @@ test("a three-level typed input agrees byte-for-byte with the value dialect it p
     ]);
 });
 
-// A 64-bit literal in --args must reach the contract exact: JSON.parse alone rounds it past 2^53 before
-// any range check runs, and 2^53+1 silently becomes 2^53.
+// A 64-bit literal in --args must reach the contract exact: JSON.parse alone rounds past 2^53, silently turning 2^53+1 into 2^53.
 test("parseInputJson keeps integer literals past 2^53 exact", async () => {
     const wide = named(["u", u64], ["s", i64], ["mid", u64], ["f", u32]);
     const json = parseInputJson('{"u":18446744073709551615,"s":-9223372036854775808,"mid":9007199254740993,"f":42}');

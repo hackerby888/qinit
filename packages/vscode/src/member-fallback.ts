@@ -1,5 +1,4 @@
-// A clangd bug (17-22) returns an empty completion list through a field whose preamble type holds a
-// template member. The QPI compiler resolves those types, so an empty list is re-asked of it in-process.
+// A clangd bug (17-22) empties completion through a field whose preamble type holds a template member, so the QPI compiler is asked in-process instead.
 import {
     completeMembersAt,
     completeMembersOfType,
@@ -31,10 +30,7 @@ export interface FallbackRequest {
     /** The project's analysis inputs — contract name, slot, qpi.h and callee sources. */
     context?: Omit<MemberQueryOptions, "source" | "offset">;
     cancel?: Cancellable;
-    /**
-     * The declared type at an offset, as the language server spells it. A gtest is general C++, so its
-     * receiver root is resolved there; the field hops after it come back to the compiler.
-     */
+    /** The declared type at an offset, as the language server spells it. A gtest's receiver root resolves there; later field hops return to the compiler. */
     rootType?: (offset: number) => Promise<string | undefined>;
 }
 
@@ -48,8 +44,7 @@ function offsetOf(text: string, line: number, character: number): number {
     return Math.min(offset + character, text.length);
 }
 
-// A contract document resolves entirely from its own AST; a gtest does not parse as a contract, so the
-// root's type is asked of `rootType` and only the hops after it go back through the compiler.
+// A contract document resolves from its own AST; a gtest does not, so `rootType` answers the root and later hops go back through the compiler.
 async function completions(request: FallbackRequest, offset: number) {
     const contractItems = completeMembersAt({ ...request.context, source: request.bufferText, offset });
     if (contractItems) return contractItems;
@@ -57,8 +52,7 @@ async function completions(request: FallbackRequest, offset: number) {
     const receiver = splitReceiver(request.bufferText, offset);
     if (!receiver) return undefined;
 
-    // Hover is the better answer — it deduces `auto` and resolves typedefs — but a language server drops
-    // the statement it is being typed into, so the declaration in the text is what usually answers.
+    // Hover deduces `auto` and resolves typedefs, but a language server drops the statement being typed into, so the declaration in the text usually answers.
     const rootTypeText =
         (await request.rootType?.(receiver.rootOffset)) ?? declaredTypeOf(request.bufferText, receiver.rootOffset, receiver.rootText);
     return rootTypeText ? completeMembersOfType({ ...request.context, rootTypeText, path: receiver.path }) : undefined;

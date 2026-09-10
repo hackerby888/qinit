@@ -136,16 +136,14 @@ export interface ContractLog {
     types?: number[];
 }
 
-// One argument of a CC_PRINT call. A literal part carries its text and emits no code; a value part
-// carries the type the bytes on the wire decode as, plus the argument's own source text as its label.
+// One CC_PRINT argument: a literal part carries text and emits no code; a value part carries the decoded type plus the argument's source text as its label.
 export interface ContractCheatPart {
     lit?: string;
     type?: AbiType;
     expr?: string;
 }
 
-// A CC_PRINT call site. `id` is the line the contract tags its records with, so the two compilers agree
-// without sharing a counter; a line therefore holds at most one print.
+// A CC_PRINT call site. `id` is the line the contract tags records with, so the two compilers agree without sharing a counter — one print per line.
 export interface ContractCheat {
     id: number;
     line: number;
@@ -226,8 +224,7 @@ export function abiTypeContainsKind(type: AbiType, kind: AbiTypeKind): boolean {
     }
 }
 
-// Containers the protocol forbids in a contract's public interface — they can carry inconsistent
-// internal state across the call boundary (core-lite `doc/contracts.md`, "Restrictions").
+// Containers the protocol forbids in a public interface — they can carry inconsistent internal state across the call boundary (core-lite doc/contracts.md).
 const FORBIDDEN_PUBLIC_TYPES: readonly (readonly [AbiTypeKind, string])[] = [
     [AbiTypeKind.COLLECTION, "Collection"],
     [AbiTypeKind.HASH_MAP, "HashMap"],

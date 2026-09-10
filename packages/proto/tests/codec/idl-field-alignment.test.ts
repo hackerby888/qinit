@@ -1,5 +1,4 @@
-// Validator branches the other codec suites never reach: a field offset that its own type's alignment
-// forbids, plus the shape guards on raw IDL JSON (unknown kind, non-array fields, zero align).
+// Validator branches the other codec suites never reach: a field offset its own type's alignment forbids, plus shape guards on raw IDL JSON.
 import { expect, test } from "bun:test";
 import { parseContractIdl, type AbiStruct, type AbiType } from "../../src/contract-idl";
 import { arr, contractIdl, hm, ll, named, st, u8, u16, u32, u64 } from "./abi-builders";
@@ -44,8 +43,7 @@ test("alignment is checked against the field's own type, not the struct", () => 
 });
 
 test("a narrow field may sit where the struct's own alignment would forbid", () => {
-    // struct align is 8 (from 'big'), but 'small' only needs 2 — so offset 10 is legal for the field
-    // and illegal for the struct. Checking against the wrong one of the two shows up only here.
+    // struct align is 8 (from 'big') but 'small' needs only 2, so offset 10 is legal for the field and illegal for the struct — only visible here.
     const state = named(["big", u64], ["small", u16]);
     expect(state.align).toBe(8);
 

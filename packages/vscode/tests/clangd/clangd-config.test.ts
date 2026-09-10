@@ -185,8 +185,7 @@ test.if(hasFixture)("ensureEditorSettings disables cpptools IntelliSense, but re
 });
 
 test("the clangd prefix header carries the cheatcodes, so the editor resolves them", () => {
-    // clangd sees the wrapper sliced at the contract include. Putting the shim before that include is
-    // what makes CC_* resolve in the editor with no extension-side declaration of its own.
+    // clangd sees the wrapper sliced at the contract include, so the shim goes before it — that is what makes CC_* resolve with no extension-side declaration.
     const wrapper = generateWasmWrapperSource({
         contractPath: "/tmp/Cheats.h",
         contractName: "Cheats",

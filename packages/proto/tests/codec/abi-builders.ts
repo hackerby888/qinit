@@ -1,5 +1,4 @@
-// Hand-built AbiType trees for the codec tests. The layout numbers come from the same qpi-layout
-// geometry the validator asserts against, so a builder can never disagree with parseContractIdl.
+// Hand-built AbiType trees for the codec tests, from the same qpi-layout geometry the validator asserts against — so a builder cannot disagree with the parser.
 import {
     AbiScalarKind,
     AbiTypeKind,
@@ -154,8 +153,7 @@ export function contractIdl(state: AbiStruct, extra: Partial<ContractIdl> = {}):
     };
 }
 
-// Round a hand-built type through the validator, so every test uses the same normalized `format`
-// strings the runtime sees — and any builder mistake fails as a validation error, not a wrong assertion.
+// Round a hand-built type through the validator so every test sees the normalized `format` the runtime does, and a builder mistake fails as a validation error.
 export function validated<T extends AbiType>(type: T): T {
     const idl = parseContractIdl(contractIdl(st(type)));
     return idl.state.fields[0].type as T;
