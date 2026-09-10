@@ -1,12 +1,11 @@
-// Write the committed corpus: one .h per contract, one call script per family, and a manifest.
+// Write the corpus: one .h per contract, one call script per family, and a manifest.
 //
 //   bun run scripts/solidity-port/generate.ts                 regenerate corpus/solidity-port/
 //   bun run scripts/solidity-port/generate.ts --check         fail if the tree differs from the generator
 //   bun run scripts/solidity-port/generate.ts --analyze-only  run the shared build gate over every variant
 //
-// The corpus is generator-owned, per AGENTS.md ("Update generated sources only through their owning
-// generator"). `--check` in CI is what makes that rule enforceable: a hand-edited variant, or a
-// generator change without a regeneration, turns the build red.
+// The corpus is generator-owned and not committed, so CI regenerates it before every sweep and drift
+// cannot happen. `--check` stays useful locally, to catch a variant edited by hand during triage.
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -93,8 +92,8 @@ function readme(tier: Tier, manifest: ManifestRow[]): string {
     return [
         "# Solidity-port differential corpus",
         "",
-        "Generated. Do not edit by hand — edit the archetype in `scripts/solidity-port/archetypes/` and",
-        "regenerate. `bun run scripts/solidity-port/generate.ts --check` enforces that in CI.",
+        "Generated, and not committed — edit the archetype in `scripts/solidity-port/archetypes/` and",
+        "regenerate. See `scripts/solidity-port/README.md` for how to run a sweep.",
         "",
         `Tier \`${tier}\` · ${archetypes} archetypes · ${manifest.length} contracts · generator version ${GENERATOR_VERSION}.`,
         "",

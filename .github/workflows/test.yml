@@ -345,7 +345,7 @@ jobs:
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
           QINIT_REQUIRE_CONTAINER_TOOLCHAINS: "1"
           SWEEP_TIER: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'smoke' }}
-        run: bun run corpus:sweep -- --tier "$SWEEP_TIER" --workers 3 --no-resume --out work/sweep.jsonl
+        run: bun run corpus:sweep -- --tier "$SWEEP_TIER" --workers 3 --no-resume --exit-zero --out work/sweep.jsonl
 
       - name: Gate the result against the open findings
         run: bun run corpus:gate -- work/sweep.jsonl ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '--strict' || '' }}

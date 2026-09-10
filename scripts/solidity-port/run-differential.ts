@@ -26,6 +26,7 @@ interface Options {
     cacheDir: string;
     shardSize: number;
     resume: boolean;
+    exitZero: boolean;
 }
 
 function parseArguments(argv: string[]): Options {
@@ -44,6 +45,9 @@ function parseArguments(argv: string[]): Options {
         cacheDir: value("--cache") ?? "work/cache",
         shardSize: Number(value("--shard-size") ?? 25),
         resume: !argv.includes("--no-resume"),
+        // Open findings mean a clean run still has non-matching rows, so a caller that owns the
+        // pass/fail decision — check-sweep.ts — asks for the scoreboard without the exit code.
+        exitZero: argv.includes("--exit-zero"),
     };
 }
 
@@ -198,13 +202,13 @@ async function main(): Promise<void> {
     console.log(`selected ${selected.length} contracts · ${done.size} already done · ${pending.length} to run · tier ${options.tier}`);
 
     if (pending.length === 0) {
-        process.exit(scoreboard(options.out) === 0 ? 0 : 1);
+        process.exit(options.exitZero || scoreboard(options.out) === 0 ? 0 : 1);
     }
 
     // A single contract runs in-process: triage wants the stack trace, not a killed child.
     if (options.single || pending.length <= 2) {
         await runShard(pending, options.out, options.cacheDir, corePath);
-        process.exit(scoreboard(options.out) === 0 ? 0 : 1);
+        process.exit(options.exitZero || scoreboard(options.out) === 0 ? 0 : 1);
     }
 
     const shards: Variant[][] = [];
@@ -229,7 +233,7 @@ async function main(): Promise<void> {
     await Promise.all(Array.from({ length: Math.max(1, options.workers) }, () => worker()));
 
     console.log(`\nsweep wall time ${(Date.now() - started) / 1000}s`);
-    process.exit(scoreboard(options.out) === 0 ? 0 : 1);
+    process.exit(options.exitZero || scoreboard(options.out) === 0 ? 0 : 1);
 }
 
 await main();
