@@ -2411,3 +2411,43 @@ anything the `locals` rows cover.
 **Not fixed.** The real fix is to materialise the declared layout, which changes `sizeof(StateData)`
 for any contract holding an iterator — an ABI change that deserves its own PR and its own
 verification, not a patch folded into a fix branch.
+
+# F211 is partially fixed — correcting the claim in commit 238d790
+
+That commit says the nested-type leak is fixed. It is fixed for the paths it was measured on and not
+for all of them. The full-tier sweep against core-lite `develop` (73f917a) leaves **6 rows** of
+`LayoutNestedStructNameCollision` diverging, all `one-side-rejected`, on the axis combination
+`layout=widestLast placement=nested temporaries=stateScratch`. clang compiles those contracts.
+
+Measured both ways on `layout/LayoutNestedStructNameCollision__75b8b5ea`:
+
+| | TypeScript |
+| --- | --- |
+| with the ABI recursion guard | `Codegen failed: struct 'Inner' contains itself, directly or through its fields` |
+| with the guard removed | `Codegen failed: Maximum call stack size exceeded.` |
+
+So the guard is sound — it converts a stack overflow into a named error — and the defect underneath
+it is real. Two things follow, and the second is the one that matters.
+
+**The diagnostic is wrong.** The struct does not contain itself; a name was resolved in the wrong
+scope. Anyone reading that message would go looking for a cycle that is not in their code.
+
+**The same root cause has a silent face.** F225 is the identical leak reached through `sizeof`, and
+there it produces a wrong number rather than a refusal: `sizeof(Outer)` is 16 under clang and 8 here,
+so every offset laid out after it shifts. That is the reason to finish this rather than leave it at a
+loud failure.
+
+Where the rule is applied, as of this branch:
+
+| site | resolves fields under | state |
+| --- | --- | --- |
+| `semantics/struct-layout.ts` `layoutOfStruct` | `memberBindings` | fixed |
+| `backend/wasm/idl/abi-type-builder.ts` `withLocalStructs` | empty map when the struct is file-scope | fixed |
+| `semantics/template-resolver.ts` `withLocalStructs` | always the caller's bindings | unfixed |
+| `backend/wasm/expressions/value-expression.ts:307` | `context.thisBind` — the *contract's* bindings | suspect |
+| `semantics/struct-index.ts` `structOf` | caller's bindings, plus the scoped-name tables | unchecked |
+
+Two implementations of one rule is itself the defect. The `sizeof` call site passing `thisBind` is the
+strongest current candidate for F225, but it is a candidate: three published root causes in this
+campaign were wrong before the fix was built, so this one is recorded as unsettled rather than
+asserted.
