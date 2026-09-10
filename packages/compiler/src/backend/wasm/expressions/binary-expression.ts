@@ -132,6 +132,15 @@ export function lowerBinaryExpression(
     const wrap32 = unsigned && cv.width === 4;
     const swrap32 = !unsigned && cv.width === 4;
     const shiftCount = (count: watIr.WatNode) => (li.width === 4 ? watIr.operation("i64.and", count, watIr.i64Constant(31)) : count);
+    // A constant shift count outside [0, width) is undefined in C++, and clang's codegen answers 0 for
+    // every spelling of it. A runtime count keeps wasm's masking, which is what clang emits for it too.
+    const foldedOutOfRangeShift = (): watIr.WatNode | null => {
+        if (valueNodeCandidate.k !== watIr.WatNodeKind.CONST) return null;
+        const count = BigInt(valueNodeCandidate.lit);
+        const bits = BigInt(li.width * 8);
+        if (count >= 0n && count < bits) return null;
+        return watIr.i64Constant(0);
+    };
     // Signed-to-unsigned 32-bit converts by sign extension rules, so / and % follow unsigned arithmetic semantics.
     const toU32 = (count: watIr.WatNode, expression: Expression) => {
         if (!wrap32) {
@@ -150,17 +159,30 @@ export function lowerBinaryExpression(
             return wrapS(wrapL(watIr.operation("i64.sub", valueNode, valueNodeCandidate), wrap32), swrap32);
         case BinaryOp.MULTIPLY:
             return wrapS(wrapL(watIr.operation("i64.mul", valueNode, valueNodeCandidate), wrap32), swrap32);
+        // wasm's i32.div_s traps when the quotient is not representable (INT32_MIN / -1) and i64.div_s
+        // cannot reach that state, so widening first turns a trap into a wrapped value.
         case BinaryOp.DIVIDE:
+            if (!unsigned && cv.width === 4) {
+                return watIr.operation("i64.extend_i32_s", watIr.operation("i32.div_s", watIr.operation("i32.wrap_i64", lc), watIr.operation("i32.wrap_i64", rc)));
+            }
             return watIr.operation(unsigned ? "i64.div_u" : "i64.div_s", lc, rc);
         case BinaryOp.MODULO:
+            if (!unsigned && cv.width === 4) {
+                return watIr.operation("i64.extend_i32_s", watIr.operation("i32.rem_s", watIr.operation("i32.wrap_i64", lc), watIr.operation("i32.wrap_i64", rc)));
+            }
             return watIr.operation(unsigned ? "i64.rem_u" : "i64.rem_s", lc, rc);
         case BinaryOp.SHIFT_LEFT: {
+            const foldedLeft = foldedOutOfRangeShift();
+            if (foldedLeft) return foldedLeft;
             const sh = watIr.operation("i64.shl", valueNode, shiftCount(valueNodeCandidate));
             return li.width === 4 ? (li.unsigned ? wrapL(sh, true) : wrapS(sh, true)) : sh;
         }
         // Signed right-shift is arithmetic in C++ — zero-filling a negative sint64 silently corrupts it.
-        case BinaryOp.SHIFT_RIGHT:
+        case BinaryOp.SHIFT_RIGHT: {
+            const foldedRight = foldedOutOfRangeShift();
+            if (foldedRight) return foldedRight;
             return watIr.operation(li.unsigned ? "i64.shr_u" : "i64.shr_s", valueNode, shiftCount(valueNodeCandidate));
+        }
         case BinaryOp.BITWISE_AND:
             return watIr.operation("i64.and", valueNode, valueNodeCandidate);
         case BinaryOp.BITWISE_OR:

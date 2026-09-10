@@ -118,6 +118,15 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 reportUnsupported(context.programAnalysis, UnsupportedFeature.CLASS_TO_SCALAR_CONVERSION, expression.span, expression.name);
                 return watIr.i64Constant(0);
             }
+            // Class scope is searched before namespace scope in a member function, so a member function
+            // hides a file-scope constant of the same name — and a function is not a value.
+            if (context.hasStateParam && context.programAnalysis.memberFnLine.has(expression.name)) {
+                context.programAnalysis.error(
+                    `'${expression.name}' names a member function of this contract, which hides the file-scope declaration of the same name — a function is not a value`,
+                    expression.span,
+                );
+                return watIr.i64Constant(0);
+            }
             // A named constant: enum constant or constexpr, incl. qualified Type::NAME. The reference's scope decides, so qpi.h's NULL_INDEX is not rebound.
             const resolvedConstant = context.programAnalysis.resolveConstInScope(expression.name, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS, {
                 sourceNamespace: context.sourceNamespace,
