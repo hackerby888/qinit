@@ -198,6 +198,11 @@ export class TypeParser {
 
     parseQualifiedName(stopAtAngle = false): string {
         const parts: string[] = [];
+        // A leading `::` names the global scope explicitly, and global declarations are keyed unqualified,
+        // so consuming it yields the key the resolver already uses: `::threshold` -> `threshold`.
+        if (this.parser.state.peek().kind === TokenKind.D_COLON && this.parser.state.peek(1).kind === TokenKind.IDENTIFIER) {
+            this.parser.state.next();
+        }
         while (!this.parser.state.eof()) {
             const tok = this.parser.state.peek();
             if (stopAtAngle && tok.kind === TokenKind.IDENTIFIER && this.parser.state.peek(1).kind === TokenKind.L_ANGLE) {
@@ -411,6 +416,23 @@ export class TypeParser {
                     type,
                     span: this.parser.recovery.makeSpan(start),
                 };
+            }
+            // `sizeof(Name<...>)` is a type-id, but the expression parser takes the `<` as a comparison and
+            // stops at the first comma. Read a type first, accepting it only if the list closes at the `)`.
+            if (tok.kind === TokenKind.IDENTIFIER && this.parser.state.peek(1).kind === TokenKind.L_ANGLE) {
+                const save = this.parser.state.position;
+                const savedDiagnostics = this.parser.state.diagnostics.length;
+                const type = this.parser.types.parseTypeSpec();
+                if (this.parser.state.diagnostics.length === savedDiagnostics && this.parser.state.peek().kind === TokenKind.R_PAREN) {
+                    this.parser.state.next();
+                    return {
+                        kind: AstKind.SIZEOF_TYPE,
+                        type,
+                        span: this.parser.recovery.makeSpan(start),
+                    };
+                }
+                this.parser.state.position = save;
+                this.parser.state.diagnostics.length = savedDiagnostics;
             }
             const expression = this.parser.expressions.parseExpression();
             this.parser.state.expect(TokenKind.R_PAREN, "sizeof expr");
