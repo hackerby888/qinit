@@ -2558,6 +2558,31 @@ thing that stands in for the contract's flat table.
 Three cuts, three different failures, each caught by a check the previous cut had not reached: the
 core-compat ABI probe, then the operator-overload edge suite. Both were already in the repository.
 
+## How wide the fallback is, measured
+
+The fallback deserves a number rather than a shrug, so it has one. Instrumented over 951 corpus
+contracts (every seventh of 6,654), counting each `withLocalStructs` call that had an owning
+declaration:
+
+    scope known:   16,706
+    scope unknown:  9,489   (36%)
+    distinct unknown struct names: 21
+
+The 21 are entirely qpi.h library types — `Asset`, `Entity`, `m256i`, `uint128_t`, `DateAndTime`,
+`QpiContext`, `Collection`'s `Element`, the asset iterators and selects, and a handful of entry
+input/output records. **No user-written contract struct falls back.** The cause is one place:
+`registerLibraryMetadata` (`backend/wasm/module/library-index.ts:60`) restores qpi.h from a cached
+`LibrarySymbolIndex` that carries `globalStructs` but not the nesting maps, so those declarations
+never pass through `recordNestedParents`.
+
+So the rule holds for contract code, and qpi.h types keep the pre-existing behaviour — which means the
+F211/F225 defect is still reachable *through a qpi.h type*, and only through one.
+
+Closing it means recomputing the nesting when the library index is restored, which would move ~9,500
+lookups onto the strict path in one step. Given that widening this twice today produced two
+regressions — one of them `Collection::Element`, which is in that very list — it belongs in its own
+change with its own sweep, not folded into this one.
+
 ## Not in scope
 
 F203, F215, F221, F223 share a different root cause — enumerate the known shapes, return `null`, let
