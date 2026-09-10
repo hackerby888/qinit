@@ -22,14 +22,20 @@ trusts to lower the arithmetic itself — so deduction now asks it and maps (wid
 the QPI scalar name. General: any `template<typename T>` QPI method called with an expression was
 mis-deducing; K12 is only where the width is observable in the answer.
 
+EVERY width scalarTypeInfo can report has to be in the table. A first cut covered 1/2/4/8 and left 16
+out, and `qpi.K12(a128 + b128)` went on hashing one byte — the same defect surviving at the one width
+the fix forgot. That is the shape of mistake this class of bug invites: the fallback looks general
+because it reads `scalarTypeInfo`, but it is only as general as the map behind it.
+
 Measured: K12Struct both backends identical, and the invariant the repro asserts now holds —
-K12(a) == K12(a*1) and K12(sum) == K12(a+b). Suite 1085/0. The `integers` family is 1451/1451.
+K12(a) == K12(a*1) and K12(sum) == K12(a+b). K12Wide (uint128) likewise, `same` = 1 on both where the
+TypeScript backend previously answered 0. Suite 1085/0. The `integers` family is 1451/1451.
 
 diff --git a/packages/compiler/src/backend/wasm/calls/containers.ts b/packages/compiler/src/backend/wasm/calls/containers.ts
-index e19f8c1..240b980 100644
+index e19f8c1..801a37f 100644
 --- a/packages/compiler/src/backend/wasm/calls/containers.ts
 +++ b/packages/compiler/src/backend/wasm/calls/containers.ts
-@@ -291,6 +291,47 @@ function overloadDiscriminator(
+@@ -291,6 +291,53 @@ function overloadDiscriminator(
  }
  
  // Build a call using the compiled method's concrete parameter types.
@@ -63,6 +69,10 @@ index e19f8c1..240b980 100644
 +
 +// The QPI spelling of each (width, signedness) pair scalarTypeInfo can report. These are the names the
 +// layout and ABI tables key on, so a deduced `T` lands on the same sizes a declared one would.
++//
++// Every width scalarTypeInfo can report has to be here. Leaving 16 out left `qpi.K12(a128 + b128)`
++// deducing nothing and hashing one byte — the same defect as F203, surviving at the one width the
++// first fix forgot. uint128 has no signed counterpart in this dialect, so both signednesses map to it.
 +const SCALAR_TYPE_BY_SHAPE: Record<string, string> = {
 +    "1s": "sint8",
 +    "1u": "uint8",
@@ -72,12 +82,14 @@ index e19f8c1..240b980 100644
 +    "4u": "uint32",
 +    "8s": "sint64",
 +    "8u": "uint64",
++    "16s": "uint128",
++    "16u": "uint128",
 +};
 +
  export function callCompiled(
      context: FunctionEmissionContext,
      type: TypeSpec & {
-@@ -306,17 +347,7 @@ export function callCompiled(
+@@ -306,17 +353,7 @@ export function callCompiled(
      cm: CompiledMethod;
      retDest?: string;
  } | null {

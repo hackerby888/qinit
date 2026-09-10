@@ -2188,6 +2188,19 @@ computes it — it is what the backend trusts to lower the arithmetic itself. De
 General: any `template<typename T>` QPI method called with an expression was mis-deducing. K12 is only
 where the width is observable in the answer.
 
+### The first cut of this fix was general-looking and still had a hole
+
+The fallback reads `scalarTypeInfo`, so it looks like it covers everything that function can report.
+It covers what the *map behind it* lists, and the first cut listed widths 1, 2, 4 and 8. `uint128` is
+16, so `qpi.K12(a128 + b128)` went on hashing one byte — the same defect surviving at the one width the
+fix forgot, and the corpus could not see it because no archetype hashes a 128-bit expression.
+
+Found by asking what the boundary of "general" actually was rather than asserting it, and pinned by a
+new triage repro: `triage/F203-k12-wide/`, which hashes a `uint128` sum through a local and through the
+expression and asserts the two agree. Both backends now answer `same = 1`; the TypeScript backend
+answered 0 before.
+
+
 ## F213 — decide by scope, not by kind
 
 Part 1 fixed 42 of 55 rows. The rejected part 2 fixed the last 13 and broke 17, because it made a
