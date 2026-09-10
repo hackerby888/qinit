@@ -1,0 +1,574 @@
+F217 — a block-scope local shadowing an outer name is refused
+
+    static constexpr uint64 tier = 1;
+    locals.atOne = tier;            // "'tier' is used before its declaration"
+    { uint64 tier = 20; ... }
+
+Two diagnostics, one missing step: nothing ever resolved names against the block structure. The
+backend allocates one wasm local per name per function, so the validator refused shadowing outright —
+and because the flat set of locals is collected with the block structure discarded, a read that in
+C++ unambiguously names an enclosing constant was also reported as a use before its declaration. That
+is the hoist C99 block scoping exists to prevent.
+
+Adds the resolution step, the standard way: alpha-renaming. Each function body is walked with a scope
+stack; a declaration that reuses a name bound in an enclosing block — or, when nested, a name that
+means something outside the function — is given a fresh name and the references that resolve to it
+are rewritten. Downstream sees distinct names, so the one-slot-per-name model is correct without
+changing it. A name with nothing to collide with keeps its spelling, which matters because the
+backend recognises some macro-generated locals by name.
+
+The declaration keeps the name as written, so a read of a block local from *outside* its block is
+still reported; the use-before-declaration check now also lets a name that resolves outward through.
+A synthetic compound (a multi-declarator statement) opens no scope. Two declarations of one name in
+the same block stay a redeclaration.
+
+Two tests change: both asserted that shadowing is rejected. The semantic-validation row's own comment
+read "native keeps outer v = 1; the old single-slot lowering read back 2" — it is now an accepted row
+with a toolchain test that runs it against clang and asserts 1.
+
+Measured: BlockShadow both backends `1 20 300 1 1`, matching clang and core's WAMR host.
+Suite 1085/0 (1084 + the new toolchain test).
+
+diff --git a/packages/compiler/src/ast/declarations.ts b/packages/compiler/src/ast/declarations.ts
+index 228bb62..51c1145 100644
+--- a/packages/compiler/src/ast/declarations.ts
++++ b/packages/compiler/src/ast/declarations.ts
+@@ -90,6 +90,11 @@ export interface ParamDecl {
+ export interface VariableDecl {
+     kind: AstKind.VARIABLE;
+     name: string;
++    /**
++     * The name as written, when block-scope resolution renamed this declaration to keep it distinct
++     * from an outer binding of the same name (frontend/validation/block-scope-resolver.ts).
++     */
++    blockScopedFrom?: string;
+     type: TypeSpec;
+     initializer?: Expression;
+     isConstexpr: boolean;
+diff --git a/packages/compiler/src/frontend/validation/block-scope-resolver.ts b/packages/compiler/src/frontend/validation/block-scope-resolver.ts
+new file mode 100644
+index 0000000..cfa7251
+--- /dev/null
++++ b/packages/compiler/src/frontend/validation/block-scope-resolver.ts
+@@ -0,0 +1,364 @@
++// C99/C++ block scoping, lowered onto a flat set of function locals.
++//
++// The backend allocates one wasm local per *name* per function (local-collector.ts), so two
++// declarations of `tier` in two nested blocks would share a slot. That is why the validator refuses
++// shadowing outright — and why it also refused this, which shadows nothing at the point of use:
++//
++//     static constexpr uint64 tier = 1;
++//     locals.atOne = tier;      // the file constant — but reported "used before its declaration"
++//     { uint64 tier = 20; ... }
++//
++// The read is before any block declares a local `tier`, so in C++ it unambiguously names the file
++// constant. Reporting it means the block-local declaration is visible over the whole entry body,
++// which is exactly the hoist C99 block scoping exists to prevent (F217).
++//
++// Both halves come from the same missing step: nothing ever resolved names against the block
++// structure. This pass adds it, the standard way — alpha-renaming. Walk each function body with a
++// scope stack; when a declaration introduces a name already bound in an enclosing block, give it a
++// fresh name and rewrite the references that resolve to it. Downstream sees distinct names, so the
++// flat one-slot-per-name model is correct without changing it, and the shadowing check below never
++// has to fire for a legal program.
++//
++// This is name resolution, not a rewrite of any particular construct: a function whose blocks
++// declare nothing twice comes out of this pass byte-identical.
++import { AstKind } from "../../shared/enums";
++import type { Declaration, Expression, FunctionDecl, Statement, VariableDecl } from "../../ast";
++
++/** One block's bindings: the name as written -> the name it was given. */
++type Frame = Map<string, string>;
++
++class FunctionScopes {
++    private readonly frames: Frame[] = [new Map()];
++    private counter = 0;
++    constructor(
++        private readonly taken: Set<string>,
++        private readonly outerNames: ReadonlySet<string>,
++    ) {}
++
++    push(): void {
++        this.frames.push(new Map());
++    }
++    pop(): void {
++        this.frames.pop();
++    }
++    /** The name `written` currently resolves to, or null when no block in scope declares it. */
++    resolve(written: string): string | null {
++        for (let index = this.frames.length - 1; index >= 0; index--) {
++            const bound = this.frames[index]!.get(written);
++            if (bound !== undefined) return bound;
++        }
++        return null;
++    }
++    /** Whether the innermost block already binds this name — a redeclaration, not a shadow. */
++    declaredHere(written: string): boolean {
++        return this.frames[this.frames.length - 1]!.has(written);
++    }
++    /**
++     * Bind `written` in the innermost block. Returns the name to use: `written` itself for a
++     * declaration in the function's outermost scope that shadows no parameter, and otherwise a fresh
++     * one that collides with nothing the function mentions.
++     *
++     * A nested declaration is renamed when the name means something outside the block as well, not
++     * only when it collides with another local. A block-local `tier` also hides the enclosing
++     * scopes — the struct's `static constexpr uint64 tier`, a file constant, an enum constant — and
++     * those are not in this stack. Renaming only on a local-vs-local collision leaves the flat slot
++     * named `tier`, which then also answers the reads before and after the block that mean the
++     * constant: measured 0, 20, 300, 20 against clang's 1, 20, 300, 1.
++     *
++     * A name with nothing to collide with keeps its spelling. That is not just tidiness: the
++     * backend recognises some macro-generated locals by name, so renaming every nested binding
++     * would move code that has no scoping problem at all.
++     */
++    declare(written: string): string {
++        // Two declarations of one name in the *same* block are a redeclaration, which the validator
++        // reports. Renaming the second would make the two distinct and silence that, so leave it.
++        if (this.declaredHere(written)) return written;
++        const hidesOuterName = this.frames.length > 1 && this.outerNames.has(written);
++        const shadowsEnclosing = this.resolve(written) !== null;
++        let assigned = written;
++        if (hidesOuterName || shadowsEnclosing) {
++            do {
++                assigned = `${written}__blk${++this.counter}`;
++            } while (this.taken.has(assigned));
++            this.taken.add(assigned);
++        }
++        this.frames[this.frames.length - 1]!.set(written, assigned);
++        return assigned;
++    }
++}
++
++/**
++ * Every identifier the function mentions, so a generated name cannot collide with one — including
++ * with a global the body reads, which a bare counter suffix could otherwise shadow in turn.
++ */
++function mentionedNames(statement: Statement, into: Set<string>): void {
++    walkStatement(statement, {
++        onExpression: (expression) => {
++            if (expression.kind === AstKind.IDENTIFIER) into.add(expression.name);
++            if (expression.kind === AstKind.QUALIFIED_NAME) into.add(expression.name);
++        },
++        onDeclaration: (declaration) => {
++            if ("name" in declaration && typeof declaration.name === "string") into.add(declaration.name);
++        },
++    });
++}
++
++interface Visitor {
++    onExpression?: (expression: Expression) => void;
++    onDeclaration?: (declaration: Declaration) => void;
++}
++
++/** A read-only walk used only to collect names; the renaming walk below is separate and scope-aware. */
++function walkStatement(statement: Statement | undefined, visitor: Visitor): void {
++    if (!statement) return;
++    switch (statement.kind) {
++        case AstKind.COMPOUND:
++            for (const item of statement.body) walkStatement(item, visitor);
++            break;
++        case AstKind.IF:
++            walkExpressionTree(statement.condition, visitor);
++            walkStatement(statement.then, visitor);
++            walkStatement(statement.else_, visitor);
++            break;
++        case AstKind.FOR:
++            walkStatement(statement.initializer, visitor);
++            if (statement.condition) walkExpressionTree(statement.condition, visitor);
++            if (statement.update) walkExpressionTree(statement.update, visitor);
++            walkStatement(statement.body, visitor);
++            break;
++        case AstKind.WHILE:
++        case AstKind.DO_WHILE:
++            walkExpressionTree(statement.condition, visitor);
++            walkStatement(statement.body, visitor);
++            break;
++        case AstKind.SWITCH:
++            walkExpressionTree(statement.condition, visitor);
++            walkStatement(statement.body, visitor);
++            break;
++        case AstKind.CASE:
++            walkExpressionTree(statement.value, visitor);
++            break;
++        case AstKind.EXPRESSION:
++            walkExpressionTree(statement.expression, visitor);
++            break;
++        case AstKind.RETURN:
++            if (statement.value) walkExpressionTree(statement.value, visitor);
++            break;
++        case AstKind.DECLARATION:
++            visitor.onDeclaration?.(statement.declaration);
++            if (statement.declaration.kind === AstKind.VARIABLE && statement.declaration.initializer) {
++                walkExpressionTree(statement.declaration.initializer, visitor);
++            }
++            break;
++        case AstKind.STATIC_ASSERT:
++            walkExpressionTree(statement.condition, visitor);
++            break;
++    }
++}
++
++function walkExpressionTree(expression: Expression | undefined, visitor: Visitor): void {
++    if (!expression) return;
++    visitor.onExpression?.(expression);
++    for (const child of subExpressions(expression)) walkExpressionTree(child, visitor);
++}
++
++/**
++ * The sub-expressions of a node, in evaluation order.
++ *
++ * A call's callee is deliberately excluded when it is a bare or qualified name: that spells a
++ * function or a type (`div(a, b)`, `id(...)`), never a local, so it must not be renamed. Member
++ * names are strings on the node rather than identifier nodes, so they are out of reach by
++ * construction.
++ */
++function subExpressions(expression: Expression): Expression[] {
++    switch (expression.kind) {
++        case AstKind.UNARY_OP:
++        case AstKind.PREFIX_OP:
++        case AstKind.POSTFIX_OP:
++            return [expression.argument];
++        case AstKind.BINARY_OP:
++            return [expression.left, expression.right];
++        case AstKind.ASSIGN:
++            return [expression.left, expression.right];
++        case AstKind.TERNARY:
++            return [expression.condition, expression.then, expression.else_];
++        case AstKind.MEMBER_ACCESS:
++            return [expression.object];
++        case AstKind.SUBSCRIPT:
++            return [expression.object, expression.index];
++        case AstKind.SEQUENCE:
++            return expression.expressions;
++        case AstKind.CALL:
++            return NAME_CALLEE_KINDS.has(expression.callee.kind) ? expression.callArguments : [expression.callee, ...expression.callArguments];
++        case AstKind.TEMPLATE_CALL:
++            return expression.callArguments;
++        case AstKind.CONSTRUCT:
++            return expression.callArguments;
++        case AstKind.INITIALIZER_LIST:
++            return expression.expressions;
++        case AstKind.C_CAST:
++        case AstKind.STATIC_CAST:
++        case AstKind.REINTERPRET_CAST:
++            return [expression.expression];
++        case AstKind.PAREN:
++            return [expression.expression];
++        case AstKind.SIZEOF_EXPR:
++            return [expression.expression];
++        default:
++            return [];
++    }
++}
++
++const NAME_CALLEE_KINDS: ReadonlySet<AstKind> = new Set([AstKind.IDENTIFIER, AstKind.QUALIFIED_NAME]);
++
++/** Rewrite the identifiers in one expression against the bindings currently in scope. */
++function renameExpression(expression: Expression | undefined, scopes: FunctionScopes): void {
++    if (!expression) return;
++    if (expression.kind === AstKind.IDENTIFIER) {
++        const bound = scopes.resolve(expression.name);
++        if (bound !== null && bound !== expression.name) expression.name = bound;
++        return;
++    }
++    for (const child of subExpressions(expression)) renameExpression(child, scopes);
++}
++
++/**
++ * Resolve one statement. A block opens a scope; a declaration binds after its declarator and before
++ * its initializer, which is where C++ puts the point of declaration ([basic.scope.pdecl]/1), so
++ * `uint64 n = n;` names the new `n` in both compilers rather than silently meaning two things.
++ */
++function resolveStatement(statement: Statement | undefined, scopes: FunctionScopes): void {
++    if (!statement) return;
++    switch (statement.kind) {
++        case AstKind.COMPOUND: {
++            // `uint64 x = 1, y = 3;` parses as a compound marked synthetic. It is one statement, not
++            // a block: opening a scope for it would put x and y out of reach of the next line.
++            const opensScope = !(statement as { synthetic?: boolean }).synthetic;
++            if (opensScope) scopes.push();
++            for (const item of statement.body) resolveStatement(item, scopes);
++            if (opensScope) scopes.pop();
++            break;
++        }
++        case AstKind.IF:
++            renameExpression(statement.condition, scopes);
++            resolveStatement(statement.then, scopes);
++            resolveStatement(statement.else_, scopes);
++            break;
++        case AstKind.FOR:
++            // The init-statement's declarations belong to the loop, not to the enclosing block.
++            scopes.push();
++            resolveStatement(statement.initializer, scopes);
++            renameExpression(statement.condition, scopes);
++            renameExpression(statement.update, scopes);
++            resolveStatement(statement.body, scopes);
++            scopes.pop();
++            break;
++        case AstKind.WHILE:
++        case AstKind.DO_WHILE:
++            renameExpression(statement.condition, scopes);
++            resolveStatement(statement.body, scopes);
++            break;
++        case AstKind.SWITCH:
++            renameExpression(statement.condition, scopes);
++            resolveStatement(statement.body, scopes);
++            break;
++        case AstKind.CASE:
++            renameExpression(statement.value, scopes);
++            break;
++        case AstKind.EXPRESSION:
++            renameExpression(statement.expression, scopes);
++            break;
++        case AstKind.RETURN:
++            renameExpression(statement.value, scopes);
++            break;
++        case AstKind.STATIC_ASSERT:
++            renameExpression(statement.condition, scopes);
++            break;
++        case AstKind.DECLARATION: {
++            const declaration = statement.declaration;
++            if (declaration.kind !== AstKind.VARIABLE) break;
++            const variable = declaration as VariableDecl;
++            const written = variable.name;
++            variable.name = scopes.declare(written);
++            // Keep the name as written. It is how the validator still reports a read of a block
++            // local from outside its block — after renaming, that read no longer matches any
++            // declared name and would otherwise pass silently.
++            if (variable.name !== written) variable.blockScopedFrom = written;
++            renameExpression(variable.initializer, scopes);
++            break;
++        }
++    }
++}
++
++function resolveFunction(fn: FunctionDecl, outerNames: ReadonlySet<string>): void {
++    if (!fn.body) return;
++    const taken = new Set<string>(fn.params.map((parameter) => parameter.name));
++    mentionedNames(fn.body, taken);
++    const scopes = new FunctionScopes(taken, outerNames);
++    // Parameters occupy the function's outermost scope, so a top-level local of the same name is
++    // itself a shadow and gets renamed rather than colliding with the parameter's slot.
++    for (const parameter of fn.params) scopes.declare(parameter.name);
++    // The body's own compound statement is that same scope, not a nested one.
++    if (fn.body.kind === AstKind.COMPOUND) for (const item of fn.body.body) resolveStatement(item, scopes);
++    else resolveStatement(fn.body, scopes);
++}
++
++/**
++ * Every name declared outside a function body: struct members and their static constants, enum
++ * constants, file- and namespace-scope variables, types and functions. A block-local declaration
++ * that reuses one of these is what the flat local set cannot represent.
++ */
++function collectOuterNames(declarations: Declaration[], into: Set<string>): void {
++    for (const declaration of declarations) {
++        switch (declaration.kind) {
++            case AstKind.VARIABLE:
++            case AstKind.TYPEDEF_DECL:
++                into.add(declaration.name);
++                break;
++            case AstKind.FUNCTION:
++            case AstKind.FUNCTION_TEMPLATE:
++                // The name only; a body's own locals are not visible from any other body.
++                into.add(declaration.name);
++                break;
++            case AstKind.ENUM:
++                if (declaration.name) into.add(declaration.name);
++                for (const member of declaration.members) into.add(member.name);
++                break;
++            case AstKind.STRUCT:
++            case AstKind.CLASS_TEMPLATE:
++                if (declaration.name) into.add(declaration.name);
++                collectOuterNames(declaration.members, into);
++                break;
++            case AstKind.NAMESPACE:
++            case AstKind.EXTERN_BLOCK:
++                collectOuterNames(declaration.body, into);
++                break;
++        }
++    }
++}
++
++function resolveIn(declarations: Declaration[], outerNames: ReadonlySet<string>): void {
++    for (const declaration of declarations) {
++        switch (declaration.kind) {
++            case AstKind.FUNCTION:
++            case AstKind.FUNCTION_TEMPLATE:
++                resolveFunction(declaration as FunctionDecl, outerNames);
++                break;
++            case AstKind.STRUCT:
++            case AstKind.CLASS_TEMPLATE:
++                resolveIn(declaration.members, outerNames);
++                break;
++            case AstKind.NAMESPACE:
++            case AstKind.EXTERN_BLOCK:
++                resolveIn(declaration.body, outerNames);
++                break;
++        }
++    }
++}
++
++/** Resolve every function body in the translation unit, members and templates included. */
++export function resolveBlockScopes(declarations: Declaration[]): void {
++    const outerNames = new Set<string>();
++    collectOuterNames(declarations, outerNames);
++    resolveIn(declarations, outerNames);
++}
+diff --git a/packages/compiler/src/frontend/validation/expression-validator.ts b/packages/compiler/src/frontend/validation/expression-validator.ts
+index a2d9434..f3a96c4 100644
+--- a/packages/compiler/src/frontend/validation/expression-validator.ts
++++ b/packages/compiler/src/frontend/validation/expression-validator.ts
+@@ -35,7 +35,11 @@ export function checkExpression(
+     const walk = (expression: Expression): void => {
+         switch (expression.kind) {
+             case AstKind.IDENTIFIER:
+-                if (allLocals.has(expression.name) && !lookup(expression.name)) {
++                // A name that resolves outward is not used before anything. Block-scope resolution
++                // renames a block local away from the outer name it hides, but keeps the name as
++                // written in `allLocals` so a read from outside the block is still caught — and a
++                // read that means the enclosing constant would otherwise be caught with it (F217).
++                if (allLocals.has(expression.name) && !lookup(expression.name) && !validator.constants.has(expression.name)) {
+                     validator.error(`'${expression.name}' is used before its declaration (or outside the scope that declares it)`, expression.span);
+                 }
+                 break;
+diff --git a/packages/compiler/src/frontend/validation/function-validator.ts b/packages/compiler/src/frontend/validation/function-validator.ts
+index 2e48bcd..c99a788 100644
+--- a/packages/compiler/src/frontend/validation/function-validator.ts
++++ b/packages/compiler/src/frontend/validation/function-validator.ts
+@@ -60,6 +60,9 @@ export function checkFunctionBody(validator: Validator, fn: FunctionDecl, member
+     validator.walkStatements(fn.body!, (statement) => {
+         if (statement.kind === AstKind.DECLARATION && statement.declaration.kind === AstKind.VARIABLE && !statement.declaration.isMember) {
+             allLocals.add(statement.declaration.name);
++            // A block-scoped local also counts under the name as written, so reading it from
++            // outside its block is still reported rather than quietly resolving to nothing.
++            if (statement.declaration.blockScopedFrom) allLocals.add(statement.declaration.blockScopedFrom);
+             validator.currentTypes.set(statement.declaration.name, statement.declaration.type);
+         }
+     });
+diff --git a/packages/compiler/src/frontend/validation/index.ts b/packages/compiler/src/frontend/validation/index.ts
+index 4f8f3b7..12d6ed5 100644
+--- a/packages/compiler/src/frontend/validation/index.ts
++++ b/packages/compiler/src/frontend/validation/index.ts
+@@ -1,12 +1,16 @@
+ // Validation runs after parse and before codegen.
+ import type { Declaration } from "../../ast";
+ import { Validator } from "./validator";
++import { resolveBlockScopes } from "./block-scope-resolver";
+ import { validateSupplementalDeclarations } from "./supplemental-validation";
+ import type { ValidateDiagnostic } from "./validator-context";
+ 
+ export type { ValidateDiagnostic } from "./validator-context";
+ 
+ export function validateAndDesugarBase(translationUnit: { declarations: Declaration[] }): ValidateDiagnostic[] {
++    // Name resolution first: block-scoped declarations are alpha-renamed so every later stage —
++    // this validator, the analyzer and the flat wasm local set — sees one name per binding (F217).
++    resolveBlockScopes(translationUnit.declarations);
+     const value = new Validator();
+     value.runTopLevel(translationUnit.declarations);
+     return value.diagnostics;
+diff --git a/packages/compiler/tests/frontend/semantic-validation.test.ts b/packages/compiler/tests/frontend/semantic-validation.test.ts
+index fe60f28..dc1a1c1 100644
+--- a/packages/compiler/tests/frontend/semantic-validation.test.ts
++++ b/packages/compiler/tests/frontend/semantic-validation.test.ts
+@@ -52,11 +52,6 @@ const REJECTS: Record<string, Rejects> = {
+         src: wrap(`uint64 v = 1; sint32 v = 2; state.mut().a = v;`),
+         msg: /already declared/i,
+     },
+-    "local shadows outer scope": {
+-        // Native keeps outer v = 1; the old single-slot lowering read back 2.
+-        src: wrap(`uint64 v = 1; { uint64 v = 2; state.mut().a = v; } state.mut().a = v;`),
+-        msg: /shadow/i,
+-    },
+     "use before declaration": {
+         src: wrap(`v = 1; uint64 v = 2; state.mut().a = v;`),
+         msg: /before its declaration/i,
+@@ -187,6 +182,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
+ };
+ 
+ const ACCEPTS: Record<string, string> = {
++    // Was a REJECTS row while locals shared one slot per name — the comment there read "native keeps
++    // outer v = 1; the old single-slot lowering read back 2". Block-scope resolution gives the inner
++    // binding its own slot, so the program is legal and answers 1. The toolchain test below runs it.
++    "block-local shadows an outer local": wrap(`uint64 v = 1; { uint64 v = 2; state.mut().a = v; } state.mut().a = v;`),
+     "sibling scopes reuse a name": wrap(
+         `uint64 t = 0; for (uint64 i = 0; i < 3; i++) { t = t + i; } for (uint64 i = 0; i < 2; i++) { t = t + i; } state.mut().a = t;`,
+     ),
+@@ -233,6 +232,48 @@ describe.skipIf(!HAS_CORE)("semantic validation — invalid source must fail lou
+         });
+     }
+ 
++    toolchainTest(
++        "a block-local shadow follows native semantics",
++        wasiToolchain(),
++        async () => {
++            const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
++            const { tmpdir } = await import("node:os");
++            const { join } = await import("node:path");
++
++            const src = ACCEPTS["block-local shadows an outer local"];
++            const dir = mkdtempSync(join(tmpdir(), "shadow-"));
++            writeFileSync(join(dir, "Shadow.h"), src);
++            const built = await buildContractWithClang({
++                contractPath: join(dir, "Shadow.h"),
++                contractName: "Shadow",
++                slot: 27,
++                corePath: CORE,
++                outDir: dir,
++                skipVerify: true,
++            });
++            expect(built.ok).toBe(true);
++            const ours = await compile(src);
++            expect(ours.errors).toHaveLength(0);
++
++            const run = (wasm: Uint8Array) => {
++                const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
++                const user = new Uint8Array(32).fill(7);
++                sim.fund(user, 1_000_000n);
++                sim.deploy(27, wasm);
++                sim.procedure(27, 1, undefined, { invocator: user });
++                const st = sim.contracts.get(27)!.state();
++                return new DataView(st.buffer, st.byteOffset).getBigUint64(0, true);
++            };
++
++            // The last write reads the outer `v`, which the block never touched.
++            const nat = run(new Uint8Array(readFileSync(built.wasmPath!)));
++            const mine = run(ours.wasm);
++            expect(nat).toBe(1n);
++            expect(mine).toBe(nat);
++        },
++        180000,
++    );
++
+     toolchainTest(
+         "default arguments follow native semantics",
+         wasiToolchain(),
+diff --git a/packages/compiler/tests/frontend/validate.test.ts b/packages/compiler/tests/frontend/validate.test.ts
+index 632a00e..00823c3 100644
+--- a/packages/compiler/tests/frontend/validate.test.ts
++++ b/packages/compiler/tests/frontend/validate.test.ts
+@@ -262,16 +262,21 @@ describe("validateAndDesugar — rejection rules", () => {
+         expect(hasError(diags, /const|read-only/i)).toBe(true);
+     });
+ 
+-    test("rejects shadowing: inner scope reuses outer name", () => {
++    test("accepts shadowing: inner scope reuses outer name, and renames it apart", () => {
++        const inner = varDecl("v", nt("uint64"), { initializer: iLit("2") });
+         const s = structDecl("S", [
+             funcDecl("f", [], vd(), [
+                 declStmt(varDecl("v", nt("uint64"), { initializer: iLit("1") })),
+-                compStmt([declStmt(varDecl("v", nt("uint64"), { initializer: iLit("2") })), eStmt(ident("v"))]),
++                compStmt([declStmt(inner), eStmt(ident("v"))]),
+                 retStmt(),
+             ]),
+         ]);
+         const diags = validate([s]);
+-        expect(hasError(diags, /shadow/i)).toBe(true);
++        expect(hasError(diags, /shadow/i)).toBe(false);
++        // The two bindings must not share a slot: block-scope resolution renames the inner one and
++        // records the name as written, which is what keeps the outer `v` readable after the block.
++        expect(inner.name).not.toBe("v");
++        expect(inner.blockScopedFrom).toBe("v");
+     });
+ 
+     test("rejects use-before-declaration", () => {

@@ -1,0 +1,226 @@
+F212 — a read-only entry can call a procedure and mutate state
+
+qpi.h states the rule in the C++ type system and clang enforces it there: a function takes
+`const QpiContextFunctionCall&`, a procedure takes `const QpiContextProcedureCall&`, and
+`QpiContextProcedureCall : public QpiContextFunctionCall`. `CALL(p, in, out)` forwards the caller's
+own context, so a function calling a procedure passes a base where a derived is required:
+
+    no viable conversion from 'const QPI::QpiContextFunctionCall' to 'const QPI::QpiContextProcedureCall'
+
+The scaffold rewrites `CALL(f, in, out)` to `__qpi_call_self(f, in, out)`, which moves the target out
+of callee position into an argument — and with it the callee's declared parameter types, and the
+conversion. So the contract compiled and ran, and `state.mut().counter += 1` executed inside a query.
+
+Adds a contract-level check alongside validateLogCalls: the caller's context class must be the
+callee's or derive from it, resolved through the declared base chain. It therefore allows what C++
+allows — a procedure calling a function is derived-to-base — and covers the proposal contexts without
+naming them. Transitivity is free: an intermediate private function is itself a function, so it is
+flagged at its own call site.
+
+Measured: both backends now refuse ReadOnlyFunctionCallsPrivateProcedure. Suite 1085/0.
+
+diff --git a/packages/compiler/src/backend/wasm/module/entry-context-validation.ts b/packages/compiler/src/backend/wasm/module/entry-context-validation.ts
+new file mode 100644
+index 0000000..fe4ce3b
+--- /dev/null
++++ b/packages/compiler/src/backend/wasm/module/entry-context-validation.ts
+@@ -0,0 +1,179 @@
++// A read-only entry must not reach a mutating one.
++//
++// qpi.h states the rule in the C++ type system, and clang enforces it there: a function is declared
++// `inline static void f(const QPI::QpiContextFunctionCall& qpi, const ContractState<...>& state, ...)`
++// and a procedure `inline static void p(const QPI::QpiContextProcedureCall& qpi, ContractState<...>& state, ...)`,
++// with `struct QpiContextProcedureCall : public QPI::QpiContextFunctionCall`. `CALL(p, in, out)`
++// expands to `p(qpi, state, in, out, ...)`, forwarding the caller's own context — so a function
++// calling a procedure passes a base where a derived is required, and clang answers
++//
++//     no viable conversion from 'const QPI::QpiContextFunctionCall' to 'const QPI::QpiContextProcedureCall'
++//
++// The TypeScript backend does not model the parameter's type at the call site, so the same contract
++// compiled and ran, and `state.mut().counter += 1` executed inside a query: the state digest moved
++// across a function call (F212).
++//
++// This restates the C++ rule rather than naming the two contexts: the caller's context class must be
++// the callee's or derive from it, resolved through the declared base chain. It therefore also allows
++// what C++ allows — a procedure calling a function is the derived-to-base direction and is fine —
++// and extends to the proposal contexts without listing them.
++import { AstKind } from "../../../shared/enums";
++import type { Expression, FunctionDecl, Statement } from "../../../ast";
++import type { ProgramAnalysis } from "../../../semantics/program-analysis";
++import type { PreparedContractModule } from "./module-analysis";
++
++/** The class an entry takes as its context, or null when it declares none (a plain helper). */
++function contextClassOf(programAnalysis: ProgramAnalysis, declaration: FunctionDecl): string | null {
++    const declared = declaration.params[0]?.type;
++    if (!declared) return null;
++    const resolved = programAnalysis.derefType(declared);
++    if (resolved.kind !== AstKind.NAME) return null;
++    const bare = resolved.name.includes("::") ? resolved.name.slice(resolved.name.lastIndexOf("::") + 2) : resolved.name;
++    return bare.startsWith("QpiContext") ? bare : null;
++}
++
++/** Whether an argument of class `from` binds a parameter of class `to` — identity or derived-to-base. */
++function convertible(programAnalysis: ProgramAnalysis, from: string, to: string): boolean {
++    return from === to || programAnalysis.methodOwnerNames(from).includes(to);
++}
++
++/** Every call expression in a statement tree, callee and arguments included. */
++function visitCalls(statement: Statement | undefined, visit: (call: Expression & { kind: AstKind.CALL }) => void): void {
++    const inExpression = (expression: Expression | undefined): void => {
++        if (!expression) return;
++        if (expression.kind === AstKind.CALL) visit(expression);
++        for (const child of subExpressions(expression)) inExpression(child);
++    };
++    const inStatement = (node: Statement | undefined): void => {
++        if (!node) return;
++        switch (node.kind) {
++            case AstKind.COMPOUND:
++                for (const item of node.body) inStatement(item);
++                break;
++            case AstKind.IF:
++                inExpression(node.condition);
++                inStatement(node.then);
++                inStatement(node.else_);
++                break;
++            case AstKind.FOR:
++                inStatement(node.initializer);
++                inExpression(node.condition);
++                inExpression(node.update);
++                inStatement(node.body);
++                break;
++            case AstKind.WHILE:
++            case AstKind.DO_WHILE:
++                inExpression(node.condition);
++                inStatement(node.body);
++                break;
++            case AstKind.SWITCH:
++                inExpression(node.condition);
++                inStatement(node.body);
++                break;
++            case AstKind.CASE:
++                inExpression(node.value);
++                break;
++            case AstKind.EXPRESSION:
++                inExpression(node.expression);
++                break;
++            case AstKind.RETURN:
++                inExpression(node.value);
++                break;
++            case AstKind.STATIC_ASSERT:
++                inExpression(node.condition);
++                break;
++            case AstKind.DECLARATION:
++                if (node.declaration.kind === AstKind.VARIABLE) inExpression(node.declaration.initializer);
++                break;
++        }
++    };
++    inStatement(statement);
++}
++
++function subExpressions(expression: Expression): (Expression | undefined)[] {
++    switch (expression.kind) {
++        case AstKind.UNARY_OP:
++        case AstKind.PREFIX_OP:
++        case AstKind.POSTFIX_OP:
++            return [expression.argument];
++        case AstKind.BINARY_OP:
++        case AstKind.ASSIGN:
++            return [expression.left, expression.right];
++        case AstKind.TERNARY:
++            return [expression.condition, expression.then, expression.else_];
++        case AstKind.MEMBER_ACCESS:
++            return [expression.object];
++        case AstKind.SUBSCRIPT:
++            return [expression.object, expression.index];
++        case AstKind.SEQUENCE:
++        case AstKind.INITIALIZER_LIST:
++            return expression.expressions;
++        case AstKind.CALL:
++            return [expression.callee, ...expression.callArguments];
++        case AstKind.TEMPLATE_CALL:
++        case AstKind.CONSTRUCT:
++            return expression.callArguments;
++        case AstKind.C_CAST:
++        case AstKind.STATIC_CAST:
++        case AstKind.REINTERPRET_CAST:
++        case AstKind.PAREN:
++        case AstKind.SIZEOF_EXPR:
++            return [expression.expression];
++        default:
++            return [];
++    }
++}
++
++/**
++ * The sibling entry a call targets.
++ *
++ * `CALL(f, in, out)` does not survive to the AST as `f(qpi, state, ...)`: the scaffold rewrites it to
++ * `__qpi_call_self(f, in, out)` (driver/qpi/scaffold.ts), which moves the target out of callee
++ * position and into an argument. That rewrite is why the callee's declared parameter types stopped
++ * taking part in the call at all, and with them the context conversion clang rejects.
++ */
++function selfCallTarget(call: Expression & { kind: AstKind.CALL }): string | null {
++    if (call.callee.kind !== AstKind.IDENTIFIER) return null;
++    if (call.callee.name === SELF_CALL_INTRINSIC) {
++        const target = call.callArguments[0];
++        return target?.kind === AstKind.IDENTIFIER ? target.name : null;
++    }
++    return call.callee.name;
++}
++
++// What `CALL(f, in, out)` becomes; see driver/qpi/scaffold.ts.
++const SELF_CALL_INTRINSIC = "__qpi_call_self";
++
++/** Report every call that would forward a weaker context than the callee declares. */
++export function validateEntryContextConversions(prepared: PreparedContractModule): void {
++    const contract = prepared.contract;
++    if (!contract) return;
++    const programAnalysis = prepared.programAnalysis;
++
++    const entries = new Map<string, FunctionDecl>();
++    for (const member of contract.members) {
++        if (member.kind === AstKind.FUNCTION) entries.set((member as FunctionDecl).name, member as FunctionDecl);
++    }
++
++    for (const [name, caller] of entries) {
++        if (!caller.body) continue;
++        const callerContext = contextClassOf(programAnalysis, caller);
++        if (!callerContext) continue;
++
++        visitCalls(caller.body, (call) => {
++            const targetName = selfCallTarget(call);
++            if (!targetName) return;
++            const callee = entries.get(targetName);
++            if (!callee || callee === caller) return;
++            const calleeContext = contextClassOf(programAnalysis, callee);
++            if (!calleeContext) return;
++            if (convertible(programAnalysis, callerContext, calleeContext)) return;
++
++            programAnalysis.error(
++                `'${name}' takes ${callerContext} and cannot CALL '${targetName}', which requires ${calleeContext}` +
++                    ` — a read-only entry may not reach one that can move state`,
++                programAnalysis.memberFnLine.get(name) ?? call.span?.line ?? 0,
++            );
++        });
++    }
++}
+diff --git a/packages/compiler/src/backend/wasm/module/module-analysis.ts b/packages/compiler/src/backend/wasm/module/module-analysis.ts
+index 615efa8..f5c1d23 100644
+--- a/packages/compiler/src/backend/wasm/module/module-analysis.ts
++++ b/packages/compiler/src/backend/wasm/module/module-analysis.ts
+@@ -9,6 +9,7 @@ import type { ResolvedCalleeIdl } from "../../../semantics/types";
+ import { registerContractCallables, type ContractCallableCatalog } from "./contract-callables";
+ import { findContractStruct } from "./contract-discovery";
+ import { contextLayoutFromCodegen, type LibrarySymbolIndex, registerLibraryMetadata } from "./library-index";
++import { validateEntryContextConversions } from "./entry-context-validation";
+ import { validateLogCalls } from "./log-call-validation";
+ import { ContractLayoutResolver } from "./named-layouts";
+ import { type ContractRegistration, registerEntryDispatchTargets, validateContractRegistrations, validateRegistrationInterfaces } from "./registrations";
+@@ -100,6 +101,7 @@ export function prepareContractModule(request: PrepareContractModuleRequest): Pr
+     };
+ 
+     validateLogCalls(prepared);
++    validateEntryContextConversions(prepared);
+     return prepared;
+ }
+ 

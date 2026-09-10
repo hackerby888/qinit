@@ -1,0 +1,59 @@
+F204 — an out-of-range shift diverges only when the count folds
+
+[expr.shift]/1: shifting by a count that is negative or >= the width of the promoted left operand is
+undefined behaviour. Neither backend is wrong, but clang answers the same expression two ways
+depending on whether the count folds — 0 folded, `1 << (n mod 64)` at runtime — so there is no
+semantics to match, only a build that must not silently pick one.
+
+Refuses it where the count is a constant, which is the case a compiler can see. A runtime count stays
+UB and keeps wasm's masking, exactly as clang's runtime path does. The bound is the promoted operand
+width, so `(uint8)1 << 20` is still well-defined and still compiles.
+
+This rejects code that builds today. That is the point: it is fail-closed, not a chosen answer.
+
+Measured: ConstShift now `error: shift count 254 is out of range for a 64-bit operand`; in-range
+controls unchanged. Suite 1085/0.
+
+diff --git a/packages/compiler/src/backend/wasm/expressions/binary-expression.ts b/packages/compiler/src/backend/wasm/expressions/binary-expression.ts
+index 26d66bb..b132af0 100644
+--- a/packages/compiler/src/backend/wasm/expressions/binary-expression.ts
++++ b/packages/compiler/src/backend/wasm/expressions/binary-expression.ts
+@@ -137,6 +137,24 @@ export function lowerBinaryExpression(
+     const wrap32 = unsigned && cv.width === 4;
+     const swrap32 = !unsigned && cv.width === 4;
+     const shiftCount = (count: watIr.WatNode) => (li.width === 4 ? watIr.operation("i64.and", count, watIr.i64Constant(31)) : count);
++    // [expr.shift]/1: shifting by a count that is negative or >= the width of the promoted left
++    // operand is undefined behaviour. Neither backend is "wrong" about it, but clang answers the same
++    // expression two ways depending on whether the count folds (0 when folded, `1 << (n mod 64)` when
++    // it does not), so there is no semantics to match — only a build that must not silently pick one.
++    // Reject it where the count is a constant, which is the case a compiler can see; a runtime count
++    // stays UB and keeps wasm's masking behaviour, exactly as clang's runtime path does.
++    // The bound comes from the promoted operand width, so this is the general rule and not a case for
++    // one type: C++ promotes anything narrower to int, and `(uint8)1 << 20` is well-defined.
++    const rejectOutOfRangeShiftCount = (): void => {
++        if (valueNodeCandidate.k !== watIr.WatNodeKind.CONST) return;
++        const count = BigInt(valueNodeCandidate.lit);
++        const bits = BigInt(li.width * 8);
++        if (count >= 0n && count < bits) return;
++        context.programAnalysis.error(
++            `shift count ${count} is out of range for a ${li.width * 8}-bit operand — undefined behaviour in C++, and clang folds it to a different answer than it computes at runtime`,
++            expression.span.line,
++        );
++    };
+     // Signed-to-unsigned 32-bit converts by sign extension rules, so / and % follow unsigned arithmetic semantics.
+     const toU32 = (count: watIr.WatNode, expression: Expression) => {
+         if (!wrap32) {
+@@ -171,11 +189,13 @@ export function lowerBinaryExpression(
+             }
+             return watIr.operation(unsigned ? "i64.rem_u" : "i64.rem_s", lc, rc);
+         case BinaryOp.SHIFT_LEFT: {
++            rejectOutOfRangeShiftCount();
+             const sh = watIr.operation("i64.shl", valueNode, shiftCount(valueNodeCandidate));
+             return li.width === 4 ? (li.unsigned ? wrapL(sh, true) : wrapS(sh, true)) : sh;
+         }
+         // Signed right-shift is arithmetic in C++ — zero-filling a negative sint64 silently corrupts it.
+         case BinaryOp.SHIFT_RIGHT:
++            rejectOutOfRangeShiftCount();
+             return watIr.operation(li.unsigned ? "i64.shr_u" : "i64.shr_s", valueNode, shiftCount(valueNodeCandidate));
+         case BinaryOp.BITWISE_AND:
+             return watIr.operation("i64.and", valueNode, valueNodeCandidate);

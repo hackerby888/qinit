@@ -1990,3 +1990,116 @@ comments, and the 739 real uses are qualified `QPI::div`. So nothing here regres
 is unaffected because it also spells the call qualified. Flagged because a contract outside this corpus
 that spells it bare now gets a different function on the clang path than it did, and no archetype would
 currently notice.
+
+# Verification pass — every unverified fix built and measured
+
+The round-7 register shipped fourteen findings whose fix was `proposed` or `located` and never built.
+This pass built all of them. Method for each: prototype in a worktree on top of the three already-validated
+patches, run the triage repro through both backends, run the compiler unit suite, and — once all of them
+were stacked — run the corpus.
+
+Gate: `bun test packages/compiler/tests/{frontend,edge,qpi,backend,analyzer}` — **1084 pass / 0 fail** on
+a clean tree, **1085 / 0** once F217 adds its toolchain test.
+
+## Result
+
+Thirteen findings fixed, one refused deliberately, one new finding, two published root causes corrected.
+
+| finding | before | after | root cause |
+| --- | --- | --- | --- |
+| F209 | `proposed` | fixed | `parseQualifiedName` did not consume a leading `::` |
+| F210 | `proposed`, cause **not located** | fixed | an alias registered under its bare name answers a qualified lookup with itself; `alignOfNameType` ↔ `alignOfTypeB` then recurse with no depth guard |
+| F214 | `proposed` | fixed | the `sizeof` operand was always parsed as an expression, which stops at the first comma |
+| F215 | `proposed` | fixed | member-of-a-class-prvalue had three special cases and `SELF` (`id(...)`) matched none |
+| F204 | `located` | **refused** | UB in C++; clang answers folded and runtime differently, so there is no semantics to match |
+| F217 | `proposed` (2 options, neither right alone) | fixed | nothing resolved names against the block structure — alpha-renaming adds the missing step |
+| F212 | `located` | fixed | the scaffold rewrites `CALL(f,…)` to `__qpi_call_self(f,…)`, moving the target out of callee position and taking the context conversion with it |
+| F201 | `proposed`, cause **not located** | fixed | `baseContribution` followed the base's typedef exactly one hop |
+| F211 | `proposed`, cause **not located** | fixed | nested-type bindings leaked into a struct declared at file scope, so `Outer::inner` resolved to `StateData::Inner` |
+| F221 | `verified` — **and wrong** | fixed | the scratch copy is deliberate; the *read-back* was emitted for locals and not for by-value parameters |
+| F222 | — | **new** | overload viability compared parameter count for equality, so an overload with defaults was non-viable for every under-supplied call and the first-declared one won by being the seed |
+
+Not fixed: **F203** (root cause still open — the published one was wrong and the follow-up theory fixes
+nothing) and **F205** (its card sequences it after the F213 scope work, which is not done).
+**F213 part 2** still breaks 17 rows and does not ship.
+
+Patches, one per finding, with the measured numbers: `docs/findings/fixes/`.
+
+## Two published root causes were wrong
+
+**F221.** The register said `argAddr` hands a mutable `T&` a throwaway scratch copy. The copy is real and
+it is *correct*: a scalar living in a wasm local has no address, so a mutable reference to it must be
+passed as one. Dumping the WAT for the repro showed what actually happens:
+
+```wat
+(i64.store (local.get $__qinit_tmp20) (local.get $days))          ;; copy in
+(call $T9_DateAndTime_addWithoutOverflow ... (local.get $__qinit_tmp20) ...)
+                                                                  ;; <-- no read-back
+(call $T18_DateAndTime_add ... (local.get $days))                 ;; reads the original
+```
+
+The read-back *is* emitted three lines above for `newHour` and `dayCarry` — both body locals. `days` is a
+parameter of `add`, and the condition guarding the write-back only looked in `context.localVars`. One
+condition, and the two kinds of storage are treated alike.
+
+Worth recording how the wrong cause survived: it was plausible, it named real code, and nobody built it.
+Reading the emitted WAT settled it in one step.
+
+**F203.** Unchanged from the round-7 addendum — the code the register blamed is never entered for
+`qpi.K12`, and the follow-up theory (pass every reference by address) was built and fixes nothing.
+
+## F222 — found by disproving F221
+
+While reading `qpi_date_time.h` for F221, the eight-argument `add` tail-calls the three-argument
+`add(years, months, days)`. That is an overload set where one member has trailing defaults. A probe of
+that shape:
+
+```cpp
+static void narrow(Box&, sint64 a, sint64 b, sint64 c);
+static void narrow(Box&, sint64 a, sint64 b, sint64 c,
+                   sint64 d, sint64 e, sint64 f, sint64 g = 0, sint64 h = 0);
+
+narrow(box, 1, 2, 3)             // clang 600   typescript 600
+narrow(box, 1, 2, 3, 4, 5, 6)    // clang 615   typescript 600   <-- ran the 3-parameter body
+```
+
+`pickHelperOverload` returned -1 for any candidate whose parameter count did not equal the argument
+count. With defaults, *no* candidate is ever an exact match for an under-supplied call, so every one
+scored -1 and the loop kept its seed — `set[0]`, the first declared. Surplus arguments were dropped
+without a diagnostic.
+
+It does **not** cause F221: reverting this patch and re-running `AddMillisecDayCarry` still gives
+`1 2024 1 2 0 1 14 752 2` on both backends. Two separate defects reachable from one qpi.h function.
+
+No corpus row exercises this shape, so the corpus could not have found it.
+
+## The harness caught two of my own errors
+
+`probeGen.ts` passed the file's basename as the contract name, so its clang leg reported
+`too many errors emitted` for `F211` and `F212` — which I nearly read as "clang refuses it too". Building
+those two through `buildContractWithClang` with the real contract name shows clang compiles F211 fine
+(18 KB module) and refuses F212 with exactly one error, which is the finding. The probe now takes the
+file name separately.
+
+The first draft of F217 renamed *every* nested declaration rather than only ones that hide an outer name.
+That broke two things the unit suite caught immediately: a multi-declarator statement parses as a
+compound marked `synthetic`, which is not a block, so `uint64 x = 1, y = 3;` put `x` and `y` out of reach
+of the next line; and `subExpressions` used `operand` where the AST spells it `argument`, so `i++` kept a
+stale name. It also sent one test file into an infinite loop. The narrowed rule — rename when the name
+means something outside the block, or shadows an enclosing local — leaves every contract with no
+collision byte-identical.
+
+## Corpus, all patches stacked
+
+Smoke tier, one contract per archetype:
+
+```
+449 contracts · 437 match · 12 not-match · 0 hang · median 660ms
+  0 digest-mismatch   0 trap-divergence   0 harness-error
+```
+
+Nine of the twelve are pinned rows reporting `expected the documented divergence … but got match` — the
+pins exist to fail exactly that way when a defect goes away, and they need unpinning as part of landing
+any of this. The other three are `hostcalls/HostK12ExpressionVersusVariable`,
+`integers/K12OfComputedExpression` (F203) and `namespaces/NsEnumConstantVersusFileConstant` (F213 part 2),
+all of which were mismatching before these patches. **No new regression.**

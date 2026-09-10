@@ -1,0 +1,109 @@
+F211 — a nested struct name collision overflows the analyzer's stack
+
+Name lookup inside a class body runs class scope, then the scopes *that class* is lexically nested
+in, then namespace scope — never the scope of whatever field led there. Both the layout walk and the
+ABI type builder carried the enclosing class's nested-type bindings down into a struct declared at
+file scope, so laying out a contract's own `StateData::Inner` reached the file-scope `struct Outer`,
+whose field `Inner inner` then resolved back to `StateData::Inner` rather than the file-scope `Inner`
+it names in C++. The two contained each other and the walk never terminated:
+
+    Codegen failed: Maximum call stack size exceeded.
+
+Two changes, the same rule at the two places that carry scope:
+  - layoutOfStruct drops the nested-type bindings for a struct that is itself declared at file scope
+    (template arguments are untouched);
+  - the ABI builder's withLocalStructs does the same, and bounds its own recursion so a genuinely
+    self-containing declaration reports which struct instead of exhausting the stack.
+
+Requires the EMPTY_STRUCT_BINDINGS constant added by F201-base-class-alias-chain.patch.
+
+Measured: NestedStructTailPadding both backends `0 1 32 16 5 5 15 12` (sizeof Inner 16, Outer 32).
+Suite 1085/0.
+
+diff --git a/packages/compiler/src/semantics/struct-layout.ts b/packages/compiler/src/semantics/struct-layout.ts
+index 43ffdd2..ad13fab 100644
+--- a/packages/compiler/src/semantics/struct-layout.ts
++++ b/packages/compiler/src/semantics/struct-layout.ts
+@@ -151,7 +164,17 @@ export function layoutOfStruct(programAnalysis: ProgramAnalysis, struct: StructD
+     // the scope the struct was written in before anything downstream looks them up by name.
+     const scope = programAnalysis.structScope.get(struct);
+     const bases = scope ? struct.bases.map((base) => qualifyNamesInScope(programAnalysis, base, scope)) : struct.bases;
+-    return programAnalysis.layoutOfMembers(struct.members, templateBindings, programAnalysis.structCacheKey(struct), struct.isUnion, bases);
++    // Member types resolve in the scope the struct was written in too. A struct declared at file
++    // scope has no enclosing class, so the nested types of whatever class led here are not visible in
++    // its body: `struct Outer { Inner inner; }` at file scope names the file-scope `Inner` even when
++    // it is reached while laying out a contract's own `StateData::Inner`. Carrying those bindings in
++    // made the two contain each other and the layout walk never terminated (F211). Template
++    // arguments are unaffected — only the nested-type bindings are dropped.
++    const memberBindings =
++        struct.name && programAnalysis.globalStructs.get(struct.name) === struct && templateBindings.structs.size > 0
++            ? { types: templateBindings.types, values: templateBindings.values, structs: EMPTY_STRUCT_BINDINGS }
++            : templateBindings;
++    return programAnalysis.layoutOfMembers(struct.members, memberBindings, programAnalysis.structCacheKey(struct), struct.isUnion, bases);
+ }
+ 
+ export function bindingSig(programAnalysis: ProgramAnalysis, templateBindings: TemplateBindings): string {
+diff --git a/packages/compiler/src/backend/wasm/idl/abi-type-builder.ts b/packages/compiler/src/backend/wasm/idl/abi-type-builder.ts
+index 8f1b781..db13d18 100644
+--- a/packages/compiler/src/backend/wasm/idl/abi-type-builder.ts
++++ b/packages/compiler/src/backend/wasm/idl/abi-type-builder.ts
+@@ -23,6 +23,8 @@ import { evalIntegralConst } from "../../../frontend/validation/validation-helpe
+ import { scalarKindForName, scalarKindForSize } from "./scalars";
+ 
+ export class AbiTypeBuilder {
++    /** The struct declarations currently being expanded, to catch a declaration that contains itself. */
++    private readonly expanding = new Set<StructDecl>();
+     constructor(private readonly programAnalysis: ProgramAnalysis) {}
+ 
+     entryType(name: string, layout: StructLayout, declaration?: StructDecl): AbiType {
+@@ -255,7 +257,16 @@ export class AbiTypeBuilder {
+     }
+ 
+     private struct(name: string | undefined, layout: StructLayout, root: boolean, bindings: TemplateBindings, declaration?: StructDecl): AbiStruct {
+-        const localBindings = declaration ? withLocalStructs(declaration, bindings) : bindings;
++        const localBindings = declaration ? withLocalStructs(this.programAnalysis, declaration, bindings) : bindings;
++        // A struct whose fields lead back to itself has no finite ABI. The scope rule above makes the
++        // one that produced F211 resolve correctly, but a genuinely recursive declaration would still
++        // recurse forever here, so bound it and say which struct rather than exhausting the stack.
++        if (declaration) {
++            if (this.expanding.has(declaration)) {
++                throw new Error(`struct '${name ?? declaration.name}' contains itself, directly or through its fields`);
++            }
++            this.expanding.add(declaration);
++        }
+         const fields: AbiField[] = [...layout.fields.values()].map((field) => {
+             const type = this.type(field.type, localBindings);
+             return {
+@@ -265,6 +276,7 @@ export class AbiTypeBuilder {
+                 type: withExactSize(type, field.size),
+             };
+         });
++        if (declaration) this.expanding.delete(declaration);
+         const body = fields.map((field) => formatAbiType(field.type)).join(", ");
+ 
+         return {
+@@ -365,8 +377,22 @@ function withExactSize(type: AbiType, size: number): AbiType {
+     } as AbiType;
+ }
+ 
+-function withLocalStructs(declaration: StructDecl, bindings: TemplateBindings): TemplateBindings {
+-    const structs = new Map(bindings.structs);
++/**
++ * The bindings to resolve `declaration`'s field types under: its own nested structs, over the scope
++ * it was itself declared in.
++ *
++ * Name lookup inside a class body runs class scope, then the scopes *that class* is lexically nested
++ * in, then namespace scope — never the scope of whatever field led here. A struct declared at file
++ * scope therefore starts from an empty set of nested types, not from the enclosing class's.
++ *
++ * Carrying them down is F211: `StateData` declares its own `Inner`, and expanding it reached the
++ * file-scope `struct Outer`, whose field `Inner inner` then resolved to `StateData::Inner` instead
++ * of the file-scope `Inner` it names in C++. That struct contains an `Outer`, so the two expanded
++ * into each other until the stack ran out — a crash where clang compiles the file.
++ */
++function withLocalStructs(programAnalysis: ProgramAnalysis, declaration: StructDecl, bindings: TemplateBindings): TemplateBindings {
++    const declaredAtFileScope = declaration.name ? programAnalysis.globalStructs.get(declaration.name) === declaration : false;
++    const structs = declaredAtFileScope ? new Map<string, StructDecl>() : new Map(bindings.structs);
+ 
+     for (const member of declaration.members) {
+         if (member.kind === AstKind.STRUCT && member.name && member.hasBody !== false) {

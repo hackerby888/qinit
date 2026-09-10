@@ -1,0 +1,58 @@
+F221 — DateAndTime::addMillisec silently drops the day carry
+
+Adding a whole number of days advanced the time of day and never the date, and returned true.
+
+A scalar that lives in a wasm local has no address, so a mutable reference to it is passed as a
+scratch copy — which means the copy has to be read back after the call or the callee's write is lost.
+The read-back was emitted for body locals but not for the function's own by-value parameters, and
+qpi.h's DateAndTime::add passes one:
+
+    if (dayCarry && !addWithoutOverflow(days, dayCarry))   // writes the parameter `days`
+        return false;
+    return add(years, months, days);                        // reads the original `days`
+
+The emitted WAT stored `days` into scratch, called through it, and then handed the untouched local to
+the date-only overload. A parameter and a local are the same kind of storage here, so both write back.
+
+NOTE — this corrects the previously published root cause for F221. `argAddr` handing a mutable `T&` a
+throwaway scratch copy is real, but it is not what breaks this: the copy is intended, and the defect
+is the missing read-back on one class of argument.
+
+Measured: AddMillisecDayCarry both backends `1 2024 1 2 0 1 14 752 2` — 2024-01-02, was 2024-01-01
+on the TypeScript backend. Suite 1085/0.
+
+diff --git a/packages/compiler/src/backend/wasm/calls/this-call.ts b/packages/compiler/src/backend/wasm/calls/this-call.ts
+index fb25270..a8819bb 100644
+--- a/packages/compiler/src/backend/wasm/calls/this-call.ts
++++ b/packages/compiler/src/backend/wasm/calls/this-call.ts
+@@ -85,7 +85,15 @@ export function emitThisCall(
+         }
+         const size = context.lowering.allocateScratchSlotNode(context, 8);
+         context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, size, context.lowering.lowerValueExpression(context, argSource)))}`);
+-        if (argSource.kind === AstKind.IDENTIFIER && context.localVars.get(argSource.name)?.wasmType === WatNodeType.I64) {
++        // A scalar that lives in a wasm local has no address, so a mutable reference to it is passed
++        // as a scratch copy — which means the copy must be read back afterwards or the callee's write
++        // is lost. That held for locals but not for the function's own by-value parameters, and
++        // qpi.h's DateAndTime::add passes one: `addWithoutOverflow(days, dayCarry)` folds the day
++        // carry into the parameter `days`, then hands `days` to the date-only overload. Without the
++        // read-back it handed over the original zero, so `addMillisec(86400000)` advanced the time of
++        // day and never the date — and returned true (F221). A parameter and a local are the same
++        // kind of storage here, so both write back.
++        if (argSource.kind === AstKind.IDENTIFIER && scalarSlotName(context, argSource.name)) {
+             writeBacks.push(`    ${context.lowering.setLocal(context, argSource.name, watIr.rawLoad("i64.load", null, size))}`);
+         }
+         return watIr.serializeWatNode(size);
+@@ -114,3 +122,13 @@ export function emitThisCall(
+     context.lines.push(...writeBacks);
+     return "";
+ }
++
++/**
++ * The wasm local holding `name` as a scalar value, if it is one: a body local or a by-value
++ * parameter. An address-passed parameter is excluded — it already has an address to reference.
++ */
++function scalarSlotName(context: FunctionEmissionContext, name: string): boolean {
++    if (context.localVars.get(name)?.wasmType === WatNodeType.I64) return true;
++    const parameter = context.params?.get(name);
++    return !!parameter && !parameter.isAddr && parameter.wasmType === WatNodeType.I64;
++}

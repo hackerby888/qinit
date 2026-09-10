@@ -587,28 +587,30 @@
       digest of their final state. Where the two disagree, one of them is what the chain does. Round 6
       added a third opinion — core’s own WAMR runtime — but round 7 found it had been comparing one
       artifact with itself, so that table is <em>withdrawn</em> and replaced by a measured one. This is
-      every disagreement the seven rounds turned up. Each open one carries <em>a proposed fix</em>, ranked,
-      none applied.
+      every disagreement the seven rounds turned up. Every fix here has now been <em>built and
+      measured</em> — twelve of them fix their finding with the suite green and no new corpus row broken,
+      one breaks more than it fixes, one is still unlocated, and two published root causes turned out to
+      be wrong. Nothing is applied; the patches are in <code>docs/findings/fixes/</code>.
     </p>
     <div class="tally">
-      <div><span class="n">22</span><span class="k">numbered entries</span></div>
-      <div><span class="n">15</span><span class="k">compiler findings</span></div>
+      <div><span class="n">23</span><span class="k">numbered entries</span></div>
+      <div><span class="n">16</span><span class="k">compiler findings</span></div>
       <div><span class="n">7</span><span class="k">harness / engine</span></div>
       <div><span class="n">6,618</span><span class="k">contracts swept</span></div>
       <div><span class="n">449</span><span class="k">archetypes</span></div>
-      <div><span class="n">104</span><span class="k">red rows</span></div>
+      <div><span class="n">14</span><span class="k">patches that ship</span></div>
     </div>
   </header>
 
   <section>
-    <h2>The register <span>F200 – F221 · numbering starts at F200; F86–F199 belong to the macOS campaign</span></h2>
+    <h2>The register <span>F200 – F222 · numbering starts at F200; F86–F199 belong to the macOS campaign</span></h2>
     <div class="filters">
-      <button type="button" data-filter="all" aria-pressed="true">All 22</button>
-      <button type="button" data-filter="compiler" aria-pressed="false">Compiler (15)</button>
+      <button type="button" data-filter="all" aria-pressed="true">All 23</button>
+      <button type="button" data-filter="compiler" aria-pressed="false">Compiler (16)</button>
       <button type="button" data-filter="red" aria-pressed="false">Still red (6)</button>
-      <button type="button" data-filter="pinned" aria-pressed="false">Pinned (8)</button>
+      <button type="button" data-filter="pinned" aria-pressed="false">Pinned (9)</button>
       <button type="button" data-filter="harness" aria-pressed="false">Harness / engine (7)</button>
-      <span class="count" id="count">22 of 22 shown</span>
+      <span class="count" id="count">23 of 23 shown</span>
     </div>
     <div class="tablewrap">
       <table>
@@ -653,6 +655,14 @@
             <td class="what"><code>DateAndTime::addMillisec</code> advances the time of day and never the date — a whole day of milliseconds is silently discarded</td>
             <td class="num">6</td>
             <td><span class="status red"><b>red</b></span></td>
+            <td class="num">7</td>
+          </tr>
+          <tr data-kind="compiler" data-state="pinned" data-id="F222">
+            <td class="id"><a href="#F222">F222</a></td>
+            <td><span class="sev sev-high">high</span></td>
+            <td class="what">An overload set with default arguments dispatches to the wrong overload, and the surplus arguments are dropped silently</td>
+            <td class="num">—</td>
+            <td><span class="status pinned"><b>new</b></span></td>
             <td class="num">7</td>
           </tr>
           <tr data-kind="compiler" data-state="pinned" data-id="F220">
@@ -824,39 +834,58 @@
   </section>
 
   <section>
-    <h2>The fifteen compiler findings <span>each carries a ranked fix — nothing applied</span></h2>
+    <h2>The sixteen compiler findings <span>every fix built and measured — nothing applied</span></h2>
     <div class="systemic">
-      <span class="tag">The "one bug, three places" theory — half of it did not survive</span>
+      <span class="tag">The "one bug, three places" theory — none of it survived</span>
       <p>
         This said F203, F221 and F220 were one mistake: <code>emitAddress</code> returns null, the caller
-        invents a substitute. <b>Prototyping disproved most of it.</b> F220 was a plain dropped argument
-        and is fixed. F221's <code>argAddr</code> copy is real and still stands. F203's substitute is in a
-        function that <b>never runs</b> for <code>qpi.K12</code>, and the unifying fix — pass every
-        reference by address — was built and fixes neither (1084 pass, 0 fail, no behaviour change).
+        invents a substitute. All three parts are now disproved. F220 was a plain dropped argument.
+        F203's substitute sits in a function that <b>never runs</b> for <code>qpi.K12</code>. And F221 is
+        not a substitute at all: the scratch copy is <b>correct and deliberate</b> — a scalar in a wasm
+        local has no address, so a mutable reference to it must be passed as one. The defect is the
+        <b>read-back after the call</b>, which was emitted for body locals and not for the function's own
+        by-value parameters.
       </p>
       <p>
-        What survives is narrower and still worth having: <code>argAddr</code>
-        (<code>memory-operations.ts:35</code>) hands a mutable reference a throwaway copy when the argument
-        has no address, and silently loses every write. That is one finding, not three.
+        The unifying fix — pass every reference by address — was built and fixes neither F203 nor F221
+        (1084 pass, 0 fail, no behaviour change). Three findings, three causes.
       </p>
     </div>
     <div class="systemic">
-      <span class="tag">Fixes prototyped and measured — 3 ship, 1 breaks more than it fixes, 1 was wrong</span>
+      <span class="tag">Every fix built and measured — 14 patches ship, 1 breaks more than it fixes, 1 still unlocated</span>
       <p>
-        Every fix below marked <b>tested</b> was built in a worktree and run against its repro, the
-        compiler unit suite (1084 pass / 0 fail on a clean tree) and the 6,618-contract corpus.
-        <b>F220 and F200 fix their finding with zero regressions.</b> <b>F213 part 1</b> fixes 42 of its 55
-        rows clean; <b>part 2</b> fixes the last 13 and breaks 17 elsewhere, so it does not ship as written.
-        <b>F203's published root cause was wrong</b> — the code it blamed never runs — and the card now says
-        so. Patches and the full numbers: <code>docs/findings/fixes/</code>.
+        Each fix below was built in a worktree, run against its triage repro, then against the compiler
+        unit suite and the corpus. Gate: <b>1084 pass / 0 fail</b> on a clean tree, <b>1085 / 0</b> once
+        F217 adds its toolchain test. <b>F200, F201, F209, F210, F211, F212, F213 part 1, F214, F215,
+        F217, F220, F221 and the new F222 each fix their finding</b> — thirteen. <b>F204</b> is the
+        fourteenth and ships as a <em>refusal</em>, not an answer: the expression is undefined behaviour
+        and clang contradicts itself about it, so there is nothing to match.
+      </p>
+      <p>
+        Three do not. <b>F213 part 2</b> fixes the last 13 rows and breaks 17 elsewhere, so it does not
+        ship as written. <b>F203 is still open</b> — its published root cause was wrong, and the follow-up
+        theory was built and fixes nothing. <b>F205</b> was not attempted: its card sequences it after the
+        F213 scope work, which is not done. Patches and the full numbers:
+        <code>docs/findings/fixes/</code>.
       </p>
     </div>
     <p class="note">
-      Fix badges: <b>verified</b> — root cause read in source and reproduced against a probe.
-      <b>located</b> — responsible code identified by reading, mechanism not separately confirmed.
-      <b>proposed</b> — direction only, root cause still open. Three of the fifteen are still unlocated and
-      say so.
+      Fix badges: <b>verified</b> — root cause read in source, reproduced against a probe, and the fix
+      built and measured. <b>located</b> / <b>proposed</b> remain for the one finding whose cause is still
+      open. Two root causes published in earlier revisions of this page were wrong — <b>F203</b> and
+      <b>F221</b> — and both cards now say so above their fix.
     </p>
+    <div class="systemic">
+      <span class="tag">Corpus effect, all twelve stacked</span>
+      <p>
+        Smoke tier — one contract per archetype, 449 contracts, both backends, K12 digest of final state:
+        <b>437 match · 12 not-match · 0 hang · 0 digest-mismatch · 0 trap-divergence · 0 harness-error</b>.
+        Nine of the twelve are pinned rows reporting <em>"expected the documented divergence but got
+        match"</em> — those pins exist to fail when the defect goes away, and they need unpinning as part
+        of landing any of this. The other three are the two findings still unfixed (F203 ×2, F213 part 2
+        ×1), which were mismatching before these patches too. <b>No new regression.</b>
+      </p>
+    </div>
     <div class="findings" id="findings">
 
       <article class="finding" id="F213" data-kind="compiler" data-state="red" data-severity="critical">
@@ -1054,18 +1083,73 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
           than treating the hand-derived rows as the stronger one.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
-          <p><code>argAddr</code> (<code>memory-operations.ts:35</code>) spills a value copy when <code>emitAddress</code> returns null. Right for <code>const T&amp;</code>; drops every write for a mutable one. A scalar by-value parameter lives in a wasm local, so it always takes that path.</p>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <p>
+            <b>Published root cause corrected.</b> This card blamed <code>argAddr</code> for handing a
+            mutable <code>T&amp;</code> a throwaway scratch copy. The copy is real and <em>deliberate</em>:
+            a scalar in a wasm local has no address, so a mutable reference to it has to be passed as one.
+            The defect is the <b>read-back after the call</b> — emitted when the argument named a body
+            local, not when it named one of the function's own by-value parameters. <code>add</code> passes
+            a parameter, and the emitted WAT shows it exactly: <code>days</code> is stored into scratch,
+            the call writes through it, and the untouched local is then handed to the date-only overload.
+          </p>
+<pre>(i64.store (local.get $tmp20) (local.get $days))              <i>copy in</i>
+(call $T9_DateAndTime_addWithoutOverflow ... (local.get $tmp20) ...)
+<b><i>&lt;-- no (local.set $days (i64.load (local.get $tmp20)))</i></b>
+(call $T18_DateAndTime_add ... (local.get $days))              <i>reads the original</i></pre>
           <ol>
-            <li><span class="rec">do this</span>Copy back. After the call, load the scratch slot and store it to the source lvalue.<span class="cost">contained · needs a write path back to the source local</span></li>
-            <li>Address-taken promotion in <code>local-collector.ts</code>: spill any scalar local or parameter whose address is taken anywhere in the function.<span class="cost">principled · touches every frame layout · full corpus + WAMR behind it</span></li>
-            <li>Fail closed: diagnostic when a mutable reference argument is not addressable.<span class="cost">safe, but rejects DateAndTime::add itself — cannot ship alone</span></li>
+            <li><span class="rec">do this</span><code>this-call.ts</code> — write back for a by-value parameter as well as a local. A parameter and a local are the same kind of storage here.<span class="cost">one condition · both backends now answer 2024-01-02</span></li>
+            <li>Address-taken promotion in <code>local-collector.ts</code>: spill any scalar whose address is taken anywhere in the function.<span class="cost">principled but larger · unnecessary once the read-back is right</span></li>
           </ol>
         </div>
         <div class="footrow">
           <span>repro <b>triage/F221-addmillisec-day-carry/</b></span>
           <span>rows <b>integers/DateAddMillisecCarryChain__* · 6 of 13</b></span>
           <span>found <b>round 7</b></span>
+        </div>
+      </article>
+
+      <article class="finding" id="F222" data-kind="compiler" data-state="pinned" data-severity="high">
+        <div class="fhead">
+          <span class="fid">F222</span>
+          <h3 class="ftitle">An overload set with default arguments dispatches to the wrong overload</h3>
+          <div class="fmeta"><span class="sev sev-high">high</span><span class="status pinned"><b>new · round 7</b></span></div>
+        </div>
+        <p class="fsum">
+          Overload viability was decided by <code>params.length !== callArguments.length</code>. An overload
+          whose trailing parameters carry defaults is therefore <strong>non-viable for any call that does
+          not supply all of them</strong> — so for such a call every candidate scored as unusable, and the
+          search kept its seed: the first-declared overload. The surplus arguments were dropped, silently,
+          and a call that names six arguments ran a three-parameter body.
+        </p>
+<pre>static void narrow(Box&amp;, sint64 a, sint64 b, sint64 c);
+static void narrow(Box&amp;, sint64 a, sint64 b, sint64 c,
+                   sint64 d, sint64 e, sint64 f, sint64 g = 0, sint64 h = 0);
+
+  narrow(box, 1, 2, 3)                <i>clang</i> 600   <i>TypeScript</i> 600
+  <b>narrow(box, 1, 2, 3, 4, 5, 6)</b>       <i>clang</i> <b>615</b>   <i>TypeScript</i> <b>600</b></pre>
+        <div class="split">
+          <div class="ts"><span class="backend">TypeScript backend</span><p>Runs the three-parameter body and discards arguments 4, 5 and 6. No diagnostic.</p><span class="val">600</span></div>
+          <div class="cl"><span class="backend">clang — what the chain does</span><p>Runs the wide body, then its tail call to the narrow one.</p><span class="val">615</span></div>
+        </div>
+        <div class="oracle"><b>Found while disproving F221's root cause</b>
+          The probe above is a reduction of <code>qpi_date_time.h</code>'s <code>add</code>, which has
+          exactly this shape — a three-parameter date-only overload beside a six-required/two-defaulted
+          one. It is <em>not</em> what breaks F221: reverting this patch and re-running that repro still
+          passes. Two separate defects reachable from one function, and the second only became visible
+          because the first was being read closely.
+        </div>
+        <div class="fix" data-conf="verified">
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · not checked</span></div>
+          <p>C++ viability: an overload with P parameters of which D carry defaults accepts P−D through P arguments.</p>
+          <ol>
+            <li><span class="rec">do this</span>Carry the declared default onto the compiled parameter; make viability the <code>[minArgs, maxArgs]</code> range; prefer an exact arity match between two viable candidates; seed the search with a viable candidate so nothing can win by being first; supply the default at the call site.<span class="cost">both backends now answer 615</span></li>
+          </ol>
+        </div>
+        <div class="footrow">
+          <span>repro <b>a probe, not a corpus row — no archetype exercises this shape directly</b></span>
+          <span>rows <b>— · reached through qpi.h's DateAndTime::add</b></span>
+          <span>found <b>round 7, while verifying F221</b></span>
         </div>
       </article>
 
@@ -1142,10 +1226,17 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
 <pre>namespace Inner  { struct Payload { uint64 a; }; }
 namespace Middle { using Payload = Inner::Payload; }   <b>alias name == target name</b></pre>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still hangs, killed at 120s</span></div>
-          <p><b>Root cause not located</b>, and the obvious theory is disproved — the 8-hop bounds above mean this is not alias recursion. Only finding that hangs the toolchain rather than answering wrong.</p>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still hangs, killed at 120s</span></div>
+          <p>
+            <b>Located.</b> An alias is also registered under its bare name, so a qualified lookup can fall
+            through to it and get itself back: resolving <code>Inner::Payload</code> answered
+            <code>Inner::Payload</code>. That is the name, not an alias of it, and
+            <code>alignOfNameType</code> and <code>alignOfTypeB</code> then recursed into each other
+            forever — that path has no depth guard, unlike <code>structAlign</code>'s. Same bare-key family
+            as F213.
+          </p>
           <ol>
-            <li><span class="rec">do this</span>Locate it. Hard iteration cap that reports where it spun, or a profiler. Repro is two lines and deterministic.<span class="cost">free to investigate · highest priority of the three unlocated</span></li>
+            <li><span class="rec">do this</span><code>declaration-index.ts</code>, <code>followScopedTypedef</code> — skip an alias whose target is its own name.<span class="cost">build returns in 320ms, was a hang · both backends read 42</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1173,10 +1264,17 @@ namespace Middle { using Payload = Inner::Payload; }   <b>alias name == target n
           <div class="cl"><span class="backend">clang — what the chain does</span><p><code>error: no viable conversion from 'const QPI::QpiContextFunctionCall' to 'const QPI::QpiContextProcedureCall'</code></p></div>
         </div>
         <div class="fix" data-conf="located">
-          <div class="fixtop"><b>Fix</b><span class="conf">located</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
-          <p>clang refuses this through the context type. The TypeScript backend does not model the distinction at the call site.</p>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · both backends now refuse · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <p>
+            <b>Located, and the mechanism is exact.</b> qpi.h states the rule in the type system and clang
+            enforces it there — <code>QpiContextProcedureCall : public QpiContextFunctionCall</code>, so a
+            function forwarding its own context to a procedure passes a base where a derived is required.
+            The scaffold rewrites <code>CALL(f, in, out)</code> to
+            <code>__qpi_call_self(f, in, out)</code>, which moves the target out of callee position into an
+            argument — and takes the callee's declared parameter types, and the conversion, with it.
+          </p>
           <ol>
-            <li><span class="rec">do this</span>Analyzer check: an entry registered as a function may not <code>CALL</code> a procedure, and may not reach <code>state.mut()</code> through one. Entry kind is already known at registration.<span class="cost">low · closes a hole in the read-only guarantee</span></li>
+            <li><span class="rec">do this</span>Restate the C++ rule at the call site: the caller's context class must be the callee's or derive from it, resolved through the declared base chain. Runs as a contract-level check beside <code>validateLogCalls</code>.<span class="cost">allows what C++ allows — a procedure calling a function is derived-to-base · transitive for free</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1207,10 +1305,16 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           <div class="cl"><span class="backend">clang — what the chain does</span><p>Reads 42 back through all three bases; <code>stateSize 96</code>, the correct layout for all three spellings.</p></div>
         </div>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
-          <p><b>Root cause not located.</b> The 8-hop bound is not it — three hops is well inside it. Some other step in base-class member lookup resolves the chain only partially.</p>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <p>
+            <b>Located.</b> <code>baseContribution</code> followed the base's typedef <em>exactly one
+            hop</em>. <code>Port::BaseC</code> resolved to the name <code>Port::BaseB</code>, which names no
+            struct, so the base contributed no fields and every member reached through it read as
+            unsupported. Direct and one-deep worked, which is why only alias depth told the three cases
+            apart.
+          </p>
           <ol>
-            <li><span class="rec">do this</span>Diff the member-read trace for the two-deep and three-deep spellings. They differ by one <code>using</code>, so the bisect is already written.<span class="cost">unknown until located · a refusal, not a wrong answer</span></li>
+            <li><span class="rec">do this</span><code>struct-layout.ts</code> — follow the chain to a fixed point under the same 8-hop bound the other alias walks use.<span class="cost">both backends read 42 through all three bases, stateSize 96</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1265,10 +1369,18 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           to declare a file-scope <code>Inner</code> collided with it, taking 4 of its 12 variants down.
         </p>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
-          <p><b>Root cause not located.</b> Not missing cycle detection: <code>resolveAliasType</code> (<code>conversions.ts:16</code>) and <code>declaration-index.ts:677</code> both stop at 8 hops. The unbounded path is elsewhere in struct-by-name resolution.</p>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <p>
+            <b>Located.</b> Name lookup inside a class body runs class scope, then the scopes <em>that
+            class</em> is nested in — never the scope of whatever field led there. Both the layout walk and
+            the ABI type builder carried the enclosing class's nested-type bindings into a struct declared
+            at file scope, so laying out <code>StateData::Inner</code> reached the file-scope
+            <code>Outer</code>, whose <code>Inner inner</code> resolved back to <code>StateData::Inner</code>.
+            The two contained each other.
+          </p>
           <ol>
-            <li><span class="rec">do this</span>Locate the recursion first — stack trace from the crash. Then bound it and report the collision.<span class="cost">unknown until located</span></li>
+            <li><span class="rec">do this</span>Drop the nested-type bindings for a struct that is itself declared at file scope, in both places that carry scope. Template arguments untouched.<span class="cost">both backends: sizeof Inner 16, Outer 32, states identical</span></li>
+            <li>Bound the ABI builder's own recursion so a genuinely self-containing declaration names the struct instead of exhausting the stack.<span class="cost">included · turns any remaining cycle into a diagnostic</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1292,10 +1404,10 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           refused; aliasing first is what isolated the finding.
         </p>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p>The operand is parsed as an expression, which stops at the first comma.</p>
           <ol>
-            <li><span class="rec">do this</span>Parse a type-id in <code>sizeof(...)</code>, reusing the template-argument parser. Aliasing the type first already works, so the type parser is fine — only the <code>sizeof</code> operand path is narrow.<span class="cost">keep sizeof(expr) and sizeof(type) distinguishable · test both</span></li>
+            <li><span class="rec">do this</span>When an identifier is followed by <code>&lt;</code>, attempt a backtracking type-id parse and take it only if it consumes cleanly to the closing paren; otherwise restore the position and the diagnostic count and run the expression path unchanged. <code>sizeof(expr)</code> and <code>sizeof(type)</code> stay distinguishable.<span class="cost">both backends: direct 64, viaAlias 64, scalar 8</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1318,10 +1430,16 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           index. One assignment works around it.
         </p>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
-          <p>The constant is substituted before the member read is considered, leaving a member access on a value with no address. Same family as F203 and F221.</p>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <p>
+            <b>Located.</b> Selecting a member of a class prvalue materialises a temporary
+            (<code>[class.temporary]/2</code>). The resolver had three special cases for that — an inline
+            struct method, an aggregate-returning helper, and calls spelled <code>qpi.*</code> — and
+            <code>SELF</code> expands to <code>id(CONTRACT_INDEX, 0, 0, 0)</code>, an ordinary
+            functional-style construction, so it matched none of them.
+          </p>
           <ol>
-            <li><span class="rec">do this</span>Materialise the substituted constant into a scratch slot, then read the member — what the one-assignment workaround does by hand.<span class="cost">low · likely free if F221 option 2 lands</span></li>
+            <li><span class="rec">do this</span>Add the general case: a call whose callee resolves to an aggregate type is a construction, so materialise it and resolve the member against that address. The rule is the callee naming a type, not a list of producers.<span class="cost">both backends: 29 direct, 29 via copy, equal</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1369,11 +1487,16 @@ locals.afterBlocks = tier;      <i>control: the file constant again</i></pre>
           (<code>scoping/c99_scoping_activation.sol</code>) was written to pin down.
         </div>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still there — and clang now refuses it too</span></div>
-          <p>The backend says it itself: locals share one slot per name. The reportable half is the hoist, not the refusal.</p>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes both halves · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still there — and clang now refuses it too</span></div>
+          <p>
+            <b>Both diagnostics come from one missing step:</b> nothing ever resolved names against the
+            block structure. Neither ranked option was right on its own — stopping the hoist leaves the
+            contract refused, and keying locals by block depth means teaching every later stage about
+            depth.
+          </p>
           <ol>
-            <li><span class="rec">do this</span>Stop the hoist. A block-local declaration must not affect resolution before its block opens. Kills the false use-before-declaration; shadowing stays refused.<span class="cost">contained to the resolver</span></li>
-            <li>Key locals by <code>(name, blockDepth)</code> in <code>local-collector.ts</code> so an inner block gets its own slot.<span class="cost">real fix · touches local allocation for every entry</span></li>
+            <li><span class="rec">do this</span>Add the resolution step, the standard way — alpha-renaming. Walk each body with a scope stack; a declaration that reuses a name bound in an enclosing block, or that hides a name meaning something outside the function, gets a fresh name and its references are rewritten. Downstream sees distinct names, so the one-slot-per-name model is correct <em>without changing it</em>.<span class="cost">both backends: 1, 20, 300, 1 · a name with nothing to collide with keeps its spelling, which matters because the backend recognises some macro-generated locals by name</span></li>
+            <li>The declaration keeps the name as written, so a read of a block local from <em>outside</em> its block is still reported. Two tests flip: both asserted that shadowing is rejected, and one carried the comment <em>"native keeps outer v = 1; the old single-slot lowering read back 2"</em>. It is now an accepted row with a toolchain test that runs it against clang.<span class="cost">deliberate test change · +1 test, 1085/0</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1414,10 +1537,10 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           of the test harness.
         </div>
         <div class="fix" data-conf="located">
-          <div class="fixtop"><b>Fix</b><span class="conf">located</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
-          <p>UB in C++, and clang disagrees with itself between folded and runtime. There is no answer to match.</p>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fail-closed · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <p>UB in C++, and clang disagrees with itself between folded and runtime. There is no answer to match — only a build that must not silently pick one.</p>
           <ol>
-            <li><span class="rec">do this</span><code>binary-expression.ts:139</code> — constant shift count &gt;= operand width: diagnostic, refuse. Do not pick a semantics.<span class="cost">rejects code that builds today · constant counts only, never a runtime value</span></li>
+            <li><span class="rec">do this</span><code>binary-expression.ts</code> — refuse a <em>constant</em> shift count outside <code>[0, width)</code>, bound by the promoted operand width. A runtime count stays UB and keeps wasm's masking, exactly as clang's runtime path does; <code>(uint8)1 &lt;&lt; 20</code> is still well-defined and still compiles.<span class="cost">rejects code that builds today — that is the point · in-range controls unchanged</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1439,10 +1562,10 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           <code>::</code>. The workaround is to rename.
         </p>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still there — and clang now refuses it too</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still there — and clang now refuses it too</span></div>
           <p>The parser rejects an empty left-hand side.</p>
           <ol>
-            <li><span class="rec">do this</span>Accept a leading <code>::</code> in the qualified-name production. Resolve the tail against global scope only, skipping using-directive fallback.<span class="cost">low · additive syntax</span></li>
+            <li><span class="rec">do this</span><code>parseQualifiedName</code> — consume a leading <code>::</code> when an identifier follows it.<span class="cost">additive syntax · both backends agree</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1622,7 +1745,7 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
         <div class="bar">
           <div class="fill" style="width:100%"></div>
           <div class="red" style="width:1.57%"></div>
-          <div class="cap">6,618 · <i>104 red</i> · <em>F219 F220 F221</em></div>
+          <div class="cap">6,618 · <i>104 red</i> · <em>F219 F220 F221 F222</em></div>
         </div>
       </div>
       <div class="legend">
@@ -1637,7 +1760,8 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
       effective sample size</strong>. The red rows grow with the corpus because each finding's variants
       multiply, not because new defects appear: every red row in every round is one of the numbered findings
       and nothing else. Round 7 is the exception that proves it — its six extra red rows are F221, a genuinely
-      new defect, in a family the corpus had never called before.
+      new defect, in a family the corpus had never called before. F222 has no red rows at all: no archetype
+      spells that overload shape, and it was found by reading qpi.h while checking F221.
     </p>
   </section>
 
@@ -1708,12 +1832,15 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
       <div>
         <h3>Where the remaining risk is</h3>
         <p>
-          None of round 7&rsquo;s three findings came from reading a big sweep&rsquo;s red column. F219 came
+          None of round 7&rsquo;s four findings came from reading a big sweep&rsquo;s red column. F219 came
           from a classification that looked wrong, F220 from reading the function that lowers a feature
-          nobody had called, F221 from an archetype shipped without an expect row. The corpus&rsquo;s real
+          nobody had called, F221 from an archetype shipped without an expect row — and <b>F222 from disproving the published
+          root cause of F221</b>, in a shape no archetype spells. The corpus&rsquo;s real
           contribution was reproducing them across variants and showing F220 was not a fluke of one
           contract — worth having, but the finding rate per hour favoured reading the code over generating
-          more of it. And the share-management API, where two earlier campaigns both found bugs, is
+          more of it. Two published root causes turned out to be wrong when someone finally built the fix,
+          which is the sharpest argument on this page for building them. And the share-management API,
+          where two earlier campaigns both found bugs, is
           <b>still at zero call sites</b>.
         </p>
       </div>

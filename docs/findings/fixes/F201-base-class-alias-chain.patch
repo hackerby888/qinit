@@ -1,0 +1,63 @@
+F201 — a member read through a three-deep alias chain is rejected
+
+baseContribution followed the base's typedef exactly one hop, so `struct D : Port::BaseC` with
+`using BaseA = Base; using BaseB = BaseA; using BaseC = BaseB;` resolved to the *name* `Port::BaseB`,
+which names no struct. The base then contributed no fields and every member reached through it read
+as `unsupported member read`. Direct and one-deep spellings worked, which is why only alias depth
+told the three cases apart.
+
+Follows the chain to a fixed point under the same 8-hop bound the other alias walks use. An identity
+alias returns nothing (see the F210 fix), so a self-referential `using` terminates.
+
+Note: the hunk adding ALIAS_HOPS also adds EMPTY_STRUCT_BINDINGS, which the F211 patch uses.
+Apply F201 before F211, or apply both.
+
+Measured: AliasBase both backends `42 0 0 0 | 42 0 0 0 | 42 0 0 0`, stateSize 96. Suite 1085/0.
+
+diff --git a/packages/compiler/src/semantics/struct-layout.ts b/packages/compiler/src/semantics/struct-layout.ts
+index 43ffdd2..ad13fab 100644
+--- a/packages/compiler/src/semantics/struct-layout.ts
++++ b/packages/compiler/src/semantics/struct-layout.ts
+@@ -16,6 +16,10 @@ export function layoutOf(programAnalysis: ProgramAnalysis, struct: StructDecl):
+     return programAnalysis.layoutOfStruct(struct, EMPTY_TEMPLATE_BINDINGS);
+ }
+ 
++const ALIAS_HOPS = 8;
++
++const EMPTY_STRUCT_BINDINGS: Map<string, StructDecl> = new Map();
++
+ export function baseContribution(
+     programAnalysis: ProgramAnalysis,
+     baseType: TypeSpec,
+@@ -25,15 +29,24 @@ export function baseContribution(
+     consts: Map<string, bigint>;
+ } | null {
+     let resolvedBaseType: TypeSpec = baseType;
+-    if (resolvedBaseType.kind === AstKind.NAME) {
++    // A typedef-name denotes its target however many aliases deep, so follow the chain to a fixed
++    // point rather than one step: `using BaseA = Base; using BaseB = BaseA; using BaseC = BaseB;`
++    // left `struct D : Port::BaseC` resolved to the name `Port::BaseB`, which is no struct, so the
++    // base contributed nothing and every member reached through it read as unsupported (F201).
++    // Direct and one-deep spellings worked, which is why only alias depth told them apart.
++    // The bound matches the other alias walks (resolveAliasType, declaration-index); an identity
++    // alias returns nothing, so a self-referential `using` terminates rather than spinning.
++    for (let hop = 0; hop < ALIAS_HOPS && resolvedBaseType.kind === AstKind.NAME; hop++) {
+         const bound = parentB.types.get(resolvedBaseType.name);
+-        if (bound) resolvedBaseType = bound;
+-        else {
+-            // A base named through a typedef resolves in the scope that typedef was declared in, so
+-            // `struct D : Beta::B` inherits Beta's type and not a same-named one from elsewhere.
+-            const td = followScopedTypedef(programAnalysis, resolvedBaseType.name);
+-            if (td) resolvedBaseType = td;
++        if (bound) {
++            resolvedBaseType = bound;
++            break;
+         }
++        // A base named through a typedef resolves in the scope that typedef was declared in, so
++        // `struct D : Beta::B` inherits Beta's type and not a same-named one from elsewhere.
++        const td = followScopedTypedef(programAnalysis, resolvedBaseType.name);
++        if (!td) break;
++        resolvedBaseType = td;
+     }
+     if (resolvedBaseType.kind === AstKind.TEMPLATE_INSTANCE) {
+         const templateDeclaration = programAnalysis.templates.get(resolvedBaseType.name);

@@ -1,0 +1,24 @@
+F209 — a leading `::` on a qualified name is not consumed
+
+parseQualifiedName stopped at the global-scope qualifier, so `::QPI::Something` did not parse.
+Consumes a leading `::` when an identifier follows it.
+
+Measured: GlobalScope both backends `1 0 1`. Suite 1085/0.
+
+diff --git a/packages/compiler/src/frontend/parser/types/type-parser.ts b/packages/compiler/src/frontend/parser/types/type-parser.ts
+index 01d34b1..598df72 100644
+--- a/packages/compiler/src/frontend/parser/types/type-parser.ts
++++ b/packages/compiler/src/frontend/parser/types/type-parser.ts
+@@ -202,6 +202,12 @@ export class TypeParser {
+ 
+     parseQualifiedName(stopAtAngle = false): string {
+         const parts: string[] = [];
++        // A leading `::` names the global scope explicitly. Global declarations are keyed unqualified,
++        // so consuming it yields the key the resolver already uses: `::threshold` -> `threshold`. Without
++        // this the loop breaks on the first token and the caller reports "Expected expression" (F209).
++        if (this.parser.state.peek().kind === TokenKind.D_COLON && this.parser.state.peek(1).kind === TokenKind.IDENTIFIER) {
++            this.parser.state.next();
++        }
+         while (!this.parser.state.eof()) {
+             const tok = this.parser.state.peek();
+             if (stopAtAngle && tok.kind === TokenKind.IDENTIFIER && this.parser.state.peek(1).kind === TokenKind.L_ANGLE) {

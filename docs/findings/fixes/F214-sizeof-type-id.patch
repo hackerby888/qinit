@@ -1,0 +1,47 @@
+F214 — sizeof(Array<uint64, 8>) does not parse
+
+    error: Expected r_paren but got comma (,) in sizeof expr
+
+The sizeof operand was always parsed as an expression, which stops at the first comma. Every QPI
+container takes at least two template arguments, so this is how a contract asks how big its own
+state is; aliasing the type first already worked, which is what isolated it to the operand path
+rather than the type parser.
+
+When an IDENTIFIER is followed by `<`, attempts a backtracking type-id parse and takes it only if it
+consumes cleanly to the closing paren; otherwise the position and the diagnostic count are restored
+and the expression path runs as before. sizeof(expr) and sizeof(type) stay distinguishable.
+
+Measured (a clean probe — the triage repro is malformed for clang): direct 64, viaAlias 64,
+scalar 8, calls 1 on both backends. Suite 1085/0.
+
+diff --git a/packages/compiler/src/frontend/parser/types/type-parser.ts b/packages/compiler/src/frontend/parser/types/type-parser.ts
+index 01d34b1..598df72 100644
+--- a/packages/compiler/src/frontend/parser/types/type-parser.ts
++++ b/packages/compiler/src/frontend/parser/types/type-parser.ts
+@@ -416,6 +422,26 @@ export class TypeParser {
+                     span: this.parser.recovery.makeSpan(start),
+                 };
+             }
++            // `sizeof(Name<...>)` is a type-id, and the expression parser cannot read one: it takes the
++            // `<` as a comparison and stops at the first comma, so every multi-argument template — which
++            // is every QPI container — fails to parse (F214). Try the type reading first and accept it
++            // only if the argument list closes exactly at the `)`, so `sizeof(a < b)` still backtracks
++            // to an expression.
++            if (tok.kind === TokenKind.IDENTIFIER && this.parser.state.peek(1).kind === TokenKind.L_ANGLE) {
++                const save = this.parser.state.position;
++                const savedDiagnostics = this.parser.state.diagnostics.length;
++                const type = this.parser.types.parseTypeSpec();
++                if (this.parser.state.diagnostics.length === savedDiagnostics && this.parser.state.peek().kind === TokenKind.R_PAREN) {
++                    this.parser.state.next();
++                    return {
++                        kind: AstKind.SIZEOF_TYPE,
++                        type,
++                        span: this.parser.recovery.makeSpan(start),
++                    };
++                }
++                this.parser.state.position = save;
++                this.parser.state.diagnostics.length = savedDiagnostics;
++            }
+             const expression = this.parser.expressions.parseExpression();
+             this.parser.state.expect(TokenKind.R_PAREN, "sizeof expr");
+             return {

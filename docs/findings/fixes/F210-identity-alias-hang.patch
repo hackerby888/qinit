@@ -1,0 +1,39 @@
+F210 — a namespaced alias of a same-named type hangs the build
+
+    namespace Middle { using Payload = Inner::Payload; }
+
+An alias is also registered under its bare name, so a qualified lookup can fall through to it and get
+itself back: resolving `Inner::Payload` answered `Inner::Payload`. That is the name, not an alias of
+it, and alignOfNameType and alignOfTypeB then recursed into each other forever — that path has no
+depth guard, unlike structAlign's. The build did not fail; it did not finish.
+
+followScopedTypedef now skips an alias whose target is its own name.
+
+Measured: build ok in 320ms (previously >120s with no result); AliasSameName both backends `42`.
+Suite 1085/0.
+
+diff --git a/packages/compiler/src/semantics/declaration-index.ts b/packages/compiler/src/semantics/declaration-index.ts
+index d61a111..b7b6f0a 100644
+--- a/packages/compiler/src/semantics/declaration-index.ts
++++ b/packages/compiler/src/semantics/declaration-index.ts
+@@ -655,9 +655,18 @@ function shadowedNames(record: StructDecl | ClassTemplateDecl, outerShadowed: Re
+ // The typedef a name reaches, followed from the scope that declared it.
+ export function followScopedTypedef(programAnalysis: ProgramAnalysis, name: string): TypeSpec | undefined {
+     for (const key of scopedLookupKeys(name)) {
+-        if (programAnalysis.typedefs.has(key)) {
+-            return programAnalysis.typedefTarget(key);
++        if (!programAnalysis.typedefs.has(key)) {
++            continue;
++        }
++        const target = programAnalysis.typedefTarget(key);
++        // An alias is also registered under its bare name, so a qualified lookup can fall through to it
++        // and get itself back: `namespace Middle { using Payload = Inner::Payload; }` registers bare
++        // `Payload`, and resolving `Inner::Payload` then answers `Inner::Payload`. That is the name, not
++        // an alias of it — returning it spins alignOfNameType against alignOfTypeB forever (F210).
++        if (target?.kind === AstKind.NAME && target.name === name) {
++            continue;
+         }
++        return target;
+     }
+     return undefined;
+ }
