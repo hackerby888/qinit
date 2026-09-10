@@ -1,6 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// A system contract's ticker can differ from its C++ state type, such as QTRY and QUOTTERY.
-// The wrapper must use the state type in its contract-state defines.
+// A system contract's ticker can differ from its C++ state type (QTRY, QUOTTERY), so the wrapper must use the state type in its contract-state defines.
 import { test, expect } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

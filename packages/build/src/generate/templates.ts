@@ -1,7 +1,5 @@
 /// <reference path="../text-assets.d.ts" />
-// Starter contracts for `qinit new --template`. Name-agnostic (use the CONTRACT_STATE_TYPE macro);
-// each is a proven, qpi.h-constrained contract. Header line prepended at scaffold time.
-// Embedded as text by `bun build --compile` (import.meta.dir asset files aren't bundled into the binary).
+// Starter contracts for `qinit new --template`: name-agnostic via CONTRACT_STATE_TYPE, embedded as text by `bun build --compile` since assets are not bundled.
 import COUNTER_H from "../assets/templates/counter.h" with { type: "text" };
 import HASHMAP_H from "../assets/templates/hashmap.h" with { type: "text" };
 import ASSET_H from "../assets/templates/asset.h" with { type: "text" };
@@ -47,9 +45,7 @@ export const TEMPLATE_NOTE: Partial<Record<TemplateKind, string>> = {
     intercontract: "Counter callee scaffolded in contracts/ for automatic dependency resolution",
 };
 
-// The template bodies carry core's `CONTRACT_STATE_TYPE` macro so one file serves every contract name.
-// Scaffolding resolves it: core defines that macro around the include, so a struct still wearing it has no
-// name of its own — nothing outside core's include block, clangd included, can refer to the contract.
+// Template bodies carry core's CONTRACT_STATE_TYPE macro so one file serves every name; scaffolding resolves it, since a struct still wearing it has no name.
 export function templateSource(kind: TemplateKind, contractName?: string): string {
     const body = BODIES[kind];
     if (!contractName) {

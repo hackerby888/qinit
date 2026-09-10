@@ -101,8 +101,7 @@ export function resolveContracts(options: ResolveContractsOptions): ResolvedCont
     const contractPath = resolve(projectRoot, options.contractPath);
     const explicitCallees = options.explicitCallees ?? {};
     const catalog = systemContracts(corePath);
-    // Two maps keep the resolution order explicit: a reference is a struct type (stateType) first,
-    // and only falls back to the on-chain name / header basename when no type matches.
+    // Two maps keep resolution order explicit: a reference is a struct type (stateType) first, falling back to the on-chain name or header basename.
     const systemsByStateType = new Map<string, SystemContract>();
     const systemsByName = new Map<string, SystemContract>();
     const reservedSystemNames = new Map<string, SystemContract>();
@@ -250,8 +249,7 @@ interface SiblingVisit {
     reservedSystemNames: Map<string, SystemContract>;
 }
 
-// Append every workspace contract the root never referenced, after the reachable set so slot planning
-// leaves the reachable contracts where they were. A sibling that fails to resolve is rolled back whole.
+// Append every workspace contract the root never referenced, after the reachable set so slot planning is unchanged; one that fails to resolve rolls back whole.
 function visitWorkspaceSiblings(o: SiblingVisit): void {
     for (const [name, paths] of [...o.headers].sort(([left], [right]) => left.localeCompare(right))) {
         if (paths.length !== 1 || o.nodes.has(name) || o.reservedSystemNames.has(name.toLowerCase())) {

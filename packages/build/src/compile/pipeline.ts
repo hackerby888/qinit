@@ -39,15 +39,13 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         qpiHeaderError = String(error?.message ?? error);
     }
 
-    // The callees' declarations: the gate names a callee type misused in a public interface, and the IDL
-    // gives a state field typed by a callee its real layout.
+    // The callees' declarations: the gate names a callee type misused in a public interface, and the IDL gives a state field typed by a callee its real layout.
     const calleeSources: CalleeSource[] = Object.entries(o.dynCallees ?? {}).map(([name, callee]) => ({
         name,
         source: readFileSync(callee.header, "utf8"),
         slot: callee.slot,
     }));
-    // Collection/HashMap/HashSet/LinkedList have no safe public wire representation; reject them even
-    // when verification is skipped.
+    // Collection/HashMap/HashSet/LinkedList have no safe public wire representation; reject them even when verification is skipped.
     const analysis = analyzeContract({
         source,
         contractName: o.stateType ?? o.contractName,
@@ -74,8 +72,7 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         return rejected;
     }
 
-    // Inter-contract: scan the contract for CALL_OTHER_CONTRACT_* and auto-derive the callee prelude
-    // (callee type headers at their indices + per-fn inputType constants) from contract_def.h.
+    // Inter-contract: scan for CALL_OTHER_CONTRACT_* and derive the callee prelude (type headers at their indices, inputType consts) from contract_def.h.
     let calleePrelude = o.calleePrelude;
     if (calleePrelude === undefined) {
         try {
@@ -87,8 +84,7 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
             };
         }
     }
-    // Compile the contract to a wasm module (run by the node's WAMR engine). One platform-independent
-    // artifact, deployed via the chunked-upload path (the node magic-sniffs '\0asm' -> wasm engine).
+    // Compile the contract to a wasm module for the node's WAMR engine: one platform-independent artifact, deployed by chunked upload and sniffed as wasm.
     const compiled = await compileWasmContract({ ...o, calleePrelude });
     if (!compiled.ok) {
         return {
@@ -132,8 +128,7 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
     };
 }
 
-// Compile a corpus file (core-lite/test/contract_X.cpp) into a runner wasm by redirecting its
-// `#include "contract_testing.h"` to the qinit-shipped `wasm_contract_testing.h` header.
+// Compile a corpus file (core-lite/test/contract_X.cpp) into a runner wasm by redirecting its `contract_testing.h` include to the qinit-shipped header.
 export async function buildCorpusRunner(o: {
     corpusPath: string;
     contractPath: string;
@@ -169,8 +164,7 @@ export async function buildCorpusRunner(o: {
     // Corpus runners do not need deployed-contract debugging; the trailing -O2 overrides the recipe's -O0.
     const extraCompileFlags = ["-O2", "-Wno-error=return-mismatch", "-DQINIT_CORPUS_RUNNER"];
 
-    // When the corpus pulls real <iostream>/<ostream> itself, suppress the harness's std::cout stubs so
-    // they don't collide with the real stream objects (an ambiguous-reference error otherwise).
+    // When the corpus pulls real <iostream> itself, suppress the harness's std::cout stubs so they do not collide with the real stream objects.
     if (/^#include\s*<(iostream|ostream)>/m.test(raw)) {
         extraCompileFlags.push("-DQINIT_HAVE_IOSTREAM");
     }

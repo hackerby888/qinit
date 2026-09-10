@@ -1,6 +1,4 @@
-// The two backends carry cheatcodes through completely different machinery: the TypeScript compiler
-// lowers CC_PRINT with an intrinsic, clang expands a parameter pack. This is the test that says they
-// agree — same source in, same (id, part, bytes) on the wire, for every argument shape a print accepts.
+// The backends carry cheatcodes differently — TypeScript lowers CC_PRINT with an intrinsic, clang expands a parameter pack — so this pins that they agree.
 import { expect, test } from "bun:test";
 import { readFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -101,8 +99,7 @@ test.if(HAS_CORE && HAS_WASI)(
     120_000,
 );
 
-// A callee header is spliced into the caller's TU ahead of the contract, where CC_PRINT used to be
-// undeclared: "use of undeclared identifier 'CC_PRINT'" on the callee's line.
+// A callee header is spliced into the caller's TU ahead of the contract, where CC_PRINT used to be undeclared on the callee's line.
 test.if(HAS_CORE && HAS_WASI)(
     "a callee that prints compiles as part of its caller",
     async () => {

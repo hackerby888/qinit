@@ -26,15 +26,12 @@ export function resolveVerifyTool(): string | null {
     return Bun.which("contractverify");
 }
 
-// Cheatcodes are stripped before Core ever sees the file, so the verifier is shown the same thing:
-// otherwise a CC_PRINT label trips the ban on string literals for code that never ships.
+// Cheatcodes are stripped before Core sees the file, so the verifier is shown the same: otherwise a CC_PRINT label trips the ban on string literals.
 function concretize(source: string, name: string): string {
     return stripCheatcodes(source).replaceAll("CONTRACT_STATE2_TYPE", `${name}2`).replaceAll("CONTRACT_STATE_TYPE", name);
 }
 
-// The protocol gate every build runs, whichever backend compiles afterwards. A skipped run reads as an
-// unavailable verifier, which is what the build result reports either way. The source is concretized
-// with the state type, which is what core's CONTRACT_STATE_TYPE macro expands to.
+// The protocol gate every build runs, whichever backend follows. A skipped run reads as an unavailable verifier; the source is concretized with the state type.
 export async function verifyForBuild(options: {
     contractPath: string;
     stateType: string;
@@ -61,8 +58,7 @@ export function verifyRejection(verify: VerifyResult): { ok: false; verify: Veri
     };
 }
 
-// With `buildRules`, Qinit's own build gate (build-rules.ts) is evaluated on the file first and its findings lead the
-// error list, whether or not the external verifier is available. Builds do not pass it: their gate already ran.
+// With `buildRules`, Qinit's own gate runs first and its findings lead the error list, verifier or not. Builds do not pass it: their gate already ran.
 export async function verifyContract(
     file: string,
     name: string,

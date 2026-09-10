@@ -105,8 +105,7 @@ test.each(["VottunBridge.h", "qRWA.h"])("%s is exempt from the log header gate b
     expect(await buildLogHeaderContract(fileName)).not.toContain(LOG_HEADER_MESSAGE);
 });
 
-// `div(a, b)` without its namespace binds to MSVC's C runtime once the contract reaches Core, so the gate
-// rejects it here, on both backends, before a compiler is ever spawned. Core's own contracts are exempt.
+// `div(a, b)` without its namespace binds to MSVC's C runtime on Core, so the gate rejects it here on both backends; core's own contracts are exempt.
 const BARE_DIV_CONTRACT = `
 using namespace QPI;
 struct Ratio : public ContractBase {

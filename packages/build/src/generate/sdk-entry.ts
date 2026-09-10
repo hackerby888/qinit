@@ -5,7 +5,7 @@ import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core/browser";
 
 const ORACLE_STATUS_SUCCESS = 3;
 
-// ---------------- test provider (env injected by `qinit test`) ----------------
+// test provider (env injected by `qinit test`)
 export interface Provider {
     rpcBaseUrl: string;
     seed?: string;
@@ -44,7 +44,7 @@ export async function settle(ticks = 12, timeoutMs = 30000): Promise<number> {
     }
 }
 
-// ---------------- oracle dev/test seam (simulator only) ----------------
+// oracle dev/test seam (simulator only)
 export async function oraclePending(rpcBaseUrl = defaultRpcBaseUrl()): Promise<{ queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[]> {
     const response = await fetch(rpcBaseUrl + "/live/v1/dev/oracle-pending");
     if (!response.ok) throw new Error("oracle-pending -> " + response.status);

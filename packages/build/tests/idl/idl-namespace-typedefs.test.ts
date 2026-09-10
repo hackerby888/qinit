@@ -1,5 +1,4 @@
-// A typedef declared in a namespace has to stay reachable by its qualified name. Registered bare-only, two
-// namespaces sharing a typedef name collapse into whichever declared last, and the loser silently changes width.
+// A typedef in a namespace must stay reachable by qualified name; registered bare-only, two namespaces sharing one collapse and the loser changes width.
 import { expect, test } from "bun:test";
 import { extractIdl } from "../../src/compile/idl";
 

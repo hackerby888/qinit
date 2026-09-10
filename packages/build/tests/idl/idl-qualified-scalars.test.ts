@@ -1,5 +1,4 @@
-// A namespace-qualified QPI scalar has to lay out exactly as its bare spelling. sizeOfType strips the
-// qualifier before it looks a name up; alignment has to strip it too, or every field after the first moves.
+// A namespace-qualified QPI scalar must lay out as its bare spelling: sizeOfType strips the qualifier, and alignment has to strip it too or every field moves.
 import { expect, test } from "bun:test";
 import { extractIdl, parseContractIdl, type ContractIdl } from "../../src/compile/idl";
 

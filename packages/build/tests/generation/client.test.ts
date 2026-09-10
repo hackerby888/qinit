@@ -142,8 +142,7 @@ test("class + index default", () => {
 });
 
 test("runtimeImport emits a self-contained client (./runtime, no unpublished @qinit/* imports)", () => {
-    // `qinit gen` / `qinit test` pass runtimeImport so the output works outside the monorepo (the @qinit/*
-    // packages are unpublished); without it the client imports @qinit/core + @qinit/proto.
+    // `qinit gen` / `qinit test` pass runtimeImport so the output works outside the monorepo; without it the client imports @qinit/core + @qinit/proto.
     const sc = generateClient(extractIdl(SRC, "Demo"), 28, { runtimeImport: "./runtime" });
     expect(sc).toContain('import { DEFAULT_RPC_BASE, LiteRpc, callFunction, invokeProcedure } from "./runtime";');
     expect(sc).toContain("this.rpcBaseUrl = o.rpcBaseUrl ?? DEFAULT_RPC_BASE;");

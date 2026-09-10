@@ -227,8 +227,7 @@ export function buildCalleePrelude(
             continue;
         }
 
-        // A sibling the source never mentions is offered for completion only, so a broken one drops
-        // with whatever subtree it pulled in rather than failing the contract being edited.
+        // A sibling the source never mentions is offered for completion only, so a broken one drops with its subtree instead of failing the edited contract.
         const before = new Set(resolved.keys());
         try {
             resolveCallee(calleeType);

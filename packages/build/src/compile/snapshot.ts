@@ -99,8 +99,7 @@ export async function buildSnapshot(corePath: string, outRoot: string, options: 
     for (const sharedHeader of Object.values(CORE_WASM_HEADERS.shared)) {
         extraFiles.push(join(corePath, "src", sharedHeader));
     }
-    // The gtest harness includes core headers a contract never pulls, so the stub's closure above misses
-    // them and `qinit gtest` cannot build against a snapshot. Placeholders drop out at the copy step.
+    // The gtest harness includes core headers a contract never pulls, so the stub's closure misses them and `qinit gtest` cannot build against a snapshot.
     for (const [, include] of WASM_CONTRACT_TESTING_H.matchAll(/^#include\s+"([^"]+)"/gm)) {
         extraFiles.push(join(corePath, "src", include));
     }
