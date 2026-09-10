@@ -429,6 +429,13 @@ export enum LogPayloadDefect {
 
 /** A C++ construct the TypeScript compiler does not fully implement. Grep a member to find every site that reports it; that set is the work list. */
 // Which declaration wins the bare, unqualified key when two scopes share a name.
+// The selector types an asset iterator's begin() materialises. Layout-identical in qpi_assets.h today,
+// but each is read from its own declaration so this keeps working if they diverge.
+export enum AssetSelectTypeName {
+    OWNERSHIP = "AssetOwnershipSelect",
+    POSSESSION = "AssetPossessionSelect",
+}
+
 export enum BareNamePolicy {
     OVERWRITE = "overwrite",
     KEEP = "keep",

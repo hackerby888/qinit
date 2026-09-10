@@ -1,4 +1,4 @@
-import { AstKind, ContainerEmissionMode, WatNodeType, type WatValueType } from "../../../shared/enums";
+import { AssetSelectTypeName, AstKind, ContainerEmissionMode, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { getFunctionLoweringServices } from "../functions/function-lowering-registry";
 import { emitScalarLoad, addrIr, isSignedScalarType } from "../memory/memory-operations";
 import { TemplateBindings, CompiledMethod, FieldLayout, FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
@@ -507,8 +507,8 @@ export function emitAssetIter(
         // begin(asset, ownershipSelect [, possessionSelect]). Pass the arguments the contract wrote;
         // an absent one is `undefined`, which materializeSelect already renders as any().
         const isPossession = tn === "AssetPossessionIterator";
-        const ownSelN = context.lowering.materializeSelect(context, expression.callArguments[1], "AssetOwnershipSelect");
-        const posSelN = context.lowering.materializeSelect(context, isPossession ? expression.callArguments[2] : undefined, "AssetPossessionSelect");
+        const ownSelN = context.lowering.materializeSelect(context, expression.callArguments[1], AssetSelectTypeName.OWNERSHIP);
+        const posSelN = context.lowering.materializeSelect(context, isPossession ? expression.callArguments[2] : undefined, AssetSelectTypeName.POSSESSION);
         const asset = context.lowering.materializeAssetAddress(context, expression.callArguments[0], `${tn}.begin`);
         const kind = isPossession ? 1 : 0;
         const enumerate = watIr.functionCall(

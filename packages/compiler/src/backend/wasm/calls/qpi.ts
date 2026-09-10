@@ -1,4 +1,4 @@
-import { AstKind } from "../../../shared/enums";
+import { AssetSelectTypeName, AstKind } from "../../../shared/enums";
 import { addrIr } from "../memory/memory-operations";
 import { EMPTY_TEMPLATE_BINDINGS, FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
@@ -21,10 +21,9 @@ function parsedAggregateLayout(context: FunctionEmissionContext, name: string) {
 export function materializeSelect(
     context: FunctionEmissionContext,
     expression: Expression | undefined,
-    selectTypeName: "AssetOwnershipSelect" | "AssetPossessionSelect" = "AssetOwnershipSelect",
+    selectTypeName: AssetSelectTypeName = AssetSelectTypeName.OWNERSHIP,
 ): watIr.WatNode {
-    // Materialise against the select type actually being built. The two are layout-identical in
-    // qpi_assets.h today, but reading the real one means this keeps working if they diverge.
+    // Materialise against the select type actually being built, not always the ownership one.
     const parsed = parsedAggregateLayout(context, selectTypeName);
     const slot = context.lowering.allocateScratchSlotNode(context, parsed.layout.size);
     context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$setMem", slot, watIr.i32Constant(parsed.layout.size), watIr.i32Constant(0)))}`);

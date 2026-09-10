@@ -3,6 +3,7 @@ import { FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { classOperandName, isM256Operand, tryLowerOverloadedOperator } from "./operator-overload";
+import { evalIntegralConst } from "../../../frontend/validation/validation-helpers";
 
 // Byte-wise intrinsics stand in for m256.h's operators when an operand is known m256i or neither type infers; a class we did resolve must declare the operator.
 function usesByteEquality(context: FunctionEmissionContext, left: Expression, right: Expression): boolean {
@@ -132,11 +133,17 @@ export function lowerBinaryExpression(
     const wrap32 = unsigned && cv.width === 4;
     const swrap32 = !unsigned && cv.width === 4;
     const shiftCount = (count: watIr.WatNode) => (li.width === 4 ? watIr.operation("i64.and", count, watIr.i64Constant(31)) : count);
+    // The count is a constant when the lowering already folded it, or when the expression as written
+    // evaluates to one — a negative literal reaches here as a negate node, not a folded constant.
+    const constantShiftCount = (): bigint | null => {
+        if (valueNodeCandidate.k === watIr.WatNodeKind.CONST) return BigInt(valueNodeCandidate.lit);
+        return evalIntegralConst(expression.right);
+    };
     // A constant shift count outside [0, width) is undefined in C++, and clang's codegen answers 0 for
     // every spelling of it. A runtime count keeps wasm's masking, which is what clang emits for it too.
     const foldedOutOfRangeShift = (): watIr.WatNode | null => {
-        if (valueNodeCandidate.k !== watIr.WatNodeKind.CONST) return null;
-        const count = BigInt(valueNodeCandidate.lit);
+        const count = constantShiftCount();
+        if (count === null) return null;
         const bits = BigInt(li.width * 8);
         if (count >= 0n && count < bits) return null;
         return watIr.i64Constant(0);
