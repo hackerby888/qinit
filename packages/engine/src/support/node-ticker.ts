@@ -1,7 +1,6 @@
 import type { VirtualNode } from "../transport";
 
-// Drives a VirtualNode on an interval. The first failure stops the interval so a faulted node is not
-// retried every tick; a fault is expected, so only an unexpected error is reported.
+// Drives a VirtualNode on an interval. The first failure stops the interval so a faulted node is not retried every tick; only an unexpected error is reported.
 export class NodeTicker {
     private handle: ReturnType<typeof setInterval> | null = null;
 

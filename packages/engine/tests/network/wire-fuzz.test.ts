@@ -27,7 +27,7 @@ import { bytesEqual } from "../../src/support/bytes";
 
 const TRIALS = 64;
 
-// ---- a tiny deterministic PRNG (mulberry32) so a failing random case is reproducible from its seed ----
+// a tiny deterministic PRNG (mulberry32) so a failing random case is reproducible from its seed
 function rng(seed: number): () => number {
     let a = seed >>> 0;
     return () => {
@@ -60,8 +60,7 @@ function randBytes(r: () => number, n: number): Uint8Array {
     return b;
 }
 
-// ---- the field-kind model: each defineStruct field is described independently of wire.ts (so the test is not
-// circular with the layout it checks). `arr`/`sub` carry the element count / embedded class. ----
+// The field-kind model: each defineStruct field described independently of wire.ts, so the test is not circular. `arr`/`sub` carry count / embedded class.
 interface SubClass {
     SIZE: number;
     alloc(): { bytes: Uint8Array };
@@ -200,8 +199,7 @@ function fuzzField(view: Record<string, unknown>, name: string, k: Kind, r: () =
     return (v2) => expect(bytesEqual((v2[name] as { bytes: Uint8Array }).bytes, b)).toBe(true);
 }
 
-// Fill a field with a max non-zero value — used by the padding test so every covered byte is non-zero and any
-// remaining zero byte must be alignment padding.
+// Fill a field with a max non-zero value, so the padding test can treat every remaining zero byte as alignment padding.
 function saturate(view: Record<string, unknown>, name: string, k: Kind): void {
     if (k === "u8") {
         view[name] = 0xff;
@@ -233,7 +231,7 @@ function saturate(view: Record<string, unknown>, name: string, k: Kind): void {
     }
 }
 
-// ---- the defineStruct inventory: each field's kind, declared here independently of wire.ts ----
+// the defineStruct inventory: each field's kind, declared here independently of wire.ts
 interface StructSpec {
     name: string;
     klass: {
@@ -407,7 +405,7 @@ const STRUCTS: StructSpec[] = [
     },
 ];
 
-// ---- (1) every field written through the setters reads back identically from an independent re-wrap ----
+// (1) every field written through the setters reads back identically from an independent re-wrap
 for (const s of STRUCTS) {
     test(`${s.name}: random field values round-trip through a re-wrapped buffer`, () => {
         const r = rng(seedOf(s.name));
@@ -427,8 +425,7 @@ for (const s of STRUCTS) {
     });
 }
 
-// ---- (2) the derived layout: offsets are aligned, fields never overlap, and the only bytes left zero after
-// saturating every field are the C compiler's alignment padding ----
+// The derived layout: offsets are aligned, fields never overlap, and the only bytes left zero after saturating every field are the compiler's padding.
 for (const s of STRUCTS) {
     test(`${s.name}: derived offsets are aligned + non-overlapping, padding stays zero`, () => {
         const SIZE = s.klass.SIZE;
@@ -475,13 +472,13 @@ for (const s of STRUCTS) {
     });
 }
 
-// ---- (3) TickData's derived signature offset is the body boundary the leader signs ----
+// (3) TickData's derived signature offset is the body boundary the leader signs
 test("TickData.SIG_OFFSET marks the signature field, with a 64-byte signature tail", () => {
     expect(TickData.SIG_OFFSET).toBe(TickData.OFFSETS.signature);
     expect(TickData.SIZE - TickData.SIG_OFFSET).toBe(SIG_SIZE);
 });
 
-// ---- (4) M256i primitive: bytes/hex round-trip, the four 64-bit lanes, equals/isZero ----
+// (4) M256i primitive: bytes/hex round-trip, the four 64-bit lanes, equals/isZero
 test("M256i: from(bytes)/from(hex) round-trip, u64 lanes, equals/isZero over random values", () => {
     const r = rng(seedOf("M256i"));
     for (let trial = 0; trial < TRIALS * 2; trial++) {
@@ -501,7 +498,7 @@ test("M256i: from(bytes)/from(hex) round-trip, u64 lanes, equals/isZero over ran
     expect(M256i.from(new Uint8Array(DIGEST_SIZE).fill(1)).isZero()).toBe(false);
 });
 
-// ---- (5) AssetRecord union: each variant's fields round-trip at their derived offsets ----
+// (5) AssetRecord union: each variant's fields round-trip at their derived offsets
 function randName(r: () => number): string {
     const len = 1 + Math.floor(r() * 7);
     let s = "";
@@ -554,7 +551,7 @@ test("AssetRecord ownership/possession variant: managingContractIndex/index/shar
     }
 });
 
-// ---- (6) Transaction: the 80-byte header plus the variable input[inputSize] + signature[64] tail ----
+// (6) Transaction: the 80-byte header plus the variable input[inputSize] + signature[64] tail
 test("Transaction: header fields + input/signature slicing round-trip for random inputSize", () => {
     const r = rng(seedOf("Transaction"));
     for (let trial = 0; trial < TRIALS; trial++) {

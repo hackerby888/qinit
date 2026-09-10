@@ -1,5 +1,4 @@
-// A contract function must not reach a state-mutating host import. The list guarding that is maintained by
-// hand, so this pins it: adding an lhost import forces a deliberate decision about its guard here.
+// A contract function must not reach a state-mutating host import; the guarding list is hand-maintained, so adding an lhost import forces a decision here.
 import { expect, test } from "bun:test";
 import { LHOST_ABI, type LhostImportName } from "@qinit/core";
 import { MUTATING_LHOST_IMPORTS } from "../../src/contract/runtime";
@@ -42,9 +41,7 @@ test("the host ABI has not grown past the reviewed import set", () => {
     expect(Object.keys(LHOST_ABI)).toHaveLength(64);
 });
 
-// Both reviewed and deliberately left off EXPECTED: initialTick is a read, and `cheat` is excluded
-// because the list is a per-import ban and CC_PRINT has to work inside a function — its mutating
-// opcodes check the entry kind themselves instead.
+// Both reviewed and deliberately left off EXPECTED: initialTick is a read, and `cheat` is excluded since CC_PRINT must work inside a function.
 test("cheat is unguarded on purpose, and its mutating opcodes are refused in a function", () => {
     expect(MUTATING_LHOST_IMPORTS).not.toContain("cheat");
     expect("cheat" in LHOST_ABI).toBe(true);

@@ -1,5 +1,4 @@
-// Mempool mode (opt-in): a broadcast tx is deferred to its scheduled tick — applied + recorded there — instead
-// of immediately. Off by default, so the rest of the engine keeps immediate-apply semantics.
+// Mempool mode (opt-in): a broadcast tx is deferred to its scheduled tick rather than applied immediately. Off by default, so the rest keeps its semantics.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/support/k12";

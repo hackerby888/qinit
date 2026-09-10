@@ -29,8 +29,7 @@ test("DigestProbe: reproduces the cross-platform digest oracle", async () => {
     expect(readUint64LE(sim.query(29, GET))).toBe(0n);
     sim.procedure(29, INC); // deploy -> Get -> Inc -> Get, matching `qinit test`
     expect(readUint64LE(sim.query(29, GET))).toBe(1n);
-    // The node's canonical post-Inc state digest — the cross-platform digest-check oracle. A wrong marshalling
-    // of the 64-byte layout (or wrong K12) diverges this.
+    // The node's canonical post-Inc state digest, the cross-platform oracle: a wrong marshalling of the 64-byte layout, or wrong K12, diverges this.
     expect(sim.digest(29)).toBe("4b31b54f2213f1396cec4a1bd633b9409112d5969592c2c5fa66ddc1656f63c9");
 });
 

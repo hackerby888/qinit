@@ -7,7 +7,7 @@ import { contractId, readInt64LE, readUint64LE } from "../support/helpers";
 
 const TOKEN = 0x4e454b4f54n; // "TOKEN" (bytes T,O,K,E,N)
 
-// ---- Token I/O encoders ----
+// Token I/O encoders
 function issueIn(name: bigint, shares: bigint): Uint8Array {
     const b = new Uint8Array(16); // { uint64 name; sint64 shares }
     const dv = new DataView(b.buffer);

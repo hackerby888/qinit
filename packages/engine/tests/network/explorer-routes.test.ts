@@ -1,6 +1,4 @@
-// The explorer HTTP routes (server.ts) — core-lite's /explorer/data and /query/v1/* shapes served by the
-// simulator, so the TUI explorer works against either backend. Drives a real signed tx into a contract so
-// the tick, transaction, transfer, and contract-call views all have something to report.
+// The explorer HTTP routes served by the simulator in core-lite's shapes, driving a real signed tx so tick, transaction, transfer and call views all report.
 import { test, expect, beforeAll } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/support/k12";
@@ -39,8 +37,7 @@ async function serveWithTx(): Promise<{
     });
     expect((await engine.broadcastTx(tx.bytes)).ok).toBe(true);
 
-    // A broadcast tx is queued for its stamped tick, so advance past it instead of racing the auto-ticker,
-    // then read back where it actually landed.
+    // A broadcast tx is queued for its stamped tick, so advance past it instead of racing the auto-ticker, then read back where it actually landed.
     engine.advanceTickN(2);
     const record = engine.sim.txByHash(tx.id);
     expect(record).toBeDefined();
@@ -65,8 +62,7 @@ const post = async (base: string, path: string, body: unknown) =>
 test("/explorer/data reports the header, recent ticks, mempool, and spectrum", async () => {
     const { base, stop, engine } = await serveWithTx();
     try {
-        // The engine keeps ticking, so the reported tick is only guaranteed to fall between the readings
-        // either side of the request — comparing it to a single live sample is a race.
+        // The engine keeps ticking, so the reported tick is only guaranteed to fall between the readings either side of the request — a single sample races.
         const before = engine.sim.currentTick;
         const r = await fetch(`${base}/explorer/data`);
         expect(r.status).toBe(200);

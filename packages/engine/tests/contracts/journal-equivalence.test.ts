@@ -107,8 +107,7 @@ async function drive(entry: Case, journal: boolean): Promise<{ outputs: string[]
     return { outputs, states: deployed.map(stateHex) };
 }
 
-// The rewrite must be invisible to the contract. Same source built both ways, same calls, and both the
-// returned bytes and every byte of final state have to match — including the trap and overflow paths.
+// The rewrite must be invisible to the contract: same source both ways, same calls, and both returned bytes and final state must match, traps included.
 test("an instrumented contract behaves exactly like the pristine one", async () => {
     for (const entry of CASES) {
         const instrumented = await drive(entry, true);

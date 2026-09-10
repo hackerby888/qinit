@@ -5,12 +5,10 @@ import { JOURNAL_BLOCK_BYTES, readJournalBlocks, type JournalHeader } from "@qin
 import { rangesEqual, type Id } from "../support/bytes";
 
 export const TRACE_ENTRY_CAP = 8192; // ring-buffer the entries so a long session can't grow unbounded
-// Changed bytes alone rarely spell a whole value — writing 3870 into a zeroed uint64 dirties two bytes.
-// Reporting the window around them lets the reader decode the element those bytes belong to.
+// Changed bytes alone rarely spell a whole value, so reporting the window around them lets the reader decode the element those bytes belong to.
 export const DIFF_WINDOW = 256;
 
-// Scanned in blocks before windows: one memcmp clears 256 windows at a time, and an untouched state —
-// the common case every tick — costs a single pass instead of a comparison per byte.
+// Scanned in blocks before windows: one memcmp clears 256 windows at a time, so an untouched state costs a single pass instead of a per-byte comparison.
 const COARSE_BLOCK = 64 * 1024;
 
 export function diffRegions(before: Uint8Array, after: Uint8Array): DebugStateRegion[] {
@@ -45,11 +43,7 @@ export function diffRegions(before: Uint8Array, after: Uint8Array): DebugStateRe
     }));
 }
 
-/**
- * The same regions `diffRegions` produces, from the contract's own write journal instead of a copy of
- * the state. Blocks the contract wrote without changing are dropped before adjacent ones are merged,
- * so a write of an identical value never widens its neighbour's region.
- */
+/** The same regions `diffRegions` produces, from the contract's write journal instead of a state copy. Blocks written without changing are dropped first. */
 export function journalRegions(memory: Uint8Array, journalBase: number, stateAddr: number, header: JournalHeader): DebugStateRegion[] {
     const changed: { block: number; before: Uint8Array; after: Uint8Array }[] = [];
 
@@ -184,8 +178,7 @@ export class TraceRecorder {
         if (metadata.trap) {
             entry.trap = metadata.trap;
         }
-        // An unchanged state has no regions by definition, and the caller already had to compare to meter the
-        // call — scanning a multi-hundred-megabyte state twice for the same answer is the whole cost.
+        // An unchanged state has no regions by definition, and the caller already compared to meter the call — scanning a huge state twice is the cost.
         entry.stateDiff = metadata.stateDiff ?? (metadata.stateChanged === false ? [] : diffRegions(metadata.stateBefore, metadata.stateAfter));
         if (metadata.stateTruncated !== undefined) {
             entry.stateTruncated = metadata.stateTruncated;
@@ -207,8 +200,7 @@ export class TraceRecorder {
         }
     }
 
-    // A CC_PRINT argument. Kept apart from logs: no log id, never reaches the log store. `value` is decimal
-    // text because the entry crosses /debug-trace as JSON, and a register-passed scalar has no bytes to fall back on.
+    // A CC_PRINT argument, kept apart from logs: no log id, never stored. `value` is decimal text because the entry crosses /debug-trace as JSON.
     cheat(slot: number, id: number, part: number, value: bigint, bytes: Uint8Array): void {
         const e = this.stack[this.stack.length - 1];
         if (e) {

@@ -1,5 +1,4 @@
-// A diagnostic log event the engine emits at lifecycle / error points — tick + epoch boundaries, deploys,
-// applied txs, contract faults, dormant skips, oversized digest skips, mempool drops. This is a separate stream.
+// A diagnostic log event the engine emits at lifecycle and error points — tick/epoch boundaries, deploys, applied txs, faults, drops. A separate stream.
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface EngineLogEvent {

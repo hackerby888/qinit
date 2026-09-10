@@ -1,5 +1,4 @@
-// TickConsensus (ticking.ts) in isolation — no QubicSimulator. A fake ConsensusHost supplies the three state digests, the
-// tick's tx digests, and the clock/tick/epoch, so the committee + quorum-vote + TickData record logic runs
+// TickConsensus (ticking.ts) in isolation: a fake ConsensusHost supplies the digests, tx digests and clock, so committee, quorum-vote and TickData logic runs.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12, toHex } from "../../src/support/k12";
 import { TickConsensus, type ConsensusHost } from "../../src/chain/ticking";

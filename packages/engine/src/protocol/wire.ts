@@ -1,5 +1,4 @@
-// Typed views over Qubic wire structures mirrored from core-lite network_messages.
-// Struct layouts use primitive codecs rather than handwritten offsets.
+// Typed views over Qubic wire structures mirrored from core-lite network_messages; struct layouts use primitive codecs rather than handwritten offsets.
 import { toHex } from "../support/k12";
 import { type Codec, u8, u16, u24, u32, i16, i32, i64, u64, blob, array, sub, roundUp, View, defineStruct } from "@qinit/core";
 import {
@@ -19,8 +18,7 @@ export const ASSET_RECORD_SIZE = 48; // assets.h AssetRecord (union)
 
 export const ASSET_TYPE = { ISSUANCE: 1, OWNERSHIP: 2, POSSESSION: 3 } as const;
 
-// ---- m256i (platform/m256.h): a 32-byte value (union of int*_t arrays, alignment 8), used for every public
-// key / digest / timelock. Kept hand-written — it is a primitive, not a composed struct. ----
+// m256i (platform/m256.h): a 32-byte value used for every public key, digest and timelock. Kept hand-written — it is a primitive, not a composed struct.
 export class M256i {
     readonly bytes: Uint8Array; // a 32-byte window into the backing buffer (zero-copy)
 
@@ -79,8 +77,7 @@ export class M256i {
     }
 }
 
-// ---- m256i codec: the one struct primitive that stays here, since it wraps the M256i value defined above. The
-// generic codec kit (u8…u64, blob, array, sub, View, defineStruct) lives in struct.ts and is shared with abi.ts. ----
+// m256i codec: the one struct primitive that stays here, since it wraps M256i above. The generic codec kit lives in struct.ts and is shared with abi.ts.
 const m256: Codec<M256i> = {
     size: DIGEST_SIZE,
     align: 8,
@@ -93,7 +90,7 @@ const m256: Codec<M256i> = {
     },
 };
 
-// ---- RequestResponseHeader (network_messages/header.h): 8 bytes; size is a 3-byte LE field. ----
+// RequestResponseHeader (network_messages/header.h): 8 bytes; size is a 3-byte LE field.
 export const RequestResponseHeader = defineStruct("RequestResponseHeader", {
     size: u24,
     type: u8,
@@ -101,7 +98,7 @@ export const RequestResponseHeader = defineStruct("RequestResponseHeader", {
 });
 export type RequestResponseHeader = InstanceType<typeof RequestResponseHeader>;
 
-// ---- EntityRecord (network_messages/entity.h): 64 bytes; the spectrum merkle leaf. ----
+// EntityRecord (network_messages/entity.h): 64 bytes; the spectrum merkle leaf.
 export const EntityRecord = defineStruct("EntityRecord", {
     publicKey: m256,
     incomingAmount: i64,
@@ -113,7 +110,7 @@ export const EntityRecord = defineStruct("EntityRecord", {
 });
 export type EntityRecord = InstanceType<typeof EntityRecord>;
 
-// ---- Tick (network_messages/tick.h): the 352-byte computor vote. ----
+// Tick (network_messages/tick.h): the 352-byte computor vote.
 export const Tick = defineStruct("Tick", {
     computorIndex: u16,
     epoch: u16,
@@ -141,8 +138,7 @@ export const Tick = defineStruct("Tick", {
 });
 export type Tick = InstanceType<typeof Tick>;
 
-// ---- TickData (network_messages/tick.h; BROADCAST_FUTURE_TICK_DATA): the 139376-byte leader proposal.
-// transactionDigests[NUMBER_OF_TRANSACTIONS_PER_TICK] then contractFees[MAX_NUMBER_OF_CONTRACTS] then signature.
+// TickData (tick.h; BROADCAST_FUTURE_TICK_DATA): the 139376-byte leader proposal — transactionDigests, then contractFees, then signature.
 const TickDataBase = defineStruct("TickData", {
     computorIndex: u16,
     epoch: u16,
@@ -166,7 +162,7 @@ export const TickData = TickDataBase as typeof TickDataBase & { readonly SIG_OFF
 export type TickData = InstanceType<typeof TickData>;
 export const TICKDATA_SIZE = TickData.SIZE; // 139376
 
-// ---- Transaction (network_messages/transactions.h): an 80-byte header then input[inputSize] then signature[64].
+// Transaction (network_messages/transactions.h): an 80-byte header then input[inputSize] then signature[64].
 const TransactionHeader = defineStruct("TransactionHeader", {
     sourcePublicKey: m256,
     destinationPublicKey: m256,
@@ -176,8 +172,7 @@ const TransactionHeader = defineStruct("TransactionHeader", {
     inputSize: u16,
 });
 
-// Wraps the whole serialized tx; the header fields delegate to a TransactionHeader view, and .input / .signature
-// are computed from inputSize + the buffer length (mirroring C++ inputPtr() / signaturePtr()).
+// Wraps the whole serialized tx: header fields delegate to a TransactionHeader view, and .input / .signature are computed from inputSize plus buffer length.
 export class Transaction {
     static readonly HEADER_SIZE = TransactionHeader.SIZE;
 
@@ -359,11 +354,9 @@ function layout(fields: [string, number, number][]): { off: Record<string, numbe
     return { off, size: roundUp(cursor, structAlign) };
 }
 
-// ---- peer-protocol request/response structs (the bridge layer), mirrored from the same network_messages
-// headers. The Respond* structs embed the record views above and carry a merkle-proof sibling tail. ----
+// Peer-protocol request/response structs, mirrored from the same network_messages headers; the Respond* structs embed the record views and a sibling tail.
 
-// The 4-byte tick prefix shared by the tick-keyed requests (RequestedTickData / RequestTxStatus /
-// RequestedQuorumTick all begin with `unsigned int tick`).
+// The 4-byte tick prefix shared by the tick-keyed requests (RequestedTickData / RequestTxStatus / RequestedQuorumTick all begin with `unsigned int tick`).
 export const RequestTickData = defineStruct("RequestTickData", {
     tick: u32,
 });
@@ -388,8 +381,7 @@ export const RespondCurrentTickInfo = defineStruct("RespondCurrentTickInfo", {
 });
 export type RespondCurrentTickInfo = InstanceType<typeof RespondCurrentTickInfo>;
 
-// RespondSystemInfo (system_info.h) — #pragma pack(1): no alignment padding (e.g. totalSpectrumAmount sits at
-// the unaligned @68), so it is built packed. The engine fills the fields it can back; the rest stay zero.
+// RespondSystemInfo (system_info.h) — #pragma pack(1), so no alignment padding and it is built packed. The engine fills what it can; the rest stay zero.
 export const RespondSystemInfo = defineStruct(
     "RespondSystemInfo",
     {
@@ -431,8 +423,7 @@ export const RespondEntity = defineStruct("RespondEntity", {
 });
 export type RespondEntity = InstanceType<typeof RespondEntity>;
 
-// RespondOwnedAssets (assets.h): the ownership AssetRecord + the issuance AssetRecord + tick + universeIndex +
-// the universe merkle-proof siblings.
+// RespondOwnedAssets (assets.h): the ownership AssetRecord + the issuance AssetRecord + tick + universeIndex + the universe merkle-proof siblings.
 export const RespondOwnedAssets = defineStruct("RespondOwnedAssets", {
     asset: sub(AssetRecord),
     issuanceAsset: sub(AssetRecord),
@@ -442,8 +433,7 @@ export const RespondOwnedAssets = defineStruct("RespondOwnedAssets", {
 });
 export type RespondOwnedAssets = InstanceType<typeof RespondOwnedAssets>;
 
-// RespondPossessedAssets (assets.h): the possession + ownership + issuance AssetRecords + tick + universeIndex +
-// the universe merkle-proof siblings.
+// RespondPossessedAssets (assets.h): the possession + ownership + issuance AssetRecords + tick + universeIndex + the universe merkle-proof siblings.
 export const RespondPossessedAssets = defineStruct("RespondPossessedAssets", {
     asset: sub(AssetRecord),
     ownershipAsset: sub(AssetRecord),
@@ -454,8 +444,7 @@ export const RespondPossessedAssets = defineStruct("RespondPossessedAssets", {
 });
 export type RespondPossessedAssets = InstanceType<typeof RespondPossessedAssets>;
 
-// RespondTxStatus (qinit peer-protocol addon, RESPOND_TX_STATUS): the fixed header before the per-tick
-// moneyFlew bitmask[(TXS_PER_TICK+7)/8] and the variable transactionDigests[txCount].
+// RespondTxStatus (qinit peer-protocol addon): the fixed header before the per-tick moneyFlew bitmask and the variable transactionDigests[txCount].
 export const RespondTxStatusHeader = defineStruct("RespondTxStatusHeader", {
     currentTick: u32,
     tick: u32,

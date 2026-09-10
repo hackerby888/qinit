@@ -1,5 +1,4 @@
-// FeeManager (fees.ts) in isolation — no QubicSimulator. The execution-fee reserve accounting extracted from the simulator
-// object: per-contract reserves, the off/metered policy, the IPO seeding, and the reserveOk gate.
+// FeeManager (fees.ts) in isolation: per-contract reserves, the off/metered policy, IPO seeding, and the reserveOk gate, extracted from the simulator.
 import { test, expect } from "bun:test";
 import { FeeManager, DEFAULT_FEE_RESERVE } from "../../src/contract/fees";
 

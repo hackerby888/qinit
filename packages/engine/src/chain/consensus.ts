@@ -1,5 +1,4 @@
-// Deterministic tick-consensus model where one process plays all honest computors.
-// Each computor signs the same state digests and transaction set.
+// Deterministic tick-consensus model where one process plays all honest computors, each signing the same state digests and transaction set.
 import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "../support/k12";
 import { dateFields } from "../contract/runtime";
 import { rootFromSiblings } from "../ledger/merkle";
@@ -86,8 +85,7 @@ export interface TickStateDigests {
     expectedNextTransaction: Uint8Array;
 }
 
-// Binary merkle root via K12 over `capacity` (a power of two) leaves; absent leaves are zero, parent =
-// K12(left32 ‖ right32). Mirrors core-lite getComputerDigest over MAX_NUMBER_OF_CONTRACTS contract-state leaves.
+// Binary merkle root via K12 over `capacity` leaves (absent = zero, parent = K12(left‖right)); mirrors core-lite getComputerDigest over contract-state leaves.
 export function merkleRoot(leaves: Map<number, Uint8Array>, capacity: number): Uint8Array {
     let level: Uint8Array[] = [];
     for (let i = 0; i < capacity; i++) {
@@ -142,8 +140,7 @@ export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickS
     v.transactionDigest = M256i.from(d.transaction);
     v.expectedNextTickTransactionDigest = M256i.from(d.expectedNextTransaction);
 
-    // Domain-separate the signed message by XORing computorIndex with the Tick message type (qubic.cpp does the
-    // same XOR before verifying). The transmitted struct keeps the plain index.
+    // Domain-separate the signed message by XORing computorIndex with the Tick message type, as qubic.cpp does; the transmitted struct keeps the plain index.
     v.computorIndex = (c.index ^ TICK_TYPE) & 0xffff;
     const digest = k12Bytes(v.bytes.subarray(0, TICK_SIZE - SIG_SIZE));
     v.computorIndex = c.index;
@@ -151,8 +148,7 @@ export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickS
     return v;
 }
 
-// The K12 message a tick vote's signature covers: the Tick − signature, with computorIndex XORed by the Tick
-// message type (the qubic domain-separation tweak). For verification in tests / the bridge.
+// The K12 message a tick vote's signature covers: the Tick minus signature, with computorIndex XORed by the Tick message type. For tests and the bridge.
 export function tickVoteMessage(vote: Uint8Array): Uint8Array {
     const body = vote.slice(0, TICK_SIZE - SIG_SIZE);
     const dv = new DataView(body.buffer);
@@ -208,8 +204,7 @@ export function buildTickData(
         td.txDigests.set(i, txDigests[i]);
     }
 
-    // Domain-separate the signed message (XOR the index by the message type); the transmitted struct keeps the
-    // plain index. The signature is stored — the votes commit K12(the whole signed TickData).
+    // Domain-separate the signed message; the transmitted struct keeps the plain index, and the votes commit K12 of the whole signed TickData.
     td.computorIndex = (leaderIndex ^ TICKDATA_TYPE) & 0xffff;
     const digest = k12Bytes(td.bytes.subarray(0, TickData.SIG_OFFSET));
     td.computorIndex = leaderIndex;
@@ -222,8 +217,7 @@ export function tickDataSignature(td: Uint8Array): Uint8Array {
     return TickData.wrap(td).signature;
 }
 
-// The K12 message a TickData signature covers: the struct − signature, with computorIndex XORed by the
-// future-tick-data type. For signature verification in tests / the bridge.
+// The K12 message a TickData signature covers: the struct minus signature, with computorIndex XORed by the future-tick-data type. For verification in tests.
 export function tickDataMessage(td: Uint8Array): Uint8Array {
     const body = td.slice(0, TickData.SIG_OFFSET);
     const dv = new DataView(body.buffer);

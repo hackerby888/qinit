@@ -64,16 +64,14 @@ test("crossing an epoch boundary fires END_EPOCH then BEGIN_EPOCH", async () => 
     expect(endepochs).toBe(2n); // END_EPOCH likewise
 });
 
-// epochLength was only reachable by assigning the field after construction, which a caller that rebuilds
-// the node — the IDE's reset does — silently loses. These pin it as an option on both entry points.
+// epochLength was only reachable by assigning the field after construction, which a caller rebuilding the node silently loses — pinned as an option here.
 test("epochLength is a constructor option on the simulator and the node", async () => {
     await initK12();
     expect(new QubicSimulator().epochLength).toBe(DEFAULT_EPOCH_LENGTH);
     expect(new QubicSimulator({ epochLength: 25 }).epochLength).toBe(25);
     expect((await VirtualNode.create({ epochLength: 25 })).sim.epochLength).toBe(25);
 
-    // 0 keeps its existing meaning — the rollover never fires — and a fractional or negative value
-    // would put the modulo check at line 1002 into a state no tick could satisfy.
+    // 0 keeps its meaning — the rollover never fires — and a fractional or negative value would put the modulo check into a state no tick could satisfy.
     expect(new QubicSimulator({ epochLength: 0 }).epochLength).toBe(0);
     expect(new QubicSimulator({ epochLength: -5 }).epochLength).toBe(0);
     expect(new QubicSimulator({ epochLength: 7.9 }).epochLength).toBe(7);

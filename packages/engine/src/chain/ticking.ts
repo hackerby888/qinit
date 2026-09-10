@@ -1,5 +1,4 @@
-// Tick consensus state and history, mirroring core-lite vote processing.
-// The leader signs each tick's transaction digests in TickData.
+// Tick consensus state and history, mirroring core-lite vote processing; the leader signs each tick's transaction digests in TickData.
 import { Committee, type CommitteeOpts, type TickStateDigests, buildTickVote, buildTickData, voteIsAligned, DEFAULT_NUMBER_OF_COMPUTORS } from "./consensus";
 import { k12Bytes } from "../support/k12";
 import type { Tick, TickData } from "../protocol/wire";
@@ -79,8 +78,7 @@ export class TickConsensus {
         return this.lastDigests.computer;
     }
 
-    // The leader (computor[tick % N]) packs the tick's per-tx digests into a signed TickData; each computor
-    // signs a Tick vote with K12(TickData).
+    // The leader (computor[tick % N]) packs the tick's per-tx digests into a signed TickData; each computor signs a Tick vote with K12(TickData).
     finalizeTick(): void {
         const tick = this.host.tick();
         const epoch = this.host.epoch();

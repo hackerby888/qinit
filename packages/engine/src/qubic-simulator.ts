@@ -83,8 +83,7 @@ export class EngineFaultedError extends Error {
 // Bounds the undrained pruned-transaction backlog; the transport drains far below this every tick.
 const MAX_PRUNED_TRANSACTION_IDS = 100_000;
 
-// Ticks per epoch on the live network. A shorter one is how a test or the IDE reaches END_EPOCH without
-// ticking three thousand times; 0 turns the rollover off entirely.
+// Ticks per epoch on the live network. A shorter one lets a test or the IDE reach END_EPOCH without ticking three thousand times; 0 turns rollover off.
 export const DEFAULT_EPOCH_LENGTH = 3000;
 
 export class QubicSimulator {
@@ -114,8 +113,7 @@ export class QubicSimulator {
     private computorOverride = new Map<number, Uint8Array>();
     prevSpectrumDigestOverride?: Uint8Array;
     private readonly historyTicks: number;
-    // Drained by the transport each tick. A caller that advances the simulator directly never drains it, so
-    // the backlog is capped rather than growing for the life of the process.
+    // Drained by the transport each tick. A caller that advances the simulator directly never drains it, so the backlog is capped rather than growing.
     private prunedTransactionIds: string[] = [];
     private terminalFault: EngineFaultInfo | null = null;
     private lastFinalizedTick = 0;
@@ -172,8 +170,7 @@ export class QubicSimulator {
         });
         this.host = {
             tick: () => this.currentTick + this.cheatTickOffset,
-            // Deliberately unshifted: a warp moves where the contract thinks it is within the epoch,
-            // not where the epoch began, so `tick - initialTick` still reads as ticks elapsed.
+            // Deliberately unshifted: a warp moves where the contract thinks it is within the epoch, not where the epoch began, so elapsed still reads right.
             initialTick: () => this.currentEpoch * this.epochLength,
             epoch: () => this.currentEpoch + this.cheatEpochOffset,
             nowMs: () => this.nowMs(),
@@ -401,15 +398,13 @@ export class QubicSimulator {
         return this.spectrum.spectrumIndex(publicKey);
     }
 
-    // Core has no id-keyed energy read — it resolves a spectrum index first. Kept as a convenience.
-    // Warp offsets shift only what a contract observes; the chain's own tick and epoch are untouched.
+    // Core has no id-keyed energy read — it resolves a spectrum index first; kept as a convenience. Warp offsets shift only what a contract observes.
     private cheatTickOffset = 0;
     private cheatEpochOffset = 0;
 
     /** Sets a balance outright rather than transferring, which is the point of a deal. */
     private cheatDeal(id: Id, amount: bigint): bigint {
-        // The amount arrives as an unsigned word, so anything past the signed range lands here
-        // negative. A negative balance is meaningless, and would decrease against a missing entry.
+        // The amount arrives as an unsigned word, so anything past the signed range lands negative — meaningless, and it would decrease a missing entry.
         if (amount < 0n) {
             return CHEAT_ERR.unknownOp;
         }
@@ -616,8 +611,7 @@ export class QubicSimulator {
         return { allow, fee: requestedFee };
     }
 
-    // acquireShares and releaseShares are the same protocol run in opposite directions: one side asks the
-    // other's management contract for permission, pays the fee it names, then the rights move.
+    // acquireShares and releaseShares are the same protocol in opposite directions: one side asks the other's management contract, pays the fee, rights move.
     private moveManagementRights(request: {
         callerSlot: number;
         name: bigint;
@@ -963,8 +957,7 @@ export class QubicSimulator {
         }
     }
 
-    // Fires one system procedure across every registered contract that implements it. Begin-phases walk the
-    // slots ascending and end-phases descending; the tick phases additionally skip a contract out of fees.
+    // Fires one system procedure across every registered contract: begin-phases walk slots ascending, end-phases descending, and tick phases skip out-of-fees.
     private contractProcessor(sysproc: number, ascendingSlots: boolean, requireFeeReserve: boolean): void {
         for (const slot of this.registry.slots(ascendingSlots)) {
             const contract = this.contracts.get(slot)!;
@@ -1074,8 +1067,7 @@ export class QubicSimulator {
         }
     }
 
-    // A function that aborts or traps fails only its own query: the frame stays in the trace and the node
-    // keeps ticking, as it does on core.
+    // A function that aborts or traps fails only its own query: the frame stays in the trace and the node keeps ticking, as it does on core.
     query(slot: number, inputType: number, input?: Uint8Array): Uint8Array {
         this.assertOperational();
         const contract = this.contracts.get(slot);
@@ -1087,8 +1079,7 @@ export class QubicSimulator {
         return contract.invoke(CONTRACT_ENTRY_KIND.FUNCTION, inputType, input);
     }
 
-    // Runs the user procedure only. Each caller fires POST_INCOMING_TRANSFER for the reward beforehand, because
-    // core resets the action tracker here and money moved by the callback must not count towards moneyFlew.
+    // Runs the user procedure only; callers fire POST_INCOMING_TRANSFER first, because core resets the action tracker here and callback money must not count.
     private processTickTransactionContractProcedure(
         slot: number,
         inputType: number,
@@ -1196,16 +1187,13 @@ export class QubicSimulator {
         }
     }
 
-    // A callee that aborted deliberately halts the node, exactly as the same abort does at the top level.
-    // A Wasm trap stays recoverable: Core keeps ticking through one, and the caller gets NoCallError with
-    // a zero-filled output, which is the only shape it has for "the callee produced nothing".
+    // A callee that aborted deliberately halts the node; a Wasm trap stays recoverable, and the caller gets NoCallError with a zero-filled output.
     private nestedTrapResult(callee: Contract, kind: number, inputType: number, error: unknown, phase: string): { error: number; output: Uint8Array } {
         if (!(error instanceof ContractExecutionError)) {
             throw error;
         }
         if (error.cause instanceof ContractAbort) {
-            // Recorded here rather than in an enclosing runOperation: these two entry points are also
-            // called directly, where there is no enclosing operation to record the fault.
+            // Recorded here rather than in an enclosing runOperation: these entry points are also called directly, with no enclosing operation.
             this.recordFault(error, phase);
             throw error;
         }
@@ -1371,8 +1359,7 @@ export class QubicSimulator {
                             const contract = this.contracts.get(slot)!;
                             const isProcedure = contract.entries.some((entry) => entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE && entry.inputType === inputType);
 
-                            // A dormant contract takes no transaction at all — the amount goes back and neither the
-                            // procedure nor the incoming-transfer callback runs.
+                            // A dormant contract takes no transaction at all — the amount goes back and neither the procedure nor the callback runs.
                             if (!this.fees.reserveOk(slot)) {
                                 if (amount > 0n) {
                                     this.transferBalance(destination, source, amount);
@@ -1385,8 +1372,7 @@ export class QubicSimulator {
                                     this.notifyContractOfIncomingTransfer(destination, source, amount, TRANSFER_TYPE_PROCEDURE_TRANSACTION);
                                 }
 
-                                // moneyFlew mirrors core's action tracker, which starts at the user procedure seeded with
-                                // the invocation reward: what the callback moved is already water under the bridge.
+                                // moneyFlew mirrors core's action tracker, which starts at the user procedure: what the callback moved is already past.
                                 const sourceBalanceAfterCallback = this.energy(sourceIndex);
                                 this.processTickTransactionContractProcedure(slot, inputType, payload, source, source, amount);
                                 moneyFlew = this.energy(sourceIndex) - sourceBalanceAfterCallback - amount !== 0n;

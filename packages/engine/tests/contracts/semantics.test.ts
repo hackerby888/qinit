@@ -53,9 +53,7 @@ test("transfer to a user moves balance, no PIT; insufficient transfer is a no-op
     expect(sim.balanceOf(28)).toBe(70n);
 });
 
-// transfer() discards decreaseEnergy's return value and credits the destination regardless, so the
-// `remaining < 0` guard is the only thing standing between a contract and minting Qu. 1000 vs 70 is
-// far from that edge; one Qu over the balance is where a wrong comparison shows up.
+// transfer() discards decreaseEnergy's return and credits regardless, so the `remaining < 0` guard is all that stands between a contract and minting Qu.
 test("transfer at the balance boundary neither overdraws nor mints", async () => {
     await initK12();
     const sim = new QubicSimulator();

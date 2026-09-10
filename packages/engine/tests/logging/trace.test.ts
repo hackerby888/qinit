@@ -26,8 +26,7 @@ function recordOne(recorder: TraceRecorder, stateBefore: Uint8Array, stateAfter:
     return recorder.trace().entries[recorder.trace().entries.length - 1];
 }
 
-// Snapshots cover the whole state now, so truncation means one genuinely came up short — not that the
-// contract happens to be large.
+// Snapshots cover the whole state now, so truncation means one genuinely came up short — not that the contract happens to be large.
 test("truncation follows the snapshot length, not the state size", () => {
     const recorder = new TraceRecorder();
     recorder.setEnabled(true);
@@ -182,8 +181,7 @@ test("unmetered runtime tracing diffs the whole state", async () => {
     expect(entry.stateDiff.length).toBeGreaterThan(0);
 });
 
-// The before-image is carried across calls rather than re-copied, so a stale one would make the second
-// call re-report the first call's bytes as freshly changed.
+// The before-image is carried across calls rather than re-copied, so a stale one would make the second call re-report the first call's bytes as changed.
 test("consecutive invocations diff against the previous call's result", async () => {
     const sim = new QubicSimulator({ fees: "off" });
     sim.deploy(28, await wasm("Counter"));
@@ -212,8 +210,7 @@ test("a write far past the old snapshot cap still reaches the diff", async () =>
     expect(entry.stateDiff.map((region) => region.off)).toEqual([0, 60_000_000]);
 });
 
-// A register-passed argument has no bytes to fall back on, so `value` is the only record of what the
-// contract printed. Widening it to a Number would round exactly the ids and hashes worth printing.
+// A register-passed argument has no bytes to fall back on, so `value` is the only record of what was printed; widening to Number would round ids and hashes.
 test("a printed value past 2^53 keeps every digit across the wire", () => {
     const recorder = new TraceRecorder();
     recorder.setEnabled(true);

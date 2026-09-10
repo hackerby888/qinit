@@ -16,8 +16,7 @@ beforeAll(async () => {
     await initK12();
 });
 
-// Count the votes that (a) carry a valid signature from their computor and (b) commit `expected` at the named
-// prev*Digest field — the generalized form of verifyEntityProof's spectrum check, for any of the three roots.
+// Count votes that carry a valid signature from their computor and commit `expected` at the named prev*Digest — verifyEntityProof generalized to any root.
 function signedVotesCommitting(
     votes: Tick[],
     committee: ReturnType<QubicSimulator["getCommittee"]>,
@@ -40,8 +39,7 @@ function signedVotesCommitting(
     return n;
 }
 
-// A tick that mutates all three sub-states: fund two entities (spectrum), issue an asset (universe), deploy a
-// contract (computer), then finalize so the votes commit the post-mutation roots.
+// A tick that mutates all three sub-states: fund two entities, issue an asset, deploy a contract, then finalize so the votes commit the post-mutation roots.
 async function loadedTick(): Promise<QubicSimulator> {
     const sim = new QubicSimulator({
         consensus: { computorSeeds: SEEDS4 },
