@@ -1,11 +1,10 @@
 // Programs clang refuses that the backend used to compile and run. Each row carries a control that
 // clang accepts, so a fix that simply refuses more is not mistaken for a fix.
 import { describe, test, expect, beforeAll } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContractWithClang } from "@qinit/build";
-import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 import { DiagnosticSeverity } from "../../src/shared/enums";
