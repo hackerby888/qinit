@@ -18,8 +18,14 @@ function parsedAggregateLayout(context: FunctionEmissionContext, name: string) {
     };
     return { layout, field, firstField };
 }
-export function materializeSelect(context: FunctionEmissionContext, expression: Expression | undefined): string {
-    const parsed = parsedAggregateLayout(context, "AssetOwnershipSelect");
+export function materializeSelect(
+    context: FunctionEmissionContext,
+    expression: Expression | undefined,
+    selectTypeName: "AssetOwnershipSelect" | "AssetPossessionSelect" = "AssetOwnershipSelect",
+): watIr.WatNode {
+    // Materialise against the select type actually being built. The two are layout-identical in
+    // qpi_assets.h today, but reading the real one means this keeps working if they diverge.
+    const parsed = parsedAggregateLayout(context, selectTypeName);
     const slot = context.lowering.allocateScratchSlotNode(context, parsed.layout.size);
     context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$setMem", slot, watIr.i32Constant(parsed.layout.size), watIr.i32Constant(0)))}`);
     const flag = (offset: number, value: number) =>
@@ -62,7 +68,7 @@ export function materializeSelect(context: FunctionEmissionContext, expression: 
         if (!source) throw new Error("asset selector is not addressable");
         context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", slot, addrIr(source), watIr.i32Constant(parsed.layout.size)))}`);
     }
-    return watIr.serializeWatNode(slot);
+    return slot;
 }
 export function materializeAssetAddress(context: FunctionEmissionContext, expression: Expression | undefined, bindingName: string): string {
     if (expression?.kind === AstKind.INITIALIZER_LIST) {

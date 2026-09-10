@@ -84,6 +84,7 @@ export interface CompiledHelperMetadata {
         isAddr: boolean;
         type: TypeSpec;
         byValAgg?: boolean;
+        defaultValue?: Expression; // the declared default, so overload viability and call emission both see it
     }[];
     retIsValue: boolean; // returns a scalar i64 (vs void)
     retWasmType?: WatValueType; // imported scalar ABI; ordinary helpers use i64

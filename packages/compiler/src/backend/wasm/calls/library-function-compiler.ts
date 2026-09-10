@@ -41,6 +41,7 @@ export function compileLibraryFunction(
             isAddr,
             type: programAnalysis.derefType(parameter.type),
             byValAgg,
+            defaultValue: parameter.defaultValue,
         };
     });
     const retAgg =
@@ -241,6 +242,7 @@ export function compileLibraryFunctionInstance(
             isAddr,
             type: concrete,
             byValAgg,
+            defaultValue: parameter.defaultValue,
         };
     });
     const retT = programAnalysis.substInBindings(programAnalysis.derefType(def.returnType), bind);

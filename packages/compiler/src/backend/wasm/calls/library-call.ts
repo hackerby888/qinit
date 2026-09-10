@@ -9,7 +9,7 @@ import { compileLibraryFunction } from "./library-function-compiler";
 export function helperCallOps(context: FunctionEmissionContext, info: CompiledHelperMetadata, callArguments: Expression[]): string {
     return info.params
         .map((parameter, parameterIndex) => {
-            const argument = callArguments[parameterIndex];
+            const argument = callArguments[parameterIndex] ?? parameter.defaultValue;
             if (!argument) throw new Error(`${info.sourceNamespace ?? info.label} is missing required argument ${parameterIndex + 1}`);
             if (parameter.isAddr) {
                 return context.lowering.argAddr(
@@ -66,9 +66,20 @@ export function scalarDeclInfo(
 export function pickHelperOverload(context: FunctionEmissionContext, set: CompiledHelperMetadata[], callArguments: Expression[]): CompiledHelperMetadata {
     if (set.length === 1) return set[0];
     const argInfos = callArguments.map((argument) => context.lowering.scalarTypeInfo(context, argument));
+    // Viability the way C++ defines it: an overload with P parameters of which D carry defaults accepts
+    // P-D through P arguments. Comparing P against the argument count outright made every overload of a
+    // function with defaulted trailing parameters non-viable for an under-supplied call.
+    const requiredCount = (cand: CompiledHelperMetadata): number => {
+        const firstDefault = cand.params.findIndex((parameter) => parameter.defaultValue !== undefined);
+        return firstDefault < 0 ? cand.params.length : firstDefault;
+    };
+    const viable = (cand: CompiledHelperMetadata): boolean =>
+        callArguments.length >= requiredCount(cand) && callArguments.length <= cand.params.length;
     const rank = (cand: CompiledHelperMetadata): number => {
-        if (cand.params.length !== callArguments.length) return -1;
-        let size = 0;
+        if (!viable(cand)) return -1;
+        // An exact arity match beats one that has to default a parameter, which separates two
+        // overloads that are both viable for this call.
+        let size = cand.params.length === callArguments.length ? 1 : 0;
         for (let argumentIndex = 0; argumentIndex < callArguments.length; argumentIndex++) {
             const pi = scalarDeclInfo(context, cand.params[argumentIndex].type);
             const ai = argInfos[argumentIndex];
@@ -78,12 +89,14 @@ export function pickHelperOverload(context: FunctionEmissionContext, set: Compil
         }
         return size;
     };
-    let best = set[0];
-    let bestScore = rank(set[0]);
-    for (let setItemIndex = 1; setItemIndex < set.length; setItemIndex++) {
-        const size = rank(set[setItemIndex]);
+    // Seed with a viable candidate where there is one, so a set in which nothing ranks cannot return an
+    // overload of the wrong arity in preference to one of the right arity.
+    let best = set.find(viable) ?? set[0];
+    let bestScore = rank(best);
+    for (const candidate of set) {
+        const size = rank(candidate);
         if (size > bestScore) {
-            best = set[setItemIndex];
+            best = candidate;
             bestScore = size;
         }
     }

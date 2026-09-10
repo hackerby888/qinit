@@ -9,6 +9,7 @@ import type { ResolvedCalleeIdl } from "../../../semantics/types";
 import { registerContractCallables, type ContractCallableCatalog } from "./contract-callables";
 import { findContractStruct } from "./contract-discovery";
 import { contextLayoutFromCodegen, type LibrarySymbolIndex, registerLibraryMetadata } from "./library-index";
+import { validateEntryContextConversions } from "./entry-context-validation";
 import { validateLogCalls } from "./log-call-validation";
 import { ContractLayoutResolver } from "./named-layouts";
 import { type ContractRegistration, registerEntryDispatchTargets, validateContractRegistrations, validateRegistrationInterfaces } from "./registrations";
@@ -100,6 +101,7 @@ export function prepareContractModule(request: PrepareContractModuleRequest): Pr
     };
 
     validateLogCalls(prepared);
+    validateEntryContextConversions(prepared);
     return prepared;
 }
 

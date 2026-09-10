@@ -504,15 +504,19 @@ export function emitAssetIter(
     const record = context.programAnalysis.assetEnumerationRecord;
     const rec = `(i32.add (global.get $assetIterBase) (i32.mul ${cursor} (i32.const ${record.size})))`;
     if (method === "begin") {
-        const selN = watIr.rawWatNode(context.lowering.materializeSelect(context, undefined), WatNodeType.I32);
+        // begin(asset, ownershipSelect [, possessionSelect]). Pass the arguments the contract wrote;
+        // an absent one is `undefined`, which materializeSelect already renders as any().
+        const isPossession = tn === "AssetPossessionIterator";
+        const ownSelN = context.lowering.materializeSelect(context, expression.callArguments[1], "AssetOwnershipSelect");
+        const posSelN = context.lowering.materializeSelect(context, isPossession ? expression.callArguments[2] : undefined, "AssetPossessionSelect");
         const asset = context.lowering.materializeAssetAddress(context, expression.callArguments[0], `${tn}.begin`);
-        const kind = tn === "AssetPossessionIterator" ? 1 : 0;
+        const kind = isPossession ? 1 : 0;
         const enumerate = watIr.functionCall(
             "$lh_assetEnumerate",
             watIr.i32Constant(kind),
             addrIr(asset),
-            selN,
-            selN,
+            ownSelN,
+            posSelN,
             watIr.rawWatNode("(global.get $assetIterBase)", WatNodeType.I32),
             watIr.i32Constant(record.capacity),
         );
