@@ -2091,15 +2091,38 @@ collision byte-identical.
 
 ## Corpus, all patches stacked
 
-Smoke tier, one contract per archetype:
+Full tier — the committed one, 6,618 contracts:
 
 ```
-449 contracts · 437 match · 12 not-match · 0 hang · median 660ms
-  0 digest-mismatch   0 trap-divergence   0 harness-error
+6618 contracts · 6471 match · 147 not-match · 0 hang · median 672ms
+  0 digest-mismatch   0 trap-divergence   0 both-rejected   0 harness-error
 ```
 
-Nine of the twelve are pinned rows reporting `expected the documented divergence … but got match` — the
-pins exist to fail exactly that way when a defect goes away, and they need unpinning as part of landing
-any of this. The other three are `hostcalls/HostK12ExpressionVersusVariable`,
-`integers/K12OfComputedExpression` (F203) and `namespaces/NsEnumConstantVersusFileConstant` (F213 part 2),
-all of which were mismatching before these patches. **No new regression.**
+Diffed row-by-row against the round-7 baseline (`work/round7-results.jsonl`, 6,617 shared ids):
+
+| rows | transition | what it is |
+| --- | --- | --- |
+| 48 | `step-mismatch` → `match` | F213 part 1 (42) and **F221** (6 `DateAddMillisecCarryChain`) |
+| 4 | `one-side-rejected` → `match` | **F201** — `NsInheritedNamespacedTypedef` |
+| 2 | `trap-divergence` → `match` | F200 — the two `sint32` `DivQpi` rows |
+| 93 | `match` → `expect-violation` | pinned rows reporting their defect is gone: F212 15, F209 15, F217 12, F214 11, F215 10, F211 8, F220 22 |
+| 5 | `step-mismatch` → `one-side-rejected` | F204 turning a wrong answer into a refusal — intended |
+| 4 | `match` → `one-side-rejected` | F204's real cost, below |
+
+**Zero** `match` → `step-mismatch`, `digest-mismatch`, `trap-divergence` or `harness-error`, and no new
+hang, across 6,617 contracts. No correctness regression anywhere.
+
+### F204 refuses 9 rows, not 5
+
+The register card gives F204 five red rows, so refusing constant out-of-range shifts reads like it
+touches five contracts. It touches **nine** of the seventeen `ShiftRhsWiderThanLhs` variants. Five were
+the diverging ones. The other four **both backends agreed on** — UB expressions where clang's folded
+answer and the wasm answer happened to coincide — and the rule refuses them anyway, because it refuses
+by the shape of the expression rather than by whether the two backends got lucky.
+
+That is correct for a rule that declines to pick a semantics, and it is close to double the blast radius
+the card implied. It is the one number here a reviewer should see before deciding to land F204.
+
+The 45 genuine mismatches that remain are F203 (32 rows) and F213 part 2 (13), both unfixed and both
+mismatching before these patches. The 93 pinned rows fail *because* the defect is gone — the pins exist
+to fail that way — and need removing as part of landing any of this.

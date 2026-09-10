@@ -876,14 +876,24 @@
       <b>F221</b> — and both cards now say so above their fix.
     </p>
     <div class="systemic">
-      <span class="tag">Corpus effect, all twelve stacked</span>
+      <span class="tag">Corpus effect, all fourteen stacked — the full 6,618</span>
       <p>
-        Smoke tier — one contract per archetype, 449 contracts, both backends, K12 digest of final state:
-        <b>437 match · 12 not-match · 0 hang · 0 digest-mismatch · 0 trap-divergence · 0 harness-error</b>.
-        Nine of the twelve are pinned rows reporting <em>"expected the documented divergence but got
-        match"</em> — those pins exist to fail when the defect goes away, and they need unpinning as part
-        of landing any of this. The other three are the two findings still unfixed (F203 ×2, F213 part 2
-        ×1), which were mismatching before these patches too. <b>No new regression.</b>
+        <b>6,471 match · 147 not-match · 0 hang · 0 digest-mismatch · 0 trap-divergence · 0 both-rejected ·
+        0 harness-error.</b> Diffed row-by-row against the round-7 baseline over the same 6,617 ids:
+        <b>48 rows go step-mismatch → match</b> (F213 part 1 and F221), <b>4 go one-side-rejected →
+        match</b> (F201), <b>2 go trap-divergence → match</b> (F200). 93 pinned rows now report
+        <em>"expected the documented divergence but got match"</em> — those pins exist to fail when the
+        defect goes away and need removing as part of landing any of this. <b>Zero</b> rows go from match
+        to a mismatch of any kind. No correctness regression across 6,617 contracts.
+      </p>
+      <p>
+        <b>One cost is bigger than its card implies.</b> F204's card gives it 5 red rows, but refusing
+        constant out-of-range shifts refuses <b>9 of the 17</b> <code>ShiftRhsWiderThanLhs</code> variants:
+        five were diverging, and <b>four both backends agreed on</b> — undefined expressions where clang's
+        folded answer and the wasm answer happened to coincide. The rule refuses by the shape of the
+        expression, not by whether the two backends got lucky, which is right and is also close to double
+        the blast radius the card suggested. The 45 genuine mismatches left are F203 (32) and F213 part 2
+        (13), both unfixed and both mismatching before.
       </p>
     </div>
     <div class="findings" id="findings">
@@ -1541,6 +1551,7 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           <p>UB in C++, and clang disagrees with itself between folded and runtime. There is no answer to match — only a build that must not silently pick one.</p>
           <ol>
             <li><span class="rec">do this</span><code>binary-expression.ts</code> — refuse a <em>constant</em> shift count outside <code>[0, width)</code>, bound by the promoted operand width. A runtime count stays UB and keeps wasm's masking, exactly as clang's runtime path does; <code>(uint8)1 &lt;&lt; 20</code> is still well-defined and still compiles.<span class="cost">rejects code that builds today — that is the point · in-range controls unchanged</span></li>
+            <li><b>Measured cost, larger than the 5 rows above.</b> It refuses <b>9 of the 17</b> <code>ShiftRhsWiderThanLhs</code> variants: the 5 diverging ones, and <b>4 that both backends agreed on</b> — undefined expressions where clang's folded answer and the wasm answer happened to coincide. Refusing by the shape of the expression rather than by whether the two backends got lucky is the point of the rule, and it is the number to weigh before landing it.<span class="cost">4 contracts that build and agree today stop building</span></li>
           </ol>
         </div>
         <div class="footrow">

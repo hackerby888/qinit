@@ -32,27 +32,43 @@ touch `semantics/struct-layout.ts` (F201 adds a constant F211 uses), so apply F2
 
 ## Corpus effect, all patches stacked
 
-Smoke tier (one contract per archetype, 449 contracts), everything above except the two rejected
-patches applied:
+Full tier, the committed one — **6,618 contracts**, everything above except the two rejected patches
+applied:
 
 ```
-449 contracts · 437 match · 12 not-match · 0 hang · median 660ms
-  0 digest-mismatch   0 trap-divergence   0 harness-error
+6618 contracts · 6471 match · 147 not-match · 0 hang · median 672ms
+  0 digest-mismatch   0 trap-divergence   0 both-rejected   0 harness-error
 ```
 
-All 12 are accounted for and **none is a new regression**:
+Diffed row-by-row against the round-7 baseline (`work/round7-results.jsonl`, same 6,617 shared ids):
 
-| rows | what the harness says | why |
+| rows | transition | what it is |
 | --- | --- | --- |
-| 3 assets | pinned `step-mismatch`, got `match` | F220 fixed |
-| 1 controlflow | pinned `one-side-rejected`, got `both-rejected` | F212 — both backends refuse now |
-| 5 (hostcalls, layout ×2, namespaces ×2) | pinned `one-side-rejected`, got `match` | F215, F211, F214, F217, F209 fixed |
-| 2 (hostcalls, integers) | genuine `step-mismatch` | **F203, still open** — root cause not located |
-| 1 namespaces | genuine `step-mismatch` | **F213 part 2, not shipped** |
+| **48** | `step-mismatch` → `match` | F213 part 1 (42: two twin-enum archetypes + the namespace-constant one) and **F221** (6) |
+| **4** | `one-side-rejected` → `match` | **F201** — `NsInheritedNamespacedTypedef` |
+| **2** | `trap-divergence` → `match` | F200 — the two `sint32` `DivQpi` rows |
+| 93 | `match` → `expect-violation` | pinned rows reporting their defect is gone: F212 (15), F209 (15), F217 (12), F214 (11), F215 (10), F211 (8), F220 (22) |
+| 5 | `step-mismatch` → `one-side-rejected` | **F204** turning a wrong answer into a refusal — intended |
+| **4** | `match` → `one-side-rejected` | **F204's real cost**, see below |
 
-The nine pinned rows fail *because* the defect is gone; those pins exist to fail that way. They need
-unpinning as part of landing any of this. The three real mismatches are the two findings that remain
-unfixed, and they were mismatching before these patches too.
+**Zero** `match` → `step-mismatch`, `digest-mismatch`, `trap-divergence` or `harness-error`, and no new
+hang, across 6,617 contracts. No correctness regression anywhere.
+
+### The one cost worth naming: F204 refuses 9 rows, not 5
+
+The register card says F204 has 5 red rows, so refusing constant out-of-range shifts reads like it
+touches 5 contracts. It touches **9** of the 17 `ShiftRhsWiderThanLhs` variants. Five were the diverging
+ones. The other four **both backends agreed on** — UB expressions where clang's folded answer and the
+wasm answer happened to coincide — and the fail-closed rule refuses them anyway, because it refuses by
+the shape of the expression, not by whether the two backends were lucky.
+
+That is the correct behaviour for a rule that declines to pick a semantics, but it is close to double the
+blast radius the card implies, and it is the one number in this directory that a reviewer should see
+before deciding to land F204.
+
+The 93 pinned rows fail *because* the defect is gone; those pins exist to fail that way and need removing
+as part of landing any of this. The 45 remaining genuine mismatches are F203 (32) and F213 part 2 (13),
+both unfixed, both mismatching before.
 
 ## F220 — asset iterator selectors
 
