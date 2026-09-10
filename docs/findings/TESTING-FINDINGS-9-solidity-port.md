@@ -2412,42 +2412,117 @@ anything the `locals` rows cover.
 for any contract holding an iterator — an ABI change that deserves its own PR and its own
 verification, not a patch folded into a fix branch.
 
-# F211 is partially fixed — correcting the claim in commit 238d790
+# F211 and F225 — one rule, applied everywhere
 
-That commit says the nested-type leak is fixed. It is fixed for the paths it was measured on and not
-for all of them. The full-tier sweep against core-lite `develop` (73f917a) leaves **6 rows** of
-`LayoutNestedStructNameCollision` diverging, all `one-side-rejected`, on the axis combination
-`layout=widestLast placement=nested temporaries=stateScratch`. clang compiles those contracts.
+Commit `238d790` claimed the nested-type leak was fixed. It was fixed for the two shapes it was
+measured on, and what it implemented was not the rule but a special case of it: *if the struct is
+file-scope, start from an empty map.* Every scope that is neither file scope nor the walk's own was
+left inheriting whatever bindings the layout walk arrived with. Two defects survived, one loud and one
+silent, and both are closed here.
 
-Measured both ways on `layout/LayoutNestedStructNameCollision__75b8b5ea`:
+## The rule
+
+A struct's field types resolve in the scope where the struct is **declared**, not in the scope the
+layout walk arrived from. That is ordinary C++, and it now holds for file scope, contract scope and
+arbitrary nesting alike.
+
+## The loud face — 6 rows of `LayoutNestedStructNameCollision`
+
+Those rows scored `one-side-rejected`: the backend reported `struct 'Inner' contains itself, directly
+or through its fields` on contracts clang compiles. Measured both ways on
+`layout/LayoutNestedStructNameCollision__75b8b5ea`:
 
 | | TypeScript |
 | --- | --- |
 | with the ABI recursion guard | `Codegen failed: struct 'Inner' contains itself, directly or through its fields` |
 | with the guard removed | `Codegen failed: Maximum call stack size exceeded.` |
 
-So the guard is sound — it converts a stack overflow into a named error — and the defect underneath
-it is real. Two things follow, and the second is the one that matters.
+So the guard was sound — it converted a stack overflow into a named error — and the defect underneath
+was real. The struct did not contain itself; a name resolved to the wrong declaration.
 
-**The diagnostic is wrong.** The struct does not contain itself; a name was resolved in the wrong
-scope. Anyone reading that message would go looking for a cycle that is not in their code.
+The emitted shape, read verbatim from the generated variant:
 
-**The same root cause has a silent face.** F225 is the identical leak reached through `sizeof`, and
-there it produces a wrong number rather than a refusal: `sizeof(Outer)` is 16 under clang and 8 here,
-so every offset laid out after it shifts. That is the reason to finish this rather than leave it at a
-loud failure.
+```cpp
+struct Inner { uint64 wide; uint8 narrow; };   // file scope
+struct Frame { Inner inner; uint64 after; };   // file scope
 
-Where the rule is applied, as of this branch:
+struct LayoutNestedStructNameCollision : public ContractBase {
+    struct Scratch { Inner writeStaged; };     // contract scope, declared BEFORE StateData
+    struct StateData {
+        struct Inner { Frame frame; uint64 frameSize; uint64 writes; Scratch scratch; };
+        uint64 placementGuard;
+        Inner inner;
+    };
+```
 
-| site | resolves fields under | state |
+`StateData` bound `{Inner → StateData::Inner}`; `StateData::Inner` inherited it; its field `frame` is
+file-scope so the old reset fired and `Frame::inner` correctly got `::Inner` — which is why the
+`locals` variants passed. Its field `scratch` is **contract**-scope, inherited
+`{Inner → StateData::Inner}`, and `Scratch::writeStaged` then resolved to `StateData::Inner`, which
+holds a `Scratch`. clang cannot follow that cycle: `Scratch` is declared before `StateData`, so
+unqualified `Inner` in its body can only be `::Inner`.
+
+**Correction to the earlier entry:** the discriminator is `temporaries=stateScratch`, not
+`layout=widestLast`. `emit.ts` hoists the `Write` procedure's `Inner staged;` local into a
+contract-scope `struct Scratch`, and `applyPlacement` then wraps the state in `Inner`; the back edge
+exists only under that axis. Exactly 6 variants carry it.
+
+## The silent face — F225
+
+The identical leak reached through `sizeof`, where it produces a wrong number instead of a refusal.
+`corpus/solidity-port/triage/F225-file-scope-struct-field/`:
+
+    clang       8 16 1
+    typescript  8 8 1      (before)
+    typescript  8 16 1     (after)
+
+`Outer` is file-scope, so its member `Inner inner` names the file-scope `Inner` — 16 bytes. The
+backend answered 8, having resolved the field against the contract's nested `Inner`. Every offset laid
+out after such a field shifts, with no diagnostic at all. `sizeof(Inner)` read from inside the
+contract is the control and stays 8: there the contract's own `Inner` really does win, and that is
+name hiding working correctly.
+
+## The second mechanism, and a suspect that was wrong
+
+Fixing the bindings alone would not have closed F225. `structByName` consulted
+`programAnalysis.nested` — a flat, **bare-name**, program-wide table of the contract's nested structs,
+written unconditionally — *before* `globalStructs`, for every lookup regardless of who was asking. So
+even a perfectly empty bindings map still reached the contract's `Inner`. The asymmetry showing this
+was an oversight: the recursive registrar guards its bare-name write with `!globalStructs.has(name)`;
+the top-level one clobbers.
+
+**A published suspect was wrong.** The earlier entry named
+`backend/wasm/expressions/value-expression.ts:308` passing `context.thisBind` as the strongest F225
+candidate. `emitFunction` never sets `thisBind`, so inside a contract entry that call is already
+`sizeOfType(Outer, EMPTY_TEMPLATE_BINDINGS)` — there was nothing in that map to leak. It was recorded
+as a candidate rather than asserted, which is the only reason it cost nothing.
+
+## What changed
+
+| site | before | after |
 | --- | --- | --- |
-| `semantics/struct-layout.ts` `layoutOfStruct` | `memberBindings` | fixed |
-| `backend/wasm/idl/abi-type-builder.ts` `withLocalStructs` | empty map when the struct is file-scope | fixed |
-| `semantics/template-resolver.ts` `withLocalStructs` | always the caller's bindings | unfixed |
-| `backend/wasm/expressions/value-expression.ts:307` | `context.thisBind` — the *contract's* bindings | suspect |
-| `semantics/struct-index.ts` `structOf` | caller's bindings, plus the scoped-name tables | unchecked |
+| `semantics/struct-index.ts` `structParent` / `structsVisibleIn` | — | each struct's lexical nesting is recorded; visible names come from its own chain, cached |
+| `semantics/template-resolver.ts` `withLocalStructs` | always extended the caller's map | given the owning declaration, builds from that declaration's scope and discards the caller's |
+| `backend/wasm/idl/abi-type-builder.ts` `withLocalStructs` | a second copy, file-scope special case | deleted; calls the one above |
+| `semantics/struct-layout.ts` `layoutOfStruct` | blanked `structs` when file-scope *and* non-empty | passes its declaration down; the special case is gone |
+| `semantics/struct-index.ts` `structByName` | always consulted `nested` | skips it when the bindings carry a resolved scope |
+| `semantics/struct-layout.ts` `bindingSig` | ignored the flag | includes it, so the layout cache cannot serve a scope-unknown entry to a scope-known lookup |
 
-Two implementations of one rule is itself the defect. The `sizeof` call site passing `thisBind` is the
-strongest current candidate for F225, but it is a candidate: three published root causes in this
-campaign were wrong before the fix was built, so this one is recorded as unsettled rather than
-asserted.
+Template arguments (`types`, `values`) still flow in from the caller — those are a different axis.
+
+The recursion guard stays, and now reports through the normal diagnostic path with the declaration's
+span instead of throwing, so a struct that genuinely contains itself gets a source location.
+
+## Harness defect found while measuring this
+
+`scripts/solidity-port/triage-probe.ts` carried the same clang-attribution bug already fixed in
+`compile.ts`: `buildContractWithClang` re-runs the TypeScript front end for metadata after the wasm is
+written and reports `ok: !idlError`, so a contract the TS parser declines reads as a *clang*
+rejection. While F211 was unfixed the probe printed `clang REJECTED: build failed` for a contract
+clang had compiled — the wasm was sitting in the output directory. It nearly cost a wrong conclusion.
+Fixed the same way: a clang build that produced a wasm succeeded, whatever the IDL says.
+
+## Not in scope
+
+F203, F215, F221, F223 share a different root cause — enumerate the known shapes, return `null`, let
+`null` become a silent default — and F224 is an ABI change. Each deserves its own change.
