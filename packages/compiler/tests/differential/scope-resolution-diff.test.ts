@@ -83,6 +83,45 @@ struct Outer { Inner inner; uint64 after; uint8 last; };`,
         ),
         expect: 16032n,
     },
+    // F225, the silent face of the same leak: `Outer` is file-scope, so its field `Inner` is the
+    // file-scope one (16), while `sizeof(Inner)` read from contract code is the contract's (8). Both
+    // halves matter — the second is the control, and over-suppressing the contract's nested table
+    // would break it. The backend used to answer 8 for both.
+    "a file-scope struct's field is not the contract's same-named nested struct": {
+        source: wrap(
+            `struct Inner { uint64 wide; uint64 tail; };
+struct Outer { Inner inner; };`,
+            `struct Inner { uint64 narrow; };
+struct StateData { uint64 a; };`,
+            `state.mut().a = sizeof(Inner) * 1000 + sizeof(Outer);`,
+        ),
+        expect: 8016n,
+    },
+    // The F211 residual: `Scratch` is contract-scope, so it inherited the caller's bindings and read
+    // `Inner` as `StateData::Inner`, which holds a `Scratch` — a cycle clang cannot see, because
+    // `Scratch` is declared before `StateData`. Its field is the file-scope `Inner`, so 16.
+    "a contract-scope struct resolves its fields in contract scope, not the caller's": {
+        source: wrap(
+            `struct Inner { uint64 wide; uint8 narrow; };
+struct Frame { Inner inner; uint64 after; };`,
+            `struct Scratch { Inner writeStaged; };
+struct StateData { struct Inner { Frame frame; uint64 frameSize; Scratch scratch; }; uint64 a; Inner inner; };`,
+            `state.mut().a = sizeof(Scratch);`,
+        ),
+        expect: 16n,
+    },
+    // The other direction, which the fix must not break: two contract-scope siblings see each other,
+    // so `Holder`'s field is the contract's `Tag` (8) and not the file-scope one (16).
+    "a contract-scope struct's field is the contract's nested type, not a file-scope namesake": {
+        source: wrap(
+            `struct Tag { uint64 first; uint64 second; };`,
+            `struct Tag { uint64 only; };
+struct Holder { Tag tag; };
+struct StateData { uint64 a; };`,
+            `state.mut().a = sizeof(Holder) * 1000 + sizeof(Tag);`,
+        ),
+        expect: 8008n,
+    },
 };
 
 const runState = (wasm: Uint8Array): bigint => {
@@ -134,4 +173,19 @@ describe.skipIf(!HAS_CORE)("differential — name and scope resolution parity", 
             180000,
         );
     }
+
+    // The scope fix must not disarm the recursion guard: a struct that really does contain itself is a
+    // source error, reported with a location rather than a stack overflow.
+    test("a struct that genuinely contains itself is still rejected", async () => {
+        const source = wrap(`struct SelfRef { uint64 head; SelfRef nested; };`, `struct StateData { uint64 a; SelfRef self; };`, `state.mut().a = 1;`);
+        const ours = await compileContractWithTypeScript({
+            source,
+            contractName: "ScopeProbe",
+            slot: 27,
+            qpiHeader: HEADERS(),
+            arenaSizeBytes: 1 << 20,
+        });
+        const errors = ours.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
+        expect(errors.some((diagnostic) => /contains itself/.test(diagnostic.message))).toBe(true);
+    }, 180000);
 });
