@@ -1,0 +1,98 @@
+F203 — qpi.K12 of a computed expression hashes the wrong bytes
+
+ROOT CAUSE, located at last. Two earlier published causes were wrong; this one is read off the emitted
+WAT, which shows the contract compiling *two* K12 instantiations:
+
+    (func $T0_QpiContextProcedureCall_K12 ...
+      (call $lh_k12 (local.get $data) (i32.const 8) ...))   <- the two controls
+    (func $T1_QpiContextProcedureCall_K12 ...
+      (call $lh_k12 (local.get $data) (i32.const 1) ...))   <- the two expressions
+
+`sizeof(T)` is 8 for `qpi.K12(input.a)` and **1** for `qpi.K12(input.a + input.b)`. The argument scratch
+is allocated 4 bytes and the value truncated with `i32.wrap_i64` to match. So the expression rows hash
+one byte of a truncated copy, which is why the digest is not the K12 of any value in the contract.
+
+`methodArgTypes` in containers.ts recognised three argument shapes — an addressable lvalue, a
+construction, and a call naming an aggregate — and returned null for everything else. Every computed
+expression is "everything else", so `T` was never bound and `sizeof(T)` fell back to 1.
+
+An rvalue has a type in C++ just as an lvalue does, and for the scalar subset it is the one the usual
+arithmetic conversions give. `scalarTypeInfo` already computes exactly that — it is what the backend
+trusts to lower the arithmetic itself — so deduction now asks it and maps (width, signedness) back to
+the QPI scalar name. General: any `template<typename T>` QPI method called with an expression was
+mis-deducing; K12 is only where the width is observable in the answer.
+
+Measured: K12Struct both backends identical, and the invariant the repro asserts now holds —
+K12(a) == K12(a*1) and K12(sum) == K12(a+b). Suite 1085/0. The `integers` family is 1451/1451.
+
+diff --git a/packages/compiler/src/backend/wasm/calls/containers.ts b/packages/compiler/src/backend/wasm/calls/containers.ts
+index e19f8c1..240b980 100644
+--- a/packages/compiler/src/backend/wasm/calls/containers.ts
++++ b/packages/compiler/src/backend/wasm/calls/containers.ts
+@@ -291,6 +291,47 @@ function overloadDiscriminator(
+ }
+ 
+ // Build a call using the compiled method's concrete parameter types.
++/**
++ * The type a member template deduces `T` from for one call argument.
++ *
++ * The three lvalue-ish shapes below cover an argument that has an address, is constructed in place, or
++ * names an aggregate. Everything else — every computed expression — used to return null, and an
++ * unbound `T` then made `sizeof(T)` 1. That is F203: `qpi.K12(input.a + input.b)` compiled to a second
++ * instantiation hashing **one byte** where `qpi.K12(input.a)` hashed eight, so a commitment computed
++ * inline differed from the same value hashed through a named local, with no diagnostic on either side.
++ *
++ * An rvalue has a type in C++ just as an lvalue does, and for the scalar subset it is the one the usual
++ * arithmetic conversions give. `scalarTypeInfo` already computes exactly that — it is what the backend
++ * trusts to lower the arithmetic itself — so deduction asks it rather than giving up. This is the
++ * general rule and not a case for K12: any `template<typename T>` QPI method called with an expression
++ * was mis-deducing, and K12 is only where the width is observable in the answer.
++ */
++export function deduceMethodArgumentType(context: FunctionEmissionContext, argument: Expression): TypeSpec | null {
++    const node = context.lowering.resolveExpressionAddress(context, argument);
++    if (node?.type) return context.programAnalysis.derefType(node.type);
++    if (argument.kind === AstKind.CONSTRUCT) return context.programAnalysis.derefType(argument.type);
++    if (argument.kind === AstKind.CALL && argument.callee.kind === AstKind.IDENTIFIER) {
++        const type: TypeSpec = { kind: AstKind.NAME, name: argument.callee.name };
++        if (context.programAnalysis.isAggregateType(type)) return type;
++    }
++    const scalar = context.lowering.scalarTypeInfo(context, argument);
++    const name = scalar ? SCALAR_TYPE_BY_SHAPE[`${scalar.width}${scalar.unsigned ? "u" : "s"}`] : undefined;
++    return name ? { kind: AstKind.NAME, name } : null;
++}
++
++// The QPI spelling of each (width, signedness) pair scalarTypeInfo can report. These are the names the
++// layout and ABI tables key on, so a deduced `T` lands on the same sizes a declared one would.
++const SCALAR_TYPE_BY_SHAPE: Record<string, string> = {
++    "1s": "sint8",
++    "1u": "uint8",
++    "2s": "sint16",
++    "2u": "uint16",
++    "4s": "sint32",
++    "4u": "uint32",
++    "8s": "sint64",
++    "8u": "uint64",
++};
++
+ export function callCompiled(
+     context: FunctionEmissionContext,
+     type: TypeSpec & {
+@@ -306,17 +347,7 @@ export function callCompiled(
+     cm: CompiledMethod;
+     retDest?: string;
+ } | null {
+-    const methodArgTypes = () =>
+-        callArguments.map((argument) => {
+-            const node = context.lowering.resolveExpressionAddress(context, argument);
+-            if (node?.type) return context.programAnalysis.derefType(node.type);
+-            if (argument.kind === AstKind.CONSTRUCT) return context.programAnalysis.derefType(argument.type);
+-            if (argument.kind === AstKind.CALL && argument.callee.kind === AstKind.IDENTIFIER) {
+-                const type: TypeSpec = { kind: AstKind.NAME, name: argument.callee.name };
+-                if (context.programAnalysis.isAggregateType(type)) return type;
+-            }
+-            return null;
+-        });
++    const methodArgTypes = () => callArguments.map((argument) => deduceMethodArgumentType(context, argument));
+     const bind = context.programAnalysis.bindContainer(type.name, type.callArguments);
+     const discriminator = parameterTypeDiscriminator ?? overloadDiscriminator(context, type, method, callArguments, bind);
+     const cm = compileContainerMethod(context.programAnalysis, type, method, callArguments.length, discriminator, methodArgTypes, explicitTemplateArgs);

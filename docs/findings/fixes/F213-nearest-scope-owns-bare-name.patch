@@ -1,0 +1,175 @@
+F213 — a constant name is global, and the last declaration wins
+
+THE REAL FIX. Supersedes F213-part1-enclosing-scope-key.patch (which it contains) and replaces
+F213-both-parts.patch, which fixed 13 rows and broke 17.
+
+Part 1 registered the enclosing-scope key so `Alpha::Low` resolves to its own declaration, and fixed 42
+of 55 rows. The remaining 13 were the bare spelling:
+
+    static constexpr uint64 Threshold = 5;
+    namespace Port { enum Limits { Threshold = 55 }; }
+    state.mut().fromFile = Threshold;    // clang 5, TypeScript 55
+
+A bare key is not a declaration — it is how a using-directive reaches a namespaced name — so several
+declarations compete for one slot. Both collectConstant and collectEnum took it unconditionally and
+deleted the other kind's entry with it, so whichever was collected last won.
+
+The rejected part 2 stopped an enum from evicting a `constexpr`. That is precedence by **kind**, which
+is the same bug mirrored: it made a constexpr beat a later enum member outright and turned 17
+`LogPayloadWithIdField` rows red. This decides by **scope** instead, which is what C++ does: the
+nearest declaration owns the bare name, and equal scope keeps last-writer-wins so a contract still
+shadows a qpi.h constant of the same name. Ownership is recorded once per declaration in
+`bareNameScope`, and the cross-kind deletes follow it, so neither side can evict a nearer declaration.
+
+Order-independent: the file-scope constant wins whether it is collected before or after the namespaced
+enum.
+
+Measured: TwinEnum both backends identical on all ten fields. The `namespaces` family is 831/831 on
+value rows (27 stale pins for F209/F217 remain). **The `logging` family is 306/306** — the 17 rows part
+2 broke are untouched, which is the difference between deciding by kind and deciding by scope.
+Suite 1085/0.
+
+diff --git a/packages/compiler/src/semantics/declaration-index.ts b/packages/compiler/src/semantics/declaration-index.ts
+index b7b6f0a..204c045 100644
+--- a/packages/compiler/src/semantics/declaration-index.ts
++++ b/packages/compiler/src/semantics/declaration-index.ts
+@@ -34,11 +34,49 @@ export function registerScoped<Value>(
+         map.set(`${scopePrefix}${name}`, value);
+     }
+ 
++    if (barePolicy === BareNamePolicy.SKIP) {
++        return;
++    }
++
+     if (barePolicy === BareNamePolicy.OVERWRITE || !map.has(name)) {
+         map.set(name, value);
+     }
+ }
+ 
++/**
++ * Whether a declaration at `scopePrefix` owns the bare spelling of `name`.
++ *
++ * A bare key is not a declaration. It is how a using-directive reaches a namespaced name, so several
++ * declarations compete for the one slot, and C++ hands it to the **nearest** — a file-scope
++ * `static constexpr uint64 Threshold = 5` is `Threshold`, while `namespace Port { enum Limits
++ * { Threshold = 55 }; }` declares `Port::Threshold` and is only reachable bare through a
++ * using-directive. Both tables here used to take the slot unconditionally and delete the other kind's
++ * entry with it, so whichever was collected last won and a qualified read of one changed the value of
++ * the other (F213).
++ *
++ * Nearest wins; equal scope keeps last-writer-wins, which is what lets a contract shadow a qpi.h
++ * constant of the same name. Precedence is by **scope**, never by kind of declaration: an earlier
++ * attempt that made a `constexpr` beat an enum member outright was the same bug mirrored, and turned
++ * 17 corpus rows red.
++ */
++export function claimsBareName(programAnalysis: ProgramAnalysis, name: string, scopePrefix: string): boolean {
++    const owner = programAnalysis.bareNameScope.get(name);
++    if (owner === undefined || owner === scopePrefix) return true;
++    return scopeDepth(scopePrefix) < scopeDepth(owner);
++}
++
++/** How many namespace hops a scope prefix is from file scope. `""` is 0, `"Port::"` is 1. */
++function scopeDepth(scopePrefix: string): number {
++    return scopePrefix ? scopePrefix.split("::").length - 1 : 0;
++}
++
++/** Record the winner and return the policy its tables should register the bare key under. */
++function bareNamePolicyFor(programAnalysis: ProgramAnalysis, name: string, scopePrefix: string, requested: BareNamePolicy): BareNamePolicy {
++    if (!claimsBareName(programAnalysis, name, scopePrefix)) return BareNamePolicy.SKIP;
++    programAnalysis.bareNameScope.set(name, scopePrefix);
++    return requested;
++}
++
+ /**
+  * The keys a scoped name may be indexed under, most specific first: the name as written, the scopes it can be
+  * reached from, then the bare tail a using-directive registered it under. One order for every scoped table, so
+@@ -373,12 +411,17 @@ export function collectConstant(
+     barePolicy: BareNamePolicy = BareNamePolicy.OVERWRITE,
+ ): void {
+     if (variableDeclaration.initializer && (variableDeclaration.isConstexpr || variableDeclaration.type.kind === AstKind.CONST)) {
+-        // User constants shadow seeded qpi.h constants with the same unqualified name.
+-        registerScoped(programAnalysis.constexprInit, scopePrefix, variableDeclaration.name, variableDeclaration.initializer, barePolicy);
+-        registerScoped(programAnalysis.constexprType, scopePrefix, variableDeclaration.name, variableDeclaration.type, barePolicy);
++        // One ownership decision for the whole declaration, not one per table — otherwise the first
++        // table's claim silently settles it for the rest. User constants shadow seeded qpi.h constants
++        // with the same unqualified name, which is the equal-scope case and still last-writer-wins.
++        const effectivePolicy = bareNamePolicyFor(programAnalysis, variableDeclaration.name, scopePrefix, barePolicy);
++        registerScoped(programAnalysis.constexprInit, scopePrefix, variableDeclaration.name, variableDeclaration.initializer, effectivePolicy);
++        registerScoped(programAnalysis.constexprType, scopePrefix, variableDeclaration.name, variableDeclaration.type, effectivePolicy);
+         // The initializer names its neighbours unqualified, so it has to be evaluated where it was written.
+-        registerScoped(programAnalysis.constexprScope, scopePrefix, variableDeclaration.name, scopePrefix, barePolicy);
+-        for (const key of scopedKeys(scopePrefix, variableDeclaration.name)) {
++        registerScoped(programAnalysis.constexprScope, scopePrefix, variableDeclaration.name, scopePrefix, effectivePolicy);
++        // Clearing the other kind follows ownership too: a namespaced constant must not delete the bare
++        // enum constant a nearer declaration owns.
++        for (const key of ownedKeys(scopePrefix, variableDeclaration.name, effectivePolicy)) {
+             programAnalysis.enumConst.delete(key);
+             programAnalysis.enumConstType.delete(key);
+             programAnalysis.constCache.delete(key);
+@@ -391,6 +434,12 @@ function scopedKeys(scopePrefix: string, name: string): string[] {
+     return scopePrefix ? [`${scopePrefix}${name}`, name] : [name];
+ }
+ 
++/** The subset of those keys this declaration may clear: the bare one only when it owns it. */
++function ownedKeys(scopePrefix: string, name: string, barePolicy: BareNamePolicy): string[] {
++    const keys = scopedKeys(scopePrefix, name);
++    return barePolicy === BareNamePolicy.SKIP ? keys.filter((key) => key !== name) : keys;
++}
++
+ export function collectEnum(
+     programAnalysis: ProgramAnalysis,
+     type: {
+@@ -431,16 +480,20 @@ export function collectEnum(
+         // enum was declared in: `namespace Alpha { enum Level { Low }; }` makes `Alpha::Low` the
+         // spelling C++ requires. Without that key the qualified read misses and falls back to the bare
+         // tail, which is a flat last-write-wins map — so `Alpha::Low` answered with Beta's value (F213).
++        // The bare key is a convenience for using-directives, not a declaration, so the nearest
++        // declaration owns it — the same rule collectConstant applies, from the other side. A
++        // file-scope `static constexpr uint64 Threshold = 5` beside `namespace Port { enum Limits
++        // { Threshold = 55 }; }` kept whichever was collected last, so a bare `Threshold` read 55
++        // (F213). Qualified keys are the member's own declaration and are written unconditionally.
++        const claimsBare = bareNamePolicyFor(programAnalysis, member.name, scopePrefix, barePolicy) !== BareNamePolicy.SKIP;
+         const memberScopes = type.name
+             ? [...new Set([...scopedKeys(scopePrefix, `${type.name}::`), scopePrefix, ""])]
+             : [...new Set([scopePrefix, ""])];
+         for (const scope of memberScopes) {
+             const key = `${scope}${member.name}`;
+-            // The bare key is a convenience for using-directives, not a declaration. It must not
+-            // evict a real one: `static constexpr uint64 Shared = 5` at file scope, then
+-            // `namespace WithEnum { enum Kinds { Shared = 55 }; }`, left the bare `Shared` reading 55
+-            // because this loop deleted the constexpr and overwrote the slot (F213). A qualified key
+-            // is the member's own declaration and still wins outright.
++            // `scope === ""` is the bare key only when the enum is not itself at file scope; when it
++            // is, scopePrefix is "" and that key is the declaration.
++            if (key === member.name && scopePrefix !== "" && !claimsBare) continue;
+             programAnalysis.constexprInit.delete(key);
+             programAnalysis.constexprType.delete(key);
+             programAnalysis.enumConst.set(key, programAnalysis.normalizeConst(numericValue, enumType));
+diff --git a/packages/compiler/src/semantics/program-analysis.ts b/packages/compiler/src/semantics/program-analysis.ts
+index fb0f5b0..816f0e0 100644
+--- a/packages/compiler/src/semantics/program-analysis.ts
++++ b/packages/compiler/src/semantics/program-analysis.ts
+@@ -58,6 +58,10 @@ export class ProgramAnalysis {
+     constexprInit: Map<string, Expression> = new Map(); // named constexpr → its init expression
+     constexprType: Map<string, TypeSpec> = new Map(); // named constexpr → declared scalar type
+     constexprScope: Map<string, string> = new Map(); // named constexpr → the scope prefix it was declared in
++    // Bare name → the scope prefix of the declaration that owns it. A bare key is how a using-directive
++    // reaches a namespaced name, so several declarations compete for one; C++ gives it to the nearest,
++    // and this records which that is. See claimsBareName in declaration-index.ts.
++    bareNameScope: Map<string, string> = new Map();
+     constantScopes: string[] = []; // scope prefixes of the constants whose initializers are being evaluated
+     enumConst: Map<string, bigint> = new Map(); // enum constant (NAME and Type::NAME) → value
+     checkedTemplateAsserts: Set<string> = new Set(); // template instantiations whose static_asserts already ran
+diff --git a/packages/compiler/src/shared/enums.ts b/packages/compiler/src/shared/enums.ts
+index eebbf01..bfe9f37 100644
+--- a/packages/compiler/src/shared/enums.ts
++++ b/packages/compiler/src/shared/enums.ts
+@@ -436,6 +436,8 @@ export enum LogPayloadDefect {
+ export enum BareNamePolicy {
+     OVERWRITE = "overwrite",
+     KEEP = "keep",
++    /** Qualified keys only — the declaration is not the nearest one to own this bare name. */
++    SKIP = "skip",
+ }
+ 
+ export enum UnsupportedFeature {

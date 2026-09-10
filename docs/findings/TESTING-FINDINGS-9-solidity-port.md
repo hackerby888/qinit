@@ -2151,3 +2151,110 @@ the card implied. It is the one number here a reviewer should see before decidin
 The 45 genuine mismatches that remain are F203 (32 rows) and F213 part 2 (13), both unfixed and both
 mismatching before these patches. The 93 pinned rows fail *because* the defect is gone — the pins exist
 to fail that way — and need removing as part of landing any of this.
+
+
+# The three that were still open — closed, with clang as the oracle
+
+The verification pass left F203 unlocated, F213 red on 13 rows, and F205 untried. This closes all three,
+and revisits F204, whose fix was wrong on the campaign's own terms.
+
+**The standard applied throughout: clang is the oracle.** Where the two backends disagree the answer is
+whatever clang emits, because that is what the chain runs. A fix is right when it makes the TypeScript
+backend produce clang's answer — not when it merely makes the two agree, and not when it refuses the
+program instead.
+
+## F203 — located on the third attempt, from the emitted WAT
+
+Two published root causes were wrong. Dumping the wasm settled it in one step: the contract compiles
+**two** K12 instantiations.
+
+```wat
+(func $T0_QpiContextProcedureCall_K12 ...
+  (call $lh_k12 (local.get $data) (i32.const 8) (local.get $digest)))   ;; the two controls
+(func $T1_QpiContextProcedureCall_K12 ...
+  (call $lh_k12 (local.get $data) (i32.const 1) (local.get $digest)))   ;; the two expressions
+```
+
+`sizeof(T)` is 8 for `qpi.K12(input.a)` and **1** for `qpi.K12(input.a + input.b)`, and the argument
+scratch is allocated 4 bytes with the value truncated by `i32.wrap_i64` to match. So the expression rows
+hash one byte of a truncated copy — which is exactly why the digest was the K12 of no value in the
+contract, and why nobody recognised it.
+
+`methodArgTypes` recognised three argument shapes — an addressable lvalue, a construction, a call naming
+an aggregate — and returned null for everything else. Every computed expression is "everything else", so
+`T` was never bound. An rvalue has a type in C++ just as an lvalue does, and `scalarTypeInfo` already
+computes it — it is what the backend trusts to lower the arithmetic itself. Deduction simply never asked.
+
+General: any `template<typename T>` QPI method called with an expression was mis-deducing. K12 is only
+where the width is observable in the answer.
+
+## F213 — decide by scope, not by kind
+
+Part 1 fixed 42 of 55 rows. The rejected part 2 fixed the last 13 and broke 17, because it made a
+`constexpr` beat a later enum member outright — precedence by *kind of declaration*, which is the
+original bug mirrored.
+
+A bare key is not a declaration; it is how a using-directive reaches a namespaced name, so several
+declarations compete for one slot. C++ gives it to the nearest. `bareNameScope` now records which
+declaration owns each bare name, both collectors consult it, and the cross-kind deletes follow it so
+neither side can evict a nearer declaration. Equal scope keeps last-writer-wins, which is what lets a
+contract shadow a qpi.h constant — the case an earlier "first declaration wins" draft broke by letting a
+snapshot enum own the bare keys first.
+
+Order-independent, and symmetric between the two kinds. All 55 rows, and `logging` stays 306/306.
+
+## F205 — class scope is searched first
+
+`enum Kind { Helper = 3 }` at file scope beside `PRIVATE_FUNCTION(Helper)` in the contract: name lookup
+inside a member function searches class scope before namespace scope, so `Helper` names the member
+function and `state.mut().hidden = Helper;` is ill-formed. clang says so; the backend took the enum
+constant and stored 3. `hasStateParam` is the class-scope boundary — it marks the contract's own
+entries — so a qpi.h body using a constant that shares a name with some contract's entry is unaffected.
+
+## F204 — the oracle rule caught my own fix
+
+The verification pass shipped a patch that **refused** an out-of-range constant shift, arguing that the
+expression is undefined behaviour and clang contradicts itself between the folded and runtime spellings.
+That was a policy choice dressed as a fix, and it was measurably wrong: clang *compiles* these
+contracts, and refusing them made **4 corpus rows that previously agreed with clang stop agreeing**.
+
+The rule was then measured off clang rather than reasoned about. A probe shifting a runtime value by a
+constant count outside the operand width, built with wasi-sdk clang:
+
+| expression | clang |
+| --- | --- |
+| `value << 254` | 0 |
+| `value >> 254` | 0 |
+| `signedValue >> 254` | 0 |
+| `value << -3` | 0 |
+| `narrow << 40` (uint32) | 0 |
+| `value << 3` (control) | 40 |
+
+Uniform: a constant count outside `[0, width)` yields 0, left and right, signed and unsigned, at every
+width. Only the count folds — the value stays a runtime operand — so this is clang's codegen answer, not
+its constant evaluator's. The backend now folds to 0 and leaves a runtime count masking.
+
+It reproduces clang's self-inconsistency on purpose: `agreeOutOfRange` reads 0 on both backends. That is
+the finding's actual point — a contract tested under `--compiler typescript` must predict the deployed
+answer, including where the deployed answer is odd.
+
+## Corpus: every row matches clang
+
+Full tier, all sixteen patches:
+
+```
+6618 contracts · 6510 match · 108 not-match · 0 hang · median 250ms
+  0 digest-mismatch  0 step-mismatch  0 trap-divergence
+  0 one-side-rejected  0 both-rejected  0 harness-error
+```
+
+The 108 are `expect-violation` and nothing else — pinned rows reporting that their defect is gone, which
+is what those pins exist to do. They are the ten pinned archetypes for F220 (22), F212 (15), F205 (15),
+F209 (15), F217 (12), F214 (11), F215 (10) and F211 (8), and they need unpinning as part of landing any
+of this.
+
+Against the round-7 baseline over the same shared ids: **98 rows step-mismatch → match**, 4
+one-side-rejected → match, 2 trap-divergence → match, and **zero rows move from match to any real
+mismatch**.
+
+All sixteen compiler findings are closed. Unit suite 1085 pass / 0 fail.

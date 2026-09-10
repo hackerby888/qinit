@@ -587,10 +587,11 @@
       digest of their final state. Where the two disagree, one of them is what the chain does. Round 6
       added a third opinion — core’s own WAMR runtime — but round 7 found it had been comparing one
       artifact with itself, so that table is <em>withdrawn</em> and replaced by a measured one. This is
-      every disagreement the seven rounds turned up. Every fix here has now been <em>built and
-      measured</em> — twelve of them fix their finding with the suite green and no new corpus row broken,
-      one breaks more than it fixes, one is still unlocated, and two published root causes turned out to
-      be wrong. Nothing is applied; the patches are in <code>docs/findings/fixes/</code>.
+      every disagreement the seven rounds turned up — and every one of the sixteen compiler findings
+      now has a fix that has been <em>built and measured</em>. Across 6,618 contracts, <em>every row
+      matches clang</em>. Three published root causes turned out to be wrong when someone finally built
+      them, and one fix of mine was wrong for a subtler reason: it refused a program clang accepts.
+      Nothing is applied; the patches are in <code>docs/findings/fixes/</code>.
     </p>
     <div class="tally">
       <div><span class="n">23</span><span class="k">numbered entries</span></div>
@@ -598,7 +599,7 @@
       <div><span class="n">7</span><span class="k">harness / engine</span></div>
       <div><span class="n">6,618</span><span class="k">contracts swept</span></div>
       <div><span class="n">449</span><span class="k">archetypes</span></div>
-      <div><span class="n">12</span><span class="k">findings closed</span></div>
+      <div><span class="n">16</span><span class="k">findings closed</span></div>
     </div>
   </header>
 
@@ -852,27 +853,23 @@
       </p>
     </div>
     <div class="systemic">
-      <span class="tag">Every fix built and measured — 14 patches ship, and they close 12 findings, not 14</span>
+      <span class="tag">All sixteen closed — one patch each, every row matching clang</span>
       <p>
-        Each fix below was built in a worktree, run against its triage repro, then against the compiler
-        unit suite and the corpus. Gate: <b>1084 pass / 0 fail</b> on a clean tree, <b>1085 / 0</b> once
-        F217 adds its toolchain test. <b>F200, F201, F209, F210, F211, F212, F214, F215, F217, F220, F221
-        and the new F222 each fix their finding</b> — twelve. <b>F204</b> ships as a <em>refusal</em>, not
-        an answer: the expression is undefined behaviour and clang contradicts itself about it, so there
-        is nothing to match.
+        Each fix below was built in a worktree, run against its triage repro through both backends, then
+        against the compiler unit suite and the full corpus. Gate: <b>1084 pass / 0 fail</b> on a clean
+        tree, <b>1085 / 0</b> once F217 adds its toolchain test.
       </p>
       <p>
-        <b>Shipping a patch is not the same as closing a finding, and an earlier revision of this page
-        counted F213 as fixed. It is not.</b> Part 1 ships and moves 42 of its 55 rows; <b>13 still
-        diverge</b>, so F213 is still red. Part 2 would clear those 13 and turn <b>17 other rows red</b>,
-        and net −4 is not the reason to refuse it — both drafts pick a winner by <em>kind</em> of
-        declaration, where the C++ rule is scope-aware. A patch that moves most of a finding's rows is
-        progress, not a fix.
+        <b>The standard is clang, not agreement.</b> Where the two backends disagree the answer is
+        whatever clang emits, because that is what the chain runs. A fix is right when it makes the
+        TypeScript backend produce clang's answer — not when it merely makes the two agree, and not when
+        it refuses the program instead. Two patches failed that test and were replaced; they are kept in
+        <code>docs/findings/fixes/superseded/</code> with a note on why.
       </p>
       <p>
-        Also still red: <b>F203</b> — its published root cause was wrong, and the follow-up theory was
-        built and fixes nothing. <b>F205</b> was not attempted; its card sequences it after the F213 scope
-        work. Patches and the full numbers: <code>docs/findings/fixes/</code>.
+        Three published root causes on this page were <b>wrong</b> — F203, F213 part 2 and F221 — and each
+        was settled in one step once the fix was actually built. F203 took a wasm dump, F221 took a wasm
+        dump, F213 took asking what C++ decides by. An unbuilt root cause is a guess.
       </p>
     </div>
     <p class="note">
@@ -882,24 +879,20 @@
       <b>F221</b> — and both cards now say so above their fix.
     </p>
     <div class="systemic">
-      <span class="tag">Corpus effect, all fourteen stacked — the full 6,618</span>
+      <span class="tag">Corpus effect, all sixteen stacked — the full 6,618</span>
       <p>
-        <b>6,471 match · 147 not-match · 0 hang · 0 digest-mismatch · 0 trap-divergence · 0 both-rejected ·
-        0 harness-error.</b> Diffed row-by-row against the round-7 baseline over the same 6,617 ids:
-        <b>48 rows go step-mismatch → match</b> (F213 part 1 and F221), <b>4 go one-side-rejected →
-        match</b> (F201), <b>2 go trap-divergence → match</b> (F200). 93 pinned rows now report
-        <em>"expected the documented divergence but got match"</em> — those pins exist to fail when the
-        defect goes away and need removing as part of landing any of this. <b>Zero</b> rows go from match
-        to a mismatch of any kind. No correctness regression across 6,617 contracts.
+        <b>6,510 match · 108 not-match · 0 hang.</b> And the breakdown is the point:
+        <b>0 digest-mismatch · 0 step-mismatch · 0 trap-divergence · 0 one-side-rejected ·
+        0 both-rejected · 0 harness-error</b>. Every one of the 108 is an
+        <code>expect-violation</code> — a pinned row reporting that its defect is gone, which is what
+        those pins exist to do. They cover F220 (22), F212 (15), F205 (15), F209 (15), F217 (12),
+        F214 (11), F215 (10) and F211 (8), and they need unpinning as part of landing any of this.
       </p>
       <p>
-        <b>One cost is bigger than its card implies.</b> F204's card gives it 5 red rows, but refusing
-        constant out-of-range shifts refuses <b>9 of the 17</b> <code>ShiftRhsWiderThanLhs</code> variants:
-        five were diverging, and <b>four both backends agreed on</b> — undefined expressions where clang's
-        folded answer and the wasm answer happened to coincide. The rule refuses by the shape of the
-        expression, not by whether the two backends got lucky, which is right and is also close to double
-        the blast radius the card suggested. The 45 genuine mismatches left are F203 (32) and F213 part 2
-        (13), both unfixed and both mismatching before.
+        Diffed row-by-row against the round-7 baseline over the same shared ids: <b>98 rows go
+        step-mismatch → match</b>, 4 go one-side-rejected → match, 2 go trap-divergence → match, and
+        <b>zero rows move from match to any real mismatch</b>. Every contract in the corpus now answers
+        what clang answers.
       </p>
     </div>
     <div class="findings" id="findings">
@@ -908,7 +901,7 @@
         <div class="fhead">
           <span class="fid">F213</span>
           <h3 class="ftitle">A constant name is global, and the last declaration wins</h3>
-          <div class="fmeta"><span class="sev sev-critical">critical</span><span class="status red"><b>55 rows red · 13 after part 1</b></span></div>
+          <div class="fmeta"><span class="sev sev-critical">critical</span><span class="status red"><b>55 rows red · all 55 fixed</b></span></div>
         </div>
         <p class="fsum">
           Every read below is <strong>fully qualified</strong>, so C++ has nothing to disambiguate and clang's
@@ -947,12 +940,17 @@ namespace WithEnum { enum Kinds     { Shared = 55 }; }
           struct sizes and offsets, which a mis-resolution between identically shaped types cannot disturb.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested bad">still red · part 1 ships, 42 of 55 rows · 13 remain</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
-          <p>Qualified reads miss because the key is never written. The bare fallback then reads a flat map.</p>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <p>
+            Two mechanisms. Qualified reads missed because the key was never written; the bare spelling
+            then fell through to a flat last-write-wins map. Both are scope questions, and neither is
+            about the <em>kind</em> of declaration — which is where the first attempt at the second half
+            went wrong.
+          </p>
           <ol>
             <li><span class="rec">do this</span><code>declaration-index.ts:429</code> — add <code>scopePrefix</code> to <code>memberScopes</code> for unscoped enums. Registers <code>Alpha::Low</code>, the spelling C++ actually requires. Additive. Fixes every qualified read on its own.<span class="cost">low risk · adds keys, moves none</span></li>
-            <li>The remaining 13 rows are enum-vs-<code>constexpr</code> on the <em>bare</em> key: the enum loop calls <code>constexprInit.delete(key)</code> and evicts a real file-scope constant. Stopping that eviction was built — it clears those 13 and turns <b>17 <code>LogPayloadWithIdField</code> rows red</b>, because the resulting rule is "a <code>constexpr</code> always beats a later enum member", the mirror of the original bug. <b>Not shipped, and not because of the arithmetic:</b> it picks a winner by kind of declaration where C++ picks by scope.<span class="cost">measured · 13 fixed, 17 broken · docs/findings/fixes/F213-both-parts.patch</span></li>
-            <li><span class="rec">do this next</span>Write the scope-aware rule: nearest declaration wins, equal-scope collision is <b>ambiguous and a diagnostic</b>. <code>registerScoped</code> + <code>BareNamePolicy</code> already exist at <code>shared/enums.ts:436</code> and this loop bypasses them with a raw <code>.set()</code>; an <code>AMBIGUOUS</code> policy erroring from <code>constant-evaluator.ts:49</code> is the shape. An earlier "first declaration wins" draft resolved <code>enum E { A = 4, B, C = 9, D }</code> to 66 and 68 — the ASCII values — because a snapshot enum owned the bare keys first.<span class="cost">the real fix · larger than either draft · rejects code that builds today</span></li>
+            <li><span class="rec">do this</span>A bare key is not a declaration — it is how a using-directive reaches a namespaced name — so several declarations compete for one slot, and <b>C++ gives it to the nearest</b>. <code>bareNameScope</code> now records which declaration owns each bare name, both collectors consult it, and the cross-kind deletes follow it, so neither side can evict a nearer declaration. Equal scope keeps last-writer-wins, which is what lets a contract shadow a qpi.h constant.<span class="cost">order-independent · symmetric between the two kinds · all 55 rows</span></li>
+            <li><b>Two drafts of this were wrong, both by deciding on kind rather than scope.</b> Making a <code>constexpr</code> beat a later enum member cleared the last 13 rows and turned <b>17 <code>LogPayloadWithIdField</code> rows red</b> — the original bug mirrored. An earlier "first declaration wins" resolved <code>enum E { A = 4, B, C = 9, D }</code> to 66 and 68, the ASCII values, because a snapshot enum owned the bare keys first. Under the scope rule <code>logging</code> stays 306/306.<span class="cost">both kept in fixes/superseded/</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1036,20 +1034,27 @@ state.mut().ofProductExpression = qpi.K12(input.a * 1);        <b>the finding</b
           written to test Merkle index arithmetic that caught a hashing bug instead.
         </div>
         <div class="fix" data-conf="verified">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested bad">tested · proposed fix is WRONG</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
           <p>
-            <b>Root cause reopened.</b> This card previously blamed
-            <code>emitAddress(...) ?? "(i32.const 0)"</code> in <code>host-intrinsic-call.ts</code>.
-            Instrumenting that function shows <b>it is never entered</b> for <code>qpi.K12</code>. The
-            snapshot carries two definitions of <code>QpiContextFunctionCall::K12</code> and qinit's own
-            wins — <code>__lhost_k12(&amp;data, sizeof(T), &amp;digest)</code> at snapshot line 8516 — so the
-            real path is a library call whose <code>const T&amp;</code> parameter has its address taken in
-            the body.
+            <b>Located, on the third attempt.</b> Two published root causes were wrong. Dumping the
+            wasm settled it in one step: the contract compiles <b>two</b> K12 instantiations, and they
+            hash different numbers of bytes.
+          </p>
+<pre>(func $T0_QpiContextProcedureCall_K12 ...
+  (call $lh_k12 (local.get $data) <b>(i32.const 8)</b> (local.get $digest)))   <i>the two controls</i>
+(func $T1_QpiContextProcedureCall_K12 ...
+  (call $lh_k12 (local.get $data) <b>(i32.const 1)</b> (local.get $digest)))   <i>the two expressions</i></pre>
+          <p>
+            <code>sizeof(T)</code> is 8 for <code>qpi.K12(input.a)</code> and <b>1</b> for
+            <code>qpi.K12(input.a + input.b)</code>, and the argument scratch is allocated 4 bytes with
+            the value truncated by <code>i32.wrap_i64</code> to match. The expression rows hash one byte
+            of a truncated copy — which is exactly why the digest is the K12 of no value in the contract,
+            and why nobody recognised the number.
           </p>
           <ol>
-            <li>Passing every reference by address was prototyped on that theory: <b>1084 pass, 0 fail, and it fixes neither F203 nor F221</b>. Not the mechanism.<span class="cost">tried and rejected</span></li>
-            <li><span class="rec">do this</span>Find where <code>&amp;data</code> is lowered for a library-call reference parameter, and what address it ends up with. The two controls in the repro that already agree bound the search.<span class="cost">root cause unknown — do not write a fix before it is found</span></li>
-            <li>Keep the <code>(i32.const 0)</code> removal as hardening regardless: nothing should silently hash the bottom of linear memory.<span class="cost">no corpus row changes · patch in docs/findings/fixes/</span></li>
+            <li><span class="rec">do this</span><code>methodArgTypes</code> recognised three argument shapes — an addressable lvalue, a construction, a call naming an aggregate — and returned null for everything else. Every computed expression is "everything else", so <code>T</code> was never bound. An rvalue has a type in C++ just as an lvalue does, and <code>scalarTypeInfo</code> already computes it — it is what the backend trusts to lower the arithmetic itself. Deduction now asks it.<span class="cost">general · any template&lt;typename T&gt; QPI method called with an expression was mis-deducing</span></li>
+            <li>The earlier theory — pass every reference by address — was built and fixes neither F203 nor F221. Not the mechanism.<span class="cost">tried and rejected</span></li>
+            <li>The <code>(i32.const 0)</code> hardening from the first theory changes no corpus row and is kept in <code>fixes/superseded/</code> only.<span class="cost">superseded</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1359,10 +1364,10 @@ struct ThreeAliases : public Port::BaseC { uint64 d; };   <b>rejected</b></pre>
           <div class="cl"><span class="backend">clang — what the chain does</span><p><code>error: assigning to 'uint64' from incompatible type 'void (const QPI::QpiContextFunctionCall &amp;, …)'</code></p></div>
         </div>
         <div class="fix" data-conf="proposed">
-          <div class="fixtop"><b>Fix</b><span class="conf">proposed</span><span class="tested untested">not prototyped</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
-          <p>C++ searches class scope first inside a member function, so the member hides the constant.</p>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · both backends now refuse · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <p>C++ searches class scope first inside a member function, so the member hides the constant and the assignment is ill-formed.</p>
           <ol>
-            <li><span class="rec">do this</span>Resolve contract members before file-scope constants inside an entry body. Let the ill-formed assignment be a diagnostic.<span class="cost">changes name resolution in every entry body · sequence after F213</span></li>
+            <li><span class="rec">do this</span>Check class scope before the named-constant lookup in the identifier path. <code>hasStateParam</code> is the boundary — it marks the contract's own entries — so a qpi.h body using a constant that shares a name with some contract's entry is unaffected.<span class="cost">both backends refuse it, which is what clang does · the Solo control still stores 4</span></li>
           </ol>
         </div>
         <div class="footrow">
@@ -1554,11 +1559,24 @@ in-range controls agree everywhere: foldedInRange = runtimeInRange = 8 on both.<
           of the test harness.
         </div>
         <div class="fix" data-conf="located">
-          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fail-closed · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
-          <p>UB in C++, and clang disagrees with itself between folded and runtime. There is no answer to match — only a build that must not silently pick one.</p>
+          <div class="fixtop"><b>Fix</b><span class="conf">verified</span><span class="tested">tested · fixes it · suite 1085/0 · SHIP</span><span class="mainstat">main 0d0153c · still reproduces</span></div>
+          <p>
+            <b>A previous revision of this card refused the expression</b>, arguing that it is undefined
+            behaviour and clang contradicts itself, so there is nothing to match. That was a policy
+            dressed as a fix, and it was measurably wrong: clang <em>compiles</em> these contracts, and
+            refusing them made <b>4 corpus rows that agreed with clang stop agreeing</b>. clang is the
+            oracle; the rule was measured off it instead.
+          </p>
+<pre><i>runtime value, constant count, built with wasi-sdk clang</i>
+  value &lt;&lt; 254                    <b>0</b>
+  value &gt;&gt; 254                    <b>0</b>
+  signedValue &gt;&gt; 254             <b>0</b>   <i>arithmetic right shift of a negative value</i>
+  value &lt;&lt; -3                     <b>0</b>
+  narrow &lt;&lt; 40   <i>(uint32)</i>          <b>0</b>   <i>outside 32, inside 64</i>
+  value &lt;&lt; 3     <i>control</i>          40</pre>
           <ol>
-            <li><span class="rec">do this</span><code>binary-expression.ts</code> — refuse a <em>constant</em> shift count outside <code>[0, width)</code>, bound by the promoted operand width. A runtime count stays UB and keeps wasm's masking, exactly as clang's runtime path does; <code>(uint8)1 &lt;&lt; 20</code> is still well-defined and still compiles.<span class="cost">rejects code that builds today — that is the point · in-range controls unchanged</span></li>
-            <li><b>Measured cost, larger than the 5 rows above.</b> It refuses <b>9 of the 17</b> <code>ShiftRhsWiderThanLhs</code> variants: the 5 diverging ones, and <b>4 that both backends agreed on</b> — undefined expressions where clang's folded answer and the wasm answer happened to coincide. Refusing by the shape of the expression rather than by whether the two backends got lucky is the point of the rule, and it is the number to weigh before landing it.<span class="cost">4 contracts that build and agree today stop building</span></li>
+            <li><span class="rec">do this</span>Uniform: a constant count outside <code>[0, width)</code> yields <b>0</b>, left and right, signed and unsigned, at every width. Only the count folds — the value stays a runtime operand — so this is clang's codegen answer, not its constant evaluator's. Fold to 0; leave a runtime count masking, which is what clang emits for that too.<span class="cost">in-range controls untouched · (uint8)1 &lt;&lt; 20 still compiles</span></li>
+            <li>This reproduces clang's self-inconsistency <em>on purpose</em>: <code>agreeOutOfRange</code> now reads 0 on both backends. That is the finding's actual point — a contract tested under <code>--compiler typescript</code> must predict the deployed answer, including where the deployed answer is odd.<span class="cost">integers family 1451/1451, from 17 mismatches and 9 refusals</span></li>
           </ol>
         </div>
         <div class="footrow">

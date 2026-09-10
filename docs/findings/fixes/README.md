@@ -1,178 +1,63 @@
-# Prototyped fixes — what was tested, and what the numbers were
+# Fixes — what was built, what was measured
 
-Nothing here is applied to the compiler. Each patch was prototyped in a worktree, run against its
-triage repro, then against the compiler unit suite and the corpus. The numbers below are measured,
-not estimated.
+Nothing here is applied to the compiler. Each patch was built in a worktree, run against its triage
+repro through **both** backends, then against the compiler unit suite and the 6,618-contract corpus.
+Every number below is measured.
 
-Gate used throughout: `bun test packages/compiler/tests/{frontend,edge,qpi,backend,analyzer}` —
-**1084 pass / 0 fail** on an unmodified tree; **1085 / 0** with the F217 patch, which adds one
-toolchain test.
+**clang is the oracle.** Where the two backends disagree, the answer is whatever clang emits, because
+that is what the chain runs. A fix is right when it makes the TypeScript backend produce clang's
+answer — not when it merely makes the two agree, and not when it refuses the program instead. Two
+patches in `superseded/` failed that test and were replaced.
 
-The patches are cumulative in the worktree and were measured stacked, in the order below. Two of them
-touch `semantics/struct-layout.ts` (F201 adds a constant F211 uses), so apply F201 before F211.
+Gate: `bun test packages/compiler/tests/{frontend,edge,qpi,backend,analyzer}` — **1084 pass / 0 fail**
+on a clean tree, **1085 / 0** with F217, which adds a toolchain test.
 
-**Ship ≠ fixes the finding.** Fourteen patches ship; they fix **twelve** findings. `F213 part 1` ships
-and leaves F213 red (13 of 55 rows still diverge), and `F204` ships as a refusal rather than an answer.
-Read the "repro" column, not the "verdict" column, for whether a finding is closed.
+## One patch per finding, sixteen findings
 
-| patch | repro | unit suite | verdict |
-| --- | --- | --- | --- |
-| `F220-asset-iterator-selectors.patch` | fixed | 1084 / 0 | **ship** |
-| `F200-signed-32bit-division.patch` | fixed | 1084 / 0 | **ship** |
-| `F213-part1-enclosing-scope-key.patch` | **does not fix F213** — 42 of 55 rows, 13 still red | 1084 / 0 | **ship** as progress |
-| `F210-identity-alias-hang.patch` | fixed — 320ms, was a hang | 1084 / 0 | **ship** |
-| `F209-global-scope-qualifier.patch` | fixed | 1084 / 0 | **ship** |
-| `F214-sizeof-type-id.patch` | fixed | 1084 / 0 | **ship** |
-| `F204-out-of-range-shift-count.patch` | fail-closed by design | 1084 / 0 | **ship** (rejects code that builds today) |
-| `F215-member-of-class-prvalue.patch` | fixed | 1084 / 0 | **ship** |
-| `F217-block-scope-resolution.patch` | fixed | 1085 / 0 | **ship** (changes 2 tests, deliberately) |
-| `F212-read-only-entry-context.patch` | both backends now refuse | 1085 / 0 | **ship** |
-| `F201-base-class-alias-chain.patch` | fixed | 1085 / 0 | **ship** |
-| `F211-nested-struct-scope.patch` | fixed — crash became a result | 1085 / 0 | **ship** |
-| `F221-mutable-reference-write-back.patch` | fixed | 1085 / 0 | **ship** |
-| `F222-overload-viability-default-arguments.patch` | fixed (new finding) | 1085 / 0 | **ship** |
-| `F213-both-parts.patch` (adds part 2) | clears the repro | 1084 / 0 | **do not ship** — fixes 13, breaks 17, and picks a winner by kind of declaration rather than by scope |
-| `F203-k12-address-hardening.patch` | does **not** fix F203 | 1084 / 0 | hardening only |
+Apply in this order; F201 adds a constant F211 uses, and F213 supersedes the part-1 patch it contains.
 
-## Corpus effect, all patches stacked
-
-Full tier, the committed one — **6,618 contracts**, everything above except the two rejected patches
-applied:
-
-```
-6618 contracts · 6471 match · 147 not-match · 0 hang · median 672ms
-  0 digest-mismatch   0 trap-divergence   0 both-rejected   0 harness-error
-```
-
-Diffed row-by-row against the round-7 baseline (`work/round7-results.jsonl`, same 6,617 shared ids):
-
-| rows | transition | what it is |
+| patch | what the backend does now | suite |
 | --- | --- | --- |
-| **48** | `step-mismatch` → `match` | F213 part 1 (42: two twin-enum archetypes + the namespace-constant one) and **F221** (6) |
-| **4** | `one-side-rejected` → `match` | **F201** — `NsInheritedNamespacedTypedef` |
-| **2** | `trap-divergence` → `match` | F200 — the two `sint32` `DivQpi` rows |
-| 93 | `match` → `expect-violation` | pinned rows reporting their defect is gone: F212 (15), F209 (15), F217 (12), F214 (11), F215 (10), F211 (8), F220 (22) |
-| 5 | `step-mismatch` → `one-side-rejected` | **F204** turning a wrong answer into a refusal — intended |
-| **4** | `match` → `one-side-rejected` | **F204's real cost**, see below |
+| `F200-signed-32bit-division.patch` | traps on `INT32_MIN / -1`, as clang does | 1084 / 0 |
+| `F201-base-class-alias-chain.patch` | reads through an alias chain of any depth | 1085 / 0 |
+| `F203-template-argument-deduction.patch` | deduces `T` from an rvalue's arithmetic type | 1085 / 0 |
+| `F204-match-clang-on-out-of-range-shift.patch` | folds a constant out-of-range shift to 0 | 1085 / 0 |
+| `F205-class-scope-hides-file-scope.patch` | refuses the hidden read, as clang does | 1085 / 0 |
+| `F209-global-scope-qualifier.patch` | parses a leading `::` | 1084 / 0 |
+| `F210-identity-alias-hang.patch` | returns in 320ms instead of hanging | 1084 / 0 |
+| `F211-nested-struct-scope.patch` | resolves a file-scope struct's fields in its own scope | 1085 / 0 |
+| `F212-read-only-entry-context.patch` | refuses a function calling a procedure, as clang does | 1085 / 0 |
+| `F213-nearest-scope-owns-bare-name.patch` | gives the bare name to the nearest declaration | 1085 / 0 |
+| `F214-sizeof-type-id.patch` | parses `sizeof(Array<uint64, 8>)` | 1084 / 0 |
+| `F215-member-of-class-prvalue.patch` | materialises a class prvalue before the member read | 1084 / 0 |
+| `F217-block-scope-resolution.patch` | resolves names against the block structure | 1085 / 0 |
+| `F220-asset-iterator-selectors.patch` | passes each iterator selector from its own argument | 1084 / 0 |
+| `F221-mutable-reference-write-back.patch` | writes back through a mutable reference to a parameter | 1085 / 0 |
+| `F222-overload-viability-default-arguments.patch` | counts defaulted parameters when ranking overloads | 1085 / 0 |
 
-**Zero** `match` → `step-mismatch`, `digest-mismatch`, `trap-divergence` or `harness-error`, and no new
-hang, across 6,617 contracts. No correctness regression anywhere.
+`superseded/` holds four patches that were built, measured and replaced, with a note on why.
 
-### The one cost worth naming: F204 refuses 9 rows, not 5
+## The three that took real digging
 
-The register card says F204 has 5 red rows, so refusing constant out-of-range shifts reads like it
-touches 5 contracts. It touches **9** of the 17 `ShiftRhsWiderThanLhs` variants. Five were the diverging
-ones. The other four **both backends agreed on** — UB expressions where clang's folded answer and the
-wasm answer happened to coincide — and the fail-closed rule refuses them anyway, because it refuses by
-the shape of the expression, not by whether the two backends were lucky.
+**F203** had two published root causes before this one, both wrong. The emitted WAT settled it: the
+contract compiles *two* K12 instantiations, one hashing 8 bytes and one hashing **1**, because
+`methodArgTypes` returned null for every computed expression and `T` was never bound. An rvalue has a
+type; `scalarTypeInfo` already computed it for codegen; deduction just never asked.
 
-That is the correct behaviour for a rule that declines to pick a semantics, but it is close to double the
-blast radius the card implies, and it is the one number in this directory that a reviewer should see
-before deciding to land F204.
+**F213** was 55 rows across two mechanisms. Part 1 (the enclosing-scope key) fixed 42. The rejected
+part 2 fixed the last 13 and broke 17, because it decided precedence by *kind of declaration* — a
+`constexpr` beating a later enum member — which is the original bug mirrored. Deciding by **scope**
+fixes all 55 and leaves the `logging` family at 306/306.
 
-The 93 pinned rows fail *because* the defect is gone; those pins exist to fail that way and need removing
-as part of landing any of this. The 45 remaining genuine mismatches are F203 (32) and F213 part 2 (13),
-both unfixed, both mismatching before.
+**F204** is the one the oracle rule caught. The first patch refused the expression on the argument that
+it is undefined behaviour and clang contradicts itself between the folded and runtime spellings. But
+clang compiles these contracts, so refusing them made 4 rows that agreed with clang stop agreeing. The
+rule was then measured off clang — a constant count outside `[0, width)` yields 0, uniformly — and the
+backend now reproduces clang's inconsistency, which is what a contract deployed to the chain will meet.
 
-## F220 — asset iterator selectors
+## Two lessons
 
-`begin()` passed `undefined` to `materializeSelect`, which is the branch that builds `any()`. Now each
-selector comes from its own argument. `materializeSelect` also takes the select type rather than always
-parsing `AssetOwnershipSelect`, so it stays correct if the two structs ever diverge.
-
-Returns a typed `WatNode` instead of a serialised string, which **removes two `rawWatNode` escape
-hatches** — the repo's ratchet test (`tests/frontend/ir.test.ts`, cap 32) goes to 30. The first draft
-added one instead and failed that test; that is what caught it.
-
-After the fix the three pinned archetypes report
-`expected the documented divergence 'step-mismatch' but got 'match'`. That is the harness working as
-designed — those rows exist to fail when the defect goes away. **They need unpinning as part of
-landing this.**
-
-## F200 — signed 32-bit division
-
-Division was emitted at i64 width regardless of operand type, and `INT32_MIN / -1` is representable at
-64 bits, so `i64.div_s` never trapped. Now a signed 32-bit divide wraps to i32, uses `i32.div_s`, and
-sign-extends back.
-
-This is the general rule, not a case for one type: C++ promotes anything narrower to `int`, so widths 1
-and 2 genuinely do not trap, and width 8 already traps correctly under `i64.div_s`. Width 4 was the only
-gap. `MODULO` on the next line had the same defect and moves with it. The corpus sweeps all eight widths
-of `DivQpi`; only the two `sint32` rows changed.
-
-## F213 — enum constant resolution
-
-**Part 1 (ship).** `namespace Alpha { enum Level { Low }; }` registered `Alpha::Level::Low`,
-`Level::Low` and bare `Low` — but never `Alpha::Low`, the spelling C++ requires for an unscoped enum
-member. The qualified read missed and fell back to the bare tail, a flat last-write-wins map. Adding
-the enclosing scope fixes **42 of the 55** F213 rows with nothing broken.
-
-**Part 2 (do not ship as written).** The remaining 13 rows are enum-vs-`constexpr`: the bare key
-deletes a real file-scope constant. Stopping that fixes them — and **breaks 17 `LogPayloadWithIdField`
-rows**, because "constexpr always beats a later enum member" is just the mirror of the original bug.
-
-An earlier draft of part 2 — "first declaration wins" — was worse still: it resolved
-`enum E { A = 4, B, C = 9, D }` to **66 and 68**, the ASCII values, because a snapshot enum already
-owned the bare keys and the contract's own enum could no longer claim them. The unit suite caught that
-one.
-
-The correct rule is scope-aware — nearest declaration wins, equal-scope collision is ambiguous and
-should be a diagnostic — and that is a larger change than either draft.
-
-## F203 — not fixed, and the published root cause was wrong
-
-The register said the bug was `emitAddress(...) ?? "(i32.const 0)"` in
-`calls/host-intrinsic-call.ts`. Instrumenting that function shows **it is never entered** for
-`qpi.K12`. The snapshot carries two definitions of `QpiContextFunctionCall::K12` and qinit's own wins:
-
-```cpp
-QPI::id QPI::QpiContextFunctionCall::K12(const T& data) const   // snapshot line 8516
-    __lhost_k12(&data, sizeof(T), &digest);
-```
-
-So the real path is a library call whose `const T&` parameter has its address taken in the body — the
-same shape as F221. Passing every reference by address was tried: **1084 pass, 0 fail, and it fixes
-neither F203 nor F221**, so that is not the mechanism either. Root cause is open again.
-
-The patch here is kept only as hardening: it removes the `(i32.const 0)` fallback so the direct
-`KangarooTwelve(...)` path cannot hash the bottom of linear memory. It changes no corpus row.
-
-## F221 — fixed, and the published root cause was wrong
-
-The register said `argAddr` hands a mutable `T&` a throwaway scratch copy. The copy is real, and it is
-deliberate: a scalar in a wasm local has no address, so a mutable reference to it has to be passed as
-one. The defect is that the **read-back after the call** was emitted only when the argument named a
-body local — not when it named one of the function's own by-value parameters. qpi.h's
-`DateAndTime::add` passes a parameter:
-
-```cpp
-if (dayCarry && !addWithoutOverflow(days, dayCarry))   // writes the parameter `days`
-    return false;
-return add(years, months, days);                        // reads the original `days`
-```
-
-The emitted WAT stored `days` into scratch, called through it, and then handed the untouched local to
-the date-only overload. `addMillisec(86400000)` therefore advanced the time of day and never the date,
-and returned true.
-
-One line of condition, and a parameter is treated as the same kind of storage as a local.
-`AddMillisecDayCarry` now reads `1 2024 1 2 0 1 14 752 2` on both backends.
-
-## F222 — a new finding, found while investigating F221
-
-`pickHelperOverload` decided viability with `params.length !== callArguments.length`. An overload whose
-trailing parameters carry defaults is therefore non-viable for any call that does not supply all of
-them — so for such a call *every* candidate scored -1, and the loop kept its seed: the first-declared
-overload. Extra arguments were dropped silently.
-
-A probe of the shape `DateAndTime::add` has — a three-parameter overload beside a
-six-required/two-defaulted one — answered **600** for the six-argument call (the three-parameter body)
-against clang's **615**.
-
-This does **not** cause F221; that was verified by reverting this patch and re-running the repro, which
-still passes. They are two separate defects in the same function.
-
-## F203 — still open
-
-Unchanged from the note above: the published root cause is wrong, the follow-up theory was built and
-measured and fixes nothing, and the two corpus rows still mismatch. The patch here is hardening only.
+- **An unbuilt root cause is a guess.** F203's and F221's both survived several rounds of review and
+  both were wrong. Building the fix settled each in one step — a WAT dump for F203, one for F221.
+- **Matching clang is the bar, not agreement and not fail-closed.** Refusing a program clang accepts is
+  a policy choice dressed as a fix, and it is measurable: it cost 4 previously-correct rows.
