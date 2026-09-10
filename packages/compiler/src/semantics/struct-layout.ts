@@ -18,8 +18,6 @@ export function layoutOf(programAnalysis: ProgramAnalysis, struct: StructDecl): 
 
 const ALIAS_HOPS = 8;
 
-const EMPTY_STRUCT_BINDINGS: Map<string, StructDecl> = new Map();
-
 export function baseContribution(
     programAnalysis: ProgramAnalysis,
     baseType: TypeSpec,
@@ -157,22 +155,19 @@ export function layoutOfStruct(programAnalysis: ProgramAnalysis, struct: StructD
     // `namespace Beta { struct D : public Base {}; }` means Beta's Base, so bases are resolved from the struct's own scope before anything looks them up.
     const scope = programAnalysis.structScope.get(struct);
     const bases = scope ? struct.bases.map((base) => qualifyNamesInScope(programAnalysis, base, scope)) : struct.bases;
-    // A struct declared at file scope has no enclosing class, so the nested types of whatever class led
-    // here are not visible in its body — carrying them in made the two contain each other and never end.
-    const memberBindings =
-        struct.name && programAnalysis.globalStructs.get(struct.name) === struct && templateBindings.structs.size > 0
-            ? { types: templateBindings.types, values: templateBindings.values, structs: EMPTY_STRUCT_BINDINGS }
-            : templateBindings;
-    return programAnalysis.layoutOfMembers(struct.members, memberBindings, programAnalysis.structCacheKey(struct), struct.isUnion, bases);
+    // Its fields resolve in the scope that declares `struct`, not in whatever scope the layout walk arrived
+    // from, so the declaration goes down with them and `layoutOfMembers` builds the bindings from it.
+    return programAnalysis.layoutOfMembers(struct.members, templateBindings, programAnalysis.structCacheKey(struct), struct.isUnion, bases, struct);
 }
 
 export function bindingSig(programAnalysis: ProgramAnalysis, templateBindings: TemplateBindings): string {
+    const scopeSignature = templateBindings.scopeIsKnown ? "|scoped" : "";
     const bindingCount = templateBindings.types.size + templateBindings.values.size + templateBindings.structs.size;
-    if (bindingCount === 0) return "";
+    if (bindingCount === 0) return scopeSignature;
     const typeBindingSignature = [...templateBindings.types].map(([name, type]) => `${name}=${programAnalysis.typeKey(type)}`).join(",");
     const valueBindingSignature = [...templateBindings.values].map(([name, value]) => `${name}=${value}`).join(",");
     const structBindingSignature = [...templateBindings.structs].map(([name, struct]) => `${name}=${programAnalysis.structCacheKey(struct)}`).join(",");
-    return `|${typeBindingSignature}|${valueBindingSignature}|${structBindingSignature}`;
+    return `|${typeBindingSignature}|${valueBindingSignature}|${structBindingSignature}${scopeSignature}`;
 }
 
 /** A typedef a member list declares itself binds that name for the members around it, unions included. */
@@ -219,6 +214,7 @@ export function layoutOfMembers(
     cacheKey: string,
     isUnion = false,
     bases: TypeSpec[] = [],
+    owner?: StructDecl,
 ): StructLayout {
     // Cache each concrete binding once to avoid recursive layout blowups.
     const key = cacheKey ? cacheKey + programAnalysis.bindingSig(bIn) : "";
@@ -230,7 +226,7 @@ export function layoutOfMembers(
         programAnalysis.inProgress.add(key);
     }
     try {
-        const templateBindings = withMemberTypedefs(programAnalysis.withLocalStructs(members, bIn), members);
+        const templateBindings = withMemberTypedefs(programAnalysis.withLocalStructs(members, bIn, owner), members);
         const fields = new Map<string, FieldLayout>();
         let offset = 0;
         let maxAlign = 1;

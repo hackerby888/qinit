@@ -256,12 +256,14 @@ export class AbiTypeBuilder {
     }
 
     private struct(name: string | undefined, layout: StructLayout, root: boolean, bindings: TemplateBindings, declaration?: StructDecl): AbiStruct {
-        const localBindings = declaration ? withLocalStructs(this.programAnalysis, declaration, bindings) : bindings;
-        // A struct whose fields lead back to itself has no finite ABI, so bound the walk and name the
-        // struct rather than exhausting the stack.
+        const localBindings = declaration ? this.programAnalysis.withLocalStructs(declaration.members, bindings, declaration) : bindings;
+        // A struct whose fields lead back to itself has no finite ABI, so bound the walk rather than
+        // exhausting the stack. Report it where the struct is declared and return an empty body: the
+        // recorded error fails the build, and unwinding by exception would lose the source location.
         if (declaration) {
             if (this.expanding.has(declaration)) {
-                throw new Error(`struct '${name ?? declaration.name}' contains itself, directly or through its fields`);
+                this.programAnalysis.error(`struct '${name ?? declaration.name}' contains itself, directly or through its fields`, declaration.span ?? 0);
+                return { kind: AbiTypeKind.STRUCT, ...(name ? { name } : {}), fields: [], size: layout.size, align: layout.align, format: "" };
             }
             this.expanding.add(declaration);
         }
@@ -375,25 +377,6 @@ function withExactSize(type: AbiType, size: number): AbiType {
     } as AbiType;
 }
 
-/** The bindings to resolve `declaration`'s field types under: its own nested structs, over the scope it
- * was declared in. A struct declared at file scope has no enclosing class, so it starts from an empty
- * set rather than inheriting the nested types of whatever field led here. */
-function withLocalStructs(programAnalysis: ProgramAnalysis, declaration: StructDecl, bindings: TemplateBindings): TemplateBindings {
-    const declaredAtFileScope = declaration.name ? programAnalysis.globalStructs.get(declaration.name) === declaration : false;
-    const structs = declaredAtFileScope ? new Map<string, StructDecl>() : new Map(bindings.structs);
-
-    for (const member of declaration.members) {
-        if (member.kind === AstKind.STRUCT && member.name && member.hasBody !== false) {
-            structs.set(member.name, member as StructDecl);
-        }
-    }
-
-    return {
-        types: bindings.types,
-        values: bindings.values,
-        structs,
-    };
-}
 
 // A template parameter or named constant reads better as its name; a literal or arithmetic expression has none worth showing, so name it by its result.
 function dimensionLabel(type: TypeSpec, value: number): string {

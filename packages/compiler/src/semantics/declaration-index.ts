@@ -117,6 +117,17 @@ export function unqualifiedLookupKeys(name: string, context: NamespaceLookupCont
     return keys;
 }
 
+/** Record the lexical nesting of every struct declared inside `parent`, recursively. */
+function recordNestedParents(programAnalysis: ProgramAnalysis, parent: StructDecl): void {
+    for (const member of parent.members) {
+        if (member.kind !== AstKind.STRUCT) continue;
+        const nested = member as StructDecl;
+        if (nested.hasBody === false) continue;
+        programAnalysis.structParent.set(nested, parent);
+        recordNestedParents(programAnalysis, nested);
+    }
+}
+
 export function registerTopLevelDeclarations(
     programAnalysis: ProgramAnalysis,
     declarations: Declaration[],
@@ -153,6 +164,9 @@ export function registerTopLevelDeclarations(
                 registerScoped(programAnalysis.globalStructs, nsPrefix, structDeclaration.name, structDeclaration, barePolicy);
                 // Its bases are written unqualified, so remember where to resolve them from.
                 if (nsPrefix) programAnalysis.structScope.set(structDeclaration, nsPrefix);
+                // A field's type resolves in the struct that declares it, so the nesting has to be on record
+                // before any layout runs. Absence of a parent is what marks a struct as file or namespace scope.
+                recordNestedParents(programAnalysis, structDeclaration);
                 // Inline value/void methods of a plain (non-template) struct — e.g. ProposalDataYesNo::checkValidity
                 for (const member of structDeclaration.members) {
                     if (member.kind !== AstKind.FUNCTION || !(member as FunctionDecl).body) continue;

@@ -164,7 +164,31 @@ function checkTemplateStaticAsserts(programAnalysis: ProgramAnalysis, declaratio
     }
 }
 
-export function withLocalStructs(members: Declaration[], templateBindings: TemplateBindings): TemplateBindings {
+/**
+ * The bindings to resolve a member list's field types under.
+ *
+ * Given the `owner` declaration, the visible struct names come from its own scope chain and the caller's
+ * are discarded entirely: a struct's fields resolve where the struct is declared, not where the layout
+ * walk arrived from. Template arguments (`types`, `values`) are a different axis and still flow in.
+ *
+ * Without an owner — a template instantiation or a base-class contribution, which have no single
+ * declaring struct — the caller's map is extended with this member list's structs, as before.
+ */
+export function withLocalStructs(
+    programAnalysis: ProgramAnalysis,
+    members: Declaration[],
+    templateBindings: TemplateBindings,
+    owner?: StructDecl,
+): TemplateBindings {
+    if (owner) {
+        return {
+            types: templateBindings.types,
+            values: templateBindings.values,
+            structs: programAnalysis.structsVisibleIn(owner),
+            scopeIsKnown: true,
+        };
+    }
+
     let structs = templateBindings.structs;
     for (const member of members) {
         if (member.kind === AstKind.STRUCT && (member as StructDecl).name && (member as StructDecl).hasBody !== false) {
@@ -172,7 +196,9 @@ export function withLocalStructs(members: Declaration[], templateBindings: Templ
             structs.set((member as StructDecl).name, member as StructDecl);
         }
     }
-    return structs === templateBindings.structs ? templateBindings : { types: templateBindings.types, values: templateBindings.values, structs };
+    return structs === templateBindings.structs
+        ? templateBindings
+        : { types: templateBindings.types, values: templateBindings.values, structs, scopeIsKnown: templateBindings.scopeIsKnown };
 }
 
 export function inlineNestedStruct(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings): TypeSpec {

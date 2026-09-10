@@ -35,6 +35,8 @@ export interface TemplateBindings {
     types: Map<string, TypeSpec>;
     values: Map<string, bigint>;
     structs: Map<string, StructDecl>; // nested structs visible in the current layout scope (e.g. HashMap::Element)
+    /** Set inside a struct body whose own scope chain was resolved: the contract's flat nested table must not answer here. */
+    scopeIsKnown?: boolean;
 }
 
 export interface ResolvedSourceMethod {
