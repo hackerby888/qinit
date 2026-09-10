@@ -8,8 +8,7 @@ import { applyTheme } from "./ui";
 import { savedTheme } from "./config";
 import { initOutput, parseArgs } from "./args";
 
-// Safety net for async throws that escape a command's try/catch — print one clean line + exit 1
-// (instead of a raw stack dump that can also leave the terminal in Ink raw-mode).
+// Safety net for async throws escaping a command's try/catch: print one clean line and exit 1, rather than a stack dump that can leave Ink in raw mode.
 const die = (label: string, e: unknown) => {
     process.stderr.write(`\nqinit: ${label}: ${e instanceof Error ? e.message : String(e)}\n`);
     process.exit(1);
@@ -21,8 +20,7 @@ applyTheme(savedTheme()); // before anything renders
 
 const [, , command = "help", ...args] = process.argv;
 
-// Hidden background entry for the detached simulator. It runs headless without Ink,
-// no exit — so it stays up serving RPC. Must short-circuit before render().
+// Hidden background entry for the detached simulator: headless without Ink and no exit, so it stays up serving RPC. Must short-circuit before render().
 if (command === "__serve") {
     const { serveEngine } = await import("./ops/serve");
     const commandArgs = parseArgs(args, {

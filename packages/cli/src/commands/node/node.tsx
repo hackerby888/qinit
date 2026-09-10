@@ -9,8 +9,7 @@ const dlLabel = (recv: number, total: number) =>
     total ? `downloading node ${(recv / 1e6).toFixed(0)}/${(total / 1e6).toFixed(0)} MB` : `downloading node ${(recv / 1e6).toFixed(0)} MB`;
 
 type Line = { t: string; ok?: boolean };
-// The rendered rows fuse values into display strings — `epoch last tick` carries `ticksLeft` in
-// parentheses and `contracts` is joined — so --json reports the facts each sub-path actually saw.
+// The rendered rows fuse values into display strings, so --json reports the facts each sub-path actually saw rather than reparsing them back out.
 type NodeFacts = Record<string, unknown>;
 type State = { phase: "run"; spin: string } | { phase: "done"; title: string; color: string; lines: Line[]; rows?: [string, string][]; facts?: NodeFacts };
 

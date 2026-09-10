@@ -1,5 +1,4 @@
-// The pure half of Core integration: given the Core text files and the checkout facts read for it,
-// decide which files change and how. No disk reads of its own, so it is testable without a checkout.
+// The pure half of Core integration: given the Core text files and the checkout facts, decide which files change and how. No disk reads, so it is testable.
 import { basename, join } from "node:path";
 import { scanCallees, type parseContractDef } from "@qinit/build/contracts/intercontract";
 
@@ -186,8 +185,7 @@ export interface PlanMutationsOptions {
     existing: (CoreIntegrationRegistration & { include: string }) | null;
     metadata: ContractMetadata;
     files: CoreFiles;
-    // The three facts the plan would otherwise read off disk: what the checkout already registers, the
-    // project header names that make a bare `X::` reference count as a callee, and whether a path is taken.
+    // The three facts the plan would otherwise read off disk: what the checkout registers, the header names making a bare `X::` a callee, and path presence.
     definitions: ContractDefinitions;
     localHeaders: readonly string[];
     fileExists: (path: string) => boolean;

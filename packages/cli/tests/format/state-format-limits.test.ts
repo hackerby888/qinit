@@ -1,5 +1,4 @@
-// The rendering limits themselves: where the item cap falls, how a single skipped bit reads, and what
-// happens to the shapes that carry no name — the cases the container tests step over on their way to a value.
+// The rendering limits themselves: where the item cap falls, how a single skipped bit reads, and what happens to shapes that carry no name.
 import { test, expect } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import { AbiTypeKind, type AbiStruct, type AbiType } from "@qinit/proto/contract-idl";

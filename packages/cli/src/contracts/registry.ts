@@ -50,8 +50,7 @@ export async function loadContracts(rpc: LiteRpc): Promise<ContractSets> {
     return { user, system: loadSystem(), ...(nodeError ? { nodeError } : {}) };
 }
 
-// A registry the node never answered is not an empty registry, and "no contract" would send the
-// developer off to redeploy something that is still there.
+// A registry the node never answered is not an empty registry, and reporting no contract would send the developer off to redeploy something still there.
 export function missingContractMessage(sets: ContractSets, target?: string): string {
     if (sets.nodeError) {
         return `the node did not answer, so its contracts are unknown — is it running or busy? (\`qinit node status\`)  [${sets.nodeError}]`;
@@ -83,8 +82,7 @@ export function systemAsDyn(contract: SystemContract): DynamicContractRegistryEn
     };
 }
 
-// A deployed system contract sits in both the node's dyn registry and the catalog under one slot, and the
-// node holds no .h for it. Merge on index so each slot appears once, taking source from the catalog.
+// A deployed system contract sits in both the node's dyn registry and the catalog under one slot, so merge on index and take source from the catalog.
 export function mergeContracts(sets: ContractSets): {
     all: DynamicContractRegistryEntry[];
     userCount: number;
@@ -97,8 +95,7 @@ export function mergeContracts(sets: ContractSets): {
     return { all: [...user, ...system], userCount: user.length };
 }
 
-// Every other contract the node holds, as analyzer callee sources: a state field may use a type a sibling
-// declares, and only an IDL built with that declaration decodes it at the right offset.
+// Every other contract the node holds, as analyzer callee sources: a state field may use a sibling's type, and only an IDL built with it decodes correctly.
 export function siblingCalleeSources(contracts: readonly DynamicContractRegistryEntry[], index: number): CalleeSource[] {
     const siblings: CalleeSource[] = [];
 

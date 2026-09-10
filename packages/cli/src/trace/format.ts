@@ -22,10 +22,7 @@ export interface DecodedTrace {
     cheats: DecodedCheat[];
 }
 
-/**
- * `contractIdl` is the IDL the build already produced for this slot. Prefer it: deriving one from source
- * alone loses what the build knew, notably a state field whose type a callee declares.
- */
+/** `contractIdl` is the IDL the build produced for this slot. Prefer it: deriving one from source loses what the build knew, e.g. a callee-declared field. */
 export async function describeTrace(
     entry: DebugEntry,
     source: string | undefined,
@@ -54,11 +51,9 @@ export async function describeTrace(
     let stateDiff: StateDiffLine[] = [];
     let logs: DecodedLog[] = [];
 
-    // Every section decodes on its own, so a payload one section cannot read leaves the others intact.
-    // Raw trace bytes remain available wherever decoding fails.
+    // Every section decodes on its own, so a payload one section cannot read leaves the others intact and the raw trace bytes remain available.
     if (idl) {
-        // A caller may hold only part of an IDL — the browser IDE has the cheat table and little
-        // else — so every section is optional rather than assumed present.
+        // A caller may hold only part of an IDL — the browser IDE has the cheat table and little else — so every section is optional.
         const registered = (entry.kind === 0 ? idl.functions : idl.procedures) ?? [];
         const metadata = registered.find((candidate) => candidate.inputType === entry.entry);
         // A migration's input is the old state, which carries no entry number — its layout is OldStateData.
@@ -143,11 +138,7 @@ export interface DecodedCheat {
     contract?: string;
 }
 
-/**
- * The prints of one call across every frame it ran, in the order they ran. Each frame decodes against
- * its own IDL first; only then can lines from different contracts be interleaved. Without ordinals the
- * frames stay in the order given, which is the best an older node allows.
- */
+/** The prints of one call across every frame, in the order they ran: each decodes against its own IDL first. Without ordinals the frames keep their order. */
 export function mergePrints(frames: readonly { contract: string; cheats: readonly DecodedCheat[] }[]): DecodedCheat[] {
     const printing = frames.filter((frame) => frame.cheats.length);
     const tagged = new Set(printing.map((frame) => frame.contract)).size > 1;
@@ -160,12 +151,7 @@ export function mergePrints(frames: readonly { contract: string; cheats: readonl
     return lines;
 }
 
-/**
- * Rebuilds one CC_PRINT line. Literal parts come straight from the IDL and carry no bytes; a value
- * part is decoded against the type recorded for that argument, and labelled with its source text
- * when no literal precedes it. A print of one value that holds a container becomes blocks instead,
- * since a whole state on one line reads as nothing at any width.
- */
+/** Rebuilds one CC_PRINT line: literal parts come from the IDL, a value part decodes against its recorded type. A container-bearing value becomes blocks. */
 async function decodeCheats(records: readonly DebugCheat[], sites: readonly ContractCheat[]): Promise<DecodedCheat[]> {
     // Both runtimes unpack the wire tag before it reaches the trace, so a record's id is already the line.
     const bySite = new Map<number, ContractCheat>(sites.map((site) => [site.id, site]));
@@ -178,8 +164,7 @@ async function decodeCheats(records: readonly DebugCheat[], sites: readonly Cont
     return decoded;
 }
 
-// The records of one print sit together in the trace, so a line's next print starts where a part
-// ordinal repeats: a print in a loop keeps every iteration, whatever order a backend emits parts in.
+// The records of one print sit together, so a line's next print starts where a part ordinal repeats — a print in a loop keeps every iteration.
 function printInstances(records: readonly DebugCheat[]): DebugCheat[][] {
     const instances: DebugCheat[][] = [];
     let current: DebugCheat[] = [];
@@ -237,8 +222,7 @@ async function decodePrint(group: DebugCheat[], site: ContractCheat | undefined)
     return { line: site.line, text: pieces.join(" "), ...(blocks ? { blocks } : {}), ...ord };
 }
 
-// Undefined for anything that is not a container-bearing value at exactly its size; the inline path
-// then decides between a decoded value and the raw bytes.
+// Undefined for anything that is not a container-bearing value at exactly its size; the inline path then chooses between a decoded value and raw bytes.
 async function cheatBlocks(record: DebugCheat, type: AbiType): Promise<ValueBlocks | undefined> {
     if (record.size !== type.size || !holdsContainer(type)) {
         return undefined;
@@ -251,9 +235,7 @@ async function cheatBlocks(record: DebugCheat, type: AbiType): Promise<ValueBloc
     }
 }
 
-// A value decodes only when the bytes are exactly its type's size. Anything else is shown raw with both
-// sizes rather than dropped, so a stale IDL or a shape the compiler could not type still reads back.
-// A print is the dev asking for the value, so nothing in it is elided.
+// A value decodes only when the bytes are exactly its type's size; anything else shows raw with both sizes, since a print is the dev asking for the value.
 async function cheatValue(record: DebugCheat, type: AbiType): Promise<string> {
     try {
         if (record.size === type.size) {
@@ -274,8 +256,7 @@ async function cheatValue(record: DebugCheat, type: AbiType): Promise<string> {
     return `${rawCheatValue(record)} (${record.size} bytes, ${record.size === type.size ? "undecodable" : `expected ${type.size}`})`;
 }
 
-// The register carries a wasm i64: the engine sends it signed, core-lite unsigned. Both name the same
-// eight bytes, so the recorded type decides the sign rather than the runtime.
+// The register carries a wasm i64: the engine sends it signed, core-lite unsigned. Both name the same eight bytes, so the recorded type decides the sign.
 function registerBytes(value: number | string): Uint8Array {
     const bytes = new Uint8Array(8);
 

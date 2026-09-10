@@ -89,8 +89,7 @@ export function Info({ commandArgs }: { commandArgs: CommandArguments }) {
         return null;
     }
 
-    // Drift between the headers a contract compiles against and the node it deploys to breaks deploys,
-    // so say it here rather than leaving it to be discovered at deploy time.
+    // Drift between the headers a contract compiles against and the node it deploys to breaks deploys, so say it here rather than at deploy time.
     const drift = setup?.runtime.versionDrift ?? false;
 
     return (

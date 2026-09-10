@@ -1,5 +1,4 @@
-// LiteRpc's explorer methods against a live EngineServer — the seam the `qinit explorer` TUI reads through.
-// Covers the mapped response shapes, string-typed amounts, and 404-as-null on the two lookup routes.
+// LiteRpc's explorer methods against a live EngineServer: the mapped response shapes, string-typed amounts, and 404-as-null on the two lookup routes.
 import { test, expect, beforeAll } from "bun:test";
 import { EngineServer } from "@qinit/engine/server";
 import { VirtualNode } from "@qinit/engine";
@@ -43,8 +42,7 @@ async function explorerFixture() {
 test("explorerData maps the dashboard payload", async () => {
     const { rpc, stop, engine } = await explorerFixture();
     try {
-        // The server keeps ticking, so the reported tick is only guaranteed to fall between the readings
-        // either side of the request — comparing it to a single live sample is a race.
+        // The server keeps ticking, so the reported tick is only guaranteed to fall between the readings either side of the request — a single sample races.
         const before = engine.sim.currentTick;
         const data = await rpc.explorerData();
         const after = engine.sim.currentTick;

@@ -79,8 +79,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
         // An empty result set after filtering is a typo, not a suite with no tests.
         const noMatch = () => (filterTests.length ? `no test matched --filter ${filter}` : "no tests ran");
         let ran = 0;
-        // Stream each finished test the moment the engine reports it (engine yields a macrotask per test so
-        // this paints).
+        // Stream each finished test the moment the engine reports it (the engine yields a macrotask per test so this paints).
         const onResult = (t: TestResult) => {
             ran++;
             setItems((it) => [...it, { kind: "test", t }]);

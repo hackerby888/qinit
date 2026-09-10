@@ -13,8 +13,7 @@ function temporaryDirectory(): string {
     return path;
 }
 
-// Commits also run in the checkouts the integration clones, which inherit no identity — and CI
-// machines have no global one either, so every call carries the fixture identity.
+// Commits also run in the checkouts the integration clones, which inherit no identity, and CI machines have none either — so every call carries the fixture's.
 const GIT_IDENTITY = ["-c", "user.email=qinit@example.test", "-c", "user.name=Qinit Test"];
 
 function runGit(cwd: string, ...args: string[]): string {
@@ -159,8 +158,7 @@ function expectTerminalElapsed(events: CoreIntegrationProgress[]): void {
 
 afterEach(() => {
     for (const path of temporaryDirectories.splice(0)) {
-        // `force` only swallows ENOENT. Windows holds handles on the pack files and index.lock git just
-        // wrote, so removal races it and throws EBUSY — retrying is what node offers for exactly that.
+        // `force` only swallows ENOENT. Windows holds handles on the pack files git just wrote, so removal races it and throws EBUSY — hence the retry.
         rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
 });
@@ -382,8 +380,7 @@ describe("runCoreIntegration", () => {
         expectTerminalElapsed(updateProgress);
     });
 
-    // integrate is the only hand-off to a Core checkout, so it is the one place a cheatcode must not
-    // survive. These two go through the real integration rather than the strip in isolation.
+    // integrate is the only hand-off to a Core checkout, so the one place a cheatcode must not survive. These go through the real integration, not the strip.
     test("strips cheatcodes out of the source it writes into Core", async () => {
         const root = temporaryDirectory();
         const repositoryUrl = createCoreRepository(root);
@@ -409,8 +406,7 @@ describe("runCoreIntegration", () => {
         const written = readFileSync(join(result.corePath, "src", "contracts", "Main.h"), "utf8");
 
         expect(written).not.toMatch(/CC_/);
-        // The statement is blanked in place rather than deleted, so every following line keeps its
-        // number and a stack trace from Core still points where the dev expects.
+        // The statement is blanked in place rather than deleted, so every following line keeps its number and a Core stack trace still points where expected.
         expect(written).toContain("state.mut().n += 1;");
         expect(written.replaceAll(CRLF, "\n").split("\n").length).toBe(readFileSync(contractPath, "utf8").split("\n").length);
     });

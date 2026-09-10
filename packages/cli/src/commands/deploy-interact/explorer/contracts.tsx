@@ -8,7 +8,7 @@ import { SectionBody, inputTypeLabel, errText, fmtAmount, fmtTime, sectionTableW
 const CONTRACT_CALL_WINDOW = 500;
 const CONTRACT_PAGE_SIZE = 50;
 
-// ---- contracts ----------------------------------------------------------------------------------
+// contracts
 
 const CONTRACT_COLS: Column[] = [
     { header: "#", align: "right", max: 5 },

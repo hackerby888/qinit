@@ -1,5 +1,4 @@
-// An entry number the node never registered, and an --out that disagrees with the IDL, both used to pass
-// silently: the fn returned zeros, the proc broadcast a tx that no trace ever showed.
+// An entry number the node never registered, and an --out that disagrees with the IDL, both used to pass silently: zeros back, or a tx no trace ever showed.
 import { beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

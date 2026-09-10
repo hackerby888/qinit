@@ -30,8 +30,7 @@ function parseContainerIndexes(values: readonly string[]): Set<number> {
     return indexes;
 }
 
-// What --json reports for a decoded target: the same values the view renders, minus each container's
-// `sourceField`, which carries the whole recursive ABI layout and belongs in the contract's IDL file.
+// What --json reports for a decoded target: the values the view renders, minus each container's `sourceField`, which belongs in the contract's IDL file.
 export function stateJsonResult(contract: string, slot: number | null, state: DecodedState | null, error: string, address: string | null = null, balance: string | null = null) {
     return {
         ok: !error && state?.complete === true,
@@ -362,8 +361,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                 if (o.target) {
                     const c = all.find((x) => String(x.index) === o.target || (x.name || "").toLowerCase() === o.target.toLowerCase());
                     if (!c) {
-                        // A dump needs neither IDL nor source, so a slot the registry does not list is still one
-                        // the node can hand over byte for byte.
+                        // A dump needs neither IDL nor source, so a slot the registry does not list is still one the node can hand over byte for byte.
                         if (o.dump && /^\d+$/.test(o.target.trim())) {
                             await runDump(Number(o.target.trim()), o.target.trim());
                             return;
@@ -427,8 +425,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
 
     useInput(
         (input, key) => {
-            // Select owns every key while the picker is up, esc included; a branch here would close the
-            // command on the same keypress that was only meant to leave its search.
+            // Select owns every key while the picker is up, esc included; a branch here would close the command on a keypress meant to leave its search.
             if (phase === "pick") {
                 return;
             }

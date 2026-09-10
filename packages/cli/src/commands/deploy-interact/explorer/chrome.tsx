@@ -14,8 +14,7 @@ export type View =
     | { kind: "contract"; index: number }
     | { kind: "wallet"; to?: string };
 
-// One stack frame per drill-down level. `selected` is kept per frame so popping back to a list restores
-// the row the user came from instead of resetting to the top.
+// One stack frame per drill-down level. `selected` is kept per frame so popping back to a list restores the row the user came from.
 export interface Frame {
     view: View;
     selected: number;
@@ -54,8 +53,7 @@ export const contractLabel = (identity: string, names: Map<number, string>): str
     return `${names.get(index) ?? "contract"} #${index}`;
 };
 
-// A call's inputType, named when the slot's IDL is known. A plain transfer misses the lookup and keeps
-// its bare number, which is also what an unparsed contract falls back to.
+// A call's inputType, named when the slot's IDL is known; a plain transfer misses the lookup and keeps its bare number, as does an unparsed contract.
 export const inputTypeLabel = (slot: number | null | undefined, inputType: number, idls: ContractIdls): string => {
     const entry = entryFor(slot, inputType, idls);
     return entry ? `${inputType} ${entry.name}` : String(inputType);
@@ -64,7 +62,7 @@ export const inputTypeLabel = (slot: number | null | undefined, inputType: numbe
 // Rows the shell owns above the body: the header with its margin, plus the breadcrumb.
 export const CHROME_ROWS = 3;
 
-// ---- breadcrumb + control bar -------------------------------------------------------------------------------------
+// breadcrumb + control bar
 
 const crumbOf = (view: View): string => {
     switch (view.kind) {
@@ -87,12 +85,10 @@ const crumbOf = (view: View): string => {
     }
 };
 
-// Section contents sit under the header's title rather than flush with its ▌ marker, so each block reads
-// as belonging to its heading.
+// Section contents sit under the header's title rather than flush with its marker, so each block reads as belonging to its heading.
 const SECTION_INDENT = 2;
 
-// Table budget inside a section: the indent plus one spare column, so a full-width row can never land on
-// the terminal's last cell and wrap.
+// Table budget inside a section: the indent plus one spare column, so a full-width row can never land on the terminal's last cell and wrap.
 export const sectionTableWidth = (columns: number) => columns - SECTION_INDENT - 1;
 
 export function SectionBody({ children }: { children: ReactNode }) {
@@ -134,8 +130,7 @@ function keysFor(view: View, depth: number, searching: boolean): KeyHint[] {
         ];
     }
 
-    // The wallet is a form that owns every key, including esc — its stage lives in component state this
-    // function cannot see, so only esc (true in every stage) is advertised here.
+    // The wallet is a form that owns every key including esc, and its stage lives in state this function cannot see — so only esc is advertised.
     if (view.kind === "wallet") {
         return [["esc", "back"]];
     }
@@ -174,8 +169,7 @@ function keysFor(view: View, depth: number, searching: boolean): KeyHint[] {
 
 const HINT_SEPARATOR = "  ·  ";
 
-// The section a stack is rooted in. Drilling from the overview into a tick and then a transaction never
-// leaves the overview tab, so the lit key follows the root frame rather than the visible view.
+// The section a stack is rooted in: drilling from the overview into a tick never leaves the overview tab, so the lit key follows the root frame.
 const TAB_KEY: Partial<Record<View["kind"], string>> = {
     overview: "1",
     tick: "1",
@@ -189,8 +183,7 @@ const TAB_KEY: Partial<Record<View["kind"], string>> = {
 const SWEEP_FRAMES = 20;
 const SWEEP_MS = 120;
 
-// Wrap hints into lines that fit the terminal. Labels are never dropped — a row of bare glyphs is harder
-// to use than a full bar.
+// Wrap hints into lines that fit the terminal. Labels are never dropped — a row of bare glyphs is harder to use than a full bar.
 export function hintLines(keys: KeyHint[], columns: number): KeyHint[][] {
     const lines: KeyHint[][] = [[]];
     let used = 0;

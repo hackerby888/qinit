@@ -5,7 +5,7 @@ import { Badge, Grad, KV, SectionHeader, Spinner, Table, theme, truncMid, type C
 import { decodeTxInput, entryFor, type ContractIdls, type DecodedInput } from "../../../contracts/idl-lookup";
 import { SectionBody, contractLabel, inputTypeLabel, errText, fmtAmount, fmtTime, sectionTableWidth, windowOf, type ViewProps } from "./chrome";
 
-// ---- tick ---------------------------------------------------------------------------------------
+// tick
 
 const TX_COLS: Column[] = [
     { header: "hash", max: 16 },
@@ -50,8 +50,7 @@ export function TickView({
         let alive = true;
         setLoading(true);
         setErr("");
-        // The header and the transaction list are fetched independently — an empty tick has no header but can
-        // still be rendered, and a node missing one route must not blank out the other.
+        // Header and transactions are fetched independently: an empty tick has no header but still renders, and one missing route must not blank the other.
         void (async () => {
             const [header, list] = await Promise.allSettled([rpc.getTickData(tick), rpc.explorerTickTransactions(tick)]);
             if (!alive) return;
@@ -123,7 +122,7 @@ export function TickView({
     );
 }
 
-// ---- transaction --------------------------------------------------------------------------------
+// transaction
 
 // A wide input (QUTIL's SendToManyV1 carries 25 identities) would otherwise fill the frame on its own.
 const FIELD_ROWS = 8;
@@ -176,8 +175,7 @@ export function TxView({
         };
     }, [hash, tick, refreshToken]);
 
-    // The payload is decoded off the render path: the IDL map arrives after the transaction does, and
-    // container fields make the decode async.
+    // The payload is decoded off the render path: the IDL map arrives after the transaction does, and container fields make the decode async.
     const entry = tx ? entryFor(contractIndexFromIdentity(tx.destination), tx.inputType, contractIdls) : undefined;
     useEffect(() => {
         if (!tx || !entry) {
@@ -233,8 +231,7 @@ export function TxView({
 
     const label = contractLabel(tx.destination, contractNames);
     const inputBytes = tx.inputData ? Buffer.from(tx.inputData, "base64") : Buffer.alloc(0);
-    // Every decoded line is variable width, and a line that wraps costs a row this view has not budgeted —
-    // which is what would push the control bar off the screen. Truncate them all to the section's width.
+    // Every decoded line is variable width, and a wrapping line costs an unbudgeted row that would push the control bar off screen — so truncate them all.
     const width = sectionTableWidth(columns);
     const shownFields = decoded ? decoded.fields.slice(0, FIELD_ROWS) : [];
     const hiddenFields = (decoded?.fields.length ?? 0) - shownFields.length;
@@ -244,8 +241,7 @@ export function TxView({
     const formatRow = decoded?.format ? truncMid(`--in "${decoded.format}"`, width) : "";
     const decodedRows = fieldRows.length + (hiddenFields > 0 ? 1 : 0) + (formatRow ? 2 : 0);
 
-    // 15 fixed rows (title/from-to band 5, 7-row KV + margin 8, trailing hint 2); the dump costs its own
-    // margin + section header + overflow line, so a short terminal drops dump rows, never the control bar.
+    // 15 fixed rows (title band 5, KV block 8, hint 2); the dump costs its own margin, header and overflow line, so a short terminal drops dump rows first.
     const hexBudget = Math.max(0, Math.min(8, bodyRows - 19 - decodedRows - (decodedRows > 0 ? 1 : 0)));
     const hexRows: string[] = [];
     for (let offset = 0; offset < inputBytes.length && hexRows.length < hexBudget; offset += 32) {

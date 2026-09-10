@@ -24,8 +24,7 @@ export interface TileSpec {
     color?: string;
 }
 
-// A stat box with its title drawn into the top border. Ink has no border-title prop, so the box is
-// composed by hand — which also keeps the width exact for row layout.
+// A stat box with its title drawn into the top border. Ink has no border-title prop, so the box is composed by hand, which also keeps the width exact.
 export function Tile({ title, value, color = theme.brand, width = 18 }: TileSpec & { width?: number }) {
     const label = title.toUpperCase();
     const inner = Math.max(label.length + 4, width - 2);
@@ -104,13 +103,11 @@ export function Sparkline({ rows, width = 16 }: { rows: SparkRow[]; width?: numb
 export interface Column {
     header: string;
     align?: "left" | "right";
-    // A function is asked per row, and its answer outranks `rowColor` — a column that colors itself row by
-    // row is the more specific signal.
+    // A function is asked per row and its answer outranks `rowColor` — a column that colors itself row by row is the more specific signal.
     color?: string | ((rowIndex: number) => string | undefined);
     dim?: boolean;
     max?: number;
-    // Where a cell too wide for its column loses characters. The middle by default, which keeps both ends of
-    // a name; "end" is for values whose head identifies them, like an entry's kind and number.
+    // Where a cell too wide for its column loses characters: the middle by default, keeping both ends of a name; end is for values whose head identifies them.
     truncate?: "mid" | "end";
 }
 export function Table({
@@ -158,8 +155,7 @@ export function Table({
     const spacing = " ".repeat(gap);
     const rowText = (cells: string[]) => columns.map((_, index) => cell(cells[index] ?? "", index) + (index < columns.length - 1 ? spacing : "")).join("");
 
-    // The header shares the selected row's gradient, so it needs to read as chrome rather than as a
-    // selection: same palette, darkened and running the other way, with muted text.
+    // The header shares the selected row's gradient, so it must read as chrome rather than a selection: same palette, darkened and reversed, with muted text.
     const Header = () => (
         <Box>
             <GradLine

@@ -1,5 +1,4 @@
-// A redeploy into a reused slot keeps the old state bytes, so a changed StateData without a MIGRATE handler
-// must be refused before anything is uploaded — the bytes would otherwise be read at the new offsets.
+// A redeploy into a reused slot keeps the old state bytes, so a changed StateData without a MIGRATE handler must be refused before anything is uploaded.
 import { expect, test } from "bun:test";
 import { AbiTypeKind, type ContractIdl } from "@qinit/proto/contract-idl";
 import { stateCarryoverRejection } from "../../src/ops/deploy/state-layout";

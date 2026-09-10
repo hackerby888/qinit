@@ -1,5 +1,4 @@
-// advanceTo sizes each request from the last one's round trip, and turns a halted node's 503 into the
-// fault's own words instead of a bare HTTP error.
+// advanceTo sizes each request from the last round trip, and turns a halted node's 503 into the fault's own words instead of a bare HTTP error.
 import { expect, test } from "bun:test";
 import { RpcTimeoutError, type LiteRpc } from "@qinit/core";
 import { advanceChunk, advanceTo, settleAfterTimeout } from "../../src/commands/node/tick";

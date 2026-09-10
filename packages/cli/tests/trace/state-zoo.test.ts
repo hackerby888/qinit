@@ -1,9 +1,5 @@
-// The shapes production contracts keep in state — struct and nested-struct keys, arrays and BitArrays
-// as map values, bit and sub-word values, signed keys, a Collection ordered by signed priority, a
-// LinkedList, containers reached through structs — filled, updated, removed, cleaned up and drained by
-// real QPI code, then read back. The contract's own functions are the oracle for what an entry holds
-// and in what order a container iterates; `qinit state`, a print block and --json must agree with each
-// other on the same bytes; and every diff must name what moved by the key the contract wrote.
+// The shapes production contracts keep in state — struct keys, array and BitArray values, signed keys, a Collection, a LinkedList — driven by real QPI code.
+// The contract's own functions are the oracle; `qinit state`, a print and --json must agree on the same bytes, and every diff must name what moved by key.
 import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -157,8 +153,7 @@ test("qinit state, a print block and --json draw the same rows from the same byt
     // A whole value that is an id reads bare; one inside a struct keeps its quotes.
     expect(state.fields.find((field) => field.name === "nullish")!.value).toMatch(/^[A-Z]{60}$/);
     expect(state.fields.find((field) => field.name === "packed")!.value).toMatch(/^\{tag: 7, wide: 11, half: 513, who: "[A-Z]{60}", flag: 1, tiny: -5\}$/);
-    // A struct holding a container is rows and blocks named for the path, never one line of JSON, and the
-    // blocks take their numbers in declaration order like any state container.
+    // A struct holding a container is rows and blocks named for the path, never one line of JSON, and the blocks number in declaration order.
     expect(state.fields.map((field) => field.name)).toEqual(["packed", "deeper.deep.inner", "s8", "s16", "s32", "s64", "umax", "nullish"]);
     expect(state.containers.slice(0, 4).map((block) => [block.name, block.index])).toEqual([
         ["deeper.deep.quad", 1],
@@ -229,8 +224,7 @@ test("every keyed entry reads as the value the contract finds for its key", asyn
         expect(entryTexts(state, name).sort()).toEqual(expected[name].sort());
     }
     expect((await zoo.lookup(3n))[0]).toBe(0n);
-    // The colliders all hash to slot 3 of a four-slot set: the first takes it, the next two probe past
-    // the end and land in slots 0 and 1.
+    // The colliders all hash to slot 3 of a four-slot set: the first takes it, the next two probe past the end and land in slots 0 and 1.
     expect(entryLabels(state, "idSet")).toEqual(["slot[0]", "slot[1]", "slot[3]"]);
 });
 

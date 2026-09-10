@@ -135,8 +135,7 @@ for (const backend of BACKENDS) {
                 const wasmPath = await buildCase(backend, c);
                 const wasmBytes = new Uint8Array(await Bun.file(wasmPath).arrayBuffer());
 
-                // qinit side: deploy (runs INITIALIZE) then the op script, read the raw StateData.
-                // Debug goes on after deploy so the trace holds one entry per scripted op and nothing else.
+                // qinit side: deploy (runs INITIALIZE) then the op script, reading raw StateData. Debug starts after deploy so the trace holds one entry/op.
                 const sim = new QubicSimulator();
                 const ct = sim.deploy(c.slot, wasmBytes);
                 sim.setDebug(true);
@@ -145,8 +144,7 @@ for (const backend of BACKENDS) {
                 expect(ct.state().length).toBe(c.bytes);
                 const qinitEntries = sim.getTrace().entries;
 
-                // node side: same wasm under WAMR, same INITIALIZE + script, via the gtest that prints
-                // CROSSHOST_STATE=<hex> and one CROSSHOST_DIFF=<op>:<regions> per op.
+                // node side: same wasm under WAMR, same INITIALIZE + script, via the gtest that prints CROSSHOST_STATE and one CROSSHOST_DIFF per op.
                 const script = c.ops.map((o) => `${o.it}:${toHex(o.in)}`).join(";");
                 const proc = Bun.spawnSync([GTEST, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"], {
                     cwd: tmpdir(),

@@ -301,8 +301,7 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
             throw new Error("contract source must be outside the Core output checkout");
         }
 
-        // The only hand-off to Core, so it is the one place cheatcodes must not survive. Violations are
-        // a hard failure here rather than a build diagnostic: analyzer severity gates nothing on this path.
+        // The only hand-off to Core, so the one place cheatcodes must not survive. A violation is a hard failure here, since analyzer severity gates nothing.
         const rawSource = readFileSync(contractPath, "utf8");
         const violations = analyzeCheatcodes(rawSource);
 

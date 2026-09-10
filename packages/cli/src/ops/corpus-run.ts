@@ -7,8 +7,7 @@ import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, Diagno
 import { initK12 } from "@qinit/core";
 import type { CompilerBackend } from "../config";
 
-// Suites that need the shared-memory harness: PULSE/QTF corpora retain state pointers, NOST has a ~1 GiB
-// state, QTRY exhausts the smaller unshared arena outright, and QEARN is 33x slower through the shadow bridge.
+// Suites needing the shared-memory harness: PULSE/QTF retain state pointers, NOST has a ~1 GiB state, QTRY exhausts the unshared arena, QEARN is 33x slower.
 const HEAVY_SYSTEM_GTEST_NAMES = new Set(["PULSE", "QTF", "QTRY", "QEARN", "NOST"]);
 const ARENA = 8 * 1024 * 1024;
 const SHARED_START = 0x20000000;
@@ -65,8 +64,7 @@ function corpusPathFor(core: string, name: string, file: string): string | undef
     );
 }
 
-// Discover from the live core checkout so a newly added or renamed system-contract corpus is picked up
-// automatically instead of waiting for a second hard-coded Qinit list to be updated.
+// Discover from the live core checkout so a newly added or renamed system-contract corpus is picked up instead of waiting for a second hard-coded list.
 export function systemGtestCorpora(core: string): SystemGtestCorpus[] {
     return systemContracts(core).flatMap((contract) => {
         const corpusPath = corpusPathFor(core, contract.name, contract.file);
@@ -84,8 +82,7 @@ export function systemGtestCorpora(core: string): SystemGtestCorpus[] {
     });
 }
 
-// Keep offsets unsigned above 2 GiB. JavaScript bitwise operators coerce to
-// signed i32 and would turn a valid imported-memory base negative.
+// Keep offsets unsigned above 2 GiB: JavaScript bitwise operators coerce to signed i32 and would turn a valid imported-memory base negative.
 const align64k = (x: number) => Math.ceil(x / 0x10000) * 0x10000;
 
 // Read a contract wasm's exported state_size without wiring real host imports (stub every import to 0).
@@ -115,8 +112,7 @@ function depSpecs(catalog: any[], mainName: string, testSrc: string, contractSrc
             seen.add(other.name);
             const contractPath = join(core, "src", "contracts", other.file);
             const dependencySource = readFileSync(contractPath, "utf8");
-            // Push after visiting nested references so compile/deploy order gives a
-            // dependency the IDLs of its own callees (PULSE -> QTF -> QRP -> RL).
+            // Push after visiting nested references so compile/deploy order gives a dependency the IDLs of its own callees (PULSE -> QTF -> QRP -> RL).
             visit(dependencySource);
             deps.push({
                 contractPath,
@@ -175,8 +171,7 @@ async function clangWasms(
     const m = await build(main, mainArenaSize(main.name), true, shared);
     if (m) out[main.slot] = m;
     for (const d of deps) {
-        // NOST's state is already close to the Wasm32 address-space ceiling. Its QX dependency does not retain
-        // runner-side state pointers, so keep that dependency in its own memory instead of exceeding 4 GiB.
+        // NOST's state is near the Wasm32 ceiling, and its QX dependency retains no runner-side pointers, so keep that dependency in its own memory.
         const w = await build(d, DEP_ARENA, false, shared && main.name !== "NOST");
         if (w) out[d.slot] = w;
     }

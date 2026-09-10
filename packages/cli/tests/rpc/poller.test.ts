@@ -3,18 +3,13 @@ import { test, expect } from "bun:test";
 import { join } from "node:path";
 
 const repoRoot = join(import.meta.dir, "..", "..", "..", "..");
-// The poller is a bash script that shells out to curl + jq. Skip on hosts missing any of them (e.g. a
-// Windows dev box without Git Bash/jq); CI (Linux runners + the Git-bash windows runner) has all three.
+// The poller is a bash script shelling out to curl + jq; skip on hosts missing any of them, since CI runners have all three.
 const canPoll = ["bash", "curl", "jq"].every((c) => !!Bun.which(c));
 
-// Every try spawns bash + curl + jq, and on the Windows runner one round costs about a second — enough
-// for these to run past bun's 5 s default. A timed-out test is killed mid-spawn, and the assertions
-// below then throw after the test frame has closed, reported as an unhandled error rather than a
-// failure. Hence the explicit timeout on each test.
+// Every try spawns bash + curl + jq, about a second per round on Windows, so these run past bun's 5 s default — hence the explicit timeout on each test.
 const POLL_TIMEOUT_MS = 30_000;
 
-// async Bun.spawn (NOT spawnSync): a sync spawn blocks the event loop, so the in-process Bun.serve
-// could not answer the script's curl. Awaiting lets the server respond while bash runs.
+// async Bun.spawn (NOT spawnSync): a sync spawn blocks the event loop, so the in-process Bun.serve could not answer the script's curl.
 async function runPoll(url: string, filter: string, tries = "3", nap = "1") {
     const p = Bun.spawn(["bash", "scripts/live-node/poll-node-json.sh", url, filter, tries, nap], {
         cwd: repoRoot,
@@ -22,8 +17,7 @@ async function runPoll(url: string, filter: string, tries = "3", nap = "1") {
         stderr: "pipe",
     });
     const out = (await new Response(p.stdout).text()).trim();
-    // The value `exited` resolves to, not `p.exitCode`: a signalled process leaves exitCode null, so a
-    // killed bash reads as `expected 0, received null` instead of naming the signal that killed it.
+    // The value `exited` resolves to, not `p.exitCode`: a signalled process leaves exitCode null, so a killed bash reads as received-null, not the signal.
     const code = await p.exited;
     return { out, code, signal: p.signalCode };
 }

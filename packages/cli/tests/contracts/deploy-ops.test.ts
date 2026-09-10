@@ -1,5 +1,4 @@
-// Deploy failure classification must name the ACTUAL cause, not mislead. These pin the loud messages so a
-// regression (e.g. reporting "slot empty" when the registry was just unreadable) reds CI.
+// Deploy failure classification must name the actual cause: these pin the loud messages so reporting a slot as empty when the registry was unreadable reds CI.
 import { test, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -284,9 +283,7 @@ test("deployContract: racing deployments preserve the winner's occupied slot", a
     expect(rpcs[loser].stats.chunks).toBe(0);
 }, 20000);
 
-// A DEPLOY names the tick it must run in, so a client that is slow to sign and broadcast has it dropped
-// for a tick that already passed. The upload already resends missing chunks; this pins the same for the
-// DEPLOY, which otherwise leaves the slot empty and the confirm poll spinning until it gives up.
+// A DEPLOY names the tick it must run in, so a slow sign-and-broadcast is dropped for a tick already passed; this pins the resend, as upload already does.
 test("deployContract: a DEPLOY dropped for a missed tick is resent", async () => {
     process.env.QINIT_NO_UPDATE = "1";
     const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
@@ -315,8 +312,7 @@ test("deployContract: a DEPLOY dropped for a missed tick is resent", async () =>
 
             if (inputType === LITE_TX.DEPLOY) {
                 deployBroadcasts++;
-                // Swallow the first one exactly as a node does with a tick that has already passed:
-                // accepted on the wire, never executed.
+                // Swallow the first one exactly as a node does with a tick that has already passed: accepted on the wire, never executed.
                 if (deployBroadcasts === 1) {
                     return { ok: true, transactionId: "missed-its-tick" };
                 }

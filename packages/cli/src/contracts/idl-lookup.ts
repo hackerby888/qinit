@@ -9,8 +9,7 @@ import { formatStateValue } from "../trace/state-format";
 
 export type ContractIdls = Map<number, ContractIdl>;
 
-// Every contract slot the node knows, mapped to its IDL, so a caller holding only an inputType can name
-// and decode it. Best effort: a slot whose source will not parse is dropped, never the whole map.
+// Every contract slot the node knows, mapped to its IDL, so a caller holding only an inputType can name and decode it. A slot that will not parse is dropped.
 export async function loadContractIdls(rpc: LiteRpc): Promise<ContractIdls> {
     const sets = await loadContracts(rpc);
     if (sets.nodeError) {
@@ -82,8 +81,7 @@ export interface DecodedInput {
     format?: string;
 }
 
-// Decode a call's input against its entry. The buffer is padded or truncated to the registered size the
-// way the engine's dispatch frame does it (contract/runtime.ts), so a short input decodes as it executed.
+// Decode a call's input against its entry, padded or truncated to the registered size as the engine's dispatch frame does, so a short input decodes as it ran.
 export async function decodeTxInput(entry: ContractEntry, bytes: Uint8Array): Promise<DecodedInput> {
     const type = entry.input;
     if (type.kind !== AbiTypeKind.STRUCT || type.fields.length === 0) {
@@ -97,8 +95,7 @@ export async function decodeTxInput(entry: ContractEntry, bytes: Uint8Array): Pr
     const values = type.fields.length === 1 ? [decoded] : decoded;
     const fields = type.fields.map((field, index): [string, string] => [field.name, formatStateValue(values[index], field.type, false)]);
 
-    // The value grammar is a bonus on top of the named fields — linked_list and overlapping inputs have no
-    // representation in it, and that must not cost the caller the fields it could otherwise show.
+    // The value grammar is a bonus on top of the named fields — linked_list and overlapping inputs have no representation in it and must not cost those fields.
     try {
         return { fields, format: jsonToInputFormat(type, values) };
     } catch (error) {

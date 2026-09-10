@@ -36,9 +36,7 @@ export function epochJsonResult(action: string, facts: EpochFacts | null, error:
     };
 }
 
-// Step over the boundary from `fromEpoch` exactly once. The node ticks on its own between requests, so
-// by the time this runs it may already sit in the next epoch — asking it to advance then would cross a
-// whole further epoch. Only when it has not moved is the transition requested, with a few nudges.
+// Step over the boundary from `fromEpoch` exactly once: the node may already have ticked into the next epoch, and advancing then would cross another.
 export async function crossEpoch(rpc: LiteRpc, fromEpoch: number) {
     const now = await rpc.epochInfo();
     if (now.epoch > fromEpoch) {

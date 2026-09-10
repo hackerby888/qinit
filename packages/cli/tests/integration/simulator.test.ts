@@ -77,8 +77,7 @@ test("invokeProcedure signs + broadcasts Inc; it processes and state advances", 
         expect(r.confirmed).toBe(true);
         expect(r.included).toBe(true);
 
-        // txStatus is processed-on-broadcast for the single-authority engine, so poll the state until the Inc has
-        // actually executed (the engine reaches the tx's tick) rather than racing it.
+        // txStatus is processed-on-broadcast for the single-authority engine, so poll the state until the Inc has actually executed rather than racing it.
         let count = 0n;
         for (let i = 0; i < 40 && count !== 1n; i++) {
             count = BigInt(await callFunction(rpc, SLOT, GET, "", "uint64"));
@@ -110,8 +109,7 @@ test("the node captures a call without anyone enabling debug first", async () =>
 });
 
 test("confirm waits for execution: a read right after confirm sees the mutation (no poll)", async () => {
-    // Regression: txStatus.processed used to be hard-true on broadcast, so confirm() returned before the tx's
-    // tick ran and a read right after saw stale state — which broke the default `await proc(); read()` sample.
+    // Regression: txStatus.processed used to be hard-true on broadcast, so confirm() returned before the tx's tick ran and a read right after saw stale state.
     const { rpc, rpcBaseUrl, stop } = await bootCounter();
     try {
         const ti = await rpc.tickInfo();

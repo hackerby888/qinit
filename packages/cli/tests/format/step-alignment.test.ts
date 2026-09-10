@@ -5,9 +5,7 @@ import { STEP_LABEL_PAD } from "../../src/ui/feedback";
 
 const CLI_SRC = resolve(import.meta.dir, "..", "..", "src");
 
-// Step and StepRow lay their detail out at a fixed column, so a label that reaches the pad leaves no
-// gutter and runs into its detail. Every list that feeds them is checked here rather than by eye,
-// because the failure only shows up in a rendered frame.
+// Step and StepRow lay their detail at a fixed column, so a label reaching the pad runs into its detail — checked here since it only shows in a rendered frame.
 const STEP_LABEL_SOURCES = [
     "commands/node/node-run.tsx",
     "commands/develop/integrate.tsx",

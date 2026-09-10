@@ -68,8 +68,7 @@ function pidAlive(pid: number): boolean {
     }
 }
 
-// Never kill by image name: a developer may be running other Qubic nodes.
-// Resolves true once the tracked pid is dead; false when nothing is tracked or it outlived the wait.
+// Never kill by image name: a developer may be running other Qubic nodes. True once the tracked pid is dead, false when nothing is tracked or it outlived.
 export async function killNode(scratch = activeNodeScratchDir()): Promise<boolean> {
     const resolvedScratch = resolve(scratch);
     const pid = trackedPid(resolvedScratch);
@@ -319,8 +318,7 @@ export async function waitTicking(
         try {
             const tickInfo = await rpc.tickInfo();
             currentTick = tickInfo.tick;
-            // A node serves RPC before it loads its epoch, so its first jump (0 -> the epoch's initial tick)
-            // happens even when the chain never moves again. Only a second advance proves it is ticking.
+            // A node serves RPC before it loads its epoch, so its first jump happens even when the chain never moves again — only a second proves ticking.
             if (previousTick >= 0 && currentTick > previousTick) {
                 advances++;
                 if (advances >= 2) {

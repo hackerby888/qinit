@@ -205,8 +205,7 @@ for (const backend of ["clang", "typescript"] as const) {
     );
 }
 
-// Every template ships a gtest that has to build and pass on both backends, the way `qinit new` then
-// `qinit gtest` runs it; the intercontract one drives its Counter callee at the slot below.
+// Every template ships a gtest that must build and pass on both backends, the way `qinit new` then `qinit gtest` runs it; intercontract drives its callee.
 for (const backend of ["clang", "typescript"] as const) {
     for (const kind of TEMPLATE_KINDS) {
         test.skipIf(!have)(
@@ -249,8 +248,7 @@ for (const backend of ["clang", "typescript"] as const) {
     }
 }
 
-// A scaffolded gtest value-initialises every input, which a struct holding a uint128 only allows once
-// core's uint128_t has a default constructor.
+// A scaffolded gtest value-initialises every input, which a struct holding a uint128 only allows once core's uint128_t has a default constructor.
 const WIDE_SOURCE = `using namespace QPI;
 struct Wide2 {};
 struct Wide : public ContractBase {

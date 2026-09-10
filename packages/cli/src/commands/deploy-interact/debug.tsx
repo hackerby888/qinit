@@ -21,8 +21,7 @@ const TRACE_POLL_MS = 1200;
 const TICK_TIME_ATTEMPTS = 2;
 // Rows the shell owns above the body: the header with its margin, the status line, the body's margin.
 const CHROME_ROWS = 4;
-// Table refuses to shrink a column under 6, so LIST_COLS cannot render below 6×5 + 1 + the five gaps.
-// A pane narrower than that wraps every row instead, which is what the width has to be floored against.
+// Table refuses to shrink a column under 6, so LIST_COLS cannot render below 6×5 + 1 + five gaps; a narrower pane wraps every row instead.
 const LIST_MIN_WIDTH = 41;
 const LIST_WIDTH = 60;
 // What the detail pane is owed before the list starts giving up columns for it.
@@ -49,8 +48,7 @@ function latestTickClock(tickTimes: Iterable<TickClock>): TickClock | undefined 
     return latest;
 }
 
-// A redeployed slot keeps its index and changes its code, and with it the state layout every trace is
-// read against — so the cached IDLs are keyed on both.
+// A redeployed slot keeps its index and changes its code, and with it the state layout every trace is read against — so cached IDLs are keyed on both.
 export function idlCacheKey(contracts: readonly DynamicContractRegistryEntry[]): string {
     return contracts
         .map((contract) => `${contract.index}:${contract.codeHash ?? ""}`)
@@ -144,8 +142,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
         const poll = setInterval(async () => {
             try {
                 reg.current = (await rpc.dynRegistry()).contracts ?? [];
-                // Entry names come from the IDLs, and resolving one can fall back to re-running the compiler —
-                // so they are reloaded when a slot appears, leaves, or is redeployed, not on every poll.
+                // Entry names come from the IDLs, and resolving one can re-run the compiler — so they reload when a slot appears, leaves or is redeployed.
                 const key = idlCacheKey(reg.current);
                 if (key !== idlKey.current) {
                     idlKey.current = key;
@@ -161,8 +158,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                 setErr(String(e?.message ?? e));
             }
         }, TRACE_POLL_MS);
-        // Capture stays on after this view closes: the node records by default, and turning it off here
-        // would blind the next session (and any other client watching right now).
+        // Capture stays on after this view closes: the node records by default, and turning it off would blind the next session and any other client.
         return () => {
             mounted.current = false;
             alive = false;
@@ -173,8 +169,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     const list = target ? entries.filter((entry) => nameOf(entry.index).toLowerCase() === target.toLowerCase() || String(entry.index) === target) : entries;
     visibleEntriesRef.current = list;
 
-    // The frame is pinned to the terminal, so both panes are sized from what is left under the chrome.
-    // Ink cannot erase a frame taller than the screen — one that overflows leaves its own rows behind.
+    // The frame is pinned to the terminal, so both panes size from what is left under the chrome. Ink cannot erase a frame taller than the screen.
     const bodyRows = Math.max(4, rows - 1 - CHROME_ROWS);
     const listWidth = Math.max(LIST_MIN_WIDTH, Math.min(LIST_WIDTH, columns - DETAIL_WIDTH - 2));
     const detailWidth = Math.max(20, columns - listWidth - 2);
@@ -285,8 +280,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
         { isActive: Boolean(process.stdin.isTTY) },
     );
 
-    // Fixed height is what keeps the frame repaintable. Sizing it to exactly `rows` makes the terminal
-    // scroll by one line, so the shell takes one less — the same trade the explorer's shell makes.
+    // Fixed height keeps the frame repaintable. Sizing it to exactly `rows` makes the terminal scroll by one line, so the shell takes one less.
     return (
         <Box flexDirection="column" height={rows - 1}>
             <Header cmd="debug" />
@@ -412,8 +406,7 @@ function Detail({
 
     useEffect(() => setStateOffset(0), [e.seq, showInternals]);
 
-    // Bounded by `width`, every row TraceView draws is exactly one line — so the rows around the state
-    // block can be counted rather than guessed, and the state block takes whatever is left of `bodyRows`.
+    // Bounded by `width`, every row TraceView draws is exactly one line — so surrounding rows can be counted and the state block takes what is left.
     const fixedRows =
         2 + // the status line and the state block's own header
         1 + // the state block's ⋯ tail

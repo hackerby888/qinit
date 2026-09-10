@@ -1,5 +1,4 @@
-// Compact views over trace-format's decoded data, rendered identically by `qinit debug`, `qinit call
-// --trace`, and `qinit state`.
+// Compact views over trace-format's decoded data, rendered identically by `qinit debug`, `qinit call --trace`, and `qinit state`.
 import { Box, Text } from "ink";
 import { type DebugEntry } from "@qinit/core";
 import { Status, theme, truncEnd, truncMid, termCols } from "../ui";
@@ -43,8 +42,7 @@ function StateRow({ label, text, filled, width, wrap }: StateLine & { width: num
 // Internal bookkeeping is opt-in; payload and population changes stay visible.
 export const shownStateLines = (lines: StateDiffLine[], showInternals: boolean) => (showInternals ? lines : lines.filter((line) => !line.internal));
 
-// `maxRows` bounds the block to a window — Ink cannot erase a frame taller than the screen, so an
-// overflowing block leaves its own stale rows behind on the next render.
+// `maxRows` bounds the block to a window — Ink cannot erase a frame taller than the screen, so an overflowing block leaves stale rows behind.
 function StateDiff({
     lines,
     truncated,
@@ -102,8 +100,7 @@ function StateDiff({
     );
 }
 
-// `width` is the pane this renders into, not the terminal — passing it also pins every row to one line,
-// so a caller budgeting rows against the screen height gets the height it counted on.
+// `width` is the pane this renders into, not the terminal; it also pins every row to one line, so a caller budgeting rows gets the height it counted on.
 export function TraceView({
     e,
     name,
@@ -143,11 +140,9 @@ export function TraceView({
             node: bounded ? <Text>{truncMid(view.caller, Math.max(12, cols - 12))}</Text> : <Text wrap="wrap">{view.caller}</Text>,
         });
 
-    // A row is either one line the shared label column owns, or a whole decoded value: a printed struct
-    // takes the blocks `qinit state` draws, which are Boxes and so cannot live inside a row's Text.
+    // A row is either one line the shared label column owns, or a whole decoded value: a printed struct takes Boxes, which cannot live inside a row's Text.
     const rows: ({ label: string; node: React.ReactNode } | { blocks: ValueBlocks })[] = [];
-    // A separate row kind from `log`: this is dev output that never reached the chain, and it is never
-    // cut short — a print exists to be read.
+    // A separate row kind from `log`: this is dev output that never reached the chain, and it is never cut short — a print exists to be read.
     for (const cheat of view.cheats) {
         rows.push({
             label: "print",
@@ -217,8 +212,7 @@ export function TraceView({
         });
     // One label column across both blocks, so the state block does not sit at its own indent.
     const labelWidth = Math.max(5, ...[...callRows, ...rows].map((row) => ("label" in row ? row.label.length : 0)));
-    // Status measures its own detail against the terminal, which overflows a narrower pane — pre-cut it.
-    // The glyph and its space are the 3rd column the detail has to leave room for.
+    // Status measures its detail against the terminal, which overflows a narrower pane — pre-cut it. The glyph and its space are the 3rd column.
     const detailMax = bounded ? cols - pad - 3 : Math.max(12, cols - pad - 8);
     const detail = truncMid(`${execµs(e.execNs)} · tick ${e.tick}`, detailMax);
 
@@ -319,10 +313,7 @@ export function StateView({
     );
 }
 
-/**
- * The rows of one decoded value: every scalar field, then every container as its own block. Shared by
- * `qinit state` and a `CC_PRINT` of a struct, so the same bytes read the same way in both.
- */
+/** The rows of one decoded value: every scalar field, then every container as its own block. Shared by `qinit state` and a `CC_PRINT` of a struct. */
 export function StateBlocks({
     state,
     hiddenContainerIndexes,

@@ -1,5 +1,4 @@
-// readState turns RPC range reads into decoded state, so the failure paths matter as much as the happy
-// one: a node can answer short, answer garbage, or answer from either side of a state update.
+// readState turns RPC range reads into decoded state, so the failure paths matter as much: a node can answer short, garbage, or from either side of an update.
 import { expect, test } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import { hashMapGeometry } from "@qinit/proto";

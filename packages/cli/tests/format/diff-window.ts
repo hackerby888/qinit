@@ -1,5 +1,4 @@
-// A diff window and a state layout built from a source snippet, shared by the diff tests: a case can sit
-// anywhere in a 545 MB state without allocating one, and a new shape costs one line of C++.
+// A diff window and a state layout built from a source snippet: a case can sit anywhere in a 545 MB state without allocating one, and a shape costs one line.
 import { extractIdl } from "@qinit/build";
 import type { DebugStateRegion } from "@qinit/core";
 import { stateFieldsOf, type StateField } from "../../src/trace/state-format";
@@ -14,8 +13,7 @@ export function writeLe(bytes: Uint8Array, offset: number, value: number | bigin
     }
 }
 
-// A window carries its own bytes. `seed` fills the before image and `write` the after image, both at
-// offsets relative to the window.
+// A window carries its own bytes: `seed` fills the before image and `write` the after image, both at offsets relative to the window.
 export function diffWindow(off: number, length: number, seed?: (bytes: Uint8Array) => void, write?: (bytes: Uint8Array) => void): DebugStateRegion {
     const before = new Uint8Array(length);
     seed?.(before);

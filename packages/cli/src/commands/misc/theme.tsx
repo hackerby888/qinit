@@ -95,8 +95,7 @@ export function ThemeCmd({ commandArgs }: { commandArgs: CommandArguments }) {
         { isActive: interactive },
     );
 
-    // Live preview applied synchronously during render (not in a post-render effect) so the header + preview
-    // gradient + highlighted row reflect the hovered variant in the SAME frame.
+    // Live preview applied synchronously during render, not in a post-render effect, so header, gradient and highlighted row reflect the hover in one frame.
     if (phase === "pick") {
         applyTheme(THEME_NAMES[i]);
     }

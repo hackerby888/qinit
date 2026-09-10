@@ -1,5 +1,4 @@
-// The explorer reads a transaction's input with nothing but its inputType and the contract's IDL, so
-// these pin the two halves it depends on: naming an entry, and decoding bytes back to readable values.
+// The explorer reads a transaction's input from nothing but its inputType and the contract's IDL, so these pin naming an entry and decoding bytes back.
 import { expect, test } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import { encodeInput } from "@qinit/proto";
@@ -80,8 +79,7 @@ test("a short input is zero-padded the way the engine's dispatch frame pads it",
     expect(decoded.fields.map(([, value]) => value)).toEqual(["7", "0", "0"]);
 });
 
-// A struct field is a record, not a list: it has to keep its own field names rather than collapse to
-// the positional array the ABI decoder hands back.
+// A struct field is a record, not a list: it has to keep its own field names rather than collapse to the positional array the ABI decoder hands back.
 test("a nested struct field keeps its field names", async () => {
     const entry = entryNamed("Move");
     const bytes = await encodeInput("{1sint32, 2sint32}, 3026uint64");

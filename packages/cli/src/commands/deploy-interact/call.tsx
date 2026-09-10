@@ -47,13 +47,10 @@ type CallFacts = { contract: string; slot: number; entry: string; tick?: number;
 type Confirm = { start: number; net: number; target: number };
 type CallMode = "fn" | "proc";
 
-// Non-interactive forms (qubic-cli style):
-//   qinit call --fn   <idx> <functionId>   --in "<fmt>" --out "<fmt>"
+// Non-interactive forms (qubic-cli style): qinit call --fn <idx> <functionId> --in <fmt> --out <fmt>.
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// --json: the rendered rows as data. Trace keys are absent without --trace rather than empty, so a
-// consumer can tell "nothing changed" from "never captured"; internal rows come through tagged, not
-// dropped, which is what --trace-full toggles in the view.
+// --json: the rendered rows as data. Trace keys are absent without --trace rather than empty, so a consumer can tell nothing-changed from never-captured.
 export function callJsonResult(
     mode: CallMode,
     contract: string,
@@ -103,8 +100,7 @@ export function callJsonResult(
     };
 }
 
-// Each callee frame decodes against its own slot's IDL, since a print is only readable through the
-// contract that made it. A callee that trapped is named too: the caller only ever sees NO_CALL_ERROR.
+// Each callee frame decodes against its own slot's IDL, since a print is only readable through the contract that made it; a trapped callee is named too.
 async function calleePrints(rpc: LiteRpc, frames: readonly DebugEntry[], warn: (line: string) => void) {
     const idls = await loadContractIdls(rpc);
     const decoded: { contract: string; cheats: DecodedCheat[] }[] = [];
@@ -130,8 +126,7 @@ function outputSizeOf(format: string): number | undefined {
     }
 }
 
-// A transfer amount is whole qu on the wire; anything Number() would quietly reshape (1e3, 0x10, a value
-// past 2^53) is refused here so the amount signed is the amount typed.
+// A transfer amount is whole qu on the wire, so anything Number() would reshape (1e3, 0x10, past 2^53) is refused — the amount signed is the amount typed.
 export function parseAmountQu(text: string | undefined): bigint {
     if (text === undefined || text === "") {
         return 0n;
@@ -155,8 +150,7 @@ export function dormantContractMessage(name: string, slot: number, reserve: bigi
     );
 }
 
-// The wizard's answers as if they had been typed. A key present in `overrides` wins even when its value is
-// undefined, so a stray --args/--out/--amount cannot outlive the prompt that replaced it.
+// The wizard's answers as if typed. A key present in `overrides` wins even when undefined, so a stray --args/--out/--amount cannot outlive its prompt.
 export function overlayArgs(base: CommandArguments, positionals: string[], overrides: Record<string, string | undefined>): CommandArguments {
     return {
         positionals,
@@ -254,8 +248,7 @@ function CallOneShot({
                 const idx = rc.index;
                 // The other deployed contracts' declarations: a state field may use a type a callee declares.
                 const calleeSources = siblingCalleeSources(mergeContracts(sets).all, idx);
-                // entry: accept a fn/proc name or an inputType number. Prefer local qinit.idl.json, else derive from the
-                // contract source (node dyn-registry source for user contracts, snapshot source for system contracts).
+                // entry: accept a fn/proc name or an inputType number, preferring local qinit.idl.json over the contract source.
                 const localContractIdl = contractIdlForSlot(idlFile, idx, rc.codeHash);
                 let contractIdl = localContractIdl;
                 let entries = mode === "fn" ? contractIdl?.functions : contractIdl?.procedures;
@@ -311,8 +304,7 @@ function CallOneShot({
                     }
                 } else {
                     try {
-                        // No --in/--args encodes as empty: the entry's own format is a type string, not a value,
-                        // so feeding it here reported a phantom parse error instead of the missing input.
+                        // No --in/--args encodes as empty: the entry's format is a type string, not a value, so feeding it reported a phantom parse error.
                         input =
                             inputFormat !== undefined && entryIdl
                                 ? await encodeInputTyped(entryIdl.input, inputFormat)
@@ -335,11 +327,9 @@ function CallOneShot({
                     }
                 }
 
-                // --trace: capture the call in the node debug ring. Enable + note the latest seq BEFORE dispatch.
-                // Entry seq is 1-based on both backends, so 0 means "everything captured from here on".
+                // --trace: enable capture and note the latest seq BEFORE dispatch. Entry seq is 1-based on both backends, so 0 means everything from here.
                 let sinceSeq = 0;
-                // Remembered past the dispatch so an empty trace can name the real reason.
-                // Why the procedure was never submitted, worded for the trace note; unset when it was sent.
+                // Why the procedure was never submitted, worded for the trace note and remembered past dispatch so an empty trace can name the real reason.
                 let skipped: string | undefined;
                 const traceSrc = rc.source;
                 const traceName = rc.name;
@@ -426,8 +416,7 @@ function CallOneShot({
                     if (signer.switched) {
                         addNote(`⚠ seed unfunded here — signing as ${signer.identity}`);
                     }
-                    // An unfunded signer's tx is accepted then dropped without running on every runtime; fail
-                    // before submitting (mirrors ops/deploy) so the exit code is 1 on both, skipping the resends.
+                    // An unfunded signer's tx is accepted then dropped without running, so fail before submitting — the exit code is 1 on both, no resends.
                     const reserve = await feeReserve();
                     if (signer.unfunded) {
                         setConfirm(null);
@@ -516,12 +505,9 @@ function CallOneShot({
                         te = polled.filter((x) => x.index === idx && x.seq > sinceSeq && x.kind === (mode === "fn" ? 0 : 1) && x.entry === entry).pop();
                         if (!te) await sleep(700);
                     }
-                    // A frame gets its seq when it completes, so the callees this call ran sit between the
-                    // seq seen before dispatch and the call's own. Only the ones with something to say are kept.
-                    // ponytail: on a shared node another tx's frame in the same tick window would slip in too.
+                    // A frame gets its seq on completion, so this call's callees sit between the pre-dispatch seq and its own. A shared node can leak one in.
                     const children = te ? polled.filter((x) => x.seq > sinceSeq && x.seq < te!.seq && x.tick === te!.tick && (x.cheats?.length || !x.ok)) : [];
-                    // The header only matters for deriving an IDL from source, and the build already gave
-                    // us one — a core checkout that cannot supply it must not fail a call that ran.
+                    // The header only matters for deriving an IDL from source and the build gave us one, so a core checkout must not fail a call that ran.
                     let traceHeader: string | undefined;
                     try {
                         traceHeader = traceSrc ? loadConfiguredQpiHeader() : undefined;
@@ -546,8 +532,7 @@ function CallOneShot({
                     } else addNote("(no trace captured — is the debug toggle available on this node?)");
                 }
 
-                // A halted node accepts a transaction and never runs it, so a broadcast that looks fine
-                // here is not one. Reported last: the fault is only knowable after the call was attempted.
+                // A halted node accepts a transaction and never runs it, so a broadcast that looks fine here is not. Reported last: the fault follows the call.
                 const fault = await readFault(rpc);
                 if (fault) {
                     const halted = await describeFault(rpc, fault);

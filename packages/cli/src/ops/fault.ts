@@ -1,5 +1,4 @@
-// A node that halted on a contract trap keeps answering reads, so every command that would otherwise
-// report a stale tick has to ask for the fault and say so.
+// A node that halted on a contract trap keeps answering reads, so every command that would report a stale tick has to ask for the fault and say so.
 import { CONTRACT_ENTRY_KIND } from "@qinit/engine";
 import { WASM_TRAP_ERROR_CODE, type EngineFaultInfo, type LiteRpc } from "@qinit/core";
 import { loadContracts, mergeContracts } from "../contracts/registry";
@@ -24,8 +23,7 @@ export async function readFault(rpc: Pick<LiteRpc, "faultInfo">): Promise<Engine
     }
 }
 
-// "abort(3422552174)" is how both runtimes spell a cheatcode abort; the hex form is what the developer
-// reads a line number out of, so show both.
+// abort(3422552174) is how both runtimes spell a cheatcode abort; the hex form is what the developer reads a line number out of, so show both.
 function withHexAbortCode(message: string): string {
     return message.replace(/abort\((\d+)\)/g, (whole, digits: string) => {
         const code = Number(digits);

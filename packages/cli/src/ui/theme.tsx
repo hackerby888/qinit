@@ -1,5 +1,4 @@
-// The palette and everything that paints with it. `theme` is a single mutable object every component
-// reads, so switching themes is an in-place Object.assign rather than a re-render of the whole tree.
+// The palette and everything that paints with it. `theme` is one mutable object every component reads, so switching is an Object.assign, not a re-render.
 import { Text } from "ink";
 import { output } from "../args";
 
@@ -110,8 +109,7 @@ export function lerp(from: string, to: string, position: number): string {
     return `#${channel(0)}${channel(1)}${channel(2)}`;
 }
 
-// Offset the gradient and fold it back on itself, so an animated phase sweeps the colors along the text
-// without the seam a plain wrap would leave between the last character and the first.
+// Offset the gradient and fold it back on itself, so an animated phase sweeps the colors without the seam a plain wrap would leave.
 function gradPosition(base: number, phase: number): number {
     const shifted = (base + phase) % 1;
     return shifted < 0.5 ? shifted * 2 : 2 - shifted * 2;

@@ -193,8 +193,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                     } else set("run", "fail", w.exited ? "exited early — see node.log" : "not ticking — see node.log");
                 }
 
-                // Arm trace capture: a node released before it recorded by default still fills its ring, so a
-                // `qinit debug` opened later can look back at calls it never watched live.
+                // Arm trace capture: a node released before it recorded by default still fills its ring, so a later `qinit debug` can look back.
                 if (ok) {
                     const rpc = new LiteRpc(rpcBaseUrl);
                     const identity = await rpc.whoami();

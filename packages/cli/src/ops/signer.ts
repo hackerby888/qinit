@@ -1,5 +1,4 @@
-// A node accepts a transaction from an identity with no balance and then drops it at tick assembly, so
-// the only symptom is work that never lands. Catch that before signing anything.
+// A node accepts a transaction from an identity with no balance then drops it at tick assembly, so the only symptom is work that never lands — catch it first.
 import { deriveIdentity, type LiteRpc } from "@qinit/core";
 
 export type SignerRpc = Pick<LiteRpc, "fundedSeed" | "balance">;

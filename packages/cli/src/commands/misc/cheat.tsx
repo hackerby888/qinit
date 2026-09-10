@@ -6,7 +6,7 @@ import { Grad, Panel, theme } from "../../ui";
 const C = ({ children }: { children: React.ReactNode }) => <Text color={theme.accent}>{children}</Text>; // command
 const D = ({ children }: { children: React.ReactNode }) => <Text dimColor>{children}</Text>; // comment
 
-// ---- minimal QPI syntax highlighter (good enough for the cheat-sheet snippet) -------------------------
+// minimal QPI syntax highlighter (good enough for the cheat-sheet snippet)
 const TYPES = new Set([
     "uint8",
     "uint16",

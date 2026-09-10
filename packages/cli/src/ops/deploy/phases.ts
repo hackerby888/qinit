@@ -1,5 +1,4 @@
-// Self-contained deploy phases, each answering with its product or the DeployResult the caller should
-// return — so deployContract stays a sequence of awaits.
+// Self-contained deploy phases, each answering with its product or the DeployResult the caller should return — so deployContract stays a sequence of awaits.
 import { readFileSync } from "node:fs";
 import { DEFAULT_FUNDED_SEED, LiteRpc, readCurrent, autoUpdateVerifyTool } from "@qinit/core";
 import { systemNames } from "@qinit/build";
@@ -133,8 +132,7 @@ export async function resolveSigningSeed(rpc: LiteRpc, explicitSeed: string | un
     return DEFAULT_FUNDED_SEED;
 }
 
-// Upload spends a transaction per tick, so a crawling chain fails slowly — only worth measuring on a node we
-// cannot drive ourselves.
+// Upload spends a transaction per tick, so a crawling chain fails slowly — only worth measuring on a node we cannot drive ourselves.
 export async function assertChainFastEnough(
     rpc: LiteRpc,
     currentTick: number,
@@ -183,8 +181,7 @@ export interface SimulatorDeployRequest {
     emit: Emit;
 }
 
-// The simulator deploys over a direct route instead of the chunked on-chain protocol, so upload and deploy
-// complete together and there is nothing to confirm.
+// The simulator deploys over a direct route instead of the chunked on-chain protocol, so upload and deploy complete together and there is nothing to confirm.
 export async function deployToSimulator(request: SimulatorDeployRequest): Promise<{ ok: boolean; error?: string }> {
     const { rpc, slot, wasm, hash, emit } = request;
 

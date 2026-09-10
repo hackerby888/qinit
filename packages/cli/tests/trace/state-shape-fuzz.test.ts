@@ -1,7 +1,4 @@
-// Two hundred state layouts nobody wrote by hand: structs three deep, arrays of arrays, every scalar
-// width, containers behind struct fields. Each is laid out by the real compiler and filled with random
-// bytes, and then the two decoders must draw the same rows, name every row and block exactly once, and
-// the diff walker must place every row inside a field it knows.
+// Two hundred state layouts nobody wrote by hand, laid out by the real compiler: the two decoders must draw the same rows and name every row and block once.
 import { expect, test } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import { AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
@@ -25,9 +22,7 @@ function random(seed: number): () => number {
     };
 }
 
-// A member's C++ type and, relative to the member, the paths of the rows and container blocks the
-// readers must name for it. A value that holds no container is one row, however deep its struct goes;
-// a struct that holds one is opened up, field by field; nothing below a container is named at all.
+// A member's C++ type and the paths of the rows and blocks the readers must name for it: a value holding no container is one row, however deep its struct.
 type Shape = { type: string; rows: string[]; containers: string[] };
 
 class Generator {
@@ -158,8 +153,7 @@ test(`${SEEDS} generated layouts decode the same on every surface and diff insid
         const fields = stateFieldsOf(idl);
         const diff = await stateDiffLines(fields, [{ off: 0, before: hex(new Uint8Array(bytes.length)), after: hex(bytes) }]);
         const names = new Set(members.map((member) => member.name));
-        // Slack after the last field is the one place a window may reach that no field names: the row
-        // it earns there is deliberate, since a region past the state is how a stale IDL shows itself.
+        // Slack after the last field is the one place a window reaches that no field names, and its row is deliberate: a region past the state means stale IDL.
         const last = fields[fields.length - 1];
         const slackAt = last.off + last.size;
 
