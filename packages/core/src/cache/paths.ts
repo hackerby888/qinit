@@ -1,5 +1,4 @@
-// Cache layout on disk: ~/.cache/qinit/<version>/core-headers/ (+ node/Qubic), pointer at current.json.
-// Node-only (no Bun APIs) — project.ts re-exports from here for consumers that must stay Bun-free.
+// Cache layout on disk: ~/.cache/qinit/<version>/core-headers/ with a pointer at current.json. Node-only, so project.ts re-exports it for Bun-free consumers.
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";

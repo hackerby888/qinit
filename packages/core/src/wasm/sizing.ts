@@ -1,9 +1,5 @@
-// Memory sizes both compiler backends and the engine have to agree on. Everything that lays out a
-// contract's linear memory reads them from here, so a change lands in one place instead of five.
-//
-// The C++ side cannot import this file: `module_storage.h` declares the same layout as a static array
-// and carries its own `WASM_ARENA_SIZE` default. That agreement is asserted by a test rather than
-// enforced by the type system — see `packages/core/tests/wasm/sizing.test.ts`.
+// Memory sizes both compiler backends and the engine must agree on, read from here so a change lands in one place instead of five.
+// `module_storage.h` declares the same layout in C++ with its own default; the agreement is asserted by packages/core/tests/wasm/sizing.test.ts, not by types.
 
 /** Entry input buffer, at `io_base()`. */
 export const INPUT_BUFFER_BYTES = 64 * 1024;
@@ -26,10 +22,5 @@ export const DEFAULT_GTEST_ARENA_BYTES = 16 * 1024 * 1024;
 /** Write-journal budget for undo entries. Capacity is also clamped to the blocks a state actually has. */
 export const DEFAULT_JOURNAL_CAP_BYTES = 64 * 1024 * 1024;
 
-/**
- * Memory reserved for the write journal, past the arena rather than inside it: the contract keeps its
- * whole arena and a host that knows nothing about the journal still sees the region it expects from
- * `io_size()`. Sized to hold the default budget with its probe table, page-aligned, and left untouched
- * when a contract needs less — the pages only commit as blocks are recorded.
- */
+/** Memory reserved for the write journal past the arena, so the contract keeps its whole arena and io_size() still reports what a host expects. Page-aligned.*/
 export const JOURNAL_REGION_BYTES = 72 * 1024 * 1024;

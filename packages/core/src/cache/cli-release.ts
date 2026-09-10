@@ -5,8 +5,7 @@ import repositories from "../../../../config/repositories.json";
 
 export const CLI_REPO = process.env.QINIT_REPOSITORY ?? repositories.qinit.repository;
 
-// qinit-<os>-<arch>[.exe] asset for this host. Windows ships only x64 (bun-windows-x64) — ARM64 Windows
-// runs that under emulation, so map win/arm64 -> x64.
+// qinit-<os>-<arch>[.exe] asset for this host. Windows ships only x64, and ARM64 Windows runs it under emulation, so win/arm64 maps to x64.
 export function cliAssetName(): string {
     const platform = process.platform;
     const os = platform === "linux" ? "linux" : platform === "darwin" ? "darwin" : platform === "win32" ? "windows" : "";

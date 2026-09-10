@@ -20,8 +20,7 @@ export function loadConfig(path = "qinit.json"): QinitConfig {
     return {};
 }
 
-// Where to find core headers for compiling: explicit checkout > env > fetched snapshot cache.
-// No checkout and no fetched snapshot => actionable error.
+// Where to find core headers for compiling: explicit checkout > env > fetched snapshot cache; neither present gives an actionable error.
 export function resolveCoreDir(cliCoreDir?: string, configCoreDir?: string): string {
     const explicit = cliCoreDir || configCoreDir || process.env.QINIT_CORE;
     if (explicit) return resolve(explicit);
@@ -30,8 +29,7 @@ export function resolveCoreDir(cliCoreDir?: string, configCoreDir?: string): str
     throw new Error("no core headers: run `qinit setup` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>");
 }
 
-// Lean, Bun-free re-exports of the toolchain readers, so a consumer can import everything
-// project-related from "@qinit/core/project" without dragging in the crypto/rpc barrel.
+// Lean, Bun-free re-exports of the toolchain readers, so a consumer can import everything project-related without dragging in the crypto/rpc barrel.
 export { readCurrent, currentPath, cacheRoot } from "./cache/paths";
 export type { CurrentPointer } from "./cache/paths";
 export { wasiSdkPaths } from "./cache/wasi-sdk";

@@ -1,5 +1,4 @@
-// The last @qubic-lib use: @qubic.org/crypto's schnorrq.sign is sync but unexported (only the async
-// wrapper is), and the tick path is sync end to end.
+// The last @qubic-lib use: @qubic.org/crypto's schnorrq.sign is sync but unexported (only the async wrapper is), and the tick path is sync end to end.
 import type { KeyPair } from "./qubic";
 
 interface SchnorrQ {

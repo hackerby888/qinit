@@ -1,5 +1,4 @@
-// Client for the qubic-core-lite built-in HTTP RPC.
-// Fast path for on-chain reads — current tick, spectrum, and (later) the deploy registry.
+// Client for the qubic-core-lite built-in HTTP RPC — the fast path for on-chain reads: current tick, spectrum, and the deploy registry.
 import { DEFAULT_RPC_BASE, RequestTimeoutError, fetchWithTimeout, broadcastTx as netBroadcastTx } from "../http";
 import type { NodeTransport, EntityInfo, TxInfo } from "../transport";
 import type {
@@ -65,10 +64,7 @@ export class LiteRpc implements NodeTransport {
 
     constructor(private base = DEFAULT_RPC_BASE) {}
 
-    // GETs are reads: a connect/timeout failure is retried (bounded, backoff) so a momentary blip during
-    // node boot/load doesn't fail the command. An HTTP non-2xx is a real answer -> not retried. The two dev
-    // routes that move the chain by a relative amount pass tries=1: a timed-out advance may well have run,
-    // and re-sending it advances again.
+    // GETs are reads: a connect/timeout is retried, an HTTP non-2xx is a real answer. Relative advance routes pass tries=1 — a timed-out advance may have run.
     private async get<T = unknown>(path: string, tries = 3, timeoutMs = RPC_TIMEOUT_MS): Promise<T> {
         for (let a = 0; ; a++) {
             let r: Response;
@@ -96,8 +92,7 @@ export class LiteRpc implements NodeTransport {
         }
     }
 
-    // Explorer queries are POSTs with a JSON body. The status is returned alongside the parsed body so
-    // callers can treat 404 as a real answer ("no such tick/tx") instead of a failure.
+    // Explorer queries are POSTs with a JSON body; the status comes back beside the parsed body so callers can treat 404 as a real answer, not a failure.
     private async post<T = unknown>(path: string, body: unknown, timeoutMs = 10000): Promise<{ status: number; json: T }> {
         let r: Response;
         try {
@@ -121,8 +116,7 @@ export class LiteRpc implements NodeTransport {
         return { status: r.status, json };
     }
 
-    // Current tick / epoch — used to stamp outgoing transactions. The prefixed route is the one the
-    // public Qubic RPC serves, so this works against a live network as well as core-lite.
+    // Current tick / epoch, used to stamp outgoing transactions. The prefixed route is the one the public Qubic RPC serves, so this works live too.
     async tickInfo(): Promise<TickInfo> {
         // Every node nests the numbers under `tickInfo`; the flat keys remain from the older answer.
         const { tickInfo, ...flat } = await this.get<TickInfo & { tickInfo?: Partial<TickInfo> }>("/live/v1/tick-info");
@@ -155,14 +149,12 @@ export class LiteRpc implements NodeTransport {
         return this.get<DynamicContractRegistry>("/live/v1/dyn-registry");
     }
 
-    /** Active upload session — assembled chunk count + which seqs are still missing (GET /live/v1/dyn-upload).
-     * Lets deploy confirm the node assembled the full Wasm module before DEPLOY. */
+    /** Active upload session — assembled chunk count plus missing seqs, so deploy can confirm the node assembled the full Wasm module before DEPLOY. */
     dynUpload() {
         return this.get<DynamicContractUploadStatus>("/live/v1/dyn-upload");
     }
 
-    /** Exact tx confirmation (GET /live/v1/tx-status/{tick}/{txId}) — needs the tx-status addon.
-     * found => included; processed => node ticked past {tick} (verdict final). */
+    /** Exact tx confirmation (needs the tx-status addon): found => included, processed => node ticked past {tick} and the verdict is final. */
     txStatus(tick: number, txId: string) {
         return this.get<{
             tick: number;
@@ -226,8 +218,7 @@ export class LiteRpc implements NodeTransport {
             cappedAtEpochEnd: boolean;
         }>(`/live/v1/dev/advance-tick?n=${n}`, 1, ADVANCE_TICK_TIMEOUT_MS);
     }
-    // Testnet-only: pull the chain to `target` rather than wait out its cadence, and answer with the tick
-    // reached (0 when it cannot). Never throws, and refuses spans past maxSpan — those mean a stale read.
+    // Testnet-only: pull the chain to `target` rather than wait out its cadence, answering with the tick reached. Never throws, and refuses stale spans.
     async hurryToTick(target: number, maxSpan = 16): Promise<number> {
         if (this.devAdvanceMissing) {
             return 0;
@@ -254,8 +245,7 @@ export class LiteRpc implements NodeTransport {
 
                 tick = advanced.reached;
             } catch (e) {
-                // Only a 404 means the route will never exist; a timeout or a 5xx is transient, and
-                // latching on those would disable the fast path for the life of the client.
+                // Only a 404 means the route will never exist; a timeout or 5xx is transient, and latching would disable the fast path for good.
                 if ((e as { status?: number }).status === 404) {
                     this.devAdvanceMissing = true;
                 }
@@ -323,8 +313,7 @@ export class LiteRpc implements NodeTransport {
         return new Uint8Array(Buffer.from(j.responseData, "base64"));
     }
 
-    /** Dev-only: store a deployed contract's .h source on the node (POST /live/v1/dev/contract-source?slot=N,
-     *  body = raw source) so inter-contract callers can resolve callees from the registry without --callee. */
+    /** Dev-only: store a deployed contract's .h source on the node so inter-contract callers can resolve callees from the registry without --callee. */
     async putContractSource(slot: number, source: string): Promise<boolean> {
         try {
             const r = await fetchWithTimeout(
@@ -342,8 +331,7 @@ export class LiteRpc implements NodeTransport {
         }
     }
 
-    /** Single-authority simulator deploy without chunk upload.
-     * Returns null when the route is absent so callers can use the protocol path. */
+    /** Single-authority simulator deploy without chunk upload; returns null when the route is absent so callers can fall back to the protocol path. */
     async directDeploy(
         slot: number,
         wasm: Uint8Array,

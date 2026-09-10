@@ -16,10 +16,7 @@ import {
 import { JOURNAL_BLOCK_BYTES, JOURNAL_ENTRY_BYTES, JOURNAL_HEADER_BYTES, JOURNAL_SLOT_BYTES } from "../../src/wasm/journal";
 import { DEFAULT_JOURNAL_CAP_BYTES, JOURNAL_REGION_BYTES } from "../../src/wasm/sizing";
 
-/**
- * A module without the journal already baked in. The shared fixture loader caches compiled contracts
- * across test files, so these compile their own rather than racing another file for that cache.
- */
+/** A module without the journal baked in. The shared fixture loader caches compiled contracts across files, so these compile their own rather than racing. */
 async function pristine(source: string, contractName: string): Promise<Uint8Array<ArrayBuffer>> {
     const saved = process.env.QINIT_NO_STATE_JOURNAL;
     process.env.QINIT_NO_STATE_JOURNAL = "1";
@@ -51,8 +48,7 @@ test("an instrumented module still validates and keeps the ABI exports", async (
     expect(exports).toContain(JOURNAL_RESET_EXPORT);
 });
 
-// The journal lives past what the module reports, so io_size() is untouched: a host that knows nothing
-// about the journal still sees exactly the region it expects, and the contract keeps its whole arena.
+// The journal lives past what the module reports, so io_size() is untouched: a host knowing nothing about it still sees the region it expects.
 test("io_size is unchanged and the journal sits immediately past it", async () => {
     const bytes = await pristine(COUNTER_SOURCE, "Counter");
     const result = instrumentStateJournal(bytes);
@@ -91,16 +87,14 @@ test("journal size follows capacity, not state size", () => {
     expect(tableSlotsFor(huge) & (tableSlotsFor(huge) - 1)).toBe(0);
 });
 
-// The bound above is one-sided and adds the probe-table term itself, so a journalBytesFor that left
-// the table out stayed under it. Pin the three parts instead.
+// The bound above is one-sided and adds the probe-table term itself, so a journalBytesFor that left the table out stayed under it. Pin the three parts instead.
 test("journalBytesFor counts header, probe table and entries", () => {
     for (const blocks of [1, 1000, 258_110]) {
         expect(journalBytesFor(blocks)).toBe(JOURNAL_HEADER_BYTES + tableSlotsFor(blocks) * JOURNAL_SLOT_BYTES + blocks * JOURNAL_ENTRY_BYTES);
     }
 });
 
-// capacityFittingRegion had no test at all. It is the last thing between a large-state contract and a
-// journal that runs off the end of its reserved region, so what matters is that its answer always fits.
+// capacityFittingRegion had no test at all, and it is the last thing between a large-state contract and a journal running off its region — its answer must fit.
 test("capacityFittingRegion returns a capacity that fits the reserved region", () => {
     for (const blocks of [1, 1000, 258_110, 1_000_000]) {
         const fitted = capacityFittingRegion(blocks);
@@ -110,8 +104,7 @@ test("capacityFittingRegion returns a capacity that fits the reserved region", (
     }
 });
 
-// Trap backtraces symbolize through a line map built from the pristine module, so the offsets it
-// carries have to survive the rewrite.
+// Trap backtraces symbolize through a line map built from the pristine module, so the offsets it carries have to survive the rewrite.
 test("the offset map lands every un-rewritten instruction on identical bytes", async () => {
     for (const [source, name] of [
         [COUNTER_SOURCE, "Counter"],
@@ -121,8 +114,7 @@ test("the offset map lands every un-rewritten instruction on identical bytes", a
         const bytes = await pristine(source, name);
         const result = instrumentStateJournal(bytes);
 
-        // Each breakpoint marks a byte copied verbatim: a body's content start, or the byte just past a
-        // rewritten site.
+        // Each breakpoint marks a byte copied verbatim: a body's content start, or the byte just past a rewritten site.
         expect(result.offsetMap.length).toBeGreaterThan(0);
         for (const entry of result.offsetMap) {
             expect(result.wasm[remapCodeOffset(result.offsetMap, entry.from)], `${name} offset ${entry.from}`).toBe(bytes[entry.from]!);

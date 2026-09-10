@@ -1,6 +1,4 @@
-// State-write journal baked into a contract module by `instrument.ts`. The contract records the
-// original bytes of every state block it is the first to overwrite, so a host can report what
-// changed without keeping a copy of the state.
+// State-write journal baked in by `instrument.ts`: the contract records the original bytes of every state block it first overwrites, so no state copy is kept.
 
 /** Undo granularity. Matches the engine's diff window, so journal output equals a snapshot diff. */
 export const JOURNAL_BLOCK_BYTES = 256;
@@ -70,11 +68,7 @@ export interface JournalBlock {
     readonly before: Uint8Array;
 }
 
-/**
- * Reads the header at `base`, or undefined when the module carries no journal there. Every geometry
- * value comes from the header, never from build-time constants: a host reads artifacts whose journal
- * capacity it did not choose.
- */
+/** Reads the header at `base`, or undefined when no journal is there. Every geometry value comes from the header, never build-time constants. */
 export function readJournalHeader(memory: Uint8Array, base: number): JournalHeader | undefined {
     if (base < 0 || base + JOURNAL_HEADER_BYTES > memory.byteLength) {
         return undefined;
@@ -128,11 +122,7 @@ export function readJournalBlocks(memory: Uint8Array, base: number, header: Jour
     return blocks;
 }
 
-/**
- * Starts the next dispatch empty by retiring the generation the probe table is stamped with, so the
- * table costs nothing to clear however large it is. The module also exports `__q_journal_reset`, but
- * doing it host-side avoids a wasm call per dispatch.
- */
+/** Starts the next dispatch empty by retiring the generation the probe table is stamped with, so clearing costs nothing however large the table is. */
 export function resetJournal(memory: Uint8Array, base: number, header: JournalHeader): void {
     const view = new DataView(memory.buffer, memory.byteOffset);
     view.setUint32(base + JournalHeaderOffset.FLAGS, 0, true);
@@ -149,10 +139,7 @@ export function resetJournal(memory: Uint8Array, base: number, header: JournalHe
     view.setUint32(base + JournalHeaderOffset.GENERATION, next, true);
 }
 
-/**
- * Records a host write into guest memory, exactly as an instrumented store would. Store rewriting
- * cannot see writes the host makes through an lhost out-pointer, and a contract may aim one at state.
- */
+/** Records a host write into guest memory as an instrumented store would: rewriting cannot see writes made through an lhost out-pointer aimed at state. */
 export function noteHostWrite(memory: Uint8Array, base: number, header: JournalHeader, stateAddr: number, address: number, length: number): void {
     if (length <= 0) {
         return;

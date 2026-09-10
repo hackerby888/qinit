@@ -36,8 +36,7 @@ export function deriveKeysSync(seed: string): KeyPair {
 const isZero = (bytes: Uint8Array): boolean => bytes.every((byte) => byte === 0);
 
 export function verifySync(publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): boolean {
-    // @qubic.org/crypto verifies an all-zero signature against an all-zero key; core rejects that pair,
-    // and the null identity can never be a signer. Caught by the signatureValidity native differential.
+    // @qubic.org/crypto verifies an all-zero signature against an all-zero key; core rejects that pair, and the null identity can never be a signer.
     if (isZero(publicKey) || isZero(signature)) {
         return false;
     }
@@ -57,8 +56,7 @@ export async function bytesToIdentity(bytes: Uint8Array): Promise<string> {
 const NULL_IDENTITY = "A".repeat(60);
 
 export function identityToBytes(identity: string): Uint8Array {
-    // The null/burn address is 60 'A's, whose checksum chars are not 'A' — decoding it through the
-    // checksum-validating path would throw, so answer it directly.
+    // The null/burn address is 60 'A's, whose checksum chars are not 'A', so the checksum-validating path would throw — answer it directly.
     if (identity.toUpperCase() === NULL_IDENTITY) {
         return new Uint8Array(32);
     }
@@ -66,8 +64,7 @@ export function identityToBytes(identity: string): Uint8Array {
     return identityToPublicKey(identity as never);
 }
 
-// Identity packs the public key as four 14-char chunks (char = byte % 26 + 'A') plus a 4-char checksum.
-// A contract key is m256i(index, 0, 0, 0), so only chunk 0 decodes to the index; 60 'A's is the null address.
+// Identity packs the public key as four 14-char chunks plus a 4-char checksum. A contract key is m256i(index, 0, 0, 0), so only chunk 0 decodes to the index.
 export function contractIndexFromIdentity(identity: string): number | null {
     if (identity.length !== 60) return null;
     const upper = identity.toUpperCase();

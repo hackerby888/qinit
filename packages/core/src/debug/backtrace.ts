@@ -1,5 +1,4 @@
-// Core-lite's classic interpreter and call-stack capture print a contract trap backtrace to
-// the node log; this resolver maps its Wasm offsets through Qinit's DWARF sidecar.
+// Core-lite prints a contract trap backtrace to the node log; this resolver maps its Wasm offsets through Qinit's DWARF sidecar.
 
 import { existsSync, readFileSync } from "node:fs";
 
@@ -39,8 +38,7 @@ export function decodeTrapCause(exception: string): string {
     return exception.trim() || "trap";
 }
 
-// WAMR reports the ip AFTER the faulting instruction; step back one byte to land inside it, then take the
-// last line-map entry at/below that offset (entries are sorted; binary search).
+// WAMR reports the ip AFTER the faulting instruction, so step back one byte and take the last line-map entry at or below that offset (binary search).
 function lookup(entries: LineEntry[], off: number): LineEntry | null {
     const target = off - 1;
     let low = 0;
@@ -62,8 +60,7 @@ export interface ResolveOpts {
     lineMapPath?: string;
 }
 
-// Parse node.log: pull each WAMR auto-dump block (the `#NN: 0xOFF - name` frames + the nearest `Exception:`
-// line), map offsets via the line map when given. Returns the LAST (most recent) trap in the log, or null.
+// Parse node.log: pull each WAMR auto-dump block and map offsets via the line map when given. Returns the most recent trap in the log, or null.
 export function resolveTrapBacktrace(logText: string, opts: ResolveOpts = {}): TrapBacktrace | null {
     const blocks: { frames: TrapFrame[]; exception: string }[] = [];
     let currentFrames: TrapFrame[] = [];
