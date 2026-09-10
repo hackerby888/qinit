@@ -528,7 +528,7 @@ export const LAYOUT_WIDTH_ARCHETYPES: Archetype[] = [
         solidity: `${SOL}/struct_packing.sol`,
         stresses:
             "a file-scope struct named `Inner` while the contract's own state carries a nested struct of the same name, and a file-scope struct whose member is typed by the outer one — C++ binds that member at its declaration, so there is no recursion",
-        caveat: "A nested struct sharing a file-scope struct's name used to make the front end resolve the member type in the use scope and recurse Inner -> Frame -> Inner until the stack ran out. A file-scope struct now resolves its fields in its own scope.",
+        caveat: "A nested struct sharing a file-scope struct's name used to make the front end resolve the member type in the use scope and recurse until the stack ran out. Every struct now resolves its fields in the scope that declares it, file, contract or nested alike.",
         axes: ["layout"],
         build(axis) {
             const source = emitContract({
@@ -539,7 +539,7 @@ export const LAYOUT_WIDTH_ARCHETYPES: Archetype[] = [
                     family: "layout",
                     solidity: `${SOL}/struct_packing.sol`,
                     stresses: "a nested struct name colliding with a file-scope struct",
-                    caveat: "documented divergence: the TypeScript analyzer overflows its stack, clang compiles",
+                    caveat: "a member type binds where the struct is declared, not where the layout walk arrives",
                     axis: "nested name collision",
                 },
                 prelude: "struct Inner\n{\n    uint64 wide;\n    uint8 narrow;\n};\n\nstruct Frame\n{\n    Inner inner;\n    uint64 after;\n};",

@@ -52,7 +52,13 @@ for (const [backend, build] of [
         outDir: `/tmp/qinit-triage-probe/${name}/${backend}`,
         skipVerify: true,
     });
-    if (!built.ok) {
+    // A clang build that produced a wasm succeeded, whatever the IDL says: buildContractWithClang re-runs
+    // the TypeScript front end for metadata after the artifact is written and reports `ok: !idlError`, so
+    // a contract the TS parser declines reads here as a CLANG rejection. That is the same misattribution
+    // already fixed in compile.ts, and it made this probe report `clang REJECTED` for a contract clang
+    // had in fact compiled. The probe deploys the wasm and drives entries by number; it never reads the IDL.
+    const producedArtifact = backend === "clang" ? Boolean(built.wasmPath) : built.ok && Boolean(built.wasmPath);
+    if (!producedArtifact) {
         const firstError = (built.stderr ?? "")
             .split("\n")
             .map((line) => line.trim())
