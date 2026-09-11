@@ -1,5 +1,6 @@
 import type { CompileResult, ContractIdl } from "@qinit/compiler/browser";
 import { compileContractWithTypeScript } from "@qinit/compiler/browser";
+import { TEST_SLOT_LAYOUT } from "./slot-layout";
 import API_PROBE_SOURCE from "../fixtures/ApiProbe.h" with { type: "text" };
 import BIG_STATE_SOURCE from "../fixtures/BigState.h" with { type: "text" };
 import CALL_OUT_STATE_SOURCE from "../fixtures/CallOutState.h" with { type: "text" };
@@ -76,12 +77,15 @@ export const wasmFixtureManifest = {
     Counter1: fixture("Counter.h", COUNTER_SOURCE, "Counter", 1),
     Counter5: fixture("Counter.h", COUNTER_SOURCE, "Counter", 5),
     Counter29: fixture("Counter.h", COUNTER_SOURCE, "Counter", 29),
-    Counter30: fixture("Counter.h", COUNTER_SOURCE, "Counter", 30),
-    Counter31: fixture("Counter.h", COUNTER_SOURCE, "Counter", 31),
+    // Baked at the live dynamic window, for tests that deploy where a node would place them.
+    CounterDyn0: fixture("Counter.h", COUNTER_SOURCE, "Counter", TEST_SLOT_LAYOUT.slotBase),
+    CounterDyn1: fixture("Counter.h", COUNTER_SOURCE, "Counter", TEST_SLOT_LAYOUT.slotBase + 1),
+    CounterDyn2: fixture("Counter.h", COUNTER_SOURCE, "Counter", TEST_SLOT_LAYOUT.slotBase + 2),
     Counter40: fixture("Counter.h", COUNTER_SOURCE, "Counter", 40),
     CounterV1: fixture("Counter.h", COUNTER_SOURCE, "Counter", 28),
     CounterV2: fixture("CounterV2.h", COUNTER_V2_SOURCE, "Counter", 28),
     DigestProbe: fixture("DigestProbe.h", DIGEST_PROBE_SOURCE, "DigestProbe", 29),
+    DigestProbeDyn0: fixture("DigestProbe.h", DIGEST_PROBE_SOURCE, "DigestProbe", TEST_SLOT_LAYOUT.slotBase),
     Dividend: fixture("Dividend.h", DIVIDEND_SOURCE, "Dividend", 28),
     FaultZoo: fixture("FaultZoo.h", FAULT_ZOO_SOURCE, "FaultZoo", 28),
     Hooks: fixture("Hooks.h", HOOKS_SOURCE, "Hooks", 28),

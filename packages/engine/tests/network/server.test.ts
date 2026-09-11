@@ -1,10 +1,14 @@
 // EngineServer (server.ts) — the HTTP adapter, driven over an ephemeral port against core-lite RPC routes: tick info, faucet balance, and contract query.
 import { test, expect, beforeAll } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
+import { TEST_SLOT_LAYOUT } from "../../../../test-utils/slot-layout";
 import { initK12 } from "../../src/support/k12";
 import { VirtualNode } from "../../src/transport";
 import { EngineServer } from "../../src/server";
 import { deriveIdentity, LiteRpc, TESTNET_FUNDED_SEEDS } from "@qinit/core";
+
+// The dynamic window comes from the live core headers, as a node's does; no test spells a dynamic slot number.
+const { slotBase, slotCount } = TEST_SLOT_LAYOUT;
 
 beforeAll(async () => {
     await initK12();
@@ -12,7 +16,7 @@ beforeAll(async () => {
 
 // Start an EngineServer on an ephemeral port over a freshly-configured engine; returns its base URL + a stop fn.
 async function serve(setup?: (e: VirtualNode) => void | Promise<void>): Promise<{ base: string; stop: () => void; engine: VirtualNode }> {
-    const engine = new VirtualNode();
+    const engine = new VirtualNode(TEST_SLOT_LAYOUT);
     if (setup) {
         await setup(engine);
     }
@@ -92,23 +96,23 @@ test("direct deploy enforces dynamic and system slot ranges", async () => {
         expect(dynamicAtSystemSlot.status).toBe(400);
         expect(await dynamicAtSystemSlot.json()).toMatchObject({
             ok: false,
-            message: "dynamic slot 1 is outside 29..76",
+            message: `dynamic slot 1 is outside ${slotBase}..${slotBase + slotCount - 1}`,
         });
 
         const systemAtDynamicSlot = await fetch(`${base}/live/v1/dev/deploy`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-                slot: 29,
+                slot: slotBase,
                 name: "QX",
                 kind: "system",
-                wasm: Buffer.from(await wasm("Counter29")).toString("base64"),
+                wasm: Buffer.from(await wasm("CounterDyn0")).toString("base64"),
             }),
         });
         expect(systemAtDynamicSlot.status).toBe(400);
         expect(await systemAtDynamicSlot.json()).toMatchObject({
             ok: false,
-            message: "system slot 29 is outside 1..28",
+            message: `system slot ${slotBase} is outside 1..${slotBase - 1}`,
         });
 
         expect(await rpc.directDeploy(1, await wasm("Counter1"), "QX", "system")).toMatchObject({
@@ -123,18 +127,18 @@ test("direct deploy enforces dynamic and system slot ranges", async () => {
 test("direct deploy rejects a different-name replacement without changing state", async () => {
     const { base, stop, engine } = await serve();
     const rpc = new LiteRpc(base);
-    const counter = await wasm("Counter29");
+    const counter = await wasm("CounterDyn0");
     try {
-        await rpc.directDeploy(29, counter, "Resident");
-        engine.sim.procedure(29, 1);
-        const moduleBeforeRejection = engine.sim.contracts.get(29);
-        const digestBeforeRejection = engine.sim.digest(29);
+        await rpc.directDeploy(slotBase, counter, "Resident");
+        engine.sim.procedure(slotBase, 1);
+        const moduleBeforeRejection = engine.sim.contracts.get(slotBase);
+        const digestBeforeRejection = engine.sim.digest(slotBase);
 
         const rejected = await fetch(`${base}/live/v1/dev/deploy`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-                slot: 29,
+                slot: slotBase,
                 name: "Replacement",
                 kind: "dynamic",
                 wasm: Buffer.from(counter).toString("base64"),
@@ -144,18 +148,18 @@ test("direct deploy rejects a different-name replacement without changing state"
         expect(rejected.status).toBe(409);
         expect(await rejected.json()).toMatchObject({
             ok: false,
-            message: "slot 29 is occupied by 'Resident'",
+            message: `slot ${slotBase} is occupied by 'Resident'`,
         });
-        expect(engine.slotOf("Resident")).toBe(29);
+        expect(engine.slotOf("Resident")).toBe(slotBase);
         expect(engine.slotOf("Replacement")).toBeUndefined();
-        expect(engine.sim.contracts.get(29)).toBe(moduleBeforeRejection);
-        expect(engine.sim.digest(29)).toBe(digestBeforeRejection);
+        expect(engine.sim.contracts.get(slotBase)).toBe(moduleBeforeRejection);
+        expect(engine.sim.digest(slotBase)).toBe(digestBeforeRejection);
 
-        expect(await rpc.directDeploy(29, counter, "Resident")).toMatchObject({
+        expect(await rpc.directDeploy(slotBase, counter, "Resident")).toMatchObject({
             ok: true,
-            slot: 29,
+            slot: slotBase,
         });
-        expect(engine.sim.digest(29)).toBe(digestBeforeRejection);
+        expect(engine.sim.digest(slotBase)).toBe(digestBeforeRejection);
     } finally {
         stop();
     }
