@@ -117,7 +117,8 @@ export async function runContractTesting(
         for (const [idx, wasm] of Object.entries(contracts)) {
             const shared = sharedSlots.has(Number(idx));
             if (shared && !runnerMemory()) throw new Error(`gtest: contract slot ${idx} is a shared-memory build but the runner is not instantiated yet`);
-            handles[Number(idx)] = sim.deploy(Number(idx), wasm, shared ? runnerMemory() : undefined);
+            // INIT_CONTRACT only zeroes state; the fixture's own callSystemProcedure runs INITIALIZE.
+            handles[Number(idx)] = sim.deploy(Number(idx), wasm, shared ? runnerMemory() : undefined, { initialize: false });
         }
         // slot -> share-asset ticker (contract_def.h contractDescriptions.assetName) — distributeDividends iterates this asset's possessors.
         for (const [slot, name] of Object.entries(opts.assetNames ?? {})) {

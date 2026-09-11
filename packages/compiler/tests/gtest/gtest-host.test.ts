@@ -1,7 +1,9 @@
-// drives the gtest host's thost/lhost imports from a hand-written runner, so the state-shadow bookkeeping is pinned
-// without clang or a core checkout.
+// drives the gtest host's thost/lhost imports from a hand-written runner, so the state-shadow bookkeeping and the
+// INITIALIZE timing are pinned without clang or a core checkout.
 import { expect, test } from "bun:test";
+import { SYSTEM_PROCEDURES } from "@qinit/core";
 import { runContractTesting } from "@qinit/engine";
+import { compileContractWithTypeScript } from "../../src/browser";
 import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
 
 // runner memory: ids, the state shadow, an output buffer, an empty input, the report message, itoa scratch, row names
@@ -17,6 +19,7 @@ const NAMES = 2048;
 
 const VAULT = 28;
 const MAIN = 29;
+const INIT_COUNT = 27;
 
 // a row's body leaves what it observed in $a and $b; the report message carries both, so a failure shows the values
 interface Row {
@@ -102,6 +105,24 @@ const SYNC_ROWS: Row[] = [
         expect: [1, 1],
     },
 ];
+
+// StateData { uint64 inits; } with INITIALIZE adding 1, so the count is the number of runs
+const INIT_ROWS: Row[] = [
+    { name: "deploy runs no INITIALIZE", body: [shadow(INIT_COUNT), observe("a", SHADOW), sameAsA].join(" "), expect: [0, 0] },
+    {
+        name: "an explicit INITIALIZE runs once",
+        body: [`(call $sysproc (i32.const ${INIT_COUNT}) (i32.const ${SYSTEM_PROCEDURES.INITIALIZE}))`, shadow(INIT_COUNT), observe("a", SHADOW), sameAsA].join(" "),
+        expect: [1, 1],
+    },
+];
+
+const INIT_COUNT_SOURCE = `using namespace QPI;
+struct InitCount2 {};
+struct InitCount : public ContractBase {
+    struct StateData { uint64 inits; };
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {}
+    INITIALIZE() { state.mut().inits += 1; }
+};`;
 
 const byte = (value: number) => `\\${value.toString(16).padStart(2, "0")}`;
 
@@ -189,4 +210,12 @@ test("host calls that run contract code keep the runner's state shadow in step w
     });
     expect(observed(results)).toEqual(expected(SYNC_ROWS));
     expect(results.every((result) => result.passed)).toBe(true);
+}, 60_000);
+
+test("a fixture runs INITIALIZE only when the test calls it", async () => {
+    const compiled = await compileContractWithTypeScript({ source: INIT_COUNT_SOURCE, contractName: "InitCount", slot: INIT_COUNT, arenaSizeBytes: 1024 * 1024 });
+    expect(compiled.wasm.byteLength, JSON.stringify(compiled.diagnostics)).toBeGreaterThan(0);
+
+    const results = await runContractTesting(await runner(INIT_ROWS), { [INIT_COUNT]: Uint8Array.from(compiled.wasm) });
+    expect(observed(results)).toEqual(expected(INIT_ROWS));
 }, 60_000);
