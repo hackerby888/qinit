@@ -2351,8 +2351,26 @@ Measured: `locals.returned = widen(5)` reads **0** on the TypeScript backend and
 `triage/F223-aggregate-return-assignment/`, with an out-parameter control that both backends get right,
 so the finding is about the return path and not about aggregates generally.
 
-Not fixed. `x = f()` where `f` returns an aggregate is ordinary code, so this deserves its own
-root-cause pass rather than being folded into the audit.
+**Fixed**, and the root cause is this campaign's signature shape for a third time.
+`lowerUint128Expression` routed a call's result through the aggregate path only when the callee was
+literally `div`:
+
+```ts
+if (symbolBaseName(expression.callee.name) === "div" && MATH_INTRINSIC_NAMES.has("div") && ...) {
+```
+
+A contract's own `static uint128 widen(uint64)` is not `div`, so it fell past that branch to the scalar
+path, where the assignment ran `uint128`'s converting constructor on the discarded `(i64.const 0)`.
+Any helper whose declared return is a 16-byte aggregate now takes the address path; `div` keeps its
+assertion that authoritative lowering produced one, and lets the general branch emit.
+
+Boundary checked rather than asserted: a **struct**-returning helper of the same shape
+(`static Pair makePair(uint64)`) was already correct, because it goes through
+`tryEmitAggregateAssignment` → `emitAddress` and never reaches the uint128 lowering. So the defect's
+real extent was uint128, and the fix matches it.
+
+    clang       5 5 1
+    typescript  5 5 1     (was 0 5 0)
 
 # The fail-closed guard — built, and it should not ship as written
 
@@ -2367,6 +2385,53 @@ rejected program is still not matching the oracle. The guard is right in princip
 shapes should be a fast path, not the correctness boundary — but it must not land until deduction
 covers the shapes clang can obviously type. Recorded as built and measured, and deliberately not
 recommended for landing in this state.
+
+# Three ported fixes, and what the port cost
+
+F203, F215 and F221 had fixes built during the campaign that were never landed: the branch that became
+PR #18 was scoped to the thirteen findings judged fully safe, and these three were not on that list.
+They are ported here, each verified by its triage repro and by a pin in
+`tests/differential/deduction-and-returns-diff.test.ts` that was watched fail with the fix reverted.
+
+| finding | pin, pre-fix | pin, post-fix |
+| --- | --- | --- |
+| F203, 8-byte | `0n` | `1n` |
+| F203, 16-byte | `0n` | `1n` |
+| F215 | one compile error | compiles |
+| F221, helper path | `10n` | `15n` |
+| F223 | `0n` | `5n` |
+
+**Deliberately not ported: the fail-closed deduction guard.** It ships in the same campaign commit as
+F203 and is recorded below as built-and-refused. It rejects `qpi.K12(qpi.tick())`, which clang
+compiles.
+
+**F221's write-back had two call paths and only one was wired.** The container/`this` path already
+wrote back; the helper path did not, so a contract's own `static void bump(uint64& slot)` dropped every
+write. Both now share `memory/reference-arguments.ts`, and the `this` path picked up by-value
+parameters in the bargain — it had covered only body locals.
+
+## The regression the port caused, and the guard that was missing
+
+Landing F203 turned `MemberFunctionTemplate` red: `picker.twice<uint8>(200)` returned 400 where clang
+truncates to 144.
+
+`compileContainerMethod` binds explicit template arguments, then runs member-template inference which
+overwrites them. That was invisible while deduction returned `null` for a literal — the `&& actual`
+guard skipped the write and the explicit `<uint8>` survived by accident. Giving deduction the ability
+to type a literal removed the accident.
+
+In C++ an explicitly supplied template argument is not deduced at all. The guard already exists one
+file over, in `library-function-compiler.ts` for free function templates (`&& !types.has(pt.name)`);
+`containers.ts` was the single site without it. Tracked by name in a set rather than by testing
+`types.has`, because `types` there starts from the enclosing class's bindings and a method parameter
+shadowing an owner parameter would otherwise never deduce.
+
+## Harness: four rebuilds of the same corpus
+
+`solidity-port.test.ts`'s integrity block called `expandAll("full")` four times, each building all
+~6,600 variants, and tipped over bun's 5s default under load. The corpus is identical for all four, so
+it is built once in `beforeAll`. The file went from timing out to 3.19s for 18 tests. The timeout was
+the symptom; the redundant work was the bug.
 
 # F224 — an asset iterator held in state does not match its declared layout
 
@@ -2585,5 +2650,68 @@ change with its own sweep, not folded into this one.
 
 ## Not in scope
 
-F203, F215, F221, F223 share a different root cause — enumerate the known shapes, return `null`, let
-`null` become a silent default — and F224 is an ABI change. Each deserves its own change.
+F224 is an ABI change: materialising an asset iterator's declared layout changes `sizeof(StateData)`
+for any contract holding one, and that deserves its own change and its own verification.
+
+# F203, F215, F221, F223 — closed, and what the shared root cause turned out to be
+
+All four were named as sharing one root cause: *enumerate the known shapes, return `null` or fall
+through, and let the default be a wrong answer.* Building them out confirms that for three, and the
+fourth is the same shape wearing a different coat.
+
+| finding | where the enumeration was | what the default did |
+| --- | --- | --- |
+| F203 | `deduceMethodArgumentType` recognised three argument shapes | `T` unbound, so `sizeof(T)` became 1 — an expression hashed one truncated byte |
+| F215 | member access enumerated the producers of an addressable object | `SELF.u64._0` refused, while the same read through a copy compiled |
+| F221 | write-back existed on one call path, for one storage kind | a helper's write through a `uint64&` was silently dropped |
+| F223 | `lowerUint128Expression` routed only calls spelled `div` | the aggregate return was discarded and `uint128(0)` stored instead |
+
+Three had fixes built during the campaign and never ported, because the port's scope was the thirteen
+findings judged fully safe. F223 had none and is fixed here.
+
+## F203 — deduce from the rvalue's type
+
+An rvalue has a type in C++ just as an lvalue does, and `scalarTypeInfo` already computes it — it is
+what the backend trusts to lower the arithmetic. Deduction now asks it instead of giving up, and a
+call's declared return type is read directly, which `scalarTypeInfo` discards above 8 bytes. Both
+repros agree with clang, including `triage/F203-k12-wide/`, the 16-byte case the first cut forgot.
+
+**The fail-closed guard built alongside it is still not landed.** It rejects `qpi.K12(qpi.tick())`,
+which clang compiles. Converting a silently wrong answer into a wrongly rejected program is not
+matching the oracle — it is the F204 mistake in different clothes.
+
+## F221 — the write-back belongs to both call paths
+
+`reference-arguments.ts` now holds the rule once: a scalar in a wasm local has no address, so a `T&`
+parameter gets a scratch copy, which is correct only if it is read back. The container path already
+did this; the helper path did not, so a contract's own `static void bump(uint64&, ...)` dropped every
+write. The `this` path also used a narrower test — body locals only — and now shares the predicate, so
+a by-value parameter is covered there too.
+
+## F223 — generalise, then check the boundary
+
+`lowerUint128Expression` routed a uint128-returning call through the aggregate path only when the
+callee was literally `div`. A contract's own `static uint128 widen(uint64)` fell through to the scalar
+path, where the assignment built `uint128(0)` from the discarded result. Any helper declaring a
+16-byte aggregate return now takes that path.
+
+Then the boundary was measured rather than asserted: a struct-returning helper (`static Pair
+makePair(uint64)`) was already correct, because it goes through `tryEmitAggregateAssignment` and never
+reaches the uint128 lowering. The defect really was uint128-only, and the fix matches its shape.
+
+`div`'s branch keeps its assertion that authoritative div lowers to a 16-byte aggregate return, but no
+longer emits: the general branch does. That kept the backend's `rawWatNode` escape-hatch ratchet at its
+cap of 32 rather than raising a guard whose purpose is to make such growth deliberate.
+
+## Verification
+
+Five pins in `tests/differential/deduction-and-returns-diff.test.ts`, each asserting clang's answer.
+Every one was watched fail with the fixes reverted, as this suite's own rule requires:
+
+| pin | without the fix |
+| --- | --- |
+| K12 of a computed expression | `0` |
+| K12 of a 128-bit computed expression | `0` |
+| a member read off a constructed prvalue | rejected, 1 error |
+| a helper writing through a by-value parameter | `10`, not `15` |
+| assigning a helper's 128-bit return | `0`, not `5` |
