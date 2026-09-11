@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { generateClangdConfig, generateTestClangdConfig, deriveName, DEFAULT_SLOT, ensureEditorSettings, detectStateType } from "../../src/clangd-config";
@@ -254,4 +254,62 @@ test.if(hasFixture)("a stale generated .clangd is rewritten and forces a restart
     } finally {
         rmSync(ws, { recursive: true, force: true });
     }
+});
+
+// The extension rewrites the developer's workspace root, so every way that root can already be occupied
+// is a way to destroy their setup. Each case asserts both halves: what the extension writes, and what it
+// keeps its hands off. `clangdConfigured: false` is the honest outcome when it cannot place the pointer —
+// the caller turns it into a toast naming the file and the directory to point at.
+test.if(hasFixture)("a root the developer already occupies is worked around, never clobbered", () => {
+    const mine = "Diagnostics:\n  ClangTidy:\n    Add: modernize*\n";
+    const theirDb = (dir: string) => JSON.stringify([{ directory: dir, file: "other.cpp", arguments: ["clang++"] }]);
+
+    const run = (setup: (dir: string) => void) => {
+        const ws = mkdtempSync(join(tmpdir(), "qpi-degraded-"));
+        setup(ws);
+        const result = generateClangdConfig({ corePath: "/fake/core", workspaceRoot: ws, contractPath: COUNTER });
+        const dotClangd = readFileSync(join(ws, ".clangd"), "utf8");
+        rmSync(ws, { recursive: true, force: true });
+        return { result, dotClangd, relocated: result.dbPath.includes(".qpi") };
+    };
+
+    // A free root: the database lands there and needs no pointer, because clangd discovers it itself.
+    const pristine = run(() => {});
+    expect(pristine.relocated).toBe(false);
+    expect(pristine.result.clangdConfigured).toBe(true);
+    expect(pristine.dotClangd).not.toContain("CompilationDatabase");
+
+    // A hand-written .clangd survives untouched, and the database still reaches the root beside it.
+    const ownedConfig = run((dir) => writeFileSync(join(dir, ".clangd"), mine));
+    expect(ownedConfig.dotClangd).toBe(mine);
+    expect(ownedConfig.relocated).toBe(false);
+    expect(ownedConfig.result.clangdConfigured).toBe(true);
+
+    // Someone else's database at the root pushes ours aside, and .clangd is rewritten to name it.
+    const ownedDb = run((dir) => writeFileSync(join(dir, "compile_commands.json"), theirDb(dir)));
+    expect(ownedDb.relocated).toBe(true);
+    expect(ownedDb.dotClangd).toContain('CompilationDatabase: ".qpi/clangd"');
+
+    // Both occupied: nothing of theirs is touched and the result says so, rather than pretending.
+    const ownedBoth = run((dir) => {
+        writeFileSync(join(dir, ".clangd"), mine);
+        writeFileSync(join(dir, "compile_commands.json"), theirDb(dir));
+    });
+    expect(ownedBoth.dotClangd).toBe(mine);
+    expect(ownedBoth.relocated).toBe(true);
+    expect(ownedBoth.result.clangdConfigured).toBe(false);
+
+    // A database we cannot parse is someone else's by definition — never overwritten in place.
+    for (const unreadable of ["{ not json", '{"a":1}']) {
+        const odd = run((dir) => writeFileSync(join(dir, "compile_commands.json"), unreadable));
+        expect(odd.relocated).toBe(true);
+    }
+
+    // An ownership marker naming a path from some other checkout does not license a clobber either.
+    const staleMarker = run((dir) => {
+        mkdirSync(join(dir, ".qpi", "clangd"), { recursive: true });
+        writeFileSync(join(dir, ".qpi", "clangd", "owns-root-db"), "/some/other/checkout/compile_commands.json");
+        writeFileSync(join(dir, "compile_commands.json"), theirDb(dir));
+    });
+    expect(staleMarker.relocated).toBe(true);
 });

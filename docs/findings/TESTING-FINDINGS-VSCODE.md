@@ -645,6 +645,16 @@ Worth recording, because a campaign that only lists failures overstates itself.
   diagnostic. No false positives anywhere in the corpus: **0 SPURIOUS across 52 probes**.
 - **The banned surface.** Every other policy rule fires on a crafted violation and stays silent on its
   control, including the div/mod pairs where the qualified spelling must survive.
+- **A workspace root the developer already occupies.** The extension rewrites `compile_commands.json`,
+  `.clangd` and `.vscode/settings.json` in the developer's own root, so every way that root can already
+  be taken is a way to destroy their setup. Eight conditions were tried and none misbehaved: a
+  hand-written `.clangd` is never rewritten; someone else's database at the root pushes ours into
+  `.qpi/clangd/` and `.clangd` is rewritten to name it; with **both** occupied nothing of theirs is
+  touched and the result reports `clangdConfigured: false`, which the caller turns into a toast naming
+  the file and the directory to point at; a database that cannot be parsed — malformed JSON, or a JSON
+  object where an array belongs — is treated as someone else's rather than overwritten in place; and an
+  ownership marker left behind by a different checkout does not license a clobber either. Nothing threw.
+  These paths had no coverage, so they are now pinned in `clangd-config.test.ts`.
 
 ## Two corrections to the instrument
 
