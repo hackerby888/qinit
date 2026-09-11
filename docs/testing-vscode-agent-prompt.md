@@ -99,6 +99,25 @@ core-lite state shape (struct and nested-struct keys, arrays and BitArrays as ma
 ordered by signed priority, a LinkedList, containers reached through structs, structs with padding holes), and `Gauntlet.h`, `DbgMap.h`,
 `MigrateTrap*.h`, `Logger.h`, `CheatShapes.h`, `FaultZoo.h` cover the rest. Then mutate them.
 
+- **The completion surface** — the extension's whole reason to exist, and the place a bug shows up as _nothing_ rather than as something
+  visibly wrong. `completionScope()` splits every request three ways off the line text alone (`src/completion-filter.ts:117`) and each branch
+  behaves differently (`src/extension.ts:195-201`), so walk all three deliberately:
+    - **member**, after `.` or `->` — `state.get().` and `state.mut().` for StateData, then `locals.`, `input.`, `output.`, `qpi.`, a
+      container's own `.`, and every hop of a nested receiver. This is the branch the compiler fallback backs, and it fires on an empty list
+      _or_ one that is entirely `Text`-kind, so a degraded clangd answer and a genuinely memberless struct are not the same event.
+    - **qualified**, after `Ident::` — `QPI::`, a callee's `Counter::`, your own nested `Detail::`, and `std::`, which must come back **empty**.
+      Mind the asymmetry: a blocked qualifier empties the list outright instead of passing it through, so "no suggestions" is the designed
+      answer for `std::` and a bug for anything else. Include a typo'd qualifier and one that exists only in the document.
+    - **identifier**, everything else including a bare leading `::` — the allow-list branch. Assert both directions: `state`, `locals`, `qpi`,
+      `sadd`, `div`, `Array`, `uint64`, `CONTRACT_INDEX`, `REGISTER_USER_PROCEDURE` and the `CC_*` cheats survive; `printf`, `simde_*`, `_mm*`,
+      `std` and `__`-led names do not. clangd truncates to its top 100 ranked items, so the filter can only keep what it was offered — diff
+      against the raw LSP response, never against what you believe should be there.
+
+    Then do all of it mid-typing, which is the state a developer is actually in: a half-typed prefix, Ctrl-Space in the middle of a word (it
+    arrives as an ordinary invocation, so the line text is what decides the scope), and a retrigger on each keystroke while `isIncomplete` is
+    set. Two windows where filtering does not apply are worth probing on their own: a gtest narrows only at the member step, so `std::` and the
+    gtest macros must survive there, and a contract opened before the first successful regeneration is not filtered at all.
+
 - **The container zoo** — `Array<T,N>`, `BitArray<N>`, `HashMap<K,V,C>`, `HashSet<K,C>`, `Collection<T,C>`, `LinkedList<T,C>`, in state, in an
   input struct, and in a callee's `_input`. Nest them: `Array<HashMap<id, uint64, 64>, 4>`, a struct key with padding holes, a container three
   field hops deep. Assert the member list at **every** hop, the signature in `label.detail`, the return type in `label.description`, the
