@@ -79,6 +79,10 @@ export class FunctionParser {
 
     looksLikeDirectInit(): boolean {
         const after = this.parser.state.peek(1).kind;
+        // Inside a body `T name(ident ...)` is a local, not a function; a parameter list would follow the identifier with another one.
+        if (this.parser.state.inStatement && after === TokenKind.IDENTIFIER && this.parser.state.peek(2).kind !== TokenKind.IDENTIFIER) {
+            return true;
+        }
         return (
             after === TokenKind.KW_SIZEOF ||
             after === TokenKind.INT_LITERAL ||

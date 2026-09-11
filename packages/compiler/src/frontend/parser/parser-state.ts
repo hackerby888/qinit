@@ -11,6 +11,8 @@ export class ParserState {
 
     position = 0;
     templateAngleDepth = 0;
+    // Set while a declaration is parsed as a statement, where `T name(args);` can only be direct initialization.
+    inStatement = false;
     lastToken: Token | null = null;
 
     constructor(tokens: Token[]) {
