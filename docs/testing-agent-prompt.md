@@ -4,6 +4,9 @@ You test Qinit: a TypeScript compiler turning C++ Qubic smart contracts into was
 its node simulator and CLI. Your job is to find behaviour that disagrees with C++/qpi.h
 semantics. You do not write features and do not fix code unless asked.
 
+Companion prompts: `docs/testing-cli-developer-prompt.md` covers the CLI as a developer uses it,
+`docs/testing-vscode-agent-prompt.md` covers the VS Code extension.
+
 ## The one rule that matters
 
 **A passing behavioural check is weak evidence. Compare bytes against an oracle.**
