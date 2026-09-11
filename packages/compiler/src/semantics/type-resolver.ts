@@ -44,8 +44,6 @@ export function sizeOfTypeInner(programAnalysis: ProgramAnalysis, type: TypeSpec
         if (struct) return programAnalysis.layoutOfStruct(struct, templateBindings).size;
         const qn = programAnalysis.qualifiedNestedType(type.name, templateBindings);
         if (qn) return programAnalysis.sizeOfType(qn, templateBindings);
-        // asset iterators occupy their 8-byte runtime shape (count @0, cursor @4) wherever they live
-        if (/Asset(Ownership|Possession)Iterator$/.test(type.name)) return 8;
         // an enum type: sized by its declared underlying type (enum class X : uint8 → 1), default int
         const es = lookupScoped(programAnalysis.enumSize, type.name);
         if (es !== undefined) return es;

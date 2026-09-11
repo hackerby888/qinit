@@ -31,7 +31,6 @@ import * as analysisDiagnostics from "./analysis-diagnostics";
 export class ProgramAnalysis {
     assetEnumerationRecord: {
         size: number;
-        capacity: number;
         fields: Record<
             string,
             {

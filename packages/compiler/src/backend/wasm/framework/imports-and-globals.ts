@@ -26,7 +26,7 @@ export function emitGlobals(capacity: Layout): string {
   (global $stateBase i32 (i32.const ${capacity.stateBase}))
   (global $ctxBase i32 (i32.const ${capacity.ctxBase}))
   (global $ioBase i32 (i32.const ${capacity.ioBase}))
-  (global $assetIterBase i32 (i32.const ${capacity.iterBufBase}))
+  (global $assetRecordBuf i32 (i32.const ${capacity.assetRecordBase}))
   (global $prngSeed0 (mut i64) (i64.const 0))
   (global $prngSeed1 (mut i64) (i64.const 0))
   (global $prngSeed2 (mut i64) (i64.const 0))

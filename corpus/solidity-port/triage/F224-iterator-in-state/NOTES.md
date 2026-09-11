@@ -3,21 +3,29 @@
     T_BASE=$PWD/corpus/solidity-port/triage/F224-iterator-in-state T_NAME=IteratorInState \
       bun run scripts/solidity-port/triage-probe.ts
 
+    clang       2 1000 1 | 27 0 0 0 5525825 27 0 0 0 0 16842752 4294967295
+    typescript  2 1000 1 | 27 0 0 0 5525825 27 0 0 0 0 16842752 4294967295
+    >>> AGREE
+
+The first three words are the control: 2 holders, 1000 shares, 1 call. The rest is the `Scratch`
+member holding the iterator: `_issuance` (SELF's id, slot 27, and the asset name 5525825 `QAT`),
+`_issuanceIdx` (the issuance's universe slot, 27), the ownership select (`any()`: the two flag bytes
+in `16842752`), and `_ownershipIdx`, which is `NO_ASSET_INDEX` once the walk has ended.
+
+## What it was
+
     clang       2 1000 1 | 27 0 0 0 5525825 2 0 0 0 0 16842752 2
     typescript  2 1000 1 | 8589934594 0 0 0 0 0 0 0 0 0 0 0
 
-The first three words are the control and they agree: 2 holders, 1000 shares, 1 call. The walk is
-correct on both backends — F220's filter fix is sound and this row is not about it.
+`emitAssetIter` modelled the iterator as a match count at offset 0 and a cursor at offset 4, packed
+into the first word (`8589934594` = `0x2_00000002`), and never wrote the rest. Invisible in `_locals`;
+a state-layout difference the moment the object is a state member.
 
-The rest is the `Scratch` member holding the iterator. clang's `_issuance` carries SELF's id (slot 27)
-and the asset name 5525825 (`QAT`), then the ownership select and the two universe indices. The
-TypeScript side carries `8589934594` = `0x2_00000002` — a match count of 2 and a cursor of 2, two
-i32s packed into the first word — and zeroes for the remaining ~80 bytes.
+clang's `2 … 2` was not the native layout either: core's wasm SDK had the same snapshot design, with
+the count in `_issuanceIdx` and the cursor in `_ownershipIdx`. Both are gone with core-lite's wasm ABI
+v7: the object holds the native iterator's universe indices and the host advances them in place. See
+`F224-iterator-index-accessors` for the accessors that read those fields, and F226 in
+`docs/findings/TESTING-FINDINGS-9-solidity-port.md` for the 1024-record cap and the shared buffer the
+snapshot design carried.
 
-That is the whole finding: `emitAssetIter` models an iterator as a transient count and cursor, while
-`qpi_asset.h` declares ~88 bytes that clang's `begin()` fills. Invisible in `_locals`; a state-layout
-difference the moment the object is a state member.
-
-Not fixed. Both backends already size the iterator at 96 bytes — `sizeOfType` reads qpi.h's class — so
-this is a fill, not a layout move. See `F224-iterator-index-accessors` for the same finding on a
-contract that keeps its iterator in `_locals`, and for why the fields cannot simply be written.
+Fixed. Pinned as the first object row of `packages/compiler/tests/differential/asset-iterator-diff.test.ts`.

@@ -1,6 +1,6 @@
 import { AstKind } from "../../shared/enums";
 // Validation runs after parse and before codegen.
-import type { FunctionDecl, Statement } from "../../ast";
+import type { FunctionDecl, Statement, VariableDecl } from "../../ast";
 import { isVoidType, isConstType } from "./validation-helpers";
 import type { Validator } from "./validator";
 import type { FnSig } from "./validator-context";
@@ -139,6 +139,13 @@ export function checkDeclarationStatement(
     if (isVoidType(decl.type)) {
         validator.error(`variable '${decl.name}' cannot have type void`, statement.span);
     }
+    const iteratorType = defaultConstructedAssetIterator(decl);
+    if (iteratorType) {
+        validator.error(
+            `'${decl.name}' cannot be default-constructed: ${iteratorType}'s default constructor is protected — write '${iteratorType} ${decl.name}(asset, select)' or declare it as a struct member`,
+            statement.span,
+        );
+    }
     if (decl.isStatic && !decl.isConstexpr) {
         validator.error(
             `static local variable '${decl.name}' is not allowed in a contract — its lifetime would outlive the call and bypass consensus state`,
@@ -162,4 +169,19 @@ export function checkDeclarationStatement(
         }
     }
     current.set(decl.name, { const: isConstType(decl.type) });
+}
+
+// The type name when a local asset iterator has no constructor arguments — qpi.h keeps that constructor protected, so clang rejects it.
+function defaultConstructedAssetIterator(decl: VariableDecl): string | null {
+    if (decl.type.kind !== AstKind.NAME || !/Asset(Ownership|Possession)Iterator$/.test(decl.type.name)) {
+        return null;
+    }
+    const initializer = decl.initializer;
+    if (!initializer) {
+        return decl.type.name;
+    }
+    const constructsType =
+        initializer.kind === AstKind.CONSTRUCT ||
+        (initializer.kind === AstKind.CALL && initializer.callee.kind === AstKind.IDENTIFIER && initializer.callee.name === decl.type.name);
+    return constructsType && initializer.callArguments.length === 0 ? decl.type.name : null;
 }

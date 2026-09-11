@@ -8,6 +8,7 @@ import { diffRegions, journalRegions, type TraceRecorder } from "../logging/trac
 import { QpiContext } from "./abi";
 import { EntityRecord, M256i } from "../protocol/wire";
 import { validateContractIndexSignature } from "./wasm-contract-index";
+import { NO_ASSET_INDEX, type AssetEntry, type AssetWalkPosition, type AssetWalkStep } from "../ledger/assets";
 
 const EMPTY = new Uint8Array(0);
 
@@ -195,18 +196,9 @@ export interface HostServices {
     isAssetIssued(issuer: Id, name: bigint): number;
     numberOfShares(asset: Uint8Array, ownSel: Uint8Array, posSel: Uint8Array): bigint;
     numberOfPossessedShares(name: bigint, issuer: Id, owner: Id, possessor: Id, ownMgmt: number, posMgmt: number): bigint;
-    assetEnumerate(
-        asset: Uint8Array,
-        ownSel: Uint8Array,
-        posSel: Uint8Array,
-        kind: number,
-    ): {
-        owner: Id;
-        possessor: Id;
-        shares: bigint;
-        ownMgmt: number;
-        posMgmt: number;
-    }[];
+    assetIterBegin(kind: number, asset: Uint8Array, ownSel: Uint8Array, posSel: Uint8Array): AssetWalkPosition;
+    assetIterNext(kind: number, position: AssetWalkPosition, ownSel: Uint8Array, posSel: Uint8Array): AssetWalkStep;
+    assetIterRecord(kind: number, ownershipIndex: number, possessionIndex: number): AssetEntry | null;
     transferShareOwnershipAndPossession(slot: number, name: bigint, issuer: Id, owner: Id, possessor: Id, shares: bigint, newOwner: Id): bigint;
     acquireShares(
         slot: number,
@@ -602,6 +594,12 @@ export class Contract {
     private writeGuest(destination: number, bytes: Uint8Array): void {
         this.noteGuestWrite(destination, bytes.length);
         this.u8().set(bytes, destination);
+    }
+
+    // An iterator index the host advances; the slot sits in the contract's own object, which may be state.
+    private writeAssetIndex(offset: number, index: number): void {
+        this.noteGuestWrite(offset, 4);
+        new DataView(this.mem.buffer).setInt32(offset, index, true);
     }
 
     // The before-image for this call. Refilled only after something outside a dispatch touched the state.
@@ -1124,30 +1122,43 @@ export class Contract {
                     ownMgmt & 0xffff,
                     posMgmt & 0xffff,
                 ),
-            // Write selected ownership or possession records to the contract's output buffer.
-            assetEnumerate: (kind: number, issOff: number, ownOff: number, posOff: number, outOff: number, maxN: number) => {
-                const entries = this.host.assetEnumerate(
+            // The contract's iterator holds the node's universe indices: begin and next advance them in place, record fetches the current one.
+            assetIterBegin: (kind: number, issOff: number, ownOff: number, posOff: number, issIdxOff: number, ownIdxOff: number, posIdxOff: number) => {
+                const position = this.host.assetIterBegin(
+                    kind >>> 0,
                     u8().slice(issOff, issOff + 40),
                     u8().slice(ownOff, ownOff + 36),
                     u8().slice(posOff, posOff + 36),
-                    kind >>> 0,
                 );
-                const n = Math.min(entries.length, maxN >>> 0);
-                const mem = u8();
+                this.writeAssetIndex(issIdxOff, position.issuanceIndex);
+                this.writeAssetIndex(ownIdxOff, position.ownershipIndex);
+                if (kind === 1) this.writeAssetIndex(posIdxOff, position.possessionIndex);
+            },
+            assetIterNext: (kind: number, _issOff: number, ownOff: number, posOff: number, issIdxOff: number, ownIdxOff: number, posIdxOff: number) => {
                 const dv = new DataView(this.mem.buffer);
+                const position = {
+                    issuanceIndex: dv.getInt32(issIdxOff, true),
+                    ownershipIndex: dv.getInt32(ownIdxOff, true),
+                    possessionIndex: kind === 1 ? dv.getInt32(posIdxOff, true) : NO_ASSET_INDEX,
+                };
+                const step = this.host.assetIterNext(kind >>> 0, position, u8().slice(ownOff, ownOff + 36), u8().slice(posOff, posOff + 36));
+                this.writeAssetIndex(ownIdxOff, step.position.ownershipIndex);
+                if (kind === 1) this.writeAssetIndex(posIdxOff, step.position.possessionIndex);
+                return step.selected ? 1 : 0;
+            },
+            assetIterRecord: (kind: number, ownIdx: number, posIdx: number, outOff: number) => {
+                const entry = this.host.assetIterRecord(kind >>> 0, ownIdx | 0, posIdx | 0);
                 const record = ASSET_ENUMERATION_RECORD;
-                let p = outOff >>> 0;
-                for (let i = 0; i < n; i++) {
-                    const e = entries[i];
-                    this.noteGuestWrite(p, record.size);
-                    mem.set(e.owner.subarray(0, record.fields.owner.size), p + record.fields.owner.offset);
-                    mem.set(e.possessor.subarray(0, record.fields.possessor.size), p + record.fields.possessor.offset);
-                    dv.setBigInt64(p + record.fields.shares.offset, e.shares, true);
-                    dv.setUint16(p + record.fields.ownershipManagingContract.offset, e.ownMgmt & 0xffff, true);
-                    dv.setUint16(p + record.fields.possessionManagingContract.offset, e.posMgmt & 0xffff, true);
-                    p += record.size;
-                }
-                return n;
+                const mem = u8();
+                this.noteGuestWrite(outOff, record.size);
+                mem.fill(0, outOff, outOff + record.size);
+                if (!entry) return;
+                const dv = new DataView(this.mem.buffer);
+                mem.set(entry.owner.subarray(0, record.fields.owner.size), outOff + record.fields.owner.offset);
+                mem.set(entry.possessor.subarray(0, record.fields.possessor.size), outOff + record.fields.possessor.offset);
+                dv.setBigInt64(outOff + record.fields.shares.offset, entry.shares, true);
+                dv.setUint16(outOff + record.fields.ownershipManagingContract.offset, entry.ownMgmt & 0xffff, true);
+                dv.setUint16(outOff + record.fields.possessionManagingContract.offset, entry.posMgmt & 0xffff, true);
             },
             transferShareOwnershipAndPossession: (name: bigint, issOff: number, ownOff: number, posOff: number, shares: bigint, newOwnerOff: number) => {
                 const newOwner = u8().slice(newOwnerOff, newOwnerOff + 32);

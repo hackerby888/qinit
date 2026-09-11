@@ -7,7 +7,6 @@ export interface WasmAbiSource {
     records: {
         AssetEntry: {
             size: number;
-            capacity: number;
             fields: Record<string, { offset: number; size: number }>;
         };
     };
@@ -51,11 +50,8 @@ function parseAssetRecord(source: string): WasmAbiSource["records"]["AssetEntry"
         offset += size;
         structAlignment = Math.max(structAlignment, alignment);
     }
-    const capacityMatch = /#define\s+WASM_ASSET_ENTRY_CAPACITY\s+(\d+)u?\b/.exec(source);
-    if (!capacityMatch) throw new Error("core ABI metadata does not declare WASM_ASSET_ENTRY_CAPACITY");
     return {
         size: Math.ceil(offset / structAlignment) * structAlignment,
-        capacity: Number(capacityMatch[1]),
         fields,
     };
 }

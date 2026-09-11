@@ -43,14 +43,33 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_${callerMacro.startsWith("PUBLIC_FUNCTION") ? "FUNCTION" : "PROCEDURE"}(${callerName}, 1); }
 };`;
 
+// A block-scoped asset iterator. qpi.h keeps the default constructor protected, so only the form that
+// passes the asset constructs; the backend used to accept the bare declaration and size it at 8 bytes.
+const iteratorLocal = (declaration: string) => `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { uint64 a; };
+  struct Go_input {}; struct Go_output {};
+  struct Go_locals { Asset asset; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Go) {
+    locals.asset.issuer = SELF;
+    locals.asset.assetName = 5525825ULL;
+    ${declaration}
+    state.mut().a = it.reachedEnd() ? 1 : 2;
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};`;
+
 const REFUSED: Record<string, string> = {
     "a member function hiding a file-scope constant is not a value": hiddenByMember(`state.mut().a = Helper;`),
     "a read-only function cannot call a procedure": entryContext("PUBLIC_FUNCTION_WITH_LOCALS", "Peek"),
+    "an asset iterator local cannot be default-constructed": iteratorLocal(`AssetOwnershipIterator it; it.begin(locals.asset);`),
 };
 
 const ACCEPTED: Record<string, string> = {
     "an enum constant no member hides still reads": hiddenByMember(`state.mut().a = Solo;`),
     "a procedure calling a procedure is the allowed direction": entryContext("PUBLIC_PROCEDURE_WITH_LOCALS", "Drive"),
+    "an asset iterator local constructed from its asset": iteratorLocal(`AssetOwnershipIterator it(locals.asset, AssetOwnershipSelect::any());`),
 };
 
 const ourErrors = async (source: string) => {

@@ -28,10 +28,10 @@ expected results), [`crytic/not-so-smart-contracts`](https://github.com/crytic/n
 ## Summary
 
 - **2 confirmed defects**, both in the TypeScript backend, both with controls inside the repro contract:
-  - **F200** — `QPI::div` on `sint32` at `INT32_MIN / -1`: clang traps, the TypeScript backend returns
-    `INT32_MIN` and keeps executing. **Silent divergence from what the chain does.**
-  - **F201** — a member read through a base class reached by a three-deep alias chain is rejected by the
-    TypeScript backend and accepted by clang. Loud rejection of legal C++.
+    - **F200** — `QPI::div` on `sint32` at `INT32_MIN / -1`: clang traps, the TypeScript backend returns
+      `INT32_MIN` and keeps executing. **Silent divergence from what the chain does.**
+    - **F201** — a member read through a base class reached by a three-deep alias chain is rejected by the
+      TypeScript backend and accepted by clang. Loud rejection of legal C++.
 - **1 harness defect, found and fixed during the campaign** (F202, recorded because it is the reason a
   green run was briefly not green): the generator's `placement=nested` rewrite also rewrote the guard
   member that deliberately sits outside the nested struct.
@@ -87,11 +87,11 @@ the x86 wrap, which the wasm instruction deliberately does not produce.
 
 Controls, both in the same repro:
 
-| row | TypeScript | clang |
-| --- | --- | --- |
-| `sint32 -6 / 2` (ordinary signed division) | `-3` | `-3` — agree, so `QPI::div` itself is not implicated |
+| row                                             | TypeScript                | clang                                                                    |
+| ----------------------------------------------- | ------------------------- | ------------------------------------------------------------------------ |
+| `sint32 -6 / 2` (ordinary signed division)      | `-3`                      | `-3` — agree, so `QPI::div` itself is not implicated                     |
 | `sint64 INT64_MIN / -1` (`control-sint64.json`) | traps, digest `c501bf78…` | traps, digest `c501bf78…` — **identical**, so the 64-bit path is correct |
-| `sint32 INT32_MIN / -1` | no trap, `-2147483648` | traps | 
+| `sint32 INT32_MIN / -1`                         | no trap, `-2147483648`    | traps                                                                    |
 
 The width sweep across the whole corpus makes the boundary exact — of 24 `DivQpi` variants, **only the
 three `sint32` ones diverge**:
@@ -175,13 +175,13 @@ loud version of the same resolution path.
 ### F202 — harness defect, found and fixed during the campaign: the generator's nested-placement rewrite also rewrote the out-of-struct guard
 
 Severity: **n/a (defect in this campaign's own generator, not in Qinit)**. Recorded because 13 contracts
-reported `both-rejected` on the first sweep and the rule in `docs/testing-agent-prompt.md` — *"If a
-probe fails, suspect the probe first"* — is what resolved it.
+reported `both-rejected` on the first sweep and the rule in `docs/testing-agent-prompt.md` — _"If a
+probe fails, suspect the probe first"_ — is what resolved it.
 
 `scripts/solidity-port/emit.ts` implements the `placement=nested` axis by moving the archetype's members
 into a nested `Inner` struct and textually rewriting `state.mut().X` to `state.mut().inner.X`. The
 rewrite was unconditional, so it also rewrote `state.mut().placementGuard` — the guard member that
-deliberately stays *outside* `Inner`, which is the entire point of it. Both backends correctly rejected
+deliberately stays _outside_ `Inner`, which is the entire point of it. Both backends correctly rejected
 the result. Fixed with a negative lookahead; the 13 contracts now compile and match.
 
 The episode is worth one line in this ledger for a second reason: it is the campaign's own evidence
@@ -259,10 +259,10 @@ These belong with the numbers, not in a footnote.
 3. **"Solidity" is provenance for the shape, not semantic equivalence.** `uint256` became `uint64`,
    `mapping` became a fixed-capacity `HashMap` that wraps when full, and `require` became a guard that
    does not roll back. A Solidity test whose whole point was atomicity or 256-bit wraparound is a
-   *different* test after porting. `manifest.jsonl` marks each contract `faithful` or `shape-only`.
+   _different_ test after porting. `manifest.jsonl` marks each contract `faithful` or `shape-only`.
    Nothing here supports a claim that Qinit passes Solidity semantic tests.
 4. **605 contracts are not 605 independent trials.** They are variants of 68 archetypes, so the
-   effective sample size is far closer to 68. The variants earn their place as the *axis bisector* that
+   effective sample size is far closer to 68. The variants earn their place as the _axis bisector_ that
    made both findings precise — F200's `sint32`-only boundary and F201's alias-depth boundary each came
    from sibling variants differing in one axis — not as breadth.
 5. **The corpus is 68 archetypes, not the few thousand contracts the campaign was scoped around.**
@@ -304,13 +304,13 @@ its callee are compiled through one options object.
 ## Round 2 summary
 
 - **1 new confirmed defect** and **1 new documented divergence**, both from newly ported archetypes:
-  - **F203** — `qpi.K12(<expression>)` hashes different bytes than `qpi.K12(<variable>)` holding the same
-    value, under the TypeScript backend only. Convicted by a **third, independent oracle**, so this one
-    does not rest on the two backends disagreeing.
-  - **F204** — a shift by a count at or beyond the operand width diverges *only when the count is a
-    compile-time constant*. This is undefined behaviour in C++, so neither backend is wrong; what is
-    reportable is that clang's own folded and runtime spellings disagree with each other, and that
-    testing under `--compiler typescript` therefore cannot predict the on-chain answer.
+    - **F203** — `qpi.K12(<expression>)` hashes different bytes than `qpi.K12(<variable>)` holding the same
+      value, under the TypeScript backend only. Convicted by a **third, independent oracle**, so this one
+      does not rest on the two backends disagreeing.
+    - **F204** — a shift by a count at or beyond the operand width diverges _only when the count is a
+      compile-time constant_. This is undefined behaviour in C++, so neither backend is wrong; what is
+      reportable is that clang's own folded and runtime spellings disagree with each other, and that
+      testing under `--compiler typescript` therefore cannot predict the on-chain answer.
 - **F202 (harness)** is closed: the generator defect round 1 recorded is fixed and its 13 contracts pass.
 - **F200 and F201 still reproduce**, unchanged, on the same variants.
 - The backend switch was verified to change nothing: re-running round 1's 605 contracts through the new
@@ -419,19 +419,19 @@ locals.scratch = input.value << (uint8)3;          // control: runtime, in range
 
 What each backend does with `1 << 254` on a `uint64`:
 
-| | folded count | runtime count | self-consistent |
-| --- | --- | --- | --- |
-| TypeScript | 2^62 = 4611686018427387904 | 2^62 | **yes** |
-| clang | 0 | 2^62 | **no** |
+|            | folded count               | runtime count | self-consistent |
+| ---------- | -------------------------- | ------------- | --------------- |
+| TypeScript | 2^62 = 4611686018427387904 | 2^62          | **yes**         |
+| clang      | 0                          | 2^62          | **no**          |
 
 2^62 is `1 << (254 mod 64)`, which is what wasm's `i64.shl` does — it masks the count to six bits. So the
-runtime answer is 2^62 on both, as the instruction requires. The difference is the *folded* path: clang's
+runtime answer is 2^62 on both, as the instruction requires. The difference is the _folded_ path: clang's
 constant folder resolves the undefined shift to 0, while the TypeScript backend folds it the same way its
 runtime code evaluates it.
 
 Oracle, and the reason this is filed as a divergence rather than a defect: `x << n` with `n >= width` is
 **undefined behaviour in C++** ([expr.shift]), so both answers are permitted and neither backend can be
-called wrong. Solidity, which is where the archetype came from, *does* define it — `shift_left_larger_type.sol`
+called wrong. Solidity, which is where the archetype came from, _does_ define it — `shift_left_larger_type.sol`
 expects 0 — which is why the port carries the caveat that a disagreement here is expected signal.
 
 Controls: both in-range rows agree on both backends and between the folded and runtime spellings
@@ -525,7 +525,7 @@ Two things are specific to round 2:
   work, the cross-contract family, the four new axes, and roughly 50 new archetypes. The remaining
   archetype ideas are catalogued and the generator takes them without further plumbing.
 - **F204 is not a defect and should not be read as one.** Shifting past the operand width is undefined in
-  C++; the finding is the *inconsistency*, not a wrong answer, and the TypeScript backend is arguably the
+  C++; the finding is the _inconsistency_, not a wrong answer, and the TypeScript backend is arguably the
   better-behaved of the two there.
 
 # Round 3 — three times the corpus, and six axes every archetype gets for free
@@ -671,8 +671,8 @@ Three things are specific to round 3:
 
 - **3,647 contracts came from 171 archetypes**, so the effective sample is nearer 171 than 3,647 — and
   the ratio is worse than round 2's, not better: 21 variants per archetype against 10. The axes earn
-  their place as the bisector that made F200, F201 and F204 precise, and F205 was found by a *new
-  archetype*, not by a new axis. Read the contract count as breadth of spellings, not as independent
+  their place as the bisector that made F200, F201 and F204 precise, and F205 was found by a _new
+  archetype_, not by a new axis. Read the contract count as breadth of spellings, not as independent
   trials.
 - **`stateOrder` and `entryOrder` are permutations, not new semantics.** They re-spell a contract the
   archetype already wrote. That is genuinely worth testing — struct offsets and declaration order are
@@ -681,13 +681,13 @@ Three things are specific to round 3:
 - **The two harness defects above were found by the sweep going red, not by review.** Both had the same
   signature: an axis applied where the archetype could not support it, producing a rejection that says
   nothing about either compiler. The corpus-wide invariant test added for F207 covers the declaration
-  ordering; there is no such guard for a *semantic* axis misapplication, and the honest position is that
+  ordering; there is no such guard for a _semantic_ axis misapplication, and the honest position is that
   the next one would again show up as an unexplained `both-rejected` cluster.
 
 # Round 4 — the same 3,000 contracts, from 50% more archetypes
 
 Round 3 ended with an admission: 3,647 contracts came from 171 archetypes, and the variants-per-archetype
-ratio had got *worse*, not better. Round 4 spends the same contract budget the other way. The committed
+ratio had got _worse_, not better. Round 4 spends the same contract budget the other way. The committed
 tier's variant cap drops from 32 to 12 and **84 new archetypes** are authored, so the corpus is
 **255 archetypes / 3,017 contracts** — the same order of size as round 3, from half again as many
 distinct shapes. It also adds the campaign's first oracle that is not one of the two backends.
@@ -695,19 +695,19 @@ distinct shapes. It also adds the campaign's first oracle that is not one of the
 ## Round 4 summary
 
 - **Five new findings**, four of them in the same place: how the TypeScript front end resolves names.
-  - **F213** — a qualified enum constant resolves to the **last-declared constant of that name**,
-    anywhere in the file. `Alpha::Low` returns `Beta::Low`'s value. Silent, arithmetic, no diagnostic.
-    This is the worst thing this campaign has found.
-  - **F212** — a `PUBLIC_FUNCTION` may `CALL` a `PRIVATE_PROCEDURE` under the TypeScript backend and
-    **write contract state from a read-only entry**. clang refuses the same contract outright.
-  - **F211** — a nested struct whose name matches a file-scope struct sends the analyzer into unbounded
-    recursion: `Maximum call stack size exceeded`. clang compiles it.
-  - **F210** — `namespace M { using T = N::T; }` (an alias whose name equals its target's) **hangs** the
-    front end outright. Because the clang pipeline runs the same build gate, it takes both backends down.
-  - **F209** — the global-scope qualifier `::name` is a parse error for the TypeScript backend and
-    ordinary C++ for clang.
+    - **F213** — a qualified enum constant resolves to the **last-declared constant of that name**,
+      anywhere in the file. `Alpha::Low` returns `Beta::Low`'s value. Silent, arithmetic, no diagnostic.
+      This is the worst thing this campaign has found.
+    - **F212** — a `PUBLIC_FUNCTION` may `CALL` a `PRIVATE_PROCEDURE` under the TypeScript backend and
+      **write contract state from a read-only entry**. clang refuses the same contract outright.
+    - **F211** — a nested struct whose name matches a file-scope struct sends the analyzer into unbounded
+      recursion: `Maximum call stack size exceeded`. clang compiles it.
+    - **F210** — `namespace M { using T = N::T; }` (an alias whose name equals its target's) **hangs** the
+      front end outright. Because the clang pipeline runs the same build gate, it takes both backends down.
+    - **F209** — the global-scope qualifier `::name` is a parse error for the TypeScript backend and
+      ordinary C++ for clang.
 - **One engine/harness defect, F208**: `qpi.computor(i)` answers differently in every simulator
-  instance, so any contract reading it is non-reproducible — including between two runs of the *same*
+  instance, so any contract reading it is non-reproducible — including between two runs of the _same_
   backend. Pinned in the harness for the indices the simulator lets us pin.
 - **F200 is now confirmed by a third oracle.** `scripts/solidity-port/native-oracle/` compiles core's own
   `div`/`mod` definitions natively with g++ for x86-64: `div<sint32>(INT32_MIN, -1)` faults there too, so
@@ -767,7 +767,7 @@ error: no viable conversion from 'const QPI::QpiContextFunctionCall'
 
 The TypeScript backend compiles it and runs it: the function returns 1, meaning
 `state.mut().counter += 1` executed inside an entry that is supposed to be a query, and the contract's
-state digest moves across a *function* call. `lifecycle/FunctionMustNotMutate` exists in this corpus
+state digest moves across a _function_ call. `lifecycle/FunctionMustNotMutate` exists in this corpus
 precisely to assert that never happens.
 
 ### F211 — a nested struct name colliding with a file-scope struct overflows the analyzer's stack
@@ -856,7 +856,7 @@ Positive control: planting `uint16: 2 → 4` in `packages/compiler/src/shared/sc
   precision-loss reward split, commit-reveal, replay without a nonce), and dispatch shapes (sparse entry
   numbers, twelve registered entries, a helper shared by a function and a procedure).
 - **A third oracle exists.** `scripts/solidity-port/native-oracle/` — see its README. Small, but it is
-  the first thing in this campaign that can say *which* backend is right rather than only that they
+  the first thing in this campaign that can say _which_ backend is right rather than only that they
   differ.
 - **Hand-derived `expect` rows.** `WidePopcountTwoWays` and `WideCountLeadingZeros` carry per-step
   expected outputs computed from the operand rather than from either compiler, so those rows can catch
@@ -872,10 +872,10 @@ Positive control: planting `uint16: 2 → 4` in `packages/compiler/src/shared/sc
   bug in the shared parts is still invisible to this method, and the twelve `expect` rows are the only
   place in 3,017 contracts where an answer is asserted rather than compared.
 - **The native oracle does not run contracts.** It evaluates arithmetic from core's headers. Confirming
-  a *state digest* against real core needs `contract_testing.h`, gtest, and a registered contract index;
+  a _state digest_ against real core needs `contract_testing.h`, gtest, and a registered contract index;
   that is still the obvious next step and still undone.
 - **F213 was found by one archetype.** Twelve red rows all come from one shape, and three earlier rounds
-  of namespace archetypes did not produce it — the earlier twins compared *layouts*, not *values*. That
+  of namespace archetypes did not produce it — the earlier twins compared _layouts_, not _values_. That
   is a reminder that the corpus finds what its archetypes look at, and 3,017 contracts is not a claim
   about the ones nobody wrote.
 - **F208 is fixed only for the range the simulator lets us pin.** An archetype that reads
@@ -893,15 +893,15 @@ archetype against round 4's 11.8, so the corpus grew mostly by growing the numbe
 
 - **Two new findings, both refusals of legal C++**, and both found while writing archetypes rather than
   by the sweep:
-  - **F214** — `sizeof` of a template with more than one argument (`sizeof(Array<uint64, 8>)`) is a parse
-    error in the TypeScript backend. Every QPI container takes at least two template arguments, so this
-    is how a contract asks how big its own state is.
-  - **F215** — a member read on the `SELF` constant (`SELF.u64._0`) is refused; the identical read
-    through a local `id` copy compiles, and clang accepts both.
+    - **F214** — `sizeof` of a template with more than one argument (`sizeof(Array<uint64, 8>)`) is a parse
+      error in the TypeScript backend. Every QPI container takes at least two template arguments, so this
+      is how a contract asks how big its own state is.
+    - **F215** — a member read on the `SELF` constant (`SELF.u64._0`) is refused; the identical read
+      through a local `id` copy compiles, and clang accepts both.
 - **F213 got much worse on inspection.** Round 4 recorded it as "a qualified enum constant resolves to
   the last-declared constant of that name". Round 5's value probes show the rule is broader: **a constant
   identifier is effectively global**, and the last declaration of that name wins regardless of namespace,
-  enum type, or even *kind* of declaration — an enum constant overwrites a file-scope `constexpr` of the
+  enum type, or even _kind_ of declaration — an enum constant overwrites a file-scope `constexpr` of the
   same name. A four-namespace ladder returns the fourth namespace's value for all four reads.
 - **One harness defect, F216**: an archetype whose script advanced 3,600 ticks cost about forty seconds
   of simulator time per backend and blew a shard deadline, which the sweep reported as a hang. The script
@@ -1004,7 +1004,7 @@ Harness controls: 18 pass. `bun run typecheck` (root project): clean.
 ## What round 5 added
 
 - **156 new archetypes.** By family: integers +48 (casts and promotions, signed boundaries, loops and
-  accumulation), namespaces +18 (all of them *value* probes — see below), containers +12 (ring buffer,
+  accumulation), namespaces +18 (all of them _value_ probes — see below), containers +12 (ring buffer,
   swap-and-pop, checkpoint search, LRU, prefix sums, bitmap allocator, paired tables), layout +13
   (sizeof matrices, offsets by difference, nested arrays, enum and BitArray strides), controlflow +12
   (state machine, retry with backoff, unroll boundary, short-circuit counting), vulnerabilities +12
@@ -1013,7 +1013,7 @@ Harness controls: 18 pass. `bun run typecheck` (root project): clean.
   accessors), assets +10 (issuance edges, ownership versus possession, name encoding, multi-asset),
   lifecycle +10 (hook interaction and epoch boundaries), logging +8, intercontract +12.
 - **Value probes, which is how F213 got its real statement.** Every namespace archetype this round
-  declares same-named things whose *values* differ and reads each through its qualified name. Three
+  declares same-named things whose _values_ differ and reads each through its qualified name. Three
   earlier rounds compared struct sizes and offsets, which a mis-resolution between identically shaped
   types cannot disturb — that is why F213 survived to round 4 and why its full shape needed round 5.
 - **A shared two-operand skeleton** (`twoOperandArchetype` in `archetypes/common.ts`) that carries the
@@ -1028,7 +1028,7 @@ Harness controls: 18 pass. `bun run typecheck` (root project): clean.
   shared component still cannot be seen by this method.
 - **The native oracle still does not run contracts.** Same sentence as round 4, and it is the same
   outstanding work: `contract_testing.h`, gtest, a registered contract index.
-- **Two of this round's three findings were found by *writing* archetypes, not by running them.** F214
+- **Two of this round's three findings were found by _writing_ archetypes, not by running them.** F214
   and F215 were compile refusals hit while authoring; the sweep confirmed them but did not discover them.
   That is a reasonable way to find parser gaps and a poor way to find miscompilations, and it says
   something about where the remaining risk is: the sweep is good at what it already knows how to spell.
@@ -1038,7 +1038,7 @@ Harness controls: 18 pass. `bun run typecheck` (root project): clean.
 # Round 6 — the third oracle, built and run
 
 Every round so far ended with the same admission: both backends share one build gate, one `qpi.h` and
-one `QubicSimulator`, so "N matched" meant *they agreed with each other*. Round 6 removes that caveat
+one `QubicSimulator`, so "N matched" meant _they agreed with each other_. Round 6 removes that caveat
 for part of the corpus by running each backend's **artifact** on the runtime core actually uses.
 
 ## Round 6 summary — lane 1
@@ -1075,10 +1075,10 @@ cmake --build build-wasm --target qubic_wasm_tests
 An oracle that has never been checked against a known answer is not an oracle. Two controls ran before
 any finding was put to it, both from `F200-sint32-div-overflow`:
 
-| control | simulator | WAMR |
-| --- | --- | --- |
-| `sint32 -6 / 2` — ordinary division, both backends agree | `-3` on both | `-3` on both |
-| `sint64 INT64_MIN / -1` — both backends trap | trap on both | **trap on both** |
+| control                                                  | simulator    | WAMR             |
+| -------------------------------------------------------- | ------------ | ---------------- |
+| `sint32 -6 / 2` — ordinary division, both backends agree | `-3` on both | `-3` on both     |
+| `sint64 INT64_MIN / -1` — both backends trap             | trap on both | **trap on both** |
 
 So WAMR reproduces both a known value and a known trap. Only then were the findings run.
 
@@ -1140,7 +1140,7 @@ Reaching F203 needs either a host shim that implements `lhost.k12`, or route B (
 
 The first version of the probe gated on the import list: any module importing an unregistered `lhost`
 function was marked unreachable. That is wrong, and it briefly hid F200's confirmed result. **WAMR
-resolves imports lazily** — an unregistered import only faults when it is actually *called*. The gate
+resolves imports lazily** — an unregistered import only faults when it is actually _called_. The gate
 mattered because of an asymmetry: **the TypeScript backend declares all 64 `lhost` imports on every
 contract regardless of use, while clang declares only the ones it needs** (3 for `DivOverflow`). Under a
 static gate every TypeScript artifact looks unreachable while running perfectly.
@@ -1152,15 +1152,15 @@ known `lhost` function with a matching signature, and does not require the set t
 
 ### Where lane 1 leaves the twelve
 
-| finding | third-oracle status |
-| --- | --- |
-| F200 | **confirmed under WAMR** (plus round 4's native g++ oracle) |
-| F213 | **confirmed under WAMR** |
-| F204 | **confirmed under WAMR** |
-| F203 | unreachable — needs an `lhost.k12` shim; both sides trap symmetrically |
+| finding                                  | third-oracle status                                                                                                   |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| F200                                     | **confirmed under WAMR** (plus round 4's native g++ oracle)                                                           |
+| F213                                     | **confirmed under WAMR**                                                                                              |
+| F204                                     | **confirmed under WAMR**                                                                                              |
+| F203                                     | unreachable — needs an `lhost.k12` shim; both sides trap symmetrically                                                |
 | F201, F205, F209, F211, F212, F214, F215 | unreachable **by construction** — the divergence is a compile-time refusal, so there is no TypeScript artifact to run |
-| F210 | unreachable — hangs the front end; no artifact is produced |
-| F208 | not a compiler artifact; it is an engine/simulator defect |
+| F210                                     | unreachable — hangs the front end; no artifact is produced                                                            |
+| F208                                     | not a compiler artifact; it is an engine/simulator defect                                                             |
 
 Three of the ten previously-unconfirmed findings now rest on something other than the two backends
 disagreeing. Seven of the remainder are unreachable for a structural reason rather than an untried one:
@@ -1169,10 +1169,10 @@ a compile refusal has no artifact, and an oracle that runs artifacts cannot adju
 ## Round 6 summary — lane 4, the name-resolution drill
 
 Lane 4 tested a question the repo's own suite never asks. `name-shadowing.test.ts` and
-`namespace-resolution.test.ts` carry 11 tests each, and all 22 are of the form *"does this name
-resolve?"* — "custom namespace helper resolves via using namespace", "a loop counter named `i` counts
+`namespace-resolution.test.ts` carry 11 tests each, and all 22 are of the form _"does this name
+resolve?"_ — "custom namespace helper resolves via using namespace", "a loop counter named `i` counts
 rather than reading as `i`". Not one puts **two same-named declarations with different values** in
-scope and asks *which one* is picked. That is F213's shape, and it is why 143 test files under
+scope and asks _which one_ is picked. That is F213's shape, and it is why 143 test files under
 `packages/compiler/tests` did not catch a constant name being effectively global.
 
 `scripts/solidity-port/archetypes/namespaces-lookup.ts` adds 12 archetypes that all ask the second
@@ -1212,7 +1212,7 @@ typescript : REJECTED
 The second diagnostic is a fair statement of a design limit: the backend's locals model is flat, one
 slot per name per entry, so a block cannot introduce its own binding.
 
-**The first is the interesting one.** `locals.atOne = tier` is read *before* any block declares a local
+**The first is the interesting one.** `locals.atOne = tier` is read _before_ any block declares a local
 `tier`, so in C++ it unambiguously names the file-scope constant — there is nothing
 use-before-declaration about it. Reporting it as one means the block-local declaration is being hoisted
 over the whole entry body: the name is bound for the entire function rather than from its declaration
@@ -1237,7 +1237,7 @@ namespace AsConstant { static constexpr uint64 grade = 900; }
   AsEnum::grade * AsConstant::grade    5400       810000
 ```
 
-Round 5 stated F213 as an enum constant colliding with a *file-scope* `constexpr`. This shows the
+Round 5 stated F213 as an enum constant colliding with a _file-scope_ `constexpr`. This shows the
 collision does not need file scope at either end: **two namespaced declarations of the same constant
 name collide with each other**, and the later one wins. Both artifacts were run on core's WAMR host and
 reproduce their simulator answers exactly, so the wrong constant is in the deployable wasm.
@@ -1294,15 +1294,15 @@ and five more with exactly **one** call site each: `cleanup`, `setRange`, `range
 
 **Host API with zero call sites:**
 
-| area | never called |
-| --- | --- |
-| assets | `acquireShares`, `releaseShares`, `numberOfOwnedShares`, `numberOfShares`, `assetName`, `issuer`, `owner`, `possessor`, `issuanceIndex`, `ownershipIndex`, `possessionIndex`, `byIssuer`, `byOwner`, `byPossessor`, `byName`, `byManagingContract`, `ownershipManagingContract`, `possessionManagingContract` |
-| IPO | `bidInIPO`, `ipoBidId`, `ipoBidPrice` |
-| mining | `computeMiningFunction`, `initMiningSeed` |
-| oracle | `queryOracle`, `subscribeOracle`, `unsubscribeOracle`, `getOracleQuery`, `getOracleReply`, `getOracleQueryStatus`, `getOcInvocationStatus`, `invokeOc` |
-| governance | `setShareholderProposal`, `setShareholderVotes` |
-| date/time | `addDays`, `addMillisec`, `addMicrosec`, `daysInMonth`, `isLeapYear`, `durationDays`, `setDate`, `setTime`, `getYear`/`Month`/`Day`/`Hour`/`Minute`/`Second`/`Millisec`, `now` |
-| safe math | `addAndComputeCarry`, `addWithoutOverflow` |
+| area       | never called                                                                                                                                                                                                                                                                                                  |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| assets     | `acquireShares`, `releaseShares`, `numberOfOwnedShares`, `numberOfShares`, `assetName`, `issuer`, `owner`, `possessor`, `issuanceIndex`, `ownershipIndex`, `possessionIndex`, `byIssuer`, `byOwner`, `byPossessor`, `byName`, `byManagingContract`, `ownershipManagingContract`, `possessionManagingContract` |
+| IPO        | `bidInIPO`, `ipoBidId`, `ipoBidPrice`                                                                                                                                                                                                                                                                         |
+| mining     | `computeMiningFunction`, `initMiningSeed`                                                                                                                                                                                                                                                                     |
+| oracle     | `queryOracle`, `subscribeOracle`, `unsubscribeOracle`, `getOracleQuery`, `getOracleReply`, `getOracleQueryStatus`, `getOcInvocationStatus`, `invokeOc`                                                                                                                                                        |
+| governance | `setShareholderProposal`, `setShareholderVotes`                                                                                                                                                                                                                                                               |
+| date/time  | `addDays`, `addMillisec`, `addMicrosec`, `daysInMonth`, `isLeapYear`, `durationDays`, `setDate`, `setTime`, `getYear`/`Month`/`Day`/`Hour`/`Minute`/`Second`/`Millisec`, `now`                                                                                                                                |
+| safe math  | `addAndComputeCarry`, `addWithoutOverflow`                                                                                                                                                                                                                                                                    |
 
 The asset gap is the one that should be uncomfortable: **F69** and **F82** in campaigns 6 and 7 were
 both in `acquireShares` / `releaseShares` / `PRE_RELEASE_SHARES`, and this corpus has never called any
@@ -1372,13 +1372,13 @@ bun run corpus:sweep -- --tier full --workers 3
 
 The 98 non-matching rows are five findings and nothing else:
 
-| finding | rows | archetypes |
-| --- | ---: | --- |
-| F213 | 55 | `NsEnumConstantVersusNamespaceConstant` 16, `NsEnumConstantVersusFileConstant` 13, `NsTwinEnumsAcrossFourNamespaces` 13, `NsTwinEnumSameConstantNames` 13 |
-| F203 | 32 | `K12OfComputedExpression` 17, `HostK12ExpressionVersusVariable` 15 |
-| F204 | 5 | `ShiftRhsWiderThanLhs` |
-| F201 | 4 | `NsInheritedNamespacedTypedef` |
-| F200 | 2 | `DivQpi` |
+| finding | rows | archetypes                                                                                                                                                |
+| ------- | ---: | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F213    |   55 | `NsEnumConstantVersusNamespaceConstant` 16, `NsEnumConstantVersusFileConstant` 13, `NsTwinEnumsAcrossFourNamespaces` 13, `NsTwinEnumSameConstantNames` 13 |
+| F203    |   32 | `K12OfComputedExpression` 17, `HostK12ExpressionVersusVariable` 15                                                                                        |
+| F204    |    5 | `ShiftRhsWiderThanLhs`                                                                                                                                    |
+| F201    |    4 | `NsInheritedNamespacedTypedef`                                                                                                                            |
+| F200    |    2 | `DivQpi`                                                                                                                                                  |
 
 F205, F209, F211, F212, F214, F215 and **F217** are scored as matches through `expectedVerdict`: they
 pass by diverging exactly as documented and fail the moment they stop.
@@ -1391,7 +1391,7 @@ round 6 added no layout archetypes), and restoring the line returned all **708 t
 **47 expect-violations** across three of the four new Collection archetypes — both backends agreeing
 with each other and both disagreeing with me. All three were one mistake repeated: I assumed the
 per-pov priority queue walks ascending. It walks descending, and core says so outright at
-`qpi_collection_impl.h:64` — *"here, head's priority > maxPriority >= tail's priority"*.
+`qpi_collection_impl.h:64` — _"here, head's priority > maxPriority >= tail's priority"_.
 
 The direction was re-derived from that source rather than adopted from the observed output, so the
 corrected rows remain assertions rather than a restatement of whatever the backends produced. A fourth
@@ -1404,7 +1404,7 @@ have found authoring mistakes that backend-agreement could never have surfaced.
 
 - **The oracle problem is narrowed, not closed.** Three findings (F200, F213, F204) now rest on core's
   real WAMR runtime rather than on two backends agreeing. The other nine do not, and seven of them
-  *cannot* through this route: a compile refusal produces no artifact to run. F203 needs an
+  _cannot_ through this route: a compile refusal produces no artifact to run. F203 needs an
   `lhost.k12` shim; F210 produces no artifact at all.
 - **"6,223 matched" still means the two backends agreed with each other** for every row without an
   `expect`. The ~110 `expect` rows remain the only correctness assertions in 6,321 contracts, and they
@@ -1442,7 +1442,7 @@ F207 and F216 — and with more embarrassment, because F217's own notes had alre
 down one commit earlier.
 
 The first parity run reported `624 agree · 118 shim-trap · 28 DISAGREE`. All 28 were TypeScript-side,
-all on the two archetypes that are *pinned as one-side-rejected* — F217's `NsBlockScopeShadowChain`
+all on the two archetypes that are _pinned as one-side-rejected_ — F217's `NsBlockScopeShadowChain`
 and `NsAliasAndTargetBothNameConstants` — and every one read:
 
 ```
@@ -1457,8 +1457,8 @@ side with the raw `compileContractWithTypeScript` driver, which **skips the buil
 contract the gate refuses, it returns an empty module rather than failing. The sweep then dutifully
 compared that empty module against WAMR and called the difference a divergence.
 
-This is exactly the trap F217's `NOTES.md` describes — *"checking a rejection with the raw driver
-reports ACCEPTED, because the raw driver skips the build gate"* — written after that trap nearly buried
+This is exactly the trap F217's `NOTES.md` describes — _"checking a rejection with the raw driver
+reports ACCEPTED, because the raw driver skips the build gate"_ — written after that trap nearly buried
 F217, and then walked into again in a different tool in the same round. The fix is one import:
 `buildContractWithTypeScript`, the same wrapper the main sweep uses. Re-running the namespaces family
 afterwards turns all 28 into `build-rejected` and leaves **zero** disagreements.
@@ -1495,7 +1495,7 @@ faithful to the real host rather than merely self-consistent.
 The internal consistency check that makes the run credible: the shim-trap set is **76 contracts on
 clang and the same 76 on the TypeScript backend — an identical set**, and there is no contract where
 one backend agrees and the other does not (outside the 28 the gate refuses). Whether a contract can run
-under a five-native shim is a property of *the contract*, not of who compiled it, and that is exactly
+under a five-native shim is a property of _the contract_, not of who compiled it, and that is exactly
 what the measurement shows.
 
 Two honest bounds:
@@ -1509,7 +1509,7 @@ Two honest bounds:
 #### This table is the second one. The first was wrong, and how it was wrong matters.
 
 An earlier version of this section published `624 agree · 118 shim-trap · 28 build-rejected · 0
-DISAGREE` and presented it as one clean run. It was not: it was the *first* parity run's tally with the
+DISAGREE` and presented it as one clean run. It was not: it was the _first_ parity run's tally with the
 28 DISAGREE rows reclassified by hand after F218 was fixed and re-verified on the namespaces family
 alone. A container restart then killed the confirming re-run before it finished, and the derived table
 went out as though it were observed.
@@ -1559,7 +1559,7 @@ that one file twice — once labelled `clang`, once labelled `typescript`.
 
 Three independent confirmations:
 
-- Of the 385 contracts where both backends built, **357 produced byte-identical `simulator` *and*
+- Of the 385 contracts where both backends built, **357 produced byte-identical `simulator` _and_
   `wamr` strings**. The only 28 rows that differed are the ones where the TypeScript build was refused
   by the gate and never wrote a file at all.
 - `AccountBookWithIterationOrder`'s surviving clang artifact imports exactly the five registered
@@ -1579,13 +1579,13 @@ check:
 
 and reasoned that since whether a contract can run under a five-native shim is a property of the
 contract rather than of who compiled it, the identical sets showed the measurement was sound. But the
-two backends emit *different imports*: clang inlines KangarooTwelve into the module as a header-only
+two backends emit _different imports_: clang inlines KangarooTwelve into the module as a header-only
 static (`core-lite/src/kangaroo_twelve.h:1395`), while the TypeScript backend lowers it to `$lh_k12`
 (`packages/compiler/src/backend/wasm/calls/host-intrinsic-call.ts:113`). The sets should **not** have
 matched, and their matching was the clearest possible evidence of the collision. A number was read as
 confirming the result when it was in fact the disproof.
 
-This is the third round-6/7 defect caught by *a classification looking wrong* rather than by reading
+This is the third round-6/7 defect caught by _a classification looking wrong_ rather than by reading
 code, and the second caused by an assumption about artifact paths — F218 was the first, and its NOTES
 warned about exactly this family one commit earlier.
 
@@ -1600,10 +1600,12 @@ The gtest registered five natives, so 152 of 770 round-6 runs (~20%) trapped for
 rather than because anything was wrong. Two natives close the whole gap: `k12` accounts for 122 of the
 152 and `tick` for the other 30.
 
-`scripts/solidity-port/wamr-shim.patch` adds `k12`, `tick`, `epoch`, `initialTick`,
-`numberOfTickTransactions`, the seven clock readers, `now`, and `pauseLog`/`resumeLog`, and populates
-the guest context struct at `ctx_addr()`. Every constant mirrors a bare `QubicSimulator` — tick 0,
-epoch 0, clock pinned to 2024-01-01T00:00:00Z — because the sweep compares this runtime *against* that
+The shim adds `k12`, `tick`, `epoch`, `initialTick`, `numberOfTickTransactions`, the seven clock
+readers, `now`, and `pauseLog`/`resumeLog`, and populates the guest context struct at `ctx_addr()`.
+It was carried as `scripts/solidity-port/wamr-shim.patch` until core-lite took it into
+`test/wasm_contracts.cpp` and `test/wasm_k12_shim.cpp`, so the build script now requires it rather
+than applying it. Every constant mirrors a bare `QubicSimulator` — tick 0,
+epoch 0, clock pinned to 2024-01-01T00:00:00Z — because the sweep compares this runtime _against_ that
 simulator, and a shim answering anything else would manufacture divergences rather than reveal them.
 
 Deliberately **not** shimmed: transfers, the asset ledger, logging, inter-contract calls, IPO, mining
@@ -1618,7 +1620,7 @@ Three implementation notes worth keeping:
   boot-services pointer, which no test binary links. Defining `NO_UEFI` inside `wasm_contracts.cpp`
   would have changed that whole translation unit's view of every core header it already includes.
 - The shim was **checked against the engine before being trusted**: core's `KangarooTwelve(in, len,
-  out, 32)` and the engine's `k12Sync` both return
+out, 32)` and the engine's `k12Sync` both return
   `ad9111ae9ae7ce1ad1139d6060d42ad386c5fbc23f74ecc26e28ed4c0876f47f` for the same four input bytes.
   The plan flagged a length mismatch as the way this shim could manufacture agreement; both are 32
   bytes fixed.
@@ -1659,17 +1661,17 @@ locals.iter.begin(locals.asset, AssetOwnershipSelect::byOwner(locals.other));
 
 Measured on a contract that issues 1000 shares and transfers 400 away, so two holders exist:
 
-| | filtered count | filtered shares | unfiltered count | unfiltered shares |
-| --- | --- | --- | --- | --- |
-| clang | 1 | 400 | 2 | 1000 |
-| typescript | **2** | **1000** | 2 | 1000 |
+|            | filtered count | filtered shares | unfiltered count | unfiltered shares |
+| ---------- | -------------- | --------------- | ---------------- | ----------------- |
+| clang      | 1              | 400             | 2                | 1000              |
+| typescript | **2**          | **1000**        | 2                | 1000              |
 
 The unfiltered control agrees on both backends, which is what isolates the cause to the discarded
 filter rather than to the iteration.
 
 Two things sharpen this. First, **the machinery to do it right exists and is used correctly elsewhere
 in the same compiler**: `qpi.numberOfShares(asset, AssetOwnershipSelect::byOwner(holder))` returns
-1000 / 400 / 0 for total / holder / stranger on *both* backends. `materializeSelect` works when handed
+1000 / 400 / 0 for total / holder / stranger on _both_ backends. `materializeSelect` works when handed
 a real expression; `begin` simply never hands it one. Second, the consequence is not a crash but a
 number: a dividend distributor or a snapshot routine written against this iterator would credit one
 holder with every holder's balance.
@@ -1690,7 +1692,7 @@ constructs a `DateAndTime`.
 `expect` rows**. What makes this lane unusually strong: the TypeScript backend does not reimplement any
 of it — `packages/compiler/src/generated/qpi-snapshot.ts` embeds core's `qpi_date_time.h` verbatim and
 the backend compiles those bodies — so everything except `qpi.now()` is pure guest computation, a
-divergence would be codegen rather than a host-model mismatch, and *the answer has ground truth*. A
+divergence would be codegen rather than a host-model mismatch, and _the answer has ground truth_. A
 leap year is a leap year, so the rows assert against the C++ rule instead of only against the other
 backend.
 
@@ -1712,7 +1714,7 @@ Two archetypes carry **no** rows on purpose. The eight-argument `add()` folds fi
 by hand is precisely what produced 47 false violations in round 6. Those rest on the two backends and
 the WAMR oracle, and the file says so.
 
-The rows were checked to be *live*: planting a deliberately wrong value in the leap-year ladder turns
+The rows were checked to be _live_: planting a deliberately wrong value in the leap-year ladder turns
 the cell `expect-violation`, so the ten green results mean the rows ran, not that they were skipped.
 
 ## Lane 3 — tombstones, the removal counter, and cleanup's three exits
@@ -1744,7 +1746,7 @@ Pinned behaviour:
   and 1 at 13, so a nominal 10% policy behaves identically to 0%.
 - **All three `cleanup()` exits** (`:279`): the immediate return when nothing was removed, the
   `reset()` that zeroes the whole object when everything was, and the scratchpad rehash otherwise —
-  which *moves* a surviving key from slot 2 to slot 1, so compaction is observable as a changed index.
+  which _moves_ a surviving key from slot 2 to slot 1, so compaction is observable as a changed index.
 - `isEmptySlot` returns **true for a tombstone**, `key()`/`value()` ignore occupancy and read back the
   zeroes `removeByIndex` wrote, and `HashSet::key` returns by value where `HashMap::key` returns by
   reference.
@@ -1804,7 +1806,7 @@ unreachable any more. That is the widened shim doing exactly what it was added f
 hash-keyed and `qpi.K12` contracts, `tick` for the lifecycle ones.
 
 **The artifact-collision guard did not trip**, so the 105 pairs are genuinely distinct modules. Their
-*final states* still match, which is the correct invariant — same contract, same semantics — but they
+_final states_ still match, which is the correct invariant — same contract, same semantics — but they
 now reach it through different bytes: 17,335 bytes under clang against 4,898 under the TypeScript
 backend for `ArrayOfArraysStride`. Round 6 could not have told those two facts apart.
 
@@ -1831,11 +1833,11 @@ Repro: `corpus/solidity-port/triage/F221-addmillisec-day-carry/NOTES.md`. Corpus
 
 From `2024-01-01 00:00:00.000`:
 
-| `addMillisec(n)` | clang | typescript |
-| --- | --- | --- |
-| 86,399,999 — one ms short of a day | 2024-01-01 23:59:59.999 | same |
-| **86,400,000 — exactly one day** | **2024-01-02** 00:00:00.000 | **2024-01-01** 00:00:00.000 |
-| **172,800,000 — two days** | **2024-01-03** 00:00:00.000 | **2024-01-01** 00:00:00.000 |
+| `addMillisec(n)`                   | clang                       | typescript                  |
+| ---------------------------------- | --------------------------- | --------------------------- |
+| 86,399,999 — one ms short of a day | 2024-01-01 23:59:59.999     | same                        |
+| **86,400,000 — exactly one day**   | **2024-01-02** 00:00:00.000 | **2024-01-01** 00:00:00.000 |
+| **172,800,000 — two days**         | **2024-01-03** 00:00:00.000 | **2024-01-01** 00:00:00.000 |
 
 It returns **true** in every row on both backends. Nothing reports a problem.
 
@@ -1848,7 +1850,7 @@ only if the resulting day carry is non-zero — folds it into `days` and tail-ca
 
 **The secondary oracle could not have caught this, and the differential did.**
 `DateAddMillisecCarryChain` is one of the two archetypes in `integers-datetime.ts` deliberately shipped
-*without* hand-derived `expect` rows, on the grounds that folding five carries into a 160-line day loop
+_without_ hand-derived `expect` rows, on the grounds that folding five carries into a 160-line day loop
 is exactly the arithmetic that produced 47 false violations in round 6. That judgement was right — and
 the finding still landed, because the two backends disagreed. It is the clearest argument this campaign
 has produced for keeping both oracles rather than treating expect rows as the stronger one.
@@ -1863,18 +1865,18 @@ Round 6 was `6,321 · 6,223 match · 98 not-match · 0 expect-violation`. The 22
 contracts, and the difference in the red column is **exactly the six `DateAddMillisecCarryChain`
 variants** — F221. Everything else diverging is a finding already on the books:
 
-| rows | verdict | archetype | finding |
-| --- | --- | --- | --- |
-| 17 | step-mismatch | `K12OfComputedExpression` | F203 |
-| 16 | step-mismatch | `NsEnumConstantVersusNamespaceConstant` | F213 |
-| 15 | step-mismatch | `HostK12ExpressionVersusVariable` | F203 |
-| 13 | step-mismatch | `NsEnumConstantVersusFileConstant` | F213 |
-| 13 | step-mismatch | `NsTwinEnumsAcrossFourNamespaces` | F213 |
-| 13 | step-mismatch | `NsTwinEnumSameConstantNames` | F213 |
-| **6** | **step-mismatch** | **`DateAddMillisecCarryChain`** | **F221, new** |
-| 5 | step-mismatch | `ShiftRhsWiderThanLhs` | F204 |
-| 4 | one-side-rejected | `NsInheritedNamespacedTypedef` | F201 |
-| 2 | trap-divergence | `DivQpi` | F200 |
+| rows  | verdict           | archetype                               | finding       |
+| ----- | ----------------- | --------------------------------------- | ------------- |
+| 17    | step-mismatch     | `K12OfComputedExpression`               | F203          |
+| 16    | step-mismatch     | `NsEnumConstantVersusNamespaceConstant` | F213          |
+| 15    | step-mismatch     | `HostK12ExpressionVersusVariable`       | F203          |
+| 13    | step-mismatch     | `NsEnumConstantVersusFileConstant`      | F213          |
+| 13    | step-mismatch     | `NsTwinEnumsAcrossFourNamespaces`       | F213          |
+| 13    | step-mismatch     | `NsTwinEnumSameConstantNames`           | F213          |
+| **6** | **step-mismatch** | **`DateAddMillisecCarryChain`**         | **F221, new** |
+| 5     | step-mismatch     | `ShiftRhsWiderThanLhs`                  | F204          |
+| 4     | one-side-rejected | `NsInheritedNamespacedTypedef`          | F201          |
+| 2     | trap-divergence   | `DivQpi`                                | F200          |
 
 **0 expect-violation across the whole corpus.** That covers roughly 179 hand-derived rows — about 110
 carried from earlier rounds and **69 new this round**, 40 in `integers-datetime.ts` and 29 in
@@ -1915,8 +1917,8 @@ known planted bug has not measured anything, and this one can.
 ## The lesson this round is actually about
 
 Round 6 published a table, offered a consistency check for it, and the check was the defect's own
-fingerprint. Round 7 opened by withdrawing that table and closed by finding F220 through *reading a
-lowering function* and F221 through *an archetype deliberately shipped without an expect row*.
+fingerprint. Round 7 opened by withdrawing that table and closed by finding F220 through _reading a
+lowering function_ and F221 through _an archetype deliberately shipped without an expect row_.
 
 Three different routes to three different findings, and none of them was the thing the campaign
 nominally does — sweep a large corpus and look at the red column. The corpus's contribution was to make
@@ -1951,9 +1953,9 @@ clang state, same rejection messages. F210 still hangs on both, killed at 120 s.
 
 Two rows moved, and neither is a fix:
 
-| | this branch | main |
-| --- | --- | --- |
-| F209 `::name` | TypeScript refuses · **clang compiles**, returns 1 | TypeScript refuses · **clang refuses** |
+|                      | this branch                                                    | main                                   |
+| -------------------- | -------------------------------------------------------------- | -------------------------------------- |
+| F209 `::name`        | TypeScript refuses · **clang compiles**, returns 1             | TypeScript refuses · **clang refuses** |
 | F217 block shadowing | TypeScript refuses · **clang compiles**, returns 1, 20, 300, 1 | TypeScript refuses · **clang refuses** |
 
 On main the clang path fails on the TypeScript frontend's own diagnostics:
@@ -1964,7 +1966,7 @@ compiler IDL analysis failed: line 64: 'tier' is used before its declaration
 ```
 
 So the underlying limitation is untouched; it is now enforced on both paths. For a developer that is a
-*narrowing*: a contract that is legal C++, that clang compiled, and that the chain would accept, now
+_narrowing_: a contract that is legal C++, that clang compiled, and that the chain would accept, now
 builds with neither backend. As a campaign result it also means F209 and F217 stop being
 `one-side-rejected` rows and become `both-rejected` — which, as F202 established in round 1, is the
 verdict that tells you least.
@@ -2010,37 +2012,37 @@ F222. One refused deliberately (F204). Two published root causes corrected.
 ships and fixes 42 of its 55 rows, but 13 rows still diverge, so the finding is still red. A patch that
 moves most of a finding's rows is progress, not a fix, and the count now says so.
 
-| finding | before | after | root cause |
-| --- | --- | --- | --- |
-| F209 | `proposed` | fixed | `parseQualifiedName` did not consume a leading `::` |
-| F210 | `proposed`, cause **not located** | fixed | an alias registered under its bare name answers a qualified lookup with itself; `alignOfNameType` ↔ `alignOfTypeB` then recurse with no depth guard |
-| F214 | `proposed` | fixed | the `sizeof` operand was always parsed as an expression, which stops at the first comma |
-| F215 | `proposed` | fixed | member-of-a-class-prvalue had three special cases and `SELF` (`id(...)`) matched none |
-| F204 | `located` | **refused** | UB in C++; clang answers folded and runtime differently, so there is no semantics to match |
-| F217 | `proposed` (2 options, neither right alone) | fixed | nothing resolved names against the block structure — alpha-renaming adds the missing step |
-| F212 | `located` | fixed | the scaffold rewrites `CALL(f,…)` to `__qpi_call_self(f,…)`, moving the target out of callee position and taking the context conversion with it |
-| F201 | `proposed`, cause **not located** | fixed | `baseContribution` followed the base's typedef exactly one hop |
-| F211 | `proposed`, cause **not located** | fixed | nested-type bindings leaked into a struct declared at file scope, so `Outer::inner` resolved to `StateData::Inner` |
-| F221 | `verified` — **and wrong** | fixed | the scratch copy is deliberate; the *read-back* was emitted for locals and not for by-value parameters |
-| F222 | — | **new** | overload viability compared parameter count for equality, so an overload with defaults was non-viable for every under-supplied call and the first-declared one won by being the seed |
+| finding | before                                      | after       | root cause                                                                                                                                                                           |
+| ------- | ------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| F209    | `proposed`                                  | fixed       | `parseQualifiedName` did not consume a leading `::`                                                                                                                                  |
+| F210    | `proposed`, cause **not located**           | fixed       | an alias registered under its bare name answers a qualified lookup with itself; `alignOfNameType` ↔ `alignOfTypeB` then recurse with no depth guard                                  |
+| F214    | `proposed`                                  | fixed       | the `sizeof` operand was always parsed as an expression, which stops at the first comma                                                                                              |
+| F215    | `proposed`                                  | fixed       | member-of-a-class-prvalue had three special cases and `SELF` (`id(...)`) matched none                                                                                                |
+| F204    | `located`                                   | **refused** | UB in C++; clang answers folded and runtime differently, so there is no semantics to match                                                                                           |
+| F217    | `proposed` (2 options, neither right alone) | fixed       | nothing resolved names against the block structure — alpha-renaming adds the missing step                                                                                            |
+| F212    | `located`                                   | fixed       | the scaffold rewrites `CALL(f,…)` to `__qpi_call_self(f,…)`, moving the target out of callee position and taking the context conversion with it                                      |
+| F201    | `proposed`, cause **not located**           | fixed       | `baseContribution` followed the base's typedef exactly one hop                                                                                                                       |
+| F211    | `proposed`, cause **not located**           | fixed       | nested-type bindings leaked into a struct declared at file scope, so `Outer::inner` resolved to `StateData::Inner`                                                                   |
+| F221    | `verified` — **and wrong**                  | fixed       | the scratch copy is deliberate; the _read-back_ was emitted for locals and not for by-value parameters                                                                               |
+| F222    | —                                           | **new**     | overload viability compared parameter count for equality, so an overload with defaults was non-viable for every under-supplied call and the first-declared one won by being the seed |
 
 Still red after this pass:
 
-| finding | state | why |
-| --- | --- | --- |
+| finding  | state                                 | why                                                                                             |
+| -------- | ------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | **F213** | 42 of 55 rows fixed, **13 still red** | part 1 ships; part 2 fixes the last 13 and breaks 17 elsewhere, so it does not ship — see below |
-| **F203** | unchanged | root cause still open; the published one was wrong and the follow-up theory fixes nothing |
-| **F205** | not attempted | its card sequences it after the F213 scope work, which is not done |
+| **F203** | unchanged                             | root cause still open; the published one was wrong and the follow-up theory fixes nothing       |
+| **F205** | not attempted                         | its card sequences it after the F213 scope work, which is not done                              |
 
 ### Why part 2 is not a fix, and why "13 fixed, 17 broken" is not a trade to take
 
-The 13 remaining F213 rows are enum-vs-`constexpr` on the *bare* name: the enum loop calls
+The 13 remaining F213 rows are enum-vs-`constexpr` on the _bare_ name: the enum loop calls
 `constexprInit.delete(key)` on the bare key and evicts a real file-scope constant. Stopping that
 eviction fixes those 13 — and turns 17 `LogPayloadWithIdField` rows red, because the resulting rule is
 "a `constexpr` always beats a later enum member", which is just the mirror of the original bug rather
 than the C++ rule.
 
-Net −4 rows, but the arithmetic is beside the point: both drafts pick a winner by *kind of declaration*.
+Net −4 rows, but the arithmetic is beside the point: both drafts pick a winner by _kind of declaration_.
 The actual rule is scope-aware — nearest declaration wins, and an equal-scope collision is **ambiguous
 and should be a diagnostic**. Until that is written, part 2 is a different wrong answer, not a fix.
 
@@ -2053,7 +2055,7 @@ Patches, one per finding, with the measured numbers: `docs/findings/fixes/`.
 ## Two published root causes were wrong
 
 **F221.** The register said `argAddr` hands a mutable `T&` a throwaway scratch copy. The copy is real and
-it is *correct*: a scalar living in a wasm local has no address, so a mutable reference to it must be
+it is _correct_: a scalar living in a wasm local has no address, so a mutable reference to it must be
 passed as one. Dumping the WAT for the repro showed what actually happens:
 
 ```wat
@@ -2063,7 +2065,7 @@ passed as one. Dumping the WAT for the repro showed what actually happens:
 (call $T18_DateAndTime_add ... (local.get $days))                 ;; reads the original
 ```
 
-The read-back *is* emitted three lines above for `newHour` and `dayCarry` — both body locals. `days` is a
+The read-back _is_ emitted three lines above for `newHour` and `dayCarry` — both body locals. `days` is a
 parameter of `add`, and the condition guarding the write-back only looked in `context.localVars`. One
 condition, and the two kinds of storage are treated alike.
 
@@ -2089,7 +2091,7 @@ narrow(box, 1, 2, 3, 4, 5, 6)    // clang 615   typescript 600   <-- ran the 3-p
 ```
 
 `pickHelperOverload` returned -1 for any candidate whose parameter count did not equal the argument
-count. With defaults, *no* candidate is ever an exact match for an under-supplied call, so every one
+count. With defaults, _no_ candidate is ever an exact match for an under-supplied call, so every one
 scored -1 and the loop kept its seed — `set[0]`, the first declared. Surplus arguments were dropped
 without a diagnostic.
 
@@ -2106,7 +2108,7 @@ those two through `buildContractWithClang` with the real contract name shows cla
 (18 KB module) and refuses F212 with exactly one error, which is the finding. The probe now takes the
 file name separately.
 
-The first draft of F217 renamed *every* nested declaration rather than only ones that hide an outer name.
+The first draft of F217 renamed _every_ nested declaration rather than only ones that hide an outer name.
 That broke two things the unit suite caught immediately: a multi-declarator statement parses as a
 compound marked `synthetic`, which is not a block, so `uint64 x = 1, y = 3;` put `x` and `y` out of reach
 of the next line; and `subExpressions` used `operand` where the AST spells it `argument`, so `i++` kept a
@@ -2125,14 +2127,14 @@ Full tier — the committed one, 6,618 contracts:
 
 Diffed row-by-row against the round-7 baseline (`work/round7-results.jsonl`, 6,617 shared ids):
 
-| rows | transition | what it is |
-| --- | --- | --- |
-| 48 | `step-mismatch` → `match` | F213 part 1 (42) and **F221** (6 `DateAddMillisecCarryChain`) |
-| 4 | `one-side-rejected` → `match` | **F201** — `NsInheritedNamespacedTypedef` |
-| 2 | `trap-divergence` → `match` | F200 — the two `sint32` `DivQpi` rows |
-| 93 | `match` → `expect-violation` | pinned rows reporting their defect is gone: F212 15, F209 15, F217 12, F214 11, F215 10, F211 8, F220 22 |
-| 5 | `step-mismatch` → `one-side-rejected` | F204 turning a wrong answer into a refusal — intended |
-| 4 | `match` → `one-side-rejected` | F204's real cost, below |
+| rows | transition                            | what it is                                                                                               |
+| ---- | ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 48   | `step-mismatch` → `match`             | F213 part 1 (42) and **F221** (6 `DateAddMillisecCarryChain`)                                            |
+| 4    | `one-side-rejected` → `match`         | **F201** — `NsInheritedNamespacedTypedef`                                                                |
+| 2    | `trap-divergence` → `match`           | F200 — the two `sint32` `DivQpi` rows                                                                    |
+| 93   | `match` → `expect-violation`          | pinned rows reporting their defect is gone: F212 15, F209 15, F217 12, F214 11, F215 10, F211 8, F220 22 |
+| 5    | `step-mismatch` → `one-side-rejected` | F204 turning a wrong answer into a refusal — intended                                                    |
+| 4    | `match` → `one-side-rejected`         | F204's real cost, below                                                                                  |
 
 **Zero** `match` → `step-mismatch`, `digest-mismatch`, `trap-divergence` or `harness-error`, and no new
 hang, across 6,617 contracts. No correctness regression anywhere.
@@ -2149,9 +2151,8 @@ That is correct for a rule that declines to pick a semantics, and it is close to
 the card implied. It is the one number here a reviewer should see before deciding to land F204.
 
 The 45 genuine mismatches that remain are F203 (32 rows) and F213 part 2 (13), both unfixed and both
-mismatching before these patches. The 93 pinned rows fail *because* the defect is gone — the pins exist
+mismatching before these patches. The 93 pinned rows fail _because_ the defect is gone — the pins exist
 to fail that way — and need removing as part of landing any of this.
-
 
 # The three that were still open — closed, with clang as the oracle
 
@@ -2191,7 +2192,7 @@ where the width is observable in the answer.
 ### The first cut of this fix was general-looking and still had a hole
 
 The fallback reads `scalarTypeInfo`, so it looks like it covers everything that function can report.
-It covers what the *map behind it* lists, and the first cut listed widths 1, 2, 4 and 8. `uint128` is
+It covers what the _map behind it_ lists, and the first cut listed widths 1, 2, 4 and 8. `uint128` is
 16, so `qpi.K12(a128 + b128)` went on hashing one byte — the same defect surviving at the one width the
 fix forgot, and the corpus could not see it because no archetype hashes a 128-bit expression.
 
@@ -2200,11 +2201,10 @@ new triage repro: `triage/F203-k12-wide/`, which hashes a `uint128` sum through 
 expression and asserts the two agree. Both backends now answer `same = 1`; the TypeScript backend
 answered 0 before.
 
-
 ## F213 — decide by scope, not by kind
 
 Part 1 fixed 42 of 55 rows. The rejected part 2 fixed the last 13 and broke 17, because it made a
-`constexpr` beat a later enum member outright — precedence by *kind of declaration*, which is the
+`constexpr` beat a later enum member outright — precedence by _kind of declaration_, which is the
 original bug mirrored.
 
 A bare key is not a declaration; it is how a using-directive reaches a namespaced name, so several
@@ -2228,20 +2228,20 @@ entries — so a qpi.h body using a constant that shares a name with some contra
 
 The verification pass shipped a patch that **refused** an out-of-range constant shift, arguing that the
 expression is undefined behaviour and clang contradicts itself between the folded and runtime spellings.
-That was a policy choice dressed as a fix, and it was measurably wrong: clang *compiles* these
+That was a policy choice dressed as a fix, and it was measurably wrong: clang _compiles_ these
 contracts, and refusing them made **4 corpus rows that previously agreed with clang stop agreeing**.
 
 The rule was then measured off clang rather than reasoned about. A probe shifting a runtime value by a
 constant count outside the operand width, built with wasi-sdk clang:
 
-| expression | clang |
-| --- | --- |
-| `value << 254` | 0 |
-| `value >> 254` | 0 |
-| `signedValue >> 254` | 0 |
-| `value << -3` | 0 |
-| `narrow << 40` (uint32) | 0 |
-| `value << 3` (control) | 40 |
+| expression              | clang |
+| ----------------------- | ----- |
+| `value << 254`          | 0     |
+| `value >> 254`          | 0     |
+| `signedValue >> 254`    | 0     |
+| `value << -3`           | 0     |
+| `narrow << 40` (uint32) | 0     |
+| `value << 3` (control)  | 40    |
 
 Uniform: a constant count outside `[0, width)` yields 0, left and right, signed and unsigned, at every
 width. Only the count folds — the value stays a runtime operand — so this is clang's codegen answer, not
@@ -2272,7 +2272,6 @@ mismatch**.
 
 All sixteen compiler findings are closed. Unit suite 1085 pass / 0 fail.
 
-
 # Auditing the three enumerative fixes — every one was a fix for one call path
 
 F203, F215 and F221 are the three fixes in this campaign that add a case to an enumeration rather than
@@ -2286,13 +2285,13 @@ like a finding and was not.
 
 ## Site 1 — template argument deduction (F203)
 
-| row | clang | typescript | |
-| --- | --- | --- | --- |
-| qualified namespace constant | 1 | 1 | fine |
-| `qpi.K12(qpi.tick())` | 0 | 0 | **not a bug** — `tick()` is narrower than the local, and both backends agree it is |
-| helper returning **more than 8 bytes** | 1 | 0 | **hole** |
-| unary negation | 1 | 1 | fine |
-| control, `a + 1` | 1 | 1 | the F203 fix holds |
+| row                                    | clang | typescript |                                                                                    |
+| -------------------------------------- | ----- | ---------- | ---------------------------------------------------------------------------------- |
+| qualified namespace constant           | 1     | 1          | fine                                                                               |
+| `qpi.K12(qpi.tick())`                  | 0     | 0          | **not a bug** — `tick()` is narrower than the local, and both backends agree it is |
+| helper returning **more than 8 bytes** | 1     | 0          | **hole**                                                                           |
+| unary negation                         | 1     | 1          | fine                                                                               |
+| control, `a + 1`                       | 1     | 1          | the F203 fix holds                                                                 |
 
 `scalarTypeInfo`'s call branch reads a helper's declared return type and then discards it when it is
 wider than 8 bytes. So `qpi.K12(widen(x))` with `uint128 widen(uint64)` deduced nothing and fell back to
@@ -2313,11 +2312,11 @@ code clang accepts. Recorded, not closed.
 
 ## Site 3 — write-back through a mutable reference (F221)
 
-| row | clang | typescript | |
-| --- | --- | --- | --- |
-| member off a helper-returned aggregate | 5 | 5 | fine |
-| **write-back into a by-value parameter** | 15 | 5 | **hole** |
-| write-back into an addressable local | 6 | 6 | fine |
+| row                                      | clang | typescript |          |
+| ---------------------------------------- | ----- | ---------- | -------- |
+| member off a helper-returned aggregate   | 5     | 5          | fine     |
+| **write-back into a by-value parameter** | 15    | 5          | **hole** |
+| write-back into an addressable local     | 6     | 6          | fine     |
 
 This is F221 again, in a call path the fix never touched. `this-call.ts` handles container and `qpi`
 methods, which is where `DateAndTime::add` lives and therefore the only path the repro exercised. A
@@ -2393,13 +2392,13 @@ PR #18 was scoped to the thirteen findings judged fully safe, and these three we
 They are ported here, each verified by its triage repro and by a pin in
 `tests/differential/deduction-and-returns-diff.test.ts` that was watched fail with the fix reverted.
 
-| finding | pin, pre-fix | pin, post-fix |
-| --- | --- | --- |
-| F203, 8-byte | `0n` | `1n` |
-| F203, 16-byte | `0n` | `1n` |
-| F215 | one compile error | compiles |
-| F221, helper path | `10n` | `15n` |
-| F223 | `0n` | `5n` |
+| finding           | pin, pre-fix      | pin, post-fix |
+| ----------------- | ----------------- | ------------- |
+| F203, 8-byte      | `0n`              | `1n`          |
+| F203, 16-byte     | `0n`              | `1n`          |
+| F215              | one compile error | compiles      |
+| F221, helper path | `10n`             | `15n`         |
+| F223              | `0n`              | `5n`          |
 
 **Deliberately not ported: the fail-closed deduction guard.** It ships in the same campaign commit as
 F203 and is recorded below as built-and-refused. It rejects `qpi.K12(qpi.tick())`, which clang
@@ -2447,7 +2446,7 @@ and the 25 mutual rejections are two controls — `ReadOnlyFunctionCallsPrivateP
 clang's refusal rather than into line with its acceptance. `--strict` passes, which is the half of the
 gate that would have caught a stale entry.
 
-Worth stating plainly what this does and does not mean. It means no *archetype in this corpus* still
+Worth stating plainly what this does and does not mean. It means no _archetype in this corpus_ still
 disagrees with clang. It does not mean the compiler is correct: the corpus only covers shapes someone
 thought to write, and two of this campaign's findings (F224, F225) were found by shapes nobody had
 written until the axis that produced them was added.
@@ -2466,7 +2465,7 @@ handles a state-resident argument correctly through `emitAddress` → `resolveEx
 F220's own fix is sound. The filter counters agree on both backends.
 
 The cause is the iterator object itself. `emitAssetIter`
-(`packages/compiler/src/backend/wasm/calls/containers.ts:485-526`) models an iterator as exactly **two
+(`packages/compiler/src/backend/wasm/calls/containers.ts`) modelled an iterator as exactly **two
 i32s** — a match count at offset 0 and a cursor at offset 4 — with the records living in the
 `$assetIterBase` global. The QPI-declared class is about 88 bytes:
 
@@ -2484,7 +2483,7 @@ clang's `begin()` fills all of it. The TypeScript build writes a record count in
 of `_issuance.issuer`, a zero cursor into the next four, and leaves the remaining ~80 bytes untouched.
 
 While the iterator lives in `_locals` nothing observes those bytes. The `temporaries: stateScratch`
-axis moves every temporary into `StateData`, the sweep's verdict *is* the state digest, and the
+axis moves every temporary into `StateData`, the sweep's verdict _is_ the state digest, and the
 difference becomes visible immediately.
 
 The corpus no longer generates that shape — the three iterator archetypes dropped the `temporaries`
@@ -2492,27 +2491,86 @@ axis, because an iterator persisted in `StateData` is not something a contract w
 backend models it as a transient cursor deliberately. That removes the red rows without hiding
 anything the `locals` rows cover.
 
-**Not fixed** — but the first record of what the fix costs was wrong, and the correction matters
-because it is the difference between a layout change and a fill.
-
 Measured on the live repro, both backends print **12 words — 96 bytes** for the iterator. Same size,
 same offsets, different contents. `sizeOfType` reads qpi.h's class, so the TypeScript backend already
-*allocates* the declared layout wherever the iterator is stored; `emitAssetIter`'s `begin()` simply
-never fills it past the first eight bytes. The fix is to write the declared fields. Nothing moves, and
-`sizeof(StateData)` does not change.
+_allocates_ the declared layout wherever the iterator is stored; `emitAssetIter`'s `begin()` simply
+never filled it past the first eight bytes.
 
 Exposure, audited across core's contracts: **all 20 iterator members are inside `_locals` structs, none
-in `StateData`**. So no deployed contract observes the unfilled bytes today, and because every node
+in `StateData`**. So no deployed contract observed the unfilled bytes, and because every node
 runs the same wasm, this was never a node-vs-node fork — it is a divergence from clang, visible only
 on the synthetic `stateScratch` axis that put a temporary into state.
 
-Still its own change: it needs its own sweep against clang's `begin()` field by field.
+**Fixed**, and the fix went past a fill, because a fill alone would have kept two more defects. There
+are three implementations of the iterator, not two:
+
+|                                                                              | design                                                                                                                                                             |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **A** native core (`qpi/impl/qpi_assets_impl.h`)                             | the iterator _is_ two live universe indices; `next()` walks `assets[]` and the index lists                                                                         |
+| **B** core's wasm SDK (`sdk/qpi_support.h`) — what the clang oracle compiles | a snapshot: `lh_assetEnumerate` bulk-copied the matches into a static `assetEntries[1024]`; `_issuanceIdx` held the match count and `_ownershipIdx` a dense cursor |
+| **C** the TypeScript backend                                                 | the same snapshot design as B, with the two integers at raw offsets 0 and 4                                                                                        |
+
+So the "universe indices" the first triage notes read off clang's `2 0 1` were a match count and a
+cursor, and B and C shared two defects the two-backend harness could never see (F226). Core-lite's
+wasm ABI moved to version 7 (`f8c2990d`): `assetEnumerate` is replaced by `assetIterBegin`,
+`assetIterNext` and `assetIterRecord`, which take pointers into the contract's own iterator object and
+resume a native iterator from the indices it holds. B and C now both mirror A — `begin()` copies the
+asset and the selects into the object, the host writes `_issuanceIdx` / `_ownershipIdx` /
+`_possessionIdx` as real universe indices with the `NO_ASSET_INDEX` sentinel, `reachedEnd()` is the
+inline sentinel compare, and each accessor fetches its record. `issuanceIndex()` and
+`ownershipIndex()` — inline header bodies that read the never-written fields as 0 — agree with clang
+without any change of their own.
+
+Closed with it, all found on the same probes: `issuer()` and `assetName()` were not intercepted
+(`unsupported call as value`), so `state.x = iter.issuer()` fell through to `unsupported aggregate
+assignment` — not a general aggregate-return gap; the general path copies from any addressable value
+once the accessor has an address. `AssetOwnershipIterator it;` at block scope was accepted and sized at
+8 bytes although qpi.h keeps that constructor protected (refused now, pinned in
+`clang-refusal-diff`). `AssetOwnershipIterator it(asset, sel);` was parsed as a function declaration.
+And both synthesized `begin()` sites forwarded only the constructor's first argument, so a selector
+written in the constructor was dropped — F220's shape, one door over.
+
+    IteratorInState         clang = typescript   2 1000 1 | 27 0 0 0 5525825 27 0 0 0 0 16842752 4294967295
+    IteratorIndexAccessors  clang = typescript   2 1000 | 27 5 28
+
+Pinned in `tests/differential/asset-iterator-diff.test.ts` (five object rows, words compared whole on
+both backends), `tests/differential/clang-refusal-diff.test.ts`,
+`packages/engine/tests/contracts/assets-iterator.test.ts` (an 1100-holder walk) and core-lite's
+`test/wasm_asset_iterator.cpp` (the host's resume against the native iterator, nested, with corrupt
+indices).
+
+# F226 — the wasm iterators stopped at 1024 records and shared one buffer
+
+Severity: **high (silent wrong distribution in fund-accounting code; invisible to the two-backend harness)**.
+
+Read from code while closing F224, then measured once the ABI moved. Core's wasm SDK and the
+TypeScript backend made the same two choices, which is why every sweep stayed green: the clang leg is
+the SDK (B above), not native.
+
+**The cap.** `WASM_ASSET_ENTRY_CAPACITY` was 1024. The host stopped at `count < capacity` and returned
+`count` with no overflow signal; the backend mirrored it with `Math.min(entries.length, maxN)`. Native
+has no limit. Worked case: `QUtil::DistributeQuToShareholders` walks the holders twice; both walks
+truncate, `totalShares` is undercounted, `amountPerShare` inflated, the first 1024 holders overpaid and
+the rest paid nothing — and `ASSERT(payBack >= 0)` still holds, because both terms came from the same
+truncated total. Raising the cap was never an option: the buffer sat in the contract's linear memory,
+and matching native would have meant 80 bytes × `ASSETS_CAPACITY`, 1.34 GB per contract on mainnet.
+
+**The buffer.** One `assetEntries[]` per module, filled from index 0 by every `begin()`, so an inner
+walk inside an outer one overwrote the outer's records. Ordinary code; no core contract happens to nest
+today.
+
+**The meaning.** Native's `_issuanceIdx` / `_ownershipIdx` are universe indices with a `NO_ASSET_INDEX`
+sentinel, as the accessors' doc comments say; the SDK reused them as a count and a cursor.
+
+All three closed by ABI v7 (see F224): per-record host calls, no buffer, the fields native's. The
+`assets-iterator` engine test walks 1100 holders; the nested row in `asset-iterator-diff` walks a second
+asset inside the first and reads the outer `owner()` afterwards.
 
 # F211 and F225 — one rule, applied everywhere
 
 Commit `238d790` claimed the nested-type leak was fixed. It was fixed for the two shapes it was
-measured on, and what it implemented was not the rule but a special case of it: *if the struct is
-file-scope, start from an empty map.* Every scope that is neither file scope nor the walk's own was
+measured on, and what it implemented was not the rule but a special case of it: _if the struct is
+file-scope, start from an empty map._ Every scope that is neither file scope nor the walk's own was
 left inheriting whatever bindings the layout walk arrived with. Two defects survived, one loud and one
 silent, and both are closed here.
 
@@ -2528,10 +2586,10 @@ Those rows scored `one-side-rejected`: the backend reported `struct 'Inner' cont
 or through its fields` on contracts clang compiles. Measured both ways on
 `layout/LayoutNestedStructNameCollision__75b8b5ea`:
 
-| | TypeScript |
-| --- | --- |
+|                              | TypeScript                                                                       |
+| ---------------------------- | -------------------------------------------------------------------------------- |
 | with the ABI recursion guard | `Codegen failed: struct 'Inner' contains itself, directly or through its fields` |
-| with the guard removed | `Codegen failed: Maximum call stack size exceeded.` |
+| with the guard removed       | `Codegen failed: Maximum call stack size exceeded.`                              |
 
 So the guard was sound — it converted a stack overflow into a named error — and the defect underneath
 was real. The struct did not contain itself; a name resolved to the wrong declaration.
@@ -2582,7 +2640,7 @@ name hiding working correctly.
 
 Fixing the bindings alone would not have closed F225. `structByName` consulted
 `programAnalysis.nested` — a flat, **bare-name**, program-wide table of the contract's nested structs,
-written unconditionally — *before* `globalStructs`, for every lookup regardless of who was asking. So
+written unconditionally — _before_ `globalStructs`, for every lookup regardless of who was asking. So
 even a perfectly empty bindings map still reached the contract's `Inner`. The asymmetry showing this
 was an oversight: the recursive registrar guards its bare-name write with `!globalStructs.has(name)`;
 the top-level one clobbers.
@@ -2595,14 +2653,14 @@ as a candidate rather than asserted, which is the only reason it cost nothing.
 
 ## What changed
 
-| site | before | after |
-| --- | --- | --- |
-| `semantics/struct-index.ts` `structParent` / `structsVisibleIn` | — | each struct's lexical nesting is recorded; visible names come from its own chain, cached |
-| `semantics/template-resolver.ts` `withLocalStructs` | always extended the caller's map | given the owning declaration, builds from that declaration's scope and discards the caller's |
-| `backend/wasm/idl/abi-type-builder.ts` `withLocalStructs` | a second copy, file-scope special case | deleted; calls the one above |
-| `semantics/struct-layout.ts` `layoutOfStruct` | blanked `structs` when file-scope *and* non-empty | passes its declaration down; the special case is gone |
-| `semantics/struct-index.ts` `structByName` | always consulted `nested` | skips it when the bindings carry a resolved scope |
-| `semantics/struct-layout.ts` `bindingSig` | ignored the flag | includes it, so the layout cache cannot serve a scope-unknown entry to a scope-known lookup |
+| site                                                            | before                                            | after                                                                                        |
+| --------------------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `semantics/struct-index.ts` `structParent` / `structsVisibleIn` | —                                                 | each struct's lexical nesting is recorded; visible names come from its own chain, cached     |
+| `semantics/template-resolver.ts` `withLocalStructs`             | always extended the caller's map                  | given the owning declaration, builds from that declaration's scope and discards the caller's |
+| `backend/wasm/idl/abi-type-builder.ts` `withLocalStructs`       | a second copy, file-scope special case            | deleted; calls the one above                                                                 |
+| `semantics/struct-layout.ts` `layoutOfStruct`                   | blanked `structs` when file-scope _and_ non-empty | passes its declaration down; the special case is gone                                        |
+| `semantics/struct-index.ts` `structByName`                      | always consulted `nested`                         | skips it when the bindings carry a resolved scope                                            |
+| `semantics/struct-layout.ts` `bindingSig`                       | ignored the flag                                  | includes it, so the layout cache cannot serve a scope-unknown entry to a scope-known lookup  |
 
 Template arguments (`types`, `values`) still flow in from the caller — those are a different axis.
 
@@ -2613,7 +2671,7 @@ span instead of throwing, so a struct that genuinely contains itself gets a sour
 
 `scripts/solidity-port/triage-probe.ts` carried the same clang-attribution bug already fixed in
 `compile.ts`: `buildContractWithClang` re-runs the TypeScript front end for metadata after the wasm is
-written and reports `ok: !idlError`, so a contract the TS parser declines reads as a *clang*
+written and reports `ok: !idlError`, so a contract the TS parser declines reads as a _clang_
 rejection. While F211 was unfixed the probe printed `clang REJECTED: build failed` for a contract
 clang had compiled — the wasm was sitting in the output directory. It nearly cost a wrong conclusion.
 Fixed the same way: a clang build that produced a wasm succeeded, whatever the IDL says.
@@ -2621,7 +2679,7 @@ Fixed the same way: a clang build that produced a wasm succeeded, whatever the I
 ## The first cut of this fix broke the real contracts
 
 Worth recording, because the plan named the risk and the first implementation still got it wrong.
-`withLocalStructs` discarded the caller's struct map for *every* declaration, on the assumption that an
+`withLocalStructs` discarded the caller's struct map for _every_ declaration, on the assumption that an
 empty parent chain means file scope. It does not: a struct nested in a **class template** —
 `Collection`'s `Element`, among others — is registered by the template machinery, not the declaration
 index, so its nesting was never recorded. Its chain came back empty, the visible names narrowed to its
@@ -2632,8 +2690,8 @@ The core-compat check caught it immediately and precisely: `sizeof(QPI::Collecti
 element's value type contributing nothing. `sizeof(QX::StateData)` and `sizeof(QUOTTERY::StateData)`
 were wrong by the same mechanism.
 
-The distinction that was missing is between *"no parent recorded"* and *"recorded as having no
-parent"*. A `structScopeKnown` set now carries it, and a declaration outside that set keeps the
+The distinction that was missing is between _"no parent recorded"_ and _"recorded as having no
+parent"_. A `structScopeKnown` set now carries it, and a declaration outside that set keeps the
 inherited map — the behaviour that carried it before. The plan called for failing open on an unknown
 scope; the first cut failed silently narrow instead, which is the same class of defect this campaign
 keeps finding.
@@ -2643,7 +2701,7 @@ keeps finding.
 The `structs` binding map was already doing two jobs, and putting the enclosing scope into it conflated
 them. `inlineNestedStruct` turns anything in that map into an anonymous `INLINE_STRUCT`, so once a
 sibling contract type was visible there, `Go_locals { HalfKey left; }` stopped carrying the name
-`HalfKey` — and `operatorOwner` resolves by *name*. Every declared `operator==`, `operator=` and
+`HalfKey` — and `operatorOwner` resolves by _name_. Every declared `operator==`, `operator=` and
 compound assignment on a contract-nested struct silently fell back to a memberwise copy: 19 tests, and
 not one of them a layout test.
 
@@ -2672,7 +2730,7 @@ input/output records. **No user-written contract struct falls back.** The cause 
 never pass through `recordNestedParents`.
 
 So the rule holds for contract code, and qpi.h types keep the pre-existing behaviour — which means the
-F211/F225 defect is still reachable *through a qpi.h type*, and only through one.
+F211/F225 defect is still reachable _through a qpi.h type_, and only through one.
 
 Closing it means recomputing the nesting when the library index is restored, which would move ~9,500
 lookups onto the strict path in one step. Given that widening this twice today produced two
@@ -2681,22 +2739,21 @@ change with its own sweep, not folded into this one.
 
 ## Not in scope
 
-F224 is a fill, not a layout change — both backends already size the iterator at 96 bytes, and every
-iterator member in core sits in `_locals`. It still needs its own change: `begin()` has to match
-clang's field by field, and that wants its own sweep.
+F224 was left here as a fill for its own change; it closed later together with F226 and core-lite's
+wasm ABI v7 — see both entries.
 
 # F203, F215, F221, F223 — closed, and what the shared root cause turned out to be
 
-All four were named as sharing one root cause: *enumerate the known shapes, return `null` or fall
-through, and let the default be a wrong answer.* Building them out confirms that for three, and the
+All four were named as sharing one root cause: _enumerate the known shapes, return `null` or fall
+through, and let the default be a wrong answer._ Building them out confirms that for three, and the
 fourth is the same shape wearing a different coat.
 
-| finding | where the enumeration was | what the default did |
-| --- | --- | --- |
-| F203 | `deduceMethodArgumentType` recognised three argument shapes | `T` unbound, so `sizeof(T)` became 1 — an expression hashed one truncated byte |
-| F215 | member access enumerated the producers of an addressable object | `SELF.u64._0` refused, while the same read through a copy compiled |
-| F221 | write-back existed on one call path, for one storage kind | a helper's write through a `uint64&` was silently dropped |
-| F223 | `lowerUint128Expression` routed only calls spelled `div` | the aggregate return was discarded and `uint128(0)` stored instead |
+| finding | where the enumeration was                                       | what the default did                                                           |
+| ------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| F203    | `deduceMethodArgumentType` recognised three argument shapes     | `T` unbound, so `sizeof(T)` became 1 — an expression hashed one truncated byte |
+| F215    | member access enumerated the producers of an addressable object | `SELF.u64._0` refused, while the same read through a copy compiled             |
+| F221    | write-back existed on one call path, for one storage kind       | a helper's write through a `uint64&` was silently dropped                      |
+| F223    | `lowerUint128Expression` routed only calls spelled `div`        | the aggregate return was discarded and `uint128(0)` stored instead             |
 
 Three had fixes built during the campaign and never ported, because the port's scope was the thirteen
 findings judged fully safe. F223 had none and is fixed here.
@@ -2740,10 +2797,10 @@ cap of 32 rather than raising a guard whose purpose is to make such growth delib
 Five pins in `tests/differential/deduction-and-returns-diff.test.ts`, each asserting clang's answer.
 Every one was watched fail with the fixes reverted, as this suite's own rule requires:
 
-| pin | without the fix |
-| --- | --- |
-| K12 of a computed expression | `0` |
-| K12 of a 128-bit computed expression | `0` |
-| a member read off a constructed prvalue | rejected, 1 error |
-| a helper writing through a by-value parameter | `10`, not `15` |
-| assigning a helper's 128-bit return | `0`, not `5` |
+| pin                                           | without the fix   |
+| --------------------------------------------- | ----------------- |
+| K12 of a computed expression                  | `0`               |
+| K12 of a 128-bit computed expression          | `0`               |
+| a member read off a constructed prvalue       | rejected, 1 error |
+| a helper writing through a by-value parameter | `10`, not `15`    |
+| assigning a helper's 128-bit return           | `0`, not `5`      |

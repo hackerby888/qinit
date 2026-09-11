@@ -7,6 +7,7 @@ import { firstInfidelitySince } from "../../../semantics/analysis-diagnostics";
 import type { TypeSpec, Expression, FunctionTemplateDecl, ParamDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { CONVERSION_RANK, conversionRank, integerLiteralType } from "./overload-ranking";
+import { parsedAggregateLayout } from "./qpi";
 // Compiling instantiated container methods from the real qpi.h bodies: references and aggregates pass by address (i32), scalars by value (i64).
 export function classifyMethodParam(
     programAnalysis: ProgramAnalysis,
@@ -513,7 +514,18 @@ export function emitContainerCall(
     context.lines.push(compiled.cm.retKind === WatNodeType.VOID ? `    ${compiled.call}` : `    (drop ${compiled.call})`);
     return "";
 }
-// Lower asset-iterator methods in statement, value, or address context.
+// The iterator's record accessors and the AssetEntry field each reads.
+const ASSET_ITERATOR_RECORD_FIELDS: Record<string, string> = {
+    owner: "owner",
+    possessor: "possessor",
+    numberOfOwnedShares: "shares",
+    numberOfPossessedShares: "shares",
+    ownershipManagingContract: "ownershipManagingContract",
+    possessionManagingContract: "possessionManagingContract",
+};
+
+// Lower asset-iterator methods in statement, value, or address context. The object holds qpi.h's fields: begin()
+// copies the asset and selects into it, and the host advances the universe indices in place, as the node's iterator does.
 export function emitAssetIter(
     context: FunctionEmissionContext,
     expression: Expression & {
@@ -526,51 +538,62 @@ export function emitAssetIter(
     const tn = node?.type?.kind === AstKind.NAME ? (node.type as any).name : null;
     if (!node || (tn !== "AssetOwnershipIterator" && tn !== "AssetPossessionIterator")) return null;
     const method = expression.callee.member;
+    const isPossession = tn === "AssetPossessionIterator";
+    const kind = watIr.i32Constant(isPossession ? 1 : 0);
+    const iterator = parsedAggregateLayout(context, tn);
+    const asset = parsedAggregateLayout(context, "Asset");
     const it = context.lowering.allocateTemporaryLocalName(context);
     context.lines.push(`    ${context.lowering.setLocal(context, it, addrIr(node.addr))}`);
     const itN = watIr.localGet(it, WatNodeType.I32);
-    const iter = watIr.serializeWatNode(itN);
-    const cursorN = watIr.rawLoad("i32.load", null, watIr.addressWithOffset(itN, 4));
-    const count = `(i32.load ${iter})`;
-    const cursor = watIr.serializeWatNode(cursorN);
-    const record = context.programAnalysis.assetEnumerationRecord;
-    const rec = `(i32.add (global.get $assetIterBase) (i32.mul ${cursor} (i32.const ${record.size})))`;
+    const field = (name: string) => watIr.addressWithOffset(itN, iterator.field(name));
+    const indexValue = (name: string) => watIr.rawLoad("i32.load", null, field(name));
+    // The ownership iterator has no possession select or index: the host reads the ownership select twice and skips the index.
+    const possessionSelect = isPossession ? field("_possession") : field("_ownership");
+    const possessionIndex = isPossession ? field("_possessionIdx") : watIr.i32Constant(0);
+    const walkArguments = [kind, field("_issuance"), field("_ownership"), possessionSelect, field("_issuanceIdx"), field("_ownershipIdx"), possessionIndex];
     if (method === "begin") {
-        // begin(asset, ownershipSelect [, possessionSelect]). Pass the arguments the contract wrote;
-        // an absent one is `undefined`, which materializeSelect already renders as any().
-        const isPossession = tn === "AssetPossessionIterator";
-        const ownSelN = context.lowering.materializeSelect(context, expression.callArguments[1], AssetSelectTypeName.OWNERSHIP);
-        const posSelN = context.lowering.materializeSelect(context, isPossession ? expression.callArguments[2] : undefined, AssetSelectTypeName.POSSESSION);
-        const asset = context.lowering.materializeAssetAddress(context, expression.callArguments[0], `${tn}.begin`);
-        const kind = isPossession ? 1 : 0;
-        const enumerate = watIr.functionCall(
-            "$lh_assetEnumerate",
-            watIr.i32Constant(kind),
-            addrIr(asset),
-            ownSelN,
-            posSelN,
-            watIr.rawWatNode("(global.get $assetIterBase)", WatNodeType.I32),
-            watIr.i32Constant(record.capacity),
-        );
-        context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i32.store", null, itN, enumerate))}`);
-        context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i32.store", null, watIr.addressWithOffset(itN, 4), watIr.i32Constant(0)))}`);
+        // begin(asset, ownershipSelect [, possessionSelect]); an absent select is `undefined`, which materializeSelect renders as any().
+        const copyInto = (destination: watIr.WatNode, source: watIr.WatNode, size: number) =>
+            context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", destination, source, watIr.i32Constant(size)))}`);
+        const assetAddress = context.lowering.materializeAssetAddress(context, expression.callArguments[0], `${tn}.begin`);
+        copyInto(field("_issuance"), addrIr(assetAddress), asset.layout.size);
+        const ownershipSelect = context.lowering.materializeSelect(context, expression.callArguments[1], AssetSelectTypeName.OWNERSHIP);
+        copyInto(field("_ownership"), ownershipSelect, parsedAggregateLayout(context, AssetSelectTypeName.OWNERSHIP).layout.size);
+        if (isPossession) {
+            const possessionSelectValue = context.lowering.materializeSelect(context, expression.callArguments[2], AssetSelectTypeName.POSSESSION);
+            copyInto(field("_possession"), possessionSelectValue, parsedAggregateLayout(context, AssetSelectTypeName.POSSESSION).layout.size);
+        }
+        context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$lh_assetIterBegin", ...walkArguments))}`);
         return "";
     }
     if (method === "next") {
-        context.lines.push(
-            `    ${watIr.serializeWatNode(watIr.rawStore("i32.store", null, watIr.addressWithOffset(itN, 4), watIr.operation("i32.add", cursorN, watIr.i32Constant(1))))}`,
-        );
+        const step = watIr.functionCall("$lh_assetIterNext", ...walkArguments);
+        if (mode === ContainerEmissionMode.VALUE) return `(i64.extend_i32_u ${watIr.serializeWatNode(step)})`;
+        context.lines.push(`    (drop ${watIr.serializeWatNode(step)})`);
         return "";
     }
-    if (method === "reachedEnd") return `(i64.extend_i32_u (i32.ge_u ${cursor} ${count}))`;
-    if (method === "numberOfPossessedShares" || method === "numberOfOwnedShares")
-        return `(i64.load (i32.add ${rec} (i32.const ${record.fields.shares.offset})))`;
-    if (method === "possessor")
-        return mode === ContainerEmissionMode.ADDRESS
-            ? `(i32.add ${rec} (i32.const ${record.fields.possessor.offset}))`
-            : `(i64.load (i32.add ${rec} (i32.const ${record.fields.possessor.offset})))`;
-    if (method === "owner") return mode === ContainerEmissionMode.ADDRESS ? rec : `(i64.load ${rec})`;
-    if (method === "ownershipManagingContract")
-        return `(i64.extend_i32_u (i32.load16_u (i32.add ${rec} (i32.const ${record.fields.ownershipManagingContract.offset}))))`;
-    return null;
+    if (method === "reachedEnd") {
+        const endIndex = indexValue(isPossession ? "_possessionIdx" : "_ownershipIdx");
+        return `(i64.extend_i32_u (i32.eq ${watIr.serializeWatNode(endIndex)} (i32.const -1)))`;
+    }
+    if (method === "issuer") {
+        const issuer = watIr.serializeWatNode(watIr.addressWithOffset(itN, iterator.field("_issuance") + asset.field("issuer")));
+        return mode === ContainerEmissionMode.ADDRESS ? issuer : `(i64.load ${issuer})`;
+    }
+    if (method === "assetName") {
+        return `(i64.load ${watIr.serializeWatNode(watIr.addressWithOffset(itN, iterator.field("_issuance") + asset.field("assetName")))})`;
+    }
+    const recordField = ASSET_ITERATOR_RECORD_FIELDS[method];
+    if (!recordField) return null;
+    // The host writes the current record into the one-record scratch; the accessor reads its field straight after.
+    const record = context.programAnalysis.assetEnumerationRecord;
+    const scratch = watIr.rawWatNode("(global.get $assetRecordBuf)", WatNodeType.I32);
+    const currentPossession = isPossession ? indexValue("_possessionIdx") : watIr.i32Constant(-1);
+    context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.functionCall("$lh_assetIterRecord", kind, indexValue("_ownershipIdx"), currentPossession, scratch))}`,
+    );
+    const at = `(i32.add (global.get $assetRecordBuf) (i32.const ${record.fields[recordField].offset}))`;
+    if (recordField === "owner" || recordField === "possessor") return mode === ContainerEmissionMode.ADDRESS ? at : `(i64.load ${at})`;
+    if (recordField === "shares") return `(i64.load ${at})`;
+    return `(i64.extend_i32_u (i32.load16_u ${at}))`;
 }

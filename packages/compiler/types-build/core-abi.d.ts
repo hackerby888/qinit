@@ -17,7 +17,6 @@ declare module "@qinit/core" {
     }>;
     export const ASSET_ENUMERATION_RECORD: Readonly<{
         size: number;
-        capacity: number;
         fields: Readonly<{
             owner: Readonly<{ offset: number; size: number }>;
             possessor: Readonly<{ offset: number; size: number }>;

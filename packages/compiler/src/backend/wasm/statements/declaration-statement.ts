@@ -31,24 +31,25 @@ export function emitDeclarationStatement(context: FunctionEmissionContext, state
             (context.scratchpadScope ??= []).push(variableDeclaration.name);
             return;
         }
-        // Track asset iterators so their methods use the iterator buffer.
+        // An asset iterator local takes its declared size; a constructor initializer is its begin() call.
         if (variableDeclaration.type.kind === AstKind.NAME && /Asset(Ownership|Possession)Iterator$/.test(variableDeclaration.type.name)) {
+            const iteratorSize = context.programAnalysis.sizeOfType(variableDeclaration.type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
             context.lines.push(
-                `    ${context.lowering.setLocal(context, variableDeclaration.name, watIr.functionCall("$qpiAllocLocals", watIr.i32Constant(8)))}`,
+                `    ${context.lowering.setLocal(context, variableDeclaration.name, watIr.functionCall("$qpiAllocLocals", watIr.i32Constant(iteratorSize)))}`,
             );
             (context.refLocals ??= new Map()).set(variableDeclaration.name, variableDeclaration.type);
-            const argument =
+            const constructorArguments =
                 variableDeclaration.initializer &&
                 (variableDeclaration.initializer.kind === AstKind.CONSTRUCT || variableDeclaration.initializer.kind === AstKind.CALL)
-                    ? variableDeclaration.initializer.callArguments[0]
-                    : undefined;
-            if (argument) {
+                    ? variableDeclaration.initializer.callArguments
+                    : [];
+            if (constructorArguments.length) {
                 context.lowering.emitAssetIter(
                     context,
                     {
                         kind: AstKind.CALL,
                         span: statement.span,
-                        callArguments: [argument],
+                        callArguments: constructorArguments,
                         callee: {
                             kind: AstKind.MEMBER_ACCESS,
                             span: statement.span,

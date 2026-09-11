@@ -1,10 +1,20 @@
 import { AstKind, TokenKind } from "../../shared/enums";
-import type { Expression, Statement } from "../../ast";
+import type { Declaration, Expression, Statement } from "../../ast";
 import { isTypeKeyword } from "../lexer";
 import type { Parser } from "./parser";
 
 export class StatementParser {
     constructor(private readonly parser: Parser) {}
+
+    // A declaration in statement position, where `T name(args);` is direct initialization rather than a function.
+    private parseLocalDeclaration(): Declaration | null {
+        this.parser.state.inStatement = true;
+        try {
+            return this.parser.declarations.parseDeclaration();
+        } finally {
+            this.parser.state.inStatement = false;
+        }
+    }
 
     parseStatement(): Statement {
         const tok = this.parser.state.peek();
@@ -89,7 +99,7 @@ export class StatementParser {
             tok.kind === TokenKind.KW_LONG ||
             this.parser.expressions.looksLikeLocalDecl()
         ) {
-            const declaration = this.parser.declarations.parseDeclaration();
+            const declaration = this.parseLocalDeclaration();
             if (declaration) {
                 // Drain queued declarators into a synthetic compound statement.
                 if (this.parser.state.pendingDeclarations.length) {
@@ -179,7 +189,7 @@ export class StatementParser {
         if (this.parser.state.peek().kind !== TokenKind.SEMICOLON) {
             // Could be a declaration (`for (sint64 i = 0; ...)`) or an expression init.
             if (isTypeKeyword(this.parser.state.peek().kind) || this.parser.expressions.looksLikeLocalDecl()) {
-                const declaration = this.parser.declarations.parseDeclaration();
+                const declaration = this.parseLocalDeclaration();
                 if (declaration) {
                     initializer = {
                         kind: AstKind.DECLARATION,

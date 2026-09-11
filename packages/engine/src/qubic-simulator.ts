@@ -206,7 +206,9 @@ export class QubicSimulator {
             numberOfShares: (asset, ownership, possession) => this.assets.numberOfShares(asset, ownership, possession),
             numberOfPossessedShares: (name, issuer, owner, possessor, ownershipManager, possessionManager) =>
                 this.assets.numberOfPossessedShares(name, issuer, owner, possessor, ownershipManager, possessionManager),
-            assetEnumerate: (asset, ownership, possession, kind) => this.assets.enumerate(asset, ownership, possession, kind),
+            assetIterBegin: (kind, asset, ownership, possession) => this.assets.iterBegin(kind, asset, ownership, possession),
+            assetIterNext: (kind, position, ownership, possession) => this.assets.iterNext(kind, position, ownership, possession),
+            assetIterRecord: (kind, ownershipIndex, possessionIndex) => this.assets.iterRecord(kind, ownershipIndex, possessionIndex),
             transferShareOwnershipAndPossession: (slot, name, issuer, owner, possessor, shares, newOwner) =>
                 this.assets.transferShareOwnershipAndPossession(slot, name, issuer, owner, possessor, shares, newOwner),
             acquireShares: (slot, name, issuer, owner, possessor, shares, sourceOwnershipManager, sourcePossessionManager, fee, originator) =>
@@ -693,7 +695,18 @@ export class QubicSimulator {
             return INVALID_AMOUNT;
         }
 
-        this.runManagementCallback(counterpartyOwnershipManager, request.postSysproc, name, issuer, owner, possessor, shares, callback.fee, callerSlot, originator);
+        this.runManagementCallback(
+            counterpartyOwnershipManager,
+            request.postSysproc,
+            name,
+            issuer,
+            owner,
+            possessor,
+            shares,
+            callback.fee,
+            callerSlot,
+            originator,
+        );
 
         return callback.fee;
     }

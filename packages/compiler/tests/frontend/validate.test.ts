@@ -329,6 +329,17 @@ describe("validateAndDesugar — rejection rules", () => {
         expect(hasError(diags, /static local/i)).toBe(true);
     });
 
+    test("rejects a default-constructed asset iterator local", () => {
+        const bare = structDecl("S", [funcDecl("f", [], vd(), [declStmt(varDecl("it", nt("AssetOwnershipIterator"))), retStmt()])]);
+        expect(hasError(validate([bare]), /default-constructed/i)).toBe(true);
+
+        const construct = { kind: AstKind.CONSTRUCT, type: nt("AssetPossessionIterator"), callArguments: [ident("asset")], span: NO_SPAN } as Expression;
+        const initialized = structDecl("S", [
+            funcDecl("f", [], vd(), [declStmt(varDecl("it", nt("AssetPossessionIterator"), { initializer: construct })), retStmt()]),
+        ]);
+        expect(hasError(validate([initialized]), /default-constructed/i)).toBe(false);
+    });
+
     test("rejects call with too few arguments", () => {
         const s = structDecl("S", [
             funcDecl(

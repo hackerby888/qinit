@@ -641,7 +641,8 @@ export async function runContractTesting(
         try {
             (runner.exports.run_test as Function)(i);
         } catch (e: any) {
-            const why = [`test body trapped: ${String(e?.message ?? e).slice(0, 200)}`, ...trapNotes];
+            const stack = (globalThis as any).process?.env?.QINIT_GTEST_TRAP_STACK ? `\n${e?.stack ?? ""}` : "";
+            const why = [`test body trapped: ${String(e?.message ?? e).slice(0, 200)}${stack}`, ...trapNotes];
             results.push({ name: traceName(i), passed: false, message: why.join("\n  ") });
         }
         const ms = Math.round(now() - tt);

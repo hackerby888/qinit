@@ -56,14 +56,14 @@ function tryEmitAssetIteratorAssignment(context: FunctionEmissionContext, expres
         return false;
     }
 
-    const assetExpression = expression.right.callArguments[0];
-    if (assetExpression) {
+    const constructorArguments = expression.right.callArguments;
+    if (constructorArguments.length) {
         context.lowering.emitAssetIter(
             context,
             {
                 kind: AstKind.CALL,
                 span: expression.span,
-                callArguments: [assetExpression],
+                callArguments: constructorArguments,
                 callee: {
                     kind: AstKind.MEMBER_ACCESS,
                     span: expression.span,

@@ -165,7 +165,9 @@ export async function buildCorpusRunner(o: {
     await writeFile(join(o.outDir, "test_util.h"), TEST_UTIL_H);
 
     // Corpus runners do not need deployed-contract debugging; the trailing -O2 overrides the recipe's -O0.
-    const extraCompileFlags = ["-O2", "-Wno-error=return-mismatch", "-DQINIT_CORPUS_RUNNER"];
+    // Corpus fixtures hold whole contract states on the C stack, past wasm-ld's 64 KB default: with the stack above the data the
+    // overflow silently overwrote it, and once wasm-ld placed the stack first (LLVM 22) it trapped. Give the runner a real stack.
+    const extraCompileFlags = ["-O2", "-Wno-error=return-mismatch", "-DQINIT_CORPUS_RUNNER", "-Wl,-z,stack-size=8388608"];
 
     // When the corpus pulls real <iostream> itself, suppress the harness's std::cout stubs so they do not collide with the real stream objects.
     if (/^#include\s*<(iostream|ostream)>/m.test(raw)) {

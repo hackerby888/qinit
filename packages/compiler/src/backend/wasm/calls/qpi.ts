@@ -3,7 +3,7 @@ import { addrIr } from "../memory/memory-operations";
 import { EMPTY_TEMPLATE_BINDINGS, FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
-function parsedAggregateLayout(context: FunctionEmissionContext, name: string) {
+export function parsedAggregateLayout(context: FunctionEmissionContext, name: string) {
     const layout = context.programAnalysis.layoutOfType({ kind: AstKind.NAME, name }, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
     if (!layout) throw new Error(`core QPI aggregate '${name}' has no parsed layout`);
     const field = (fieldName: string): number => {

@@ -57,8 +57,8 @@ describe.skipIf(!HAS_CORE)("Wasm module inspection", () => {
         expect(result.ok).toBe(true);
         expect(result.diagnostics).toEqual([]);
         expect(result.memoryMode).toBe(InspectedMemoryMode.DEFINED);
-        // Six pages of state, context, IO and arena, plus the write-journal region reserved past them.
-        const pages = 6n + BigInt(JOURNAL_REGION_BYTES / 65536);
+        // Five pages of state, context, IO, arena and the one-record asset scratch, plus the write-journal region reserved past them.
+        const pages = 5n + BigInt(JOURNAL_REGION_BYTES / 65536);
         expect(result.memories).toEqual([
             {
                 source: WasmMemorySource.DEFINED,

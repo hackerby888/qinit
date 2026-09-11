@@ -60,11 +60,10 @@ export const CHEAT_ERR = Object.freeze({
 /** The contract error code a Wasm trap surfaces under. Mirrors core-lite's `WASM_TRAP_ERROR_CODE`. */
 export const WASM_TRAP_ERROR_CODE = 0xcc1d0000;
 
-/** Contract-visible record written by lhost.assetEnumerate. */
+/** Contract-visible record written by lhost.assetIterRecord. */
 const assetEntry = WASM_ABI_METADATA.records.AssetEntry;
 export const ASSET_ENUMERATION_RECORD = Object.freeze({
     size: assetEntry.size,
-    capacity: assetEntry.capacity,
     fields: Object.freeze(
         Object.fromEntries(
             Object.entries(assetEntry.fields)
