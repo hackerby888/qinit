@@ -2,6 +2,7 @@
 import { test, expect } from "bun:test";
 import { buildSignedTx, k12Hex, deriveIdentity, identityToBytes, LITE_DEPLOY_ADDRESS } from "@qinit/core";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
+import { TEST_SLOT_LAYOUT } from "../../../../test-utils/slot-layout";
 import {
     encodeInput,
     decodeOutput,
@@ -18,6 +19,8 @@ import { VirtualNode } from "../../src/transport";
 const SEED = "a".repeat(55);
 const UNSIGNED_SOURCE = new Uint8Array(32).fill(0x99);
 const ORACLE = "4b31b54f2213f1396cec4a1bd633b9409112d5969592c2c5fa66ddc1656f63c9";
+// The first dynamic slot of the live core headers, where a wire deploy lands.
+const DYN = TEST_SLOT_LAYOUT.slotBase;
 
 // Build an unsigned canonical transaction for deploy-wire tests with real header offsets.
 function wrapTx(inputType: number, payload: Uint8Array, destination: Uint8Array = LITE_DEPLOY_ADDRESS, tick = 10): Uint8Array {
@@ -63,10 +66,11 @@ test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)
 
 test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe -> oracle)", async () => {
     const eng = await VirtualNode.create({
+        ...TEST_SLOT_LAYOUT,
         mempool: false,
         verifySigs: false,
     });
-    const so = await wasm("DigestProbe");
+    const so = await wasm("DigestProbeDyn0");
     const finalHashHex = await k12Hex(so);
     const sessionId = createUploadSessionId();
     const chunks = splitUploadChunks(so);
@@ -85,17 +89,17 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
     for (let i = 0; i < chunks.length; i++) await eng.broadcastTx(wrapTx(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId, seq: i, bytes: chunks[i] })));
     expect((await eng.dynUpload()).complete).toBe(true);
 
-    await eng.broadcastTx(wrapTx(LITE_TX.DEPLOY, encodeDeploy({ sessionId, targetSlot: 29, finalHashHex, name: "DigestProbe" })));
+    await eng.broadcastTx(wrapTx(LITE_TX.DEPLOY, encodeDeploy({ sessionId, targetSlot: DYN, finalHashHex, name: "DigestProbe" })));
     const reg = await eng.dynRegistry();
-    expect(reg.contracts.find((x) => x.index === 29)?.constructed).toBe(true);
-    expect(reg.contracts.find((x) => x.index === 29)?.name).toBe("DigestProbe");
+    expect(reg.contracts.find((x) => x.index === DYN)?.constructed).toBe(true);
+    expect(reg.contracts.find((x) => x.index === DYN)?.name).toBe("DigestProbe");
 
     // Exercise the wire-deployed contract + reproduce the cross-platform digest oracle through the seam.
-    expect(await decodeOutput(await eng.querySmartContract(29, 1, await encodeInput("")), "uint64")).toBe(0n);
+    expect(await decodeOutput(await eng.querySmartContract(DYN, 1, await encodeInput("")), "uint64")).toBe(0n);
     eng.fund(UNSIGNED_SOURCE, 1n);
-    await eng.broadcastTx(wrapTx(1, new Uint8Array(0), contractAddress(29))); // Inc (procedure it=1)
-    expect(await decodeOutput(await eng.querySmartContract(29, 1, await encodeInput("")), "uint64")).toBe(1n);
-    expect(eng.sim.digest(29)).toBe(ORACLE);
+    await eng.broadcastTx(wrapTx(1, new Uint8Array(0), contractAddress(DYN))); // Inc (procedure it=1)
+    expect(await decodeOutput(await eng.querySmartContract(DYN, 1, await encodeInput("")), "uint64")).toBe(1n);
+    expect(eng.sim.digest(DYN)).toBe(ORACLE);
 });
 
 test("an upload session idle past the stale limit gives way to a new one", async () => {
@@ -108,7 +112,8 @@ test("an upload session idle past the stale limit gives way to a new one", async
     const chunks = splitUploadChunks(so);
     // Every tx is scheduled just ahead of the node so the advanced clock never makes it stale.
     const tx = (inputType: number, payload: Uint8Array) => wrapTx(inputType, payload, LITE_DEPLOY_ADDRESS, eng.sim.currentTick + 1);
-    const begin = (sessionId: bigint) => eng.broadcastTx(tx(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId, totalSize: so.length, chunkCount: chunks.length, finalHashHex })));
+    const begin = (sessionId: bigint) =>
+        eng.broadcastTx(tx(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId, totalSize: so.length, chunkCount: chunks.length, finalHashHex })));
 
     await begin(11n);
     await eng.broadcastTx(tx(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: 11n, seq: 0, bytes: chunks[0] })));
@@ -213,7 +218,7 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
 });
 
 test("deployment sessions reject oversized modules, malformed chunks, and mismatched hashes", async () => {
-    const engine = new VirtualNode({ verifySigs: false });
+    const engine = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false });
     const handle = (inputType: number, payload: Uint8Array) => (engine as any).handleDeployTx(inputType, payload);
 
     expect(() =>
@@ -252,7 +257,7 @@ test("deployment sessions reject oversized modules, malformed chunks, and mismat
             LITE_TX.DEPLOY,
             encodeDeploy({
                 sessionId: 2n,
-                targetSlot: 29,
+                targetSlot: DYN,
                 finalHashHex: "ff".repeat(32),
             }),
         ),
