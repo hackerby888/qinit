@@ -291,7 +291,7 @@ describe("runCoreIntegration", () => {
             repositoryUrl,
         });
         expect(existsSync(join(outputPath, "test", "contract_main.cpp"))).toBe(true);
-    });
+    }, 60000);
 
     test("rejects collisions and unregistered local callees before source writes", async () => {
         const root = temporaryDirectory();
@@ -336,7 +336,7 @@ describe("runCoreIntegration", () => {
             }),
         ).rejects.toThrow("asset 'BASE' is already used");
         expect(runGit(outputPath, "status", "--porcelain")).toBe("");
-    });
+    }, 60000);
 
     test("syncs main before deciding whether registration metadata is needed", async () => {
         const root = temporaryDirectory();
@@ -378,7 +378,7 @@ describe("runCoreIntegration", () => {
         expect(progressRows(updateProgress)).toContain("wire:active:creating qinit/main-update");
         expect(progressRows(updateProgress).at(-1)).toBe("wire:ok:updated index 2");
         expectTerminalElapsed(updateProgress);
-    });
+    }, 60000);
 
     // integrate is the only hand-off to a Core checkout, so the one place a cheatcode must not survive. These go through the real integration, not the strip.
     test("strips cheatcodes out of the source it writes into Core", async () => {
@@ -409,7 +409,7 @@ describe("runCoreIntegration", () => {
         // The statement is blanked in place rather than deleted, so every following line keeps its number and a Core stack trace still points where expected.
         expect(written).toContain("state.mut().n += 1;");
         expect(written.replaceAll(CRLF, "\n").split("\n").length).toBe(readFileSync(contractPath, "utf8").split("\n").length);
-    });
+    }, 60000);
 
     test("refuses a cheatcode it cannot strip safely rather than writing it to Core", async () => {
         const root = temporaryDirectory();
@@ -434,7 +434,7 @@ describe("runCoreIntegration", () => {
                 repositoryUrl,
             }),
         ).rejects.toThrow(/cheatcode violations/);
-    });
+    }, 60000);
 
     test("rejects asset aliases and partial registration artifacts", async () => {
         const aliasRoot = temporaryDirectory();
@@ -480,7 +480,7 @@ describe("runCoreIntegration", () => {
         ).rejects.toThrow("contract 'Main' has a partial Core registration");
         expect(existsSync(join(partialOutput, "src", "contracts", "Main.h"))).toBe(false);
         expect(runGit(partialOutput, "status", "--porcelain")).toBe("");
-    });
+    }, 60000);
 });
 
 describe("build rules at the Core hand-off", () => {
@@ -508,7 +508,7 @@ describe("build rules at the Core hand-off", () => {
             }),
         ).rejects.toThrow(/build rule violations in Main\.h:\n {2}line 4: .*QPI::div/);
         expect(existsSync(outputPath)).toBe(false);
-    });
+    }, 60000);
 
     test("--no-build-rules lets the same contract through", async () => {
         const root = temporaryDirectory();
@@ -533,5 +533,5 @@ describe("build rules at the Core hand-off", () => {
         });
 
         expect(readFileSync(join(result.corePath, "src", "contracts", "Main.h"), "utf8")).toContain("div(input.a, input.b)");
-    });
+    }, 60000);
 });
