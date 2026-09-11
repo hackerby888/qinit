@@ -5,15 +5,7 @@ import * as vscode from "vscode";
 import { loadConfigSafe } from "@qinit/core/project";
 import { QpiCodeActions } from "./codeactions";
 import { generateClangdConfig, generateTestClangdConfig } from "./clangd-config";
-import {
-    completionScope,
-    documentIdentifiers,
-    keepCompletionLabel,
-    keepMemberLabel,
-    keepQualifiedScope,
-    qpiAllowedIdentifiers,
-    typedPrefix,
-} from "./completion-filter";
+import { completionScope, documentIdentifiers, keepCompletionLabel, keepMemberLabel, keepQualifiedScope, qpiAllowedIdentifiers, typedPrefix } from "./completion-filter";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
 import { memberFallbackCompletions, type FallbackItem } from "./member-fallback";
@@ -79,7 +71,10 @@ function memberSnippet(item: FallbackItem): vscode.SnippetString {
 // Only `label.detail` renders inline after the name, so a field annotates its type there as a method shows its parameters; both also fill the details pane.
 function fallbackCompletionItem(item: FallbackItem): vscode.CompletionItem {
     if (item.kind !== "method") {
-        const field = new vscode.CompletionItem({ label: item.name, detail: item.returnType && `: ${item.returnType}` }, vscode.CompletionItemKind.Field);
+        const field = new vscode.CompletionItem(
+            { label: item.name, detail: item.returnType && `: ${item.returnType}` },
+            vscode.CompletionItemKind.Field,
+        );
         field.detail = item.returnType;
         field.filterText = item.name;
         return field;
@@ -200,9 +195,7 @@ async function filterCompletions(
     if (scope.kind === "member") {
         kept = await memberCompletions(doc, position, linePrefix, items, token, out);
     } else if (scope.kind === "qualified") {
-        kept = keepQualifiedScope(scope.qualifier, allowed, documentNames)
-            ? items.filter((item) => keepMemberLabel(labelOf(item), typedPrefix(linePrefix)))
-            : [];
+        kept = keepQualifiedScope(scope.qualifier, allowed, documentNames) ? items.filter((item) => keepMemberLabel(labelOf(item), typedPrefix(linePrefix))) : [];
     } else {
         kept = items.filter((item) => keepCompletionLabel(labelOf(item), allowed, documentNames));
     }

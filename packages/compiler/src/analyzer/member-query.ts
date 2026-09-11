@@ -219,10 +219,8 @@ function structTarget(programAnalysis: ProgramAnalysis, structDeclaration: Struc
     };
 }
 
-// A callee's structs are registered qualified but spelled bare inside the contract, so an unqualified miss is retried under the enclosing contract's name.
-// The scoped spelling is tried first because C++ resolves a bare name in the enclosing class before the
-// global scope, and a callee's nested types are registered only under their qualified name, so a global
-// of the same name would otherwise win where C++ picks the nested one.
+// A callee's structs are registered qualified but spelled bare inside the contract, so the scoped spelling is tried first —
+// as C++ does, resolving a bare name in the enclosing class before the global one that would otherwise shadow it.
 function structInScope(programAnalysis: ProgramAnalysis, type: TypeSpec, bindings: TemplateBindings, scope?: string): StructDecl | null {
     if (scope && type.kind === AstKind.NAME && !type.name.includes("::")) {
         const scoped = programAnalysis.structOf({ ...type, name: `${scope}::${type.name}` }, bindings);
