@@ -205,6 +205,62 @@ for (const backend of ["clang", "typescript"] as const) {
     );
 }
 
+const VAULT = `${import.meta.dir}/../../../../fixtures/Vault.h`;
+
+// POST_INCOMING_TRANSFER runs outside q_invoke: a cached state pointer must see it, and the next dispatch must not revert it.
+const VAULT_TEST_SOURCE = `#define NO_UEFI
+#include "contract_testing.h"
+
+class ContractTestingVault : protected ContractTesting {
+public:
+    ContractTestingVault() {
+        initEmptySpectrum();
+        initEmptyUniverse();
+        INIT_CONTRACT(Vault);
+    }
+    Vault::StateData* state() { return (Vault::StateData*)contractStates[Vault_CONTRACT_INDEX]; }
+    void deposit(const id& user) {
+        Vault::Deposit_input input{};
+        Vault::Deposit_output output{};
+        invokeUserProcedure(Vault_CONTRACT_INDEX, 1, input, output, user, 0);
+    }
+};
+
+TEST(Vault, IncomingTransferReachesACachedStatePointer) {
+    ContractTestingVault t;
+    const id user = id::randomValue();
+    increaseEnergy(user, 1000);
+    Vault::StateData* s = t.state();
+    notifyContractOfIncomingTransfer(user, id(Vault_CONTRACT_INDEX, 0, 0, 0), 100, 0);
+    EXPECT_EQ(s->incomingCount, 1ull);
+    t.deposit(user);
+    EXPECT_EQ(s->incomingCount, 1ull);
+}
+`;
+
+for (const backend of ["clang", "typescript"] as const) {
+    test.skipIf(!have)(
+        `an incoming transfer reaches a cached state pointer with ${backend}`,
+        async () => {
+            const scratch = mkdtempSync(join(tmpdir(), `qinit-gtest-vault-${backend}-`));
+            const testPath = join(scratch, "Vault.test.cpp");
+            writeFileSync(testPath, VAULT_TEST_SOURCE);
+
+            try {
+                const run = await runStdGtest({ contractPath: VAULT, testPath, name: "Vault", stateType: "Vault", slot: 101, core: CORE, backend, scratch });
+
+                expect(run.runnerOk, run.buildError).toBe(true);
+                expect(run.results.map((result) => [result.name, result.passed, result.message.trim()])).toEqual([
+                    ["Vault.IncomingTransferReachesACachedStatePointer", true, ""],
+                ]);
+            } finally {
+                rmSync(scratch, { recursive: true, force: true });
+            }
+        },
+        180_000,
+    );
+}
+
 // Every template ships a gtest that must build and pass on both backends, the way `qinit new` then `qinit gtest` runs it; intercontract drives its callee.
 for (const backend of ["clang", "typescript"] as const) {
     for (const kind of TEMPLATE_KINDS) {

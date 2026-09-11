@@ -290,7 +290,9 @@ export async function runContractTesting(
         },
         // Move the amount to dest and fire its POST_INCOMING_TRANSFER.
         q_notify_pit: (srcPtr: number, dstPtr: number, amount: bigint, type: number) => {
+            flushState();
             sim.notifyIncomingTransfer(id32(srcPtr), id32(dstPtr), BigInt(amount), type >>> 0);
+            markEngineMoved();
         },
         // issueAsset(issuer, name, decimals, unit, shares, mgmt): mint an asset (issuer == invocator path). Returns shares.
         q_issue_asset: (issuerPtr: number, name: bigint, decimals: number, shares: bigint, unit: bigint, slot: number): bigint => {
@@ -516,17 +518,25 @@ export async function runContractTesting(
         now: (out: number) => new DataView(mem().buffer).setBigUint64(out >>> 0, packDateAndTime(sim.nowMs()), true),
         prevSpectrumDigest: (out: number) => mem().set((sim.prevSpectrumDigestOverride ?? new Uint8Array(32)).subarray(0, 32), out >>> 0),
         // Real host transfer, not a noop: QTF's CheckContractBalance reads qpi.getEntity(SELF), and delegating keeps the deployed runtime's semantics.
-        transfer: (destOff: number, amount: bigint): bigint => sim.host.transfer(mainSlot, id32(destOff), amount, 2 /*qpiTransfer*/),
+        transfer: (destOff: number, amount: bigint): bigint => {
+            flushState();
+            const remaining = sim.host.transfer(mainSlot, id32(destOff), amount, 2 /*qpiTransfer*/);
+            markEngineMoved();
+            return remaining;
+        },
         burn: (amount: bigint, ciBurnedFor: number): bigint => sim.host.burn(mainSlot, amount, ciBurnedFor >>> 0),
         // In-runner inter-contract calls via the corpus qpi context: the caller is the contract under test, and reward moves caller -> callee as in runtime.ts.
         liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number): number => {
+            flushState();
             const out = sim.query(calleeIdx >>> 0, inputType & 0xffff, read(inOff, inSize));
             if (out.length) write(outOff, out.subarray(0, Math.min(outSize >>> 0, out.length)));
             return 0;
         },
         liteInvokeProcedure: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number, reward: bigint): number => {
             const originator = sim.contractId(mainSlot);
+            flushState();
             const result = sim.host.invokeProcedure(mainSlot, calleeIdx >>> 0, inputType & 0xffff, read(inOff, inSize), reward, originator);
+            markEngineMoved();
             if (result.error === 0 && result.output.length > 0) {
                 write(outOff, result.output.subarray(0, Math.min(outSize >>> 0, result.output.length)));
             }
