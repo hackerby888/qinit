@@ -189,6 +189,7 @@ public:
 
     template <typename InputType, typename OutputType>
     unsigned int callFunction(unsigned int contractIndex, unsigned short fnInputType, const InputType& input, OutputType& output, bool checkInputSize = true, bool expectSuccess = true) const {
+        setMem(&output, sizeof(output), 0);
         bq_query(contractIndex, fnInputType, &input, sizeof(input), &output, sizeof(output));
         return 0;
     }
