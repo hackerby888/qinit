@@ -35,7 +35,6 @@ QBCT_IMPORT(q_spectrum)  int           bq_spectrum(const void* id32);
 QBCT_IMPORT(q_decrease)  void          bq_decrease(int idx, long long amount);
 QBCT_IMPORT(q_state_size) unsigned int bq_state_size(unsigned int i);
 QBCT_IMPORT(q_state_in)   void         bq_state_in(unsigned int i, void* dst, unsigned int len);
-QBCT_IMPORT(q_state_sync) void         bq_state_sync();
 QBCT_IMPORT(q_state_addr) unsigned int bq_state_addr(unsigned int i);
 QBCT_IMPORT(q_set_epoch)  void         bq_set_epoch(unsigned int e);
 QBCT_IMPORT(q_get_epoch)  unsigned int bq_get_epoch();
@@ -627,17 +626,10 @@ namespace qinit_gtest {
 QBCT_REC_CMP(Eq, ==) QBCT_REC_CMP(Ne, !=) QBCT_REC_CMP(Lt, <) QBCT_REC_CMP(Le, <=) QBCT_REC_CMP(Gt, >) QBCT_REC_CMP(Ge, >=)
 namespace qinit_gtest {
     static inline bool recBool(const char* f, int l, const char* w, bool cond) { if (!cond) failAt(f, l, w); return cond; }
-
-    // Refresh engine-dirty state shadows before an assertion evaluates its operands: a corpus commonly caches
-    // `auto state = getState()` and asserts through that pointer after dispatches. For a very large state
-    static inline bool qbSyncThen() {
-        bq_state_sync();
-        return true;
-    }
 }
 #define QBCT_EXPECT(suffix, a, b, label)                                                                     \
     switch (0) case 0: default:                                                                              \
-        if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recCmp##suffix(__FILE__, __LINE__, label, (a), (b))) ; else ::qinit_gtest::Sink()
+        if (::qinit_gtest::recCmp##suffix(__FILE__, __LINE__, label, (a), (b))) ; else ::qinit_gtest::Sink()
 #undef EXPECT_EQ
 #undef EXPECT_NE
 #undef EXPECT_LT
@@ -652,14 +644,14 @@ namespace qinit_gtest {
 #define EXPECT_LE(a, b) QBCT_EXPECT(Le, a, b, "EXPECT_LE(" #a ", " #b ")")
 #define EXPECT_GT(a, b) QBCT_EXPECT(Gt, a, b, "EXPECT_GT(" #a ", " #b ")")
 #define EXPECT_GE(a, b) QBCT_EXPECT(Ge, a, b, "EXPECT_GE(" #a ", " #b ")")
-#define EXPECT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "EXPECT_TRUE(" #x ")", (bool)(x))) ; else ::qinit_gtest::Sink()
-#define EXPECT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "EXPECT_FALSE(" #x ")", !(bool)(x))) ; else ::qinit_gtest::Sink()
+#define EXPECT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "EXPECT_TRUE(" #x ")", (bool)(x))) ; else ::qinit_gtest::Sink()
+#define EXPECT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "EXPECT_FALSE(" #x ")", !(bool)(x))) ; else ::qinit_gtest::Sink()
 // ASSERT_* is fatal, the way googletest's own macros are: a statement-position `return` in front of an
 // expression that ends in void, so `ASSERT_*(...) << "msg"` still compiles. Test bodies return void, and
 // upstream builds these same corpora against real googletest, so every site already allows the return.
 #define QBCT_ASSERT(suffix, a, b, label)                                                                     \
     switch (0) case 0: default:                                                                              \
-        if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recCmp##suffix(__FILE__, __LINE__, label, (a), (b))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
+        if (::qinit_gtest::recCmp##suffix(__FILE__, __LINE__, label, (a), (b))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 #undef ASSERT_EQ
 #undef ASSERT_NE
 #undef ASSERT_LT
@@ -674,8 +666,8 @@ namespace qinit_gtest {
 #define ASSERT_LE(a, b) QBCT_ASSERT(Le, a, b, "ASSERT_LE(" #a ", " #b ")")
 #define ASSERT_GT(a, b) QBCT_ASSERT(Gt, a, b, "ASSERT_GT(" #a ", " #b ")")
 #define ASSERT_GE(a, b) QBCT_ASSERT(Ge, a, b, "ASSERT_GE(" #a ", " #b ")")
-#define ASSERT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_TRUE(" #x ")", (bool)(x))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
-#define ASSERT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_FALSE(" #x ")", !(bool)(x))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
+#define ASSERT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_TRUE(" #x ")", (bool)(x))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
+#define ASSERT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_FALSE(" #x ")", !(bool)(x))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 
 static inline long long numberOfPossessedShares(unsigned long long name, const QPI::id& issuer, const QPI::id& owner, const QPI::id& possessor, unsigned int om, unsigned int pm) {
     return bq_possessed(name, &issuer, &owner, &possessor, om, pm);
