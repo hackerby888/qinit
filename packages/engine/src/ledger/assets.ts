@@ -17,7 +17,7 @@ export const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (IN
 
 const ASSET_CAPACITY = 1 << ASSETS_DEPTH;
 const ASSET_INDEX_MASK = ASSET_CAPACITY - 1;
-const NO_ASSET_INDEX = -1;
+export const NO_ASSET_INDEX = -1;
 
 const ISSUANCE = 1;
 const OWNERSHIP = 2;
@@ -32,6 +32,18 @@ interface LedgerRecord {
     mgmt: number;
     crossRef: number;
     shares: bigint;
+}
+
+/** Where a wasm iterator stands: the node's universe indices, NO_ASSET_INDEX once a level is exhausted. */
+export interface AssetWalkPosition {
+    issuanceIndex: number;
+    ownershipIndex: number;
+    possessionIndex: number;
+}
+
+export interface AssetWalkStep {
+    position: AssetWalkPosition;
+    selected: boolean;
 }
 
 export interface AssetEntry {
@@ -237,86 +249,56 @@ export class AssetLedger {
         return this.issuanceIndex(issuer, name & 0xffffffffffffffn) !== NO_ASSET_INDEX;
     }
 
-    private ownershipIndices(issuanceIndex: number, selection: AssetSelection): number[] {
-        const indexes: number[] = [];
-
+    // One step of the node's walk over a record's children (an issuance's ownerships, an ownership's possessions):
+    // probe order from the selected id's slot when the selection names one, the LIFO child list otherwise.
+    private nextChildIndex(type: number, parentIndex: number, previous: number, selection: AssetSelection): number {
         if (!selection.anyId) {
-            let index = this.startOf(selection.id);
+            let index = previous === NO_ASSET_INDEX ? this.startOf(selection.id) : (previous + 1) & ASSET_INDEX_MASK;
 
-            for (;;) {
-                const record = this.record(index);
-                if (!record) {
-                    break;
-                }
-
+            for (let record = this.record(index); record; record = this.record(index)) {
                 if (
-                    record.type === OWNERSHIP &&
-                    record.crossRef === issuanceIndex &&
+                    record.type === type &&
+                    record.crossRef === parentIndex &&
                     first32BytesEqual(record.publicKey, selection.id) &&
                     (selection.anyMgmt || record.mgmt === selection.mgmt)
                 ) {
-                    indexes.push(index);
+                    return index;
                 }
 
                 index = (index + 1) & ASSET_INDEX_MASK;
             }
 
-            return indexes;
+            return NO_ASSET_INDEX;
         }
 
+        let index = previous === NO_ASSET_INDEX ? (this.firstChildIndex.get(parentIndex) ?? NO_ASSET_INDEX) : (this.nextIndex.get(previous) ?? NO_ASSET_INDEX);
+        while (index !== NO_ASSET_INDEX && !selection.anyMgmt && this.record(index)!.mgmt !== selection.mgmt) {
+            index = this.nextIndex.get(index) ?? NO_ASSET_INDEX;
+        }
+
+        return index;
+    }
+
+    private childIndices(type: number, parentIndex: number, selection: AssetSelection): number[] {
+        const indexes: number[] = [];
+
         for (
-            let index = this.firstChildIndex.get(issuanceIndex) ?? NO_ASSET_INDEX;
+            let index = this.nextChildIndex(type, parentIndex, NO_ASSET_INDEX, selection);
             index !== NO_ASSET_INDEX;
-            index = this.nextIndex.get(index) ?? NO_ASSET_INDEX
+            index = this.nextChildIndex(type, parentIndex, index, selection)
         ) {
-            const record = this.record(index)!;
-            if (selection.anyMgmt || record.mgmt === selection.mgmt) {
-                indexes.push(index);
-            }
+            indexes.push(index);
         }
 
         return indexes;
     }
 
+    private ownershipIndices(issuanceIndex: number, selection: AssetSelection): number[] {
+        return this.childIndices(OWNERSHIP, issuanceIndex, selection);
+    }
+
     private possessionIndices(ownershipIndex: number, selection: AssetSelection): number[] {
-        const indexes: number[] = [];
-
-        if (!selection.anyId) {
-            let index = this.startOf(selection.id);
-
-            for (;;) {
-                const record = this.record(index);
-                if (!record) {
-                    break;
-                }
-
-                if (
-                    record.type === POSSESSION &&
-                    record.crossRef === ownershipIndex &&
-                    first32BytesEqual(record.publicKey, selection.id) &&
-                    (selection.anyMgmt || record.mgmt === selection.mgmt)
-                ) {
-                    indexes.push(index);
-                }
-
-                index = (index + 1) & ASSET_INDEX_MASK;
-            }
-
-            return indexes;
-        }
-
-        for (
-            let index = this.firstChildIndex.get(ownershipIndex) ?? NO_ASSET_INDEX;
-            index !== NO_ASSET_INDEX;
-            index = this.nextIndex.get(index) ?? NO_ASSET_INDEX
-        ) {
-            const record = this.record(index)!;
-            if (selection.anyMgmt || record.mgmt === selection.mgmt) {
-                indexes.push(index);
-            }
-        }
-
-        return indexes;
+        return this.childIndices(POSSESSION, ownershipIndex, selection);
     }
 
     issueAssetRaw(issuer: Id, name: bigint, decimals: number, unit: bigint, shares: bigint, managingContractIndex: number): bigint {
@@ -511,6 +493,94 @@ export class AssetLedger {
         }
 
         return entries;
+    }
+
+    // The wasm iterator's begin(): find the issuance, then take the first selected record the way the node does.
+    iterBegin(kind: number, assetBytes: Uint8Array, ownershipSelectionBytes: Uint8Array, possessionSelectionBytes: Uint8Array): AssetWalkPosition {
+        const asset = Asset.wrap(assetBytes);
+        const position: AssetWalkPosition = {
+            issuanceIndex: this.issuanceIndex(asset.issuer, asset.assetName & 0xffffffffffffffn),
+            ownershipIndex: NO_ASSET_INDEX,
+            possessionIndex: NO_ASSET_INDEX,
+        };
+
+        if (position.issuanceIndex === NO_ASSET_INDEX) {
+            return position;
+        }
+
+        position.ownershipIndex = this.nextChildIndex(OWNERSHIP, position.issuanceIndex, NO_ASSET_INDEX, parseSelect(ownershipSelectionBytes));
+        if (kind === 1 && position.ownershipIndex !== NO_ASSET_INDEX) {
+            return this.iterNext(kind, position, ownershipSelectionBytes, possessionSelectionBytes).position;
+        }
+
+        return position;
+    }
+
+    // The wasm iterator's next(). The node indexes the universe with the contract's indices unchecked, so a walk
+    // that already ended (possession) or holds an index outside the universe stays ended here instead.
+    iterNext(kind: number, position: AssetWalkPosition, ownershipSelectionBytes: Uint8Array, possessionSelectionBytes: Uint8Array): AssetWalkStep {
+        const inUniverse = (index: number): boolean => index >= 0 && index < ASSET_CAPACITY;
+        const resumable = (index: number): boolean => inUniverse(index) || index === NO_ASSET_INDEX;
+        const { issuanceIndex } = position;
+        const ended: AssetWalkStep = { position: { issuanceIndex, ownershipIndex: NO_ASSET_INDEX, possessionIndex: NO_ASSET_INDEX }, selected: false };
+        let { ownershipIndex, possessionIndex } = position;
+
+        if (!inUniverse(issuanceIndex) || !resumable(ownershipIndex)) {
+            return ended;
+        }
+
+        const ownership = parseSelect(ownershipSelectionBytes);
+        if (kind !== 1) {
+            ownershipIndex = this.nextChildIndex(OWNERSHIP, issuanceIndex, ownershipIndex, ownership);
+            return { position: { issuanceIndex, ownershipIndex, possessionIndex: NO_ASSET_INDEX }, selected: ownershipIndex !== NO_ASSET_INDEX };
+        }
+
+        if (!inUniverse(ownershipIndex) || !resumable(possessionIndex)) {
+            return ended;
+        }
+
+        const possession = parseSelect(possessionSelectionBytes);
+        do {
+            possessionIndex = this.nextChildIndex(POSSESSION, ownershipIndex, possessionIndex, possession);
+            if (possessionIndex !== NO_ASSET_INDEX) {
+                return { position: { issuanceIndex, ownershipIndex, possessionIndex }, selected: true };
+            }
+
+            ownershipIndex = this.nextChildIndex(OWNERSHIP, issuanceIndex, ownershipIndex, ownership);
+        } while (ownershipIndex !== NO_ASSET_INDEX);
+
+        return ended;
+    }
+
+    // The record at a walk position, or null when the indices do not name a record of the expected kind.
+    iterRecord(kind: number, ownershipIndex: number, possessionIndex: number): AssetEntry | null {
+        const ownershipRecord = this.record(ownershipIndex);
+        if (!ownershipRecord || ownershipRecord.type !== OWNERSHIP) {
+            return null;
+        }
+
+        if (kind !== 1) {
+            return {
+                owner: ownershipRecord.publicKey,
+                possessor: ownershipRecord.publicKey,
+                shares: ownershipRecord.shares,
+                ownMgmt: ownershipRecord.mgmt,
+                posMgmt: 0,
+            };
+        }
+
+        const possessionRecord = this.record(possessionIndex);
+        if (!possessionRecord || possessionRecord.type !== POSSESSION || possessionRecord.crossRef !== ownershipIndex) {
+            return null;
+        }
+
+        return {
+            owner: ownershipRecord.publicKey,
+            possessor: possessionRecord.publicKey,
+            shares: possessionRecord.shares,
+            ownMgmt: ownershipRecord.mgmt,
+            posMgmt: possessionRecord.mgmt,
+        };
     }
 
     possessionsOf(issuer: Id, name: bigint): AssetEntry[] {

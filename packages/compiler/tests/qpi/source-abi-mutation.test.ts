@@ -91,28 +91,20 @@ describe.skipIf(!HAS_CORE)("source-backed ABI mutations", () => {
         expect(parsed.lhost[1].name).toBe("beginFn");
     });
 
-    test("record field reorder changes generated offsets and capacity comes from core", async () => {
-        const reordered = shared()
-            .replace("unsigned char owner[32];\n    unsigned char possessor[32];", "unsigned char possessor[32];\n    unsigned char owner[32];")
-            .replace("#define WASM_ASSET_ENTRY_CAPACITY 1024u", "#define WASM_ASSET_ENTRY_CAPACITY 2048u");
+    test("record field reorder changes generated offsets and the mutated record still lowers an iterator", async () => {
+        const reordered = shared().replace(
+            "unsigned char owner[32];\n    unsigned char possessor[32];",
+            "unsigned char possessor[32];\n    unsigned char owner[32];",
+        );
         const record = parseWasmAbiSource(metadata(), reordered).records.AssetEntry;
         expect(record.fields.possessor.offset).toBe(0);
         expect(record.fields.owner.offset).toBe(32);
-        expect(record.capacity).toBe(2048);
 
         const iteratorContract = contract(`
       Asset asset = { SELF, 0x414243ull };
-      AssetOwnershipIterator iterator;
-      iterator.begin(asset);
+      AssetOwnershipIterator iterator(asset);
       output.value = iterator.numberOfOwnedShares();
     `);
-        const baseline = await compileContractWithTypeScript({
-            source: iteratorContract,
-            contractName: "AssetRecordBaseline",
-            slot: 27,
-            qpiHeader: HEADER(),
-            arenaSizeBytes: 1 << 20,
-        });
         const changedHeader = mutateEmbeddedAbi(HEADER(), (abi) => {
             abi.records.AssetEntry = record;
         });
@@ -124,7 +116,7 @@ describe.skipIf(!HAS_CORE)("source-backed ABI mutations", () => {
             arenaSizeBytes: 1 << 20,
         });
         expect(changed.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
-        expect(inspectWasmModule(changed.wasm).memories[0].minimumPages).toBeGreaterThan(inspectWasmModule(baseline.wasm).memories[0].minimumPages);
+        expect(inspectWasmModule(changed.wasm).imports.some((entry) => entry.module === "lhost" && entry.name === "assetIterRecord")).toBe(true);
     });
 
     test("system-procedure IDs and method names follow the canonical table", async () => {
@@ -169,9 +161,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
     test("unsupported or ambiguous core metadata fails generation", () => {
         expect(() => parseWasmAbiSource(metadata().replace('GI("endFn"', 'GI("beginFn"'), shared())).toThrow(/duplicate LHOST import/);
-        expect(() => parseWasmAbiSource(metadata(), replaceRequired(shared(), /struct AssetEntry\s*\{/, "struct AssetEntry {\n    float unsupported;"))).toThrow(
-            /unsupported AssetEntry field/,
-        );
+        expect(() =>
+            parseWasmAbiSource(metadata(), replaceRequired(shared(), /struct AssetEntry\s*\{/, "struct AssetEntry {\n    float unsupported;")),
+        ).toThrow(/unsupported AssetEntry field/);
         expect(() =>
             parseWasmAbiSource(
                 replaceRequired(metadata(), /X\(BEGIN_EPOCH,\s*1,\s*beginEpoch,\s*__beginEpochEmpty\)/, "X(BEGIN_EPOCH, 7, beginEpoch, __beginEpochEmpty)"),

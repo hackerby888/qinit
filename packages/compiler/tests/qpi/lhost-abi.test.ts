@@ -52,7 +52,6 @@ describe("shared lhost ABI", () => {
     test.if(existsSync(metadataHeader))("asset enumeration layout comes from core-lite's named exchange record", () => {
         const source = loadWasmAbiSource(CORE).records.AssetEntry;
         expect(source.size).toBe(ASSET_ENUMERATION_RECORD.size);
-        expect(source.capacity).toBe(ASSET_ENUMERATION_RECORD.capacity);
         expect(ASSET_ENUMERATION_RECORD).toMatchObject({
             size: 80,
             fields: {

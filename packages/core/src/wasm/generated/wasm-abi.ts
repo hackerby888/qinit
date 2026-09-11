@@ -1,6 +1,6 @@
 // Generated from core-lite Wasm shared ABI headers. Do not edit.
 export const WASM_ABI_METADATA = {
-  "abiVersion": 6,
+  "abiVersion": 7,
   "lhost": [
     {
       "name": "beginFn",
@@ -320,8 +320,22 @@ export const WASM_ABI_METADATA = {
       ]
     },
     {
-      "name": "assetEnumerate",
+      "name": "assetIterBegin",
       "params": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "results": []
+    },
+    {
+      "name": "assetIterNext",
+      "params": [
+        "i32",
         "i32",
         "i32",
         "i32",
@@ -332,6 +346,16 @@ export const WASM_ABI_METADATA = {
       "results": [
         "i32"
       ]
+    },
+    {
+      "name": "assetIterRecord",
+      "params": [
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "results": []
     },
     {
       "name": "transferShareOwnershipAndPossession",
@@ -680,7 +704,6 @@ export const WASM_ABI_METADATA = {
   "records": {
     "AssetEntry": {
       "size": 80,
-      "capacity": 1024,
       "fields": {
         "owner": {
           "offset": 0,

@@ -55,7 +55,6 @@ export interface ModuleSpecification {
     lhostAbi?: LhostAbiSpec; // parsed live-core imports; browser/direct callers use the generated default
     assetEnumerationRecord?: {
         readonly size: number;
-        readonly capacity: number;
     };
 }
 
@@ -70,7 +69,7 @@ export interface Layout {
     arenaEnd: number;
     ioSize: number;
     pages: number;
-    iterBufBase: number;
+    assetRecordBase: number;
 }
 
 export function computeLayout(
@@ -80,7 +79,6 @@ export function computeLayout(
     memBase = 0,
     assetRecord: {
         readonly size: number;
-        readonly capacity: number;
     } = ASSET_ENUMERATION_RECORD,
     reserveJournal = true,
 ): Layout {
@@ -96,10 +94,9 @@ export function computeLayout(
     const ioSize = IN_SZ + OUT_SZ + LOCALS_SZ + arenaSize;
     // The write journal lives immediately past what io_size() reports, so a host finds it without the contract losing arena; shared-memory builds carry none.
     const journalBytes = reserveJournal ? JOURNAL_REGION_BYTES : 0;
-    // Reserve an aligned buffer for asset-iterator enumeration results.
-    const iterBufBase = align(arenaEnd + journalBytes, 16);
-    const iterBufSize = assetRecord.size * assetRecord.capacity;
-    const pages = Math.ceil((iterBufBase + iterBufSize) / 65536) + 1;
+    // One asset record, where the host writes the iterator's current record for the accessor that asked.
+    const assetRecordBase = align(arenaEnd + journalBytes, 16);
+    const pages = Math.ceil((assetRecordBase + assetRecord.size) / 65536) + 1;
     return {
         stateBase,
         stateSize,
@@ -111,6 +108,6 @@ export function computeLayout(
         arenaEnd,
         ioSize,
         pages,
-        iterBufBase,
+        assetRecordBase,
     };
 }
