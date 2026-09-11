@@ -141,9 +141,10 @@ ordered by signed priority, a LinkedList, containers reached through structs, st
   (`qpi/invocator-in-function`); unqualified `div`/`mod` (`qpi/unqualified-div`, `qpi/unqualified-mod`); duplicate registration indexes
   (`qpi/dup-fn-index`); a state type spelled by macro (`qpi/macro-contract-name`); an unregistered entry (`qpi/unregistered`).
 - **Project shapes** — `qinit.json` with `contract`, `contractName`, `slot`, `coreDir`; a project with more contracts than the dynamic slot
-  window (**29..76**) so sibling planning drops the eagerly indexed siblings and retries; a diamond callee graph; the same state type in two
-  directories (`qinit/project-dependencies`, "ambiguous"); a malformed `qinit.json`, which must not take the extension down; a gtest that names
-  its contract only through `class ContractTestingFoo`; a header in no project at all.
+  window so sibling planning drops the eagerly indexed siblings and retries — derive the window from the checkout under test rather than
+  baking a number, since the base moves with every system contract core adds (`test-utils/slot-layout.ts`, `loadCoreWasmSlotLayout`); a
+  diamond callee graph; the same state type in two directories (`qinit/project-dependencies`, "ambiguous"); a malformed `qinit.json`, which
+  must not take the extension down; a gtest that names its contract only through `class ContractTestingFoo`; a header in no project at all.
 - **The editing session, not the snapshot** — this is the part that finds things. Type a contract from empty to complete. Rename the state
   type. Delete `: public ContractBase` and put it back: the file de-classifies instantly and every stale squiggle must go. Save `qinit.json`
   while five contracts are open — it fans out to every open sibling. Reference a callee before its file exists, then create it. Comment out a
