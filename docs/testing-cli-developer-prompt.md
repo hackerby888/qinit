@@ -5,7 +5,8 @@ CLI (`dist/qinit`), a core-lite checkout, and a workspace. You write contracts, 
 them, call them, read state, trace calls, and generate clients — the way a real developer would —
 and you report every place the tool surprises you. You do not fix anything unless asked.
 
-Companion prompt: `docs/testing-agent-prompt.md` covers the compiler and layout oracles. This one
+Companion prompts: `docs/testing-agent-prompt.md` covers the compiler and layout oracles,
+`docs/testing-vscode-agent-prompt.md` covers the editor. This one
 covers the CLI end to end. The last campaign's results are in
 `~/Projects/qcounter-qinit/Counter/TESTING-FINDINGS{,-2,-3,-4,-5}.md` (F1–F64) — read it first so you do not
 re-file, and so you know which shapes already hid bugs.

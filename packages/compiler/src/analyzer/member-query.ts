@@ -219,11 +219,14 @@ function structTarget(programAnalysis: ProgramAnalysis, structDeclaration: Struc
     };
 }
 
-// A callee's structs are registered qualified but spelled bare inside the contract, so an unqualified miss is retried under the enclosing contract's name.
+// A callee's structs are registered qualified but spelled bare inside the contract, so the scoped spelling is tried first —
+// as C++ does, resolving a bare name in the enclosing class before the global one that would otherwise shadow it.
 function structInScope(programAnalysis: ProgramAnalysis, type: TypeSpec, bindings: TemplateBindings, scope?: string): StructDecl | null {
-    const direct = programAnalysis.structOf(type, bindings);
-    if (direct || !scope || type.kind !== AstKind.NAME || type.name.includes("::")) return direct;
-    return programAnalysis.structOf({ ...type, name: `${scope}::${type.name}` }, bindings);
+    if (scope && type.kind === AstKind.NAME && !type.name.includes("::")) {
+        const scoped = programAnalysis.structOf({ ...type, name: `${scope}::${type.name}` }, bindings);
+        if (scoped) return scoped;
+    }
+    return programAnalysis.structOf(type, bindings);
 }
 
 // `structOf` returns null for a template instance, so an instantiation is the only way to reach HashMap/Array members — the case clangd returns empty for.
@@ -252,8 +255,10 @@ function targetOfType(programAnalysis: ProgramAnalysis, type: TypeSpec | undefin
             scope,
         };
     }
+    // A qualified type carries the scope its own members' bare type names resolve in: `Tag` written inside
+    // `Vault::Get_input` means `Vault::Tag`, and without this the next hop has no scope to re-qualify with.
     const structDeclaration = structInScope(programAnalysis, resolved, bindings, scope);
-    return structDeclaration ? structTarget(programAnalysis, structDeclaration, bindings, scope) : undefined;
+    return structDeclaration ? structTarget(programAnalysis, structDeclaration, bindings, scopeOf(resolved) ?? scope) : undefined;
 }
 
 // One field hop: the member's declared type, or a method's return type, resolved as a new receiver.

@@ -233,8 +233,7 @@ interface ClangdApi {
 function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChannel): boolean {
     const initialCore = contractCorePath ?? core;
     if (!initialCore) return false;
-    const api: ClangdApi | undefined = vscode.extensions.getExtension("llvm-vs-code-extensions.vscode-clangd")?.exports?.getApi?.(1);
-    const client = api?.languageClient;
+    const client = clangdClient();
     const middleware = client?.middleware;
     if (!client || !middleware) return false;
     if (filteredClients.has(client)) return true;
@@ -268,8 +267,10 @@ function scheduleCompletionFilter(core: string | undefined, out: vscode.OutputCh
     }, 1000);
 }
 
+// `.exports` is a getter that throws for a known-but-inactive extension, so `?.` is no guard on its own.
 function clangdClient(): ClangdApi["languageClient"] {
-    return vscode.extensions.getExtension("llvm-vs-code-extensions.vscode-clangd")?.exports?.getApi?.(1)?.languageClient;
+    const extension = vscode.extensions.getExtension("llvm-vs-code-extensions.vscode-clangd");
+    return extension?.isActive ? extension.exports?.getApi?.(1)?.languageClient : undefined;
 }
 
 // clangd never re-reads a database that appears after it resolved a file, and restarting a still-starting client kills it — hence the retry and self-read.

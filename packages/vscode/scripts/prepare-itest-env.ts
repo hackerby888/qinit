@@ -15,20 +15,25 @@ function which(binary: string): string | undefined {
 
 const clangd = process.env.CLANGD?.trim() || which("clangd");
 
-const settingsDir = resolve(import.meta.dir, "..", "test-fixtures", "ws", ".vscode");
-const settingsFile = join(settingsDir, "settings.json");
-let settings: Record<string, unknown> = {};
-if (existsSync(settingsFile)) {
-    try {
-        settings = JSON.parse(readFileSync(settingsFile, "utf8"));
-    } catch {}
-}
+// Every workspace a .vscode-test.mjs entry opens needs the pin, not just the first one.
+const WORKSPACES = ["ws", "zoo", "xross"];
 
-if (clangd) {
-    settings["clangd.path"] = clangd;
-} else {
-    delete settings["clangd.path"];
+for (const workspace of WORKSPACES) {
+    const settingsDir = resolve(import.meta.dir, "..", "test-fixtures", workspace, ".vscode");
+    const settingsFile = join(settingsDir, "settings.json");
+    let settings: Record<string, unknown> = {};
+    if (existsSync(settingsFile)) {
+        try {
+            settings = JSON.parse(readFileSync(settingsFile, "utf8"));
+        } catch {}
+    }
+
+    if (clangd) {
+        settings["clangd.path"] = clangd;
+    } else {
+        delete settings["clangd.path"];
+    }
+    mkdirSync(settingsDir, { recursive: true });
+    writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + "\n");
 }
-mkdirSync(settingsDir, { recursive: true });
-writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + "\n");
-console.log(`itest clangd server: ${clangd ?? "not found — clangd cases will fail"}`);
+console.log(`itest clangd server: ${clangd ?? "not found — clangd cases will fail"} (${WORKSPACES.join(", ")})`);
