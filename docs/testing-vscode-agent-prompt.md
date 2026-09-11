@@ -6,8 +6,8 @@ not exist yet, five files open, a `qinit.json` you keep changing — and you rep
 would not. You do not fix anything unless asked.
 
 Companion prompts: `docs/testing-agent-prompt.md` covers the compiler and layout oracles, `docs/testing-cli-developer-prompt.md` covers the
-CLI. This one covers the editor. Findings from the CLI campaigns are in `docs/findings/` (F1–F81) — the editor has never been campaigned, so
-there is nothing there to re-file, and nothing there to lean on either.
+CLI. This one covers the editor. Findings from the CLI campaigns are in `docs/findings/` (F1–F81); the first editor campaign is in
+`docs/findings/TESTING-FINDINGS-VSCODE.md` (E1–E3) — read it first so you do not re-file, and for the shapes that already hid a bug.
 
 ## The one rule that matters
 
@@ -84,9 +84,16 @@ Mechanics worth knowing before you write a line of harness:
   and pins `clangd.path` into the fixture's `.vscode/settings.json`. Skip it and every clangd case fails; it prints
   `not found — clangd cases will fail` rather than erroring, so read that line.
 - New `test-integration/**/*.itest.js` files are picked up by the glob automatically. Mocha `tdd` UI (`suite`/`test`), 120 s timeout.
-- **`.vscode-test.mjs` pins exactly one `workspaceFolder`.** A campaign needs many, so add a config per workspace or drive
-  `@vscode/test-electron`'s `runTests({ launchArgs: [wsPath] })` yourself, pointed at a temp copy per ground rule 4. This is the single biggest
-  structural obstacle; solve it first.
+- **A config pins exactly one `workspaceFolder`, and a campaign needs many.** `defineConfig` accepts an **array** of configs, each with its own
+  `workspaceFolder`, `files` glob and `label`; run one with `vscode-test --label <name>`. Scope the `files` globs so the suites do not run in
+  each other's workspace. Solve this first — it shapes everything else.
+- `scripts/prepare-itest-env.ts` pins `clangd.path` into **one** workspace. A workspace you add gets no clangd, and the failures do not say so;
+  extend its workspace list at the same time you add a config.
+- Run the binary directly: `./node_modules/.bin/vscode-test`. `npx vscode-test` fails with _could not determine executable to run_.
+- Without `xvfb-run` Electron dies with SIGTRAP and _Missing X server or $DISPLAY_ — and a wrapper that echoes the exit status around it can
+  still print zero. Read the inner status, not the wrapper's.
+- **`vscode.extensions.getExtension(id)?.exports` throws** when the extension is known but not yet activated: `exports` is a getter, so the `?.`
+  guards nothing. Check `.isActive`, or `await ext.activate()`, before touching it. This costs a whole editor run to diagnose.
 - The extension is **inert until a C or C++ document is opened** — the only activation events are `onLanguage:c` and `onLanguage:cpp`, and
   `qpi.regenerateConfig` has no `onCommand` activation.
 - Lift the helpers that sit inline at `extension.itest.js:6-54` (`wsUri`, `compileEntries`, `prefixFor`, `open`, `replaceDocument`,
