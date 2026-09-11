@@ -220,10 +220,15 @@ function structTarget(programAnalysis: ProgramAnalysis, structDeclaration: Struc
 }
 
 // A callee's structs are registered qualified but spelled bare inside the contract, so an unqualified miss is retried under the enclosing contract's name.
+// The scoped spelling is tried first because C++ resolves a bare name in the enclosing class before the
+// global scope, and a callee's nested types are registered only under their qualified name, so a global
+// of the same name would otherwise win where C++ picks the nested one.
 function structInScope(programAnalysis: ProgramAnalysis, type: TypeSpec, bindings: TemplateBindings, scope?: string): StructDecl | null {
-    const direct = programAnalysis.structOf(type, bindings);
-    if (direct || !scope || type.kind !== AstKind.NAME || type.name.includes("::")) return direct;
-    return programAnalysis.structOf({ ...type, name: `${scope}::${type.name}` }, bindings);
+    if (scope && type.kind === AstKind.NAME && !type.name.includes("::")) {
+        const scoped = programAnalysis.structOf({ ...type, name: `${scope}::${type.name}` }, bindings);
+        if (scoped) return scoped;
+    }
+    return programAnalysis.structOf(type, bindings);
 }
 
 // `structOf` returns null for a template instance, so an instantiation is the only way to reach HashMap/Array members — the case clangd returns empty for.
