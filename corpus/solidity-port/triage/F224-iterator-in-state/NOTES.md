@@ -18,5 +18,6 @@ That is the whole finding: `emitAssetIter` models an iterator as a transient cou
 `qpi_asset.h` declares ~88 bytes that clang's `begin()` fills. Invisible in `_locals`; a state-layout
 difference the moment the object is a state member.
 
-Not fixed: materialising the declared layout changes `sizeof(StateData)` for any contract holding an
-iterator, so it is an ABI change that deserves its own PR.
+Not fixed. Both backends already size the iterator at 96 bytes — `sizeOfType` reads qpi.h's class — so
+this is a fill, not a layout move. See `F224-iterator-index-accessors` for the same finding on a
+contract that keeps its iterator in `_locals`, and for why the fields cannot simply be written.
