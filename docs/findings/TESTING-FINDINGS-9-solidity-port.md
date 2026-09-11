@@ -2454,7 +2454,7 @@ written until the axis that produced them was added.
 
 # F224 — an asset iterator held in state does not match its declared layout
 
-Severity: **medium (a state-digest divergence, and an ABI difference for any contract that stores one)**.
+Severity: **medium (a state-digest divergence — not, as first recorded here, an ABI difference)**.
 
 Found while landing the harness on the fix branch, from a clean axis correlation: of 46 asset-iterator
 rows, **26 diverged and every one of them had `temporaries: stateScratch`** — and no stateScratch row
@@ -2492,9 +2492,21 @@ axis, because an iterator persisted in `StateData` is not something a contract w
 backend models it as a transient cursor deliberately. That removes the red rows without hiding
 anything the `locals` rows cover.
 
-**Not fixed.** The real fix is to materialise the declared layout, which changes `sizeof(StateData)`
-for any contract holding an iterator — an ABI change that deserves its own PR and its own
-verification, not a patch folded into a fix branch.
+**Not fixed** — but the first record of what the fix costs was wrong, and the correction matters
+because it is the difference between a layout change and a fill.
+
+Measured on the live repro, both backends print **12 words — 96 bytes** for the iterator. Same size,
+same offsets, different contents. `sizeOfType` reads qpi.h's class, so the TypeScript backend already
+*allocates* the declared layout wherever the iterator is stored; `emitAssetIter`'s `begin()` simply
+never fills it past the first eight bytes. The fix is to write the declared fields. Nothing moves, and
+`sizeof(StateData)` does not change.
+
+Exposure, audited across core's contracts: **all 20 iterator members are inside `_locals` structs, none
+in `StateData`**. So no deployed contract observes the unfilled bytes today, and because every node
+runs the same wasm, this was never a node-vs-node fork — it is a divergence from clang, visible only
+on the synthetic `stateScratch` axis that put a temporary into state.
+
+Still its own change: it needs its own sweep against clang's `begin()` field by field.
 
 # F211 and F225 — one rule, applied everywhere
 
@@ -2669,8 +2681,9 @@ change with its own sweep, not folded into this one.
 
 ## Not in scope
 
-F224 is an ABI change: materialising an asset iterator's declared layout changes `sizeof(StateData)`
-for any contract holding one, and that deserves its own change and its own verification.
+F224 is a fill, not a layout change — both backends already size the iterator at 96 bytes, and every
+iterator member in core sits in `_locals`. It still needs its own change: `begin()` has to match
+clang's field by field, and that wants its own sweep.
 
 # F203, F215, F221, F223 — closed, and what the shared root cause turned out to be
 
