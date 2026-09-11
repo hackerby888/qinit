@@ -52,11 +52,6 @@ const REJECTS: Record<string, Rejects> = {
         src: wrap(`uint64 v = 1; sint32 v = 2; state.mut().a = v;`),
         msg: /already declared/i,
     },
-    "local shadows outer scope": {
-        // Native keeps outer v = 1; the old single-slot lowering read back 2.
-        src: wrap(`uint64 v = 1; { uint64 v = 2; state.mut().a = v; } state.mut().a = v;`),
-        msg: /shadow/i,
-    },
     "use before declaration": {
         src: wrap(`v = 1; uint64 v = 2; state.mut().a = v;`),
         msg: /before its declaration/i,
@@ -187,6 +182,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 
 const ACCEPTS: Record<string, string> = {
+    // Was a REJECTS row while locals shared one slot per name — the comment there read "native keeps outer v = 1; the old single-slot lowering read back 2".
+    // Block-scope resolution gives the inner binding its own slot, so the program is legal and answers 1. The toolchain test below runs it.
+    "block-local shadows an outer local": wrap(`uint64 v = 1; { uint64 v = 2; state.mut().a = v; } state.mut().a = v;`),
     "sibling scopes reuse a name": wrap(
         `uint64 t = 0; for (uint64 i = 0; i < 3; i++) { t = t + i; } for (uint64 i = 0; i < 2; i++) { t = t + i; } state.mut().a = t;`,
     ),
@@ -232,6 +230,48 @@ describe.skipIf(!HAS_CORE)("semantic validation — invalid source must fail lou
             expect(wasm.length).toBeGreaterThan(0);
         });
     }
+
+    toolchainTest(
+        "a block-local shadow follows native semantics",
+        wasiToolchain(),
+        async () => {
+            const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
+            const { tmpdir } = await import("node:os");
+            const { join } = await import("node:path");
+
+            const src = ACCEPTS["block-local shadows an outer local"];
+            const dir = mkdtempSync(join(tmpdir(), "shadow-"));
+            writeFileSync(join(dir, "Shadow.h"), src);
+            const built = await buildContractWithClang({
+                contractPath: join(dir, "Shadow.h"),
+                contractName: "Shadow",
+                slot: 27,
+                corePath: CORE,
+                outDir: dir,
+                skipVerify: true,
+            });
+            expect(built.ok).toBe(true);
+            const ours = await compile(src);
+            expect(ours.errors).toHaveLength(0);
+
+            const run = (wasm: Uint8Array) => {
+                const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+                const user = new Uint8Array(32).fill(7);
+                sim.fund(user, 1_000_000n);
+                sim.deploy(27, wasm);
+                sim.procedure(27, 1, undefined, { invocator: user });
+                const st = sim.contracts.get(27)!.state();
+                return new DataView(st.buffer, st.byteOffset).getBigUint64(0, true);
+            };
+
+            // The last write reads the outer `v`, which the block never touched.
+            const nat = run(new Uint8Array(readFileSync(built.wasmPath!)));
+            const mine = run(ours.wasm);
+            expect(nat).toBe(1n);
+            expect(mine).toBe(nat);
+        },
+        180000,
+    );
 
     toolchainTest(
         "default arguments follow native semantics",

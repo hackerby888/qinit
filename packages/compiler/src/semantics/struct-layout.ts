@@ -16,6 +16,8 @@ export function layoutOf(programAnalysis: ProgramAnalysis, struct: StructDecl): 
     return programAnalysis.layoutOfStruct(struct, EMPTY_TEMPLATE_BINDINGS);
 }
 
+const ALIAS_HOPS = 8;
+
 export function baseContribution(
     programAnalysis: ProgramAnalysis,
     baseType: TypeSpec,
@@ -25,14 +27,18 @@ export function baseContribution(
     consts: Map<string, bigint>;
 } | null {
     let resolvedBaseType: TypeSpec = baseType;
-    if (resolvedBaseType.kind === AstKind.NAME) {
+    // A typedef-name denotes its target however many aliases deep, so follow the chain to a fixed point
+    // rather than one step; an identity alias returns nothing, so a self-referential `using` terminates.
+    for (let hop = 0; hop < ALIAS_HOPS && resolvedBaseType.kind === AstKind.NAME; hop++) {
         const bound = parentB.types.get(resolvedBaseType.name);
-        if (bound) resolvedBaseType = bound;
-        else {
-            // A base named through a typedef resolves in that typedef's scope, so `struct D : Beta::B` inherits Beta's type, not a same-named one elsewhere.
-            const td = followScopedTypedef(programAnalysis, resolvedBaseType.name);
-            if (td) resolvedBaseType = td;
+        if (bound) {
+            resolvedBaseType = bound;
+            break;
         }
+        // A base named through a typedef resolves in that typedef's scope, so `struct D : Beta::B` inherits Beta's type, not a same-named one elsewhere.
+        const td = followScopedTypedef(programAnalysis, resolvedBaseType.name);
+        if (!td) break;
+        resolvedBaseType = td;
     }
     if (resolvedBaseType.kind === AstKind.TEMPLATE_INSTANCE) {
         const templateDeclaration = programAnalysis.templates.get(resolvedBaseType.name);
@@ -149,16 +155,19 @@ export function layoutOfStruct(programAnalysis: ProgramAnalysis, struct: StructD
     // `namespace Beta { struct D : public Base {}; }` means Beta's Base, so bases are resolved from the struct's own scope before anything looks them up.
     const scope = programAnalysis.structScope.get(struct);
     const bases = scope ? struct.bases.map((base) => qualifyNamesInScope(programAnalysis, base, scope)) : struct.bases;
-    return programAnalysis.layoutOfMembers(struct.members, templateBindings, programAnalysis.structCacheKey(struct), struct.isUnion, bases);
+    // Its fields resolve in the scope that declares `struct`, not in whatever scope the layout walk arrived
+    // from, so the declaration goes down with them and `layoutOfMembers` builds the bindings from it.
+    return programAnalysis.layoutOfMembers(struct.members, templateBindings, programAnalysis.structCacheKey(struct), struct.isUnion, bases, struct);
 }
 
 export function bindingSig(programAnalysis: ProgramAnalysis, templateBindings: TemplateBindings): string {
+    const scopeSignature = templateBindings.scopeIsKnown ? "|scoped" : "";
     const bindingCount = templateBindings.types.size + templateBindings.values.size + templateBindings.structs.size;
-    if (bindingCount === 0) return "";
+    if (bindingCount === 0) return scopeSignature;
     const typeBindingSignature = [...templateBindings.types].map(([name, type]) => `${name}=${programAnalysis.typeKey(type)}`).join(",");
     const valueBindingSignature = [...templateBindings.values].map(([name, value]) => `${name}=${value}`).join(",");
     const structBindingSignature = [...templateBindings.structs].map(([name, struct]) => `${name}=${programAnalysis.structCacheKey(struct)}`).join(",");
-    return `|${typeBindingSignature}|${valueBindingSignature}|${structBindingSignature}`;
+    return `|${typeBindingSignature}|${valueBindingSignature}|${structBindingSignature}${scopeSignature}`;
 }
 
 /** A typedef a member list declares itself binds that name for the members around it, unions included. */
@@ -205,6 +214,7 @@ export function layoutOfMembers(
     cacheKey: string,
     isUnion = false,
     bases: TypeSpec[] = [],
+    owner?: StructDecl,
 ): StructLayout {
     // Cache each concrete binding once to avoid recursive layout blowups.
     const key = cacheKey ? cacheKey + programAnalysis.bindingSig(bIn) : "";
@@ -216,7 +226,7 @@ export function layoutOfMembers(
         programAnalysis.inProgress.add(key);
     }
     try {
-        const templateBindings = withMemberTypedefs(programAnalysis.withLocalStructs(members, bIn), members);
+        const templateBindings = withMemberTypedefs(programAnalysis.withLocalStructs(members, bIn, owner), members);
         const fields = new Map<string, FieldLayout>();
         let offset = 0;
         let maxAlign = 1;

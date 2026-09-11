@@ -93,6 +93,7 @@ function registerHelperFunction(programAnalysis: ProgramAnalysis, declaration: F
             isAddr: isAddress,
             type: programAnalysis.derefType(parameter.type),
             byValAgg: isByValueAggregate,
+            defaultValue: parameter.defaultValue,
         };
     });
 

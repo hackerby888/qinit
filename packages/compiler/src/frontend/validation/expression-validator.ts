@@ -35,7 +35,9 @@ export function checkExpression(
     const walk = (expression: Expression): void => {
         switch (expression.kind) {
             case AstKind.IDENTIFIER:
-                if (allLocals.has(expression.name) && !lookup(expression.name)) {
+                // A name that resolves outward is not used before anything: the name as written stays in
+                // `allLocals`, so a read meaning the enclosing constant would otherwise be caught with it.
+                if (allLocals.has(expression.name) && !lookup(expression.name) && !validator.constants.has(expression.name)) {
                     validator.error(`'${expression.name}' is used before its declaration (or outside the scope that declares it)`, expression.span);
                 }
                 break;

@@ -427,13 +427,22 @@ export enum LogPayloadDefect {
     FIELD_AFTER_TERMINATOR = "field_after_terminator",
 }
 
-/** A C++ construct the TypeScript compiler does not fully implement. Grep a member to find every site that reports it; that set is the work list. */
+// The selector types an asset iterator's begin() materialises. Layout-identical in qpi_assets.h today,
+// but each is read from its own declaration so this keeps working if they diverge.
+export enum AssetSelectTypeName {
+    OWNERSHIP = "AssetOwnershipSelect",
+    POSSESSION = "AssetPossessionSelect",
+}
+
 // Which declaration wins the bare, unqualified key when two scopes share a name.
 export enum BareNamePolicy {
     OVERWRITE = "overwrite",
     KEEP = "keep",
+    /** Qualified keys only — the declaration is not the nearest one to own this bare name. */
+    SKIP = "skip",
 }
 
+/** A C++ construct the TypeScript compiler does not fully implement. Grep a member to find every site that reports it; that set is the work list. */
 export enum UnsupportedFeature {
     NATIVE_C_SCALAR = "native_c_scalar",
     DESTRUCTOR = "destructor",

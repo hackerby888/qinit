@@ -35,6 +35,10 @@ export interface TemplateBindings {
     types: Map<string, TypeSpec>;
     values: Map<string, bigint>;
     structs: Map<string, StructDecl>; // nested structs visible in the current layout scope (e.g. HashMap::Element)
+    /** Set inside a struct body whose own scope chain was resolved: the contract's flat nested table must not answer here. */
+    scopeIsKnown?: boolean;
+    /** What that scope chain can see. Consulted for name resolution only — `structs` alone decides what is inlined. */
+    scopeStructs?: Map<string, StructDecl>;
 }
 
 export interface ResolvedSourceMethod {
@@ -84,6 +88,7 @@ export interface CompiledHelperMetadata {
         isAddr: boolean;
         type: TypeSpec;
         byValAgg?: boolean;
+        defaultValue?: Expression; // the declared default, so overload viability and call emission both see it
     }[];
     retIsValue: boolean; // returns a scalar i64 (vs void)
     retWasmType?: WatValueType; // imported scalar ABI; ordinary helpers use i64

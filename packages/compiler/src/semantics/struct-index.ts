@@ -6,11 +6,16 @@ import { raiseUnsupported } from "./unsupported";
 import { followScopedTypedef, registerScoped } from "./declaration-index";
 
 export function collectNested(programAnalysis: ProgramAnalysis, contract: StructDecl): void {
+    // The contract's nesting lands here, after registration. Anything cached from a layout that ran
+    // during registration predates it, and a visible-name map is only correct once the parents are in.
+    programAnalysis.structsVisible.clear();
     for (const member of contract.members) {
         if (member.kind === AstKind.STRUCT) {
             const structDeclaration = member as StructDecl;
             if (structDeclaration.hasBody === false) continue;
             programAnalysis.nested.set(structDeclaration.name, structDeclaration);
+            programAnalysis.structParent.set(structDeclaration, contract);
+            programAnalysis.structScopeKnown.add(structDeclaration);
             programAnalysis.captureStructMethods(structDeclaration, [structDeclaration.name]);
             // Also register structs nested INSIDE this one under their qualified name (`Outer::Inner`), recursively.
             programAnalysis.collectNestedStructs(structDeclaration, structDeclaration.name);
@@ -70,6 +75,8 @@ export function registerCalleeContractDeclarations(programAnalysis: ProgramAnaly
                     const nested = member as StructDecl;
                     if (nested.hasBody === false) continue;
                     programAnalysis.globalStructs.set(`${name}::${nested.name}`, nested);
+                    programAnalysis.structParent.set(nested, structDeclaration);
+                    programAnalysis.structScopeKnown.add(nested);
                     programAnalysis.collectNestedStructs(nested, `${name}::${nested.name}`);
                 } else if (member.kind === AstKind.TYPEDEF_DECL) {
                     const td = member as {
@@ -143,6 +150,8 @@ export function collectNestedStructs(programAnalysis: ProgramAnalysis, parent: S
             const structDeclaration = member as StructDecl;
             if (structDeclaration.hasBody === false) continue;
             const key = `${prefix}::${structDeclaration.name}`;
+            programAnalysis.structParent.set(structDeclaration, parent);
+            programAnalysis.structScopeKnown.add(structDeclaration);
             if (!programAnalysis.nested.has(key)) programAnalysis.nested.set(key, structDeclaration);
             // Register nested structs unqualified for references within their owner.
             if (!programAnalysis.nested.has(structDeclaration.name) && !programAnalysis.globalStructs.has(structDeclaration.name))
@@ -153,15 +162,43 @@ export function collectNestedStructs(programAnalysis: ProgramAnalysis, parent: S
     }
 }
 
+/** The struct names visible inside `declaration`'s body: each enclosing struct's member structs,
+ *  outermost first, then its own. A file-scope struct sees only its own. */
+export function structsVisibleIn(programAnalysis: ProgramAnalysis, declaration: StructDecl): Map<string, StructDecl> {
+    const cached = programAnalysis.structsVisible.get(declaration);
+    if (cached) return cached;
+
+    const chain: StructDecl[] = [];
+    for (let owner: StructDecl | undefined = declaration; owner; owner = programAnalysis.structParent.get(owner)) {
+        chain.push(owner);
+        // A cycle in the parent chain cannot come from valid source, but a malformed one must not hang the walk.
+        if (chain.length > 64) break;
+    }
+
+    const visible = new Map<string, StructDecl>();
+    for (let index = chain.length - 1; index >= 0; index--) {
+        for (const member of chain[index].members) {
+            if (member.kind !== AstKind.STRUCT) continue;
+            const nested = member as StructDecl;
+            if (!nested.name || nested.hasBody === false) continue;
+            visible.set(nested.name, nested);
+        }
+    }
+
+    programAnalysis.structsVisible.set(declaration, visible);
+    return visible;
+}
+
 export function structByName(programAnalysis: ProgramAnalysis, name: string, templateBindings: TemplateBindings): StructDecl | undefined {
-    const hit = templateBindings.structs.get(name) ?? programAnalysis.nested.get(name) ?? programAnalysis.globalStructs.get(name);
+    // `nested` is the contract's flat bare-name table — right for a name written in contract code, wrong
+    // inside a struct whose own scope chain is known, where that chain answers instead.
+    const contractNested = templateBindings.scopeIsKnown ? templateBindings.scopeStructs : programAnalysis.nested;
+    const hit = templateBindings.structs.get(name) ?? contractNested?.get(name) ?? programAnalysis.globalStructs.get(name);
     if (hit) return hit;
     const index = name.lastIndexOf("::");
     if (index >= 0) {
         const unqualifiedName = name.slice(index + 2);
-        return (
-            templateBindings.structs.get(unqualifiedName) ?? programAnalysis.nested.get(unqualifiedName) ?? programAnalysis.globalStructs.get(unqualifiedName)
-        );
+        return templateBindings.structs.get(unqualifiedName) ?? contractNested?.get(unqualifiedName) ?? programAnalysis.globalStructs.get(unqualifiedName);
     }
     return undefined;
 }

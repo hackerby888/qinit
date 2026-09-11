@@ -60,6 +60,9 @@ export function checkFunctionBody(validator: Validator, fn: FunctionDecl, member
     validator.walkStatements(fn.body!, (statement) => {
         if (statement.kind === AstKind.DECLARATION && statement.declaration.kind === AstKind.VARIABLE && !statement.declaration.isMember) {
             allLocals.add(statement.declaration.name);
+            // A block-scoped local also counts under the name as written, so reading it from
+            // outside its block is still reported rather than quietly resolving to nothing.
+            if (statement.declaration.blockScopedFrom) allLocals.add(statement.declaration.blockScopedFrom);
             validator.currentTypes.set(statement.declaration.name, statement.declaration.type);
         }
     });

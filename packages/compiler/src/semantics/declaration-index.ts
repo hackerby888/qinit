@@ -29,9 +29,33 @@ export function registerScoped<Value>(
         map.set(`${scopePrefix}${name}`, value);
     }
 
+    if (barePolicy === BareNamePolicy.SKIP) {
+        return;
+    }
+
     if (barePolicy === BareNamePolicy.OVERWRITE || !map.has(name)) {
         map.set(name, value);
     }
+}
+
+/** Whether a declaration at `scopePrefix` owns the bare spelling of `name`. Nearest scope wins, equal
+ *  scope is last-writer-wins, and precedence is by scope rather than by kind of declaration. */
+export function claimsBareName(programAnalysis: ProgramAnalysis, name: string, scopePrefix: string): boolean {
+    const owner = programAnalysis.bareNameScope.get(name);
+    if (owner === undefined || owner === scopePrefix) return true;
+    return scopeDepth(scopePrefix) < scopeDepth(owner);
+}
+
+/** How many namespace hops a scope prefix is from file scope. `""` is 0, `"Port::"` is 1. */
+function scopeDepth(scopePrefix: string): number {
+    return scopePrefix ? scopePrefix.split("::").length - 1 : 0;
+}
+
+/** Record the winner and return the policy its tables should register the bare key under. */
+function bareNamePolicyFor(programAnalysis: ProgramAnalysis, name: string, scopePrefix: string, requested: BareNamePolicy): BareNamePolicy {
+    if (!claimsBareName(programAnalysis, name, scopePrefix)) return BareNamePolicy.SKIP;
+    programAnalysis.bareNameScope.set(name, scopePrefix);
+    return requested;
 }
 
 /** The keys a scoped name may be indexed under, most specific first: as written, the scopes it can be reached from, then the bare tail a using gave it. */
@@ -91,6 +115,18 @@ export function unqualifiedLookupKeys(name: string, context: NamespaceLookupCont
     return keys;
 }
 
+/** Record the lexical nesting of `parent` and every struct declared inside it, recursively. */
+function recordNestedParents(programAnalysis: ProgramAnalysis, parent: StructDecl): void {
+    programAnalysis.structScopeKnown.add(parent);
+    for (const member of parent.members) {
+        if (member.kind !== AstKind.STRUCT) continue;
+        const nested = member as StructDecl;
+        if (nested.hasBody === false) continue;
+        programAnalysis.structParent.set(nested, parent);
+        recordNestedParents(programAnalysis, nested);
+    }
+}
+
 export function registerTopLevelDeclarations(
     programAnalysis: ProgramAnalysis,
     declarations: Declaration[],
@@ -127,6 +163,9 @@ export function registerTopLevelDeclarations(
                 registerScoped(programAnalysis.globalStructs, nsPrefix, structDeclaration.name, structDeclaration, barePolicy);
                 // Its bases are written unqualified, so remember where to resolve them from.
                 if (nsPrefix) programAnalysis.structScope.set(structDeclaration, nsPrefix);
+                // A field's type resolves in the struct that declares it, so the nesting has to be on record
+                // before any layout runs. Absence of a parent is what marks a struct as file or namespace scope.
+                recordNestedParents(programAnalysis, structDeclaration);
                 // Inline value/void methods of a plain (non-template) struct — e.g. ProposalDataYesNo::checkValidity
                 for (const member of structDeclaration.members) {
                     if (member.kind !== AstKind.FUNCTION || !(member as FunctionDecl).body) continue;
@@ -356,12 +395,16 @@ export function collectConstant(
     barePolicy: BareNamePolicy = BareNamePolicy.OVERWRITE,
 ): void {
     if (variableDeclaration.initializer && (variableDeclaration.isConstexpr || variableDeclaration.type.kind === AstKind.CONST)) {
-        // User constants shadow seeded qpi.h constants with the same unqualified name.
-        registerScoped(programAnalysis.constexprInit, scopePrefix, variableDeclaration.name, variableDeclaration.initializer, barePolicy);
-        registerScoped(programAnalysis.constexprType, scopePrefix, variableDeclaration.name, variableDeclaration.type, barePolicy);
+        // One ownership decision for the whole declaration, not one per table, or the first table's claim
+        // silently settles it for the rest. User constants shadow seeded qpi.h constants of the same name.
+        const effectivePolicy = bareNamePolicyFor(programAnalysis, variableDeclaration.name, scopePrefix, barePolicy);
+        registerScoped(programAnalysis.constexprInit, scopePrefix, variableDeclaration.name, variableDeclaration.initializer, effectivePolicy);
+        registerScoped(programAnalysis.constexprType, scopePrefix, variableDeclaration.name, variableDeclaration.type, effectivePolicy);
         // The initializer names its neighbours unqualified, so it has to be evaluated where it was written.
-        registerScoped(programAnalysis.constexprScope, scopePrefix, variableDeclaration.name, scopePrefix, barePolicy);
-        for (const key of scopedKeys(scopePrefix, variableDeclaration.name)) {
+        registerScoped(programAnalysis.constexprScope, scopePrefix, variableDeclaration.name, scopePrefix, effectivePolicy);
+        // Clearing the other kind follows ownership too: a namespaced constant must not delete the bare
+        // enum constant a nearer declaration owns.
+        for (const key of ownedKeys(scopePrefix, variableDeclaration.name, effectivePolicy)) {
             programAnalysis.enumConst.delete(key);
             programAnalysis.enumConstType.delete(key);
             programAnalysis.constCache.delete(key);
@@ -372,6 +415,12 @@ export function collectConstant(
 // The keys one scoped name occupies, qualified first — for the deletes that have to clear every one of them.
 function scopedKeys(scopePrefix: string, name: string): string[] {
     return scopePrefix ? [`${scopePrefix}${name}`, name] : [name];
+}
+
+/** The subset of those keys this declaration may clear: the bare one only when it owns it. */
+function ownedKeys(scopePrefix: string, name: string, barePolicy: BareNamePolicy): string[] {
+    const keys = scopedKeys(scopePrefix, name);
+    return barePolicy === BareNamePolicy.SKIP ? keys.filter((key) => key !== name) : keys;
 }
 
 export function collectEnum(
@@ -406,10 +455,15 @@ export function collectEnum(
     for (const member of type.members) {
         const numericValue = member.value ? programAnalysis.evalConstBig(member.value, EMPTY_TEMPLATE_BINDINGS) : next;
         next = numericValue + 1n;
-        // A named enum owns its members (Code::X); an unnamed one's belong to the scope around it (Ch::K). Both stay reachable bare for using-directives.
-        const memberScopes = type.name ? [...scopedKeys(scopePrefix, `${type.name}::`), ""] : [...new Set([scopePrefix, ""])];
+        // A named enum owns its members (Code::X); an unnamed one's belong to the surrounding scope
+        // (Ch::K) — hence `scopePrefix`. Both stay reachable bare for using-directives.
+        const claimsBare = bareNamePolicyFor(programAnalysis, member.name, scopePrefix, barePolicy) !== BareNamePolicy.SKIP;
+        const memberScopes = type.name ? [...new Set([...scopedKeys(scopePrefix, `${type.name}::`), scopePrefix, ""])] : [...new Set([scopePrefix, ""])];
         for (const scope of memberScopes) {
             const key = `${scope}${member.name}`;
+            // `scope === ""` is the bare key only when the enum is not itself at file scope; when it is,
+            // scopePrefix is "" and that key is the member's own declaration.
+            if (key === member.name && scopePrefix !== "" && !claimsBare) continue;
             programAnalysis.constexprInit.delete(key);
             programAnalysis.constexprType.delete(key);
             programAnalysis.enumConst.set(key, programAnalysis.normalizeConst(numericValue, enumType));
@@ -598,9 +652,16 @@ function shadowedNames(record: StructDecl | ClassTemplateDecl, outerShadowed: Re
 // The typedef a name reaches, followed from the scope that declared it.
 export function followScopedTypedef(programAnalysis: ProgramAnalysis, name: string): TypeSpec | undefined {
     for (const key of scopedLookupKeys(name)) {
-        if (programAnalysis.typedefs.has(key)) {
-            return programAnalysis.typedefTarget(key);
+        if (!programAnalysis.typedefs.has(key)) {
+            continue;
         }
+        const target = programAnalysis.typedefTarget(key);
+        // An alias is registered under its bare name too, so a qualified lookup can fall through and get
+        // itself back; returning it spins alignOfNameType against alignOfTypeB forever.
+        if (target?.kind === AstKind.NAME && target.name === name) {
+            continue;
+        }
+        return target;
     }
     return undefined;
 }

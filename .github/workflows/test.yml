@@ -297,6 +297,59 @@ jobs:
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: bun test packages/cli/tests/integration/wasm-shim-e2e.test.ts packages/cli/tests/contracts/gtest.test.ts packages/build/tests/pipeline/backend-options-parity.test.ts
 
+  # The Solidity-port differential sweep: every generated corpus contract compiled by both backends and
+  # executed step by step, compared on state digests. clang is the oracle. The corpus is generated here
+  # rather than committed, so the archetypes are the only source of truth.
+  solidity-port:
+    needs: resolve-core
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout core-lite (${{ needs.resolve-core.outputs.sha }})
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.resolve-core.outputs.repository }}
+          ref: ${{ needs.resolve-core.outputs.sha }}
+          path: core
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install
+
+      - name: Cache wasi-sdk
+        id: sweep-wasi
+        uses: actions/cache@v4
+        with:
+          path: wasi-sdk
+          key: wasi-sdk-${{ env.WASI_SDK_ASSET_VERSION }}-x86_64-linux
+      - name: Fetch ${{ env.WASI_SDK_RELEASE_TAG }}
+        if: steps.sweep-wasi.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o wasi-sdk.tar.gz \
+            https://github.com/${{ env.WASI_SDK_REPOSITORY }}/releases/download/${{ env.WASI_SDK_RELEASE_TAG }}/wasi-sdk-${{ env.WASI_SDK_ASSET_VERSION }}-x86_64-linux.tar.gz
+          mkdir -p wasi-sdk && tar -xzf wasi-sdk.tar.gz -C wasi-sdk --strip-components=1
+
+      - name: Generate the corpus
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+        run: bun run corpus:generate
+
+      # smoke is one contract per archetype; the nightly run takes the whole cross product.
+      # QINIT_REQUIRE_CONTAINER_TOOLCHAINS turns a missing toolchain into a failure instead of a skip,
+      # which is the only thing standing between "green" and "nothing ran".
+      - name: Sweep both backends
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+          WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
+          WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
+          QINIT_REQUIRE_CONTAINER_TOOLCHAINS: "1"
+          SWEEP_TIER: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'smoke' }}
+        run: bun run corpus:sweep -- --tier "$SWEEP_TIER" --workers 3 --no-resume --exit-zero --out work/sweep.jsonl
+
+      - name: Gate the result against the open findings
+        run: bun run corpus:gate -- work/sweep.jsonl ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '--strict' || '' }}
+
   # Deterministic randomized differential gate for every public QPI container family. Each fixture is
   # compiled once by the TS compiler and native WASI, then reset between seeds. The exact TS artifact
   # is also executed unchanged by the standalone core-lite WAMR gtest.

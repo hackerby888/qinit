@@ -5,13 +5,29 @@ import { FunctionEmissionContext, CompiledHelperMetadata, EMPTY_TEMPLATE_BINDING
 import { MATH_INTRINSIC_NAMES, SCALAR_SIZE, isAuthoritativeSymbol, symbolBaseName } from "../abi/tables";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionTemplateDecl } from "../../../ast";
 import { compileLibraryFunction } from "./library-function-compiler";
+import { isMutableScalarReference, spillForMutableReference } from "../memory/reference-arguments";
+import * as watIr from "../wat-ir";
 // Build the args for a helper call (scalar args by value, reference/aggregate args by address).
-export function helperCallOps(context: FunctionEmissionContext, info: CompiledHelperMetadata, callArguments: Expression[]): string {
-    return info.params
+export function helperCallOps(
+    context: FunctionEmissionContext,
+    info: CompiledHelperMetadata,
+    callArguments: Expression[],
+): { operands: string; writeBacks: string[] } {
+    const writeBacks: string[] = [];
+    const operands = info.params
         .map((parameter, parameterIndex) => {
-            const argument = callArguments[parameterIndex];
+            const argument = callArguments[parameterIndex] ?? parameter.defaultValue;
             if (!argument) throw new Error(`${info.sourceNamespace ?? info.label} is missing required argument ${parameterIndex + 1}`);
             if (parameter.isAddr) {
+                // A scalar passed by mutable reference goes as a scratch copy, so it has to be read back
+                // afterwards. The container path did this already; the helper path dropped every write.
+                if (isMutableScalarReference(context, parameter)) {
+                    const spilled = spillForMutableReference(context, argument);
+                    if (spilled) {
+                        writeBacks.push(spilled.writeBack);
+                        return spilled.addr;
+                    }
+                }
                 return context.lowering.argAddr(
                     context,
                     argument,
@@ -26,6 +42,7 @@ export function helperCallOps(context: FunctionEmissionContext, info: CompiledHe
             return parameter.wasmType === WatNodeType.I32 ? `(i32.wrap_i64 ${value})` : value;
         })
         .join(" ");
+    return { operands, writeBacks };
 }
 // Aggregate-returning helpers allocate destination first, then pass it as the leading $ret arg.
 export function emitAggHelperCall(
@@ -36,8 +53,9 @@ export function emitAggHelperCall(
     info: CompiledHelperMetadata,
 ): string {
     const scratchAddress = context.lowering.allocateScratchSlot(context, info.retAgg!);
-    const helperArgumentOperands = helperCallOps(context, info, expression.callArguments);
-    context.lines.push(`    (call ${info.label} ${scratchAddress}${helperArgumentOperands ? " " + helperArgumentOperands : ""})`);
+    const { operands, writeBacks } = helperCallOps(context, info, expression.callArguments);
+    context.lines.push(`    (call ${info.label} ${scratchAddress}${operands ? " " + operands : ""})`);
+    context.lines.push(...writeBacks);
     return scratchAddress;
 }
 // Scalar width/signedness of a declared parameter or return type, or null for aggregates/unknowns.
@@ -66,9 +84,18 @@ export function scalarDeclInfo(
 export function pickHelperOverload(context: FunctionEmissionContext, set: CompiledHelperMetadata[], callArguments: Expression[]): CompiledHelperMetadata {
     if (set.length === 1) return set[0];
     const argInfos = callArguments.map((argument) => context.lowering.scalarTypeInfo(context, argument));
+    // Viability as C++ defines it: an overload with P parameters of which D carry defaults accepts P-D
+    // through P arguments, not P exactly.
+    const requiredCount = (cand: CompiledHelperMetadata): number => {
+        const firstDefault = cand.params.findIndex((parameter) => parameter.defaultValue !== undefined);
+        return firstDefault < 0 ? cand.params.length : firstDefault;
+    };
+    const viable = (cand: CompiledHelperMetadata): boolean => callArguments.length >= requiredCount(cand) && callArguments.length <= cand.params.length;
     const rank = (cand: CompiledHelperMetadata): number => {
-        if (cand.params.length !== callArguments.length) return -1;
-        let size = 0;
+        if (!viable(cand)) return -1;
+        // An exact arity match beats one that has to default a parameter, which separates two
+        // overloads that are both viable for this call.
+        let size = cand.params.length === callArguments.length ? 1 : 0;
         for (let argumentIndex = 0; argumentIndex < callArguments.length; argumentIndex++) {
             const pi = scalarDeclInfo(context, cand.params[argumentIndex].type);
             const ai = argInfos[argumentIndex];
@@ -78,12 +105,14 @@ export function pickHelperOverload(context: FunctionEmissionContext, set: Compil
         }
         return size;
     };
-    let best = set[0];
-    let bestScore = rank(set[0]);
-    for (let setItemIndex = 1; setItemIndex < set.length; setItemIndex++) {
-        const size = rank(set[setItemIndex]);
+    // Seed with a viable candidate where there is one, so a set in which nothing ranks cannot return an
+    // overload of the wrong arity in preference to one of the right arity.
+    let best = set.find(viable) ?? set[0];
+    let bestScore = rank(best);
+    for (const candidate of set) {
+        const size = rank(candidate);
         if (size > bestScore) {
-            best = set[setItemIndex];
+            best = candidate;
             bestScore = size;
         }
     }
@@ -208,10 +237,27 @@ export function emitHelperCall(
         const addr = emitAggHelperCall(context, expression, info);
         return valueWanted ? "(i64.const 0)" : (void addr, "");
     }
-    const helperArgumentOperands = helperCallOps(context, info, expression.callArguments);
-    const call = `(call ${info.label}${helperArgumentOperands ? " " + helperArgumentOperands : ""})`;
+    const { operands, writeBacks } = helperCallOps(context, info, expression.callArguments);
+    const call = `(call ${info.label}${operands ? " " + operands : ""})`;
     if (valueWanted) {
-        if (!info.retIsValue) return "(i64.const 0)";
+        if (!info.retIsValue) {
+            context.lines.push(`    ${call}`);
+            context.lines.push(...writeBacks);
+            return "(i64.const 0)";
+        }
+        // The write-backs have to run after the call, so a value-context call carrying any of them is
+        // sequenced through a temporary rather than returned inline.
+        if (writeBacks.length) {
+            const returned = `tmp${context.tmpCount++}`;
+            context.localVars.set(returned, { wasmType: WatNodeType.I64 });
+            const widened =
+                info.retWasmType === WatNodeType.I32
+                    ? `(${info.retType && !unsignedScalar(context.programAnalysis.derefType(info.retType)) ? "i64.extend_i32_s" : "i64.extend_i32_u"} ${call})`
+                    : call;
+            context.lines.push(`    ${context.lowering.setLocal(context, returned, watIr.rawWatNode(widened, WatNodeType.I64, "unconverted: helper call"))}`);
+            context.lines.push(...writeBacks);
+            return `(local.get $${returned})`;
+        }
         if (info.retWasmType === WatNodeType.I32) {
             const unsigned = info.retType ? unsignedScalar(context.programAnalysis.derefType(info.retType)) : true;
             return `(${unsigned ? "i64.extend_i32_u" : "i64.extend_i32_s"} ${call})`;
@@ -219,5 +265,6 @@ export function emitHelperCall(
         return call;
     }
     context.lines.push(info.retIsValue ? `    (drop ${call})` : `    ${call}`);
+    context.lines.push(...writeBacks);
     return "";
 }

@@ -80,6 +80,9 @@ export function stripPtrRefConst(type: TypeSpec): TypeSpec {
     }
     return type;
 }
+/** A functional-style construction spells its type as a plain or qualified name in callee position. */
+const CONSTRUCTOR_CALLEE_KINDS: ReadonlySet<AstKind> = new Set([AstKind.IDENTIFIER, AstKind.QUALIFIED_NAME]);
+
 export function resolveExpressionAddress(context: FunctionEmissionContext, expression: Expression): ResolvedAddress | null {
     if (expression.kind === AstKind.PAREN) return resolveExpressionAddress(context, expression.expression);
     // __ScopedScratchpad.ptr → the held scratch buffer base (the local's value). `reinterpret_cast<T*>(sp.ptr)`
@@ -324,6 +327,24 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
         ) {
             const addr = context.lowering.emitAddress(context, expression.object);
             if (addr) parent = { addr, type: { kind: AstKind.NAME, name: "id" }, size: 32, layout: null };
+        }
+        // [class.temporary]/2: a member read off a class prvalue happens against a materialised
+        // temporary. The test is the callee naming an aggregate type, not a list of known producers.
+        if (!parent && expression.object.kind === AstKind.CALL && CONSTRUCTOR_CALLEE_KINDS.has(expression.object.callee.kind)) {
+            const bind = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
+            const calleeName = (expression.object.callee as { name: string }).name;
+            const constructed = context.programAnalysis.resolveType({ kind: AstKind.NAME, name: calleeName }, bind);
+            if (constructed && context.programAnalysis.isAggregateType(constructed)) {
+                const addr = context.lowering.emitAddress(context, expression.object);
+                if (addr) {
+                    parent = {
+                        addr,
+                        type: constructed,
+                        size: Math.max(1, context.programAnalysis.sizeOfType(constructed, bind)),
+                        layout: context.programAnalysis.layoutOfType(constructed, bind),
+                    };
+                }
+            }
         }
         if (!parent) return null;
         if (expression.arrow && parent.type?.kind === AstKind.POINTER) {

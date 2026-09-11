@@ -164,7 +164,34 @@ function checkTemplateStaticAsserts(programAnalysis: ProgramAnalysis, declaratio
     }
 }
 
-export function withLocalStructs(members: Declaration[], templateBindings: TemplateBindings): TemplateBindings {
+/** The bindings a member list's field types resolve under. With an `owner`, visible struct names come from its own
+ *  scope chain rather than the caller's; without one, the caller's map is extended instead. */
+export function withLocalStructs(
+    programAnalysis: ProgramAnalysis,
+    members: Declaration[],
+    templateBindings: TemplateBindings,
+    owner?: StructDecl,
+): TemplateBindings {
+    // Only when the owner's nesting was recorded. A struct nested in a class template is registered by
+    // the template machinery, so its chain reads as file scope; those keep the inherited map.
+    if (owner && programAnalysis.structScopeKnown.has(owner)) {
+        // `structs` holds the declaration's own nested types only: inlineNestedStruct turns everything in
+        // it anonymous, and operator lookup resolves by name.
+        const ownStructs = new Map<string, StructDecl>();
+        for (const member of owner.members) {
+            if (member.kind === AstKind.STRUCT && (member as StructDecl).name && (member as StructDecl).hasBody !== false) {
+                ownStructs.set((member as StructDecl).name, member as StructDecl);
+            }
+        }
+        return {
+            types: templateBindings.types,
+            values: templateBindings.values,
+            structs: ownStructs,
+            scopeIsKnown: true,
+            scopeStructs: programAnalysis.structsVisibleIn(owner),
+        };
+    }
+
     let structs = templateBindings.structs;
     for (const member of members) {
         if (member.kind === AstKind.STRUCT && (member as StructDecl).name && (member as StructDecl).hasBody !== false) {
@@ -172,7 +199,9 @@ export function withLocalStructs(members: Declaration[], templateBindings: Templ
             structs.set((member as StructDecl).name, member as StructDecl);
         }
     }
-    return structs === templateBindings.structs ? templateBindings : { types: templateBindings.types, values: templateBindings.values, structs };
+    return structs === templateBindings.structs
+        ? templateBindings
+        : { types: templateBindings.types, values: templateBindings.values, structs, scopeIsKnown: templateBindings.scopeIsKnown };
 }
 
 export function inlineNestedStruct(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings): TypeSpec {

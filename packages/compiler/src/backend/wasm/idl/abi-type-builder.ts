@@ -23,6 +23,8 @@ import { evalIntegralConst } from "../../../frontend/validation/validation-helpe
 import { scalarKindForName, scalarKindForSize } from "./scalars";
 
 export class AbiTypeBuilder {
+    /** The struct declarations currently being expanded, to catch a declaration that contains itself. */
+    private readonly expanding = new Set<StructDecl>();
     constructor(private readonly programAnalysis: ProgramAnalysis) {}
 
     entryType(name: string, layout: StructLayout, declaration?: StructDecl): AbiType {
@@ -254,7 +256,16 @@ export class AbiTypeBuilder {
     }
 
     private struct(name: string | undefined, layout: StructLayout, root: boolean, bindings: TemplateBindings, declaration?: StructDecl): AbiStruct {
-        const localBindings = declaration ? withLocalStructs(declaration, bindings) : bindings;
+        const localBindings = declaration ? this.programAnalysis.withLocalStructs(declaration.members, bindings, declaration) : bindings;
+        // A struct reaching itself has no finite ABI. Report it at the declaration and return an empty
+        // body — the recorded error fails the build, where an exception would lose the source location.
+        if (declaration) {
+            if (this.expanding.has(declaration)) {
+                this.programAnalysis.error(`struct '${name ?? declaration.name}' contains itself, directly or through its fields`, declaration.span ?? 0);
+                return { kind: AbiTypeKind.STRUCT, ...(name ? { name } : {}), fields: [], size: layout.size, align: layout.align, format: "" };
+            }
+            this.expanding.add(declaration);
+        }
         const fields: AbiField[] = [...layout.fields.values()].map((field) => {
             const type = this.type(field.type, localBindings);
             return {
@@ -264,6 +275,7 @@ export class AbiTypeBuilder {
                 type: withExactSize(type, field.size),
             };
         });
+        if (declaration) this.expanding.delete(declaration);
         const body = fields.map((field) => formatAbiType(field.type)).join(", ");
 
         return {
@@ -362,22 +374,6 @@ function withExactSize(type: AbiType, size: number): AbiType {
         ...type,
         size,
     } as AbiType;
-}
-
-function withLocalStructs(declaration: StructDecl, bindings: TemplateBindings): TemplateBindings {
-    const structs = new Map(bindings.structs);
-
-    for (const member of declaration.members) {
-        if (member.kind === AstKind.STRUCT && member.name && member.hasBody !== false) {
-            structs.set(member.name, member as StructDecl);
-        }
-    }
-
-    return {
-        types: bindings.types,
-        values: bindings.values,
-        structs,
-    };
 }
 
 // A template parameter or named constant reads better as its name; a literal or arithmetic expression has none worth showing, so name it by its result.

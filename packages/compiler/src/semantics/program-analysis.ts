@@ -53,11 +53,15 @@ export class ProgramAnalysis {
     > = new Map(); // partial/explicit specializations keyed by template name
     globalStructs: Map<string, StructDecl> = new Map(); // qpi.h global/namespace structs
     structScope: Map<StructDecl, string> = new Map(); // struct → the scope prefix it was declared in
+    structParent: Map<StructDecl, StructDecl> = new Map(); // struct → its lexically enclosing struct; absent means file or namespace scope
+    structScopeKnown: Set<StructDecl> = new Set(); // structs whose nesting was recorded, so structParent's silence really does mean file scope
+    structsVisible: Map<StructDecl, Map<string, StructDecl>> = new Map(); // struct → the struct names its body can see, cached
     typedefs: Map<string, TypeSpec> = new Map(); // typedef aliases
     typedefScope: Map<string, string> = new Map(); // typedef alias → the scope prefix it was declared in
     constexprInit: Map<string, Expression> = new Map(); // named constexpr → its init expression
     constexprType: Map<string, TypeSpec> = new Map(); // named constexpr → declared scalar type
     constexprScope: Map<string, string> = new Map(); // named constexpr → the scope prefix it was declared in
+    bareNameScope: Map<string, string> = new Map(); // bare name → scope prefix of the declaration that owns it
     constantScopes: string[] = []; // scope prefixes of the constants whose initializers are being evaluated
     enumConst: Map<string, bigint> = new Map(); // enum constant (NAME and Type::NAME) → value
     checkedTemplateAsserts: Set<string> = new Set(); // template instantiations whose static_asserts already ran
@@ -217,9 +221,9 @@ export class ProgramAnalysis {
     layoutOfTemplate(name: string, callArguments: TypeSpec[], parent: TemplateBindings): StructLayout {
         return templateResolver.layoutOfTemplate(this, name, callArguments, parent);
     }
-    // Add member structs to a child scope for sibling type references.
-    withLocalStructs(members: Declaration[], templateBindings: TemplateBindings): TemplateBindings {
-        return templateResolver.withLocalStructs(members, templateBindings);
+    // The struct names a member list's field types resolve against — from `owner`'s own scope when given.
+    withLocalStructs(members: Declaration[], templateBindings: TemplateBindings, owner?: StructDecl): TemplateBindings {
+        return templateResolver.withLocalStructs(this, members, templateBindings, owner);
     }
     // Carry sibling nested structs and unions as inline types.
     inlineNestedStruct(type: TypeSpec, templateBindings: TemplateBindings): TypeSpec {
@@ -312,8 +316,15 @@ export class ProgramAnalysis {
     bindingSig(templateBindings: TemplateBindings): string {
         return structLayout.bindingSig(this, templateBindings);
     }
-    layoutOfMembers(members: Declaration[], bIn: TemplateBindings, cacheKey: string, isUnion = false, bases: TypeSpec[] = []): StructLayout {
-        return structLayout.layoutOfMembers(this, members, bIn, cacheKey, isUnion, bases);
+    layoutOfMembers(
+        members: Declaration[],
+        bIn: TemplateBindings,
+        cacheKey: string,
+        isUnion = false,
+        bases: TypeSpec[] = [],
+        owner?: StructDecl,
+    ): StructLayout {
+        return structLayout.layoutOfMembers(this, members, bIn, cacheKey, isUnion, bases, owner);
     }
     alignOfTypeB(type: TypeSpec, templateBindings: TemplateBindings): number {
         return typeLayout.alignOfTypeB(this, type, templateBindings);
@@ -374,6 +385,9 @@ export class ProgramAnalysis {
         }
 
         return undefined;
+    }
+    structsVisibleIn(declaration: StructDecl): Map<string, StructDecl> {
+        return structIndex.structsVisibleIn(this, declaration);
     }
     structByName(name: string, templateBindings: TemplateBindings): StructDecl | undefined {
         return structIndex.structByName(this, name, templateBindings);

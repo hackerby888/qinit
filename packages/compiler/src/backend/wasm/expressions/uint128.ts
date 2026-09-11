@@ -147,11 +147,20 @@ export function lowerUint128Expression(context: FunctionEmissionContext, express
             expression.callee.name === "uint128" || expression.callee.name === "uint128_t" || (bound ? isUint128(context.programAnalysis, bound) : false);
         if (constructor) return constructU128(context, expression.callArguments);
         if (symbolBaseName(expression.callee.name) === "div" && MATH_INTRINSIC_NAMES.has("div") && expression.callArguments.length === 2) {
+            // Assert only: authoritative div must lower to a 16-byte aggregate return. Emitting it is the
+            // general branch's job below, which handles every helper of that shape rather than this one.
             const helper = context.lowering.lookupHelper(context, expression);
             if (!helper?.retAgg || helper.retAgg !== 16) {
                 throw new Error(`authoritative QPI::div<uint128_t> could not be lowered`);
             }
-            return watIr.rawWatNode(context.lowering.emitAggHelperCall(context, expression, helper), WatNodeType.I32, "source-compiled uint128 div result");
+        }
+    }
+    // Any helper declared to return a uint128 delivers it by scratch address. Enumerating the callees
+    // that do — `div` alone — dropped a contract's own `static uint128 widen(...)` onto the scalar path.
+    if (expression.kind === AstKind.CALL) {
+        const helper = context.lowering.lookupHelper(context, expression);
+        if (helper?.retAgg === 16) {
+            return watIr.rawWatNode(context.lowering.emitAggHelperCall(context, expression, helper), WatNodeType.I32, "uint128 helper return");
         }
     }
     if (

@@ -1,4 +1,4 @@
-import { AstKind, ContainerEmissionMode, WatNodeType, type WatValueType } from "../../../shared/enums";
+import { AssetSelectTypeName, AstKind, ContainerEmissionMode, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { getFunctionLoweringServices } from "../functions/function-lowering-registry";
 import { emitScalarLoad, addrIr, isSignedScalarType } from "../memory/memory-operations";
 import { TemplateBindings, CompiledMethod, FieldLayout, FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
@@ -73,14 +73,19 @@ export function compileContainerMethod(
     const cached = programAnalysis.compiledMethods.get(cacheKey);
     if (cached) return cached;
     let ownerBindings = resolvedMethod.ownerBindings;
+    // Type parameters the call spelled out. By name rather than `types.has`, which is also true for the
+    // enclosing class's bindings — a method parameter shadowing one would then never deduce.
+    const explicitlyBoundTypeParams = new Set<string>();
     if (explicitTemplateArgs.length) {
         const types = new Map(ownerBindings.types);
         const values = new Map(ownerBindings.values);
         definition.params.forEach((parameter, index) => {
             const argument = explicitTemplateArgs[index];
             if (!argument) return;
-            if (parameter.kind === AstKind.TYPE) types.set(parameter.name, argument);
-            else values.set(parameter.name, programAnalysis.valueOfTypeArg(argument, ownerBindings));
+            if (parameter.kind === AstKind.TYPE) {
+                types.set(parameter.name, argument);
+                explicitlyBoundTypeParams.add(parameter.name);
+            } else values.set(parameter.name, programAnalysis.valueOfTypeArg(argument, ownerBindings));
         });
         ownerBindings = { ...ownerBindings, types, values };
     }
@@ -91,7 +96,9 @@ export function compileContainerMethod(
         for (let index = 0; index < (definition.functionParameters ?? []).length; index++) {
             const declared = programAnalysis.derefType(definition.functionParameters![index].type);
             const actual = resolvedMethodArgumentTypes[index];
-            if (declared.kind === AstKind.NAME && templateTypeNames.has(declared.name) && actual) {
+            // An explicitly supplied template argument is not a deduction candidate: `twice<uint8>(200)`
+            // means uint8 whatever the literal's own type is.
+            if (declared.kind === AstKind.NAME && templateTypeNames.has(declared.name) && actual && !explicitlyBoundTypeParams.has(declared.name)) {
                 types.set(declared.name, actual);
             }
         }
@@ -280,6 +287,41 @@ function overloadDiscriminator(
     return ranked[0].key.slice(prefix.length);
 }
 
+/** The scalar type name for a width and signedness, as the usual arithmetic conversions give it. */
+const SCALAR_TYPE_BY_SHAPE: Record<string, string> = {
+    "1s": "sint8",
+    "1u": "uint8",
+    "2s": "sint16",
+    "2u": "uint16",
+    "4s": "sint32",
+    "4u": "uint32",
+    "8s": "sint64",
+    "8u": "uint64",
+    "16s": "uint128",
+    "16u": "uint128",
+};
+
+/** The type a member template deduces `T` from for one argument. An rvalue has a type too, so a
+ *  computed expression asks scalarTypeInfo rather than going unbound and making sizeof(T) 1. */
+export function deduceMethodArgumentType(context: FunctionEmissionContext, argument: Expression): TypeSpec | null {
+    const node = context.lowering.resolveExpressionAddress(context, argument);
+    if (node?.type) return context.programAnalysis.derefType(node.type);
+    if (argument.kind === AstKind.CONSTRUCT) return context.programAnalysis.derefType(argument.type);
+    if (argument.kind === AstKind.CALL && argument.callee.kind === AstKind.IDENTIFIER) {
+        const type: TypeSpec = { kind: AstKind.NAME, name: argument.callee.name };
+        if (context.programAnalysis.isAggregateType(type)) return type;
+    }
+    // A call's declared return type is authoritative and has no width ceiling, where scalarTypeInfo
+    // discards anything wider than 8 bytes and would leave `uint128` or `id` deducing nothing.
+    if (argument.kind === AstKind.CALL) {
+        const helper = context.lowering.lookupHelper(context, argument);
+        if (helper?.retType) return context.programAnalysis.derefType(helper.retType);
+    }
+    const scalar = context.lowering.scalarTypeInfo(context, argument);
+    const name = scalar ? SCALAR_TYPE_BY_SHAPE[`${scalar.width}${scalar.unsigned ? "u" : "s"}`] : undefined;
+    return name ? { kind: AstKind.NAME, name } : null;
+}
+
 // Build a call using the compiled method's concrete parameter types.
 export function callCompiled(
     context: FunctionEmissionContext,
@@ -296,17 +338,7 @@ export function callCompiled(
     cm: CompiledMethod;
     retDest?: string;
 } | null {
-    const methodArgTypes = () =>
-        callArguments.map((argument) => {
-            const node = context.lowering.resolveExpressionAddress(context, argument);
-            if (node?.type) return context.programAnalysis.derefType(node.type);
-            if (argument.kind === AstKind.CONSTRUCT) return context.programAnalysis.derefType(argument.type);
-            if (argument.kind === AstKind.CALL && argument.callee.kind === AstKind.IDENTIFIER) {
-                const type: TypeSpec = { kind: AstKind.NAME, name: argument.callee.name };
-                if (context.programAnalysis.isAggregateType(type)) return type;
-            }
-            return null;
-        });
+    const methodArgTypes = () => callArguments.map((argument) => deduceMethodArgumentType(context, argument));
     const bind = context.programAnalysis.bindContainer(type.name, type.callArguments);
     const discriminator = parameterTypeDiscriminator ?? overloadDiscriminator(context, type, method, callArguments, bind);
     const cm = compileContainerMethod(context.programAnalysis, type, method, callArguments.length, discriminator, methodArgTypes, explicitTemplateArgs);
@@ -504,15 +536,19 @@ export function emitAssetIter(
     const record = context.programAnalysis.assetEnumerationRecord;
     const rec = `(i32.add (global.get $assetIterBase) (i32.mul ${cursor} (i32.const ${record.size})))`;
     if (method === "begin") {
-        const selN = watIr.rawWatNode(context.lowering.materializeSelect(context, undefined), WatNodeType.I32);
+        // begin(asset, ownershipSelect [, possessionSelect]). Pass the arguments the contract wrote;
+        // an absent one is `undefined`, which materializeSelect already renders as any().
+        const isPossession = tn === "AssetPossessionIterator";
+        const ownSelN = context.lowering.materializeSelect(context, expression.callArguments[1], AssetSelectTypeName.OWNERSHIP);
+        const posSelN = context.lowering.materializeSelect(context, isPossession ? expression.callArguments[2] : undefined, AssetSelectTypeName.POSSESSION);
         const asset = context.lowering.materializeAssetAddress(context, expression.callArguments[0], `${tn}.begin`);
-        const kind = tn === "AssetPossessionIterator" ? 1 : 0;
+        const kind = isPossession ? 1 : 0;
         const enumerate = watIr.functionCall(
             "$lh_assetEnumerate",
             watIr.i32Constant(kind),
             addrIr(asset),
-            selN,
-            selN,
+            ownSelN,
+            posSelN,
             watIr.rawWatNode("(global.get $assetIterBase)", WatNodeType.I32),
             watIr.i32Constant(record.capacity),
         );

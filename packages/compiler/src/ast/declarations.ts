@@ -89,6 +89,7 @@ export interface ParamDecl {
 export interface VariableDecl {
     kind: AstKind.VARIABLE;
     name: string;
+    blockScopedFrom?: string; // the name as written, when block-scope resolution renamed this declaration
     type: TypeSpec;
     initializer?: Expression;
     isConstexpr: boolean;
