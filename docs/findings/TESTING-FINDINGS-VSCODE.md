@@ -73,15 +73,26 @@ The gtest row is the finding: same receiver, same types, same workspace, same cl
 (`src/member-fallback.ts:48-59`): a gtest goes through `rootType` (a hover scrape) and
 `completeMembersOfType`, a contract goes through `completeMembersAt` on its own AST.
 
-**Two independent defects stack here, and both need fixing:**
+**Corrected: this is one defect, not two.** The first version of this entry claimed the fallback never
+fires because clangd's answer is a _mixed_ list — real indexed symbols alongside scraped words. That was
+inferred from labels (`Array`, `CALL_OTHER_CONTRACT_FUNCTION` look like real symbols) and is **wrong**.
+Measuring `CompletionItemKind` directly settles it:
 
-1. **The fallback never fires.** `memberCompletions` (`src/extension.ts:154`) only retries through the
-   compiler when `items.length === 0 || items.every(kind === undefined || kind === Text)`. clangd's
-   answer here is a _mixed_ list — real indexed symbols (`Array`, `CALL_OTHER_CONTRACT_FUNCTION`)
-   alongside scraped words — so `every(...)` is false and the degraded list is returned as if it were
-   a real member list. The heuristic assumes degradation is always total; it is not.
-2. **The fallback could not have answered anyway.** Asked directly, `completeMembersAt` returns
-   `undefined` for this receiver. Narrowed in-process to one spelling difference:
+| Receiver                               | Items | Kinds         |
+| -------------------------------------- | ----- | ------------- |
+| `locals.input.history.` (healthy)      | 7     | `Method=7`    |
+| `locals.input.` (healthy)              | 4     | `Field=4`     |
+| `state.get().` (healthy)               | 2     | `Field=2`     |
+| `locals.input.detail.` (degraded)      | 98    | **`Text=98`** |
+| `locals.input.detail.bits.` (degraded) | 98    | **`Text=98`** |
+
+The degraded list is entirely `Text` — those symbol-looking labels are scraped words too. So
+`items.every(kind === Text)` is **true**, `unresolved` is **true**, and the fallback **does** fire. It
+simply returns nothing, because of the one real defect below. `memberCompletions`
+(`src/extension.ts:154`) is correct as written and needs no change.
+
+**The one defect: the fallback cannot resolve the receiver.** Asked directly, `completeMembersAt`
+returns `undefined`. Narrowed in-process to one spelling difference:
 
     | Receiver               | Declared as                                    | Result                       |
     | ---------------------- | ---------------------------------------------- | ---------------------------- |
@@ -421,3 +432,85 @@ the filter keeps both; the difference is in what clangd answered. Not chased thi
   editor exercised a bundle built before the rebase; and the fixture workspaces still held
   `compile_commands.json` and `.clangd` from the previous campaign, so clangd had a stale-but-valid
   entry. Go through the package scripts, and clean generated artifacts between campaigns.
+
+---
+
+# Fixes applied, and one new finding
+
+## E1 — fixed
+
+One line in `packages/compiler/src/analyzer/member-query.ts`, in `targetOfType`:
+
+```ts
+return structDeclaration ? structTarget(programAnalysis, structDeclaration, bindings, scopeOf(resolved) ?? scope) : undefined;
+```
+
+`scopeOf` already existed in that file and was called in exactly one place (`:388`, the gtest path).
+A qualified type now carries the scope its own members' bare type names resolve in.
+
+Verified end to end, workspaces cleaned and the bundle rebuilt:
+
+|                                                  | Before                                  | After                                                                  |
+| ------------------------------------------------ | --------------------------------------- | ---------------------------------------------------------------------- |
+| `locals.input.detail.` (editor, filter on)       | 74–98 items, `rank` absent              | **2 items — `bits, rank`**, 14 ms                                      |
+| the same receiver with `completionFilter: "off"` | 74 items                                | 74 items — unchanged, so the **fallback** is what fixes it, not clangd |
+| `test:campaign` (zoo)                            | 6 passing / 2 failing                   | **9 passing / 0 failing, exit 0**                                      |
+| `test:xross` receiver matrix                     | 89-item floods on every bare nested hop | **2–7 items each, all ✓**                                              |
+| `bun test packages/vscode` + analyzer            | 88 / 11                                 | **99 pass / 0 fail**                                                   |
+
+## E2 — fixed
+
+`clangdClient()` now checks `isActive` before touching `.exports`, and `ensureCompletionFilter` calls it
+instead of repeating the unguarded access, so there is one guarded path rather than two unguarded ones.
+
+## Retracted: E1 did not have a second defect
+
+The original entry claimed `memberCompletions`' `unresolved` heuristic also needed changing because
+clangd returns a _mixed_ list. Measuring `CompletionItemKind` showed the degraded list is `Text=98` —
+entirely Text. The heuristic was already correct, the fallback was already firing, and the resolver was
+the only defect. The kind histogram is kept as `test-integration/campaign/kinds-probe.itest.js`: if
+clangd ever starts returning a mixed degraded list, that heuristic really would break, and the probe
+would show it.
+
+## E5 — a transitive callee is silently dropped from the caller's prelude
+
+**Severity: high.** This is what the unexplained `Bank::` vs `Ledger::` asymmetry turned out to be. It is
+_not_ a warm-up artifact: with the queries run in both orders, `Bank::` fails in both and `Ledger::`
+succeeds in both.
+
+In the diamond `Teller → Bank → Ledger`, where Bank's own structs reference `Ledger::Stamp`:
+
+```
+parseRegisters(Bank) THREW: Source analysis failed: unknown type 'Ledger::Stamp'
+```
+
+`buildCalleePrelude` (`packages/build/src/contracts/intercontract.ts:203`) calls `parseRegisters` on
+Bank **in isolation** — with Bank's name, slot and the QPI header, but without Bank's own callee
+sources — so a perfectly qualified `Ledger::Stamp` is unresolvable. The throw is then swallowed by the
+bare `catch {}` at `:231`, which drops the sibling "with its subtree" by design, and Bank never reaches
+the prelude:
+
+```
+dynCallees order: ["Ledger","Bank"]   slots: Ledger=29, Bank=30 | Teller=31
+Ledger  struct decl … header mention at 6812
+Bank    struct decl … header mention at -1      <-- absent entirely
+```
+
+Consequences on `Teller.h`, which is valid QPI:
+
+- `clangd --check` reports **8 errors**, all `use of undeclared identifier 'Bank'`, so every `Bank::`
+  line carries a red squiggle.
+- `Bank::` completion returns an 89-item word-scrape without `Quote_input`; `Ledger::` returns 11 with
+  `Entry` ✓.
+- Nothing explains why. The `catch {}` discards the reason, and no diagnostic names Bank or Ledger.
+
+Member completion still works, because the extension's fallback builds its own analysis context from
+`calleeSources` rather than from the prelude — which is exactly why this hid behind E1 until now.
+
+Not fixed here: the honest fix is to resolve a callee's own callees before parsing its registrations,
+which is a change in `packages/build` with a real design question (what a prelude should do when a
+callee genuinely cannot be analysed). Swallowing the error is the current answer and it is the wrong
+one; at minimum the reason should surface as a diagnostic instead of vanishing.
+
+Repro: `bun run --filter qpi-vscode test:xross` — the case
+"the caller compiles: a transitive callee is not dropped from the prelude".

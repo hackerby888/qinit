@@ -5,7 +5,15 @@ import * as vscode from "vscode";
 import { loadConfigSafe } from "@qinit/core/project";
 import { QpiCodeActions } from "./codeactions";
 import { generateClangdConfig, generateTestClangdConfig } from "./clangd-config";
-import { completionScope, documentIdentifiers, keepCompletionLabel, keepMemberLabel, keepQualifiedScope, qpiAllowedIdentifiers, typedPrefix } from "./completion-filter";
+import {
+    completionScope,
+    documentIdentifiers,
+    keepCompletionLabel,
+    keepMemberLabel,
+    keepQualifiedScope,
+    qpiAllowedIdentifiers,
+    typedPrefix,
+} from "./completion-filter";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
 import { memberFallbackCompletions, type FallbackItem } from "./member-fallback";
@@ -71,10 +79,7 @@ function memberSnippet(item: FallbackItem): vscode.SnippetString {
 // Only `label.detail` renders inline after the name, so a field annotates its type there as a method shows its parameters; both also fill the details pane.
 function fallbackCompletionItem(item: FallbackItem): vscode.CompletionItem {
     if (item.kind !== "method") {
-        const field = new vscode.CompletionItem(
-            { label: item.name, detail: item.returnType && `: ${item.returnType}` },
-            vscode.CompletionItemKind.Field,
-        );
+        const field = new vscode.CompletionItem({ label: item.name, detail: item.returnType && `: ${item.returnType}` }, vscode.CompletionItemKind.Field);
         field.detail = item.returnType;
         field.filterText = item.name;
         return field;
@@ -195,7 +200,9 @@ async function filterCompletions(
     if (scope.kind === "member") {
         kept = await memberCompletions(doc, position, linePrefix, items, token, out);
     } else if (scope.kind === "qualified") {
-        kept = keepQualifiedScope(scope.qualifier, allowed, documentNames) ? items.filter((item) => keepMemberLabel(labelOf(item), typedPrefix(linePrefix))) : [];
+        kept = keepQualifiedScope(scope.qualifier, allowed, documentNames)
+            ? items.filter((item) => keepMemberLabel(labelOf(item), typedPrefix(linePrefix)))
+            : [];
     } else {
         kept = items.filter((item) => keepCompletionLabel(labelOf(item), allowed, documentNames));
     }
@@ -233,8 +240,7 @@ interface ClangdApi {
 function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChannel): boolean {
     const initialCore = contractCorePath ?? core;
     if (!initialCore) return false;
-    const api: ClangdApi | undefined = vscode.extensions.getExtension("llvm-vs-code-extensions.vscode-clangd")?.exports?.getApi?.(1);
-    const client = api?.languageClient;
+    const client = clangdClient();
     const middleware = client?.middleware;
     if (!client || !middleware) return false;
     if (filteredClients.has(client)) return true;
@@ -268,8 +274,10 @@ function scheduleCompletionFilter(core: string | undefined, out: vscode.OutputCh
     }, 1000);
 }
 
+// `.exports` is a getter that throws for a known-but-inactive extension, so `?.` is no guard on its own.
 function clangdClient(): ClangdApi["languageClient"] {
-    return vscode.extensions.getExtension("llvm-vs-code-extensions.vscode-clangd")?.exports?.getApi?.(1)?.languageClient;
+    const extension = vscode.extensions.getExtension("llvm-vs-code-extensions.vscode-clangd");
+    return extension?.isActive ? extension.exports?.getApi?.(1)?.languageClient : undefined;
 }
 
 // clangd never re-reads a database that appears after it resolved a file, and restarting a still-starting client kills it — hence the retry and self-read.

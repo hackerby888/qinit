@@ -37,6 +37,7 @@ struct Teller : public ContractBase
         locals.in.tranche.tier.rank = 0;
         locals.in.tranche.hist.setAll(0);
         locals.in.tranche.flags = 0;
+        locals.in.tranche.tier.bits.setAll(0);
         locals.in.key.a = 0;
         locals.in.lots.setAll(locals.out.lot);
         locals.in.grid.setAll(locals.in.tranche.tier.bits);
@@ -50,7 +51,7 @@ struct Teller : public ContractBase
 
         CALL_OTHER_CONTRACT_FUNCTION(Bank, Quote, locals.in, locals.out);
 
-        output.value = locals.out.lot.qty + locals.out.tier.rank;
+        output.value = locals.out.lot.qty + locals.out.tier.rank + locals.out.lot.tier.rank + state.get().calls + state.get().mirror.rank;
     }
 
     struct Post_input

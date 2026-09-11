@@ -252,8 +252,10 @@ function targetOfType(programAnalysis: ProgramAnalysis, type: TypeSpec | undefin
             scope,
         };
     }
+    // A qualified type carries the scope its own members' bare type names resolve in: `Tag` written inside
+    // `Vault::Get_input` means `Vault::Tag`, and without this the next hop has no scope to re-qualify with.
     const structDeclaration = structInScope(programAnalysis, resolved, bindings, scope);
-    return structDeclaration ? structTarget(programAnalysis, structDeclaration, bindings, scope) : undefined;
+    return structDeclaration ? structTarget(programAnalysis, structDeclaration, bindings, scopeOf(resolved) ?? scope) : undefined;
 }
 
 // One field hop: the member's declared type, or a method's return type, resolved as a new receiver.

@@ -77,16 +77,39 @@ suite("campaign — cross-contract completion", function () {
         assert.deepStrictEqual(missing, [], `receivers that did not complete:\n      ${missing.join("\n      ")}`);
     });
 
+    // Each qualifier is asked twice, in both orders, because a single pass cannot tell a qualifier-specific
+    // failure apart from whichever query simply ran first while clangd was still warming up.
     test("qualified callee scopes resolve", async () => {
         const doc = await open(TELLER);
         await clangdRunning({ timeout: 90000 });
-        for (const [qualifier, marker, wanted] of [
-            ["Bank::", "Bank::Quote_input in", "Quote_input"],
-            ["Ledger::", "Ledger::Entry directEntry", "Entry"],
+        const BANK_Q = ["Bank::", "Bank::Quote_input in", "Quote_input"];
+        const LEDGER_Q = ["Ledger::", "Ledger::Entry directEntry", "Entry"];
+
+        for (const [pass, order] of [
+            ["pass 1 (Bank first)", [BANK_Q, LEDGER_Q]],
+            ["pass 2 (Ledger first)", [LEDGER_Q, BANK_Q]],
         ]) {
-            const r = await settledLabels(doc, marker, qualifier, wanted, { timeout: 8000 });
-            console.log(`    ${qualifier.padEnd(12)} -> ${r.value.length} items, ${wanted}${r.settled ? " ✓" : " MISSING"}`);
+            for (const [qualifier, marker, wanted] of order) {
+                const r = await settledLabels(doc, marker, qualifier, wanted, { timeout: 8000 });
+                console.log(`    ${pass.padEnd(22)} ${qualifier.padEnd(10)} -> ${r.value.length} items, ${wanted}${r.settled ? " ✓" : " MISSING"}`);
+            }
         }
+    });
+
+    // E5: Bank is dropped from Teller's callee prelude because parseRegisters analyses Bank without its
+    // own callee (Ledger), throws on `Ledger::Stamp`, and buildCalleePrelude swallows it. clangd then has
+    // no declaration for Bank at all, so every `Bank::` line in Teller.h is an error.
+    test("the caller compiles: a transitive callee is not dropped from the prelude", async () => {
+        const doc = await open(TELLER);
+        await clangdRunning({ timeout: 90000 });
+        const r = await settle(
+            () => diagnosticsFor(doc, ["clang"]).filter((d) => d.severity === vscode.DiagnosticSeverity.Error),
+            (d) => d.length === 0,
+            { timeout: 30000 },
+        );
+        console.log(`    Teller.h clang errors -> ${r.value.length}`);
+        for (const d of r.value.slice(0, 4)) console.log(`      line ${d.range.start.line + 1}: ${d.message}`);
+        assert.strictEqual(r.value.length, 0, "Teller.h should compile: Bank must be declared in the prelude");
     });
 
     test("the middle contract of the diamond resolves too", async () => {
