@@ -1265,7 +1265,7 @@ linear memory
 |- output area
 |- locals area
 |- temporary arena
-`- asset iterator buffer
+`- asset record scratch (one AssetEntry the host fills for the iterator accessor that asked)
 ```
 
 The framework is necessary because Wasm itself does not know anything about QPI contracts, persistent state, numeric input types, system procedures, or core-lite dispatch.
