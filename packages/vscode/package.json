@@ -61,7 +61,9 @@
         "gate": "bun run scripts/clangd-gate.ts",
         "test:int": "bun esbuild.mjs && bun scripts/prepare-itest-env.ts && vscode-test --label ws",
         "test:campaign": "bun esbuild.mjs && bun scripts/prepare-itest-env.ts && vscode-test --label zoo",
-        "test:xross": "bun esbuild.mjs && bun scripts/prepare-itest-env.ts && vscode-test --label xross"
+        "test:xross": "bun esbuild.mjs && bun scripts/prepare-itest-env.ts && vscode-test --label xross",
+        "test:live": "bun esbuild.mjs && bun scripts/prepare-itest-env.ts && vscode-test --label live",
+        "diag:diff": "bun run scripts/diag-differential.ts"
     },
     "devDependencies": {
         "@qinit/build": "workspace:*",

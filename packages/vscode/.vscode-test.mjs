@@ -18,6 +18,13 @@ export default defineConfig([
         mocha: { ui: "tdd", timeout: 180000 },
     },
     {
+        label: "live",
+        files: "test-integration/live/*.itest.js",
+        workspaceFolder: "test-fixtures/live",
+        installExtensions: ["llvm-vs-code-extensions.vscode-clangd"],
+        mocha: { ui: "tdd", timeout: 240000 },
+    },
+    {
         label: "zoo",
         files: "test-integration/campaign/*.itest.js",
         workspaceFolder: "test-fixtures/zoo",
