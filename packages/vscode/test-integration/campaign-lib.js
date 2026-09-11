@@ -78,9 +78,11 @@ async function completionLabels(doc, marker, dot) {
 
 /** Completion labels, retried until `wanted` appears — the honest form of "wait for the list". */
 async function settledLabels(doc, marker, dot, wanted, opts) {
+    // The name exactly, or the same name as a call: clangd's method labels carry a signature, while a
+    // bare `startsWith` would let a one-letter field like `a` match a word in a degraded word-scrape list.
     return settle(
         () => completionLabels(doc, marker, dot),
-        (labels) => labels.some((l) => l === wanted || l.startsWith(wanted)),
+        (labels) => labels.some((l) => l === wanted || l.startsWith(`${wanted}(`)),
         opts,
     );
 }

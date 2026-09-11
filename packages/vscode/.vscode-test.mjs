@@ -11,6 +11,13 @@ export default defineConfig([
         mocha: { ui: "tdd", timeout: 120000 },
     },
     {
+        label: "xross",
+        files: "test-integration/xross/*.itest.js",
+        workspaceFolder: "test-fixtures/xross",
+        installExtensions: ["llvm-vs-code-extensions.vscode-clangd"],
+        mocha: { ui: "tdd", timeout: 180000 },
+    },
+    {
         label: "zoo",
         files: "test-integration/campaign/*.itest.js",
         workspaceFolder: "test-fixtures/zoo",

@@ -169,3 +169,148 @@ configured workspaces.
 - Two of my own probes were malformed before they were right: `.exports` (E2's discovery) and a
   contract body with two statements on one line, which makes `completeMembersAt` rewrite the wrong
   statement and report `UNRESOLVED` for everything including the controls. Suspect the probe first.
+
+---
+
+# VS Code extension — campaign 2 (cross-contract)
+
+Focused on cross-contract IntelliSense with deliberately hostile state and input/output shapes:
+a three-contract diamond (`Teller` → `Bank` → `Ledger`) holding typedefs, two-level nested structs,
+struct HashMap keys, `Array<HashMap<…>>`, `Array<Array<…>>`, `Collection`, `LinkedList`, `BitArray`,
+arrays of structs, and each contract referencing the next one's types.
+Fixtures: `packages/vscode/test-fixtures/xross/`.
+
+## E4 — one bare nested type name in a callee kills the caller's entire IntelliSense, and diverges the two backends
+
+**Severity: high.** The top tier of the prompt's ladder in both directions: the TypeScript backend
+rejects a contract clang accepts, and the editor goes completely dead on a file that compiles cleanly.
+
+### Minimal repro
+
+```cpp
+// Ledger.h — the callee
+struct Ledger : public ContractBase {
+    struct Stamp { uint64 at; };
+    struct Entry { Stamp stamp; };        // <-- `Stamp` spelled BARE, inside Ledger's own scope
+    ...
+};
+
+// Bank.h — anyone holding that type
+struct Bank : public ContractBase {
+    struct StateData { uint64 marker; Ledger::Entry e; };   // <-- poisons this contract
+    ...
+};
+```
+
+Writing `Ledger::Stamp stamp;` inside `Entry` instead makes everything below go away. That is the
+whole difference.
+
+### What breaks
+
+| Path                                                     | Result                                                    |
+| -------------------------------------------------------- | --------------------------------------------------------- |
+| `clangd --check` on Bank.h                               | **0 errors**                                              |
+| clang backend (`buildContractWithClang`)                 | **builds OK**                                             |
+| TypeScript backend (`compileContractWithTypeScript`)     | **FAIL** — `Codegen failed: unknown type 'Stamp'`         |
+| `analyzeContract` on Bank with Ledger as a callee source | **FAIL** — `Source analysis failed: unknown type 'Stamp'` |
+| Editor, Teller.h (the caller)                            | **1 error + IntelliSense entirely dead**                  |
+
+The two backends disagree on identical source. The CLI defaults to `clang`
+(`packages/cli/src/ops/deploy/index.ts:127`), so a default `qinit build` is unaffected — but
+`--compiler typescript` fails, and the editor uses the analyzer, so the editor fails either way.
+
+### The editor cascade — this is why it is high and not medium
+
+`analyzeContract` throwing makes `resolveProjectSourceDetails` throw, and from there everything
+unwinds:
+
+1. `regenerateContract` catches the throw, logs `clangd config failed` to the output channel, returns.
+2. So **no prefix header, no `.clangd`, and no `compile_commands.json` are written at all** — verified:
+   after a full editor run the xross workspace has no `compile_commands.json` on disk.
+3. clangd therefore has no compile entry for `Teller.h`, falls back to default flags, resolves nothing,
+   and answers every member request with its word-scrape.
+4. `QpiDiagnostics.analysisFor` returns undefined, so there is no IDL — no hover, no QPI diagnostics —
+   and the member fallback is handed `context: undefined`, so it cannot answer either.
+
+Both the language server and the safety net are down at once. Measured on `Teller.h`:
+
+```
+Teller.h project diagnostics -> 1
+  qinit-project:qinit/project-dependencies — Project dependency resolution failed:
+  cannot analyze callee 'Bank': Source analysis failed: unknown type 'Stamp' …
+
+locals.                       ->  91 items, `in`     MISSING
+locals.in.                    ->  89 items, `hist`   MISSING
+locals.in.hist.               ->  89 items, `setAll` MISSING
+locals.in.tranche.            -> 100 items, `tier`   MISSING
+locals.in.tranche.tier.       -> 100 items, `rank`   MISSING
+locals.in.tranche.tier.bits.  -> 100 items, `setAll` MISSING
+locals.in.key.                -> 100 items, `a`      (false ✓ — see below)
+locals.in.lots.               -> 100 items, `setAll` MISSING
+locals.in.grid.               -> 100 items, `setAll` MISSING
+locals.in.flags.              -> 100 items, `setAll` MISSING
+locals.in.stamp.              -> 100 items, `at`     MISSING
+```
+
+Even `locals.` — the shallowest possible receiver — fails, where the same receiver answers in 14 ms in
+the `zoo` workspace. Nothing about the contract's own shape matters; one callee poisons all of it.
+
+The controls settle it. `locals.direct.`, `locals.directTranche.` and `locals.directEntry.` name their
+types **qualified** (`Bank::Tier`, `Bank::Tranche`, `Ledger::Entry`) — the spelling that resolves
+everywhere else — and they fail too, at 100 junk items apiece. This is not the resolver picking the
+wrong type; there is no compile entry and no analysis context for the file at all.
+
+The qualified scopes go the same way: `Bank::` → 89 items without `Quote_input`, `Ledger::` → 89
+without `Entry`. In the `zoo` workspace the equivalent `Vault::` answers with its structs.
+
+### The diagnostics point at the wrong file, and one is an internal code
+
+Nothing in the editor names the actual offending line (`Stamp stamp;` in `Ledger.h`):
+
+| File                                | What the developer sees                                             |
+| ----------------------------------- | ------------------------------------------------------------------- |
+| `Ledger.h` — where the bare name is | nothing                                                             |
+| `Bank.h` — the middle contract      | `qinit-compiler:compiler/internal` and `qpi:qpi/public-callee-type` |
+| `Teller.h` — the caller             | `qinit-project:qinit/project-dependencies` at line 1                |
+
+`compiler/internal` is an internal-error code surfaced straight to the user. Chasing this from the
+editor alone means starting at the file furthest from the cause and never being pointed at the fix.
+
+Suite result: `test:xross` → **2 passing / 2 failing, exit 1** (4 min).
+
+### Blast radius
+
+| Shape in the callee                                                  | Analyzer                               |
+| -------------------------------------------------------------------- | -------------------------------------- |
+| `Ledger::Stamp` referenced directly (flat)                           | clean                                  |
+| `Entry { Stamp stamp; }` — bare nested **struct**                    | **FAIL**                               |
+| `Boxed { Hist hist; }` — bare nested **typedef**                     | clean (typedefs are registered scoped) |
+| `WithArr { Array<Stamp, 4> stamps; }` — bare name inside a container | **FAIL**                               |
+| `Array<Ledger::Entry, 4>` — a poisoned struct inside a container     | **FAIL**                               |
+
+Grouping related fields into a nested struct is ordinary contract style, so this is not an exotic shape.
+
+### Cause
+
+Same root-cause class as E1 — a bare type name needs its enclosing callee's scope to be re-qualified —
+but a **different code path**, so E1's fix does not cover it:
+
+- E1: `analyzer/member-query.ts`, completion only.
+- E4: `backend/wasm/idl/abi-type-builder.ts:126`. `layoutOfType` is asked to resolve the bare `Stamp`
+  with no record that it came from inside `Ledger::Entry`, so it never tries `Ledger::Stamp` and throws.
+
+A complete fix needs the enclosing-scope context threaded into layout/IDL resolution for callee
+structs, not just into the completion resolver.
+
+**Workaround for contract authors today:** qualify nested type references inside a contract that other
+contracts depend on (`Ledger::Stamp stamp;`, not `Stamp stamp;`).
+
+## Probe errors worth recording
+
+- `locals.in.key.` reported `a ✓` and it is **false**. The matcher accepted a prefix match, and `a` is a
+  real word in clangd's degraded word list. Tightened to "exact, or `name(`" so a one-letter field can
+  no longer be satisfied by prose. Every other row in that table is a true MISSING.
+- The first fixture draft did not compile, for three reasons worth knowing: `Array<T, N>` requires N to
+  be a power of two; a contract that only _references_ another's types gets no callee prelude unless it
+  actually `CALL_OTHER_CONTRACT_FUNCTION`s it; and two calls in one entry body collide on
+  `interContractCallError` (`qpi/duplicate-call-error-var`). All three were my error, not the tool's.
