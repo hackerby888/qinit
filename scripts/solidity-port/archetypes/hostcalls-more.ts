@@ -139,7 +139,7 @@ export const HOSTCALL_MORE_ARCHETYPES: Archetype[] = [
             solidity: "openzeppelin-contracts/contracts/utils/cryptography/MerkleProof.sol",
             stresses:
                 "K12 of a computed expression next to K12 of a named local holding the same value — the exact pair F203 is about, kept as a live probe so a fix shows up here first",
-            caveat: "This archetype is expected to diverge while F203 is open: the TypeScript backend hashes different bytes for the expression spelling. It is deliberately *not* pinned with expectedVerdict, because F203 is a defect to be fixed rather than an asymmetry to be documented — these rows should go green when it is.",
+            caveat: "The pair F203 was about, kept as a live probe. The expression spelling used to hash different bytes, because deduction typed no computed expression and sizeof(T) fell to 1. Deliberately never pinned with expectedVerdict — it was a defect to fix, not an asymmetry to document, and these rows went green when it was.",
         },
         () => ({
             state: "uint64 fromExpression;\nuint64 fromVariable;\nuint64 agree;",
@@ -392,11 +392,8 @@ export const HOSTCALL_MORE_ARCHETYPES: Archetype[] = [
             solidity: "test/libsolidity/semanticTests/various/address_to_uint.sol",
             stresses:
                 "reading a 64-bit word out of the SELF identity — directly, which the TypeScript backend refuses, and through a local copy, which it accepts",
-            caveat: "Documented divergence, pinned deliberately. clang compiles both spellings and both read the contract's own index. The TypeScript backend refuses the direct one with `unsupported member read [id(4).u64._0]` while accepting the copy, so the workaround is one assignment.",
+            caveat: "Both spellings read the contract's own index and both backends agree. The direct one used to be refused — selecting a member of a class prvalue materialises a temporary, and SELF expands to id(...), which matched no branch (F215).",
             axes: ["placement"],
-            expectedVerdict: "one-side-rejected",
-            divergenceNote:
-                "F215 — a member read of a word on the SELF constant (SELF.u64._0) is unsupported by the TypeScript backend; the same read through a local id copy compiles, and clang accepts both.",
         },
         () => ({
             state: "uint64 direct;\nuint64 viaLocal;\nuint64 equal;",
