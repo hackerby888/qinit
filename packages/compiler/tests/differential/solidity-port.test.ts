@@ -19,7 +19,7 @@ import { environmentFor } from "../../../../scripts/solidity-port/compile";
 import { runCell } from "../../../../scripts/solidity-port/cell";
 import { executeScript } from "../../../../scripts/solidity-port/execute";
 import { compileWith } from "../../../../scripts/solidity-port/compile";
-import { expandAll } from "../../../../scripts/solidity-port/registry";
+import { expandAll, type Variant } from "../../../../scripts/solidity-port/registry";
 import type { BackendRun, StepRecord } from "../../../../scripts/solidity-port/types";
 
 function run(backend: BackendRun["backend"], steps: StepRecord[], digest: string, stateSize = 32): BackendRun {
@@ -117,8 +117,16 @@ describe("solidity-port comparator controls", () => {
 });
 
 describe("solidity-port corpus integrity", () => {
+    // Expanding the full tier builds every one of the ~6,600 variants, and four tests each rebuilt it.
+    // That put the block seconds from bun's 5s default and it tipped over under load. Same corpus for
+    // all four, so build it once.
+    let fullTier: Variant[];
+    beforeAll(() => {
+        fullTier = expandAll("full");
+    });
+
     test("every generated contract has a unique id and a Solidity provenance", () => {
-        const variants = expandAll("full");
+        const variants = fullTier;
         expect(variants.length).toBeGreaterThan(100);
         const ids = new Set(variants.map((variant) => variant.id));
         expect(ids.size).toBe(variants.length);
@@ -135,7 +143,7 @@ describe("solidity-port corpus integrity", () => {
     // with identical text. The dedup drops those, which is exactly why the corpus can only be trusted if
     // the axes really do change the source somewhere.
     test("the stateOrder and entryOrder axes reach the corpus and change the emitted source", () => {
-        const variants = expandAll("full");
+        const variants = fullTier;
         const reversedState = variants.filter((variant) => variant.axis.stateOrder === "reversed");
         const reversedEntries = variants.filter((variant) => variant.axis.entryOrder === "reversed");
         expect(reversedState.length).toBeGreaterThan(10);
@@ -162,7 +170,7 @@ describe("solidity-port corpus integrity", () => {
     test("an entry that names another entry's I/O type is always emitted after it", () => {
         const declarationOf = (source: string, name: string) => source.indexOf(`struct ${name}_input`);
         const violations: string[] = [];
-        for (const variant of expandAll("full")) {
+        for (const variant of fullTier) {
             const source = variant.contract.source;
             // Every `<Name>_input` / `<Name>_output` mentioned inside another entry's locals struct.
             for (const match of source.matchAll(/struct (\w+)_locals\s*\n\s*\{([^}]*)\}/g)) {
@@ -184,7 +192,7 @@ describe("solidity-port corpus integrity", () => {
     // check it at compile time, so a wrong-order pair would show up as a compile divergence that says
     // nothing about code generation. The generator must never emit one.
     test("every callee sits at a strictly lower slot than its caller", () => {
-        const pairs = expandAll("full").filter((variant) => variant.contract.callee !== undefined);
+        const pairs = fullTier.filter((variant) => variant.contract.callee !== undefined);
         expect(pairs.length).toBeGreaterThan(0);
         for (const variant of pairs) {
             expect(variant.contract.callee!.slot).toBeLessThan(variant.contract.script.slot);
