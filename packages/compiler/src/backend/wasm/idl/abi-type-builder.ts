@@ -17,6 +17,7 @@ import {
 import { bitWordCount, collectionFmt, hashMapFmt, hashSetFmt, linkedListFmt } from "@qinit/proto/qpi-layout";
 import { AstKind } from "../../../shared/enums";
 import type { StructDecl, TypeSpec } from "../../../ast";
+import type { Span } from "../../../ast/source-location";
 import { EMPTY_TEMPLATE_BINDINGS, type StructLayout, type TemplateBindings } from "../../../semantics/types";
 import type { ProgramAnalysis } from "../../../semantics/program-analysis";
 import { evalIntegralConst } from "../../../frontend/validation/validation-helpers";
@@ -125,7 +126,11 @@ export class AbiTypeBuilder {
 
         // QPI iterators are opaque handles of known size; anything else unresolved would be laid out as a 4-byte scalar and read back as garbage.
         if (!/Iterator$/.test(type.name)) {
-            throw new Error(`unknown type '${type.name}' (not a QPI scalar, enum, typedef or struct)`);
+            // Carry the offending type's own span: the analyzer's catch-all otherwise pins the diagnostic
+            // to line 1, so a mistyped type deep in a file squiggles the top of the file instead of itself.
+            const unknown = new Error(`unknown type '${type.name}' (not a QPI scalar, enum, typedef or struct)`);
+            if (type.span) (unknown as Error & { span?: Span }).span = type.span;
+            throw unknown;
         }
 
         return this.scalar(
