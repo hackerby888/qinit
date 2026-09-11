@@ -102,6 +102,39 @@ describe.skipIf(!HAS_CORE)("core-lite-style gtest compiler", () => {
         expect(results).toEqual([{ name: "Counter.Increment", passed: true, message: "" }]);
     }, 120000);
 
+    // INITIALIZE adds 1, so the count is the number of runs; native INIT_CONTRACT runs none on its own
+    test("runs INITIALIZE only when the fixture calls it", async () => {
+        const source = CONTRACT.replace("REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {", "INITIALIZE() { state.mut().counter += 1; }\n  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {");
+        const testSource = `#define NO_UEFI
+#include "contract_testing.h"
+class Fixture : protected ContractTesting {
+public:
+  Fixture(bool initialize) {
+    initEmptySpectrum();
+    initEmptyUniverse();
+    INIT_CONTRACT(Counter);
+    if (initialize) callSystemProcedure(Counter_CONTRACT_INDEX, INITIALIZE);
+  }
+  uint64 value() const {
+    Counter::Get_output out{};
+    callFunction(Counter_CONTRACT_INDEX, 1, Counter::Get_input(), out);
+    return out.value;
+  }
+};
+TEST(Counter, InitializeRunsOnce) { Fixture t(true); EXPECT_EQ(t.value(), 1ull); }
+TEST(Counter, NoInitializeUntilAsked) { Fixture t(false); EXPECT_EQ(t.value(), 0ull); }`;
+        const compiled = await compileGtestWithTypeScript({ source, testSource, contractName: "Counter", slot: 28, qpiHeader: QPI() });
+        expect(compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+        const contract = await compileContractWithTypeScript({ source, contractName: "Counter", slot: 28, qpiHeader: QPI(), arenaSizeBytes: 64 * 1024 });
+        expect(contract.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+
+        const results = await runCompiledGtest(compiled.program!, compiled.wasm!, { 28: contract.wasm });
+        expect(results.map(({ name, passed, message }) => ({ name, passed, message }))).toEqual([
+            { name: "Counter.InitializeRunsOnce", passed: true, message: "" },
+            { name: "Counter.NoInitializeUntilAsked", passed: true, message: "" },
+        ]);
+    }, 120000);
+
     test("rejects the removed ContractTest style", async () => {
         const compiled = await compileGtestWithTypeScript({
             source: CONTRACT,

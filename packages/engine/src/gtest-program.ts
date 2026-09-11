@@ -1,4 +1,3 @@
-import { SYSTEM_PROCEDURES } from "@qinit/core";
 import { QubicSimulator } from "./qubic-simulator";
 import { CONTRACT_ENTRY_KIND, type Contract } from "./contract/runtime";
 import type { TestResult } from "./gtest";
@@ -48,11 +47,10 @@ export async function runCompiledGtest(
         const handles: Record<number, Contract> = {};
         const messages: string[] = [];
         let runner!: Contract;
-        const initialized = new Set<number>();
 
+        // INIT_CONTRACT only zeroes state; the fixture's own callSystemProcedure runs INITIALIZE.
         for (const [slot, wasm] of Object.entries(contracts)) {
-            handles[Number(slot)] = sim.deploy(Number(slot), wasm);
-            initialized.add(Number(slot));
+            handles[Number(slot)] = sim.deploy(Number(slot), wasm, undefined, { initialize: false });
         }
 
         const memory = () => new Uint8Array(runner.mem.buffer);
@@ -89,10 +87,6 @@ export async function runCompiledGtest(
             system: (slot: number, procedure: number): number => {
                 const contract = handles[slot >>> 0];
                 if (!contract) return 0;
-                // Deployment already performed the fixture's first INITIALIZE.
-                if (procedure >>> 0 === SYSTEM_PROCEDURES.INITIALIZE && initialized.delete(slot >>> 0)) {
-                    return 1;
-                }
                 contract.invoke(CONTRACT_ENTRY_KIND.SYSPROC, procedure >>> 0, new Uint8Array(0), {
                     entryPoint: procedure >>> 0,
                 });

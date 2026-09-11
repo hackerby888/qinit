@@ -41,10 +41,9 @@ export async function runContractTesting(
     let spectrumIds: string[] = [];
     let spectrumBytes: Uint8Array[] = [];
     let runner: WebAssembly.Instance;
-    // Synchronize runner shadows lazily because contract states may be hundreds of MiB.
-    const materialized = new Map<number, { dst: number; len: number }>();
-    const engineDirty = new Set<number>();
-    const touched = new Set<number>();
+    // runner-side copies of unshared contract states by slot, and the ones the test may have written since the last push
+    const shadows = new Map<number, { dst: number; len: number }>();
+    const shadowsToPush = new Set<number>();
 
     const mem = () => new Uint8Array((runner.exports.memory as WebAssembly.Memory).buffer);
     const read = (off: number, len: number) => mem().slice(off >>> 0, (off >>> 0) + (len >>> 0));
@@ -57,7 +56,7 @@ export async function runContractTesting(
     const dispTrace = !!env_.QINIT_GTEST_TRACE;
     const prof = dispTrace || !!env_.QINIT_GTEST_PROF;
     const now = () => (globalThis as any).performance?.now?.() ?? 0;
-    const stat = { dispN: 0, dispMs: 0, pulls: 0, pullBytes: 0, pullMs: 0 };
+    const stat = { dispN: 0, dispMs: 0, copies: 0, copyBytes: 0, copyMs: 0 };
     const traceDisp = <T>(label: string, fn: () => T): T => {
         if (!prof) return fn();
         const n = ++stat.dispN;
@@ -68,7 +67,7 @@ export async function runContractTesting(
         if (dispTrace) (globalThis as any).process.stderr.write(`[disp #${n}] < ${label}\n`);
         if (prof && n % 5000 === 0) {
             (globalThis as any).process.stderr.write(
-                `[gtest-prof] @${n} dispatchMs=${Math.round(stat.dispMs)} pulls=${stat.pulls} pulledMB=${Math.round(stat.pullBytes / (1 << 20))} pullMs=${Math.round(stat.pullMs)}\n`,
+                `[gtest-prof] @${n} dispatchMs=${Math.round(stat.dispMs)} copies=${stat.copies} copiedMB=${Math.round(stat.copyBytes / (1 << 20))} copyMs=${Math.round(stat.copyMs)}\n`,
             );
         }
         return r;
@@ -111,13 +110,13 @@ export async function runContractTesting(
         handles = {};
         spectrumIds = [];
         spectrumBytes = [];
-        materialized.clear();
-        engineDirty.clear();
-        touched.clear();
+        shadows.clear();
+        shadowsToPush.clear();
         for (const [idx, wasm] of Object.entries(contracts)) {
             const shared = sharedSlots.has(Number(idx));
             if (shared && !runnerMemory()) throw new Error(`gtest: contract slot ${idx} is a shared-memory build but the runner is not instantiated yet`);
-            handles[Number(idx)] = sim.deploy(Number(idx), wasm, shared ? runnerMemory() : undefined);
+            // INIT_CONTRACT only zeroes state; the fixture's own callSystemProcedure runs INITIALIZE.
+            handles[Number(idx)] = sim.deploy(Number(idx), wasm, shared ? runnerMemory() : undefined, { initialize: false });
         }
         // slot -> share-asset ticker (contract_def.h contractDescriptions.assetName) — distributeDividends iterates this asset's possessors.
         for (const [slot, name] of Object.entries(opts.assetNames ?? {})) {
@@ -125,57 +124,56 @@ export async function runContractTesting(
         }
     };
 
-    // Flush only touched, current shadows so stale buffers cannot overwrite engine state.
-    const flushState = () => {
-        if (touched.size === 0) return;
-        for (const i of touched) {
-            const m = materialized.get(i);
-            const c = handles[i];
-            if (m && c && !engineDirty.has(i)) syncChunked(mem().subarray(m.dst, m.dst + m.len), c.stateView(m.len));
+    // a host call that runs contract code pushes first and pulls after; a skipped pull leaves a stale shadow that the
+    // next push writes back over the engine, since a push treats every difference as a test write.
+    const pushShadowsToEngine = () => {
+        if (shadowsToPush.size === 0) return;
+        for (const slot of shadowsToPush) {
+            const shadow = shadows.get(slot);
+            const contract = handles[slot];
+            if (shadow && contract) copyChangedChunks(mem().subarray(shadow.dst, shadow.dst + shadow.len), contract.stateView(shadow.len));
         }
-        touched.clear();
+        shadowsToPush.clear();
     };
 
-    // Refresh materialized shadows after mutation so cached getState() pointers stay current.
-    const EAGER_SYNC_MAX = 4 << 20;
-    const markEngineMoved = () => {
-        for (const [i, m] of materialized) {
-            const c = handles[i];
-            if (!c) continue;
-            if (m.len <= EAGER_SYNC_MAX) {
-                write(m.dst, c.stateView(m.len));
+    // every shadow is refreshed so a cached getState() pointer stays current, then pending, as the test may write through it
+    const FULL_COPY_MAX_BYTES = 4 << 20;
+    const pullShadowsFromEngine = () => {
+        for (const [slot, shadow] of shadows) {
+            const contract = handles[slot];
+            if (!contract) continue;
+            if (shadow.len <= FULL_COPY_MAX_BYTES) {
+                write(shadow.dst, contract.stateView(shadow.len));
             } else {
-                refreshShadow(m, c);
+                pullShadow(shadow, contract);
             }
-            touched.add(i);
+            shadowsToPush.add(slot);
         }
-        engineDirty.clear();
     };
 
-    // Compare state in chunks and copy only changed regions.
-    const SYNC_CHUNK = 1 << 20;
+    const DIFF_CHUNK_BYTES = 1 << 20;
     const Buf = (globalThis as any).Buffer;
-    const syncChunked = (src: Uint8Array, dst: Uint8Array) => {
-        const len = Math.min(src.length, dst.length);
+    const copyChangedChunks = (from: Uint8Array, to: Uint8Array) => {
+        const len = Math.min(from.length, to.length);
         const t0 = prof ? now() : 0;
         if (!Buf?.compare) {
-            dst.set(src.subarray(0, len));
+            to.set(from.subarray(0, len));
         } else {
-            for (let off = 0; off < len; off += SYNC_CHUNK) {
-                const n = Math.min(SYNC_CHUNK, len - off);
-                const a = Buf.from(src.buffer, src.byteOffset + off, n);
-                const b = Buf.from(dst.buffer, dst.byteOffset + off, n);
-                if (Buf.compare(a, b) !== 0) dst.set(src.subarray(off, off + n), off);
+            for (let off = 0; off < len; off += DIFF_CHUNK_BYTES) {
+                const n = Math.min(DIFF_CHUNK_BYTES, len - off);
+                const a = Buf.from(from.buffer, from.byteOffset + off, n);
+                const b = Buf.from(to.buffer, to.byteOffset + off, n);
+                if (Buf.compare(a, b) !== 0) to.set(from.subarray(off, off + n), off);
             }
         }
         if (prof) {
-            stat.pulls++;
-            stat.pullBytes += len;
-            stat.pullMs += now() - t0;
+            stat.copies++;
+            stat.copyBytes += len;
+            stat.copyMs += now() - t0;
         }
     };
-    const refreshShadow = (m: { dst: number; len: number }, c: Contract) => {
-        syncChunked(c.stateView(m.len), mem().subarray(m.dst, m.dst + m.len));
+    const pullShadow = (shadow: { dst: number; len: number }, contract: Contract) => {
+        copyChangedChunks(contract.stateView(shadow.len), mem().subarray(shadow.dst, shadow.dst + shadow.len));
     };
 
     let dispatchCount = 0; // QINIT_GTEST_PROGRESS: dispatch-rate telemetry for slow/hanging corpora
@@ -196,7 +194,7 @@ export async function runContractTesting(
                     `[gtest] ${dispatchCount} dispatches (${((performance.now() - t0Progress) / 1000).toFixed(1)}s)\n`,
                 );
             }
-            flushState();
+            pushShadowsToEngine();
             const input = read(inPtr, inLen);
             const origin = id32(originPtr);
             if (amount > 0n) sim.decreaseEnergy(sim.spectrumIndex(origin), BigInt(amount));
@@ -215,7 +213,7 @@ export async function runContractTesting(
             }
             const n = Math.min(out.length, outCap >>> 0);
             if (n) write(outPtr, out.subarray(0, n));
-            markEngineMoved();
+            pullShadowsFromEngine();
             // QINIT_GTEST_WATCH_SLOT=<n>: print the watched contract balance after each invocation.
             if (env_.QINIT_GTEST_WATCH_SLOT) {
                 const ws = Number(env_.QINIT_GTEST_WATCH_SLOT);
@@ -249,7 +247,7 @@ export async function runContractTesting(
         },
 
         q_query: (idx: number, it: number, inPtr: number, inLen: number, outPtr: number, outCap: number): number => {
-            flushState();
+            pushShadowsToEngine();
             let out: Uint8Array;
             try {
                 out = traceDisp(`query[${idx >>> 0}:${it >>> 0}]`, () => sim.query(idx >>> 0, it >>> 0, read(inPtr, inLen)));
@@ -263,7 +261,7 @@ export async function runContractTesting(
         },
 
         q_sysproc: (idx: number, sp: number) => {
-            flushState();
+            pushShadowsToEngine();
             const c = handles[idx >>> 0];
             try {
                 if (c && c.hasSysproc(sp >>> 0))
@@ -275,7 +273,7 @@ export async function runContractTesting(
             } catch (e: any) {
                 trap(`sysproc[${idx >>> 0}:${sp >>> 0}]`, e);
             }
-            markEngineMoved();
+            pullShadowsFromEngine();
             if (env_.QINIT_GTEST_DUMP_ASSETS) {
                 (globalThis as any).process.stderr.write(`[assets after sysproc ${sp >>> 0}] ${JSON.stringify(sim.assetUniverse())}\n`);
             }
@@ -290,7 +288,9 @@ export async function runContractTesting(
         },
         // Move the amount to dest and fire its POST_INCOMING_TRANSFER.
         q_notify_pit: (srcPtr: number, dstPtr: number, amount: bigint, type: number) => {
+            pushShadowsToEngine();
             sim.notifyIncomingTransfer(id32(srcPtr), id32(dstPtr), BigInt(amount), type >>> 0);
+            pullShadowsFromEngine();
         },
         // issueAsset(issuer, name, decimals, unit, shares, mgmt): mint an asset (issuer == invocator path). Returns shares.
         q_issue_asset: (issuerPtr: number, name: bigint, decimals: number, shares: bigint, unit: bigint, slot: number): bigint => {
@@ -406,39 +406,22 @@ export async function runContractTesting(
             return c && c.sharedMem ? c.stateAddr >>> 0 : 0;
         },
 
-        q_state_in: (i: number, dst: number, len: number) => {
-            const c = handles[i];
-            if (!c) return;
-            // Refresh a shadow only on first use, after mutation, or when its destination changes.
-            const prev = materialized.get(i);
-            if (!prev || prev.dst !== dst) {
+        q_state_in: (slot: number, dst: number, len: number) => {
+            const contract = handles[slot];
+            if (!contract) return;
+            // copy on first use or a new destination only; pullShadowsFromEngine keeps an existing shadow current
+            const shadow = shadows.get(slot);
+            if (!shadow || shadow.dst !== dst) {
                 const t0 = prof ? now() : 0;
-                write(dst, c.stateView(len >>> 0));
+                write(dst, contract.stateView(len >>> 0));
                 if (prof) {
-                    stat.pulls++;
-                    stat.pullBytes += len >>> 0;
-                    stat.pullMs += now() - t0;
-                }
-                engineDirty.delete(i);
-            } else if (engineDirty.has(i)) {
-                refreshShadow({ dst, len: len >>> 0 }, c);
-                engineDirty.delete(i);
-            }
-            materialized.set(i, { dst, len: len >>> 0 });
-            touched.add(i);
-        },
-
-        // Assertion-time refresh: re-sync every engine-dirty shadow so a cached getState() reads live values, paying the scan only when a dispatch ran.
-        q_state_sync: () => {
-            for (const i of engineDirty) {
-                const m = materialized.get(i);
-                const c = handles[i];
-                if (m && c) {
-                    refreshShadow(m, c);
-                    touched.add(i);
+                    stat.copies++;
+                    stat.copyBytes += len >>> 0;
+                    stat.copyMs += now() - t0;
                 }
             }
-            engineDirty.clear();
+            shadows.set(slot, { dst, len: len >>> 0 });
+            shadowsToPush.add(slot);
         },
 
         q_set_epoch: (e: number) => {
@@ -516,17 +499,25 @@ export async function runContractTesting(
         now: (out: number) => new DataView(mem().buffer).setBigUint64(out >>> 0, packDateAndTime(sim.nowMs()), true),
         prevSpectrumDigest: (out: number) => mem().set((sim.prevSpectrumDigestOverride ?? new Uint8Array(32)).subarray(0, 32), out >>> 0),
         // Real host transfer, not a noop: QTF's CheckContractBalance reads qpi.getEntity(SELF), and delegating keeps the deployed runtime's semantics.
-        transfer: (destOff: number, amount: bigint): bigint => sim.host.transfer(mainSlot, id32(destOff), amount, 2 /*qpiTransfer*/),
+        transfer: (destOff: number, amount: bigint): bigint => {
+            pushShadowsToEngine();
+            const remaining = sim.host.transfer(mainSlot, id32(destOff), amount, 2 /*qpiTransfer*/);
+            pullShadowsFromEngine();
+            return remaining;
+        },
         burn: (amount: bigint, ciBurnedFor: number): bigint => sim.host.burn(mainSlot, amount, ciBurnedFor >>> 0),
         // In-runner inter-contract calls via the corpus qpi context: the caller is the contract under test, and reward moves caller -> callee as in runtime.ts.
         liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number): number => {
+            pushShadowsToEngine();
             const out = sim.query(calleeIdx >>> 0, inputType & 0xffff, read(inOff, inSize));
             if (out.length) write(outOff, out.subarray(0, Math.min(outSize >>> 0, out.length)));
             return 0;
         },
         liteInvokeProcedure: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number, reward: bigint): number => {
             const originator = sim.contractId(mainSlot);
+            pushShadowsToEngine();
             const result = sim.host.invokeProcedure(mainSlot, calleeIdx >>> 0, inputType & 0xffff, read(inOff, inSize), reward, originator);
+            pullShadowsFromEngine();
             if (result.error === 0 && result.output.length > 0) {
                 write(outOff, result.output.subarray(0, Math.min(outSize >>> 0, result.output.length)));
             }
@@ -659,11 +650,11 @@ export async function runContractTesting(
     }
     if (prof) {
         const wall = Math.round(now() - t0run);
-        const pullMB = Math.round(stat.pullBytes / (1 << 20));
+        const copiedMB = Math.round(stat.copyBytes / (1 << 20));
         (globalThis as any).process.stderr.write(
             `[gtest-prof] wall=${wall}ms dispatches=${stat.dispN} dispatchMs=${Math.round(stat.dispMs)} ` +
-                `pulls=${stat.pulls} pulledMB=${pullMB} pullMs=${Math.round(stat.pullMs)} ` +
-                `other=${Math.round(wall - stat.dispMs - stat.pullMs)}ms\n`,
+                `copies=${stat.copies} copiedMB=${copiedMB} copyMs=${Math.round(stat.copyMs)} ` +
+                `other=${Math.round(wall - stat.dispMs - stat.copyMs)}ms\n`,
         );
     }
     return results;

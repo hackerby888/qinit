@@ -43,7 +43,7 @@ export class ContractRegistry {
     }
 
     // Metered deployments are pre-funded; INITIALIZE is exempt.
-    deploy(slot: number, wasm: Uint8Array, host: HostServices, extMem?: WebAssembly.Memory, extraImports?: WebAssembly.Imports): Contract {
+    deploy(slot: number, wasm: Uint8Array, host: HostServices, extMem?: WebAssembly.Memory, extraImports?: WebAssembly.Imports, initialize = true): Contract {
         const prev = this.contracts.get(slot);
         const prevState = prev ? prev.state() : null; // snapshot old state before the new instance replaces it
         const c = Contract.load(wasm, slot, host, extMem, extraImports);
@@ -53,9 +53,9 @@ export class ContractRegistry {
         this.fees.seedOnDeploy(slot);
 
         if (!prevState) {
-            // first deploy: zero state + run INITIALIZE
+            // first deploy: zero state + run INITIALIZE, unless a gtest fixture runs it itself as native INIT_CONTRACT expects
             c.zeroState();
-            if (c.hasSysproc(SYSTEM_PROCEDURES.INITIALIZE)) {
+            if (initialize && c.hasSysproc(SYSTEM_PROCEDURES.INITIALIZE)) {
                 this.fire(c, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.INITIALIZE, new Uint8Array(0), {
                     entryPoint: SYSTEM_PROCEDURES.INITIALIZE,
                 });
