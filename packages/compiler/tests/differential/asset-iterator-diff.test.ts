@@ -16,8 +16,9 @@ const CORE = CORE_PATH;
 const HEADERS = () => loadQpiHeader(CORE);
 
 // Issue 1000 shares, move 400 to a second holder, then walk the owners twice: filtered to that holder,
-// and unfiltered as the control that isolates the selector from the iteration itself.
-const SOURCE = `using namespace QPI;
+// and unfiltered as the control that isolates the selector from the iteration itself. The filtered walk's
+// iterator is either the `_locals` member started with begin() or a block-scoped local constructed in place.
+const source = (filteredWalk: { declare: string; iterator: string }) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData { uint64 packed; };
@@ -33,12 +34,12 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     locals.asset.issuer = SELF;
     locals.asset.assetName = 5525825ULL;
 
-    locals.iter.begin(locals.asset, AssetOwnershipSelect::byOwner(locals.other));
+    ${filteredWalk.declare}
     locals.guard = 0;
-    while (!locals.iter.reachedEnd() && locals.guard < 16) {
+    while (!${filteredWalk.iterator}.reachedEnd() && locals.guard < 16) {
       locals.filteredCount++;
-      locals.filteredShares += locals.iter.numberOfOwnedShares();
-      locals.iter.next();
+      locals.filteredShares += ${filteredWalk.iterator}.numberOfOwnedShares();
+      ${filteredWalk.iterator}.next();
       locals.guard++;
     }
 
@@ -79,30 +80,49 @@ describe.skipIf(!HAS_CORE)("differential — asset iterator selectors", () => {
         await initK12();
     });
 
-    test("a filtered ownership walk honours its selector", async () => {
-        const ours = await compileContractWithTypeScript({
-            source: SOURCE,
-            contractName: "AssetIterProbe",
-            slot: 27,
-            qpiHeader: HEADERS(),
-            arenaSizeBytes: 1 << 20,
-        });
-        expect(ours.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-        expect(runState(ours.wasm)).toBe(EXPECTED);
+    // The block-scoped form goes through the synthesized begin(), which used to forward only the asset and drop the selector.
+    const FILTERED_WALKS: Record<string, { declare: string; iterator: string }> = {
+        "a filtered ownership walk honours its selector": {
+            declare: "locals.iter.begin(locals.asset, AssetOwnershipSelect::byOwner(locals.other));",
+            iterator: "locals.iter",
+        },
+        "a block-scoped iterator constructed with a selector honours it": {
+            declare: "AssetOwnershipIterator it(locals.asset, AssetOwnershipSelect::byOwner(locals.other));",
+            iterator: "it",
+        },
+    };
 
-        if (wasiOk) {
-            const directory = mkdtempSync(join(tmpdir(), "asset-iter-probe-"));
-            writeFileSync(join(directory, "AssetIterProbe.h"), SOURCE);
-            const built = await buildContractWithClang({
-                contractPath: join(directory, "AssetIterProbe.h"),
-                contractName: "AssetIterProbe",
-                slot: 27,
-                corePath: CORE,
-                outDir: directory,
-                skipVerify: true,
-            });
-            expect(built.ok).toBe(true);
-            expect(runState(new Uint8Array(readFileSync(built.wasmPath!)))).toBe(EXPECTED);
-        }
-    }, 180000);
+    for (const [name, filteredWalk] of Object.entries(FILTERED_WALKS)) {
+        test(
+            name,
+            async () => {
+                const probeSource = source(filteredWalk);
+                const ours = await compileContractWithTypeScript({
+                    source: probeSource,
+                    contractName: "AssetIterProbe",
+                    slot: 27,
+                    qpiHeader: HEADERS(),
+                    arenaSizeBytes: 1 << 20,
+                });
+                expect(ours.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+                expect(runState(ours.wasm)).toBe(EXPECTED);
+
+                if (wasiOk) {
+                    const directory = mkdtempSync(join(tmpdir(), "asset-iter-probe-"));
+                    writeFileSync(join(directory, "AssetIterProbe.h"), probeSource);
+                    const built = await buildContractWithClang({
+                        contractPath: join(directory, "AssetIterProbe.h"),
+                        contractName: "AssetIterProbe",
+                        slot: 27,
+                        corePath: CORE,
+                        outDir: directory,
+                        skipVerify: true,
+                    });
+                    expect(built.ok).toBe(true);
+                    expect(runState(new Uint8Array(readFileSync(built.wasmPath!)))).toBe(EXPECTED);
+                }
+            },
+            180000,
+        );
+    }
 });
