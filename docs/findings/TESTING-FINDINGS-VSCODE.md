@@ -314,3 +314,110 @@ contracts depend on (`Ledger::Stamp stamp;`, not `Stamp stamp;`).
   be a power of two; a contract that only _references_ another's types gets no callee prelude unless it
   actually `CALL_OTHER_CONTRACT_FUNCTION`s it; and two calls in one entry body collide on
   `interContractCallError` (`qpi/duplicate-call-error-var`). All three were my error, not the tool's.
+
+---
+
+# Recheck against main `ecbb1b7`
+
+Both campaigns re-run after rebasing onto main `ecbb1b7` (34 commits ahead of the campaign base,
+carrying the TypeScript-compiler fix series). Core pin unchanged at `1bffb1ff`, so the same bundled
+headers, clangd 20.1.0 and VS Code 1.137.0 as before.
+
+| Finding                                                           | Status on `ecbb1b7`                      |
+| ----------------------------------------------------------------- | ---------------------------------------- |
+| **E1** — completion through a callee's bare nested struct         | **still open**                           |
+| **E2** — unguarded `.exports`                                     | still open (not in the fix series' path) |
+| **E3** — itest env pins one workspace                             | fixed in this branch                     |
+| **E4** — bare nested type breaks analysis, build and IntelliSense | **fixed**                                |
+
+## E4 is fixed
+
+Every shape that failed now passes, in-process and end to end:
+
+| Check                                           | Before                       | On `ecbb1b7`                 |
+| ----------------------------------------------- | ---------------------------- | ---------------------------- |
+| `analyzeContract`, `Ledger::Entry` in state     | FAIL `unknown type 'Stamp'`  | **clean**                    |
+| `analyzeContract`, bare name inside a container | FAIL                         | **clean**                    |
+| `analyzeContract`, `Array<Ledger::Entry, 4>`    | FAIL                         | **clean**                    |
+| TypeScript backend                              | FAIL `Codegen failed`        | **OK, 4157 bytes**           |
+| clang backend                                   | OK                           | OK — divergence gone         |
+| Editor: `Teller.h` project diagnostics          | 1 (`project-dependencies`)   | **0**                        |
+| Editor: `Bank.h` diagnostics                    | 2, incl. `compiler/internal` | 1 (`qpi/public-callee-type`) |
+| `test:xross`                                    | 2 passing / 2 failing        | **3 passing / 1 failing**    |
+
+Consistent with `ca1a544 fix(semantics): resolve a struct's fields in its own scope, not the caller's`,
+which rewrites the `abi-type-builder.ts` site this finding named, alongside `9be0562`, `ab68e9b` and
+`cc8a37d`. I did not bisect, so treat the attribution as consistent-with rather than proven.
+
+## E1 is not fixed, and the matrix now says exactly why
+
+`packages/compiler/src/analyzer/member-query.ts` was **untouched** by all 34 commits, and `scopeOf`
+is still called in exactly one place (`:388`, the gtest path).
+
+The compiler-side defect is unchanged and deterministic: asked directly, `completeMembersAt` still
+returns `UNRESOLVED` for `locals.input.detail.` while the qualified control `locals.direct.` returns
+`bits, rank`.
+
+The **editor** symptom is now inconsistent, which is new and worth stating plainly. In the same
+session, on the same receiver: the nested-struct-hop suite saw 48 items that did contain `rank` and
+`bits` (so its assertion passed), while the completion-surface suite saw 98 items without them. So
+clangd now sometimes answers that position with a list wide enough to include the names by accident.
+That is not the member list being resolved — 48 items for a two-field struct is still a flood — but it
+does mean a pass/fail on label presence alone is no longer stable here. The zoo suite went from
+5 passing / 3 failing to 6 passing / 2 failing on that basis alone.
+
+With E4 out of the way the cross-contract matrix is clean enough to state the rule precisely:
+**a hop resolves when the type is spelled qualified, and dies on the next hop through a field whose
+type its owning contract spelled bare.**
+
+| Receiver                               | Type as written                                        | Items       |
+| -------------------------------------- | ------------------------------------------------------ | ----------- |
+| `locals.in.`                           | `Bank::Quote_input`                                    | 9 ✓         |
+| `locals.in.hist.`                      | `Hist` typedef → `Array`                               | 7 ✓         |
+| `locals.in.lots.` / `grid.` / `flags.` | `Array<Lot,4>`, `Array<Array<…>>`, `BitArray`          | 7 / 7 / 5 ✓ |
+| `locals.in.stamp.`                     | `Ledger::Stamp` — another callee's type, **qualified** | 2 ✓         |
+| `locals.direct.`                       | `Bank::Tier` **qualified** in the caller               | 2 ✓         |
+| `locals.directTranche.`                | `Bank::Tranche` **qualified** in the caller            | 3 ✓         |
+| `locals.directTranche.tier.`           | `Tier` **bare**, inside `Tranche`                      | **89 ✗**    |
+| `locals.in.tranche.`                   | `Tranche` **bare**, inside `Quote_input`               | **89 ✗**    |
+| `locals.in.key.`                       | `Key` **bare**                                         | **89 ✗**    |
+| `locals.out.lot.`                      | `Lot` **bare**, inside `Quote_output`                  | **89 ✗**    |
+
+`locals.directTranche.` at 3 items and `locals.directTranche.tier.` at 89 is the whole bug in one
+pair: the same object, one hop deeper, and the scope was not carried into its members.
+
+Containers, arrays of structs, nested containers, `BitArray` and cross-contract qualified types all
+work. Only the bare nested struct fails.
+
+The one-line fix still applies verbatim on `ecbb1b7` and still works — `locals.input.detail.` →
+`bits, rank` — with `bun test packages/vscode` 88/88 and the compiler analyzer tests 11/11 green:
+
+```ts
+// analyzer/member-query.ts, targetOfType
+return structDeclaration ? structTarget(programAnalysis, structDeclaration, bindings, scopeOf(resolved) ?? scope) : undefined;
+```
+
+## Open, not yet explained
+
+`Bank::` returns 89 items without `Quote_input` while `Ledger::` returns 11 with `Entry` ✓, in the same
+buffer at the same moment. Both qualifiers are in the document and neither is a blocked namespace, so
+the filter keeps both; the difference is in what clangd answered. Not chased this round.
+
+## Method corrections from this round
+
+- **Count is the signal, not presence.** clangd's degraded word-scrape includes identifiers taken from
+  the file itself, so a member name already written in the source can be "found" in it. Two rows read
+  ✓ that way (`locals.in.tranche.tier.bits.` at 90 items, and `locals.in.key.`'s `a` in the earlier
+  run). A correct member list here is 2–9 items; a scrape is 89–150. Judge the count first.
+- **Three probe rows were invalid**: `state.get().calls`, `state.get().mirror.rank` and
+  `locals.out.lot.tier` are markers my fixture never writes. The helper reported them as "marker
+  absent" rather than passing them, which is the behaviour to keep.
+- **The `gtest gi.detail.` row read as a regression and is not one.** It returned 100 core symbols in
+  the editor, but the gtest resolution path answers correctly in-process
+  (`Vault::Get_input` + `[detail]` → `bits, rank`). The editor row is an artifact of running against a
+  freshly cleaned workspace whose gtest compile entry had not been regenerated yet.
+- **Two self-inflicted invalidations, both covered by rules already in the prompt.** The first recheck
+  ran `./node_modules/.bin/vscode-test --label …` directly, which skips `bun esbuild.mjs`, so the
+  editor exercised a bundle built before the rebase; and the fixture workspaces still held
+  `compile_commands.json` and `.clangd` from the previous campaign, so clangd had a stale-but-valid
+  entry. Go through the package scripts, and clean generated artifacts between campaigns.
