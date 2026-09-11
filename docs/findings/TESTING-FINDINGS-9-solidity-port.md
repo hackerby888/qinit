@@ -1600,9 +1600,11 @@ The gtest registered five natives, so 152 of 770 round-6 runs (~20%) trapped for
 rather than because anything was wrong. Two natives close the whole gap: `k12` accounts for 122 of the
 152 and `tick` for the other 30.
 
-`scripts/solidity-port/wamr-shim.patch` adds `k12`, `tick`, `epoch`, `initialTick`,
-`numberOfTickTransactions`, the seven clock readers, `now`, and `pauseLog`/`resumeLog`, and populates
-the guest context struct at `ctx_addr()`. Every constant mirrors a bare `QubicSimulator` — tick 0,
+The shim adds `k12`, `tick`, `epoch`, `initialTick`, `numberOfTickTransactions`, the seven clock
+readers, `now`, and `pauseLog`/`resumeLog`, and populates the guest context struct at `ctx_addr()`.
+It was carried as `scripts/solidity-port/wamr-shim.patch` until core-lite took it into
+`test/wasm_contracts.cpp` and `test/wasm_k12_shim.cpp`, so the build script now requires it rather
+than applying it. Every constant mirrors a bare `QubicSimulator` — tick 0,
 epoch 0, clock pinned to 2024-01-01T00:00:00Z — because the sweep compares this runtime *against* that
 simulator, and a shim answering anything else would manufacture divergences rather than reveal them.
 

@@ -22,7 +22,7 @@ const CORE = process.env.QINIT_CORE!;
 const OUT = "/tmp/qinit-wamr-probe";
 
 /** The natives core's crosshost gtest registers; calling anything outside this set traps there. Must track
- *  wamr-shim.patch, or contracts the shim newly supports get misread as shim-traps. */
+ *  core-lite's test/wasm_contracts.cpp, or contracts the shim newly supports get misread as shim-traps. */
 const REGISTERED_NATIVES = new Set([
     "beginFn",
     "endFn",

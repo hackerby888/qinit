@@ -10,12 +10,10 @@
 #   LITE_WASM_SC    the target only exists under it
 #   TESTNET         + TESTNET_LITE_RAM — LITE_WASM_SC refuses to configure without both
 #
-# core-lite is treated as a scratch build tree: this script edits its working tree and never commits,
-# branches or pushes there. Everything durable lives in qinit — including wamr-shim.patch, which is
-# what makes the widened oracle reproducible after the binary is gone.
+# core-lite is treated as a scratch build tree: this script configures and builds in it, and never
+# commits, branches or pushes there.
 #
-# Idempotent: re-running applies nothing twice and skips the build when the binary is already newer
-# than the patch.
+# Idempotent: re-running skips the build when the binary is already newer than core's wasm test sources.
 #
 # Usage:  QINIT_CORE=/path/to/core-lite scripts/solidity-port/build-wamr-oracle.sh [--force]
 # Then:   export QINIT_WAMR_GTEST=$(QINIT_CORE=... scripts/solidity-port/build-wamr-oracle.sh --path)
@@ -23,7 +21,7 @@ set -euo pipefail
 
 CORE="${QINIT_CORE:-/home/user/core-lite}"
 BINARY="$CORE/build-wasm/test/qubic_wasm_tests"
-PATCH="$(cd "$(dirname "$0")" && pwd)/wamr-shim.patch"
+SHIM="$CORE/test/wasm_k12_shim.cpp"
 FORCE=0
 
 case "${1:-}" in
@@ -42,27 +40,18 @@ if ! command -v nasm >/dev/null 2>&1; then
     exit 1
 fi
 
-# The parity shim. Without it the gtest registers only five natives, and any contract calling a host
-# function traps for want of an import rather than because anything is wrong — 152 of 770 runs in
-# round 6. `git apply --check --reverse` succeeding means it is already applied.
-if [[ -f "$PATCH" ]]; then
-    if git -C "$CORE" apply --check --reverse "$PATCH" >/dev/null 2>&1; then
-        echo "wamr parity shim already applied"
-    elif git -C "$CORE" apply --check "$PATCH" >/dev/null 2>&1; then
-        git -C "$CORE" apply "$PATCH"
-        echo "wamr parity shim applied to $CORE"
-    else
-        echo "error: $PATCH applies neither forward nor in reverse to $CORE" >&2
-        echo "       core-lite has moved under the patch. Do NOT rebase or update core-lite to make it" >&2
-        echo "       fit: re-cut the patch against this checkout, or report the oracle as un-widened." >&2
-        exit 1
-    fi
-else
-    echo "warning: $PATCH not found — building the narrow 5-native oracle" >&2
+# The parity shim lives in core-lite (test/wasm_k12_shim.cpp and the lhost registrations beside it).
+# Without it the gtest registers five natives and any contract calling a host function traps for want
+# of an import rather than because anything is wrong — 152 of 770 runs in round 6.
+if [[ ! -f "$SHIM" ]]; then
+    echo "error: $CORE carries no test/wasm_k12_shim.cpp — the parity shim is missing" >&2
+    echo "       update core-lite to a revision that has it; this script will not build the narrow" >&2
+    echo "       five-native oracle and report it as widened." >&2
+    exit 1
 fi
 
-# A binary older than the patch is not the oracle this script promises, so staleness forces a rebuild.
-if [[ -x "$BINARY" && "$FORCE" -eq 0 ]] && { [[ ! -f "$PATCH" ]] || [[ "$BINARY" -nt "$PATCH" ]]; }; then
+# A binary older than core's wasm test sources is not the oracle this script promises.
+if [[ -x "$BINARY" && "$FORCE" -eq 0 ]] && [[ "$BINARY" -nt "$SHIM" ]]; then
     echo "wamr oracle already built: $BINARY"
     exit 0
 fi
