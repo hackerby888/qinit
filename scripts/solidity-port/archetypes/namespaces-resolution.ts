@@ -1,11 +1,4 @@
 // Name resolution: shadowing, overloads, qualified access and same-name declarations.
-//
-// Ported from Solidity's `scoping`, `inheritance`, `freeFunctions`, `using`, `constants` and `events`
-// tests. Solidity has no namespaces, so these come from `library` declarations, `using L for T`,
-// duplicate library type names and SWC-119 shadowing. This is the family the repo's own testing notes
-// call out as having "produced nine silent bugs", so every archetype writes a number into state that
-// only comes out right if the intended declaration was picked — a mis-resolution moves the digest
-// instead of being absorbed.
 
 import { emitContract } from "../emit";
 import { singleProcedureArchetype } from "./common";
@@ -189,7 +182,8 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
         name: "NsMemberNameShadowsQpiBuiltin",
         family: "namespaces",
         solidity: `${SOL}/operators/userDefined/operator_definition_shadowing_builtin_keccak256.sol`,
-        stresses: "contract members named like QPI builtins (`div`, `mod`, `tick`, `epoch`) next to real calls to `QPI::div` and `qpi.tick()` — the qualified calls must still reach the real ones",
+        stresses:
+            "contract members named like QPI builtins (`div`, `mod`, `tick`, `epoch`) next to real calls to `QPI::div` and `qpi.tick()` — the qualified calls must still reach the real ones",
         caveat: "Solidity's version shadows `keccak256`; the QPI equivalents are the math helpers and the context accessors.",
         axes: ["placement", "temporaries"],
         build(axis) {
@@ -240,7 +234,8 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
                         `,
                     },
                 ],
-                initialize: "state.mut().div = 0;\nstate.mut().mod = 0;\nstate.mut().tick = 0;\nstate.mut().realDiv = 0;\nstate.mut().realMod = 0;\nstate.mut().realTick = 0;",
+                initialize:
+                    "state.mut().div = 0;\nstate.mut().mod = 0;\nstate.mut().tick = 0;\nstate.mut().realDiv = 0;\nstate.mut().realMod = 0;\nstate.mut().realTick = 0;",
             });
             const steps: CallStep[] = [];
             for (const [a, b] of [
@@ -261,7 +256,8 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
         name: "NsConstantSameNameTwoNamespaces",
         family: "namespaces",
         solidity: `${SOL}/constants/same_constants_different_files.sol`,
-        stresses: "the same constant name declared in two namespaces with different values, both used in one expression — only the qualification distinguishes them",
+        stresses:
+            "the same constant name declared in two namespaces with different values, both used in one expression — only the qualification distinguishes them",
         axes: ["placement", "constSource"],
         build(axis) {
             const source = emitContract({
@@ -321,7 +317,8 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
         name: "NsTwoStructsSameFieldNames",
         family: "namespaces",
         solidity: `${SOL}/structs/struct_referencing.sol`,
-        stresses: "two distinct structs whose members have identical names, both in state and written in one entry — a field-name-keyed code path would cross them",
+        stresses:
+            "two distinct structs whose members have identical names, both in state and written in one entry — a field-name-keyed code path would cross them",
         axes: ["placement", "layout"],
         build(axis) {
             const source = emitContract({
@@ -388,7 +385,8 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
         name: "NsFileLevelConstantChain",
         family: "namespaces",
         solidity: `${SOL}/constants/constants_at_file_level_referencing.sol`,
-        stresses: "a namespace-scope constant initialised from another namespace-scope constant — static initialisation order, which is a real wasm-backend hazard",
+        stresses:
+            "a namespace-scope constant initialised from another namespace-scope constant — static initialisation order, which is a real wasm-backend hazard",
         axes: ["width", "placement"],
         build(axis) {
             const width = axis.width ?? "uint64";
@@ -501,12 +499,12 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
         name: "NsEnumConstantHiddenByMember",
         family: "namespaces",
         solidity: `${SOL}/scoping/name_shadowing.sol`,
-        stresses: "a file-scope enum constant and a member of the contract sharing one name — C++ searches class scope first, so the unqualified name is the member and the enum is unreachable",
+        stresses:
+            "a file-scope enum constant and a member of the contract sharing one name — C++ searches class scope first, so the unqualified name is the member and the enum is unreachable",
         caveat: "The Solidity original shadows a state variable with a local; QPI's equivalent asymmetry is between class scope and file scope. Class scope wins, so the bare name is the member function and assigning it is ill-formed — which both backends now report.",
         axes: ["placement"],
-        // Pinned divergence: clang resolves `Helper` to the private entry and refuses the assignment,
-        // the TypeScript backend resolves it to the enum constant and compiles. Scored as a match while
-        // it diverges this way, and as a failure the moment it stops.
+        // Pinned divergence: clang resolves `Helper` to the private entry and refuses the assignment, the TypeScript backend resolves it to the enum constant
+        // and compiles. Scored as a match while it diverges this way, and as a failure the moment it stops.
         build(axis) {
             const source = emitContract({
                 axis,
@@ -516,7 +514,7 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
                     family: "namespaces",
                     solidity: `${SOL}/scoping/name_shadowing.sol`,
                     stresses: "an enum constant hidden by a member function of the same name",
-                    caveat: "documented divergence: clang rejects, the TypeScript backend accepts",
+                    caveat: "both backends reject: a member function hides the file-scope enum constant, so the qualified read has no candidate",
                     axis: `placement=${axis.placement ?? "first"}`,
                 },
                 prelude: "enum Kind { Helper = 3, Other = 4 };",

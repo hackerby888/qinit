@@ -1,10 +1,5 @@
-// Emitting QPI contract source. Every archetype builds its contract through these helpers rather than
-// by string-pasting a whole file, so the structural rules — the state2 struct, per-entry I/O structs,
-// `_WITH_LOCALS` where locals exist, registration of every entry — hold by construction.
-//
-// The forbidden-construct gate at the bottom is the backstop: it runs on the rendered text before the
-// source is ever handed to a compiler, so a generator bug surfaces as a generator failure rather than
-// as a contract both backends reject.
+// Emitting QPI contract source. Every archetype builds its contract through these helpers rather than by string-pasting a whole file, so the structural rules —
+// the state2 struct, per-entry I/O structs, `_WITH_LOCALS` where locals exist, registration of every entry — hold by construction.
 
 import type { AxisAssignment, EntryOrder, EntryShape, Family, InitStyle, StateOrder, Temporaries } from "./types";
 
@@ -13,11 +8,8 @@ export interface EntrySpec {
     kind: "procedure" | "function";
     /** `private` emits PRIVATE_* and is not registered; used by the `entryShape` axis. */
     visibility?: "public" | "private";
-    /**
-     * Take this entry's `_input`/`_output` types by alias instead of declaring fresh structs. Two structs
-     * with identical members are still distinct types in C++, so a forwarding entry has to alias rather
-     * than duplicate or the copy into the forwarded buffer will not compile.
-     */
+    /** Take this entry's `_input`/`_output` types by alias instead of declaring fresh structs. Two structs with identical members are still distinct types
+     *  in C++, so a forwarding entry has to alias rather than duplicate or the copy into the forwarded buffer will not compile. */
     ioAlias?: string;
     /** Registration number, unique per kind within the contract. */
     number: number;
@@ -33,12 +25,8 @@ export interface EntrySpec {
 
 export interface ContractSpec {
     name: string;
-    /**
-     * The variant's axis assignment. The axes that need nothing from the archetype — placement,
-     * temporaries, initStyle, entryShape, stateOrder, entryOrder — are read from here, so an archetype
-     * opts into all of them by passing its `axis` through. An explicit field below still wins, for the
-     * archetypes that drive one of these themselves.
-     */
+    /** The variant's axis assignment. The axes needing nothing from the archetype are read from here, so
+     *  passing `axis` through opts into all of them; an explicit field below still wins. */
     axis?: AxisAssignment;
     /** Provenance and intent, rendered as the file's header comment. */
     header: {
@@ -53,31 +41,21 @@ export interface ContractSpec {
     prelude?: string;
     /** Body of `struct StateData`. */
     state: string;
-    /**
-     * Where the archetype's own members sit inside StateData. A guard member is always added on the far
-     * side, so a layout error shows up as a changed neighbour rather than being absorbed into padding.
-     * Entry bodies are rewritten to match, so an archetype's body text never has to know the placement.
-     */
+    /** Where the archetype's own members sit inside StateData. A guard member is always added on the far side, so a layout error shows up as a changed
+     *  neighbour rather than being absorbed into padding. Entry bodies are rewritten to match, so an archetype's body text never has to know the placement. */
     statePlacement?: "first" | "last" | "nested";
-    /**
-     * Where entry temporaries live. `stateScratch` moves every `_locals` member into a scratch sub-struct
-     * of StateData and rewrites the bodies, which is a different lowering of the same computation: the
-     * locals arena versus contract state memory.
-     */
+    /** Where entry temporaries live. `stateScratch` moves every `_locals` member into a scratch sub-struct of StateData and rewrites the bodies, which is a
+     *  different lowering of the same computation: the locals arena versus contract state memory. */
     temporaries?: Temporaries;
     /** How much INITIALIZE does. `absent` omits it, leaving the host's construction-time zeroing exposed. */
     initStyle?: InitStyle;
     /** `viaPrivate` moves each public entry's body into a PRIVATE_* entry reached by CALL. */
     entryShape?: EntryShape;
-    /**
-     * `reversed` declares StateData's members back to front. Every offset after the first member moves,
-     * so the two backends' struct layout has to agree on a shape the archetype never wrote by hand.
-     */
+    /** `reversed` declares StateData's members back to front. Every offset after the first member moves, so the two backends' struct layout has to agree on
+     *  a shape the archetype never wrote by hand. */
     stateOrder?: StateOrder;
-    /**
-     * `reversed` declares the entries back to front inside the class. Registration numbers and the IDL do
-     * not move, so only the order the two backends see the declarations in changes.
-     */
+    /** `reversed` declares the entries back to front inside the class. Registration numbers and the IDL do not move, so only the order the two backends see
+     *  the declarations in changes. */
     entryOrder?: EntryOrder;
     /** Whole struct declarations that must live inside the contract, such as a LOG_* payload type. */
     extraStructs?: string;
@@ -89,11 +67,8 @@ export interface ContractSpec {
     endTick?: string;
     beginEpoch?: string;
     endEpoch?: string;
-    /**
-     * `_locals` for a hook, which QPI spells through the `_WITH_LOCALS` form of the same macro. A hook
-     * that calls out to another contract needs them: the request and reply buffers have nowhere else to
-     * live, since a hook has no `_input` or `_output` of its own.
-     */
+    /** `_locals` for a hook, which QPI spells through the `_WITH_LOCALS` form of the same macro. A hook that calls out to another contract needs them: the
+     *  request and reply buffers have nowhere else to live, since a hook has no `_input` or `_output` of its own. */
     beginTickLocals?: string;
     endTickLocals?: string;
     beginEpochLocals?: string;
@@ -150,11 +125,8 @@ function emitHook(macro: string, body: string | undefined, locals?: string): str
     return `${structBlock(`${macro}_locals`, locals)}\n\n    ${macro}_WITH_LOCALS()\n    {\n${bodyBlock(body, "        ")}\n    }`;
 }
 
-/**
- * Apply the placement axis: move the archetype's members around inside StateData and rewrite the entry
- * bodies to reach them. Done here rather than in each archetype so the axis is genuinely applied
- * everywhere it is declared — an axis an archetype silently ignores is fake coverage.
- */
+/** Apply the placement axis: move the archetype's members around inside StateData and rewrite the entry bodies to reach them. Done here rather than in each
+ *  archetype so the axis is genuinely applied everywhere it is declared — an axis an archetype silently ignores is fake coverage. */
 function applyPlacement(spec: ContractSpec): ContractSpec {
     const placement = spec.statePlacement ?? "first";
     const members = spec.state.trim();
@@ -180,22 +152,12 @@ function applyPlacement(spec: ContractSpec): ContractSpec {
     };
 }
 
-/**
- * Apply the `temporaries` axis: move every entry's `_locals` members into one scratch sub-struct of
- * StateData and rewrite `locals.x` to reach it. `state.mut()` yields a mutable reference, so the same
- * spelling serves reads and writes.
- *
- * Members are prefixed per entry, because two entries may each declare a `scratch` or an `i` and they
- * would collide in a shared struct. The transform bails out entirely when a locals member is typed by an
- * entry's own I/O struct: the scratch struct is emitted before those structs exist, so hoisting such a
- * member would reference an incomplete type. Bailing out is safe — the variant then renders identically
- * to the `locals` spelling and the source-fingerprint dedup drops it.
- */
+/** Apply the `temporaries` axis: hoist every entry's `_locals` into one StateData sub-struct, prefixed per
+ *  entry to avoid collisions. Bails out when a local is typed by an entry's own I/O struct. */
 function applyTemporaries(spec: ContractSpec): ContractSpec {
     if ((spec.temporaries ?? "locals") === "locals") return spec;
-    // Only a procedure may be rewritten: hoisting a function's temporaries into state would make the
-    // function write to `state.mut()`, which the build gate refuses on a read-only entry — a rejection
-    // the archetype never asked for.
+    // Only a procedure may be rewritten: hoisting a function's temporaries into state would make the function write to `state.mut()`, which the build gate
+    // refuses on a read-only entry — a rejection the archetype never asked for.
     const withLocals = spec.entries.filter((entry) => entry.kind === "procedure" && entry.locals !== undefined && entry.locals.trim());
     if (withLocals.length === 0) return spec;
 
@@ -250,11 +212,8 @@ function applyInitStyle(spec: ContractSpec): ContractSpec {
     }
 }
 
-/**
- * Apply the `entryShape` axis: move each public entry's body into a private entry of the same kind and
- * have the public one CALL it. The private entry reuses the public one's I/O structs, so only the
- * dispatch changes.
- */
+/** Apply the `entryShape` axis: move each public entry's body into a private entry of the same kind and have the public one CALL it. The private entry
+ *  reuses the public one's I/O structs, so only the dispatch changes. */
 function applyEntryShape(spec: ContractSpec): ContractSpec {
     if ((spec.entryShape ?? "direct") === "direct") return spec;
     const entries: EntrySpec[] = [];
@@ -273,9 +232,8 @@ function applyEntryShape(spec: ContractSpec): ContractSpec {
             number: entry.number,
             input: entry.input,
             output: entry.output,
-            // The forwarding buffers use the public entry's own types, declared immediately above, so no
-            // member here depends on a type the class has not reached yet. The private entry then aliases
-            // those same types, which makes the CALL's buffers exactly the types it expects.
+            // The forwarding buffers use the public entry's own types, declared immediately above, so no member here depends on a type the class has not
+            // reached yet. The private entry then aliases those same types, which makes the CALL's buffers exactly the types it expects.
             locals: `${entry.name}_input forwardedInput;\n${entry.name}_output forwardedOutput;`,
             body: [
                 ...(entry.input?.trim() ? ["locals.forwardedInput = input;"] : []),
@@ -288,11 +246,8 @@ function applyEntryShape(spec: ContractSpec): ContractSpec {
     return { ...spec, entries };
 }
 
-/**
- * Apply the `stateOrder` axis: declare StateData's members back to front. Only a run of plain one-line
- * member declarations can be reversed — a state block that declares a nested struct inline is left alone,
- * and the variant then renders identically to `declared` and is dropped by the dedup.
- */
+/** Apply the `stateOrder` axis: declare StateData's members back to front. Only a run of plain one-line member declarations can be reversed — a state block
+ *  that declares a nested struct inline is left alone, and the variant then renders identically to `declared` and is dropped by the dedup. */
 function applyStateOrder(spec: ContractSpec): ContractSpec {
     if ((spec.stateOrder ?? "declared") === "declared") return spec;
     const lines = spec.state
@@ -346,16 +301,11 @@ export function emitContract(input: ContractSpec): string {
     // that), and a member needs its type to be complete at the point of declaration.
     if (spec.extraStructs?.trim()) blocks.push(indentBlock(spec.extraStructs, "    "));
     blocks.push(structBlock("StateData", spec.state));
-    // A struct member needs a complete type, so an entry whose `_locals` names another entry's I/O has
-    // to be emitted after it. Two shapes need that: a hand-written private helper, whose types the public
-    // caller references, and the `entryShape` forwarding pair, where the private half aliases the public
-    // half's types. Ordering helpers first and aliasing entries last satisfies both.
+    // A struct member needs a complete type, so an entry whose `_locals` names another's I/O comes after
+    // it. Helpers first and aliasing entries last satisfies both shapes that need this.
     const emissionRank = (entry: EntrySpec): number => (entry.ioAlias ? 2 : (entry.visibility ?? "public") === "private" ? 0 : 1);
-    // `entryOrder` may only reverse entries that do not depend on each other's types: an entry whose
-    // `_locals` names another entry's `_input` has to be emitted after it, because a struct member needs
-    // a complete type. Reversing such a contract would emit an unknown type and manufacture a rejection
-    // the archetype never asked for, so the axis stands down for it entirely and the variant renders
-    // identically to `declared` — which the source-fingerprint dedup then drops.
+    // `entryOrder` only reverses entries that do not name each other's I/O types, since a struct member
+    // needs a complete type. It stands down otherwise, and the duplicate variant is deduped away.
     const entryNames = spec.entries.map((entry) => entry.name);
     const dependsOnAnotherEntry = spec.entries.some((entry) => {
         const declarations = `${entry.locals ?? ""}\n${entry.input ?? ""}\n${entry.output ?? ""}`;
@@ -394,11 +344,8 @@ export function emitContract(input: ContractSpec): string {
     return `${comment}\nusing namespace QPI;\n${prelude}\nstruct ${spec.name}2\n{\n};\n\nstruct ${spec.name} : public ContractBase\n{\n${blocks.join("\n\n")}\n};\n`;
 }
 
-/**
- * QPI's source policy, re-checked on the rendered text. These are the rules `source-policy.ts` enforces
- * on both backends; catching them here means a generator slip fails generation instead of producing a
- * contract that is uniformly rejected and therefore tests nothing.
- */
+/** QPI's source policy, re-checked on the rendered text. These are the rules `source-policy.ts` enforces on both backends; catching them here means a
+ *  generator slip fails generation instead of producing a contract that is uniformly rejected and therefore tests nothing. */
 const FORBIDDEN: { pattern: RegExp; rule: string }[] = [
     { pattern: /\[/, rule: "qpi/no-brackets — use Array<T, N>" },
     { pattern: /"/, rule: "qpi/no-string" },

@@ -1,21 +1,4 @@
 // Lane 2 — the Collection methods no archetype had ever called.
-//
-// A grep of every archetype against `qpi_containers.h` found that `Collection` is the least-covered
-// container in the corpus by a wide margin. One archetype (`CollectionPriorityQueueByPov`) used
-// `add`, `headIndex(pov)`, `nextElementIndex`, `element` and `population()`. Everything else the
-// container exposes had **zero** call sites anywhere in 411 archetypes:
-//
-//     pov()  priority()  tailIndex()  prevElementIndex()  population(pov)
-//     headIndex(pov, maxPriority)  tailIndex(pov, minPriority)  capacity()
-//
-// That matters more here than for the flat containers. `Collection` is a set of priority queues
-// keyed by point of view, and each queue is a **binary search tree** with parent/left/right indices
-// that `add` and `remove` rebalance (`_rebuild`, `_moveElement`, `_updateParent`). The backward walk
-// and the priority-bounded lookups exercise tree edges the forward walk never touches, and a wrong
-// edge is a wrong digest rather than a crash.
-//
-// Ported from OpenZeppelin's DoubleEndedQueue and Solidity's `arrays/` ordering tests as far as the
-// shape carries; neither has priorities or point-of-view partitioning, so these are shape-only.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

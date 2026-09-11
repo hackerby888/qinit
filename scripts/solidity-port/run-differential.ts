@@ -1,12 +1,4 @@
 // The sweep: run every corpus contract through both backends and compare final-state digests.
-//
-// Parent/child, after packages/compiler/tests/gtest/sc-corpus.test.ts: each shard runs in its own
-// process with a wall-clock deadline, so a compiler that hangs on one contract costs one deadline
-// instead of stalling the run. Results are appended as NDJSON, so a killed run resumes where it stopped.
-//
-//   bun run scripts/solidity-port/run-differential.ts --tier smoke
-//   bun run scripts/solidity-port/run-differential.ts --workers 3 --out work/results.jsonl
-//   bun run scripts/solidity-port/run-differential.ts --single integers/PromoteAdd__base
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";

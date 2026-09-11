@@ -1,9 +1,4 @@
-// Logs whose payload is computed rather than copied: counters, digests, packed fields and the log a
-// loop emits once per iteration with a running value.
-//
-// A log never enters the state digest, so these rows are compared step by step on the logs themselves —
-// the cheapest signal in the corpus, and the one that notices a payload laid out differently before any
-// state does.
+// Logs whose payload is computed rather than copied: counters, digests, packed fields and the log a loop emits once per iteration with a running value.
 
 import { twoOperandArchetype } from "./common";
 import type { Archetype } from "../types";

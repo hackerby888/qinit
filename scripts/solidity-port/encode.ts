@@ -1,8 +1,4 @@
 // Little-endian byte helpers for building call-script inputs by hand.
-//
-// The scripts carry raw struct bytes as hex rather than the CLI's `"5uint64"` value syntax: an archetype
-// declares its own `_input` layout, so writing the bytes directly keeps the stimulus byte-identical for
-// both compilers without routing through a parser that could itself be wrong.
 
 import type { ScalarWidth } from "./types";
 
@@ -105,10 +101,8 @@ export function bytesToHex(bytes: Uint8Array): string {
     return hex;
 }
 
-/**
- * The edge values worth driving a width with: the boundaries where a narrowing store, a sign extension,
- * or an integer promotion goes wrong. Ordered small-to-large so a script reads sensibly.
- */
+/** The edge values worth driving a width with: the boundaries where a narrowing store, a sign extension, or an integer promotion goes wrong. Ordered small-
+ *  to-large so a script reads sensibly. */
 export function edgeValues(width: ScalarWidth): bigint[] {
     const max = maxOf(width);
     const min = minOf(width);

@@ -155,10 +155,8 @@ export function lowerUint128Expression(context: FunctionEmissionContext, express
             }
         }
     }
-    // Any helper whose declared return is a uint128 delivers it through a scratch address. Enumerating
-    // the callees that do — `div`, and only `div` — left a contract's own `static uint128 widen(...)`
-    // falling through to the scalar path, where the assignment built uint128(0) from the discarded
-    // result and stored that instead: F223.
+    // Any helper declared to return a uint128 delivers it by scratch address. Enumerating the callees
+    // that do — `div` alone — dropped a contract's own `static uint128 widen(...)` onto the scalar path.
     if (expression.kind === AstKind.CALL) {
         const helper = context.lowering.lookupHelper(context, expression);
         if (helper?.retAgg === 16) {

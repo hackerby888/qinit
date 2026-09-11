@@ -1,20 +1,6 @@
-// The third oracle: run a contract under core's own WAMR host and compare against the qinit simulator.
-//
-// Rounds 1-5 compared two backends that share one build gate, one qpi.h and one QubicSimulator, so
-// "they matched" only ever meant they agreed with each other. This runs each backend's *artifact* on
-// the runtime core actually uses, which is a genuinely independent third opinion.
-//
-// The mechanism is the one packages/cli/tests/integration/cross-host.test.ts already drives: core's
-// gtest WasmContracts.CrossHostStateEquivalence takes QINIT_WASM / QINIT_SCRIPT / QINIT_EXPECTED_SLOT
-// and prints one `CROSSHOST_OP=<n>:ok:<hex>` or `CROSSHOST_OP=<n>:trap` per op, then
-// `CROSSHOST_STATE=<hex>`. Build it with:
-//
-//   cmake -S . -B build-wasm -G Ninja -DBUILD_TESTS=ON -DLITE_WASM_SC=ON \
-//         -DTESTNET=ON -DTESTNET_LITE_RAM=ON -DBUILD_BINARY=OFF -DUSE_SANITIZER=OFF
-//   cmake --build build-wasm --target qubic_wasm_tests
-//
-// Usage: bun run scripts/solidity-port/wamr-probe.ts <header> <ContractName> <slot> <op>...
-//        where each op is `<procedureNumber>:<inputHex>`.
+// The third oracle: run one contract under core's own WAMR host and compare against the qinit
+// simulator. Build prerequisites and usage are in README.md.
+
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -35,20 +21,8 @@ if (!existsSync(GTEST)) {
 const CORE = process.env.QINIT_CORE!;
 const OUT = "/tmp/qinit-wamr-probe";
 
-/**
- * The natives core's crosshost gtest registers. A contract whose wasm *calls* anything outside this
- * set traps under that harness — not because the contract is wrong, but because the harness has no
- * QPI host.
- *
- * This set must track `scripts/solidity-port/wamr-shim.patch`, which is what widens the gtest beyond
- * the five it registers upstream. If the two drift, every contract the shim newly supports gets
- * classified as a shim-trap and the sweep quietly under-reports its own coverage.
- *
- * The pure and context-read natives the shim adds — `k12` and the tick/clock family — closed the
- * whole 152-run gap round 6 measured. What remains unregistered is deliberate: transfers, the asset
- * ledger, logging, inter-contract calls, IPO, mining and the oracle all need real host state, and a
- * stub that invents an answer would turn "unreachable" into "silently agreed".
- */
+/** The natives core's crosshost gtest registers; calling anything outside this set traps there. Must track
+ *  wamr-shim.patch, or contracts the shim newly supports get misread as shim-traps. */
 const REGISTERED_NATIVES = new Set([
     "beginFn",
     "endFn",
@@ -117,17 +91,8 @@ export function hostImports(wasm: Uint8Array): string[] {
     return names;
 }
 
-/**
- * The imports this module declares that the gtest does not register.
- *
- * This is NOT a reachability gate. WAMR resolves imports lazily, so an unregistered import only
- * traps when it is actually *called* — and the TypeScript backend declares the entire lhost surface
- * (63 functions, `cheat` included) on every contract whether it uses them or not, while clang
- * declares only the ones it needs. Gating on the import list statically would therefore mark every
- * TypeScript artifact unreachable, including ones that run perfectly. Use this only to explain a
- * trap after the fact: a trap in a contract that calls, say, `qpi.K12` is the missing shim, whereas
- * a trap in a contract that calls none of these is a real one.
- */
+/** Imports this module declares that the gtest does not register. Not a reachability gate — WAMR resolves
+ *  lazily, so use it only to explain a trap after the fact, never to predict one. */
 export function unregisteredImports(wasm: Uint8Array): string[] {
     return hostImports(wasm).filter((name) => !REGISTERED_NATIVES.has(name));
 }

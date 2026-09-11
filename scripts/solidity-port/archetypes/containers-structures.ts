@@ -1,10 +1,4 @@
 // Data structures built on top of the QPI containers, ported from OpenZeppelin's `utils/structs/*`.
-//
-// These are the shapes real contracts index with: a set that removes by swapping with the last element,
-// a binary heap, a circular buffer, a checkpoint array searched by bisection, a Merkle proof verified
-// against a fixed depth. Each one is index arithmetic over a fixed-capacity `Array`, which is where an
-// off-by-one is invisible until the digest moves. OpenZeppelin's versions recurse in places; QPI forbids
-// recursion, so every port is iterative — and that rewrite is itself part of what is being tested.
 
 import { singleProcedureArchetype } from "./common";
 import { capacityOf, fillCount } from "../axes";

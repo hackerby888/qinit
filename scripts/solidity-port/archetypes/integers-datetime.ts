@@ -1,27 +1,4 @@
 // QPI::DateAndTime and the calendar arithmetic behind it — a surface the corpus has never touched.
-//
-// Round 6's inventory found `addDays`, `addMillisec`, `addMicrosec`, `daysInMonth`, `isLeapYear`,
-// `durationDays`, `setDate`, `setTime` and every `get*` accessor at zero call sites across all 411
-// archetypes. The one near-miss, hostcalls-time.ts's TimePackedDateAndTime, hand-packs its own
-// non-QPI bit layout and never constructs a DateAndTime at all.
-//
-// Why this lane is unusually strong evidence. The TypeScript backend does not reimplement any of
-// this: packages/compiler/src/generated/qpi-snapshot.ts embeds core's own qpi_date_time.h verbatim
-// (diffed byte-for-byte against the header) and the backend compiles those bodies. So every function
-// here except qpi.now() is pure guest computation with no host in the loop, which means
-//
-//   1. a divergence is a codegen bug in one of the two backends, not a host-model mismatch, and
-//   2. the answer has ground truth — a leap year is a leap year — so these rows can be derived from
-//      the C++ rule instead of only being compared against the other backend.
-//
-// `expect` rows are attached only where the rule is short enough to derive reliably: the bit-packing
-// setters, the getters, isLeapYear, daysInMonth, and the two single-day add() cases walked through
-// step by step below. The 160-line add() with its 400-year fast path and year-skip loops is left to
-// the differential and the WAMR oracle rather than to my arithmetic — round 6 produced 47 expect
-// violations that were all derivation errors, and the lesson was to derive less, not to guess more.
-//
-// Family is `integers`, not `hostcalls`: this is bit-packed integer arithmetic with no host call in
-// it, and the WAMR parity sweep's family list covers integers but not hostcalls.
 import { twoOperandArchetype } from "./common";
 import type { Archetype } from "../types";
 

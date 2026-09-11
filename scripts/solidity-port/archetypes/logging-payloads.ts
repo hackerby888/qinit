@@ -1,9 +1,4 @@
 // The second logging batch: payload layout, type identity and where a log may be emitted from.
-//
-// Ported from Solidity's `events/*`. The logs themselves are not part of the contract's state, so a log
-// difference does not move the K12 digest — the harness records every step's logs separately and
-// compares them, which makes this family the cheapest signal in the corpus: a payload laid out
-// differently by the two backends shows up as a step-level log mismatch long before any state does.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

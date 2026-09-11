@@ -1,10 +1,4 @@
 // Events and logs.
-//
-// Ported from Solidity's `events` semantic tests. Solidity's `emit E(...)` becomes `LOG_INFO(payload)`,
-// which QPI permits only inside a procedure — a function is a read-only query with no transaction to
-// pair a log with. The payload's first word is a `_contractIndex` the host overwrites and its last
-// member is a `sint8 _terminator`; both are placement questions a codegen difference would disturb, so
-// the archetypes vary the terminator's position deliberately.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

@@ -1,10 +1,4 @@
 // Token accounting, money and identity.
-//
-// Ported from Solidity's `various/erc20.sol`, `payable`, `receive` tests and OpenZeppelin's ERC20 /
-// Ownable / Pausable. The balance table is the classic `mapping(address => uint256)`, ported to
-// `HashMap<id, uint64, N>`: the width drops from 256 to 64 bits and the map gains a fixed capacity, so
-// the overflow boundaries move. What survives unchanged is the accounting shape — the two-key update,
-// the allowance decrement, the self-transfer aliasing case — which is what both compilers must agree on.
 
 import { emitContract } from "../emit";
 import { capacityOf } from "../axes";

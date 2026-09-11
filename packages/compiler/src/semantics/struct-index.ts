@@ -162,11 +162,8 @@ export function collectNestedStructs(programAnalysis: ProgramAnalysis, parent: S
     }
 }
 
-/**
- * The struct names visible inside `declaration`'s body: each enclosing struct's own member structs,
- * outermost first, then `declaration`'s. A struct declared at file scope has no enclosing struct and so
- * sees only its own — the nested types of whatever struct the layout walk arrived from are not in scope.
- */
+/** The struct names visible inside `declaration`'s body: each enclosing struct's member structs,
+ *  outermost first, then its own. A file-scope struct sees only its own. */
 export function structsVisibleIn(programAnalysis: ProgramAnalysis, declaration: StructDecl): Map<string, StructDecl> {
     const cached = programAnalysis.structsVisible.get(declaration);
     if (cached) return cached;
@@ -193,22 +190,15 @@ export function structsVisibleIn(programAnalysis: ProgramAnalysis, declaration: 
 }
 
 export function structByName(programAnalysis: ProgramAnalysis, name: string, templateBindings: TemplateBindings): StructDecl | undefined {
-    // `nested` is a flat, program-wide table of the contract's nested structs under their bare names. It is
-    // the right answer for a name written in contract code, and the wrong one for a name written inside a
-    // struct whose own scope chain we already resolved — there the bindings are complete and this would
-    // reach into a scope C++ cannot see.
-    // Inside a struct whose scope chain is known, that chain answers where the contract's flat nested
-    // table would have. Everywhere else the table is still right: a name written in contract code means
-    // the contract's type.
+    // `nested` is the contract's flat bare-name table — right for a name written in contract code, wrong
+    // inside a struct whose own scope chain is known, where that chain answers instead.
     const contractNested = templateBindings.scopeIsKnown ? templateBindings.scopeStructs : programAnalysis.nested;
     const hit = templateBindings.structs.get(name) ?? contractNested?.get(name) ?? programAnalysis.globalStructs.get(name);
     if (hit) return hit;
     const index = name.lastIndexOf("::");
     if (index >= 0) {
         const unqualifiedName = name.slice(index + 2);
-        return (
-            templateBindings.structs.get(unqualifiedName) ?? contractNested?.get(unqualifiedName) ?? programAnalysis.globalStructs.get(unqualifiedName)
-        );
+        return templateBindings.structs.get(unqualifiedName) ?? contractNested?.get(unqualifiedName) ?? programAnalysis.globalStructs.get(unqualifiedName);
     }
     return undefined;
 }

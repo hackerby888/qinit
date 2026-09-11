@@ -1,9 +1,4 @@
 // Contract lifecycle: construction, tick and epoch hooks.
-//
-// Ported from Solidity's `constructor`, `state` and `immutable` tests. Solidity's constructor becomes
-// `INITIALIZE()`; there is no Solidity analogue for the tick and epoch hooks, but they are included
-// because they run outside any user call, which is exactly where a codegen difference would be missed
-// by a script that only ever invokes entries.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

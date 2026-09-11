@@ -1,14 +1,12 @@
-// A read-only entry must not reach a mutating one: qpi.h declares a function's context as
-// QpiContextFunctionCall and a procedure's as QpiContextProcedureCall, which derives from it, so
-// clang refuses the base-where-derived argument that CALL(procedure, ...) forwards from a function.
+// A read-only entry must not reach a mutating one. QpiContextProcedureCall derives from
+// QpiContextFunctionCall, so clang refuses the base-where-derived argument CALL forwards.
 import { AstKind } from "../../../shared/enums";
 import type { Expression, FunctionDecl, Statement } from "../../../ast";
 import type { ProgramAnalysis } from "../../../semantics/program-analysis";
 import type { PreparedContractModule } from "./module-analysis";
 
-// The class an entry takes as its context, or null when it declares none (a plain helper). Narrower
-// than clang, which checks every argument by reference binding; the backend's type inference is not
-// complete enough for the general rule, so this gates on the context class in parameter 0.
+// The class an entry takes as its context, or null for a plain helper. Narrower than clang, which
+// checks every argument by reference binding; this gates on the context class in parameter 0.
 function contextClassOf(programAnalysis: ProgramAnalysis, declaration: FunctionDecl): string | null {
     const declared = declaration.params[0]?.type;
     if (!declared) return null;
@@ -110,9 +108,8 @@ function subExpressions(expression: Expression): (Expression | undefined)[] {
     }
 }
 
-// The sibling entry a call targets. The scaffold rewrites `CALL(f, in, out)` to
-// `__qpi_call_self(f, in, out)`, moving the target out of callee position, which is why the callee's
-// declared parameter types stopped taking part in the call at all.
+// The sibling entry a call targets. The scaffold rewrites `CALL(f, ...)` to `__qpi_call_self(f, ...)`,
+// moving the target out of callee position, so its declared parameter types no longer reach the call.
 function selfCallTarget(call: Expression & { kind: AstKind.CALL }): string | null {
     if (call.callee.kind !== AstKind.IDENTIFIER) return null;
     if (call.callee.name === SELF_CALL_INTRINSIC) {

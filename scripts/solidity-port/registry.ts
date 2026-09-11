@@ -1,8 +1,4 @@
 // The archetype registry and the variant expansion.
-//
-// Every contract in the corpus is a pure function of (archetype, axis assignment, GENERATOR_VERSION),
-// so a regenerated corpus is byte-identical and a variant id is stable across runs. Bumping the version
-// is the one thing that legitimately changes the whole corpus.
 
 import { createHash } from "node:crypto";
 import { createHash as createSourceHash } from "node:crypto";
@@ -173,25 +169,19 @@ export function canonicalAxis(axis: AxisAssignment): string {
         .join(",");
 }
 
-/**
- * Expand one archetype into its variants: the base (no axes applied) plus a pairwise cover of the axes
- * it opted into, capped so no single archetype dominates the corpus.
- */
+/** Expand one archetype into its variants: the base (no axes applied) plus a pairwise cover of the axes it opted into, capped so no single archetype
+ *  dominates the corpus. */
 export function expandArchetype(archetype: Archetype, maxVariants: number, exhaustive = false): Variant[] {
-    // The universal axes are added to every archetype: they are applied inside `emitContract` from the
-    // assignment the archetype passes through, so no archetype has to opt into them by hand. One that
-    // ignores an axis renders identically under both of its values and the dedup below drops the copy,
-    // so this widens coverage without inflating the count.
+    // Universal axes go on every archetype, applied inside `emitContract`. One that ignores an axis
+    // renders identically under both values and the dedup drops the copy, so the count stays honest.
     const declared = [...new Set([...archetype.axes, ...UNIVERSAL_AXES])];
     const axes = declared.filter((axis) => AXIS_VALUES[axis].length > 0);
     const assignments: AxisAssignment[] = [{}];
 
     if (axes.length > 0) {
         const domains = axes.map((axis) => AXIS_VALUES[axis]);
-        // An exhaustive cross product explodes once an archetype opts into three or more axes
-        // (eight widths times three placements times two temporaries is already 48), so the product is
-        // only enumerated in full when it fits under the cap. Past that a pairwise cover still reaches
-        // every axis value and every pair of values, which is the shape every finding so far has had.
+        // The cross product explodes past three axes, so it is enumerated in full only under the cap.
+        // Beyond that a pairwise cover still reaches every value and every pair of values.
         const product = domains.reduce((total, domain) => total * domain.length, 1);
         const seed = Number.parseInt(shortHash(`${archetype.name}#${GENERATOR_VERSION}`), 16) >>> 0;
         const rows = exhaustive && product <= maxVariants ? crossProduct(domains) : pairwiseCover(domains, seed, Math.max(1, maxVariants - 1));
@@ -215,9 +205,8 @@ export function expandArchetype(archetype: Archetype, maxVariants: number, exhau
         if (seenAxis.has(canonical)) continue;
         seenAxis.add(canonical);
         const contract = archetype.build(axis);
-        // Fingerprint the code, not the banner: every emitted file records its axis in a header comment,
-        // so hashing the whole text would make two identical contracts look distinct and inflate the
-        // corpus with variants that test nothing.
+        // Fingerprint the code, not the banner: every emitted file records its axis in a header comment, so hashing the whole text would make two identical
+        // contracts look distinct and inflate the corpus with variants that test nothing.
         const code = contract.source.replace(/^(?:\/\/[^\n]*\n)+/, "");
         const fingerprint = createSourceHash("sha256")
             .update(`${code}\u0000${JSON.stringify(contract.script)}`)
@@ -258,13 +247,8 @@ export const TIERS = {
     standard: 15,
     /** A wider pairwise cover, for re-running a family after a mismatch cluster. */
     deep: 40,
-    /**
-     * The committed tier. With six universal axes the cross product never fits under any cap, so the
-     * number chosen decides how many *spellings of one archetype* are kept, and the archetype count
-     * decides how many shapes are under test. Round 4 moved the balance toward archetypes (12 across
-     * 255); round 5 doubled the corpus by adding 155 more archetypes and lifting the cap only from 12
-     * to 17, so the ratio stayed close to where round 4 put it.
-     */
+    /** The committed tier. The cross product never fits under any cap, so this number decides how many
+     *  spellings of one archetype are kept while the archetype count decides how many shapes. */
     full: 17,
     /** A wider cover of one family's axis space, for bisecting a mismatch cluster during triage. */
     wide: 32,

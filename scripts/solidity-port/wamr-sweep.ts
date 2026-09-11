@@ -1,17 +1,6 @@
-// Sweep the corpus against core's own WAMR host, looking for what a two-backend comparison
-// structurally cannot see.
-//
-// Rounds 1-5 asked "do the two backends agree?". That question is blind to any bug in a component
-// they share — the build gate, qpi.h, and above all the QubicSimulator they both execute in. This
-// asks a different question, of each backend separately:
-//
-//     does this artifact behave the same way on the qinit simulator and on core's real runtime?
-//
-// A contract where both backends agree with each other and both differ from WAMR is exactly the
-// class of finding no previous round could have produced.
-//
-// Usage:
-//   bun run scripts/solidity-port/wamr-sweep.ts [--family <name>] [--limit <n>] [--backend clang|typescript|both]
+// Sweep the corpus against core's own WAMR host, looking for what comparing two backends against each
+// other structurally cannot see. Rationale and usage are in README.md.
+
 import { readFileSync, existsSync } from "node:fs";
 import { cpus, tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -85,10 +74,8 @@ const flag = (name: string): string | undefined => {
 const familyFilter = flag("--family");
 const limit = Number(flag("--limit") ?? "0");
 const backendFilter = flag("--backend") ?? "both";
-// The sweep is dominated by clang: one full clang++ invocation per contract, uncached, at roughly
-// forty seconds each. Serially that is over four hours for a 385-contract run, which is why round 6's
-// sweep was long enough to span two corpus regenerations. The work is independent per contract, so
-// it parallelises cleanly; default to the core count.
+// Dominated by clang at roughly forty seconds per contract, uncached — hours if run serially. The work
+// is independent per contract, so default to the core count.
 const workers = Math.max(1, Number(flag("--workers") ?? String(Math.max(1, cpus().length))));
 
 await initK12();
@@ -141,12 +128,8 @@ async function runJob(job: Job): Promise<void> {
                 contractName: name,
                 slot: script.slot,
                 corePath: CORE,
-                // Per-backend directory, NOT a shared one. Both builders write
-                // `<outDir>/<contractName>.wasm`, so a shared outDir means the second build silently
-                // overwrites the first and this sweep runs one artifact twice under two names. That is
-                // F219: it made every clang row in the round-6 parity table a duplicate of its
-                // TypeScript row, and the "identical shim-trap set on both backends" that was offered
-                // as the run's consistency check was the fingerprint of the collision.
+                // Per-backend directory, never shared: both builders write `<outDir>/<contractName>.wasm`,
+                // so a shared one has the second overwrite the first and the sweep compares an artifact to itself.
                 outDir: `${OUT}/clang/${script.contract}`,
                 skipVerify: true,
             });
@@ -154,10 +137,8 @@ async function runJob(job: Job): Promise<void> {
             else rows.push({ id: `${family}/${script.contract}`, backend: "clang", simulator: "-", wamr: "-", verdict: "build-rejected" });
         }
         if (backendFilter !== "clang") {
-            // buildContractWithTypeScript, NOT the raw compileContractWithTypeScript driver. The raw
-            // driver skips the build gate, so for a contract the gate refuses (F217's block shadowing,
-            // the namespace alias) it returns an empty module instead of failing — which this sweep
-            // then scored as 28 simulator-vs-WAMR "disagreements" that were nothing of the kind.
+            // buildContractWithTypeScript, never the raw driver: the raw one skips the build gate and
+            // returns an empty module where the gate would refuse, which scores as a false disagreement.
             const built = await buildContractWithTypeScript({
                 contractPath: resolve(header),
                 contractName: name,
@@ -170,10 +151,8 @@ async function runJob(job: Job): Promise<void> {
             else rows.push({ id: `${family}/${script.contract}`, backend: "typescript", simulator: "-", wamr: "-", verdict: "build-rejected" });
         }
 
-        // Two independently-produced artifacts must not be byte-identical. clang and the TypeScript
-        // backend emit different imports, different function orders and different sizes for every
-        // contract in this corpus, so identity here does not mean "the backends agree" — it means the
-        // sweep is holding one file twice. Round 6 shipped a whole parity table without this check.
+        // Two independently-produced artifacts must not be byte-identical. Identity here never means the
+        // backends agree; it means the sweep is holding one file twice.
         if (artifacts.length === 2) {
             const [left, right] = artifacts.map((artifact) => readFileSync(artifact.path));
             if (left!.equals(right!)) {

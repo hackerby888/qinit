@@ -38,10 +38,8 @@ export function registerScoped<Value>(
     }
 }
 
-/**
- * Whether a declaration at `scopePrefix` owns the bare spelling of `name`. Nearest scope wins; equal
- * scope keeps last-writer-wins. Precedence is by scope, never by kind of declaration.
- */
+/** Whether a declaration at `scopePrefix` owns the bare spelling of `name`. Nearest scope wins, equal
+ *  scope is last-writer-wins, and precedence is by scope rather than by kind of declaration. */
 export function claimsBareName(programAnalysis: ProgramAnalysis, name: string, scopePrefix: string): boolean {
     const owner = programAnalysis.bareNameScope.get(name);
     if (owner === undefined || owner === scopePrefix) return true;
@@ -457,13 +455,10 @@ export function collectEnum(
     for (const member of type.members) {
         const numericValue = member.value ? programAnalysis.evalConstBig(member.value, EMPTY_TEMPLATE_BINDINGS) : next;
         next = numericValue + 1n;
-        // A named enum owns its members (Code::X); an unnamed one's belong to the scope around it (Ch::K). Both stay reachable bare for using-directives.
-        // `scopePrefix` is in the list because an unscoped enum's members also belong to the scope the
-        // enum was declared in, which is the spelling a qualified read requires.
+        // A named enum owns its members (Code::X); an unnamed one's belong to the surrounding scope
+        // (Ch::K) — hence `scopePrefix`. Both stay reachable bare for using-directives.
         const claimsBare = bareNamePolicyFor(programAnalysis, member.name, scopePrefix, barePolicy) !== BareNamePolicy.SKIP;
-        const memberScopes = type.name
-            ? [...new Set([...scopedKeys(scopePrefix, `${type.name}::`), scopePrefix, ""])]
-            : [...new Set([scopePrefix, ""])];
+        const memberScopes = type.name ? [...new Set([...scopedKeys(scopePrefix, `${type.name}::`), scopePrefix, ""])] : [...new Set([scopePrefix, ""])];
         for (const scope of memberScopes) {
             const key = `${scope}${member.name}`;
             // `scope === ""` is the bare key only when the enum is not itself at file scope; when it is,

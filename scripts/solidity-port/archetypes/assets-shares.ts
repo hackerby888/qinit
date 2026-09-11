@@ -1,15 +1,4 @@
 // Real shares, not a HashMap standing in for them.
-//
-// Rounds 1-3 ported ERC20 to a `HashMap<id, uint64, N>` balance table, which tests the compiler's
-// container lowering but never touches Qubic's own asset universe. These archetypes use the QPI asset
-// API directly — `issueAsset`, `transferShareOwnershipAndPossession`, `numberOfPossessedShares`,
-// `isAssetIssued`, `burn` — so the state under comparison is partly *outside* the contract: the two
-// backends have to agree on the host calls they make and on what they do with the sint64 status codes
-// those calls return. The digest still only covers contract state, so every archetype here mirrors the
-// host's answers into its own members; that is what makes an asset-universe difference visible.
-//
-// Solidity provenance is the ERC20/ERC1155 pattern each one stands for; the port is shape-only by
-// definition, because Solidity has no host-side asset registry at all.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

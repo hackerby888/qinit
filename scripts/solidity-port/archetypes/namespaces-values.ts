@@ -1,14 +1,4 @@
 // Name resolution, checked by value.
-//
-// Round 4 found F213 — a qualified enum constant resolving to the last-declared constant of that name —
-// and it found it because one archetype compared *numbers* rather than layouts. Three earlier rounds of
-// namespace archetypes had compared struct sizes and offsets, which a mis-resolution between two
-// identically shaped types cannot disturb. This file is the follow-up: every archetype declares two or
-// more same-named things whose values differ, reads each through its qualified name, and stores the
-// results. A wrong pick is then a wrong number in the digest, not a coincidence of layout.
-//
-// Ported from Solidity's `scoping`, `constants`, `libraries`, `enums` and `inheritance` tests, where the
-// same collisions arise between libraries and contracts.
 
 import { emitContract } from "../emit";
 import { script } from "./common";
@@ -30,11 +20,8 @@ interface ValueProbe {
     expect?: { values: bigint[]; note: string };
 }
 
-/**
- * The shape shared by this file: a `Snap` procedure that reads every colliding name and stores what it
- * got, and a `Read` function that hands the whole set back. Nothing here is about layout — every member
- * is a uint64 — so the only way two backends can differ is by resolving a name differently.
- */
+/** The shape shared by this file: a `Snap` procedure that reads every colliding name and stores what it got, and a `Read` function that hands the whole set
+ *  back. Nothing here is about layout — every member is a uint64 — so the only way two backends can differ is by resolving a name differently. */
 function valueProbe(meta: Omit<Archetype, "build" | "axes"> & { axes?: Archetype["axes"] }, probe: (axis: AxisAssignment) => ValueProbe): Archetype {
     return {
         ...meta,

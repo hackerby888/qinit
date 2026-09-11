@@ -1,11 +1,4 @@
 // Container semantics at their boundaries.
-//
-// Ported from Solidity's `array` and `storage` semantic tests and from OpenZeppelin's EnumerableSet.
-// Two QPI behaviours make these ports different from their originals, and both are named in the header
-// comment of every emitted file: `Array::get(i)` masks the index (`i & (L-1)`) where Solidity reverts,
-// and `HashMap::get` leaves the out-param untouched on a miss, so a read must pre-zero its destination.
-// A HashMap also wraps rather than growing when it is full, so a Solidity mapping's unbounded growth
-// becomes a capacity/fill question here.
 
 import { emitContract } from "../emit";
 import { capacityOf, fillCount } from "../axes";

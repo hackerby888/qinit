@@ -1,14 +1,4 @@
 // Namespace, alias and shadowing archetypes.
-//
-// Solidity has no namespaces; these are ported from `library` declarations, `using L for T`, duplicate
-// library type names, and SWC-119 shadowing. The family is first because the repo's own testing notes
-// record that it "produced nine silent bugs" — including a contract whose `constexpr sint64 NULL_INDEX`
-// silently rewrote qpi.h's HashMap internals, and a namespaced typedef that came out `sizeof` 2 instead
-// of 24 with every self-consistency check still passing.
-//
-// Each archetype writes `sizeof` and member offsets into state, so a mis-resolved name changes the
-// state digest instead of being absorbed silently. Every one of them carries a plain, unqualified
-// control row, because the fix for a qualified-name bug has previously broken the unqualified path.
 
 import { emitContract } from "../emit";
 import { qualifiedStruct } from "../axes";
@@ -29,11 +19,8 @@ const PROBE_STEPS: CallStep[] = [
     { kind: "advanceTick", n: 1 },
 ];
 
-/**
- * The workhorse: one struct declared under the `ns` axis's spelling, stored in state, and measured.
- * The twin under `collision` has a deliberately different layout, so resolving to the wrong one moves
- * `sizeof` and every offset after it.
- */
+/** The workhorse: one struct declared under the `ns` axis's spelling, stored in state, and measured. The twin under `collision` has a deliberately different
+ *  layout, so resolving to the wrong one moves `sizeof` and every offset after it. */
 function layoutProbe(meta: Omit<Archetype, "build" | "axes">, definition: string, decoy: string, payloadField: string): Archetype {
     return {
         ...meta,
@@ -518,7 +505,8 @@ export const NAMESPACE_ARCHETYPES: Archetype[] = [
         name: "NsSizeofLocalControl",
         family: "namespaces",
         solidity: "negative control (no Solidity origin)",
-        stresses: "sizeof over a plain local, a plain global and a namespaced type in one contract — the control row that caught an 8-to-4 regression when the qualified path was fixed",
+        stresses:
+            "sizeof over a plain local, a plain global and a namespaced type in one contract — the control row that caught an 8-to-4 regression when the qualified path was fixed",
         caveat: "Deliberately boring. A table with no row that fails when a fix over-reaches is incomplete.",
         axes: [],
         build(axis) {

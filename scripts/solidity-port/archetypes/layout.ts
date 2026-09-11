@@ -1,10 +1,4 @@
 // Struct layout, packing and padding.
-//
-// Ported from Solidity's `structs`, `storageLayoutSpecifier` and `types` semantic tests, plus the
-// storage-collision family behind delegatecall bugs. Solidity packs storage into 32-byte slots; QPI
-// lays structs out by C++ rules. The port keeps the *shape* — field widths and their order — because
-// that is what both compilers must agree on, and writes `sizeof` plus member offsets into state so a
-// layout disagreement moves the digest rather than hiding in padding nobody reads.
 
 import { emitContract } from "../emit";
 import { orderFields, widthOf } from "../axes";
@@ -24,10 +18,8 @@ const WRITE_READ: CallStep[] = [
     { kind: "advanceTick", n: 1 },
 ];
 
-/**
- * A struct whose fields the `layout` axis reorders, written through and measured. Offsets are computed
- * in-contract from the addresses of the members, so interior padding is observable rather than implied.
- */
+/** A struct whose fields the `layout` axis reorders, written through and measured. Offsets are computed in-contract from the addresses of the members, so
+ *  interior padding is observable rather than implied. */
 function packingProbe(meta: Omit<Archetype, "build" | "axes">, fields: { declaration: string; bytes: number }[], probeField: string): Archetype {
     return {
         ...meta,

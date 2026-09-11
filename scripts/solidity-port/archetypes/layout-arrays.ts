@@ -1,11 +1,4 @@
 // Multi-dimensional arrays and the padding around them.
-//
-// Ported from Solidity's `array/*` fixed-size tests. Solidity's storage arrays are slot-packed by a rule
-// that has nothing to do with C++ struct layout, so nothing about the *encoding* carries over — what
-// carries over is the shape: an array of arrays indexed on both axes, an array of structs whose stride
-// is the padded size of the element, and a struct whose trailing member forces tail padding. Each
-// archetype writes a value at a boundary index and reads back its neighbours, so a stride computed one
-// element out shows up as a moved neighbour rather than as a value that happens to be right.
 
 import { emitContract } from "../emit";
 import { capacityOf } from "../axes";

@@ -1,9 +1,4 @@
 // Logs emitted from where a Solidity contract cannot emit them.
-//
-// Solidity events are always emitted from a transaction. QPI permits `LOG_INFO` from the tick and epoch
-// hooks, which run with no user call on the stack, and forbids it from a function, which has no
-// transaction to attach to. These four archetypes sit on that boundary: two emit from hooks, one emits
-// an id-carrying payload, and one emits after an early return has already fired on a sibling path.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

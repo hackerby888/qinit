@@ -1,6 +1,5 @@
-// Turning one archetype into many variants: the axis values, and the helpers an archetype uses to
-// apply them. The axes are chosen from the families that have historically produced silent bugs in
-// this compiler — name qualification, field placement, scalar width, container fill.
+// Turning one archetype into many variants: the axis values, and the helpers an archetype uses to apply them. The axes are chosen from the families that have
+// historically produced silent bugs in this compiler — name qualification, field placement, scalar width, container fill.
 
 import {
     ALL_WIDTHS,
@@ -59,11 +58,8 @@ export function fillCount(axis: AxisAssignment, capacity: number): number {
     }
 }
 
-/**
- * One payload type, spelled the way the `ns` axis asks for. `collision` is the interesting one: two
- * namespaces declare the same name and only the qualification at the use site picks the right layout,
- * which is the shape that produced nine silent bugs in this compiler.
- */
+/** One payload type, spelled the way the `ns` axis asks for. `collision` is the interesting one: two namespaces declare the same name and only the
+ *  qualification at the use site picks the right layout, which is the shape that produced nine silent bugs in this compiler. */
 export interface QualifiedType {
     /** Declarations to place in the contract's prelude. */
     prelude: string;
@@ -73,11 +69,8 @@ export interface QualifiedType {
     other?: string;
 }
 
-/**
- * Build a struct type under the requested qualification. `definition` is the struct body; `decoy` is a
- * deliberately different body used by the twin namespace so a mis-resolution changes the layout, and
- * therefore the state digest, instead of being invisible.
- */
+/** Build a struct type under the requested qualification. `definition` is the struct body; `decoy` is a deliberately different body used by the twin
+ *  namespace so a mis-resolution changes the layout, and therefore the state digest, instead of being invisible. */
 export function qualifiedStruct(axis: AxisAssignment, typeName: string, definition: string, decoy: string): QualifiedType {
     const mode: NsMode = axis.ns ?? "global";
     const body = (indent: string, text: string) =>
@@ -117,10 +110,8 @@ export function qualifiedStruct(axis: AxisAssignment, typeName: string, definiti
     }
 }
 
-/**
- * Place a payload inside StateData per the `placement` axis, always with a guard field on the far side
- * so a layout error shows up as a changed neighbour rather than as a silently absorbed offset.
- */
+/** Place a payload inside StateData per the `placement` axis, always with a guard field on the far side so a layout error shows up as a changed neighbour
+ *  rather than as a silently absorbed offset. */
 export function placeInState(axis: AxisAssignment, payloadDeclaration: string): { state: string; path: string } {
     const placement: Placement = axis.placement ?? "first";
     switch (placement) {
@@ -170,12 +161,15 @@ export function loopHeader(axis: AxisAssignment, counter: string, boundExpressio
     }
 }
 
-/**
- * The `constSource` axis: the archetype's second operand arrives either at runtime through `input`, or as
- * a `static constexpr` the compiler is free to fold. The two paths are lowered very differently, and this
- * repo has already seen a constant folder disagree with the code it folds for.
- */
-export function operandFor(axis: AxisAssignment, inputExpression: string, constantName: string, constantType: string, constantValue: bigint): { prelude: string; use: string } {
+/** The `constSource` axis: the archetype's second operand arrives either at runtime through `input`, or as a `static constexpr` the compiler is free to
+ *  fold. The two paths are lowered very differently, and this repo has already seen a constant folder disagree with the code it folds for. */
+export function operandFor(
+    axis: AxisAssignment,
+    inputExpression: string,
+    constantName: string,
+    constantType: string,
+    constantValue: bigint,
+): { prelude: string; use: string } {
     if ((axis.constSource ?? "input") === "input") return { prelude: "", use: inputExpression };
     return { prelude: `static constexpr ${constantType} ${constantName} = ${constantValue};`, use: constantName };
 }

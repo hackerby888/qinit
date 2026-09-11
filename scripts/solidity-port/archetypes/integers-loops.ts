@@ -1,9 +1,4 @@
 // Accumulation: the arithmetic a loop does to a number, and the boundaries it crosses on the way.
-//
-// Ported from Solidity's `arithmetics/*` and `controlFlow/loops.sol`. Every archetype recomputes its
-// result from scratch on each call, so the expected values depend only on the operands and can be
-// derived by hand; the point of the loop is that the same total is reached by a different number of
-// steps depending on the operands, which is where a wrongly folded trip count shows up.
 
 import { twoOperandArchetype } from "./common";
 import type { Archetype } from "../types";

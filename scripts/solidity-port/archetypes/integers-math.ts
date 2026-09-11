@@ -1,11 +1,4 @@
 // Integer library maths, ported from OpenZeppelin's `utils/math/*`.
-//
-// These are the branchless idioms real contracts run: sign masks, overflow-free averages, saturating
-// arithmetic, downcast ladders, and iterative log2/sqrt. Every one of them leans on behaviour C++ leaves
-// to the target — arithmetic vs logical shift on a sign bit, signed/unsigned reinterpretation, wrap on
-// overflow — which is exactly what two independent code generators can disagree about. The naive form
-// sits beside the clever one in the same contract wherever possible, so a divergence has its control
-// built in.
 
 import { singleProcedureArchetype } from "./common";
 import { maxOf, minOf, scalar, u64 } from "../encode";
@@ -481,12 +474,8 @@ export const INTEGER_MATH_ARCHETYPES: Archetype[] = [
     ),
 ];
 
-/**
- * Pins F203. `qpi.K12` binds `const T&` and hashes `sizeof(T)` bytes, so a computed argument must hash
- * the same bytes as a named local holding that value. It does under clang and does not under the
- * TypeScript backend, which makes every commitment or Merkle root a contract computes inline differ from
- * what the chain would produce. Kept as its own archetype so the finding has a standing regression row.
- */
+/** `qpi.K12` binds `const T&` and hashes `sizeof(T)` bytes, so a computed argument must hash the same bytes
+ *  as a named local holding it. Its own archetype so the case keeps a standing regression row. */
 export const K12_EXPRESSION_ARCHETYPES: Archetype[] = [
     singleProcedureArchetype(
         {

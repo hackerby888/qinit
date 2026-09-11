@@ -1,20 +1,4 @@
 // Lane 4 — which declaration wins, not whether one resolves.
-//
-// The repo's own suite already asks whether a name resolves: `name-shadowing.test.ts` and
-// `namespace-resolution.test.ts` have 11 tests each, and every one of the 22 is of the form
-// "custom namespace helper resolves via using namespace" or "a loop counter named `i` counts rather
-// than reading as `i`". Not one puts **two same-named declarations with different values** in scope
-// and checks *which one* the compiler picks. That is exactly F213's shape, and it is why 143 test
-// files under packages/compiler/tests did not catch a constant name being effectively global.
-//
-// So every archetype here declares colliding names whose *values* differ and reads each through the
-// spelling a developer would actually use. A wrong pick is then a wrong number in the state digest.
-// Round 5's `namespaces-values.ts` established the method on constants and enums; this file takes it
-// into the lookup rules that file did not reach — using-declarations and directives, scoped enums,
-// block-scope shadow chains, base members against file scope, and twin inner namespaces.
-//
-// Ported from Solidity's `scoping`, `constants`, `inheritance` and `enums` semantic tests, where the
-// same collisions arise between a contract, its bases, and the libraries it uses.
 
 import { emitContract } from "../emit";
 import { script } from "./common";
@@ -32,11 +16,8 @@ interface LookupProbe {
     expect?: { values: bigint[]; note: string };
 }
 
-/**
- * A `Snap` procedure that reads every colliding name and stores what it got, plus a `Read` function
- * that hands the set back. Every member is a `uint64`, so layout cannot mask a mis-resolution: the
- * only way two backends can produce different state is by picking different declarations.
- */
+/** A `Snap` procedure that reads every colliding name and stores what it got, plus a `Read` function that hands the set back. Every member is a `uint64`, so
+ *  layout cannot mask a mis-resolution: the only way two backends can produce different state is by picking different declarations. */
 function lookupProbe(meta: Omit<Archetype, "build" | "axes"> & { axes?: Archetype["axes"] }, probe: (axis: AxisAssignment) => LookupProbe): Archetype {
     return {
         ...meta,

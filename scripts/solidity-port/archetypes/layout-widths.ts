@@ -1,10 +1,4 @@
 // Member widths and the padding they force.
-//
-// Ported from Solidity's `structs/*` packing tests. Solidity packs storage into 32-byte slots by a rule
-// of its own; C++ aligns each member to its own width. Nothing about the encoding carries over, which is
-// the point: what is under test is whether the *two Qubic backends* lay out the same declarations the
-// same way. Every archetype puts a canary on both sides of the interesting member, so a wrong offset
-// shows up as a moved neighbour rather than as a value that happens to look plausible.
 
 import { emitContract } from "../emit";
 import { capacityOf } from "../axes";

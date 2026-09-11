@@ -1,11 +1,4 @@
 // Vulnerability archetypes.
-//
-// Ported from crytic/not-so-smart-contracts and the SmartBugs taxonomy: the shapes behind real
-// exploits. Several of the original bugs are not expressible in QPI at all — there is no reentrancy
-// through an external call, because the call graph is a strict DAG by slot, and there is no
-// selfdestruct or delegatecall. Those are ported to the nearest QPI-legal shape, and the header comment
-// of every emitted file says which. Their value here is not security coverage; it is that real exploit
-// code has a shape hand-written probes do not.
 
 import { emitContract } from "../emit";
 import { capacityOf } from "../axes";

@@ -1,19 +1,4 @@
 // Cross-contract calls.
-//
-// Ported from Solidity's `functionCall/*` and `libraries/external_call_*`. QPI's call graph is a strict
-// DAG by slot — `CALL_OTHER_CONTRACT_FUNCTION` static_asserts `callee_index < caller_index` — so there is
-// no reentrancy, no delegatecall and no self-call. What survives from the Solidity originals is the part
-// that still bites: the caller's and callee's views of the argument struct must agree byte for byte, a
-// callee's output shorter than the caller expects must read as zeros rather than garbage, and a callee's
-// state is where the mutation lands even when the caller's own state is untouched.
-//
-// Three rules the generator enforces, each of which would otherwise manufacture a false finding:
-//   - the callee always sits at caller-1, because clang rejects a wrong ordering at compile time while
-//     the TypeScript backend accepts it and returns CALL_ERROR_CONTRACT_INACTIVE at runtime;
-//   - callee-declared types never appear in the caller's public input or output (`qpi/public-callee-type`
-//     is a hard gate on both backends) — they live in `_locals`;
-//   - at most one plain CALL/INVOKE per scope, since the macro declares its own error variable and a
-//     second one in the same scope is a redefinition.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

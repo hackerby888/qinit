@@ -1,15 +1,4 @@
-// The rest of the host surface: digests, fee reserves, K12 over each kind of operand, and the calls a
-// hook can make that an entry cannot.
-//
-// Round 4 covered identity, money and the calendar. What is left is mostly *bytes in, bytes out*:
-// `qpi.K12` over a scalar, a struct, an array and an id; the three previous-state digests the protocol
-// exposes; and the fee reserve. All of it is pinned by the harness (a fixed spectrum digest, a fixed
-// clock, a pinned committee), so anything that moves between the two backends moved because of code
-// generation.
-//
-// F203 lives in this territory — `qpi.K12(<expression>)` hashes different bytes than
-// `qpi.K12(<variable>)` — so every K12 here is taken over a named local, which is the spelling that
-// agrees, and one archetype deliberately keeps both spellings side by side.
+// The rest of the host surface: digests, fee reserves, K12 over each kind of operand, and the calls a hook can make that an entry cannot.
 
 import { twoOperandArchetype } from "./common";
 import type { Archetype } from "../types";
@@ -391,7 +380,7 @@ export const HOSTCALL_MORE_ARCHETYPES: Archetype[] = [
             family: "hostcalls",
             solidity: "test/libsolidity/semanticTests/various/address_to_uint.sol",
             stresses:
-                "reading a 64-bit word out of the SELF identity — directly, which the TypeScript backend refuses, and through a local copy, which it accepts",
+                "reading a 64-bit word out of the SELF identity, directly and through a local copy",
             caveat: "Both spellings read the contract's own index and both backends agree. The direct one used to be refused — selecting a member of a class prvalue materialises a temporary, and SELF expands to id(...), which matched no branch (F215).",
             axes: ["placement"],
         },

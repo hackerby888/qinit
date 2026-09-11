@@ -1,10 +1,4 @@
 // Control flow, guards and the revert port.
-//
-// Ported from Solidity's `statements`, `expressions`, `functionCall`, `modifiers` and `reverts` tests.
-// The interesting one is the `require` family: QPI has no revert, so a failed guard does *not* roll back
-// earlier writes. Two archetypes make that explicit — one guards before writing (the correct port) and
-// one guards after (the honest port of a Solidity contract that relied on atomicity). Both must produce
-// the same state on both backends; the point is that the states differ from each other.
 
 import { emitContract } from "../emit";
 import { loopHeader, widthOf } from "../axes";

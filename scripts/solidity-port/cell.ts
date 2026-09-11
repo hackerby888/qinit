@@ -1,6 +1,5 @@
-// One differential cell: compile a ported contract — or a caller/callee pair — with both backends,
-// drive both with the same call script, and compare. This is the unit the sweep parallelises over and
-// the unit triage re-runs.
+// One differential cell: compile a ported contract — or a caller/callee pair — with both backends, drive both with the same call script, and compare. This is
+// the unit the sweep parallelises over and the unit triage re-runs.
 
 import { compileWith, type CompileEnvironment, type CompileRequest } from "./compile";
 import { compareRuns, checkExpectations, classify } from "./compare-runs";

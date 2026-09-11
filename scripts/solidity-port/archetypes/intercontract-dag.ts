@@ -1,11 +1,4 @@
 // The second cross-contract batch: where the call sits, and what the callee holds.
-//
-// Ported from Solidity's `functionCall/*` and `libraries/external_call_*`. Round 2 established the
-// pair machinery — callee at caller-1, callee types confined to `_locals`, one plain CALL per scope —
-// and these archetypes vary the two things that batch held fixed: the *position* of the call (inside a
-// loop, inside a private procedure, interleaved with a read of the same callee) and the *shape* of the
-// callee's own state, which is where most of the mutation lands and where a digest difference would
-// otherwise be invisible to a caller-only comparison.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

@@ -1,11 +1,4 @@
 // Construction and hook interaction, second batch.
-//
-// Round 3's lifecycle archetypes established that the four hooks run and that INITIALIZE's absence is
-// visible. These push further: a hook that writes what a later entry reads, two hooks writing the same
-// member, an epoch boundary that arrives between two halves of a computation, and construction-time
-// state that the `initStyle` axis then takes away. The last one matters because that axis is universal
-// now — every archetype in the corpus is also run with an empty and with an absent INITIALIZE, and this
-// family is where that is the subject rather than a side effect.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

@@ -1,13 +1,4 @@
 // The host interface: identity, money and the node's own view of the world.
-//
-// This family has no Solidity originals to port — `qpi.arbitrator()`, `qpi.computor(i)`,
-// `qpi.nextId()` and `qpi.getEntity()` have no Ethereum analogue, and the ones that do (`msg.sender`,
-// `address(this).balance`, `selfdestruct`) map onto a different model. What each archetype records is
-// the Solidity pattern it stands in for, and the value is that these are *host calls*: the two backends
-// each lower them to the same lhost import, and every result the contract stores is a place where a
-// wrong argument order, a missed sign extension or a dropped return value becomes a digest difference.
-//
-// Every host answer is mirrored into contract state, because the digest covers contract state only.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

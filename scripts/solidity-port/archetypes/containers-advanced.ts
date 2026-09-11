@@ -1,11 +1,4 @@
 // The containers the earlier rounds did not reach: Collection, nesting, and key collisions.
-//
-// `Collection` is QPI's priority queue keyed by point of view — a doubly-linked structure with its own
-// index space, no Solidity analogue whatsoever, and by far the most internal state any QPI container
-// carries. The rest of this file is about *nesting and collision*: a HashMap inside an Array, two
-// containers inside one struct inside state, keys engineered to land in the same bucket. In every case
-// the interesting bytes are the container's own bookkeeping, which no statement in the contract writes
-// directly and which the final-state digest covers in full.
 
 import { emitContract } from "../emit";
 import { capacityOf, fillCount } from "../axes";

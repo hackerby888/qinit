@@ -1,10 +1,4 @@
 // The second batch of exploit shapes, from crytic/not-so-smart-contracts and the SWC registry.
-//
-// As in round 1, several originals are not expressible in QPI: there is no tx.origin phishing without an
-// external call that re-enters, no selfdestruct, no delegatecall. Each is ported to the nearest legal
-// shape and every emitted file says so in its header. The reason they are in a compiler corpus at all is
-// that exploit code has a shape — a privilege read through the wrong name, an arithmetic guard that runs
-// after the arithmetic — that hand-written probes do not naturally produce.
 
 import { emitContract } from "../emit";
 import { capacityOf } from "../axes";

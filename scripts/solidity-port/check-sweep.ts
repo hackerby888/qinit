@@ -1,17 +1,5 @@
-// The sweep gate: read a run's NDJSON rows and decide whether the result is acceptable.
-//
-//   bun run scripts/solidity-port/check-sweep.ts work/sweep.jsonl
-//
-// "Zero divergences" is not the bar, because some findings are open and their rows are supposed to be
-// red. The bar is that no archetype diverges except the ones KNOWN_DIVERGENCES names.
-//
-// `both-rejected` counts as agreement, not divergence: neither backend built the contract, so the two
-// agree that the program is invalid. That is the outcome a fix produces when clang refuses something we
-// used to compile, and treating it as a failure would mean a correct fix could never go green.
-//
-// --strict additionally fails a listed archetype whose rows all agreed, which retires a stale entry the
-// moment its defect is fixed. It belongs only on a run that exercises every variant: a smoke tier runs
-// one contract per archetype, and an archetype can agree there while diverging on a variant it skipped.
+// The sweep gate: read a run's NDJSON rows and decide whether the result is acceptable. What counts as
+// a divergence, and what --strict adds, are in README.md.
 
 import { existsSync, readFileSync } from "node:fs";
 import { KNOWN_DIVERGENCES } from "./known-divergences";

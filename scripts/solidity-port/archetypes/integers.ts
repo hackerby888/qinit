@@ -1,10 +1,4 @@
 // Integer semantics, promotion, width and signedness.
-//
-// Ported from Solidity's `arithmetics`, `integer`, `cleanup`, `conversions` and `operators` semantic
-// tests. Solidity 0.8 reverts on overflow and panics on division by zero; QPI does neither — it wraps,
-// and `QPI::div`/`QPI::mod` return 0 for a zero divisor. Every archetype here therefore asserts the
-// *observed wrapped value* rather than a revert, and the pair of wide/narrow state fields is what makes
-// C++'s integer promotion visible: both operands widen to `int` before the operator runs.
 
 import { binaryOpArchetype, script, singleProcedureArchetype } from "./common";
 import { emitContract } from "../emit";

@@ -1,11 +1,4 @@
-// Signed arithmetic at the boundaries, where C++ and Solidity part company and where this compiler has
-// already produced one confirmed defect (F200).
-//
-// Ported from Solidity's `expressions/signed_*`, `arithmetics/*` and OpenZeppelin's `SignedMath`. Every
-// archetype here overwrites its members on each call rather than accumulating, so the expected values
-// depend only on the operands in front of them — that is what makes the hand-derived `expect` rows
-// checkable at a glance, and those rows are the only thing in the corpus that can catch both backends
-// being wrong in the same direction.
+// Signed arithmetic at the boundaries, where C++ and Solidity part company and where this compiler has already produced one confirmed defect (F200).
 
 import { twoOperandArchetype } from "./common";
 import type { Archetype } from "../types";

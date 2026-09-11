@@ -1,15 +1,4 @@
 // Construction and the hooks that run without a user call.
-//
-// Ported from Solidity's `constructor/*`, `immutable/*` and `state/*` tests. A Solidity constructor
-// becomes `INITIALIZE()`, but the interesting part of the port is what happens when INITIALIZE does
-// *less* than the contract assumes: Solidity zero-initialises storage by definition, and QPI's two
-// backends have to agree on the same thing for a member no initialiser ever touches. The `initStyle`
-// axis drives exactly that, so every archetype here is also run with an empty and with an absent
-// INITIALIZE.
-//
-// The tick and epoch hooks have no Solidity analogue and are included for the same reason round 1 gave:
-// they are the only contract code that runs with no entry on the stack, so a script that drives only
-// entries never reaches them.
 
 import { emitContract } from "../emit";
 import { capacityOf } from "../axes";

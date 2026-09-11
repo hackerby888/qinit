@@ -1,39 +1,11 @@
 // HashMap and HashSet removal: tombstones, the removal counter, and cleanup's three exits.
-//
-// Round 6's inventory found that the only removal call site in all 411 archetypes is `removeByKey`,
-// used three times. `removeByIndex`, `getElementIndex`, `isEmptySlot`, `key`, `value`,
-// `nextElementIndex`, `cleanup`, `cleanupIfNeeded`, `needsCleanup`, `capacity`, `reset` and
-// `HashSet::remove` had zero. That leaves the container's entire deletion half untested, and deletion
-// in an open-addressed table is where the interesting state lives.
-//
-// The scheme (qpi_containers.h:314-336): two occupation bits per slot — 0b00 never occupied, 0b01
-// occupied, 0b10 occupied but marked for removal. The 0b10 tombstone exists so a linear-probe chain
-// survives a deletion in its middle: `getElementIndex` (qpi_hash_map_impl.h:66) has no `case 2`, so a
-// tombstone falls through and the probe walks on, while a 0b00 stops it. Nothing rehashes implicitly
-// — `cleanup()` is the only thing that ever turns a 0b10 back into a 0b00.
-//
-// Every archetype here keys on `id`, and that is load-bearing rather than incidental:
-// HashFunction<m256i>::hash is `key.u64._0` verbatim (qpi_hash_map_impl.h:26), with no
-// KangarooTwelve in the path, so `id(k, 0, 0, 0)` lands in slot `k & (L - 1)` and a collision chain
-// can be laid out by hand. That is what makes these expect rows derivable at all: with a uint64 key
-// the hash goes through K12 and the slot is unpredictable, so a row could only assert behaviour, not
-// position.
-//
-// Capacity is pinned at 8 wherever a row depends on it, because both the slot arithmetic and the
-// `needsCleanup` threshold are functions of L. The one archetype that varies capacity carries no
-// rows and exists for the differential and the WAMR oracle.
 import { emitContract } from "../emit";
 import { u64 } from "../encode";
 import { describeAxis, script } from "./common";
 import type { Archetype, AxisAssignment, BuiltContract, CallStep } from "../types";
 
-/**
- * twoOperandArchetype cannot be used here. It derives the `Read` output struct and the INITIALIZE
- * body from every member of `state`, which works only when they are all uint64 — and the whole point
- * of this lane is to keep the container itself in StateData, where its occupation flags and its
- * zeroed-on-removal elements land in the K12 digest the campaign compares. So this shape declares the
- * container first, reads back only the uint64 members after it, and resets the container explicitly.
- */
+/** twoOperandArchetype derives Read and INITIALIZE from every state member, which needs them all uint64 —
+ *  but the container has to stay in StateData to reach the digest. So this shape is hand-rolled. */
 interface HashProbeSpec {
     /** The container declaration, e.g. `HashMap<id, uint64, 8> map;`. Excluded from `Read`. */
     container: string;
@@ -117,14 +89,8 @@ const OZ = "openzeppelin-contracts/contracts/utils/structs";
 /** NULL_INDEX is sint64 -1 (qpi_types.h:24); these archetypes read it back through a uint64 member. */
 const NULL_INDEX = 18446744073709551615n;
 
-/**
- * Three keys whose low word is 0, 8 and 16, so on an 8-slot map all three hash to slot 0.
- *
- * The reset() is load-bearing. The Run procedure is invoked once per operand pair against the same
- * StateData, so without it the removal counter and the tombstones accumulate across pairs and each
- * expect row becomes a function of every row before it — which is exactly how two rows in the first
- * draft of this file came out wrong.
- */
+/** Three keys whose low word is 0, 8 and 16, so on an 8-slot map all three hash to slot 0. The reset() is
+ *  load-bearing: Run is invoked once per pair, so without it counters accumulate across rows. */
 const CHAIN_AT_ZERO = `
     state.mut().map.reset();
     locals.k0 = id(0, 0, 0, 0);

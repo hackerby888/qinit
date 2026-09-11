@@ -1,6 +1,5 @@
-// Constant-folded arithmetic whose C++ answer the backend used to reach a different way: an
-// out-of-range shift count, and a signed 32-bit division that has to trap. Each row asserts the value
-// clang produces, so agreeing with the other backend is not enough to pass.
+// Constant-folded arithmetic whose C++ answer the backend used to reach a different way: an out-of-range shift count, and a signed 32-bit division that has to
+// trap. Each row asserts the value clang produces, so agreeing with the other backend is not enough to pass.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,9 +24,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-// A shift by a constant count outside [0, width) is undefined in C++ and clang's codegen answers 0 for
-// every spelling. `<< -1` and `>> -3` are here because they land on 0 through wasm's six-bit masking as
-// well, so a fold that never fires still passes them — they only mean something beside the rows above.
+// A shift by a constant count outside [0, width) is undefined in C++ and clang's codegen answers 0 for every spelling. `<< -1` and `>> -3` are here because
+// they land on 0 through wasm's six-bit masking as well, so a fold that never fires still passes them — they only mean something beside the rows above.
 const VALUES: Record<string, { body: string; expect: bigint }> = {
     "a shift count above the operand width folds to zero": {
         body: `uint64 v = 10; state.mut().a = v << 254;`,

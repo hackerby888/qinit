@@ -1,14 +1,4 @@
 // Wide and bitwise arithmetic: the kernels every DeFi contract carries its own copy of.
-//
-// Ported from OpenZeppelin's `utils/math/Math.sol` (`mulDiv`, `sqrt`, `log2`, `average`), Solady's
-// `LibBit`, and the 128-bit intermediate every AMM needs for `x * y / z`. Solidity gets a 256-bit word
-// and QPI does not, so none of these port faithfully: the port keeps the *algorithm* and moves it to
-// 64-bit lanes with an explicit hi/lo split, which is more demanding of the compiler than the original,
-// not less — the carry and the shift boundaries become real code instead of one wide opcode.
-//
-// Each archetype drives the same computation twice where it can: once the obvious way and once through
-// a second spelling, and stores both. A backend that gets one of them wrong disagrees with itself, so
-// the row is informative even in the case where both backends make the same mistake.
 
 import { emitContract } from "../emit";
 import { script } from "./common";
@@ -28,11 +18,8 @@ interface MathSpec {
     output: string;
     /** Operand pairs to drive. */
     pairs: [bigint, bigint][];
-    /**
-     * Expected `Read` outputs, derived by hand from the C++ rule rather than from either backend. This is
-     * the campaign's secondary oracle: the digest comparison can only catch the two backends disagreeing,
-     * while these rows catch them agreeing on a wrong answer.
-     */
+    /** Expected `Read` outputs, derived by hand from the C++ rule rather than from either backend. This is the campaign's secondary oracle: the digest
+     *  comparison can only catch the two backends disagreeing, while these rows catch them agreeing on a wrong answer. */
     expect?: { step: number; values: bigint[]; note: string }[];
 }
 

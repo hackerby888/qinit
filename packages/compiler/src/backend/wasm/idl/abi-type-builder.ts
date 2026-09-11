@@ -257,9 +257,8 @@ export class AbiTypeBuilder {
 
     private struct(name: string | undefined, layout: StructLayout, root: boolean, bindings: TemplateBindings, declaration?: StructDecl): AbiStruct {
         const localBindings = declaration ? this.programAnalysis.withLocalStructs(declaration.members, bindings, declaration) : bindings;
-        // A struct whose fields lead back to itself has no finite ABI, so bound the walk rather than
-        // exhausting the stack. Report it where the struct is declared and return an empty body: the
-        // recorded error fails the build, and unwinding by exception would lose the source location.
+        // A struct reaching itself has no finite ABI. Report it at the declaration and return an empty
+        // body — the recorded error fails the build, where an exception would lose the source location.
         if (declaration) {
             if (this.expanding.has(declaration)) {
                 this.programAnalysis.error(`struct '${name ?? declaration.name}' contains itself, directly or through its fields`, declaration.span ?? 0);
@@ -376,7 +375,6 @@ function withExactSize(type: AbiType, size: number): AbiType {
         size,
     } as AbiType;
 }
-
 
 // A template parameter or named constant reads better as its name; a literal or arithmetic expression has none worth showing, so name it by its result.
 function dimensionLabel(type: TypeSpec, value: number): string {

@@ -1,10 +1,4 @@
-// More share-API accounting: issuance limits, ownership versus possession, and the codes the host
-// returns when a transfer cannot be made.
-//
-// Round 4 established that the asset universe is reachable from a contract and that both backends drive
-// it the same way. These archetypes push on the *edges* of that API — a zero-share issuance, a negative
-// count, a transfer to the issuer, a transfer of everything followed by one more — because each of those
-// is a signed return code the contract has to interpret, and interpreting a code is code generation.
+// More share-API accounting: issuance limits, ownership versus possession, and the codes the host returns when a transfer cannot be made.
 
 import { twoOperandArchetype } from "./common";
 import type { Archetype } from "../types";

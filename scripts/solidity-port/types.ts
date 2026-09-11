@@ -104,11 +104,8 @@ export type AxisName =
     | "stateOrder"
     | "entryOrder";
 
-/**
- * Axes that need nothing from the archetype beyond passing its `axis` through to `emitContract`, so the
- * generator opts every archetype into them. An archetype that ignores one renders identically under both
- * of its values and the source-fingerprint dedup drops the duplicate, so this cannot inflate the corpus.
- */
+/** Axes needing nothing from an archetype but its `axis` passed through, so every archetype opts in. One
+ *  that ignores an axis renders identically under both values and the duplicate is deduped away. */
 export const UNIVERSAL_AXES: AxisName[] = ["placement", "temporaries", "initStyle", "entryShape", "stateOrder", "entryOrder"];
 
 /** One point in the archetype's opted-in axis space. Absent keys mean the archetype ignores that axis. */
@@ -145,10 +142,8 @@ export interface CallStep {
     note?: string;
 }
 
-/**
- * A row the port asserts independently of compiler agreement, used only where the Solidity → QPI width
- * mapping is exact. Secondary oracle: it can convict a bug both backends share, which the digest cannot.
- */
+/** A row the port asserts independently of compiler agreement, used only where the Solidity → QPI width mapping is exact. Secondary oracle: it can convict a
+ *  bug both backends share, which the digest cannot. */
 export interface ExpectRow {
     /** Index into `steps`. */
     step: number;
@@ -178,12 +173,8 @@ export interface CallScript {
 export interface BuiltContract {
     source: string;
     script: CallScript;
-    /**
-     * A callee this contract calls. Its slot must be strictly lower than the caller's: clang
-     * static_asserts the ordering inside the CALL macro, while the TypeScript backend does not check it
-     * at compile time and instead returns CALL_ERROR_CONTRACT_INACTIVE at runtime — so generating a
-     * wrong-order pair by accident would manufacture a false compile-divergence row.
-     */
+    /** A callee this contract calls, at a strictly lower slot. clang static_asserts that ordering inside
+     *  CALL while the TypeScript backend fails at runtime, so a wrong-order pair reads as a divergence. */
     callee?: { name: string; source: string; slot: number };
 }
 
@@ -199,18 +190,11 @@ export interface Archetype {
     caveat?: string;
     /** Axes this archetype opts into. The generator crosses only these. */
     axes: AxisName[];
-    /**
-     * Set when the archetype exists to prove both backends REFUSE the contract. Agreeing on rejection is
-     * then the pass, and either backend accepting it is the finding. These rows are weaker than the rest
-     * (both compilers share one build gate) but they are the only ones that would catch the two gates
-     * drifting apart.
-     */
+    /** Set when the archetype exists to prove both backends refuse the contract, so agreeing on rejection
+     *  is the pass. Weaker than the rest, but the only rows that would catch the gates drifting. */
     expectReject?: boolean;
-    /**
-     * A divergence this archetype exists to pin, with a documented cause. Scored as a match when it
-     * diverges exactly this way, and as a failure if it ever stops — a regression test rather than a
-     * permanent red row on the scoreboard. Requires `divergenceNote`.
-     */
+    /** A divergence this archetype exists to pin, with a documented cause. Scored as a match when it diverges exactly this way, and as a failure if it ever
+     *  stops — a regression test rather than a permanent red row on the scoreboard. Requires `divergenceNote`. */
     expectedVerdict?: Verdict;
     /** Why the expected divergence happens; rendered into the emitted file and the scoreboard. */
     divergenceNote?: string;
@@ -249,10 +233,8 @@ export interface BackendRun {
     wasmBytes?: number;
     /** True when the wasm came from the compile cache, so `compileMs` is not a build time. */
     cached?: boolean;
-    /**
-     * The callee's final state, for a pair. Most cross-contract mutation lands here, so the caller's own
-     * state can be identical while the callee's diverges.
-     */
+    /** The callee's final state, for a pair. Most cross-contract mutation lands here, so the caller's own state can be identical while the callee's
+     *  diverges. */
     calleeDigest?: string;
     calleeStateSize?: number;
     /** Cross-contract calls the run actually made, so a pair that never called out is visible. */
@@ -260,15 +242,7 @@ export interface BackendRun {
 }
 
 export type Verdict =
-    | "match"
-    | "digest-mismatch"
-    | "step-mismatch"
-    | "trap-divergence"
-    | "one-side-rejected"
-    | "both-rejected"
-    | "expect-violation"
-    | "hang"
-    | "harness-error";
+    "match" | "digest-mismatch" | "step-mismatch" | "trap-divergence" | "one-side-rejected" | "both-rejected" | "expect-violation" | "hang" | "harness-error";
 
 export interface CellResult {
     /** `<family>/<Archetype>__<variantId>`. */

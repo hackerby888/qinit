@@ -1,10 +1,4 @@
 // DeFi failure modes: the arithmetic and ordering bugs that actually drained contracts.
-//
-// From the SWC registry, rekt.news post-mortems and the Damn Vulnerable DeFi exercises. None of them
-// port faithfully — there is no mempool to front-run in, no external call to re-enter through — so each
-// archetype keeps the *arithmetic and the ordering* and drops the adversary. What survives is what a
-// compiler can get wrong: a rounding step that silently favours one side, a division that reaches zero,
-// a constant-product swap whose invariant is checked after the update rather than before.
 
 import { emitContract } from "../emit";
 import { capacityOf } from "../axes";

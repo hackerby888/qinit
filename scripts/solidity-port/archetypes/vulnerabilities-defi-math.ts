@@ -1,11 +1,4 @@
 // The arithmetic half of a DeFi exploit: the ratio, the fee, the health factor, the index.
-//
-// From rekt.news post-mortems, the Damn Vulnerable DeFi exercises and Euler's and Compound's own
-// incident write-ups. The adversary does not port — there is no mempool and no flash loan here — but the
-// *number* does, and in every one of these incidents the number was reachable by ordinary arithmetic:
-// a ratio that truncates, a fee that rounds to zero, an index that drifts, a threshold checked with the
-// wrong comparison. Each archetype computes the quantity two ways where a second way exists, and stores
-// both, so a backend that lowers one of them differently disagrees with itself.
 
 import { twoOperandArchetype } from "./common";
 import type { Archetype } from "../types";

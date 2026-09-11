@@ -1,11 +1,4 @@
 // Write the corpus: one .h per contract, one call script per family, and a manifest.
-//
-//   bun run scripts/solidity-port/generate.ts                 regenerate corpus/solidity-port/
-//   bun run scripts/solidity-port/generate.ts --check         fail if the tree differs from the generator
-//   bun run scripts/solidity-port/generate.ts --analyze-only  run the shared build gate over every variant
-//
-// The corpus is generator-owned and not committed, so CI regenerates it before every sweep and drift
-// cannot happen. `--check` stays useful locally, to catch a variant edited by hand during triage.
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -37,11 +30,8 @@ function sha256(value: string): string {
     return hasher.digest("hex");
 }
 
-/**
- * A port is "faithful" only when nothing about it had to change to fit QPI. Anything carrying a caveat —
- * a width reduction, a bounded container, a guard standing in for a revert — is shape-only, and the
- * report prints the mix so nobody reads the corpus as a claim about Solidity conformance.
- */
+/** A port is "faithful" only when nothing about it had to change to fit QPI. Anything carrying a caveat — a width reduction, a bounded container, a guard
+ *  standing in for a revert — is shape-only, and the report prints the mix so nobody reads the corpus as a claim about Solidity conformance. */
 function fidelityOf(variant: Variant): "shape-only" | "faithful" {
     return variant.archetype.caveat ? "shape-only" : "faithful";
 }
@@ -178,7 +168,9 @@ async function analyzeAll(tier: Tier, only?: RegExp): Promise<number> {
             for (const failure of failures.slice(0, 3)) console.log(`      ${failure.message}`);
         }
     }
-    console.log(`${variants.length} variants analyzed · ${errors} with ERROR diagnostics · ${expectedRejections} expected-reject or documented-divergence (not analyzed)`);
+    console.log(
+        `${variants.length} variants analyzed · ${errors} with ERROR diagnostics · ${expectedRejections} expected-reject or documented-divergence (not analyzed)`,
+    );
     return errors;
 }
 

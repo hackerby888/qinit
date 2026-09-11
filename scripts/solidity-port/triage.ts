@@ -1,10 +1,4 @@
 // Run one contract through both backends and print everything a finding needs.
-//
-//   bun run scripts/solidity-port/triage.ts corpus/solidity-port/triage/F200-signed-div/contract.h \
-//                                           corpus/solidity-port/triage/F200-signed-div/script.json
-//
-// This is the tool the ledger's repro blocks are cut from: it prints the per-step outputs, faults, logs
-// and digests of both backends side by side, so a finding can quote the exact step where they part.
 
 import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";

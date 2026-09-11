@@ -73,9 +73,8 @@ export function compileContainerMethod(
     const cached = programAnalysis.compiledMethods.get(cacheKey);
     if (cached) return cached;
     let ownerBindings = resolvedMethod.ownerBindings;
-    // Type parameters the call spelled out. Tracked by name rather than tested with `types.has`, because
-    // `types` also carries the enclosing class's bindings and a method parameter shadowing one of those
-    // would then never deduce.
+    // Type parameters the call spelled out. By name rather than `types.has`, which is also true for the
+    // enclosing class's bindings — a method parameter shadowing one would then never deduce.
     const explicitlyBoundTypeParams = new Set<string>();
     if (explicitTemplateArgs.length) {
         const types = new Map(ownerBindings.types);
@@ -98,8 +97,7 @@ export function compileContainerMethod(
             const declared = programAnalysis.derefType(definition.functionParameters![index].type);
             const actual = resolvedMethodArgumentTypes[index];
             // An explicitly supplied template argument is not a deduction candidate: `twice<uint8>(200)`
-            // means uint8 whatever the literal's own type is. This held by accident while deduction
-            // returned null for a literal, and stopped holding once it could type one.
+            // means uint8 whatever the literal's own type is.
             if (declared.kind === AstKind.NAME && templateTypeNames.has(declared.name) && actual && !explicitlyBoundTypeParams.has(declared.name)) {
                 types.set(declared.name, actual);
             }
@@ -303,21 +301,8 @@ const SCALAR_TYPE_BY_SHAPE: Record<string, string> = {
     "16u": "uint128",
 };
 
-/**
- * The type a member template deduces `T` from for one call argument.
- *
- * The three lvalue-ish shapes below cover an argument that has an address, is constructed in place, or
- * names an aggregate. Everything else — every computed expression — used to return null, and an unbound
- * `T` then made `sizeof(T)` 1. That is F203: `qpi.K12(input.a + input.b)` compiled to a second
- * instantiation hashing one byte where `qpi.K12(input.a)` hashed eight, so a commitment computed inline
- * differed from the same value hashed through a named local, with no diagnostic on either side.
- *
- * An rvalue has a type in C++ just as an lvalue does, and for the scalar subset it is the one the usual
- * arithmetic conversions give. `scalarTypeInfo` already computes exactly that — it is what the backend
- * trusts to lower the arithmetic itself — so deduction asks it rather than giving up. The rule is
- * general: any `template<typename T>` QPI method called with an expression was mis-deducing, and K12 is
- * only where the width is observable in the answer.
- */
+/** The type a member template deduces `T` from for one argument. An rvalue has a type too, so a
+ *  computed expression asks scalarTypeInfo rather than going unbound and making sizeof(T) 1. */
 export function deduceMethodArgumentType(context: FunctionEmissionContext, argument: Expression): TypeSpec | null {
     const node = context.lowering.resolveExpressionAddress(context, argument);
     if (node?.type) return context.programAnalysis.derefType(node.type);
@@ -326,9 +311,8 @@ export function deduceMethodArgumentType(context: FunctionEmissionContext, argum
         const type: TypeSpec = { kind: AstKind.NAME, name: argument.callee.name };
         if (context.programAnalysis.isAggregateType(type)) return type;
     }
-    // A call's declared return type is authoritative and has no width ceiling. scalarTypeInfo also reads
-    // it but discards anything wider than 8 bytes, so a helper returning `uint128` or an `id` deduced
-    // nothing and fell back to sizeof(T) == 1 — the same defect surviving behind F203's own fix.
+    // A call's declared return type is authoritative and has no width ceiling, where scalarTypeInfo
+    // discards anything wider than 8 bytes and would leave `uint128` or `id` deducing nothing.
     if (argument.kind === AstKind.CALL) {
         const helper = context.lowering.lookupHelper(context, argument);
         if (helper?.retType) return context.programAnalysis.derefType(helper.retType);

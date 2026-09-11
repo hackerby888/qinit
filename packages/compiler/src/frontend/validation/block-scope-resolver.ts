@@ -1,6 +1,5 @@
-// C99/C++ block scoping, lowered onto a flat set of function locals by alpha-renaming.
-// The backend allocates one wasm local per name per function, so nothing resolved names against the
-// block structure; renaming a nested declaration that hides an outer name adds that missing step.
+// C99/C++ block scoping, lowered onto a flat set of function locals by alpha-renaming. One wasm local
+// per name per function means nothing resolved names against the block structure; renaming adds it.
 import { AstKind } from "../../shared/enums";
 import type { Declaration, Expression, FunctionDecl, Statement, VariableDecl } from "../../ast";
 
@@ -33,10 +32,8 @@ class FunctionScopes {
     declaredHere(written: string): boolean {
         return this.frames[this.frames.length - 1]!.has(written);
     }
-    /**
-     * Bind `written` in the innermost block, returning the name to use. A nested declaration is renamed
-     * when the name means something outside the block too, not only when it collides with another local.
-     */
+    /** Bind `written` in the innermost block, returning the name to use. A nested declaration is renamed
+     *  when the name means something outside the block too, not only when it collides with a local. */
     declare(written: string): string {
         // Two declarations of one name in the *same* block are a redeclaration, which the validator
         // reports. Renaming the second would make the two distinct and silence that, so leave it.
@@ -237,9 +234,8 @@ function resolveStatement(statement: Statement | undefined, scopes: FunctionScop
             const variable = declaration as VariableDecl;
             const written = variable.name;
             variable.name = scopes.declare(written);
-            // Keep the name as written. It is how the validator still reports a read of a block
-            // local from outside its block — after renaming, that read no longer matches any
-            // declared name and would otherwise pass silently.
+            // Keep the name as written: it is how a read of a block local from outside its block is
+            // still reported, since after renaming it matches no declared name.
             if (variable.name !== written) variable.blockScopedFrom = written;
             renameExpression(variable.initializer, scopes);
             break;

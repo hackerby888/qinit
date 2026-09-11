@@ -1,12 +1,5 @@
-// Data structures a contract builds *on top of* the QPI containers: queues, stacks, ring buffers,
-// index maps, checkpoints and a small LRU. Ported from OpenZeppelin's `structs/*` and `Checkpoints.sol`
-// and from the hand-rolled queues every auction and payout contract carries.
-//
-// The QPI container is the substrate here, not the subject: what is being compared is the *index
-// arithmetic* the contract does around it — head and tail that wrap, a swap-and-pop that has to move
-// the right element, a binary search over a partially filled array. These are the loops where an
-// off-by-one moves one element and leaves everything else looking right, which the final-state digest
-// still catches because the whole array is in it.
+// Data structures a contract builds *on top of* the QPI containers: queues, stacks, ring buffers, index maps, checkpoints and a small LRU. Ported from
+// OpenZeppelin's `structs/*` and `Checkpoints.sol` and from the hand-rolled queues every auction and payout contract carries.
 
 import { emitContract } from "../emit";
 import { capacityOf, fillCount } from "../axes";

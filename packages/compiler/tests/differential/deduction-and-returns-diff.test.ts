@@ -1,6 +1,5 @@
-// Deducing a template argument from an expression, and delivering a value back out of a call. Each row
-// compiled and ran on both backends while answering differently from clang, or was refused here and
-// compiled there. Every expectation is clang's answer, so agreeing with the other backend is not enough.
+// Deducing a template argument from an expression, and delivering a value back out of a call. Each row compiled and ran on both backends while answering
+// differently from clang, or was refused here and compiled there. Every expectation is clang's answer, so agreeing with the other backend is not enough.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,9 +28,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 const CASES: Record<string, { source: string; expect: bigint }> = {
-    // F203: `T` was deduced only from an addressable lvalue, a construction, or a call naming an
-    // aggregate. A computed expression matched none, `T` went unbound, and sizeof(T) became 1 — so the
-    // expression hashed one truncated byte where the local hashed eight, with no diagnostic.
+    // F203: `T` was deduced only from an addressable lvalue, a construction, or a call naming an aggregate. A computed expression matched none, `T` went
+    // unbound, and sizeof(T) became 1 — so the expression hashed one truncated byte where the local hashed eight, with no diagnostic.
     "K12 of a computed expression hashes the same bytes as K12 of a local holding it": {
         source: wrap(
             "",
@@ -62,9 +60,8 @@ const CASES: Record<string, { source: string; expect: bigint }> = {
         ),
         expect: 1n,
     },
-    // F215: selecting a member of a class prvalue materialises a temporary. `SELF` expands to
-    // `id(CONTRACT_INDEX, 0, 0, 0)`, so `SELF.u64._0` was an unsupported member read while the same
-    // read through a one-line copy compiled. This row must compile at all, and then agree.
+    // F215: selecting a member of a class prvalue materialises a temporary. `SELF` expands to `id(CONTRACT_INDEX, 0, 0, 0)`, so `SELF.u64._0` was an
+    // unsupported member read while the same read through a one-line copy compiled. This row must compile at all, and then agree.
     "a member read straight off a constructed prvalue matches the same read through a copy": {
         source: wrap(
             "",
@@ -74,10 +71,8 @@ const CASES: Record<string, { source: string; expect: bigint }> = {
         ),
         expect: 1n,
     },
-    // F221, second call path: a scalar in a wasm local has no address, so a `T&` parameter is given a
-    // scratch copy — correct only if the copy is read back after the call. The container path did that;
-    // the helper path did not, so every write through a by-value parameter was dropped. `start` is a
-    // by-value parameter, which is exactly the storage kind with no address.
+    // A scalar in a wasm local has no address, so a `T&` parameter gets a scratch copy that must be read
+    // back. `start` is a by-value parameter — exactly the storage kind the helper path used to drop.
     "a helper writing through a mutable reference to a by-value parameter is read back": {
         source: wrap(
             `static void addTo(uint64& slot, uint64 by) { slot = slot + by; }
@@ -87,9 +82,8 @@ const CASES: Record<string, { source: string; expect: bigint }> = {
         ),
         expect: 15n,
     },
-    // F223: an aggregate-returning call in value context materialised into scratch and then returned a
-    // scalar zero, throwing the address away; the assignment ran the type's converting constructor on
-    // that zero. Only calls spelled `div` were routed through the aggregate path.
+    // F223: an aggregate-returning call in value context materialised into scratch and then returned a scalar zero, throwing the address away; the assignment
+    // ran the type's converting constructor on that zero. Only calls spelled `div` were routed through the aggregate path.
     "assigning a helper's 128-bit return stores the returned value": {
         source: wrap(
             "static uint128 widen(uint64 v) { uint128 out; out.low = v; out.high = 0; return out; }",

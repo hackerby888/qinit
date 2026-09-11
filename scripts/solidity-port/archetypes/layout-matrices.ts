@@ -1,11 +1,4 @@
 // Sizes and offsets, measured from inside the contract.
-//
-// Ported from Solidity's `structs/struct_packing.sol` family. These archetypes ask the compiler what it
-// laid out — `sizeof` of every scalar, of a ladder of structs, of nested arrays — and store the answers,
-// so a layout difference between the two backends is a wrong *number* rather than a shifted byte that
-// might land somewhere harmless. Where the answer follows from the C++ alignment rule alone it is also
-// asserted with a hand-derived `expect` row, which is the only way this corpus can catch both backends
-// agreeing on a wrong size.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

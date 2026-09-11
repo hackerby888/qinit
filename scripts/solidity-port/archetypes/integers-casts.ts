@@ -1,13 +1,4 @@
 // Casts, promotions and comparisons — the rules C++ applies before an operator ever runs.
-//
-// Ported from Solidity's `cleanup/*`, `conversions/*` and `types/*` tests. Solidity narrows on
-// assignment and forbids most implicit conversions; C++ promotes both operands to `int` first and
-// converts silently, so the *same source* means different things in the two languages. That is not what
-// is being tested here — what is being tested is whether the two Qubic backends apply C++'s rules the
-// same way, and every archetype stores the result at more than one width so a missing truncation or a
-// missing sign extension is visible rather than absorbed.
-//
-// Every row carries hand-derived `expect` values wherever the answer follows from the rule alone.
 
 import { twoOperandArchetype } from "./common";
 import type { Archetype } from "../types";

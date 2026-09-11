@@ -1,13 +1,4 @@
 // Controls for the Solidity-port differential campaign (scripts/solidity-port/, corpus/solidity-port/).
-//
-// A differential suite that cannot fail reports nothing, and this repo has already shipped one that sat
-// green for months asserting hand-written expectations which encoded a bug. So the first half of this
-// file never touches a compiler: it feeds the comparator deliberately broken pairs and asserts the exact
-// message each one produces. If the digest were computed and never compared — the classic way a sweep
-// goes silently vacuous — `reports a digest difference even when every step agrees` fails.
-//
-// The second half runs a slice of the real corpus through both backends, and skips only when the wasm
-// toolchain is genuinely absent. Set QINIT_REQUIRE_CONTAINER_TOOLCHAINS=1 to turn that skip into a failure.
 
 import { describe, expect, test, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/engine";
@@ -117,9 +108,8 @@ describe("solidity-port comparator controls", () => {
 });
 
 describe("solidity-port corpus integrity", () => {
-    // Expanding the full tier builds every one of the ~6,600 variants, and four tests each rebuilt it.
-    // That put the block seconds from bun's 5s default and it tipped over under load. Same corpus for
-    // all four, so build it once.
+    // Expanding the full tier builds every one of the ~6,600 variants, and four tests each rebuilt it. That put the block seconds from bun's 5s default and it
+    // tipped over under load. Same corpus for all four, so build it once.
     let fullTier: Variant[];
     beforeAll(() => {
         fullTier = expandAll("full");
@@ -138,10 +128,8 @@ describe("solidity-port corpus integrity", () => {
         }
     });
 
-    // The universal axes are applied inside emitContract from the assignment an archetype passes
-    // through, so an archetype that never reaches them would silently produce one variant per axis value
-    // with identical text. The dedup drops those, which is exactly why the corpus can only be trusted if
-    // the axes really do change the source somewhere.
+    // An archetype that never reaches an axis produces identical text for both its values, and the dedup
+    // hides that. So the corpus is only trustworthy if the axes really do change the source.
     test("the stateOrder and entryOrder axes reach the corpus and change the emitted source", () => {
         const variants = fullTier;
         const reversedState = variants.filter((variant) => variant.axis.stateOrder === "reversed");
@@ -151,9 +139,8 @@ describe("solidity-port corpus integrity", () => {
 
         const byArchetype = new Map<string, string[]>();
         for (const variant of variants) {
-            // The generator's own fingerprint: the code with its banner stripped, plus the call script.
-            // An axis that changes only the stimulus (fill, capacity) is a different test on the same
-            // text, so the script has to be part of the identity or those variants read as duplicates.
+            // The generator's own fingerprint: the code with its banner stripped, plus the call script. An axis that changes only the stimulus (fill, capacity)
+            // is a different test on the same text, so the script has to be part of the identity or those variants read as duplicates.
             const code = variant.contract.source.replace(/^(?:\/\/[^\n]*\n)+/, "");
             const fingerprint = `${code}\u0000${JSON.stringify(variant.contract.script)}`;
             byArchetype.set(variant.archetype.name, [...(byArchetype.get(variant.archetype.name) ?? []), fingerprint]);
@@ -164,9 +151,8 @@ describe("solidity-port corpus integrity", () => {
         }
     });
 
-    // A struct member needs a complete type, so an entry whose `_locals` names another entry's I/O has
-    // to be emitted after it. The entryOrder axis stands down where that would be violated; this is the
-    // invariant it stands down for, checked on every emitted contract in the corpus.
+    // A struct member needs a complete type, so an entry whose `_locals` names another entry's I/O has to be emitted after it. The entryOrder axis stands down
+    // where that would be violated; this is the invariant it stands down for, checked on every emitted contract in the corpus.
     test("an entry that names another entry's I/O type is always emitted after it", () => {
         const declarationOf = (source: string, name: string) => source.indexOf(`struct ${name}_input`);
         const violations: string[] = [];
@@ -188,9 +174,8 @@ describe("solidity-port corpus integrity", () => {
         expect(violations).toEqual([]);
     });
 
-    // clang static_asserts the DAG ordering inside the CALL macro while the TypeScript backend does not
-    // check it at compile time, so a wrong-order pair would show up as a compile divergence that says
-    // nothing about code generation. The generator must never emit one.
+    // clang static_asserts the DAG ordering inside the CALL macro while the TypeScript backend does not check it at compile time, so a wrong-order pair would
+    // show up as a compile divergence that says nothing about code generation. The generator must never emit one.
     test("every callee sits at a strictly lower slot than its caller", () => {
         const pairs = fullTier.filter((variant) => variant.contract.callee !== undefined);
         expect(pairs.length).toBeGreaterThan(0);
@@ -236,9 +221,8 @@ describe.skipIf(!HAS_CORE)("solidity-port live slice", () => {
             });
             expect(slice.length).toBeGreaterThanOrEqual(5);
 
-            // Archetypes carrying an open finding are supposed to diverge; anything else diverging is new.
-            // A green row for a listed one means the defect was fixed, so the entry has to go — checked
-            // below rather than assumed, which a plain allowlist cannot do.
+            // Archetypes carrying an open finding are supposed to diverge; anything else diverging is new. A green row for a listed one means the defect was
+            // fixed, so the entry has to go — checked below rather than assumed, which a plain allowlist cannot do.
             const failures: string[] = [];
             for (const variant of slice) {
                 const result = await runCell(env, {
@@ -260,9 +244,8 @@ describe.skipIf(!HAS_CORE)("solidity-port live slice", () => {
                 }
             }
 
-            // Staleness is not asserted here: the slice is one contract per family, so a listed archetype
-            // can agree on the variant it happens to run while diverging on one it skipped. The sweep gate
-            // makes that check under --strict, on a run that covers every variant.
+            // Staleness is not asserted here: the slice is one contract per family, so a listed archetype can agree on the variant it happens to run while
+            // diverging on one it skipped. The sweep gate makes that check under --strict, on a run that covers every variant.
             expect(failures).toEqual([]);
         },
         600_000,

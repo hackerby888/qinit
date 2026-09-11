@@ -1,8 +1,4 @@
 // Replaying one call script against one wasm artifact in the in-process simulator.
-//
-// Both backends are driven through this function with the same script, so any difference in the
-// recorded run comes from the emitted code and nothing else. Every source of nondeterminism the
-// simulator exposes — tick, epoch, wall clock, spectrum digest — is pinned before the first step.
 
 import { QubicSimulator } from "@qinit/engine";
 import type { BackendRun, CallScript, StepRecord } from "./types";
@@ -11,12 +7,8 @@ import { bytesToHex, hexToBytes } from "./encode";
 /** Fixed stand-in for the previous spectrum digest, so `qpi.getPrevSpectrumDigest()` is reproducible. */
 const PINNED_SPECTRUM_DIGEST = new Uint8Array(32).fill(0x5a);
 
-/**
- * The simulator generates a fresh computor committee per instance, so `qpi.computor(i)` answers
- * differently in every run — including two runs of the *same* backend. Left unpinned it manufactures a
- * digest divergence out of nothing, which is exactly what it did the first time an archetype read it.
- * These are stand-ins with no meaning beyond being fixed and distinct per index.
- */
+/** The simulator builds a fresh committee per instance, so an unpinned `qpi.computor(i)` differs between
+ *  two runs of the same backend. These stand-ins mean nothing beyond being fixed and distinct. */
 const PINNED_COMPUTOR_COUNT = 676;
 
 function pinCommittee(sim: QubicSimulator): void {
@@ -54,9 +46,8 @@ export function executeScript(backend: BackendRun["backend"], wasm: Uint8Array, 
     sim.currentTick = script.tick;
     sim.currentEpoch = script.epoch;
     sim.prevSpectrumDigestOverride = PINNED_SPECTRUM_DIGEST;
-    // The simulator's clock is `timeBaseMs + tick * tickDuration`, and its default base is already a
-    // constant; setting it here says so out loud, because every date and time host call is derived from
-    // it and a wall-clock default would make the whole date family non-reproducible.
+    // The simulator's clock is `timeBaseMs + tick * tickDuration`, and its default base is already a constant; setting it here says so out loud, because every
+    // date and time host call is derived from it and a wall-clock default would make the whole date family non-reproducible.
     sim.timeBaseMs = Date.UTC(2024, 0, 1);
     pinCommittee(sim);
     // Logs are only captured into the debug trace when debug is on, and a log divergence is one of the

@@ -83,10 +83,8 @@ struct Outer { Inner inner; uint64 after; uint8 last; };`,
         ),
         expect: 16032n,
     },
-    // F225, the silent face of the same leak: `Outer` is file-scope, so its field `Inner` is the
-    // file-scope one (16), while `sizeof(Inner)` read from contract code is the contract's (8). Both
-    // halves matter — the second is the control, and over-suppressing the contract's nested table
-    // would break it. The backend used to answer 8 for both.
+    // `Outer` is file-scope, so its field is the file-scope `Inner` (16), while `sizeof(Inner)` read from
+    // contract code is the contract's (8). The second half is the control against over-suppressing.
     "a file-scope struct's field is not the contract's same-named nested struct": {
         source: wrap(
             `struct Inner { uint64 wide; uint64 tail; };
@@ -97,9 +95,8 @@ struct StateData { uint64 a; };`,
         ),
         expect: 8016n,
     },
-    // The F211 residual: `Scratch` is contract-scope, so it inherited the caller's bindings and read
-    // `Inner` as `StateData::Inner`, which holds a `Scratch` — a cycle clang cannot see, because
-    // `Scratch` is declared before `StateData`. Its field is the file-scope `Inner`, so 16.
+    // The F211 residual: `Scratch` is contract-scope, so it inherited the caller's bindings and read `Inner` as `StateData::Inner`, which holds a `Scratch` — a
+    // cycle clang cannot see, because `Scratch` is declared before `StateData`. Its field is the file-scope `Inner`, so 16.
     "a contract-scope struct resolves its fields in contract scope, not the caller's": {
         source: wrap(
             `struct Inner { uint64 wide; uint8 narrow; };

@@ -1,10 +1,4 @@
 // Ledger and access-control shapes, from OpenZeppelin.
-//
-// Ported from `security/PullPayment.sol`, `access/AccessControl.sol`, `utils/Nonces.sol`,
-// `token/ERC20/extensions/*`, `finance/VestingWallet.sol` and the reward-per-share accounting every
-// staking contract copies. All of them are accumulator arithmetic over a keyed table, which is the shape
-// where a width or a rounding difference between two backends compounds instead of cancelling: one
-// wrong rounding step is carried into every later balance.
 
 import { emitContract } from "../emit";
 import { capacityOf } from "../axes";

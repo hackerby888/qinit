@@ -1,24 +1,6 @@
 // Run one triage directory through both backends and print the two final states side by side.
-//
-// The differential runner works from the generated corpus and its script index. This works from a bare
-// triage folder — a `.h`, a `script.json`, nothing else — which is what a reduced repro is. Used for
-// every finding in `docs/findings/fixes/`: change the compiler, re-run the repro, read the two rows.
-//
-//   QINIT_CORE=/path/to/core-lite \
-//   T_BASE=$PWD/corpus/solidity-port/triage/F203-k12-expression T_NAME=K12Struct \
-//   bun run scripts/solidity-port/triage-probe.ts
-//
-//   T_BASE   absolute path to the triage directory. MUST be absolute: the clang wrapper compiles from
-//            its own output directory, so a relative path resolves against the wrong cwd and comes back
-//            as `fatal error: '...' file not found` — which reads exactly like clang rejecting the
-//            contract, and cost a wrong conclusion once.
-//   T_NAME   the contract name, i.e. the struct that inherits ContractBase.
-//   T_FILE   the header's basename when it differs from T_NAME (default: T_NAME). Passing the file name
-//            as the contract name makes clang report a pile of undeclared-identifier errors, which also
-//            reads like a rejection.
-//
-// State is printed as little-endian u64 words rather than hex: a wrong digest is unreadable as hex and
-// obvious as a list of numbers, and the fields of a StateData line up one per column.
+// Usage and the T_BASE/T_NAME/T_FILE variables are documented in README.md.
+
 import { existsSync, readFileSync } from "node:fs";
 import { buildContractWithClang, buildContractWithTypeScript } from "@qinit/build";
 import { QubicSimulator, initK12, toHex } from "@qinit/engine";
@@ -52,11 +34,8 @@ for (const [backend, build] of [
         outDir: `/tmp/qinit-triage-probe/${name}/${backend}`,
         skipVerify: true,
     });
-    // A clang build that produced a wasm succeeded, whatever the IDL says: buildContractWithClang re-runs
-    // the TypeScript front end for metadata after the artifact is written and reports `ok: !idlError`, so
-    // a contract the TS parser declines reads here as a CLANG rejection. That is the same misattribution
-    // already fixed in compile.ts, and it made this probe report `clang REJECTED` for a contract clang
-    // had in fact compiled. The probe deploys the wasm and drives entries by number; it never reads the IDL.
+    // A clang build that wrote a wasm succeeded whatever the IDL says: `ok: !idlError` otherwise reports a
+    // TypeScript parse refusal as clang's. The probe drives entries by number and never reads the IDL.
     const wroteWasm = Boolean(built.wasmPath) && existsSync(built.wasmPath!);
     const producedArtifact = backend === "clang" ? wroteWasm : built.ok && wroteWasm;
     if (!producedArtifact) {

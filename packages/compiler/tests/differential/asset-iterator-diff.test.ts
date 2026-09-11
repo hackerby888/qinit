@@ -1,6 +1,5 @@
-// The asset iterators' selectors. begin() used to lower one any() selector and pass that same buffer
-// for both the ownership and the possession parameter, so a filtered walk enumerated every holder --
-// a wrong number rather than a crash, in fund-accounting code.
+// The asset iterators' selectors. begin() used to lower one any() selector and pass that same buffer for both the ownership and the possession parameter, so a
+// filtered walk enumerated every holder -- a wrong number rather than a crash, in fund-accounting code.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

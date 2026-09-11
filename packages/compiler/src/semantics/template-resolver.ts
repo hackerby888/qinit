@@ -164,30 +164,19 @@ function checkTemplateStaticAsserts(programAnalysis: ProgramAnalysis, declaratio
     }
 }
 
-/**
- * The bindings to resolve a member list's field types under.
- *
- * Given the `owner` declaration, the visible struct names come from its own scope chain and the caller's
- * are discarded entirely: a struct's fields resolve where the struct is declared, not where the layout
- * walk arrived from. Template arguments (`types`, `values`) are a different axis and still flow in.
- *
- * Without an owner — a template instantiation or a base-class contribution, which have no single
- * declaring struct — the caller's map is extended with this member list's structs, as before.
- */
+/** The bindings a member list's field types resolve under. With an `owner`, visible struct names come from its own
+ *  scope chain rather than the caller's; without one, the caller's map is extended instead. */
 export function withLocalStructs(
     programAnalysis: ProgramAnalysis,
     members: Declaration[],
     templateBindings: TemplateBindings,
     owner?: StructDecl,
 ): TemplateBindings {
-    // Only when the owner's nesting was actually recorded. A struct nested in a class template is
-    // registered by the template machinery, not by the declaration index, so its chain would come back
-    // as "file scope" and silently narrow the visible names — which showed up as a Collection element
-    // losing its value type. Those keep the inherited map, which is what carried them before.
+    // Only when the owner's nesting was recorded. A struct nested in a class template is registered by
+    // the template machinery, so its chain reads as file scope; those keep the inherited map.
     if (owner && programAnalysis.structScopeKnown.has(owner)) {
-        // `structs` stays what it has always been — the declaration's own nested types, and only those,
-        // because inlineNestedStruct turns everything in it into an anonymous INLINE_STRUCT. Putting the
-        // enclosing scope in here cost sibling types their names, and operator lookup resolves by name.
+        // `structs` holds the declaration's own nested types only: inlineNestedStruct turns everything in
+        // it anonymous, and operator lookup resolves by name.
         const ownStructs = new Map<string, StructDecl>();
         for (const member of owner.members) {
             if (member.kind === AstKind.STRUCT && (member as StructDecl).name && (member as StructDecl).hasBody !== false) {

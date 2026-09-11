@@ -1,11 +1,4 @@
-// Cross-contract calls from places the earlier rounds did not call from, and callees that hold more
-// than a scalar.
-//
-// Round 2 built the pair machinery and round 3 varied where the call sits inside an entry. What is left
-// is the two harder shapes: a call made from a *tick hook*, with no user transaction on the stack, and a
-// callee whose own state is a container, so the mutation the caller causes lands in a table's internal
-// bookkeeping rather than in a counter. Both are compared on the callee's digest as well as the
-// caller's, which is the only way the second shape is visible at all.
+// Cross-contract calls from places the earlier rounds did not call from, and callees that hold more than a scalar.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

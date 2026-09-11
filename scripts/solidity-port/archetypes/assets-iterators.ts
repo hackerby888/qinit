@@ -1,22 +1,4 @@
 // The asset iterators and selectors — the half of the asset API the corpus has never called.
-//
-// Round 6's inventory found the corpus calling exactly four asset functions (`issueAsset`,
-// `numberOfPossessedShares`, `transferShareOwnershipAndPossession`, `isAssetIssued`) across 42 asset
-// archetypes and 380 contracts. Never called: every selector (`AssetIssuanceSelect`,
-// `AssetOwnershipSelect`, `AssetPossessionSelect`), every iterator (`AssetIssuanceIterator`,
-// `AssetOwnershipIterator`, `AssetPossessionIterator`), `numberOfShares` in its selector form, and
-// `distributeDividends`. That mattered because F69 (campaign 6) and F82 (campaign 7) were both in
-// share management, which this corpus has never exercised.
-//
-// The lead archetype here was written from a divergence found by reading the backend rather than by
-// sweeping: `begin` lowered one `any()` selector and passed that same buffer for BOTH the ownership
-// and the possession parameter of `$lh_assetEnumerate`, never reading callArguments[1] or [2], so a
-// filtered walk silently enumerated everything while clang honoured the filter. That is fixed — each
-// selector now comes from its own argument — and these rows hold it fixed.
-//
-// Asset state lives in the host's ledger, not in StateData, so the K12 digest cannot see it directly
-// (assets-shares.ts:1-12 makes the same point). Every archetype below therefore mirrors what it reads
-// back into its own uint64 members, which is what puts the difference in front of the comparator.
 import { emitContract } from "../emit";
 import { u64 } from "../encode";
 import { describeAxis, script } from "./common";
@@ -55,11 +37,8 @@ function iterProbe(meta: Omit<Archetype, "build">, spec: (axis: AxisAssignment) 
             const source = emitContract({
                 axis,
                 name: meta.name,
-                // Pinned, not opted out of: `temporaries` is a universal axis that registry.ts unions
-                // into every archetype, so dropping it from `axes` has no effect. Setting it here wins,
-                // because withAxis takes `spec.temporaries ?? axis.temporaries`. An iterator moved into
-                // StateData is digested, and the backend models it as a transient count+cursor rather
-                // than the ~88-byte QPI class clang fills — F224, and not a shape a contract writes.
+                // Pinned rather than opted out: `temporaries` is universal, so dropping it from `axes` does
+                // nothing. An iterator in StateData is digested, and the backend models it as a cursor.
                 temporaries: "locals",
                 header: {
                     archetype: meta.name,

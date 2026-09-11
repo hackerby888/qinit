@@ -1,8 +1,4 @@
 // Comparing two backend runs of the same script, and naming the first point they disagree.
-//
-// Modelled on compareExecutions (packages/compiler/tests/support/container-harness.ts): walk the
-// coarsest signal first so the message names a cause rather than a symptom. The final-state digest is
-// the campaign's verdict; everything before it exists to localise a digest mismatch to one step.
 
 import type { BackendRun, CellResult, ExpectRow, Verdict } from "./types";
 
@@ -58,10 +54,8 @@ export function compareRuns(ts: BackendRun, clang: BackendRun): string | null {
     return null;
 }
 
-/**
- * Which kind of disagreement this is. A run that never compiled carries its diagnostics instead of a
- * digest, so accept/reject divergence is classified here rather than being mistaken for a state bug.
- */
+/** Which kind of disagreement this is. A run that never compiled carries its diagnostics instead of a digest, so accept/reject divergence is classified here
+ *  rather than being mistaken for a state bug. */
 export function classify(ts: BackendRun, clang: BackendRun, difference: string | null): Verdict {
     const tsBuilt = ts.status !== "rejected" && ts.status !== "error";
     const clangBuilt = clang.status !== "rejected" && clang.status !== "error";
@@ -76,10 +70,8 @@ export function classify(ts: BackendRun, clang: BackendRun, difference: string |
     return "step-mismatch";
 }
 
-/**
- * The secondary oracle. Only present where the Solidity → QPI width mapping is exact, or where a C++
- * rule pins the value by hand — it is the only check that can convict a bug both backends share.
- */
+/** The secondary oracle. Only present where the Solidity → QPI width mapping is exact, or where a C++ rule pins the value by hand — it is the only check
+ *  that can convict a bug both backends share. */
 export function checkExpectations(run: BackendRun, expectations: ExpectRow[] | undefined): string | null {
     if (!expectations?.length) return null;
     for (const row of expectations) {

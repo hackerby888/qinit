@@ -1,10 +1,4 @@
 // Entry dispatch: how many entries a contract has, what numbers they carry, and who calls whom.
-//
-// Ported from Solidity's `functionSelector`, `functionCall` and `inheritance` tests. Solidity dispatches
-// on a four-byte selector derived from the signature; QPI dispatches on a number the contract chooses in
-// `REGISTER_USER_FUNCTIONS_AND_PROCEDURES`. So the interesting question moves: not "does the selector
-// hash right" but "does the registration table survive gaps, a full set of entries, and helpers reached
-// from both a function and a procedure".
 
 import { emitContract } from "../emit";
 import { script } from "./common";
@@ -515,7 +509,7 @@ export const CONTROLFLOW_DISPATCH_ARCHETYPES: Archetype[] = [
                     family: "controlflow",
                     solidity: `${SOL}/functionCall/view_calls_nonview.sol`,
                     stresses: "a read-only entry calling a mutating private entry",
-                    caveat: "documented divergence: clang refuses the conversion, the TypeScript backend performs the write",
+                    caveat: "both backends reject: a function's context cannot convert to the procedure context CALL forwards",
                     axis: "view calls non-view",
                 },
                 state: "uint64 counter;\nuint64 reads;",

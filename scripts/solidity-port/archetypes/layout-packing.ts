@@ -1,10 +1,4 @@
 // Packed-field layout: neighbour bleed, canaries and self-describing offsets.
-//
-// Ported from Solidity's `storage/packed_*` family. Solidity packs several small fields into one 32-byte
-// slot and its tests exist to prove that writing one does not disturb the next; QPI lays fields out by
-// C++ rules, so the same question becomes "does a narrow store touch the adjacent member". Every
-// archetype here carries a canary field whose value is checked after every write, so a stray byte shows
-// up as a wrong number rather than as padding nobody reads.
 
 import { emitContract } from "../emit";
 import { orderFields, widthOf } from "../axes";

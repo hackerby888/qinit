@@ -1,10 +1,4 @@
 // Cross-contract calls, third batch: what crosses the boundary and what the caller does with it.
-//
-// Rounds 2 to 4 built the pair machinery, varied where the call sits, and put a container in the callee.
-// What is left is the *argument and return traffic*: a struct with padding, an id, an array, a status
-// code the caller branches on, a call whose result feeds the next call, and a call made from inside a
-// guard that may not run at all. Both slots' digests are compared on every row, which is the only way
-// the callee-side half of any of this is visible.
 
 import { emitContract } from "../emit";
 import { script } from "./common";

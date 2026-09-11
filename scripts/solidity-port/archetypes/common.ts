@@ -1,6 +1,5 @@
-// Shared archetype shapes. Most ported Solidity tests reduce to one of a few skeletons — apply an
-// operator to two inputs and read the result back, or drive a container through a fill/churn cycle —
-// so the skeleton lives here and each archetype supplies only what makes it interesting.
+// Shared archetype shapes. Most ported Solidity tests reduce to one of a few skeletons — apply an operator to two inputs and read the result back, or drive a
+// container through a fill/churn cycle — so the skeleton lives here and each archetype supplies only what makes it interesting.
 
 import { emitContract } from "../emit";
 import { edgeValues, maxOf, minOf, scalar, u64 } from "../encode";
@@ -42,11 +41,8 @@ export interface BinaryOpOptions {
     avoidZeroDivisor?: boolean;
 }
 
-/**
- * The workhorse shape: store the expression's value both at accumulator width and at the operand's own
- * width. The pair is what makes integer promotion observable — C++ widens both operands to `int` before
- * the operator, so the wide field and the narrow field disagree exactly when a promotion happened.
- */
+/** The workhorse shape: store the expression's value both at accumulator width and at the operand's own width. The pair is what makes integer promotion
+ *  observable — C++ widens both operands to `int` before the operator, so the wide field and the narrow field disagree exactly when a promotion happened. */
 export function binaryOpArchetype(meta: Omit<Archetype, "build" | "axes"> & { axes?: Archetype["axes"] }, options: BinaryOpOptions): Archetype {
     return {
         ...meta,
@@ -149,10 +145,8 @@ export interface CounterStateOptions {
     initialize?: string;
 }
 
-/**
- * The single-procedure shape: one `Run` procedure that mutates state and one `Read` function that
- * returns the accumulator. Used by archetypes whose interest is in what the body does, not in its I/O.
- */
+/** The single-procedure shape: one `Run` procedure that mutates state and one `Read` function that returns the accumulator. Used by archetypes whose
+ *  interest is in what the body does, not in its I/O. */
 export function singleProcedureArchetype(
     meta: Omit<Archetype, "build">,
     options: (axis: AxisAssignment) => CounterStateOptions & { steps: CallStep[] },
@@ -212,19 +206,13 @@ export interface TwoOperandSpec {
     extraStructs?: string;
     /** Operand pairs to drive; each is one procedure call followed by one read. */
     pairs: [bigint, bigint][];
-    /**
-     * Expected `Read` output after the pair at this index, as the values of the state members in
-     * declaration order followed by the call count. Derived by hand from the language rule, never from a
-     * backend: these rows are the campaign's only check on the two backends being wrong together.
-     */
+    /** Expected `Read` output after the pair at this index, as the values of the state members in declaration order followed by the call count. Derived by
+     *  hand from the language rule, never from a backend: these rows are the campaign's only check on the two backends being wrong together. */
     expect?: { pair: number; values: bigint[]; note: string }[];
 }
 
-/**
- * Two uint64 operands in, several uint64 results in state, read back after every call. Most arithmetic
- * and resolution probes reduce to this, and sharing it keeps an archetype's own file down to the part
- * that is actually interesting.
- */
+/** Two uint64 operands in, several uint64 results in state, read back after every call. Most arithmetic and resolution probes reduce to this, and sharing it
+ *  keeps an archetype's own file down to the part that is actually interesting. */
 export function twoOperandArchetype(
     meta: Omit<Archetype, "build" | "axes"> & { axes?: Archetype["axes"] },
     spec: (axis: AxisAssignment) => TwoOperandSpec,

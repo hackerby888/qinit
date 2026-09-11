@@ -182,9 +182,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 
 const ACCEPTS: Record<string, string> = {
-    // Was a REJECTS row while locals shared one slot per name — the comment there read "native keeps
-    // outer v = 1; the old single-slot lowering read back 2". Block-scope resolution gives the inner
-    // binding its own slot, so the program is legal and answers 1. The toolchain test below runs it.
+    // Was a REJECTS row while locals shared one slot per name — the comment there read "native keeps outer v = 1; the old single-slot lowering read back 2".
+    // Block-scope resolution gives the inner binding its own slot, so the program is legal and answers 1. The toolchain test below runs it.
     "block-local shadows an outer local": wrap(`uint64 v = 1; { uint64 v = 2; state.mut().a = v; } state.mut().a = v;`),
     "sibling scopes reuse a name": wrap(
         `uint64 t = 0; for (uint64 i = 0; i < 3; i++) { t = t + i; } for (uint64 i = 0; i < 2; i++) { t = t + i; } state.mut().a = t;`,

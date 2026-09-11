@@ -1,8 +1,4 @@
 // Control flow whose *shape* is the test: nesting, early exit, evaluation order and call depth.
-//
-// Ported from Solidity's `controlFlow/*`, `functionCall/*` and `expressions/*` semantic tests. Solidity
-// and QPI agree on C-like control flow, so nothing here needed reshaping — which is the point. These are
-// the archetypes where a divergence would be a plain codegen bug rather than an artefact of the port.
 
 import { emitContract } from "../emit";
 import { loopHeader } from "../axes";

@@ -1,11 +1,4 @@
 // Shift semantics.
-//
-// Ported from Solidity's `operators/shifts/*` and `cleanup/*`. Two things make this family worth its own
-// file. First, Solidity defines `x << n` for every `n`, while C++ leaves `n >= width` undefined — so a
-// backend disagreement at exactly the width boundary is expected signal rather than a port error, and
-// the archetypes drive that boundary deliberately. Second, Solidity's own test comments state the
-// intent: `shift_left_larger_type.sol` says "It should not convert x to int8", which is precisely the
-// operand-width question a code generator gets wrong.
 
 import { emitContract } from "../emit";
 import { operandFor, widthOf } from "../axes";
@@ -26,11 +19,8 @@ function unsignedOf(width: ScalarWidth): ScalarWidth {
     return width.startsWith("uint") ? width : (width.replace("sint", "uint") as ScalarWidth);
 }
 
-/**
- * One shift operator applied at a chosen width, with the result stored both wide and narrow so the
- * promotion is observable, and the shift count taken from a separate uint8 so it cannot be folded into
- * the operand's type.
- */
+/** One shift operator applied at a chosen width, with the result stored both wide and narrow so the promotion is observable, and the shift count taken from
+ *  a separate uint8 so it cannot be folded into the operand's type. */
 function shiftArchetype(
     name: string,
     solidity: string,

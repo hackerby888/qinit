@@ -1,15 +1,5 @@
-// Compiling one ported contract — or a caller/callee pair — with both backends, with a
-// content-addressed wasm cache.
-//
-// Both backends are driven through the `@qinit/build` wrappers rather than the raw compiler driver,
-// because those two take a field-identical options object (`packages/build/src/compile/typescript.ts`:
-// "Every field here is spelled as in ClangBuildOptions, so one options object drives either backend").
-// That symmetry is what gives cross-contract support for free: `dynCallees` means the same thing to
-// both, and `buildContractWithClang` derives the callee prelude from it itself.
-//
-// The cache is what makes a multi-thousand sweep re-runnable. Its key covers everything that can change
-// the emitted bytes: the source, the callee's source and slot, the slot, the arena size, the qpi.h the
-// build sees, and the identity of the backend itself.
+// Compile one ported contract — or a caller/callee pair — with both backends, through the @qinit/build
+// wrappers so one options object drives either. Cached on everything that can change the emitted bytes.
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
@@ -33,11 +23,8 @@ export interface CompileEnvironment {
     qpiHeader: string;
     /** Identity of the clang toolchain, folded into the cache key so an SDK bump invalidates it. */
     toolchainId: string;
-    /**
-     * Hash of the TypeScript backend's own source. Without it a cached artifact would survive a change to
-     * the compiler under test, which is precisely the change the campaign exists to detect — a sweep run
-     * after editing the compiler would replay yesterday's wasm and report a clean bill of health.
-     */
+    /** Hash of the TypeScript backend's own source. Without it a cached artifact would survive a change to the compiler under test, which is precisely the
+     *  change the campaign exists to detect — a sweep run after editing the compiler would replay yesterday's wasm and report a clean bill of health. */
     typescriptBackendId: string;
     cacheDir: string;
     arenaSizeBytes: number;
@@ -132,11 +119,8 @@ function writeCache(env: CompileEnvironment, key: string, outcome: CompileOutcom
     writeFileSync(join(env.cacheDir, `${key}.json`), JSON.stringify(meta));
 }
 
-/**
- * Compile the request with one backend. Both contracts of a pair are staged into the same temporary
- * directory under absolute paths: the clang wrapper `#include`s the callee header verbatim into the
- * generated TU, so it must exist on disk for the whole of the caller's build.
- */
+/** Compile the request with one backend. Both contracts of a pair are staged into the same temporary directory under absolute paths: the clang wrapper
+ *  `#include`s the callee header verbatim into the generated TU, so it must exist on disk for the whole of the caller's build. */
 export async function compileWith(env: CompileEnvironment, backend: Backend, request: CompileRequest): Promise<CompiledPair> {
     const mainKey = cacheKey(env, backend, request.main, request.callee);
     const calleeKey = request.callee ? cacheKey(env, backend, request.callee) : undefined;
@@ -162,7 +146,12 @@ export async function compileWith(env: CompileEnvironment, backend: Backend, req
             callee = calleeHit ?? (await buildOne(env, backend, directory, calleePath, request.callee, undefined));
             if (!calleeHit && calleeKey) writeCache(env, calleeKey, callee);
             if (!callee.ok) {
-                const failed: CompileOutcome = { ok: false, diagnostics: [`callee ${request.callee.name} failed: ${callee.diagnostics[0] ?? ""}`], ms: 0, cached: false };
+                const failed: CompileOutcome = {
+                    ok: false,
+                    diagnostics: [`callee ${request.callee.name} failed: ${callee.diagnostics[0] ?? ""}`],
+                    ms: 0,
+                    cached: false,
+                };
                 writeCache(env, mainKey, failed);
                 return { main: failed, callee };
             }
@@ -197,16 +186,9 @@ async function buildOne(
             ...(dynCallees ? { dynCallees } : {}),
         };
         const built =
-            backend === "clang"
-                ? await buildContractWithClang({ ...shared, arenaSizeBytes: env.arenaSizeBytes })
-                : await buildContractWithTypeScript(shared);
-        // A clang build that produced a wasm succeeded, whatever the IDL says. buildContractWithClang
-        // re-runs the TypeScript front end for metadata after the artifact is written and reports
-        // `ok: !idlError`, so a contract the TS parser declines was being recorded as a CLANG rejection —
-        // scoring `both-rejected` where the truth is `one-side-rejected`. The IDL is not used here: the
-        // sweep deploys the wasm and drives entries by number. Keep the error visible as a diagnostic.
-        // The path is where the artifact would go, not proof it was written: clang refusing a contract
-        // still reports one, and reading it threw ENOENT in place of clang's own error. Require the file.
+            backend === "clang" ? await buildContractWithClang({ ...shared, arenaSizeBytes: env.arenaSizeBytes }) : await buildContractWithTypeScript(shared);
+        // A clang build that wrote a wasm succeeded whatever the IDL says, since buildContractWithClang
+        // reports `ok: !idlError` and the sweep never reads the IDL. The path alone is not proof it wrote.
         const wroteWasm = Boolean(built.wasmPath) && existsSync(built.wasmPath!);
         const producedArtifact = backend === "clang" ? wroteWasm : built.ok && wroteWasm;
         if (producedArtifact && built.wasmPath) {

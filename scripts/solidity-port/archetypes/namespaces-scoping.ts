@@ -1,11 +1,4 @@
 // More name resolution, aimed where round 3 found F205: the boundary between class scope and file scope.
-//
-// Ported from Solidity's `scoping`, `constants`, `libraries` and `inheritance` tests. Round 3 found that
-// the TypeScript backend resolves an unqualified name to a file-scope enum constant even when a member
-// of the contract hides it, which clang refuses. These archetypes walk the rest of that boundary: a
-// constant hidden by a state member, an input field named like a type, a locals member named like a
-// namespace, a struct inheriting twins, and the qualified spelling of each as its control. Every one
-// writes a number into state that is only correct if the intended declaration was picked.
 
 import { emitContract } from "../emit";
 import { script } from "./common";
@@ -556,7 +549,7 @@ export const NAMESPACE_SCOPING_ARCHETYPES: Archetype[] = [
                     family: "namespaces",
                     solidity: `${SOL}/constants/constant_variables.sol`,
                     stresses: "the global-scope qualifier next to the namespace-qualified spelling",
-                    caveat: "documented divergence: the TypeScript backend refuses `::name`, clang accepts it",
+                    caveat: "the global-scope qualifier reaches past a namespaced name of the same spelling on both backends",
                     axis: "global-scope qualifier",
                 },
                 prelude: "static constexpr uint64 threshold = 7;\n\nnamespace Port\n{\nstatic constexpr uint64 threshold = 100;\n}",

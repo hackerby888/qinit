@@ -1,9 +1,5 @@
-// Control-flow shapes as arithmetic: state machines, retry loops, dispatch ladders and the unrolling
-// boundary. Ported from Solidity's `controlFlow/*` and `expressions/*`.
-//
-// Each of these reduces to "two numbers in, several numbers out", so they use the shared two-operand
-// skeleton and spend their length on the branch structure rather than on plumbing. Where the answer
-// follows from the control flow alone it carries a hand-derived `expect` row.
+// Control-flow shapes as arithmetic: state machines, retry loops, dispatch ladders and the unrolling boundary. Ported from Solidity's `controlFlow/*` and
+// `expressions/*`.
 
 import { twoOperandArchetype } from "./common";
 import type { Archetype } from "../types";

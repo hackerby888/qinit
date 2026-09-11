@@ -1,14 +1,4 @@
 // Date and time host calls.
-//
-// Solidity has one clock, `block.timestamp`, and every deadline, vesting schedule and lock in the
-// ecosystem is built on comparing it to a stored number. QPI instead exposes the decomposed calendar —
-// year, month, day, hour, minute, second, millisecond, plus `dayOfWeek(y, m, d)` and the tick and epoch
-// counters — so the port of a deadline pattern has to *recompose* a comparable value out of those
-// fields. That recomposition is arithmetic on eight separate host calls, which is exactly the kind of
-// code where a width or an ordering difference between two backends shows up.
-//
-// All of it is deterministic here: the simulator's clock is `timeBaseMs + tick * tickDuration`, and the
-// harness pins both the base and the tick before the first step.
 
 import { emitContract } from "../emit";
 import { script } from "./common";
@@ -534,9 +524,8 @@ export const HOSTCALL_TIME_ARCHETYPES: Archetype[] = [
                 ],
                 initialize: "state.mut().packed = 0;\nstate.mut().roundTrips = 0;\nstate.mut().mismatches = 0;\nstate.mut().samples = 0;",
             });
-            // 3,600 ticks of simulator time cost about forty seconds per backend and turned this cell
-            // into a reported hang when four workers competed for the machine (F216); 240 exercises the
-            // same minute and hour boundaries.
+            // 3,600 ticks of simulator time cost about forty seconds per backend and turned this cell into a reported hang when four workers competed for the
+            // machine (F216); 240 exercises the same minute and hour boundaries.
             return { source, script: script(sampleSteps([1, 60, 240])) };
         },
     },

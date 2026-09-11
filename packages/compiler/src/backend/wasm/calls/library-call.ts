@@ -19,10 +19,8 @@ export function helperCallOps(
             const argument = callArguments[parameterIndex] ?? parameter.defaultValue;
             if (!argument) throw new Error(`${info.sourceNamespace ?? info.label} is missing required argument ${parameterIndex + 1}`);
             if (parameter.isAddr) {
-                // A mutable reference to a scalar held in a wasm local is passed as a scratch copy, which
-                // is only correct if the copy is read back afterwards. The container path already did
-                // this; the helper path did not, so a contract's own `static void bump(uint64&)` dropped
-                // every write — F221's second call path.
+                // A scalar passed by mutable reference goes as a scratch copy, so it has to be read back
+                // afterwards. The container path did this already; the helper path dropped every write.
                 if (isMutableScalarReference(context, parameter)) {
                     const spilled = spillForMutableReference(context, argument);
                     if (spilled) {
@@ -86,15 +84,13 @@ export function scalarDeclInfo(
 export function pickHelperOverload(context: FunctionEmissionContext, set: CompiledHelperMetadata[], callArguments: Expression[]): CompiledHelperMetadata {
     if (set.length === 1) return set[0];
     const argInfos = callArguments.map((argument) => context.lowering.scalarTypeInfo(context, argument));
-    // Viability the way C++ defines it: an overload with P parameters of which D carry defaults accepts
-    // P-D through P arguments. Comparing P against the argument count outright made every overload of a
-    // function with defaulted trailing parameters non-viable for an under-supplied call.
+    // Viability as C++ defines it: an overload with P parameters of which D carry defaults accepts P-D
+    // through P arguments, not P exactly.
     const requiredCount = (cand: CompiledHelperMetadata): number => {
         const firstDefault = cand.params.findIndex((parameter) => parameter.defaultValue !== undefined);
         return firstDefault < 0 ? cand.params.length : firstDefault;
     };
-    const viable = (cand: CompiledHelperMetadata): boolean =>
-        callArguments.length >= requiredCount(cand) && callArguments.length <= cand.params.length;
+    const viable = (cand: CompiledHelperMetadata): boolean => callArguments.length >= requiredCount(cand) && callArguments.length <= cand.params.length;
     const rank = (cand: CompiledHelperMetadata): number => {
         if (!viable(cand)) return -1;
         // An exact arity match beats one that has to default a parameter, which separates two

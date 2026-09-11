@@ -1,10 +1,4 @@
 // Pairwise covering arrays.
-//
-// An archetype opting into four axes of up to eight values each has thousands of full-cross-product
-// combinations, almost all of them redundant: every finding this compiler has produced was a two-factor
-// interaction (a namespaced type *and* a narrow width; a shadowed name *at* container capacity). A
-// pairwise cover reaches every such pair in a few dozen rows instead of thousands, and it is
-// deterministic, so a regenerated corpus is byte-identical.
 
 /** xorshift32, the deterministic PRNG this repo already uses in its container and control-flow fuzzers. */
 export function xorshift32(seed: number): () => number {
@@ -24,12 +18,8 @@ function pairKey(i: number, vi: number, j: number, vj: number): string {
     return `${i}:${vi}|${j}:${vj}`;
 }
 
-/**
- * Greedy pairwise cover over the given value domains. Every value of every axis appears at least once,
- * and every (axisA=valueA, axisB=valueB) pair appears in at least one row.
- *
- * Returns rows as arrays of indices into each domain.
- */
+/** Greedy pairwise cover: every value of every axis appears at least once, and every (axisA, axisB) value
+ *  pair appears in at least one row. Rows come back as indices into each domain. */
 export function pairwiseCover(domains: readonly (readonly unknown[])[], seed: number, maxRows: number): number[][] {
     const axisCount = domains.length;
     if (axisCount === 0) return [[]];

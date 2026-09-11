@@ -1,11 +1,4 @@
 // The QPI container APIs the earlier batches did not reach: removal, tombstones, cleanup, ranges.
-//
-// There is no Solidity original for most of this — `mapping` has no capacity, no cleanup and no
-// population count, so `delete m[k]` is a one-line write where `HashMap::removeByKey` is a marker in an
-// open-addressed table. The Solidity provenance recorded on each archetype is the pattern it stands in
-// for (`EnumerableSet`, `delete`-then-reuse, a mapping walked for a sum); what is being tested is the
-// container implementation both backends compile against, where a divergence lands in the table's
-// internal occupation flags rather than in any value the contract wrote.
 
 import { emitContract } from "../emit";
 import { capacityOf, fillCount } from "../axes";
