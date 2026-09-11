@@ -2433,6 +2433,25 @@ shadowing an owner parameter would otherwise never deduce.
 it is built once in `beforeAll`. The file went from timing out to 3.19s for 18 tests. The timeout was
 the symptom; the redundant work was the bug.
 
+# The corpus is clean
+
+Full tier, 6,654 contracts, against core-lite `develop`:
+
+    6629  match
+      25  both-rejected
+       0  step-mismatch      (was 39: F203 x32, F221 x7)
+
+`KNOWN_DIVERGENCES` is now empty. Every archetype either matches clang or is refused by both backends,
+and the 25 mutual rejections are two controls — `ReadOnlyFunctionCallsPrivateProcedure` (F212) and
+`NsEnumConstantHiddenByMember` (F205) — where a fix brought the TypeScript backend into line with
+clang's refusal rather than into line with its acceptance. `--strict` passes, which is the half of the
+gate that would have caught a stale entry.
+
+Worth stating plainly what this does and does not mean. It means no *archetype in this corpus* still
+disagrees with clang. It does not mean the compiler is correct: the corpus only covers shapes someone
+thought to write, and two of this campaign's findings (F224, F225) were found by shapes nobody had
+written until the axis that produced them was added.
+
 # F224 — an asset iterator held in state does not match its declared layout
 
 Severity: **medium (a state-digest divergence, and an ABI difference for any contract that stores one)**.

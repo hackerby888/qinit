@@ -6,11 +6,10 @@
 // listed archetype whose rows all match is a stale entry to delete. A one-directional allowlist goes
 // quietly green the moment a defect is fixed, which is the failure it exists to prevent.
 
-export const KNOWN_DIVERGENCES: Record<string, string> = {
-    K12OfComputedExpression: "F203 — template argument deduction discards a computed argument's type, so K12 hashes the wrong width",
-    HostK12ExpressionVersusVariable: "F203 — the same deduction defect reached through the host intrinsic",
-    DateAddMillisecCarryChain: "F221 — a mutable reference to a by-value parameter is never read back, so addMillisec drops the day carry",
-};
+// Empty, and that is the intended resting state: every archetype in the corpus now either matches clang
+// or is refused by both backends. An entry belongs here only while a finding is open, and the gate
+// deletes it the moment the rows go green — see --strict below.
+export const KNOWN_DIVERGENCES: Record<string, string> = {};
 
 export function isKnownDivergence(archetype: string): boolean {
     return Object.prototype.hasOwnProperty.call(KNOWN_DIVERGENCES, archetype);
