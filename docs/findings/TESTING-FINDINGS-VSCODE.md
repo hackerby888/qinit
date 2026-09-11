@@ -514,3 +514,153 @@ one; at minimum the reason should surface as a diagnostic instead of vanishing.
 
 Repro: `bun run --filter qpi-vscode test:xross` — the case
 "the caller compiles: a transitive callee is not dropped from the prelude".
+
+---
+
+# Round 3 — the compiler as the oracle
+
+Rounds 1 and 2 asked what the editor _offers_. This round asks what it _says_, against the only
+authority that matters: the build. The instrument is `packages/vscode/scripts/diag-differential.ts`
+(`bun run --filter qpi-vscode diag:diff`), 52 probes, each compiled three ways — `analyzeContract`,
+which is the call behind every `qpi`/`qinit-compiler` squiggle; the TypeScript backend; and clang.
+
+Three oracles, because one does not cover the surface. Policy rules (`qpi/*`) fire as **warnings** and
+clang compiles them happily, so clang cannot judge them and each probe names the code it must produce.
+clang is the oracle for everything semantic. Controls must build _and_ stay silent, so a diagnostic on
+one is a false positive. Every refusal row carries an accepted control beside it, so a rule that simply
+refuses more is visible as such.
+
+Two corrections to my own instrument are recorded below rather than quietly fixed: both made the
+extension look better than it was.
+
+## E6 — `qpi/no-qpicontext` bans the one context type nobody writes (fixed)
+
+Core spells the privileged host context as **ten** distinct types. `KEYWORD_RULES` is an exact-match
+table keyed on `QpiContext`, which is the _rarest_ of them:
+
+| spelling                         | occurrences in core | banned before |
+| -------------------------------- | ------------------- | ------------- |
+| `QpiContextFunctionCall`         | 95                  | no            |
+| `QpiContextProcedureCall`        | 69                  | no            |
+| `QpiContextProposalFunctionCall` | 20                  | no            |
+| `QpiContext`                     | 16                  | **yes**       |
+| …six more                        | 31                  | no            |
+
+In a `_locals` struct, where `qpi/stack-local` does not apply to absorb it, the miss is total:
+
+```
+QpiContext* ctx;                -> qpi/no-qpicontext
+QpiContextFunctionCall* ctx;    -> (silent)
+QpiContextProcedureCall* ctx;   -> (silent)
+```
+
+Fixed in `packages/compiler/src/analyzer/source-policy.ts` by banning the family by prefix, but only
+where the name is used as a _type_ — followed by `*`, `&`, `::` or a declarator. The first attempt
+matched the prefix alone and flagged `uint64 QpiContextual;`, a false positive that is recorded here
+because the tightened form is what shipped. Now 30/30 (ten types × type/pointer/reference spellings)
+are caught and both controls stay clean. Comments and string literals never reach the token pass.
+
+## E7 — the editor stops before the compiler does (not fixed)
+
+`analyzeContract` runs the frontend and `prepareContractModule`, and stops. It never lowers a function
+body. **Seven** error sites live in that unreached phase — three under `backend/wasm/expressions`, four
+under `backend/wasm/calls` — and every diagnostic they raise is invisible to the editor. Four
+confirmed, same source, three readings:
+
+| probe                                               | clang   | TypeScript backend | editor     |
+| --------------------------------------------------- | ------- | ------------------ | ---------- |
+| a member function hiding a file-scope enum constant | refuses | error              | **silent** |
+| `BitArray + 1` (no viable operator)                 | refuses | silent             | **silent** |
+| an aggregate assigned to a scalar                   | refuses | error              | **silent** |
+| a default-constructed `AssetOwnershipIterator`      | refuses | error              | **silent** |
+
+The first is already tracked as refused by `clang-refusal-diff.test.ts`; that suite asserts the
+_backend_ catches it, and it does. The editor does not, which is the finding: a green editor for a file
+neither backend will build — the top of the severity order in the campaign prompt.
+
+Not fixed, because the two available fixes are both design calls, not patches. Running the full compile
+in the editor costs **215 ms against 65 ms** for `analyzeContract` on `StateZoo.h` — 3.3× on every
+debounced settle, plus emitting wasm that is thrown away. Moving the seven checks into semantic
+analysis, where they are arguably semantic facts rather than codegen facts, is the better answer and is
+a compiler change with its own review. Pinned as four `GAP` rows in the differential.
+
+The last row is the sharpest illustration: main's `7539bda` added a frontend rejection for exactly that
+declaration, and the editor still shows nothing, because the diagnostic that actually fires for this
+shape is raised while lowering the `begin()` call.
+
+A second, smaller defect sits underneath it: diagnostics raised during lowering carry **no `code`** at
+all, only a message. `QpiDiagnostics` sets `diagnostic.code = item.code`, so even if these reached the
+editor they would arrive uncoded and unkeyable for a quick fix.
+
+## E8 — every mistyped type squiggles line 1 and blames the compiler (fixed)
+
+The most common error a developer makes is a typo in a type name. Every one of them lands in
+`internalDiagnostic`, the catch-all in `analyzer/index.ts`, which hardcoded
+`span: { line: 1, column: 1 }`:
+
+```
+uint64   -> (silent)
+uint46   -> compiler/internal[error]    "Source analysis failed: unknown type 'uint46'"
+Uint64   -> compiler/internal[error]
+unit64   -> compiler/internal[error]
+```
+
+A typo on line 44 of a 48-line file drew its red squiggle on **line 1**.
+
+Fixed in two places. `abi-type-builder.ts` now attaches the offending type's own span to the error it
+throws — `TypeSpec` has always carried one; it was simply discarded. `analyzer/index.ts` hoists
+`preprocessed` out of the `try` so the catch-all can map that span back into user coordinates, which
+matters because a span raised behind the generated prelude is in preprocessed lines: the first version
+of this fix reported **line 55 of a 48-line file**. Both files now report the exact typo line, verified
+at two file lengths, and an error carrying no span still lands at the top of the file as before.
+
+The _code_ is left alone deliberately. `compiler/internal` reads as "the compiler broke" where this is
+ordinary user error, but it is the shared catch-all for genuine internal faults too, and
+re-classifying it is a compiler decision rather than a testing-round one.
+
+## A note on `qpi/public-complex-type`
+
+The rule inspects a registered entry struct's own members, so a forbidden container nested one struct
+deep does not reach it. The developer is not left in the dark — the semantic pass reports
+_"Collection is forbidden in registered entry 'Take_input'"_ on the right line, which is the same
+sentence the dedicated rule would have written — but it arrives as `compiler/semantic`. The cost is
+consistency and quick-fix keying, not a missing diagnostic, so it is recorded rather than fixed.
+
+## What held up
+
+Worth recording, because a campaign that only lists failures overstates itself.
+
+- **The editing session.** A new `live` workspace and suite (`bun run --filter qpi-vscode test:live`,
+  7 passing) mutate an open buffer the way a developer does. De-classifying by deleting
+  `: public ContractBase` clears every stale squiggle in 400 ms; renaming the contract type strands
+  nothing; typing the file from empty in eight steps produces only honest `compiler/syntax` at the
+  half-typed marks and settles clean; commenting out a registration reports `qpi/unregistered` from the
+  **unsaved buffer** in 401 ms; a 25 000-character paste and undo both settle clean; and five
+  completion requests fired during `clangd.restart` returned 69, 2, 2, 2, 2 items without a throw,
+  recovering afterwards. This is the family the prompt called "the part that finds things", and it
+  found nothing — the extension handles it.
+- **The container zoo against clang.** Ten container probes — `Array<HashMap<…>>`, `Array<Array<…>>`,
+  a struct `HashMap` key with padding holes, `HashMap<id, Array<…>>`, `Collection`, `HashSet`,
+  `BitArray`, three-level nesting, and a state holding all of them — build clean and draw no
+  diagnostic. No false positives anywhere in the corpus: **0 SPURIOUS across 52 probes**.
+- **The banned surface.** Every other policy rule fires on a crafted violation and stays silent on its
+  control, including the div/mod pairs where the qualified spelling must survive.
+
+## Two corrections to the instrument
+
+Both are the campaign's own ground rule 7 — suspect the probe first — and both initially read as
+extension bugs.
+
+1. **Five "clang refuses a valid contract" rows were my template.** It emitted `types:` _after_
+   `StateData`, so a struct used by state was declared below it; clang's real error was
+   `use of undeclared identifier 'Cell'`, not anything about containers. Two more were bad C++ of mine
+   (`get()` returns a const reference, and `m256i` has no `_0` member on this core). Fixed; all 14
+   container/deep/scalar probes then agreed.
+2. **The harness reported a real error as silence.** Lowering-phase diagnostics carry no `code`, and
+   the harness mapped `d.code` and joined — so `[undefined]` rendered as `(silent)`. E7 was found
+   because the raw diagnostic list disagreed with the summary line. The harness now labels an uncoded
+   diagnostic by its message. Separately, the harness did not call `initK12()`, which the backend needs;
+   without it `compileContractWithTypeScript` returns no diagnostics rather than failing loudly, which
+   reads as "everything agrees".
+
+Neither changed a verdict in the end, but both would have.
