@@ -5,13 +5,31 @@ import { FunctionEmissionContext, CompiledHelperMetadata, EMPTY_TEMPLATE_BINDING
 import { MATH_INTRINSIC_NAMES, SCALAR_SIZE, isAuthoritativeSymbol, symbolBaseName } from "../abi/tables";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionTemplateDecl } from "../../../ast";
 import { compileLibraryFunction } from "./library-function-compiler";
+import { isMutableScalarReference, spillForMutableReference } from "../memory/reference-arguments";
+import * as watIr from "../wat-ir";
 // Build the args for a helper call (scalar args by value, reference/aggregate args by address).
-export function helperCallOps(context: FunctionEmissionContext, info: CompiledHelperMetadata, callArguments: Expression[]): string {
-    return info.params
+export function helperCallOps(
+    context: FunctionEmissionContext,
+    info: CompiledHelperMetadata,
+    callArguments: Expression[],
+): { operands: string; writeBacks: string[] } {
+    const writeBacks: string[] = [];
+    const operands = info.params
         .map((parameter, parameterIndex) => {
             const argument = callArguments[parameterIndex] ?? parameter.defaultValue;
             if (!argument) throw new Error(`${info.sourceNamespace ?? info.label} is missing required argument ${parameterIndex + 1}`);
             if (parameter.isAddr) {
+                // A mutable reference to a scalar held in a wasm local is passed as a scratch copy, which
+                // is only correct if the copy is read back afterwards. The container path already did
+                // this; the helper path did not, so a contract's own `static void bump(uint64&)` dropped
+                // every write — F221's second call path.
+                if (isMutableScalarReference(context, parameter)) {
+                    const spilled = spillForMutableReference(context, argument);
+                    if (spilled) {
+                        writeBacks.push(spilled.writeBack);
+                        return spilled.addr;
+                    }
+                }
                 return context.lowering.argAddr(
                     context,
                     argument,
@@ -26,6 +44,7 @@ export function helperCallOps(context: FunctionEmissionContext, info: CompiledHe
             return parameter.wasmType === WatNodeType.I32 ? `(i32.wrap_i64 ${value})` : value;
         })
         .join(" ");
+    return { operands, writeBacks };
 }
 // Aggregate-returning helpers allocate destination first, then pass it as the leading $ret arg.
 export function emitAggHelperCall(
@@ -36,8 +55,9 @@ export function emitAggHelperCall(
     info: CompiledHelperMetadata,
 ): string {
     const scratchAddress = context.lowering.allocateScratchSlot(context, info.retAgg!);
-    const helperArgumentOperands = helperCallOps(context, info, expression.callArguments);
-    context.lines.push(`    (call ${info.label} ${scratchAddress}${helperArgumentOperands ? " " + helperArgumentOperands : ""})`);
+    const { operands, writeBacks } = helperCallOps(context, info, expression.callArguments);
+    context.lines.push(`    (call ${info.label} ${scratchAddress}${operands ? " " + operands : ""})`);
+    context.lines.push(...writeBacks);
     return scratchAddress;
 }
 // Scalar width/signedness of a declared parameter or return type, or null for aggregates/unknowns.
@@ -221,10 +241,27 @@ export function emitHelperCall(
         const addr = emitAggHelperCall(context, expression, info);
         return valueWanted ? "(i64.const 0)" : (void addr, "");
     }
-    const helperArgumentOperands = helperCallOps(context, info, expression.callArguments);
-    const call = `(call ${info.label}${helperArgumentOperands ? " " + helperArgumentOperands : ""})`;
+    const { operands, writeBacks } = helperCallOps(context, info, expression.callArguments);
+    const call = `(call ${info.label}${operands ? " " + operands : ""})`;
     if (valueWanted) {
-        if (!info.retIsValue) return "(i64.const 0)";
+        if (!info.retIsValue) {
+            context.lines.push(`    ${call}`);
+            context.lines.push(...writeBacks);
+            return "(i64.const 0)";
+        }
+        // The write-backs have to run after the call, so a value-context call carrying any of them is
+        // sequenced through a temporary rather than returned inline.
+        if (writeBacks.length) {
+            const returned = `tmp${context.tmpCount++}`;
+            context.localVars.set(returned, { wasmType: WatNodeType.I64 });
+            const widened =
+                info.retWasmType === WatNodeType.I32
+                    ? `(${info.retType && !unsignedScalar(context.programAnalysis.derefType(info.retType)) ? "i64.extend_i32_s" : "i64.extend_i32_u"} ${call})`
+                    : call;
+            context.lines.push(`    ${context.lowering.setLocal(context, returned, watIr.rawWatNode(widened, WatNodeType.I64, "unconverted: helper call"))}`);
+            context.lines.push(...writeBacks);
+            return `(local.get $${returned})`;
+        }
         if (info.retWasmType === WatNodeType.I32) {
             const unsigned = info.retType ? unsignedScalar(context.programAnalysis.derefType(info.retType)) : true;
             return `(${unsigned ? "i64.extend_i32_u" : "i64.extend_i32_s"} ${call})`;
@@ -232,5 +269,6 @@ export function emitHelperCall(
         return call;
     }
     context.lines.push(info.retIsValue ? `    (drop ${call})` : `    ${call}`);
+    context.lines.push(...writeBacks);
     return "";
 }

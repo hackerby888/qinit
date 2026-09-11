@@ -4,6 +4,7 @@ import { addrIr } from "../memory/memory-operations";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
+import { isScalarValueSlot } from "../memory/reference-arguments";
 export function emitThisCall(
     context: FunctionEmissionContext,
     expression: Expression & {
@@ -84,7 +85,7 @@ export function emitThisCall(
         }
         const size = context.lowering.allocateScratchSlotNode(context, 8);
         context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, size, context.lowering.lowerValueExpression(context, argSource)))}`);
-        if (argSource.kind === AstKind.IDENTIFIER && context.localVars.get(argSource.name)?.wasmType === WatNodeType.I64) {
+        if (argSource.kind === AstKind.IDENTIFIER && isScalarValueSlot(context, argSource.name)) {
             writeBacks.push(`    ${context.lowering.setLocal(context, argSource.name, watIr.rawLoad("i64.load", null, size))}`);
         }
         return watIr.serializeWatNode(size);

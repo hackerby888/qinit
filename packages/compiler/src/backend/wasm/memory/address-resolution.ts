@@ -80,6 +80,9 @@ export function stripPtrRefConst(type: TypeSpec): TypeSpec {
     }
     return type;
 }
+/** A functional-style construction spells its type as a plain or qualified name in callee position. */
+const CONSTRUCTOR_CALLEE_KINDS: ReadonlySet<AstKind> = new Set([AstKind.IDENTIFIER, AstKind.QUALIFIED_NAME]);
+
 export function resolveExpressionAddress(context: FunctionEmissionContext, expression: Expression): ResolvedAddress | null {
     if (expression.kind === AstKind.PAREN) return resolveExpressionAddress(context, expression.expression);
     // __ScopedScratchpad.ptr → the held scratch buffer base (the local's value). `reinterpret_cast<T*>(sp.ptr)`
@@ -324,6 +327,29 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
         ) {
             const addr = context.lowering.emitAddress(context, expression.object);
             if (addr) parent = { addr, type: { kind: AstKind.NAME, name: "id" }, size: 32, layout: null };
+        }
+        // [class.temporary]/2: selecting a member of a class prvalue materialises a temporary, and the
+        // member read then happens against that temporary's address. A functional-style construction
+        // `T(...)` is such a prvalue, so resolve the callee as a type and, when it names an aggregate,
+        // let emitAddress place it in scratch. The rule is the callee naming a type, not a list of
+        // producers: `SELF` expands to `id(CONTRACT_INDEX, 0, 0, 0)`, which matched none of the branches
+        // above and made `SELF.u64._0` an unsupported member read (F215) while the same read through a
+        // one-line copy compiled.
+        if (!parent && expression.object.kind === AstKind.CALL && CONSTRUCTOR_CALLEE_KINDS.has(expression.object.callee.kind)) {
+            const bind = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
+            const calleeName = (expression.object.callee as { name: string }).name;
+            const constructed = context.programAnalysis.resolveType({ kind: AstKind.NAME, name: calleeName }, bind);
+            if (constructed && context.programAnalysis.isAggregateType(constructed)) {
+                const addr = context.lowering.emitAddress(context, expression.object);
+                if (addr) {
+                    parent = {
+                        addr,
+                        type: constructed,
+                        size: Math.max(1, context.programAnalysis.sizeOfType(constructed, bind)),
+                        layout: context.programAnalysis.layoutOfType(constructed, bind),
+                    };
+                }
+            }
         }
         if (!parent) return null;
         if (expression.arrow && parent.type?.kind === AstKind.POINTER) {

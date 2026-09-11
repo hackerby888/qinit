@@ -73,14 +73,20 @@ export function compileContainerMethod(
     const cached = programAnalysis.compiledMethods.get(cacheKey);
     if (cached) return cached;
     let ownerBindings = resolvedMethod.ownerBindings;
+    // Type parameters the call spelled out. Tracked by name rather than tested with `types.has`, because
+    // `types` also carries the enclosing class's bindings and a method parameter shadowing one of those
+    // would then never deduce.
+    const explicitlyBoundTypeParams = new Set<string>();
     if (explicitTemplateArgs.length) {
         const types = new Map(ownerBindings.types);
         const values = new Map(ownerBindings.values);
         definition.params.forEach((parameter, index) => {
             const argument = explicitTemplateArgs[index];
             if (!argument) return;
-            if (parameter.kind === AstKind.TYPE) types.set(parameter.name, argument);
-            else values.set(parameter.name, programAnalysis.valueOfTypeArg(argument, ownerBindings));
+            if (parameter.kind === AstKind.TYPE) {
+                types.set(parameter.name, argument);
+                explicitlyBoundTypeParams.add(parameter.name);
+            } else values.set(parameter.name, programAnalysis.valueOfTypeArg(argument, ownerBindings));
         });
         ownerBindings = { ...ownerBindings, types, values };
     }
@@ -91,7 +97,10 @@ export function compileContainerMethod(
         for (let index = 0; index < (definition.functionParameters ?? []).length; index++) {
             const declared = programAnalysis.derefType(definition.functionParameters![index].type);
             const actual = resolvedMethodArgumentTypes[index];
-            if (declared.kind === AstKind.NAME && templateTypeNames.has(declared.name) && actual) {
+            // An explicitly supplied template argument is not a deduction candidate: `twice<uint8>(200)`
+            // means uint8 whatever the literal's own type is. This held by accident while deduction
+            // returned null for a literal, and stopped holding once it could type one.
+            if (declared.kind === AstKind.NAME && templateTypeNames.has(declared.name) && actual && !explicitlyBoundTypeParams.has(declared.name)) {
                 types.set(declared.name, actual);
             }
         }
@@ -280,6 +289,55 @@ function overloadDiscriminator(
     return ranked[0].key.slice(prefix.length);
 }
 
+/** The scalar type name for a width and signedness, as the usual arithmetic conversions give it. */
+const SCALAR_TYPE_BY_SHAPE: Record<string, string> = {
+    "1s": "sint8",
+    "1u": "uint8",
+    "2s": "sint16",
+    "2u": "uint16",
+    "4s": "sint32",
+    "4u": "uint32",
+    "8s": "sint64",
+    "8u": "uint64",
+    "16s": "uint128",
+    "16u": "uint128",
+};
+
+/**
+ * The type a member template deduces `T` from for one call argument.
+ *
+ * The three lvalue-ish shapes below cover an argument that has an address, is constructed in place, or
+ * names an aggregate. Everything else — every computed expression — used to return null, and an unbound
+ * `T` then made `sizeof(T)` 1. That is F203: `qpi.K12(input.a + input.b)` compiled to a second
+ * instantiation hashing one byte where `qpi.K12(input.a)` hashed eight, so a commitment computed inline
+ * differed from the same value hashed through a named local, with no diagnostic on either side.
+ *
+ * An rvalue has a type in C++ just as an lvalue does, and for the scalar subset it is the one the usual
+ * arithmetic conversions give. `scalarTypeInfo` already computes exactly that — it is what the backend
+ * trusts to lower the arithmetic itself — so deduction asks it rather than giving up. The rule is
+ * general: any `template<typename T>` QPI method called with an expression was mis-deducing, and K12 is
+ * only where the width is observable in the answer.
+ */
+export function deduceMethodArgumentType(context: FunctionEmissionContext, argument: Expression): TypeSpec | null {
+    const node = context.lowering.resolveExpressionAddress(context, argument);
+    if (node?.type) return context.programAnalysis.derefType(node.type);
+    if (argument.kind === AstKind.CONSTRUCT) return context.programAnalysis.derefType(argument.type);
+    if (argument.kind === AstKind.CALL && argument.callee.kind === AstKind.IDENTIFIER) {
+        const type: TypeSpec = { kind: AstKind.NAME, name: argument.callee.name };
+        if (context.programAnalysis.isAggregateType(type)) return type;
+    }
+    // A call's declared return type is authoritative and has no width ceiling. scalarTypeInfo also reads
+    // it but discards anything wider than 8 bytes, so a helper returning `uint128` or an `id` deduced
+    // nothing and fell back to sizeof(T) == 1 — the same defect surviving behind F203's own fix.
+    if (argument.kind === AstKind.CALL) {
+        const helper = context.lowering.lookupHelper(context, argument);
+        if (helper?.retType) return context.programAnalysis.derefType(helper.retType);
+    }
+    const scalar = context.lowering.scalarTypeInfo(context, argument);
+    const name = scalar ? SCALAR_TYPE_BY_SHAPE[`${scalar.width}${scalar.unsigned ? "u" : "s"}`] : undefined;
+    return name ? { kind: AstKind.NAME, name } : null;
+}
+
 // Build a call using the compiled method's concrete parameter types.
 export function callCompiled(
     context: FunctionEmissionContext,
@@ -296,17 +354,7 @@ export function callCompiled(
     cm: CompiledMethod;
     retDest?: string;
 } | null {
-    const methodArgTypes = () =>
-        callArguments.map((argument) => {
-            const node = context.lowering.resolveExpressionAddress(context, argument);
-            if (node?.type) return context.programAnalysis.derefType(node.type);
-            if (argument.kind === AstKind.CONSTRUCT) return context.programAnalysis.derefType(argument.type);
-            if (argument.kind === AstKind.CALL && argument.callee.kind === AstKind.IDENTIFIER) {
-                const type: TypeSpec = { kind: AstKind.NAME, name: argument.callee.name };
-                if (context.programAnalysis.isAggregateType(type)) return type;
-            }
-            return null;
-        });
+    const methodArgTypes = () => callArguments.map((argument) => deduceMethodArgumentType(context, argument));
     const bind = context.programAnalysis.bindContainer(type.name, type.callArguments);
     const discriminator = parameterTypeDiscriminator ?? overloadDiscriminator(context, type, method, callArguments, bind);
     const cm = compileContainerMethod(context.programAnalysis, type, method, callArguments.length, discriminator, methodArgTypes, explicitTemplateArgs);
