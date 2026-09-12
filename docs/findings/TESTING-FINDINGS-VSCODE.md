@@ -1381,3 +1381,98 @@ test, the probe is wrong.
 
 Pinned findings: **three** — E5's drop, E7 and E17. E7's disposition is unchanged; its justification is
 not.
+
+# Round 13 — the oracle E17 said did not exist
+
+E17 is pinned with the sentence _"unlike every gap this campaign has found so far, there is no oracle"_,
+and the differential grew a whole `NO-ORACLE` verdict to say it. That is true of clang, of the
+TypeScript backend and of the editor, and it is where round 10 stopped. It is not true of the machine.
+Deploy the contract, store a value, redeploy the narrowed version, and read the state back: the state
+itself says what happened, and the simulator has been able to do that the whole time.
+
+`packages/vscode/scripts/migration-oracle.ts` (`bun run --filter qpi-vscode migrate:oracle`) stores
+`a = 1 099 511 627 783`, `b = −1 099 511 640 121`, `c = 99` in a v1 contract, redeploys ten v2 shapes over
+it, and reads all three back through a `Get` whose output is four `uint64` so nothing is re-widened on
+the way out.
+
+| redeployed as                          | what the contract now reads              | diagnostics |
+| -------------------------------------- | ---------------------------------------- | ----------- |
+| identical layout, with/without MIGRATE | everything intact — the control          | 0           |
+| `uint64` → `uint32`                    | **a = 7**                                | 0           |
+| `uint64` → `uint8`                     | **a = 7**                                | 0           |
+| `sint64` → `uint64`                    | same bits, but **`b < 0` is now false**  | 0           |
+| `sint64` → `sint32`                    | **b = −12 345**                          | 0           |
+| `uint64` → `uint32`, **no MIGRATE**    | **a = 7** — the same truncation          | 0           |
+| a field inserted, **no MIGRATE**       | a ← old `b`, b ← 99, c ← 0, sign flipped | 0           |
+
+Seven of ten redeploys changed the state, and not one of them produced a diagnostic from the editor or
+from either backend. E17 stays pinned and its evidence is now a number rather than an inference.
+
+## Two corrections to how round 10 wrote it
+
+**The signedness row does not change a single bit.** Round 10 said `sint64` → `uint64` "turns every
+persisted negative value into a very large positive one". The value is the same 64 bits before and
+after; what changes is what the contract's own code makes of them, which the probe shows by asking the
+contract rather than the bytes: `state.get().b < 0` answers yes under v1 and **no** under v2. That
+matters for the rule the finding asks for — it would have to key on the declared type changing, because
+there is nothing in the data to compare.
+
+**The narrowing does not need a `MIGRATE` at all.** Round 10 framed E17 as a property of migration
+bodies. Redeploying the narrowed layout with no `MIGRATE` declared truncates identically, through the
+raw-overlap path in `engine/contract/registry.ts:68`. A rule that inspects only `MIGRATE` bodies would
+catch half of it.
+
+## E18 — a MIGRATE that cannot run satisfies the guard that would have caught its absence (fixed)
+
+`qinit deploy` already refuses a changed layout: `stateCarryoverRejection` compares the deployed state's
+size and format against the new one and rejects, naming both layouts and the ways out. Its last clause
+was `if (next.migration) return null` — a handler is there, so the reinterpretation is the handler's
+job.
+
+The runtime disagrees about when a handler has a job. `registry.ts:64` fires `MIGRATE` only when
+`OldStateData` is **exactly** the size of the state already on the node; any other size falls through to
+the raw overlap copy, in silence. Nothing compared the two, and both numbers were sitting in the IDLs the
+guard already had:
+
+```
+v1 state:               24 B  (uint64, sint64, uint64)
+v2 state:               32 B  (uint64, uint64, sint64, uint64)
+v2 MIGRATE OldStateData: 16 B (uint64, sint64)
+deploy guard says:      PROCEED
+```
+
+So a developer who changes the state layout, writes a migration, and gets `OldStateData` subtly wrong
+gets the worst of every path: the migration never runs, the guard that refuses a bare layout change has
+already stood down because a migration exists, and the redeploy lands with every field reading at the
+wrong offset. The oracle's last row measures exactly that — `a` becomes the old `b`, `b` becomes 99,
+`c` becomes 0.
+
+Fixed in `cli/src/ops/deploy/state-layout.ts`: when a migration is declared, its `oldState.size` must
+equal the deployed state's size, and the rejection names both numbers rather than repeating "no MIGRATE
+handler". The escape hatch is unchanged — `--allow-state-carryover` still bypasses the whole check. Two
+tests cover it, and the pre-existing "a changed layout with a MIGRATE handler is the handler's job" case
+was carrying a 32-byte `OldStateData` over a 24-byte state, which is the bug in fixture form; it now
+declares a handler that fits.
+
+One smaller case stays open and is recorded rather than fixed: when the layout does **not** change, the
+guard returns before it looks at anything, so a `MIGRATE` with a wrong `OldStateData` is still skipped
+without a word. Nothing is corrupted — the raw copy is correct when the layouts match — but a handler
+that also stamps a migration tick, or bumps a version field, silently does not. Catching it needs a
+check on a redeploy that is otherwise a no-op, which is a different call from refusing data loss.
+
+## Where this belongs, and where it does not
+
+E18 is a deploy-time fact, not an editor one: the buffer holds one version of the contract and the editor
+has no way to know what is on a node. It was found here because round 12 established that the runtime can
+be an oracle and this round went looking for what else that oracle sees. Recording it under an editor
+campaign is the honest place for it — it is where the evidence was produced — and the fix landed where
+the check belongs.
+
+The demonstration against the deploy guard lives in `cli/tests/contracts/state-layout.test.ts` rather
+than in the campaign script, because `test-utils/import-style.test.ts` forbids reaching into another
+package by relative path and the script has no business depending on the CLI. The script stays what it
+is: the runtime oracle.
+
+Pinned findings: **three** — E5's drop, E7 and E17. E17 keeps its `NO-ORACLE` rows in the differential,
+which remains the right verdict there: no _static_ tool refuses it. The runtime does now answer, and the
+answer is on record.
