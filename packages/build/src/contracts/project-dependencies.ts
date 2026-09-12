@@ -32,6 +32,9 @@ export interface ResolveContractsOptions {
     additionalRootSource?: string;
     // Editors want every contract in the workspace, not only the ones the root already references.
     includeWorkspaceSiblings?: boolean;
+    // A sibling rolled out of the plan looks exactly like a file that belongs to no project; the reason
+    // is the only thing that tells them apart, so a caller that can report it may ask for it.
+    onSiblingDropped?: (name: string, reason: string) => void;
 }
 
 function headerPaths(directory: string): string[] {
@@ -240,7 +243,7 @@ export function resolveContracts(options: ResolveContractsOptions): ResolvedCont
     visit(root);
 
     if (options.includeWorkspaceSiblings) {
-        visitWorkspaceSiblings({ headers, nodes, visitState, stack, ordered, visit, reservedSystemNames });
+        visitWorkspaceSiblings({ headers, nodes, visitState, stack, ordered, visit, reservedSystemNames, onDropped: options.onSiblingDropped });
     }
 
     return ordered;
@@ -254,6 +257,7 @@ interface SiblingVisit {
     ordered: ResolvedContract[];
     visit: (node: ResolvedContract) => void;
     reservedSystemNames: Map<string, SystemContract>;
+    onDropped?: (name: string, reason: string) => void;
 }
 
 // Append every workspace contract the root never referenced, after the reachable set so slot planning is unchanged; one that fails to resolve rolls back whole.
@@ -278,7 +282,8 @@ function visitWorkspaceSiblings(o: SiblingVisit): void {
             for (const node of o.ordered.slice(orderedLength)) {
                 node.workspaceSibling = true;
             }
-        } catch {
+        } catch (error) {
+            o.onDropped?.(name, error instanceof Error ? error.message : String(error));
             o.stack.length = 0;
             o.ordered.length = orderedLength;
             for (const key of [...o.nodes.keys()].filter((key) => !knownNodes.has(key))) {

@@ -124,6 +124,8 @@ export function buildCalleePrelude(
     selfType?: string,
     // Editors index every sibling contract, so a callee the source has not referenced yet still resolves.
     includeUnreferencedCallees = false,
+    // A dropped sibling is invisible in the prelude, and the editor has to be able to say why.
+    onDropped?: (type: string, reason: string) => void,
 ): string {
     let indexBlock = "";
     let definitions = new Map<string, CalleeDef>();
@@ -231,10 +233,13 @@ export function buildCalleePrelude(
         const before = new Set(resolved.keys());
         try {
             resolveCallee(calleeType);
-        } catch {
+        } catch (error) {
             for (const type of [...resolved.keys()].filter((type) => !before.has(type))) {
                 resolved.delete(type);
             }
+            // Dropping is right; dropping silently is not. Every symbol the sibling would have declared
+            // is now absent, and without the reason nothing connects that to the errors clangd reports.
+            onDropped?.(calleeType, error instanceof Error ? error.message : String(error));
         }
     }
 

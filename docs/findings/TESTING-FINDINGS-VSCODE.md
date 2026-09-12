@@ -964,3 +964,74 @@ a design question, so it is pinned rather than patched.
 - **A lesson from round 3, not applied.** The `_`-led probe was first written against `id`'s `_0.._3`
   limbs — which this core's `m256i` does not have, exactly as round 3 recorded when a probe of mine died
   the same way. A log struct's `_type` is the vehicle that actually exists.
+
+---
+
+# Round 8 — closing the silent failures
+
+Seven rounds had produced five pinned findings, each deferred as a design question. Two of them —
+**E5** and **E11** — turned out to share one root cause and one contained fix, so this round closed
+them rather than adding a sixth.
+
+Both were bare `catch` blocks that roll a contract out of the plan and discard the reason. The rollback
+itself is right: a sibling that cannot be analysed should not fail the file being edited. Doing it
+_silently_ is what leaves the developer with clangd's "use of undeclared identifier" and nothing to
+connect it to. So the fix keeps every rollback exactly as it was and only carries the reason out:
+`buildCalleePrelude` and the sibling walk in `project-dependencies.ts` each take an optional reporter,
+additive, so no existing caller changes.
+
+## E11 — closed
+
+A contract that is not the one `qinit.json` names, referencing a callee that does not exist yet, used
+to degrade to standalone with no diagnostic at all. It now reports, and clears by itself:
+
+```
+missing callee            -> qinit/project-dependencies after 0 ms
+  'Caller' could not be resolved as part of this project, so its callees are unavailable here
+  and references to them will not resolve: unknown callee 'Missing' referenced by Caller
+after creating the callee -> 0 diagnostics (0 ms)
+```
+
+Resolution still degrades to standalone rather than throwing, deliberately: throwing would also fail
+clangd config generation for that file, which is worse than the missing callees. The reason rides
+alongside as a **warning**, because the file does still work.
+
+## E5 — half closed, and the half that is left is the design question
+
+`Bank` is still dropped from `Teller`'s prelude, and `Teller.h` still shows eight
+`use of undeclared identifier 'Bank'` errors. Resolving a callee's own callees before parsing its
+registrations is a `packages/build` change with its own review, and that stands pinned.
+
+What is no longer true is that nothing names the cause:
+
+```
+qinit/callee-dropped — 'Bank' could not be analysed, so it is missing from this contract's callee
+prelude and every 'Bank::' reference will read as an undeclared identifier:
+Source analysis failed: unknown type 'Ledger::Stamp' (not a QPI scalar, enum, typedef or struct)
+```
+
+The pinned case was renamed to say what it now tests, and a second case asserts the report.
+
+## Two existing assertions had to change, and why
+
+Neither was weakened to go green; both had been standing in for something they no longer measure.
+
+- **"the project resolves at all"** (round 2) asserted _zero_ `qinit-project` diagnostics on `Teller.h`
+  as a proxy for "resolution succeeded". A dropped callee is now reported under that same source as a
+  warning, so the proxy would have failed on an improvement. It now asserts zero `qinit-project`
+  **errors**, and the warning is asserted by the new case beside it.
+- **"an identifier list does not change…"** (round 6) asserted that no name is lost when a sibling is
+  opened. It failed on `simde_bool` lost and `arc4random_buf` gained — the same clangd index jitter
+  round 6 recorded, in both directions. Rather than exclude those names by hand, the probe now takes
+  **two readings in the same state** to measure clangd's own variance, and compares across states only
+  the names that were stable anyway: 42 of 44 stable, nothing lost, nothing gained.
+
+## One more thing the repro taught
+
+The first version of the E11 test created the callee file and called `doc.save()`. A save on a buffer
+with no unsaved edits fires no event, so nothing re-resolved and the diagnostic sat there for the full
+thirty-second timeout looking like a failure to clear. The test now makes a real edit first — which is
+also the honest scenario, because **creating a sibling on disk does not by itself re-resolve an open
+file**; something has to save it.
+
+Pinned findings now stand at four: E5's drop, E7, E14 and E15.

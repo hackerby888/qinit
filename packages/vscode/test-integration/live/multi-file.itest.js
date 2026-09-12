@@ -64,25 +64,29 @@ suite("live — several contracts open at once", function () {
         const meter = await open(METER);
         const marker = "        BitArray<8> flags;";
         const upto = "        B";
-        const ownSample = await stableLabels(meter, marker, upto);
-        const own = qpiSurface(ownSample.labels);
-        console.log(`    Meter last regenerated -> ${own.length} names from ${ownSample.warm}/3 warm samples: ${own.slice(0, 6).join(", ")}`);
-        assert.ok(own.length > 20, `the probe must be able to see a difference; only got ${own.length} names`);
+
+        // clangd volunteers the odd system symbol inconsistently — `arc4random_buf`, `simde_bool` — and
+        // that variance is its index, not the allowed-identifier set. Two readings in the *same* state
+        // measure it, so the comparison across states can be restricted to names that are stable anyway:
+        // lost is what both same-state readings agreed on and the other state lacks, and gained is what
+        // the other state has and neither same-state reading ever produced.
+        const first = qpiSurface((await stableLabels(meter, marker, upto)).labels);
+        const second = qpiSurface((await stableLabels(meter, marker, upto)).labels);
+        const stable = first.filter((name) => second.includes(name));
+        const everSeen = new Set([...first, ...second]);
+        console.log(`    Meter last regenerated -> ${first.length}/${second.length} names, ${stable.length} stable across two readings`);
+        assert.ok(stable.length > 20, `the probe must be able to see a difference; only ${stable.length} stable names`);
 
         await open(FEED);
         await sleep(1500);
         await open(METER);
-        const afterSample = await stableLabels(meter, marker, upto);
-        const after = qpiSurface(afterSample.labels);
-        console.log(`    Feed last regenerated  -> ${after.length} names from ${afterSample.warm}/3 warm samples: ${after.slice(0, 6).join(", ")}`);
+        const after = qpiSurface((await stableLabels(meter, marker, upto)).labels);
+        console.log(`    Feed last regenerated  -> ${after.length} names`);
 
-        const { lost, gained } = diff(own, after);
+        const lost = stable.filter((name) => !after.includes(name));
+        const gained = after.filter((name) => !everSeen.has(name));
         console.log(`      lost: [${lost.slice(0, 12).join(", ")}]  gained: [${gained.slice(0, 12).join(", ")}]`);
-        // The hazard is a name the contract needs going missing because another contract's prefix is
-        // live, and a name from that other contract appearing. clangd also volunteers the odd C library
-        // symbol between a cold and a warm index; that is its own list, not the allowed-identifier set,
-        // so it is printed rather than asserted on.
-        assert.deepStrictEqual(lost, [], "no name may be lost because a sibling was opened");
+        assert.deepStrictEqual(lost, [], "no stable name may be lost because a sibling was opened");
         const foreign = gained.filter((label) => /^(Reading|Poll|Bump|Meter|Sample)/.test(label));
         assert.deepStrictEqual(foreign, [], `a sibling's own names must not appear: [${gained.join(", ")}]`);
     });

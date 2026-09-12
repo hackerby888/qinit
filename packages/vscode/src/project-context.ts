@@ -30,6 +30,10 @@ export interface ProjectSourceDetails {
     slot: number;
     dynCallees: DynCallees;
     analysis: ProjectAnalysisContext;
+    // Set when this file is a contract of the project that the plan could not keep. Resolution still
+    // degrades to standalone, because losing the clangd config too would be worse — but the reason is
+    // carried out so the editor can say it instead of leaving clangd's "undeclared identifier" alone.
+    unresolved?: { name: string; reason: string };
 }
 
 export function planEditorProjectSlots(nodes: readonly ResolvedContract[], layout: { slotBase: number; slotCount: number }): SlottedContract[] {
@@ -210,6 +214,9 @@ export function resolveProjectSourceDetails(options: { filePath: string; workspa
         mainSource = readFileSync(mainPath, "utf8");
     } catch {}
     const mainName = config.contractName ?? contractStateType(mainSource) ?? basename(mainPath).replace(/\.[^.]+$/, "");
+    // A sibling that fails to resolve is rolled out of the plan, which afterwards is indistinguishable
+    // from a header that belongs to no project at all. Collecting the reasons is what tells them apart.
+    const dropped = new Map<string, string>();
     const nodes = resolveContracts({
         projectRoot,
         corePath,
@@ -217,12 +224,15 @@ export function resolveProjectSourceDetails(options: { filePath: string; workspa
         contractPath: mainPath,
         slot: config.slot,
         includeWorkspaceSiblings: true,
+        onSiblingDropped: (name, reason) => dropped.set(name, reason),
     });
     const planned = planWithSiblings(nodes, loadCoreWasmSlotLayout(corePath));
     const contract = planned.find((node) => resolve(node.sourcePath) === filePath);
 
     if (!contract || contract.kind !== "custom") {
-        return standaloneDetails(filePath, projectRoot, corePath, availableWasiSysroot);
+        const details = standaloneDetails(filePath, projectRoot, corePath, availableWasiSysroot);
+        const reason = dropped.get(details.name);
+        return reason ? { ...details, unresolved: { name: details.name, reason } } : details;
     }
 
     const dependencies = visibleDependencies(contract, planned);

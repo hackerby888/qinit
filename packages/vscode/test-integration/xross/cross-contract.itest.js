@@ -20,11 +20,13 @@ suite("campaign — cross-contract completion", function () {
     });
 
     // The headline: if project resolution throws, the caller loses its analysis context entirely — no
-    // IDL, no hover, and the member fallback has no callee sources to answer from.
+    // IDL, no hover, and the member fallback has no callee sources to answer from. "No qinit-project
+    // diagnostic at all" used to stand in for that, and no longer can: a dropped callee is now reported
+    // under the same source as a warning, and is asserted by the case below. The error is the signal.
     test("the project resolves at all", async () => {
         const doc = await open(TELLER);
         const r = await settle(
-            () => diagnosticsFor(doc, ["qinit-project"]),
+            () => diagnosticsFor(doc, ["qinit-project"]).filter((d) => d.severity === vscode.DiagnosticSeverity.Error),
             (d) => d.length === 0,
             { timeout: 20000 },
         );
@@ -96,9 +98,24 @@ suite("campaign — cross-contract completion", function () {
         }
     });
 
-    // E5: Bank is dropped from Teller's callee prelude because parseRegisters analyses Bank without its
-    // own callee (Ledger), throws on `Ledger::Stamp`, and buildCalleePrelude swallows it. clangd then has
-    // no declaration for Bank at all, so every `Bank::` line in Teller.h is an error.
+    // E5, still pinned: Bank is dropped from Teller's callee prelude because parseRegisters analyses Bank
+    // without its own callee (Ledger) and throws on `Ledger::Stamp`. clangd then has no declaration for
+    // Bank, so every `Bank::` line in Teller.h is an error. Resolving a callee's own callees before
+    // parsing its registrations is a packages/build change with a real design question attached, so the
+    // drop itself stands — but it is no longer silent, which is the half that could be fixed honestly.
+    test("the drop is reported even though the caller still does not compile", async () => {
+        const doc = await open(TELLER);
+        const r = await settle(
+            () => diagnosticsFor(doc, ["qinit-project"]).filter((d) => String(d.code) === "qinit/callee-dropped"),
+            (d) => d.length > 0,
+            { timeout: 20000 },
+        );
+        console.log(`    qinit/callee-dropped -> ${r.value.length}`);
+        for (const d of r.value) console.log(`      ${String(d.message).slice(0, 130)}`);
+        assert.ok(r.settled, "a callee missing from the prelude must say so, not leave clangd to it");
+        assert.match(String(r.value[0].message), /Bank/, "the message must name the callee that went missing");
+    });
+
     test("the caller compiles: a transitive callee is not dropped from the prelude", async () => {
         const doc = await open(TELLER);
         await clangdRunning({ timeout: 90000 });

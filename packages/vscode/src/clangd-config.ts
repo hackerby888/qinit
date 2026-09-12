@@ -29,6 +29,8 @@ export interface ClangdInputs {
 
 export interface ClangdConfig {
     dir: string;
+    /** Callees left out of the prelude, so every `Callee::` reference in this file will fail to resolve. */
+    droppedCallees: Array<{ type: string; reason: string }>;
     prefixPath: string;
     contractFile: string;
     dbPath: string;
@@ -105,6 +107,7 @@ function sourceDetails(o: ClangdInputs): {
     slot: number;
     dir: string;
     options: ClangBuildOptions;
+    droppedCallees: Array<{ type: string; reason: string }>;
 } {
     const contractPath = resolve(o.contractPath);
     const contractFile = forwardSlashes(contractPath);
@@ -120,7 +123,10 @@ function sourceDetails(o: ClangdInputs): {
     mkdirSync(dir, { recursive: true });
 
     // Editor-only: index every sibling contract so `Sibling::` resolves before the first reference exists.
-    const calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, name, true);
+    // A sibling that cannot be analysed drops out of the prelude with its subtree, taking every symbol it
+    // would have declared; the reasons come back so the caller can report what clangd is about to miss.
+    const droppedCallees: Array<{ type: string; reason: string }> = [];
+    const calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, name, true, (type, reason) => droppedCallees.push({ type, reason }));
 
     const options: ClangBuildOptions = {
         contractPath: contractFile,
@@ -130,7 +136,7 @@ function sourceDetails(o: ClangdInputs): {
         outDir: dir,
         calleePrelude,
     };
-    return { contractFile, name, slot, dir, options };
+    return { contractFile, name, slot, dir, options, droppedCallees };
 }
 
 // a separate marker file rather than a key in the database: clangd validates the schema strictly and refuses the whole file on an unknown key.
@@ -219,6 +225,7 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
 
     return {
         dir: details.dir,
+        droppedCallees: details.droppedCallees,
         prefixPath,
         contractFile: details.contractFile,
         dbPath: compileEntry.path,

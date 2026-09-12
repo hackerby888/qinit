@@ -241,8 +241,11 @@ struct Missing : public ContractBase
         assert.ok(reported.settled, `a callee with no source must be reported, got [${codesOf(reported.value).join(", ")}]`);
         assert.ok(message.includes("Missing"), `the message must name the callee it cannot find: ${message}`);
 
-        // Now the developer creates the file. Saving the caller is what re-resolves the project.
+        // Now the developer creates the file. Saving the caller is what re-resolves the project — and a
+        // save only fires an event when the buffer is dirty, so the edit is what makes this realistic
+        // rather than a no-op: creating a sibling on disk does not by itself re-resolve an open file.
         fs.writeFileSync(wsUri(CALLEE).fsPath, CALLEE_SOURCE);
+        await replaceDocument(doc, `${CALLER_SOURCE}\n// touched so the save fires\n`);
         await doc.save();
         const cleared = await settleOwn(doc, (d) => d.length === 0, { timeout: 30000 });
         console.log(`    after creating the callee -> ${cleared.value.length} diagnostics (${cleared.ms} ms) ${codesOf(cleared.value).join(",")}`);
