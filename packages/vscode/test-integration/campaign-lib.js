@@ -87,6 +87,23 @@ async function settledLabels(doc, marker, dot, wanted, opts) {
     );
 }
 
+/** Hover text at the first occurrence of `marker`, flattened to one string. */
+async function hoverAt(doc, marker, offsetInto = 0) {
+    const offset = doc.getText().indexOf(marker);
+    assert.ok(offset >= 0, `missing hover marker ${marker}`);
+    const hovers = await vscode.commands.executeCommand("vscode.executeHoverProvider", doc.uri, doc.positionAt(offset + offsetInto));
+    return (hovers || []).flatMap((hover) => hover.contents.map((content) => (typeof content === "string" ? content : content.value))).join("\n");
+}
+
+/** Only the extension's own IDL hover, ignoring whatever clangd contributes at the same position. */
+async function idlHoverAt(doc, marker, offsetInto = 0) {
+    const text = await hoverAt(doc, marker, offsetInto);
+    return text
+        .split("\n")
+        .filter((line) => /QPI (function|procedure)|index \*\*|input  :|output :/.test(line))
+        .join("\n");
+}
+
 function compileEntries() {
     return JSON.parse(fs.readFileSync(wsUri("compile_commands.json").fsPath, "utf8"));
 }
@@ -111,4 +128,6 @@ module.exports = {
     settledLabels,
     compileEntries,
     diagnosticsFor,
+    hoverAt,
+    idlHoverAt,
 };
