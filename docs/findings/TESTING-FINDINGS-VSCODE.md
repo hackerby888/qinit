@@ -772,3 +772,82 @@ own review rather than a patch invented in a testing round. Pinned as a failing 
 One cosmetic note: `qpi/no-brackets` fires once for `[` and once for `]`, so the same
 `Convert to Array<T, N>` appears twice in the lightbulb for one declaration. Two legitimate
 diagnostics, each offering the same remedy — recorded, not worth a change.
+
+---
+
+# Round 5 — the hover a developer builds a call from
+
+`idl-hover.ts` is fifty lines and had never been campaigned. It is also the one place the extension
+states a **number the developer copies into a transaction**: the registration index. A completion that
+is missing costs a developer a few seconds; an index that is wrong costs them a call to the wrong entry.
+
+The provider resolves the word under the cursor against `analysisFor(doc).idl` — the IDL of the file
+being edited — by bare-name match, with no check that the word is being _used_ as an entry of this
+contract. Three consequences, found by hovering the same four positions in a two-contract workspace
+(`test:live`, suite "live — the IDL hover").
+
+One hypothesis was disproved before it cost anything: the hover prints `entry.inputType` under the
+label "index", which looked like it might be a type id rather than the registration index. Traced to
+`registrations.ts:87` — `inputType` is the second argument of `REGISTER_USER_FUNCTION`, so the label is
+correct. The line-number fallback beside it applies only to oracle-reply notifications, where `__LINE__`
+genuinely is the synthetic id.
+
+## E12 — a procedure's output was hidden (fixed)
+
+`hoverFor` printed the output line only when `kind === "function"`. A QPI procedure carries an output
+struct exactly as a function does, so half the payload was missing:
+
+```
+before   Bump · index 2   input  : (empty)
+after    Bump · index 2   input  : (empty)
+                          output : uint64
+```
+
+One line. The existing suites only ever asserted function hovers, which is why it survived.
+
+## E13 — a callee's entry borrowed this contract's index (fixed)
+
+The headline. `Meter` calls `Feed`:
+
+```cpp
+CALL_OTHER_CONTRACT_FUNCTION(Feed, Read, locals.in, locals.out);
+```
+
+`Read` here is **Feed's** function, registered at index 1. If Meter also registers an entry called
+`Read` — an ordinary name collision, `Read` being about as common as an entry name gets — hovering the
+call site answered from Meter's IDL:
+
+| hovered                                                 | truth                        | shown before           |
+| ------------------------------------------------------- | ---------------------------- | ---------------------- |
+| `Read` in `PUBLIC_PROCEDURE(Read)`                      | Meter's procedure, index 3   | procedure, index 3 ✓   |
+| `Read` in `CALL_OTHER_CONTRACT_FUNCTION(Feed, Read, …)` | **Feed's function, index 1** | **procedure, index 3** |
+
+Both the kind and the index were wrong, for the call the developer was looking at.
+
+Fixed by declining when the word is the entry argument of a cross-contract call —
+`CALL_OTHER_CONTRACT_FUNCTION`, `INVOKE_OTHER_CONTRACT_PROCEDURE` and their `_E` variants. Answering
+_correctly_ would mean resolving against the callee's own IDL, which this provider does not hold
+(`analysisFor` returns only the edited file's), so silence is the honest answer rather than a
+confident wrong one.
+
+## E14 — the bare-name match reaches things that are not references (partly fixed)
+
+The same match fired on any word spelling an entry name. Two shapes:
+
+- **In prose or a string literal** — a comment reading "Poll is mentioned here" hovered as the QPI
+  function `Poll`. **Fixed**: the hovered offset must correspond to an `IDENTIFIER` token, using the
+  analyzer's own `Lexer`. A buffer too broken to tokenize keeps its hovers rather than losing them
+  silently.
+- **A struct field sharing the name** — `uint64 Bump;` still hovers as the procedure `Bump`. The field
+  _is_ a real identifier token, so the token pass cannot see the difference; telling a declarator from a
+  reference needs parse context the provider does not have. Left unfixed and pinned: the payload shown
+  is correct, merely about something else, which puts it at the bottom of the severity order rather
+  than in the same class as E13.
+
+## What held up
+
+- **The index and payload for this contract's own entries.** `Poll` reads
+  `QPI function · index 1 · input uint64 · output uint64` and `Bump` reads `QPI procedure · index 2`,
+  both matching their `REGISTER_USER_*` lines.
+- **Invalidation.** The `ws` suite already covers re-hovering after an edit changes an index, and after
+  `: public ContractBase` is deleted; both still hold.
