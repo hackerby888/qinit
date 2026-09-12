@@ -578,6 +578,79 @@ contract actually reaches for. What round 5 got wrong was treating that as a gap
 rule no build enforces, over a name no contract author writes by accident, is not worth a false
 positive — and the person who writes one deliberately is reaching for the host context on purpose.
 
+## Round 18 — completion and IntelliSense, in depth
+
+Two sweeps over receiver shapes the first seventeen rounds never measured: 20 shapes covering the host
+context, mid-word prefixes, call arguments, conditions and loops, then 12 more covering mid-edit
+breakage, nesting and typedefs. 30 of 32 resolved. The two that did not are below.
+
+## E22 — the member fallback never walks a base class (not fixed)
+
+`member-query.ts:223` and `:259` resolve a receiver's members with
+`programAnalysis.templateMethods.get(<type name>)` — a direct lookup keyed on the type's own name.
+There is no base-class walk anywhere in the file, so every inherited member is invisible.
+
+Two faces, one cause. The first is the host context:
+
+| receiver                  | offered | declared by core |
+| ------------------------- | ------: | ---------------: |
+| `qpi.` in a **function**  |      48 |               48 |
+| `qpi.` in a **procedure** |  **21** |      21 + **48** |
+
+`QpiContextProcedureCall` derives from `QpiContextFunctionCall`, so a procedure may call both sets.
+Verified by compiling each one inside a `PUBLIC_PROCEDURE`: `invocator`, `epoch`, `tick`, `originator`,
+`invocationReward` and `year` all produce a complete IDL, and none is offered.
+
+Measured against core's own 35 contracts:
+
+```
+qpi.* calls inside PROCEDURE bodies                  : 3976
+...of those, methods completion does not offer there : 2999  (75%)
+
+   1493  qpi.invocator()          108  qpi.epoch()
+   1100  qpi.invocationReward()    46  qpi.numberOfPossessedShares()
+
+contracts affected: 30 of 35
+```
+
+The two most-used are caller identity and payment amount — the access-control primitives of any
+procedure.
+
+The second face is a contract's own inheritance. `struct Derived : public Base` where `Base` declares
+`common` and `tag`: completing a `Derived` receiver offers only `extra`, while reading `thing.common`
+compiles.
+
+**Masked today.** The fallback runs only when clangd returns nothing or an all-`Text` list
+(`extension.ts:161-165`). Measured through the real editor, `qpi.` in a procedure answers **50 items,
+every kind `Method`** — clangd resolves the inheritance itself and the developer sees the full list. So
+this is a hole in the second line of defence, not a break in the first: it surfaces where the fallback
+is the one answering, which is the degraded case E1 documented.
+
+## E23 — a single-line `for` with an initializer declines (not fixed)
+
+`for (locals.i = 0; locals.i < 8; locals.i++) { locals.t = state.get().alpha; }` — completing
+`state.get().` on that line declines. Narrowed by elimination:
+
+| shape                                 | result       |
+| ------------------------------------- | ------------ |
+| `for` **header** receiver (E21)       | resolves     |
+| `for (init; …) { receiver }` one line | **declines** |
+| `for (; cond; step) { receiver }`     | resolves     |
+| `for (;;) { receiver }`               | resolves     |
+| same-line `while` / `if` / bare block | resolves     |
+| `for` body on its own line            | resolves     |
+| braceless `for` body, same line       | resolves     |
+
+The trigger is the initializer, not the step or the body. `statementOnLine` (`member-query.ts:181-203`)
+handles `AstKind.FOR` by pushing `[statement.initializer, statement.body]` and returning the first
+match, so when both sit on one line the initializer wins and the query resolves `locals.i = 0` instead
+of the receiver. The comment above it states the premise a one-line `for` violates: "The probe
+statement is alone on its line."
+
+Impact is small: **0 occurrences** of that shape in core's 35 contracts. It is reachable while typing,
+and the fix is to prefer the body over the initializer, or to match the receiver by column as well as
+line.
+
 ## E7 — the editor stops before the compiler does (not fixed)
 
 `analyzeContract` runs the frontend and `prepareContractModule`, and stops. It never lowers a function
