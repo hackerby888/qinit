@@ -511,7 +511,9 @@ export async function encodeInputFormat(inputFormat: string): Promise<Uint8Array
 // --in against the IDL: every token checked against the field it lands in
 export type InputFormatStruct = { kind: "struct"; items: InputFormatNode[]; raw: string };
 export type InputFormatNode =
-    InputFormatStruct | { kind: "array"; count: number | null; items: InputFormatNode[]; raw: string } | { kind: "scalar"; type: string; text: string; raw: string };
+    InputFormatStruct | 
+    { kind: "array"; count: number | null; items: InputFormatNode[]; raw: string } | 
+    { kind: "scalar"; type: string; text: string; raw: string };
 
 const WIDE_SUFFIXES = ["m256i", "uint128", "sint128", "id"];
 

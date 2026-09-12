@@ -182,8 +182,8 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
                     ) : null}
                     <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
                         {items.slice(Math.max(0, start), Math.max(0, start) + WIN).map((it, k) => {
-                            const idx = start + k,
-                                sel = idx === i;
+                            const idx = start + k;
+                            const sel = idx === i;
                             const balance = it.balance.padStart(balanceWidth);
                             return (
                                 <Box key={idx} flexDirection="column">
