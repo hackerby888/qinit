@@ -1476,3 +1476,82 @@ is: the runtime oracle.
 Pinned findings: **three** — E5's drop, E7 and E17. E17 keeps its `NO-ORACLE` rows in the differential,
 which remains the right verdict there: no _static_ tool refuses it. The runtime does now answer, and the
 answer is on record.
+
+# Round 14 — the hover, carried to the machine
+
+Round 13 established that the runtime answers questions the static tools cannot. The claim most worth
+pointing it at is the IDL hover: it states an entry's **index** and its **input/output codec**, and those
+are what a developer builds a call from. Every round that has checked them — round 5, which found E12 and
+E13 — checked them against `buildContractIdl`, which is the same source that produced them. Nothing has
+ever made the engine honour them.
+
+`packages/vscode/scripts/hover-vs-engine.ts` (`bun run --filter qpi-vscode hover:engine`) deploys a
+contract whose registration indexes are deliberately out of order and gapped, encodes each input **from
+the hover's format string alone**, calls the index the hover gives, and checks which body answered — each
+one writes a tag no other body writes, so a misdispatch cannot hide behind a plausible value.
+
+| what the hover says                            | engine |
+| ---------------------------------------------- | ------ |
+| function `Echo` · index 3 · `uint64, uint64`   | ok     |
+| function `Pad` · index 2 · `uint8, uint64`     | ok     |
+| function `Small` · index 1 · `(empty)`         | ok     |
+| procedure `Bump` · index 1 · `uint64`          | ok     |
+| procedure `Store` · index 9 · `uint64, sint64` | ok     |
+
+Five of five, on the index and in the size stated. `Small` and `Bump` share index 1, which is only
+correct if the engine dispatches on the entry kind as well as the number — it does. This is a control
+rather than a finding, and it is the control E13 would have been caught by.
+
+## E19 — WITHDRAWN: the codec line is not a type list, and is not incomplete
+
+The round opened on what looked like a serious defect. `Pad_input { uint8 flag; uint64 amount; }` hovers
+as `input : uint8, uint64`, and the ABI wants **sixteen** bytes with `amount` at offset 8. Encode what
+that line appears to say — one byte then eight — and the engine answers:
+
+```
+hand-packed as nine bytes instead of the 16 `uint8, uint64` resolves to:
+  the call still succeeds and amount comes back as 0, sent 500
+```
+
+Success, and the amount silently gone, because a short input is zero-filled rather than refused. I wrote
+the fix — a `codecLine` helper rendering `uint8, uint64 · 16 B, fields at 0, 8`, five unit tests and two
+editor cases, all passing — and then went looking for who actually consumes that string.
+
+`@qinit/proto/abi-fmt` does. It is the qubic-cli-compatible format-string codec, the one behind
+`qinit call --in`, and it applies the ABI's alignment rules itself:
+
+```
+uint8, uint64   -> size 16, align 8, offsets [0, 8]
+uint64, uint8   -> size 16, align 8, offsets [0, 8]
+```
+
+So the hover is not printing a type list that happens to omit padding; it is printing a **format string**,
+and the format string resolves to exactly the layout the contract reads. A developer who copies that line
+into `qinit call --in` gets a correct payload. The nine-byte encoding was mine, not the hover's.
+
+Withdrawn, and the change reverted — the same disposition E15 got in round 7, and for the same reason. It
+was not a wrong rendering; it was my reading of it. **Before calling a rendered string wrong, find the
+consumer that parses it.** The differential keeps the lesson enforceable rather than remembered: every
+input it sends is encoded from the format string through that codec, so if the hover's line ever stops
+resolving to the layout the ABI wants, the row fails on a size mismatch before the call is even made.
+
+## Two things this round ruled out by reading, recorded so they are not re-walked
+
+Round 4 established that every quick fix produces source that builds. It never established that the fixed
+source still **computes** the same thing, which is the half that matters more. Both fixes that can change
+behaviour turn out not to:
+
+- The div/mod fix rewrites `a / b` to `QPI::div(a, b)`, and `div` is `return b ? (a / b) : T(0)`
+  (`qpi.h:54`). Identical for every input except `b == 0`, where C++ has no answer at all — which is the
+  rule's whole purpose, not a behaviour change smuggled in beside it.
+- The stack-local fix moves `uint64 total = 5;` into `_locals`, where a struct member cannot carry an
+  initializer. It does not drop it: `moveLocalToWithLocalsEdits` re-emits the declaration as
+  `locals.total = 5;` in place (`rules/fixes.ts:273-278`), so the value is still assigned before use.
+
+One real behaviour is worth naming even though it is not the editor's: **a short input is zero-filled and
+never refused.** Sending eight bytes to a sixteen-byte entry returns success with the second field at
+zero. Nothing in this campaign's scope owns that, and `qinit call` cannot produce it — it encodes through
+the IDL or through the format-string codec, both of which size the payload correctly — but it is why the
+hover's codec line has no margin for error, and why the differential above now exists.
+
+Pinned findings: **three** — E5's drop, E7 and E17.

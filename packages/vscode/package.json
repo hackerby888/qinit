@@ -68,13 +68,15 @@
         "member:coverage": "bun run scripts/member-coverage.ts",
         "scale": "bun run scripts/scale-bench.ts",
         "lowering:cost": "bun run scripts/lowering-cost.ts",
-        "migrate:oracle": "bun run scripts/migration-oracle.ts"
+        "migrate:oracle": "bun run scripts/migration-oracle.ts",
+        "hover:engine": "bun run scripts/hover-vs-engine.ts"
     },
     "devDependencies": {
         "@qinit/build": "workspace:*",
         "@qinit/compiler": "workspace:*",
         "@qinit/core": "workspace:*",
         "@qinit/engine": "workspace:*",
+        "@qinit/proto": "workspace:*",
         "@types/mocha": "^10.0.7",
         "@types/node": "^20.14.0",
         "@types/vscode": "^1.85.0",
