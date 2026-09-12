@@ -63,7 +63,8 @@
         "test:campaign": "bun esbuild.mjs && bun scripts/prepare-itest-env.ts && vscode-test --label zoo",
         "test:xross": "bun esbuild.mjs && bun scripts/prepare-itest-env.ts && vscode-test --label xross",
         "test:live": "bun esbuild.mjs && bun scripts/prepare-itest-env.ts && vscode-test --label live",
-        "diag:diff": "bun run scripts/diag-differential.ts"
+        "diag:diff": "bun run scripts/diag-differential.ts",
+        "fix:diff": "bun run scripts/fix-differential.ts"
     },
     "devDependencies": {
         "@qinit/build": "workspace:*",

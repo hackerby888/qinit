@@ -150,3 +150,102 @@ suite("live — the editing session", function () {
         assert.ok(after.settled, `completion must recover after a restart, got [${after.value.slice(0, 8).join(", ")}]`);
     });
 });
+
+// Project resolution throws for several ordinary shapes — a callee that does not exist yet, a slot
+// outside the dynamic window, a qinit.json pointing at a missing file — and the throw is published as
+// `qinit/project-dependencies`, which is how the developer learns what went wrong.
+//
+// E11, pinned failing: that only holds for the contract qinit.json names. The identical mistake in any
+// other contract of the same project is rolled back by the bare `catch {}` in project-dependencies.ts
+// (the sibling walk), so the file silently degrades to standalone with no callees and the developer is
+// left with raw clang "use of undeclared identifier" and nothing naming the cause.
+suite("live — project shapes", function () {
+    this.timeout(240000);
+
+    const CALLER = "contracts/Caller.h";
+    const CALLEE = "contracts/Missing.h";
+    const fs = require("node:fs");
+    const { wsUri } = require("../campaign-lib");
+
+    const CALLER_SOURCE = `using namespace QPI;
+
+struct Caller2
+{
+};
+
+struct Caller : public ContractBase
+{
+    struct StateData { uint64 calls; };
+    struct Go_input {};
+    struct Go_output {};
+    struct Go_locals
+    {
+        Missing::Read_input in;
+        Missing::Read_output out;
+    };
+    PUBLIC_PROCEDURE_WITH_LOCALS(Go)
+    {
+        CALL_OTHER_CONTRACT_FUNCTION(Missing, Read, locals.in, locals.out);
+        state.mut().calls += 1;
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    {
+        REGISTER_USER_PROCEDURE(Go, 1);
+    }
+};
+`;
+
+    const CALLEE_SOURCE = `using namespace QPI;
+
+struct Missing2
+{
+};
+
+struct Missing : public ContractBase
+{
+    struct StateData { uint64 reads; };
+    struct Read_input {};
+    struct Read_output { uint64 value; };
+    PUBLIC_FUNCTION(Read)
+    {
+        output.value = state.get().reads;
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    {
+        REGISTER_USER_FUNCTION(Read, 1);
+    }
+};
+`;
+
+    const remove = (name) => {
+        try {
+            fs.unlinkSync(wsUri(name).fsPath);
+        } catch {}
+    };
+
+    teardown(() => {
+        remove(CALLER);
+        remove(CALLEE);
+    });
+
+    test("a callee referenced before its file exists is reported, then clears when it appears", async () => {
+        fs.writeFileSync(wsUri(CALLER).fsPath, CALLER_SOURCE);
+        const doc = await open(CALLER);
+
+        const reported = await settleOwn(doc, (d) => d.some((x) => String(x.code) === "qinit/project-dependencies"), { timeout: 20000 });
+        const message = String(reported.value.find((d) => String(d.code) === "qinit/project-dependencies")?.message ?? "");
+        console.log(`    missing callee -> ${codesOf(reported.value).join(",") || "(silent)"} after ${reported.ms} ms`);
+        const clang = diagnosticsFor(doc, ["clang"]).filter((d) => d.severity === vscode.DiagnosticSeverity.Error);
+        console.log(`      clang says: ${clang.length} errors, first: ${String(clang[0]?.message ?? "(none)").slice(0, 70)}`);
+        console.log(`      message: ${message.slice(0, 130)}`);
+        assert.ok(reported.settled, `a callee with no source must be reported, got [${codesOf(reported.value).join(", ")}]`);
+        assert.ok(message.includes("Missing"), `the message must name the callee it cannot find: ${message}`);
+
+        // Now the developer creates the file. Saving the caller is what re-resolves the project.
+        fs.writeFileSync(wsUri(CALLEE).fsPath, CALLEE_SOURCE);
+        await doc.save();
+        const cleared = await settleOwn(doc, (d) => d.length === 0, { timeout: 30000 });
+        console.log(`    after creating the callee -> ${cleared.value.length} diagnostics (${cleared.ms} ms) ${codesOf(cleared.value).join(",")}`);
+        assert.deepStrictEqual(codesOf(cleared.value), [], "creating the callee must clear the resolution error");
+    });
+});
