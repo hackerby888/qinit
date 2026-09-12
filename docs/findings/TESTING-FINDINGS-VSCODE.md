@@ -651,6 +651,51 @@ Impact is small: **0 occurrences** of that shape in core's 35 contracts. It is r
 and the fix is to prefer the body over the initializer, or to match the receiver by column as well as
 line.
 
+## Round 19 — the gtest surface
+
+Round 18 noticed that `QpiDiagnostics.applies()` is gated on `isContractDoc`. This round measures what
+that costs on the surface it excludes. A gtest is where a developer builds calls against the contract
+under test, so it is where the index and payload matter most.
+
+Measured on the zoo workspace, the same project from both sides:
+
+| surface            | IDL hover                                            | own diagnostics | code actions | completion |
+| ------------------ | ---------------------------------------------------- | --------------: | -----------: | ---------: |
+| `contracts/Desk.h` | `Read` · index **1** · input (empty) · output uint64 |               0 |            1 |          2 |
+| `Desk.test.cpp`    | **(no hover)**                                       |               0 |        **0** |          4 |
+
+## E24 — two providers are registered on the gtest surface and can never answer there (not fixed)
+
+`extension.ts:481-486` registers both the IDL hover and the code actions for
+`**/*.{h,hpp,hxx,cpp,cc,cxx}` — `.cpp` included, so a gtest is in scope. Both read their data from
+`QpiDiagnostics`:
+
+```
+idl-hover.ts:20        this.diagnostics.analysisFor(doc)?.idl
+diagnostics.ts:63-64   private applies(doc) { return isContractDoc(doc); }
+diagnostics.ts:67-70   schedule(doc)  bails unless /\.(h|hpp|hxx)$/
+```
+
+`isContractDoc` requires a `.h/.hpp/.hxx` name **and** contract source, so a gtest fails both gates and
+`analysisFor` returns undefined. The providers are advertised on a surface that cannot serve them.
+
+The data to serve them already exists. `extension.ts:423` stores an analysis context for the gtest,
+pointing at the contract it exercises:
+
+```
+contractAnalysisContexts.set(doc.fileName, testAnalysisContext(sourceDetails));   // :423
+context: contractAnalysisContexts.get(doc.fileName),                              // :140, the completion path
+```
+
+That is why completion works in a gtest and the hover does not: completion reads the map, the hover
+reads `QpiDiagnostics`. The fix is to resolve the hover against the same context the completion path
+already uses, rather than widening `applies()` — widening it would run the QPI policy analyzer over a
+`.cpp` that is not a contract and light it up with rules that do not apply to it.
+
+Code actions are the lesser half: QPI's rules are contract rules, so offering none in a gtest is
+defensible. The hover is not — a gtest is precisely where a developer reads an entry's index and payload
+to build a call, and the answer is one map lookup away.
+
 ## E7 — the editor stops before the compiler does (not fixed)
 
 `analyzeContract` runs the frontend and `prepareContractModule`, and stops. It never lowers a function

@@ -20,3 +20,14 @@ TEST(ContractDesk, Read)
     gi.detail.rank = 0;
     gi.detail.bits.setAll(0);
 }
+
+// A gtest builds calls against the contract under test, so the index and payload the IDL hover reports
+// are exactly what a developer reads here. Round 19 measures whether they are available on this surface.
+TEST(ContractDesk, Invoke)
+{
+    ContractTestingDesk test;
+
+    Desk::Read_input input;
+    Desk::Read_output output;
+    output.value = 0;
+}
