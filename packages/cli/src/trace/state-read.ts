@@ -221,7 +221,7 @@ async function formatContainerView(field: StateField, source: QpiByteSource, ful
 }
 
 // A value already in hand, in the rows `qinit state` draws: one per scalar field, a container as its block. Anything smaller than a container reads inline.
-export async function valueBlock(bytes: Uint8Array, type: AbiType): Promise<StateLine[] | undefined> {
+export async function valueLines(bytes: Uint8Array, type: AbiType): Promise<StateLine[] | undefined> {
     const container = containerLayoutOf(type);
     const fields: StateField[] =
         type.kind === AbiTypeKind.STRUCT

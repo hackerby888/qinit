@@ -942,17 +942,17 @@ test("readState reports incomplete scalar and container reads", async () => {
     ]);
 });
 
-import { fmtVal } from "../../src/trace/state-format";
-test("fmtVal: run-length-group long runs, keep short literal, cap unless full", () => {
-    expect(fmtVal([0, 0, 0])).toBe("[0, 0, 0]"); // short run kept literal
-    expect(fmtVal(Array(100).fill(0))).toBe("[0 ×100]"); // long run collapsed
-    expect(fmtVal([1, 2, 2, 2, 2, 2, 2, 3])).toBe("[1, 2 ×6, 3]"); // run >= 6 collapsed, rest literal
-    expect(fmtVal([5n, 7n])).toBe("[5, 7]"); // bigint
+import { valueText } from "../../src/trace/state-format";
+test("valueText: run-length-group long runs, keep short literal, cap unless full", () => {
+    expect(valueText([0, 0, 0])).toBe("[0, 0, 0]"); // short run kept literal
+    expect(valueText(Array(100).fill(0))).toBe("[0 ×100]"); // long run collapsed
+    expect(valueText([1, 2, 2, 2, 2, 2, 2, 3])).toBe("[1, 2 ×6, 3]"); // run >= 6 collapsed, rest literal
+    expect(valueText([5n, 7n])).toBe("[5, 7]"); // bigint
     const varied = Array.from({ length: 50 }, (_, i) => i);
-    expect(fmtVal(varied)).toContain("+18 more (--all)"); // 50 -> cap 32 + 18 more
-    expect(fmtVal(varied, true)).not.toContain("more"); // full -> all 50
+    expect(valueText(varied)).toContain("+18 more (--all)"); // 50 -> cap 32 + 18 more
+    expect(valueText(varied, true)).not.toContain("more"); // full -> all 50
     expect(
-        fmtVal([
+        valueText([
             ["A", "0"],
             ["A", "0"],
             ["A", "0"],

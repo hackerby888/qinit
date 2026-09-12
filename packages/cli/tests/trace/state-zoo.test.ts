@@ -14,7 +14,7 @@ import { loadWasmFixture, loadWasmFixtureIdl, wasmFixtureManifest } from "../../
 import { stateJsonResult } from "../../src/commands/deploy-interact/state";
 import { describeTrace, type DecodedCheat } from "../../src/trace/format";
 import type { StateDiffLine } from "../../src/trace/state-diff";
-import { flatLine, type StateLine, jstr } from "../../src/trace/state-format";
+import { flatLine, type StateLine, jsonText } from "../../src/trace/state-format";
 import { decodeValueBlocks, readState, type DecodedState, type StateContainer } from "../../src/trace/state-read";
 
 const SLOT = 28;
@@ -145,7 +145,7 @@ test("qinit state, a print block and --json draw the same rows from the same byt
     expect(json.ok).toBe(true);
     // --json carries each field as data: the same names, the value as a JSON tree rather than its text.
     expect(json.fields.map((field) => field.name)).toEqual(state.fields.map((field) => field.name));
-    expect(jstr(json.fields.find((field) => field.name === "packed")!.value)).toMatch(
+    expect(jsonText(json.fields.find((field) => field.name === "packed")!.value)).toMatch(
         /^\{"tag":7,"wide":"11","half":513,"who":"[A-Z]{60}","flag":1,"tiny":-5\}$/,
     );
     expect(json.fields.find((field) => field.name === "umax")!.value).toBe(18446744073709551615n);

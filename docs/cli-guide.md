@@ -996,7 +996,7 @@ inputs and outputs, matching the QPI restriction that only integers, `bit`, `id`
   -> LiteRpc.querySmartContract()
   -> POST /live/v1/querySmartContract
   -> decodeAbi()
-  -> fmtVal()
+  -> valueText()
   -> terminal
 ```
 

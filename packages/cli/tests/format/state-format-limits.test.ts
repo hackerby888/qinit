@@ -2,7 +2,7 @@
 import { test, expect } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import { AbiTypeKind, type AbiStruct, type AbiType } from "@qinit/proto/contract-idl";
-import { fmtVal, formatStateValue, jstr } from "../../src/trace/state-format";
+import { valueText, formatStateValue, jsonText } from "../../src/trace/state-format";
 
 const MAX_ITEMS = 32;
 const SRC = `using namespace QPI;
@@ -28,9 +28,9 @@ test("the item cap keeps a full block at exactly 32 and truncates at 33", () => 
 });
 
 test("an untyped array reports how many items the cap hid, counting from the same 32", () => {
-    expect(fmtVal(distinct(MAX_ITEMS))).toBe(`[${distinct(MAX_ITEMS).join(", ")}]`);
-    expect(fmtVal(distinct(MAX_ITEMS + 5))).toBe(`[${distinct(MAX_ITEMS).join(", ")}, … +5 more (--all)]`);
-    expect(fmtVal(distinct(MAX_ITEMS + 5), true)).toBe(`[${distinct(MAX_ITEMS + 5).join(", ")}]`);
+    expect(valueText(distinct(MAX_ITEMS))).toBe(`[${distinct(MAX_ITEMS).join(", ")}]`);
+    expect(valueText(distinct(MAX_ITEMS + 5))).toBe(`[${distinct(MAX_ITEMS).join(", ")}, … +5 more (--all)]`);
+    expect(valueText(distinct(MAX_ITEMS + 5), true)).toBe(`[${distinct(MAX_ITEMS + 5).join(", ")}]`);
 });
 
 test("one skipped bit reads as a single index, a run reads as a range with its count", () => {
@@ -58,7 +58,7 @@ test("a struct with no fields is {} and an unnamed field falls back to its posit
 });
 
 test("a bigint survives the JSON rendering that would otherwise throw on it", () => {
-    expect(jstr({ amount: 2n ** 70n, name: "x" })).toBe('{"amount":"1180591620717411303424","name":"x"}');
-    expect(jstr([1n, [2n]])).toBe('["1",["2"]]');
-    expect(fmtVal({ nested: { amount: 5n } })).toBe('{"nested":{"amount":"5"}}');
+    expect(jsonText({ amount: 2n ** 70n, name: "x" })).toBe('{"amount":"1180591620717411303424","name":"x"}');
+    expect(jsonText([1n, [2n]])).toBe('["1",["2"]]');
+    expect(valueText({ nested: { amount: 5n } })).toBe('{"nested":{"amount":"5"}}');
 });

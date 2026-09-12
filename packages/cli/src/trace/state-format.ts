@@ -46,7 +46,7 @@ export type StateLine = { label: string; text: string; filled: boolean };
 
 // JSON.stringify throws on a bigint, and a uint64 past 2^53 would lose digits as a number anyway.
 export const bigintText = (_key: string, value: unknown) => (typeof value === "bigint" ? value.toString() : value);
-export const jstr = (value: any) => JSON.stringify(value, bigintText);
+export const jsonText = (value: any) => JSON.stringify(value, bigintText);
 
 const RUN_MIN = 6;
 const MAX_ITEMS = 32;
@@ -64,9 +64,10 @@ function groupedParts(parts: string[]): string[] {
     return groups.flatMap((group) => (group.count >= RUN_MIN ? [`${group.value} ×${group.count}`] : Array(group.count).fill(group.value)));
 }
 
-export function fmtVal(value: any, full = false): string {
+// A value with no type in hand -> display text, e.g. [1, 2, 2, 2, 2, 2, 2] -> "[1, 2 ×6]"; capped at MAX_ITEMS unless `full`.
+export function valueText(value: any, full = false): string {
     if (Array.isArray(value)) {
-        let parts = groupedParts(value.map((element) => fmtVal(element, full)));
+        let parts = groupedParts(value.map((element) => valueText(element, full)));
         let suffix = "";
 
         if (!full && parts.length > MAX_ITEMS) {
@@ -77,7 +78,7 @@ export function fmtVal(value: any, full = false): string {
         return `[${parts.join(", ")}${suffix}]`;
     }
     if (value && typeof value === "object") {
-        return jstr(value);
+        return jsonText(value);
     }
     if (typeof value === "string") {
         return JSON.stringify(value);
@@ -168,11 +169,11 @@ export function formatStateValue(value: unknown, type: AbiType, full: boolean, t
             return `[${limitedParts(groupedParts(values.map((element) => formatStateValue(element, type.element, full, false))), full).join(", ")}]`;
         }
         default:
-            return fmtVal(value, full);
+            return valueText(value, full);
     }
 }
 
-// A value on its own: a string (an id, an m256i) reads bare, and anything nested keeps `fmtVal`'s quoted form, so field, print and diff row agree.
+// A value on its own: a string (an id, an m256i) reads bare, and anything nested keeps `valueText`'s quoted form, so field, print and diff row agree.
 export function scalarText(value: unknown, type: AbiType): string {
     if (typeof value === "string") {
         return value;
@@ -181,7 +182,7 @@ export function scalarText(value: unknown, type: AbiType): string {
 }
 
 // A struct key has to read like the value beside it, which takes the type — decoded structs are positional.
-export const keyLabel = (key: unknown, type?: AbiType) => (typeof key === "string" ? key : type ? formatStateValue(key, type, false) : jstr(key));
+export const keyLabel = (key: unknown, type?: AbiType) => (typeof key === "string" ? key : type ? formatStateValue(key, type, false) : jsonText(key));
 
 function gapLine(start: number, end: number, collection = false): StateLine {
     const count = end - start + 1;
