@@ -19,7 +19,7 @@ import { hexToBytes } from "@qinit/core";
 export type StateDiffLine = StateLine & { detail: string; internal: boolean; before?: unknown; after?: unknown; change?: "new" | "removed" };
 
 // Container bookkeeping is not in the IDL — its indices and counters are plain 64-bit words.
-const word = (kind: AbiScalarKind, size = 8): AbiType => ({
+const wordType = (kind: AbiScalarKind, size = 8): AbiType => ({
     kind: AbiTypeKind.SCALAR,
     scalar: kind,
     size,
@@ -27,13 +27,10 @@ const word = (kind: AbiScalarKind, size = 8): AbiType => ({
     format: kind,
 });
 const WORD_TYPES: Record<WordType, AbiType> = {
-    sint64: word(AbiScalarKind.SINT64),
-    uint64: word(AbiScalarKind.UINT64),
-    id: word(AbiScalarKind.ID, 32),
+    sint64: wordType(AbiScalarKind.SINT64),
+    uint64: wordType(AbiScalarKind.UINT64),
+    id: wordType(AbiScalarKind.ID, 32),
 };
-
-// `payload` is a value the contract wrote, `count` a container's entry total, and `internal` the bookkeeping only the full view shows.
-type LeafClass = MemberRole;
 
 // Two names per leaf: the resolved path through the container and the shorter default label. They differ only where a path runs through container internals.
 type Names = { path: string; short: string };
@@ -43,8 +40,8 @@ const child = (names: Names, suffix: string, shortSuffix = suffix): Names => ({
     short: names.short + shortSuffix,
 });
 
-// A keyed container's record plus where its key sits, so the row is labelled by the key the contract wrote rather than the bucket it hashed into.
-type KeyedLeaf = {
+// One record of a keyed container plus the absolute offset its key sits at, so the row is labelled by the key the contract wrote rather than the bucket it hashed into.
+type ResolvedRecordKey = {
     part: "key" | "value";
     container: string;
     containerPath: string;
@@ -54,15 +51,16 @@ type KeyedLeaf = {
     keyType: AbiType;
 };
 
-// The flags run of a keyed container, with the record geometry that lets a flag name the entry it belongs to when nothing else in the window does.
-type Owner = { container: string; containerPath: string; recordsOff: number; stride: number; keyOff: number; keyType: AbiType };
+// The records a flags run indexes, as geometry rather than one offset: a flipped flag has to name its entry even when the record itself is outside the window.
+type RecordKeyGeometry = { container: string; containerPath: string; recordsOff: number; stride: number; keyOff: number; keyType: AbiType };
 
-// A decodable value at an absolute state offset, or packed bits reporting one changed index at a time; `keyed` marks a value inside a keyed record.
-type Leaf = Names & { keyed?: KeyedLeaf; owner?: Owner } & (
-        | { kind: "value"; cls: LeafClass; off: number; type: AbiType }
+// A decodable value at an absolute state offset, or packed bits reporting one changed index at a time. `role` is which of the three kinds of byte this is:
+// `payload` a value the contract wrote, `count` a container's entry total, `internal` the bookkeeping only the full view shows.
+type Leaf = Names & { recordKey?: ResolvedRecordKey; flagRecords?: RecordKeyGeometry } & (
+        | { kind: "value"; role: MemberRole; off: number; type: AbiType }
         | {
               kind: "bits";
-              cls: LeafClass;
+              role: MemberRole;
               off: number;
               size: number;
               bitsPer: number;
@@ -93,30 +91,32 @@ type EntryBase = Omit<EntrySite, "before" | "after">;
 
 type SitedRow = StateDiffLine & { site?: RowSite };
 
-const at = (names: Names, off: number, type: AbiType, cls: LeafClass = "payload"): Leaf => ({
+// A decodable leaf at an absolute state offset — the `value` half of `Leaf`, paired with `bitsLeaf`.
+const valueLeaf = (names: Names, off: number, type: AbiType, role: MemberRole = "payload"): Leaf => ({
     kind: "value",
     ...names,
-    cls,
+    role,
     off,
     type,
 });
 
-// The member of `type` that byte `relativeOffset` falls in. Indexed collections resolve per element; a struct stops as one row when `covered` covers all of it.
-function leafAt(names: Names, typeStart: number, type: AbiType, relativeOffset: number, covered: (off: number, size: number) => boolean): Leaf {
+// The member of `type` that byte `relativeOffset` falls in. Indexed collections resolve per element; a struct stops as one row when the window holds all of it.
+// (names, absolute start of `type`, `type`, offset within it) -> the one named thing that byte belongs to.
+function resolveLeaf(names: Names, typeStart: number, type: AbiType, relativeOffset: number, windowHolds: (off: number, size: number) => boolean): Leaf {
     switch (type.kind) {
         case AbiTypeKind.STRUCT: {
             // A struct holding a container is never one row: the container's members say what moved.
-            if (!holdsContainer(type) && covered(typeStart, type.size)) {
-                return at(names, typeStart, type);
+            if (!holdsContainer(type) && windowHolds(typeStart, type.size)) {
+                return valueLeaf(names, typeStart, type);
             }
 
             const field = type.fields.find((candidate) => relativeOffset >= candidate.offset && relativeOffset < candidate.offset + candidate.size);
             if (!field) {
-                // Padding inside the struct names nothing; a zero-count bits leaf moves the walk to the next field, or to the struct's end.
+                // Padding inside the struct names nothing, so step the walk to the next field, or to the struct's end.
                 const next = type.fields.find((candidate) => candidate.offset > relativeOffset);
-                return bitsLeaf(names, typeStart + relativeOffset, (next?.offset ?? type.size) - relativeOffset, 1, 0, "internal");
+                return paddingLeaf(names, typeStart + relativeOffset, (next?.offset ?? type.size) - relativeOffset);
             }
-            return leafAt(child(names, `.${field.name}`), typeStart + field.offset, field.type, relativeOffset - field.offset, covered);
+            return resolveLeaf(child(names, `.${field.name}`), typeStart + field.offset, field.type, relativeOffset - field.offset, windowHolds);
         }
 
         case AbiTypeKind.ARRAY: {
@@ -126,9 +126,9 @@ function leafAt(names: Names, typeStart: number, type: AbiType, relativeOffset: 
             const element = child(names, `[${index}]`);
             const elementStart = typeStart + index * stride;
             if (offsetInElement >= type.element.size) {
-                return at(element, elementStart, type.element);
+                return valueLeaf(element, elementStart, type.element);
             }
-            return leafAt(element, elementStart, type.element, offsetInElement, covered);
+            return resolveLeaf(element, elementStart, type.element, offsetInElement, windowHolds);
         }
 
         case AbiTypeKind.HASH_MAP:
@@ -138,35 +138,36 @@ function leafAt(names: Names, typeStart: number, type: AbiType, relativeOffset: 
                 relativeOffset,
                 hashMapMembers(type.key, type.value, type.capacity),
                 (tag) => (tag === "key" ? type.key : type.value),
-                covered,
+                windowHolds,
             );
 
         case AbiTypeKind.HASH_SET:
-            return memberLeaf(names, typeStart, relativeOffset, hashSetMembers(type.key, type.capacity), () => type.key, covered);
+            return memberLeaf(names, typeStart, relativeOffset, hashSetMembers(type.key, type.capacity), () => type.key, windowHolds);
 
         // Printing 256 bits twice to show one flip is the noise this whole module exists to remove.
         case AbiTypeKind.BIT_ARRAY:
             return bitsLeaf(names, typeStart, type.size, 1, type.bitCount, "payload");
 
         case AbiTypeKind.COLLECTION:
-            return memberLeaf(names, typeStart, relativeOffset, collectionMembers(type.value, type.capacity), () => type.value, covered);
+            return memberLeaf(names, typeStart, relativeOffset, collectionMembers(type.value, type.capacity), () => type.value, windowHolds);
 
         case AbiTypeKind.LINKED_LIST:
-            return memberLeaf(names, typeStart, relativeOffset, linkedListMembers(type.value, type.capacity), () => type.value, covered);
+            return memberLeaf(names, typeStart, relativeOffset, linkedListMembers(type.value, type.capacity), () => type.value, windowHolds);
 
         default:
-            return at(names, typeStart, type);
+            return valueLeaf(names, typeStart, type);
     }
 }
 
 // Matching takes the first member whose end passes the offset, so C padding belongs to the member after it and the leaf always ends past `relativeOffset`.
+// (container's absolute start, offset within it, its qpi-layout spans) -> that byte's leaf, tagged with the record key that names it.
 function memberLeaf(
     names: Names,
     containerStart: number,
     relativeOffset: number,
     regions: ContainerRegion[],
     idlType: (tag: "key" | "value") => AbiType,
-    covered: (off: number, size: number) => boolean,
+    windowHolds: (off: number, size: number) => boolean,
 ): Leaf {
     const region = regions.find((candidate) => relativeOffset < candidate.end) ?? regions[regions.length - 1];
 
@@ -180,7 +181,7 @@ function memberLeaf(
         }
         return {
             ...bits,
-            owner: {
+            flagRecords: {
                 container: names.short,
                 containerPath: names.path,
                 recordsOff: containerStart + records.off,
@@ -192,7 +193,7 @@ function memberLeaf(
     }
 
     if (region.kind === "word") {
-        return at(child(names, region.path, region.short), containerStart + region.off, WORD_TYPES[region.type], region.role);
+        return valueLeaf(child(names, region.path, region.short), containerStart + region.off, WORD_TYPES[region.type], region.role);
     }
 
     const index = Math.floor((relativeOffset - region.off) / region.stride);
@@ -202,16 +203,16 @@ function memberLeaf(
 
     const found = region.members.find((candidate) => offsetInRecord < candidate.off + candidate.size);
     if (!found) {
-        // Trailing pad after a record's last member names nothing: a zero-count bits leaf reports no row and still moves the walk past the record.
-        return bitsLeaf(record, recordStart + offsetInRecord, region.stride - offsetInRecord, 1, 0, "internal");
+        // Trailing pad after a record's last member names nothing, so step the walk past the record.
+        return paddingLeaf(record, recordStart + offsetInRecord, region.stride - offsetInRecord);
     }
 
     const named = child(record, found.path, found.short);
     if (found.type !== "key" && found.type !== "value") {
-        return at(named, recordStart + found.off, WORD_TYPES[found.type], found.role);
+        return valueLeaf(named, recordStart + found.off, WORD_TYPES[found.type], found.role);
     }
 
-    const leaf = leafAt(named, recordStart + found.off, idlType(found.type), Math.max(0, offsetInRecord - found.off), covered);
+    const leaf = resolveLeaf(named, recordStart + found.off, idlType(found.type), Math.max(0, offsetInRecord - found.off), windowHolds);
     const keyMember = region.members.find((candidate) => candidate.type === "key");
     if (!keyMember) {
         return leaf;
@@ -219,7 +220,7 @@ function memberLeaf(
 
     return {
         ...leaf,
-        keyed: {
+        recordKey: {
             part: found.type,
             container: names.short,
             containerPath: names.path,
@@ -231,15 +232,19 @@ function memberLeaf(
     };
 }
 
-const bitsLeaf = (names: Names, off: number, size: number, bitsPer: number, count: number, cls: LeafClass): Leaf => ({
+// `count` packed entries of `bitsPer` bits from an absolute state offset, reported as the indices that moved rather than as bytes.
+const bitsLeaf = (names: Names, off: number, size: number, bitsPer: number, count: number, role: MemberRole): Leaf => ({
     kind: "bits",
     ...names,
-    cls,
+    role,
     off,
     size,
     bitsPer,
     count,
 });
+
+// Bytes that name nothing — struct padding, a record's trailing pad. A zero-count bits leaf reports no row and still moves the walk past `length`.
+const paddingLeaf = (names: Names, off: number, length: number): Leaf => bitsLeaf(names, off, length, 1, 0, "internal");
 
 const allZero = (bytes: Uint8Array) => bytes.every((byte) => byte === 0);
 const bytesEqual = (left: Uint8Array, right: Uint8Array) => left.length === right.length && left.every((byte, index) => byte === right[index]);
@@ -259,8 +264,8 @@ async function renderValue(bytes: Uint8Array, type: AbiType): Promise<{ text: st
 function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, after: Uint8Array, firstVisibleIndex: number, entry?: EntryBase): SitedRow[] {
     const rows: SitedRow[] = [];
     const siteOf = (index: number, from: number, to: number): { site: RowSite } | Record<never, never> => {
-        if (leaf.owner) {
-            return { site: { part: "flag", container: leaf.owner.container, containerPath: leaf.owner.containerPath, slot: index, from, to } };
+        if (leaf.flagRecords) {
+            return { site: { part: "flag", container: leaf.flagRecords.container, containerPath: leaf.flagRecords.containerPath, slot: index, from, to } };
         }
         return entry ? { site: { ...entry, suffix: `${entry.suffix}[${index}]`, before: String(from), after: String(to) } } : {};
     };
@@ -289,7 +294,7 @@ function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, afte
             detail: `${leaf.path}[${index}]`,
             text: `${from} → ${to}`,
             filled: true,
-            internal: leaf.cls === "internal",
+            internal: leaf.role === "internal",
             before: from,
             after: to,
             ...siteOf(index, from, to),
@@ -405,37 +410,37 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
         const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeAbi(bytes, type), type);
 
         // The key labelling a record is read from the window, not the rows: an update leaves the key bytes alone, so it never produces a row of its own.
-        const entrySiteOf = async (keyed: KeyedLeaf, short: string): Promise<EntryBase | undefined> => {
-            const keyEnd = keyed.keyOff + keyed.keyType.size;
-            if (keyed.keyOff < region.off || keyEnd > windowEnd) {
+        const entrySiteOf = async (recordKey: ResolvedRecordKey, short: string): Promise<EntryBase | undefined> => {
+            const keyEnd = recordKey.keyOff + recordKey.keyType.size;
+            if (recordKey.keyOff < region.off || keyEnd > windowEnd) {
                 return undefined;
             }
 
             return {
-                part: keyed.part,
-                container: keyed.container,
-                containerPath: keyed.containerPath,
-                slot: keyed.slot,
-                suffix: short.slice(keyed.member.length),
-                keyBefore: await keyText(slice(before, keyed.keyOff, keyEnd), keyed.keyType),
-                keyAfter: await keyText(slice(after, keyed.keyOff, keyEnd), keyed.keyType),
+                part: recordKey.part,
+                container: recordKey.container,
+                containerPath: recordKey.containerPath,
+                slot: recordKey.slot,
+                suffix: short.slice(recordKey.member.length),
+                keyBefore: await keyText(slice(before, recordKey.keyOff, keyEnd), recordKey.keyType),
+                keyAfter: await keyText(slice(after, recordKey.keyOff, keyEnd), recordKey.keyType),
             };
         };
 
         // A flag that opened or closed an entry carries its key when the record is in the window — the only name an all-zero entry can ever get.
-        const namedFlags = (flagged: SitedRow[], owner: Owner): Promise<SitedRow[]> =>
+        const namedFlags = (flagged: SitedRow[], flagRecords: RecordKeyGeometry): Promise<SitedRow[]> =>
             Promise.all(
                 flagged.map(async (row) => {
                     const site = row.site;
                     if (site?.part !== "flag" || (site.to !== 1 && site.to !== 2)) {
                         return row;
                     }
-                    const keyStart = owner.recordsOff + site.slot * owner.stride + owner.keyOff;
-                    const keyEnd = keyStart + owner.keyType.size;
+                    const keyStart = flagRecords.recordsOff + site.slot * flagRecords.stride + flagRecords.keyOff;
+                    const keyEnd = keyStart + flagRecords.keyType.size;
                     if (keyStart < region.off || keyEnd > windowEnd) {
                         return row;
                     }
-                    return { ...row, site: { ...site, key: await keyText(slice(site.to === 1 ? after : before, keyStart, keyEnd), owner.keyType) } };
+                    return { ...row, site: { ...site, key: await keyText(slice(site.to === 1 ? after : before, keyStart, keyEnd), flagRecords.keyType) } };
                 }),
             );
 
@@ -476,7 +481,7 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
                 break;
             }
 
-            const leaf = leafAt(
+            const leaf = resolveLeaf(
                 { path: field.name, short: field.name },
                 field.off,
                 field.abi,
@@ -489,9 +494,9 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
                 const visibleStart = Math.max(leaf.off, region.off);
                 const visibleEnd = Math.min(leaf.off + leaf.size, windowEnd);
                 const firstVisibleIndex = ((visibleStart - leaf.off) * 8) / leaf.bitsPer;
-                const entry = leaf.keyed ? await entrySiteOf(leaf.keyed, leaf.short) : undefined;
+                const entry = leaf.recordKey ? await entrySiteOf(leaf.recordKey, leaf.short) : undefined;
                 const flagged = bitRows(leaf, slice(before, visibleStart, visibleEnd), slice(after, visibleStart, visibleEnd), firstVisibleIndex, entry);
-                rows.push(...(leaf.owner ? await namedFlags(flagged, leaf.owner) : flagged));
+                rows.push(...(leaf.flagRecords ? await namedFlags(flagged, leaf.flagRecords) : flagged));
                 stateOffset = visibleEnd;
                 continue;
             }
@@ -504,19 +509,19 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
 
             // A window carries unchanged bytes around the ones that moved; only the latter are worth a row.
             if (!bytesEqual(beforeBytes, afterBytes)) {
-                const internal = leaf.cls === "internal";
+                const internal = leaf.role === "internal";
                 if (leaf.off >= region.off && valueEnd <= windowEnd) {
                     const renderedBefore = await renderValue(beforeBytes, leaf.type);
                     const renderedAfter = await renderValue(afterBytes, leaf.type);
                     const change = `${renderedBefore.text} → ${renderedAfter.text}`;
-                    const entry = leaf.keyed ? await entrySiteOf(leaf.keyed, leaf.short) : undefined;
+                    const entry = leaf.recordKey ? await entrySiteOf(leaf.recordKey, leaf.short) : undefined;
                     const site = entry
                         ? { ...entry, before: renderedBefore.text, after: renderedAfter.text, beforeData: renderedBefore.data, afterData: renderedAfter.data }
                         : undefined;
                     rows.push({
                         label: leaf.short,
                         detail: leaf.path,
-                        text: leaf.cls === "count" ? `${change} entries` : change,
+                        text: leaf.role === "count" ? `${change} entries` : change,
                         filled: true,
                         internal,
                         before: renderedBefore.data,
