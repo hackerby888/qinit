@@ -40,7 +40,7 @@ export function parseContractDef(corePath: string): Map<string, CalleeDef> {
     return calleeDefinitions(readContractDefinitions(corePath));
 }
 
-type SourceOptions = Pick<AnalyzeContractOptions, "contractName" | "slot" | "qpiHeader">;
+type SourceOptions = Pick<AnalyzeContractOptions, "contractName" | "slot" | "qpiHeader" | "calleeSources">;
 
 export function scanCallees(source: string, options: SourceOptions = {}, knownCallees: Iterable<string> = []): Set<string> {
     const analysis = analyzeContract({ source, ...options });
@@ -171,11 +171,39 @@ export function buildCalleePrelude(
     }
 
     const resolved = new Map<string, ResolvedCallee>();
+    // What each callee itself calls, so it can be analysed with its own callees in scope.
+    const nestedByType = new Map<string, Set<string>>();
+    // The chain being resolved right now. Re-entering it is a cycle, and we stop instead of recursing.
+    const visiting: string[] = [];
+
+    // Everything a callee reaches transitively, as the analyzer wants it. Each callee gets its own
+    // closure rather than every sibling: unrelated declarations collide and invent errors that are not there.
+    const calleeSourcesFor = (type: string) => {
+        const reachable = new Set<string>();
+
+        const walk = (current: string) => {
+            for (const nestedType of nestedByType.get(current) ?? []) {
+                if (nestedType === type || reachable.has(nestedType)) {
+                    continue;
+                }
+                reachable.add(nestedType);
+                walk(nestedType);
+            }
+        };
+
+        walk(type);
+
+        return [...reachable]
+            .map((nestedType) => resolved.get(nestedType))
+            .filter((nested): nested is ResolvedCallee => nested !== undefined)
+            .map((nested) => ({ name: nested.type, source: nested.src, slot: nested.index }));
+    };
+
     const resolveCallee = (type: string) => {
         if (type === selfType) {
             return;
         }
-        if (resolved.has(type)) {
+        if (resolved.has(type) || visiting.includes(type)) {
             return;
         }
 
@@ -202,13 +230,8 @@ export function buildCalleePrelude(
             throw new Error(`inter-contract: unknown callee '${type}' (not in contract_def.h, not a declared dynamic callee)`);
         }
 
-        callee.registrations = parseRegisters(callee.src, {
-            contractName: type,
-            slot: callee.index,
-            qpiHeader,
-        });
-        resolved.set(type, callee);
-
+        // Resolve what this callee calls before analysing it: without its own callees in scope a
+        // qualified `Ledger::Stamp` is an unknown type, and the callee drops out of the prelude.
         const nestedCallees = scanCallees(
             callee.src,
             {
@@ -218,9 +241,26 @@ export function buildCalleePrelude(
             },
             knownCallees,
         );
-        for (const nestedType of nestedCallees) {
-            resolveCallee(nestedType);
+        nestedByType.set(type, nestedCallees);
+
+        visiting.push(type);
+        try {
+            for (const nestedType of nestedCallees) {
+                resolveCallee(nestedType);
+            }
+        } finally {
+            visiting.pop();
         }
+
+        const calleeSources = calleeSourcesFor(type);
+
+        callee.registrations = parseRegisters(callee.src, {
+            contractName: type,
+            slot: callee.index,
+            qpiHeader,
+            calleeSources: calleeSources.length > 0 ? calleeSources : undefined,
+        });
+        resolved.set(type, callee);
     };
 
     for (const calleeType of wanted) {

@@ -1681,3 +1681,74 @@ rewrite that was written for it.
 No list omits a declared field at any point in that sequence, and `member:coverage` stays 18/18.
 
 Pinned findings: **three** — E5's drop, E7 and E17.
+
+# Round 17 — E5, closed
+
+The campaign had stopped. This round exists because a question about E5 — "from the caller's perspective
+nothing is broken, only the callee's level?" — turned out to have the answer backwards, and checking it
+properly showed the finding had been understated for fourteen rounds.
+
+## The correction: E5 is a build failure, not an editor degradation
+
+Rounds 3 and 8 both describe E5 as a degraded editor: `clangd --check` reporting eight
+`use of undeclared identifier 'Bank'` errors on `Teller.h`. Neither asked whether the **build** survives.
+It does not. On a clean three-contract diamond — `Ledger::Stamp` in Bank's private state only, so no
+`qpi/public-callee-type` violation confounds the result:
+
+```
+qinit build Ledger  : OK
+qinit build Bank    : OK       <- the callee is fine
+qinit build Teller  : FAILS    <- inter-contract resolve failed: unknown type 'Ledger::Stamp'
+```
+
+The callee is not broken; the **caller** is, and `qinit build` refuses a valid project. The two paths
+differ because a referenced callee goes through `resolveCallee` uncaught (`intercontract.ts:228`) and
+throws, while an unreferenced sibling is caught and dropped. Round 8 fixed the silence on the second
+path and never touched the first.
+
+## The fix: discover before analysing
+
+`resolveCallee` called `parseRegisters` on each callee **in isolation** — its name, slot and the QPI
+header, but not its own callee sources — so a qualified `Ledger::Stamp` inside Bank was an unknown type.
+The information was gathered on the very next line, by `scanCallees`, one statement too late.
+
+The scan now runs first, its results resolve, and `parseRegisters` receives them as `calleeSources`.
+Four things make that safe, and each is now a test rather than an assumption:
+
+- **`scanCallees` cannot fail the way `parseRegisters` does.** `analyzeContract` computes `calls` via
+  `collectSourceContractCalls` before the compile that can throw and returns it unconditionally; only
+  `idl` goes missing. An unanalysable contract still yields its callee graph — which is exactly the
+  asymmetry E5 lived in, and is now asserted directly.
+- **A cycle stops recursing rather than throwing.** The old `resolved.has(type)` memo was the termination
+  guard and the reorder moves it, so a `visiting` stack replaces it. It does _not_ copy
+  `systemContractClosure`'s throw-on-cycle: `buildCalleePrelude` is called unwrapped from
+  `clangd-config.ts:129`, and `robustness.test.ts:53` holds `generateClangdConfig` to not throwing.
+- **Each callee gets its own closure, never the full sibling set.** Round 13 measured what the lazy
+  version does: all 28 core siblings as `calleeSources` manufactured errors that were not there.
+- **The referenced-callee throw stays.** A genuinely broken referenced callee _should_ fail the caller's
+  build. It now fires only on real breakage — which is what makes round 8's drop-and-report a good enough
+  answer for the sibling path, and why the design question E5 was pinned on stops being load-bearing
+  instead of needing an answer.
+
+## Evidence
+
+|                                              | before                | after              |
+| -------------------------------------------- | --------------------- | ------------------ |
+| `qinit build Teller` on a clean diamond      | FAILS                 | **OK**             |
+| `Teller.h` clang errors in the editor        | 8                     | **0**              |
+| `test:xross`                                 | 5 passing / 1 failing | **6 / 0**          |
+| prelude for core's 13 contracts with callees | —                     | **byte-identical** |
+
+That last row is the one that bounds the risk: the generated prelude for every core contract that makes
+an inter-contract call is unchanged to the byte, so the blast radius is confined to the case that was
+already broken.
+
+## The test that lost its premise
+
+`"the drop is reported even though the caller still does not compile"` asserted that Bank drops and says
+so. Bank no longer drops, so the case was re-pointed at `Orphan.h` — a well-formed contract naming a
+contract this project does not have, which is the shape that still legitimately fails to analyse. The
+drop-reporting path round 8 added keeps its end-to-end coverage, and `onDropped` now has unit coverage
+too, which the agent survey found it had never had.
+
+Pinned findings: **two** — E7 and E17.

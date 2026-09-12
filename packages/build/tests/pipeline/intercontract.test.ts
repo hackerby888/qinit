@@ -259,3 +259,132 @@ test("the prelude leaves the inter-contract SDK include to the wasm wrapper", ()
         rmSync(root, { recursive: true, force: true });
     }
 });
+
+// E5: the prelude analysed each callee alone, so a middle contract naming a third contract's type was
+// unanalysable and dropped, taking the caller's build down with it. Its own callees have to resolve first.
+test("a callee that references a third contract's type still reaches the prelude", () => {
+    const root = mkdtempSync(join(tmpdir(), "ic-diamond-"));
+    try {
+        mkdirSync(join(root, "src", "contract_core"), { recursive: true });
+        writeFileSync(join(root, "src", "contract_core", "contract_def.h"), "// empty registry\n");
+
+        const ledger = join(root, "Ledger.h");
+        writeFileSync(
+            ledger,
+            `struct Ledger : public ContractBase
+{
+    struct Stamp { uint64 at; };
+    struct StateData { uint64 seq; Stamp last; };
+    struct Note_input { uint64 n; };
+    struct Note_output { uint64 seq; };
+    PUBLIC_FUNCTION(Note) { output.seq = state.get().seq; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Note, 1); }
+};
+`,
+        );
+
+        // Bank names Ledger::Stamp, which only resolves when Ledger is in scope for Bank's own analysis.
+        const bank = join(root, "Bank.h");
+        writeFileSync(
+            bank,
+            `struct Bank : public ContractBase
+{
+    struct StateData { uint64 marker; Ledger::Stamp lastStamp; };
+    struct Quote_input { uint64 n; };
+    struct Quote_output { uint64 marker; };
+    struct Quote_locals { Ledger::Note_input note; Ledger::Note_output back; };
+    PUBLIC_FUNCTION_WITH_LOCALS(Quote)
+    {
+        CALL_OTHER_CONTRACT_FUNCTION(Ledger, Note, locals.note, locals.back);
+        output.marker = state.get().marker;
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Quote, 1); }
+};
+`,
+        );
+
+        const dynamicCallees = { Ledger: { header: ledger, slot: 29 }, Bank: { header: bank, slot: 30 } };
+        const dropped: string[] = [];
+        const prelude = buildCalleePrelude(root, "CALL_OTHER_CONTRACT_FUNCTION(Bank, Quote, locals.q, locals.back);", dynamicCallees, "Teller", false, (type) =>
+            dropped.push(type),
+        );
+
+        expect(dropped).toEqual([]);
+        expect(prelude).toContain("Bank.h");
+        expect(prelude).toContain("Ledger.h");
+        // Bank's registrations resolved, so the caller gets the constant it needs to make the call.
+        expect(prelude).toContain("Bank_Quote_inputType");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+// The reorder rests on this: scanning for callees reads the macro call list, which `analyzeContract`
+// produces before the compile that can fail, so an unanalysable contract still yields its callee graph.
+test("scanCallees returns the callee names even when the source does not analyze", () => {
+    const unanalysable = `struct Bank : public ContractBase
+{
+    struct StateData { Ledger::Stamp lastStamp; };
+    struct Quote_locals { Ledger::Note_input note; Ledger::Note_output back; };
+    PUBLIC_FUNCTION_WITH_LOCALS(Quote) { CALL_OTHER_CONTRACT_FUNCTION(Ledger, Note, locals.note, locals.back); }
+};
+`;
+
+    expect([...scanCallees(unanalysable, { contractName: "Bank" }, ["Ledger"])]).toEqual(["Ledger"]);
+});
+
+// A cycle terminates rather than throwing: the editor calls buildCalleePrelude unwrapped, and
+// robustness.test.ts holds it to not throwing on odd input.
+test("a callee cycle stops recursing instead of throwing", () => {
+    const root = mkdtempSync(join(tmpdir(), "ic-cycle-"));
+    try {
+        mkdirSync(join(root, "src", "contract_core"), { recursive: true });
+        writeFileSync(join(root, "src", "contract_core", "contract_def.h"), "// empty registry\n");
+
+        const first = join(root, "First.h");
+        const second = join(root, "Second.h");
+        writeFileSync(first, "struct First : public ContractBase { PUBLIC_FUNCTION(Go) { CALL_OTHER_CONTRACT_FUNCTION(Second, Go, in, out); } };\n");
+        writeFileSync(second, "struct Second : public ContractBase { PUBLIC_FUNCTION(Go) { CALL_OTHER_CONTRACT_FUNCTION(First, Go, in, out); } };\n");
+
+        const dynamicCallees = { First: { header: first, slot: 29 }, Second: { header: second, slot: 30 } };
+
+        expect(() => buildCalleePrelude(root, "CALL_OTHER_CONTRACT_FUNCTION(First, Go, in, out);", dynamicCallees, "Caller", true, () => {})).not.toThrow();
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+// The drop itself was never the whole problem; dropping silently was. A sibling that genuinely cannot be
+// analysed must reach the caller as a reason, since every symbol it would have declared is now missing.
+test("a dropped sibling is reported with the reason it could not be analysed", () => {
+    const root = mkdtempSync(join(tmpdir(), "ic-drop-reason-"));
+    try {
+        mkdirSync(join(root, "src", "contract_core"), { recursive: true });
+        writeFileSync(join(root, "src", "contract_core", "contract_def.h"), "// empty registry\n");
+
+        // Well-formed, but names a contract this project does not have, so its registrations never parse.
+        const orphan = join(root, "Orphan.h");
+        writeFileSync(
+            orphan,
+            `struct Orphan : public ContractBase
+{
+    struct StateData { uint64 count; Missing::Thing thing; };
+    struct Get_input {}; struct Get_output { uint64 value; };
+    PUBLIC_FUNCTION(Get) { output.value = state.get().count; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+};
+`,
+        );
+
+        const dropped: { type: string; reason: string }[] = [];
+        const prelude = buildCalleePrelude(root, "state.mut().counter += 1;", { Orphan: { header: orphan, slot: 29 } }, "Counter", true, (type, reason) =>
+            dropped.push({ type, reason }),
+        );
+
+        expect(prelude).not.toContain("Orphan.h");
+        expect(dropped.map((entry) => entry.type)).toEqual(["Orphan"]);
+        expect(dropped[0].reason).toContain("Missing::Thing");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
