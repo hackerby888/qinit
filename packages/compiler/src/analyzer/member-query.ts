@@ -408,7 +408,16 @@ export function completeMembersAt(options: MemberQueryOptions): MemberCompletion
     const lineEnd = options.source.indexOf("\n", receiverEnd);
     const receiverText = options.source.slice(receiverStart, receiverEnd).replace(/\n/g, " ");
     if (receiverText.trim() === "") return undefined;
-    const probeSource = `${options.source.slice(0, lineStart)}${receiverText};${lineEnd < 0 ? "" : options.source.slice(lineEnd)}`;
+    // An entry written on one line carries its macro and braces on the receiver's line, and replacing the
+    // whole line takes them with it, so the contract no longer parses and the query declines. Keeping the
+    // brace either side leaves the body intact. A receiver on its own line has neither, so nothing moves.
+    const beforeReceiver = options.source.slice(lineStart, receiverStart);
+    const afterReceiver = lineEnd < 0 ? "" : options.source.slice(receiverEnd, lineEnd);
+    const openBrace = beforeReceiver.lastIndexOf("{");
+    const closeBrace = afterReceiver.indexOf("}");
+    const keptPrefix = openBrace >= 0 ? beforeReceiver.slice(0, openBrace + 1) : "";
+    const keptSuffix = closeBrace >= 0 ? afterReceiver.slice(closeBrace) : "";
+    const probeSource = `${options.source.slice(0, lineStart)}${keptPrefix}${receiverText};${keptSuffix}${lineEnd < 0 ? "" : options.source.slice(lineEnd)}`;
     const qpiHeader = options.qpiHeader ?? QPI_SNAPSHOT;
     const compileOptions: CompileOptions = {
         source: probeSource,

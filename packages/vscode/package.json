@@ -64,7 +64,8 @@
         "test:xross": "bun esbuild.mjs && bun scripts/prepare-itest-env.ts && vscode-test --label xross",
         "test:live": "bun esbuild.mjs && bun scripts/prepare-itest-env.ts && vscode-test --label live",
         "diag:diff": "bun run scripts/diag-differential.ts",
-        "fix:diff": "bun run scripts/fix-differential.ts"
+        "fix:diff": "bun run scripts/fix-differential.ts",
+        "member:coverage": "bun run scripts/member-coverage.ts"
     },
     "devDependencies": {
         "@qinit/build": "workspace:*",

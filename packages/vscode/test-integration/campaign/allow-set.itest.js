@@ -50,15 +50,10 @@ suite("campaign — the allowed-identifier set", function () {
         return doc;
     }
 
-    // E15, pinned failing. A log struct's `_type` is the rule's own documented case: a real member,
-    // worth completing, hidden until the developer types the underscore. The extension's half is right —
-    // with the filter off clangd offers `_type` at the bare receiver and the filter correctly removes it.
-    // But at `locals.note._`, where the rule would let it through, clangd no longer offers it at all, so
-    // the reveal has nothing to reveal and a `_`-led member cannot be completed by any keystroke.
-    //
-    // Attribution is in the run output: filter off gives `_type, amount` at `.` and only `amount` at `._`.
-    // The fallback cannot cover it either — completeMembersAt returns null for this receiver — so closing
-    // it means widening when the fallback fires, which is a design question rather than a patch.
+    // A log struct's `_type` is the rule's own documented case: a real member, worth completing, hidden
+    // until the developer types the underscore. The buffer has to contain `locals.note._type` for that —
+    // `completionItems` advances a cursor, it does not type, so completing "after the underscore" against
+    // a buffer holding `locals.note.amount` lands inside `amount` and measures the prefix `a`.
     //
     // (`id` is not the vehicle here: on this core `m256i` exposes MSVC intrinsic aliases rather than
     // QPI's `_0.._3`, as round 3 already measured.)
@@ -69,26 +64,14 @@ suite("campaign — the allowed-identifier set", function () {
                 "    struct Read_locals\n    {",
                 "    struct Noted\n    {\n        uint64 amount;\n        uint8 _type;\n    };\n\n    struct Read_locals\n    {\n        Noted note;",
             )
-            .replace(ANCHOR, `${ANCHOR}\n        locals.note.amount = 0;`);
+            .replace(ANCHOR, `${ANCHOR}\n        locals.note._type = 0;`);
         await replaceDocument(doc, withLog);
         await sleep(900);
 
-        const plain = await resolvedMemberLabels(doc, "locals.note.amount", "locals.note.");
+        const plain = await resolvedMemberLabels(doc, "locals.note._type", "locals.note.");
         console.log(`    locals.note.  -> ${plain.labels.length} items: ${plain.labels.slice(0, 8).join(", ")}`);
-        const underscored = await completionLabels(doc, "locals.note.amount", "locals.note._");
+        const underscored = await completionLabels(doc, "locals.note._type", "locals.note._");
         console.log(`    locals.note._ -> ${underscored.length} items: ${underscored.slice(0, 8).join(", ")}`);
-
-        // Attribution: with the filter off the reading is clangd's own, so an absent `_type` there is
-        // clangd's list and not this extension's rule.
-        const config = vscode.workspace.getConfiguration("qpi");
-        await config.update("completionFilter", "off", vscode.ConfigurationTarget.Workspace);
-        await sleep(800);
-        const rawPlain = await completionLabels(doc, "locals.note.amount", "locals.note.");
-        const rawUnderscored = await completionLabels(doc, "locals.note.amount", "locals.note._");
-        await config.update("completionFilter", undefined, vscode.ConfigurationTarget.Workspace);
-        await sleep(500);
-        console.log(`    filter off: locals.note.  -> ${rawPlain.length} items: ${rawPlain.slice(0, 8).join(", ")}`);
-        console.log(`    filter off: locals.note._ -> ${rawUnderscored.length} items: ${rawUnderscored.slice(0, 8).join(", ")}`);
 
         assert.ok(has(plain.labels, "amount"), `the plain member must be offered: [${plain.labels.slice(0, 8).join(", ")}]`);
         assert.ok(!has(plain.labels, "_type"), `a bare receiver must hide the \`_\`-led member: [${plain.labels.slice(0, 8).join(", ")}]`);

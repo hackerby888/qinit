@@ -210,3 +210,34 @@ test("splits a receiver into its root and plain-identifier hops", () => {
     expect(at("t.fixture().out.")).toBeUndefined();
     expect(at("no member operator")).toBeUndefined();
 });
+
+// The query rewrites the receiver's line into a statement of its own so it parses. When the entry body
+// is written on one line, that line also carries the macro and both braces — replacing it took them with
+// it, the contract stopped parsing, and every receiver in such a body silently declined. Four of core's
+// own thirty-five contracts are written this way, and it is also the shape a body has while being typed.
+test("a receiver inside a one-line entry body still resolves", () => {
+    const inline = `using namespace QPI;
+struct Ledger2 {};
+struct Ledger : public ContractBase {
+    struct Note { uint64 amount; uint8 kind; };
+    struct StateData { uint64 calls; Note last; };
+    struct Go_input {}; struct Go_output {};
+    struct Go_locals { Note note; };
+    PUBLIC_PROCEDURE_WITH_LOCALS(Go) { locals.note.amount = 0; state.mut().calls += 1; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};
+`;
+    const at = (receiver: string) =>
+        completeMembersAt({ source: inline, offset: inline.indexOf(receiver) + receiver.length, contractName: "Ledger", slot: 28 });
+
+    expect(at("locals.note.")?.map((item) => item.name)).toEqual(["amount", "kind"]);
+    expect(at("state.mut().")?.map((item) => item.name)).toEqual(["calls", "last"]);
+
+    // The same contract across lines answered before this fix and must answer identically after it.
+    const spread = inline.replace(
+        "PUBLIC_PROCEDURE_WITH_LOCALS(Go) { locals.note.amount = 0; state.mut().calls += 1; }",
+        "PUBLIC_PROCEDURE_WITH_LOCALS(Go)\n    {\n        locals.note.amount = 0;\n        state.mut().calls += 1;\n    }",
+    );
+    const spreadAt = completeMembersAt({ source: spread, offset: spread.indexOf("locals.note.") + "locals.note.".length, contractName: "Ledger", slot: 28 });
+    expect(spreadAt?.map((item) => item.name)).toEqual(["amount", "kind"]);
+});

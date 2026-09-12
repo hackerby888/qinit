@@ -914,7 +914,7 @@ Three rules decide what a contract developer is allowed to see, and none had bee
 real editor: the `_`-led member gate, the gtest exemption, and the `CC_*` whitelist. Measured in
 `test:campaign`, suite "campaign — the allowed-identifier set".
 
-## E15 — a `_`-led member cannot be completed at all (not fixed)
+## E15 — WITHDRAWN: a `_`-led member completes exactly as designed
 
 `keepMemberLabel` hides a `_`-led member until the developer types a leading underscore, because a log
 struct's `_type` and `_terminator` are real members worth completing
@@ -925,17 +925,45 @@ struct's `_type` and `_terminator` are real members worth completing
 | filter on  | `amount`              | `amount`        |
 | filter off | **`_type`, `amount`** | `amount`        |
 
+> **Withdrawn in round 9. There is no defect here; the probe never typed an underscore.**
+>
+> `completionItems` advances a cursor from a marker — it does not insert text. The buffer held
+> `locals.note.amount`, and "completing after `locals.note._`" advanced thirteen characters into it,
+> landing after `locals.note.a`. Every reading above is therefore the list for the typed prefix `a`, and
+> `amount` is the right answer to it. Round 7 recorded that this helper cannot type, fixed two other
+> probes for exactly that reason in the same round, and left this one.
+>
+> Re-measured with `locals.note._type = 0;` actually in the buffer:
+>
+> | position        | offered                                        |
+> | --------------- | ---------------------------------------------- |
+> | `locals.note.`  | `amount` — the `_`-led member correctly hidden |
+> | `locals.note._` | `_type` — correctly revealed                   |
+>
+> The rule works as written, in both directions. `test:campaign` is 14 passing, exit 0.
+>
+> A change to widen the fallback trigger had been written against this finding before it was withdrawn;
+> it was reverted rather than kept, since it fixed nothing.
+
+The original entry read as follows.
+
 With the filter off, clangd offers `_type` at the bare receiver and the filter correctly removes it. At
 `locals.note._` — the one position where the rule would let it through — **clangd no longer offers it**,
 filter or no filter. The reveal has nothing to reveal, so a `_`-led member is unreachable by any
 keystroke and the rule is dead in practice.
 
 Attribution is the three readings from ground rule 2, and they place this in clangd's list rather than
-in the extension's filter. The member fallback cannot cover it either: `completeMembersAt` returns
-`null` for this receiver, and `memberCompletions` only consults the fallback when clangd's list is empty
-or wholly `Text`-kind — a list that is merely _missing the `_`-led members_ is not "unresolved" by that
-test. Closing it means widening when the fallback fires, and making the fallback resolve this receiver:
-a design question, so it is pinned rather than patched.
+in the extension's filter. `memberCompletions` only consults the fallback when clangd's list is empty or
+wholly `Text`-kind — a list that is merely _missing the `_`-led members_ is not "unresolved" by that
+test — so closing it means widening when the fallback fires. That is a design question, so it stays
+pinned.
+
+> **Corrected in round 9.** This section first said the fallback "cannot cover it either", because
+> `completeMembersAt` returned `null` for this receiver. That was wrong, and wrong for the reason round 1
+> had already recorded: the probe contract carried its entry body on a single line, which is a shape the
+> fallback declines — E16 below. Given the same contract with the body across lines it answers
+> `amount, _type`. The fallback resolves this receiver fine. Round 9 then withdrew E15 outright: the
+> probe behind it had never typed the underscore it claimed to.
 
 ## What held up
 
@@ -1035,3 +1063,78 @@ also the honest scenario, because **creating a sibling on disk does not by itsel
 file**; something has to save it.
 
 Pinned findings now stand at four: E5's drop, E7, E14 and E15.
+
+---
+
+# Round 9 — where the member fallback actually answers
+
+The member fallback is the extension's entire defence against the clangd bug that started this campaign.
+When it declines, the developer gets whatever clangd said, so every shape it cannot resolve is a shape
+where the bug is simply unmitigated — and nobody had ever mapped which those are.
+
+`packages/vscode/scripts/member-coverage.ts` (`bun run --filter qpi-vscode member:coverage`) asks
+`completeMembersAt` for eighteen receiver shapes in one contract, varying only the receiver so a decline
+is about the receiver and not the file around it.
+
+## E16 — a one-line entry body made every receiver in it decline (fixed)
+
+The query rewrites the receiver's line into a statement of its own so it parses. That line normally
+holds nothing else. When the entry body is written on **one line** it also holds the macro and both
+braces, and replacing the line took them with it: the contract stopped parsing, `findContractStruct`
+found nothing, and the query returned `undefined` for every receiver in that body.
+
+```
+PUBLIC_PROCEDURE_WITH_LOCALS(Go) { locals.note.amount = 0; }   -> declines
+PUBLIC_PROCEDURE_WITH_LOCALS(Go)
+{
+    locals.note.amount = 0;                                    -> amount, _type
+}
+```
+
+Not a corner: **four of core's own thirty-five contracts** are written this way
+(`PUBLIC_FUNCTION(Get) { output.value = state.get().n; }`), and it is also the shape a body has while
+it is being typed, before the developer splits it.
+
+Fixed by keeping the brace either side of the receiver when the line has one. A receiver on its own
+line has neither, so the constructed probe is byte-identical to before for every shape that already
+worked — which the coverage map confirms: 15/18 before the fix with exactly the three one-line rows
+declining, 18/18 after.
+
+## The correction this round forced
+
+Round 7 justified pinning **E15** partly on "the member fallback cannot cover it either:
+`completeMembersAt` returns `null` for this receiver". That was wrong. The probe contract I used had its
+entry body on one line, so what I measured was E16, not a limit of the receiver. Given the same contract
+across lines the fallback answers `amount, _type`.
+
+Round 1 had already recorded this exact trap — _"contract body with two statements on one line made
+`completeMembersAt` report UNRESOLVED for everything"_ — and I walked into it again six rounds later and
+drew a conclusion from it. The round 7 entry now carries the correction inline, and E15's remaining
+obstacle is only the trigger condition in `memberCompletions`, which is a smaller thing than I claimed.
+
+## E15, withdrawn
+
+Chasing E16 back through round 7's probes turned up that **E15 was never real**. Its probe advanced a
+cursor thirteen characters into `locals.note.amount` and called the result "completing after
+`locals.note._`" — it never typed an underscore, so every reading was the list for the prefix `a`. With
+`locals.note._type = 0;` actually in the buffer, `locals.note.` offers `amount` and `locals.note._`
+offers `_type`: the rule works in both directions. The round 7 entry is marked withdrawn with the
+re-measurement beside it, and `test:campaign` is now 14 passing, exit 0.
+
+Round 7 had itself recorded that this helper cannot type, and fixed two other probes for that reason in
+the same round. This is the second time in two rounds that a finding turned out to be a probe repeating
+a mistake the campaign had already written down — which is an argument for the coverage script above
+over one-off probes: it exercises one construction across eighteen shapes instead of eighteen
+hand-written cursors.
+
+A widening of the fallback trigger had been written against E15 before it was withdrawn. It was
+reverted rather than kept: it fixed nothing, and an unused branch in the completion path is a cost.
+
+## What held up
+
+Fifteen of the eighteen shapes answered before this round's fix and still do: a struct declared in the
+contract, a struct declared at file scope, a callee's type and its nested type, two levels of nesting,
+`Array` and `BitArray` method lists, a member through `get(0)`, `state.get()` and `state.mut()` both
+bare and through a struct field, `input`, `output`, and `qpi` with its 48 host calls. The fallback is in
+better shape than the E1 investigation left it looking; its one real hole was the formatting of the line
+it rewrites.
