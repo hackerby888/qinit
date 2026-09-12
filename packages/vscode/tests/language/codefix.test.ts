@@ -141,3 +141,22 @@ test("declines locals whose type cannot become a writable field", () => {
     expect(qpiCodes(source)).toContain("qpi/stack-local");
     expect(fixFor(source, "qpi/stack-local")).toBeNull();
 });
+
+// The rewrite prefixes every occurrence of the name in the entry body. A name declared twice — shadowed
+// in a nested block — has the second declaration's identifier prefixed too, leaving `uint64 locals.x = 1;`.
+test("declines to move a local whose name is declared again in a nested block", () => {
+    const shadowed = wrap(`        uint64 tier = 1;
+        output.v = tier;
+        {
+            uint64 tier = 2;
+            output.v = tier;
+        }`);
+
+    expect(qpiCodes(shadowed)).toContain("qpi/stack-local");
+    expect(fixFor(shadowed, "qpi/stack-local")).toBeNull();
+
+    // A name declared once is still moved, so the rule only withholds the fix it cannot make correctly.
+    const single = wrap(`        uint64 tier = 1;
+        output.v = tier;`);
+    expect(applyFix(single, "qpi/stack-local")).toContain("locals.tier = 1;");
+});

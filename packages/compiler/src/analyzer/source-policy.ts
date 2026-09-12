@@ -453,8 +453,14 @@ function localDiagnostics(source: string, tokens: Token[], entries: EntryFunctio
 
         for (const declaration of declarations) {
             for (const name of declaration.names) {
+                // The rewrite prefixes every occurrence of the name in the entry body, so a name declared twice —
+                // shadowed in a nested block — has the other declaration's identifier prefixed too, leaving
+                // `uint64 locals.x = 1;`. Decline the fix there rather than hand back a file that will not parse.
+                const shadowed = declarations.filter((other) => other.names.some((candidate) => candidate.text === name.text)).length > 1;
                 const edits =
-                    declaration.names.length === 1 && !declaration.forInitializer ? moveLocalToWithLocalsEdits(source, tokens, entry, declaration, name) : null;
+                    declaration.names.length === 1 && !declaration.forInitializer && !shadowed
+                        ? moveLocalToWithLocalsEdits(source, tokens, entry, declaration, name)
+                        : null;
                 const fixes = edits && edits.length > 0 ? [sourceFix("Move into <fn>_locals struct (use *_WITH_LOCALS)", source, edits)] : undefined;
 
                 diagnostics.push(

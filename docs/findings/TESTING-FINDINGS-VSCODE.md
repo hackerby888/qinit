@@ -805,7 +805,7 @@ never built were mutated, and the fix was blamed for the missing callee. Requiri
 under the backend drops those 84 to 0. Rounds 12, 20 and 22 have all hit this: **a precondition has to be
 checked with the same oracle as the assertion.**
 
-## E25 — the with-locals fix corrupts a contract that shadows a name in a block (not fixed)
+## E25 — the with-locals fix corrupts a contract that shadows a name in a block (fixed)
 
 `namespaces/NsBlockScopeShadowChain`. The contract builds, and the editor reports two _warnings_:
 
@@ -836,6 +836,53 @@ behind.
 This is a worse shape than E9 and E10. Those produced a file that failed to compile; this produces one
 that fails to **parse**, from a single click, on a contract that built. The three "diagnostic did not
 clear" rows are the same archetype: the second warning survives its own fix for the same reason.
+
+## Round 23 — where the squiggle lands, at scale
+
+E8 and E20 were both span defects found on hand-built fixtures. This round injects a violation at a
+**known** line into one variant per archetype and asks where the editor says it is.
+
+```
+brackets-in-state      n=420  on-line 420  wrong-line 0  no-diagnostic 0
+stack-local-in-entry   n=420  on-line 420  wrong-line 0  no-diagnostic 0
+unknown-type-in-state  n=420  on-line 420  wrong-line 0  no-diagnostic 0
+```
+
+**1 260 of 1 260 land on the exact line.** A clean negative: E8 and E20 hold across 420 real contracts of
+every shape the generator produces, including those carrying directives, nested namespaces and macros.
+
+The round cost three harness bugs, all caught before they were written up. The first two reported a
+uniform `+1` across every contract: a three-line insertion whose expected line was computed by arithmetic
+rather than searched, and an injection anchored on `struct StateData` that landed _between_ the
+declaration and its `{`, so the parser rightly flagged the brace. A defect that is exactly uniform across
+420 differently-shaped contracts is far more likely to be the measurement than the product. The harness
+now locates the expected line by **searching the mutated source for the marker**, the same technique
+`preprocessor-lines.test.ts` uses.
+
+## E25 — closed
+
+The fix declines where it cannot be correct, which is the same answer E9 and E10 reached.
+`source-policy.ts` now checks whether the name is declared more than once in the entry before offering the
+rewrite:
+
+```ts
+const shadowed = declarations.filter((other) => other.names.some((candidate) => candidate.text === name.text)).length > 1;
+```
+
+The warning and its message still appear; only the rewrite is withheld. Re-running round 22's sweep over
+the same 449 archetypes:
+
+|                          |   before |    after |
+| ------------------------ | -------: | -------: |
+| fixes offered            |     1264 |     1260 |
+| **clean**                | **1259** | **1259** |
+| introduced a new error   |        2 |    **0** |
+| diagnostic did not clear |        3 |        1 |
+
+The clean count is **unchanged**: exactly the four broken fixes stopped being offered and no safe one did.
+The remaining "did not clear" row is the harness, not a defect — that contract has three stack-locals, the
+injected one is fixed and its diagnostic clears, and the two declined `tier` warnings keep the code in the
+list. Verified directly: `idl` is still produced and the moved local is gone from the body.
 
 ## E7 — the editor stops before the compiler does (not fixed)
 
