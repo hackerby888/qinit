@@ -63,11 +63,15 @@ async function replaceDocument(doc, source) {
 
 const labelOf = (item) => (typeof item.label === "string" ? item.label : item.label.label).trim();
 
-/** Completion items at the first occurrence of `marker`, with the cursor placed after `dot`. */
+/**
+ * Completion items at the first occurrence of `marker`, with the cursor advanced past `dot` — either the
+ * text to place the cursor after, or a plain character count when the text would be awkward to repeat.
+ */
 async function completionItems(doc, marker, dot) {
     const offset = doc.getText().indexOf(marker);
     assert.ok(offset >= 0, `missing completion marker ${marker}`);
-    const pos = doc.positionAt(offset + dot.length);
+    const advance = typeof dot === "number" ? dot : dot.length;
+    const pos = doc.positionAt(offset + advance);
     const list = await vscode.commands.executeCommand("vscode.executeCompletionItemProvider", doc.uri, pos);
     return list?.items ?? [];
 }

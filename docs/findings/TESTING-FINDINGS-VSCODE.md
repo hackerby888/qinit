@@ -905,3 +905,62 @@ The assertion was also narrowed deliberately, and the narrowing is the point rat
 a red test green: the hazard is a name the contract needs going missing, or a sibling's name appearing.
 clangd's own volunteered symbols are neither, so they are printed on every run and left out of the
 assertion.
+
+---
+
+# Round 7 — the allowed-identifier set
+
+Three rules decide what a contract developer is allowed to see, and none had been exercised against a
+real editor: the `_`-led member gate, the gtest exemption, and the `CC_*` whitelist. Measured in
+`test:campaign`, suite "campaign — the allowed-identifier set".
+
+## E15 — a `_`-led member cannot be completed at all (not fixed)
+
+`keepMemberLabel` hides a `_`-led member until the developer types a leading underscore, because a log
+struct's `_type` and `_terminator` are real members worth completing
+(`completion-filter.ts:140-150`). The extension's half of that works. clangd's half does not:
+
+| reading    | `locals.note.`        | `locals.note._` |
+| ---------- | --------------------- | --------------- |
+| filter on  | `amount`              | `amount`        |
+| filter off | **`_type`, `amount`** | `amount`        |
+
+With the filter off, clangd offers `_type` at the bare receiver and the filter correctly removes it. At
+`locals.note._` — the one position where the rule would let it through — **clangd no longer offers it**,
+filter or no filter. The reveal has nothing to reveal, so a `_`-led member is unreachable by any
+keystroke and the rule is dead in practice.
+
+Attribution is the three readings from ground rule 2, and they place this in clangd's list rather than
+in the extension's filter. The member fallback cannot cover it either: `completeMembersAt` returns
+`null` for this receiver, and `memberCompletions` only consults the fallback when clangd's list is empty
+or wholly `Text`-kind — a list that is merely _missing the `_`-led members_ is not "unresolved" by that
+test. Closing it means widening when the fallback fires, and making the fallback resolve this receiver:
+a design question, so it is pinned rather than patched.
+
+## What held up
+
+- **The gtest exemption.** `TEST` completes in `Desk.test.cpp` (as `•TEST` — clangd decorates it), the
+  identifier tier is not narrowed, and the member step still applies. A gtest keeps the library it is
+  written in.
+- **`std::` inside a contract.** Zero C++ library names. The rule was also checked in isolation:
+  `completionScope("        std::")` classifies as qualified with qualifier `std`, and
+  `keepQualifiedScope` refuses it.
+- **Operators and destructors.** Seven members at a container receiver, none of them `operator` or `~`.
+- **Cheatcodes.** 24 `CC_*` names offered in Desk — and correctly, because Desk's own generated prefix
+  header declares fourteen of them. The pattern whitelist has no check of its own, so what keeps a
+  production contract clean is the prefix, and the unit suite already covers the production wrapper that
+  declares none. This hypothesis was disproved by reading the generated header rather than by argument.
+
+## Three probes that were measuring the wrong thing
+
+- **`executeCompletionItemProvider` aggregates every provider.** A `std::` probe that counted items saw
+  134 and looked like a leak; the list was `a, an, and, answers, are, at` — VS Code's built-in
+  word-based suggestions, drawn from the file's own comments, which no extension filter governs. The
+  probe now names the C++ library symbols it would object to instead of counting.
+- **The helper cannot type.** `completionItems` advances the cursor from a marker; it does not insert
+  text. Probes for "after `std::`" and "after `CC_`" were positioning the cursor at arbitrary offsets on
+  an unrelated line. Every probe now writes the line it completes on into the buffer first, and the
+  helper accepts a character count as well as a string.
+- **A lesson from round 3, not applied.** The `_`-led probe was first written against `id`'s `_0.._3`
+  limbs — which this core's `m256i` does not have, exactly as round 3 recorded when a probe of mine died
+  the same way. A log struct's `_type` is the vehicle that actually exists.
