@@ -101,77 +101,77 @@ const at = (names: Names, off: number, type: AbiType, cls: LeafClass = "payload"
     type,
 });
 
-// The member of `type` that byte `offset` falls in. Indexed collections resolve per element; a struct stops as one row when `covered` covers all of it.
-function leafAt(names: Names, base: number, type: AbiType, offset: number, covered: (off: number, size: number) => boolean): Leaf {
+// The member of `type` that byte `relativeOffset` falls in. Indexed collections resolve per element; a struct stops as one row when `covered` covers all of it.
+function leafAt(names: Names, typeStart: number, type: AbiType, relativeOffset: number, covered: (off: number, size: number) => boolean): Leaf {
     switch (type.kind) {
         case AbiTypeKind.STRUCT: {
             // A struct holding a container is never one row: the container's members say what moved.
-            if (!holdsContainer(type) && covered(base, type.size)) {
-                return at(names, base, type);
+            if (!holdsContainer(type) && covered(typeStart, type.size)) {
+                return at(names, typeStart, type);
             }
 
-            const field = type.fields.find((candidate) => offset >= candidate.offset && offset < candidate.offset + candidate.size);
+            const field = type.fields.find((candidate) => relativeOffset >= candidate.offset && relativeOffset < candidate.offset + candidate.size);
             if (!field) {
                 // Padding inside the struct names nothing; a zero-count bits leaf moves the walk to the next field, or to the struct's end.
-                const next = type.fields.find((candidate) => candidate.offset > offset);
-                return bitsLeaf(names, base + offset, (next?.offset ?? type.size) - offset, 1, 0, "internal");
+                const next = type.fields.find((candidate) => candidate.offset > relativeOffset);
+                return bitsLeaf(names, typeStart + relativeOffset, (next?.offset ?? type.size) - relativeOffset, 1, 0, "internal");
             }
-            return leafAt(child(names, `.${field.name}`), base + field.offset, field.type, offset - field.offset, covered);
+            return leafAt(child(names, `.${field.name}`), typeStart + field.offset, field.type, relativeOffset - field.offset, covered);
         }
 
         case AbiTypeKind.ARRAY: {
             const { stride } = arrayGeometry(type.element, type.count);
-            const index = Math.floor(offset / stride);
-            const inner = offset - index * stride;
+            const index = Math.floor(relativeOffset / stride);
+            const offsetInElement = relativeOffset - index * stride;
             const element = child(names, `[${index}]`);
-            const elementBase = base + index * stride;
-            if (inner >= type.element.size) {
-                return at(element, elementBase, type.element);
+            const elementStart = typeStart + index * stride;
+            if (offsetInElement >= type.element.size) {
+                return at(element, elementStart, type.element);
             }
-            return leafAt(element, elementBase, type.element, inner, covered);
+            return leafAt(element, elementStart, type.element, offsetInElement, covered);
         }
 
         case AbiTypeKind.HASH_MAP:
             return memberLeaf(
                 names,
-                base,
-                offset,
+                typeStart,
+                relativeOffset,
                 hashMapMembers(type.key, type.value, type.capacity),
                 (tag) => (tag === "key" ? type.key : type.value),
                 covered,
             );
 
         case AbiTypeKind.HASH_SET:
-            return memberLeaf(names, base, offset, hashSetMembers(type.key, type.capacity), () => type.key, covered);
+            return memberLeaf(names, typeStart, relativeOffset, hashSetMembers(type.key, type.capacity), () => type.key, covered);
 
         // Printing 256 bits twice to show one flip is the noise this whole module exists to remove.
         case AbiTypeKind.BIT_ARRAY:
-            return bitsLeaf(names, base, type.size, 1, type.bitCount, "payload");
+            return bitsLeaf(names, typeStart, type.size, 1, type.bitCount, "payload");
 
         case AbiTypeKind.COLLECTION:
-            return memberLeaf(names, base, offset, collectionMembers(type.value, type.capacity), () => type.value, covered);
+            return memberLeaf(names, typeStart, relativeOffset, collectionMembers(type.value, type.capacity), () => type.value, covered);
 
         case AbiTypeKind.LINKED_LIST:
-            return memberLeaf(names, base, offset, linkedListMembers(type.value, type.capacity), () => type.value, covered);
+            return memberLeaf(names, typeStart, relativeOffset, linkedListMembers(type.value, type.capacity), () => type.value, covered);
 
         default:
-            return at(names, base, type);
+            return at(names, typeStart, type);
     }
 }
 
-// Matching takes the first member whose end passes the offset, so C padding belongs to the member after it and the leaf always ends past `offset`.
+// Matching takes the first member whose end passes the offset, so C padding belongs to the member after it and the leaf always ends past `relativeOffset`.
 function memberLeaf(
     names: Names,
-    base: number,
-    offset: number,
+    containerStart: number,
+    relativeOffset: number,
     regions: ContainerRegion[],
     idlType: (tag: "key" | "value") => AbiType,
     covered: (off: number, size: number) => boolean,
 ): Leaf {
-    const region = regions.find((candidate) => offset < candidate.end) ?? regions[regions.length - 1];
+    const region = regions.find((candidate) => relativeOffset < candidate.end) ?? regions[regions.length - 1];
 
     if (region.kind === "flags") {
-        const bits = bitsLeaf(child(names, region.path), base + region.off, region.end - region.off, region.bitsPer, region.count, "internal");
+        const bits = bitsLeaf(child(names, region.path), containerStart + region.off, region.end - region.off, region.bitsPer, region.count, "internal");
         // Only a keyed container has anything better to label a record by than the bucket it hashed into.
         const records = regions.find((candidate): candidate is Extract<ContainerRegion, { kind: "records" }> => candidate.kind === "records");
         const keyMember = records?.members.find((member) => member.type === "key");
@@ -183,7 +183,7 @@ function memberLeaf(
             owner: {
                 container: names.short,
                 containerPath: names.path,
-                recordsOff: base + records.off,
+                recordsOff: containerStart + records.off,
                 stride: records.stride,
                 keyOff: keyMember.off,
                 keyType: idlType("key"),
@@ -192,26 +192,26 @@ function memberLeaf(
     }
 
     if (region.kind === "word") {
-        return at(child(names, region.path, region.short), base + region.off, WORD_TYPES[region.type], region.role);
+        return at(child(names, region.path, region.short), containerStart + region.off, WORD_TYPES[region.type], region.role);
     }
 
-    const index = Math.floor((offset - region.off) / region.stride);
-    const inner = offset - region.off - index * region.stride;
-    const recordBase = base + region.off + index * region.stride;
+    const index = Math.floor((relativeOffset - region.off) / region.stride);
+    const offsetInRecord = relativeOffset - region.off - index * region.stride;
+    const recordStart = containerStart + region.off + index * region.stride;
     const record = child(names, `${region.path}[${index}]`, `${region.short}[${index}]`);
 
-    const found = region.members.find((candidate) => inner < candidate.off + candidate.size);
+    const found = region.members.find((candidate) => offsetInRecord < candidate.off + candidate.size);
     if (!found) {
         // Trailing pad after a record's last member names nothing: a zero-count bits leaf reports no row and still moves the walk past the record.
-        return bitsLeaf(record, recordBase + inner, region.stride - inner, 1, 0, "internal");
+        return bitsLeaf(record, recordStart + offsetInRecord, region.stride - offsetInRecord, 1, 0, "internal");
     }
 
     const named = child(record, found.path, found.short);
     if (found.type !== "key" && found.type !== "value") {
-        return at(named, recordBase + found.off, WORD_TYPES[found.type], found.role);
+        return at(named, recordStart + found.off, WORD_TYPES[found.type], found.role);
     }
 
-    const leaf = leafAt(named, recordBase + found.off, idlType(found.type), Math.max(0, inner - found.off), covered);
+    const leaf = leafAt(named, recordStart + found.off, idlType(found.type), Math.max(0, offsetInRecord - found.off), covered);
     const keyMember = region.members.find((candidate) => candidate.type === "key");
     if (!keyMember) {
         return leaf;
@@ -225,7 +225,7 @@ function memberLeaf(
             containerPath: names.path,
             slot: index,
             member: named.short,
-            keyOff: recordBase + keyMember.off,
+            keyOff: recordStart + keyMember.off,
             keyType: idlType("key"),
         },
     };
@@ -255,8 +255,8 @@ async function renderValue(bytes: Uint8Array, type: AbiType): Promise<{ text: st
     return { text: scalarText(decoded, type), data };
 }
 
-// Occupation flags and BitArrays are packed, so report the indices that moved, not the raw words; `firstIndex` is where the visible slice starts.
-function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, after: Uint8Array, firstIndex: number, entry?: EntryBase): SitedRow[] {
+// Occupation flags and BitArrays are packed, so report the indices that moved, not the raw words; `firstVisibleIndex` is where the visible slice starts.
+function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, after: Uint8Array, firstVisibleIndex: number, entry?: EntryBase): SitedRow[] {
     const rows: SitedRow[] = [];
     const siteOf = (index: number, from: number, to: number): { site: RowSite } | Record<never, never> => {
         if (leaf.owner) {
@@ -265,7 +265,7 @@ function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, afte
         return entry ? { site: { ...entry, suffix: `${entry.suffix}[${index}]`, before: String(from), after: String(to) } } : {};
     };
     const valueAt = (bytes: Uint8Array, index: number) => {
-        const bit = (index - firstIndex) * leaf.bitsPer;
+        const bit = (index - firstVisibleIndex) * leaf.bitsPer;
         const byte = bytes[bit >> 3];
         if (byte === undefined) {
             return undefined;
@@ -276,9 +276,9 @@ function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, afte
 
     // The slice only covers a bounded run of indices; without this the loop walks the whole capacity — 33M no-op turns per window on a 536 MB map.
     const visibleBits = Math.min(before.length, after.length) * 8;
-    const lastIndex = Math.min(leaf.count, firstIndex + Math.floor(visibleBits / leaf.bitsPer));
+    const lastIndex = Math.min(leaf.count, firstVisibleIndex + Math.floor(visibleBits / leaf.bitsPer));
 
-    for (let index = firstIndex; index < lastIndex; index++) {
+    for (let index = firstVisibleIndex; index < lastIndex; index++) {
         const from = valueAt(before, index);
         const to = valueAt(after, index);
         if (from === undefined || to === undefined || from === to) {
@@ -399,7 +399,7 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
     for (const region of joinedRegions(regions)) {
         const before = hexToBytes(region.before);
         const after = hexToBytes(region.after);
-        const end = region.off + Math.min(before.length, after.length);
+        const windowEnd = region.off + Math.min(before.length, after.length);
         const slice = (bytes: Uint8Array, from: number, to: number) => bytes.slice(from - region.off, to - region.off);
 
         const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeAbi(bytes, type), type);
@@ -407,7 +407,7 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
         // The key labelling a record is read from the window, not the rows: an update leaves the key bytes alone, so it never produces a row of its own.
         const entrySiteOf = async (keyed: KeyedLeaf, short: string): Promise<EntryBase | undefined> => {
             const keyEnd = keyed.keyOff + keyed.keyType.size;
-            if (keyed.keyOff < region.off || keyEnd > end) {
+            if (keyed.keyOff < region.off || keyEnd > windowEnd) {
                 return undefined;
             }
 
@@ -432,21 +432,21 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
                     }
                     const keyStart = owner.recordsOff + site.slot * owner.stride + owner.keyOff;
                     const keyEnd = keyStart + owner.keyType.size;
-                    if (keyStart < region.off || keyEnd > end) {
+                    if (keyStart < region.off || keyEnd > windowEnd) {
                         return row;
                     }
                     return { ...row, site: { ...site, key: await keyText(slice(site.to === 1 ? after : before, keyStart, keyEnd), owner.keyType) } };
                 }),
             );
 
-        let position = region.off;
+        let stateOffset = region.off;
 
-        while (position < end) {
-            const field = fields.find((candidate) => position >= candidate.off && position < candidate.off + candidate.size);
+        while (stateOffset < windowEnd) {
+            const field = fields.find((candidate) => stateOffset >= candidate.off && stateOffset < candidate.off + candidate.size);
             const unnamed = () => {
                 rows.push({
-                    label: `@${position}`,
-                    detail: `@${position}`,
+                    label: `@${stateOffset}`,
+                    detail: `@${stateOffset}`,
                     text: "(outside any known field)",
                     filled: false,
                     internal: false,
@@ -454,14 +454,14 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
             };
 
             if (!field) {
-                const next = fields.find((candidate) => candidate.off > position);
+                const next = fields.find((candidate) => candidate.off > stateOffset);
 
                 // Alignment padding between two fields belongs to neither, so step over it: stopping here drops every later row in the window.
-                if (next && next.off < end) {
-                    if (!bytesEqual(slice(before, position, next.off), slice(after, position, next.off))) {
+                if (next && next.off < windowEnd) {
+                    if (!bytesEqual(slice(before, stateOffset, next.off), slice(after, stateOffset, next.off))) {
                         unnamed();
                     }
-                    position = next.off;
+                    stateOffset = next.off;
                     continue;
                 }
 
@@ -480,32 +480,32 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
                 { path: field.name, short: field.name },
                 field.off,
                 field.abi,
-                position - field.off,
-                (off, size) => off >= region.off && off + size <= end,
+                stateOffset - field.off,
+                (off, size) => off >= region.off && off + size <= windowEnd,
             );
 
             if (leaf.kind === "bits") {
                 // The whole flags run starts at `leaf.off`, which may be windows behind this one.
                 const visibleStart = Math.max(leaf.off, region.off);
-                const visibleEnd = Math.min(leaf.off + leaf.size, end);
-                const firstIndex = ((visibleStart - leaf.off) * 8) / leaf.bitsPer;
+                const visibleEnd = Math.min(leaf.off + leaf.size, windowEnd);
+                const firstVisibleIndex = ((visibleStart - leaf.off) * 8) / leaf.bitsPer;
                 const entry = leaf.keyed ? await entrySiteOf(leaf.keyed, leaf.short) : undefined;
-                const flagged = bitRows(leaf, slice(before, visibleStart, visibleEnd), slice(after, visibleStart, visibleEnd), firstIndex, entry);
+                const flagged = bitRows(leaf, slice(before, visibleStart, visibleEnd), slice(after, visibleStart, visibleEnd), firstVisibleIndex, entry);
                 rows.push(...(leaf.owner ? await namedFlags(flagged, leaf.owner) : flagged));
-                position = visibleEnd;
+                stateOffset = visibleEnd;
                 continue;
             }
 
             const valueEnd = leaf.off + leaf.type.size;
             const visibleStart = Math.max(leaf.off, region.off);
-            const visibleEnd = Math.min(valueEnd, end);
+            const visibleEnd = Math.min(valueEnd, windowEnd);
             const beforeBytes = slice(before, visibleStart, visibleEnd);
             const afterBytes = slice(after, visibleStart, visibleEnd);
 
             // A window carries unchanged bytes around the ones that moved; only the latter are worth a row.
             if (!bytesEqual(beforeBytes, afterBytes)) {
                 const internal = leaf.cls === "internal";
-                if (leaf.off >= region.off && valueEnd <= end) {
+                if (leaf.off >= region.off && valueEnd <= windowEnd) {
                     const renderedBefore = await renderValue(beforeBytes, leaf.type);
                     const renderedAfter = await renderValue(afterBytes, leaf.type);
                     const change = `${renderedBefore.text} → ${renderedAfter.text}`;
@@ -538,7 +538,7 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
                 }
             }
 
-            position = Math.max(valueEnd, position + 1);
+            stateOffset = Math.max(valueEnd, stateOffset + 1);
         }
     }
 
