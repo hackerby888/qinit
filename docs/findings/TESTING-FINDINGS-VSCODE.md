@@ -746,6 +746,40 @@ It reproduces across every generated variant of the shape, so the row is a class
 Both classes share E7's cause: every blind diagnostic here is **uncoded**. They are raised while lowering
 a function body, carry a message and no code, and the editor stops before that phase runs.
 
+## Round 21 — three oracles on every corpus contract
+
+Round 20 compared the editor with the TypeScript backend, which structurally cannot see E7's worst row:
+a contract **clang** refuses while the backend stays quiet. This round runs the full-tier sweep (6 654
+contracts through clang and the backend, 30 minutes) and joins the editor's verdict onto every row.
+
+```
+  6596  clang=ok        backend=ok        editor=clean
+    22  clang=rejected  backend=rejected  editor=clean     <- the blind spot
+    19  clang=rejected  backend=rejected  editor=errors
+    17  clang=trap      backend=trap      editor=clean
+
+clang refuses, backend silent, editor silent: 0
+```
+
+Four results, in order of what they settle.
+
+**The blind spot is 22 contracts — 0.33% — and independently confirmed.** Round 20 found 22 by comparing
+the editor with the backend. Round 21 reaches the same 22 with clang as a third, independent oracle, and
+both compilers refuse every one of them. The two classes are the ones round 20 named: the log payload
+whose terminator is not last, and the enum constant hidden by a member function.
+
+**No contract in this corpus is refused by clang alone.** E7's table records `BitArray + 1` as a row
+where clang refuses and the backend is silent. That row is real as a probe, but the generated corpus
+contains no instance of it, so the backends agree on acceptance for all 6 654. The editor's gap is not
+"it trusts the wrong compiler" — it is the narrower and more tractable "it stops before the phase that
+raises these".
+
+**Zero false positives, from the clang side too.** There is no `clang=ok … editor=errors` bucket. Across
+6 654 contracts the editor never squiggles something clang accepts.
+
+**17 traps are not the editor's to catch.** `DivQpi` and friends compile under both backends and trap at
+runtime on particular inputs. No static pass catches those; they are listed here so the 22 is not read as 39.
+
 ## E7 — the editor stops before the compiler does (not fixed)
 
 `analyzeContract` runs the frontend and `prepareContractModule`, and stops. It never lowers a function
