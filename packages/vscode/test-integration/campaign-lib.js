@@ -109,8 +109,7 @@ async function idlHoverAt(doc, marker, offsetInto = 0) {
 }
 
 // A word-scrape carries whatever is in the buffer, keywords included; a resolved member list is the
-// receiver's fields and nothing else. Kind alone does not separate them — clangd sometimes returns the
-// scrape with real kinds attached — but a member list never contains `struct` or `namespace`.
+// receiver's fields and nothing else. Kind alone does not separate them, but a member list has no `struct`.
 const SCRAPE_ONLY = ["struct", "namespace", "using", "public", "class"];
 
 /**

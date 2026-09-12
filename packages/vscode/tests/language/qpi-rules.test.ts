@@ -41,9 +41,8 @@ test("flags each forbidden construct (one crafted violation per rule)", () => {
     expect(rulesOf("using Money = uint64;")).toContain("qpi/no-global-using");
 });
 
-// Core spells the context as ten types and bans the rarest one by name, so the concrete spellings a
-// contract actually reaches for — `QpiContextFunctionCall`, `QpiContextProcedureCall` and the rest —
-// used to pass the rule untouched. A name that merely starts the same way is not a type and stays clean.
+// Core spells the context as ten types and bans the rarest by name, so the spellings a contract actually
+// reaches for used to pass the rule untouched. A name that merely starts the same way is not a type.
 test("every QpiContext* type is banned, and a lookalike identifier is not", () => {
     for (const type of [
         "QpiContext",

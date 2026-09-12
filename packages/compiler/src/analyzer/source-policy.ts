@@ -52,10 +52,8 @@ const UNQUALIFIED_MATH: Record<string, { code: string; message: string }> = {
 // Rule codes that apply to user contracts only; core's own contracts are exempt (they are built by Qinit too).
 export const USER_CONTRACT_RULES: ReadonlySet<string> = new Set(Object.values(UNQUALIFIED_MATH).map((rule) => rule.code));
 
-// Core spells the context as ten distinct types and the bare `QpiContext` is the rarest of them, so an
-// exact-match table bans the one spelling a contract is least likely to reach for. The whole family is
-// banned by prefix, but only where the name is being used as a type — `*`, `&`, `::` or the declarator
-// that follows it — so a variable merely named `QpiContextual` is left alone.
+// Core spells the context as ten types and an exact-match table banned only the rarest. The family is
+// banned by prefix, but only as a type (`*`, `&`, `::`, declarator), so `QpiContextual` is left alone.
 function qpiContextRule(tokens: Token[], index: number): { code: string; message: string } | undefined {
     if (!tokens[index].text.startsWith("QpiContext")) return undefined;
     const next = tokens[index + 1]?.kind;

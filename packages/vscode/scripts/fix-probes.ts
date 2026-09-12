@@ -1,6 +1,5 @@
-// Sources that should offer a quick fix. Each one is shaped so the fix has somewhere interesting to go
-// wrong: a C array whose size is not a power of two, a division whose operands are not bare names, a
-// stack local carrying an initializer that a struct member cannot keep.
+// Sources that should offer a quick fix, each shaped so the fix has somewhere to go wrong: a non-power-of-two
+// array size, a division whose operands are not bare names, a stack local carrying an initializer.
 export interface FixProbe {
     name: string;
     source: string;

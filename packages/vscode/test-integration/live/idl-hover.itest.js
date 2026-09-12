@@ -1,7 +1,5 @@
-// The IDL hover is where a developer reads the index and payload they need to build a call, so a wrong
-// answer here becomes a wrong transaction. It resolves the word under the cursor against
-// `analysisFor(doc).idl` — the IDL of the file being edited — and matches on the bare name, with no
-// check that the word is being used as an entry of *this* contract.
+// The IDL hover is where a developer reads the index and payload for a call, so a wrong answer becomes a
+// wrong transaction. It matches the bare word under the cursor against the edited file's own IDL.
 const assert = require("node:assert");
 const { clangdRunning, open, replaceDocument, idlHoverAt, sleep } = require("../campaign-lib");
 
@@ -48,9 +46,8 @@ suite("live — the IDL hover", function () {
         assert.match(bump, /output/, "a procedure that returns fields must show them");
     });
 
-    // The headline: the hover matches a bare word against this file's IDL. `Read` in Meter names *Feed's*
-    // function, reached through CALL_OTHER_CONTRACT_FUNCTION. If Meter happens to register its own entry
-    // called Read, the developer hovering the call site is shown Meter's index for Feed's function.
+    // The headline: `Read` in Meter names *Feed's* function, reached through CALL_OTHER_CONTRACT_FUNCTION. If
+    // Meter registers its own Read, the developer hovering the call site is shown Meter's index.
     test("a callee's entry does not borrow this contract's index", async () => {
         const doc = await open(METER);
         const withCollision = pristine
@@ -90,10 +87,8 @@ suite("live — the IDL hover", function () {
         assert.strictEqual(inComment, "", "prose is not an entry reference");
     });
 
-    // E14, pinned failing: a field that happens to share an entry's name is a real identifier token, so
-    // the token pass that removed prose and string literals cannot see the difference. Telling a
-    // declarator apart from a reference needs parse context the provider does not have, which is a
-    // design question rather than a patch. The payload shown is correct, merely about something else.
+    // E14, pinned failing: a field sharing an entry's name is a real identifier token, so the token pass cannot
+    // see the difference. Telling a declarator from a reference needs parse context the provider does not have.
     test("a struct field is not the procedure of the same name", async () => {
         const doc = await open(METER);
         await replaceDocument(

@@ -1,16 +1,5 @@
-// The allowed-identifier set decides what a contract developer is allowed to see, and three of its
-// rules had never been exercised against a real editor:
-//
-//   `_`-led members  — `keepMemberLabel` hides them until the developer types a leading `_`, and hides
-//                      `__` names always (`completion-filter.ts:140-150`). `id`'s `_0.._3` limbs are the
-//                      case that matters: real members, worth completing, invisible by default.
-//   the gtest path   — a test file is deliberately NOT narrowed to the QPI surface; only the member step
-//                      applies, so `std::` and the gtest macros survive (`extension.ts:182-187`).
-//   `CC_*`           — cheatcodes are whitelisted by pattern, unconditionally, because their header sits
-//                      outside the include walk (`completion-filter.ts:14, 168-170`).
-//
-// Every probe writes the line it completes on into the buffer first. `completionItems` moves the cursor
-// by an offset from a marker; it cannot type, so completing "after `std::`" needs a `std::` really there.
+// Three allowed-identifier rules that had never been exercised against a real editor: `_`-led members are
+// hidden until the underscore is typed, a gtest is not narrowed to the QPI surface, and `CC_*` is whitelisted.
 const assert = require("node:assert");
 const vscode = require("vscode");
 const { clangdRunning, open, replaceDocument, completionLabels, resolvedMemberLabels, settle, sleep } = require("../campaign-lib");
@@ -19,9 +8,8 @@ const DESK = "contracts/Desk.h";
 const DESK_TEST = "Desk.test.cpp";
 const ANCHOR = "        locals.input.offset = 0;";
 
-// clangd decorates some labels with a leading bullet, and `executeCompletionItemProvider` aggregates
-// every provider — including VS Code's built-in word-based one, which offers the prose in the file's
-// comments and is nothing to do with this extension's filter. Both have to be accounted for.
+// clangd decorates some labels with a leading bullet, and `executeCompletionItemProvider` also aggregates
+// VS Code's word-based provider, which offers the file's own prose. Both have to be accounted for.
 const bare = (label) => label.trim().replace(/^[^A-Za-z_]+/, "");
 const has = (labels, name) => labels.some((label) => bare(label) === name || bare(label).startsWith(`${name}(`));
 
@@ -50,13 +38,8 @@ suite("campaign — the allowed-identifier set", function () {
         return doc;
     }
 
-    // A log struct's `_type` is the rule's own documented case: a real member, worth completing, hidden
-    // until the developer types the underscore. The buffer has to contain `locals.note._type` for that —
-    // `completionItems` advances a cursor, it does not type, so completing "after the underscore" against
-    // a buffer holding `locals.note.amount` lands inside `amount` and measures the prefix `a`.
-    //
-    // (`id` is not the vehicle here: on this core `m256i` exposes MSVC intrinsic aliases rather than
-    // QPI's `_0.._3`, as round 3 already measured.)
+    // A log struct's `_type` is the rule's documented case: a real member, hidden until the underscore is
+    // typed. `completionItems` advances a cursor rather than typing, so the buffer must hold `locals.note._type`.
     test("a `_`-led member is hidden until the underscore is typed", async () => {
         const doc = await open(DESK);
         const withLog = pristine
@@ -101,9 +84,8 @@ suite("campaign — the allowed-identifier set", function () {
         assert.deepStrictEqual(library, [], `std:: is not the QPI surface: [${library.join(", ")}]`);
     });
 
-    // `CC_*` is whitelisted by pattern with no check of its own, so what keeps a production contract
-    // clean is the prefix header: Desk's declares fourteen cheatcodes, and offering them is correct.
-    // The unit suite covers the production wrapper, which declares none.
+    // `CC_*` is whitelisted by pattern with no check of its own, so what keeps a production contract clean is
+    // the prefix header: Desk's declares fourteen cheatcodes, and offering them is correct.
     test("cheatcodes the prefix declares are offered", async () => {
         const doc = await withLine("        CC_");
         const labels = await completionLabels(doc, "        CC_", "        CC_".length);

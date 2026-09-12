@@ -122,9 +122,8 @@ function sourceDetails(o: ClangdInputs): {
     const dir = join(o.dataRoot ?? join(o.workspaceRoot, ".qpi"), "clangd");
     mkdirSync(dir, { recursive: true });
 
-    // Editor-only: index every sibling contract so `Sibling::` resolves before the first reference exists.
-    // A sibling that cannot be analysed drops out of the prelude with its subtree, taking every symbol it
-    // would have declared; the reasons come back so the caller can report what clangd is about to miss.
+    // Editor-only: index every sibling so `Sibling::` resolves before the first reference exists. One that
+    // cannot be analysed drops with its subtree, and the reason comes back so the caller can report it.
     const droppedCallees: Array<{ type: string; reason: string }> = [];
     const calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, name, true, (type, reason) => droppedCallees.push({ type, reason }));
 

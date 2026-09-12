@@ -1,14 +1,5 @@
-// A quick fix that produces code the compiler rejects is worse than no quick fix at all: the developer
-// accepted it on the extension's authority and their file is now broken in a way they did not type.
-//
-// So this applies every fix the analyzer offers and asks the compiler what it thinks of the result:
-//
-//   cleared    — the diagnostic the fix was attached to is gone from the fixed source
-//   no regress — no diagnostic code appeared that was not there before
-//   builds     — clang accepts the fixed source (the only authority that matters)
-//
-// A fix is only correct when all three hold. Sources that clang already refused before the fix are
-// reported separately, because there the fix cannot be blamed for a build that was broken anyway.
+// Applies every quick fix the analyzer offers and asks clang what it thinks of the result: a fix is only
+// correct when the diagnostic cleared, nothing new appeared, and the fixed source still builds.
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -1,6 +1,5 @@
-// The other half of the same defect: a directive's line is consumed and emitted nothing, so every
-// diagnostic below it was reported one line too high per directive line. The span is what the editor
-// draws a squiggle on, so the squiggle landed on a line the developer did not write the error on.
+// The other half of the same defect: a directive's line is consumed and emits nothing, so every diagnostic
+// below it was reported one line too high — the squiggle landed on a line the developer did not write.
 import { expect, test } from "bun:test";
 import { analyzeContract } from "../../src/analyzer";
 

@@ -112,9 +112,8 @@ function spanFromOffsets(source: string, start: number, end: number): Span {
     };
 }
 
-// `Array<T, N>` static_asserts that N is a power of two, so converting `x[6]` to `Array<T, 6>` hands the
-// developer a file that no longer compiles. A size we cannot evaluate — a named constant — is left alone
-// and still offered, since it may well be legal.
+// `Array<T, N>` static_asserts that N is a power of two, so `x[6]` would convert into a file that no
+// longer compiles. A size we cannot evaluate — a named constant — may well be legal and is still offered.
 function isUnusableArraySize(size: string): boolean {
     if (!/^\d+$/.test(size)) return false;
     const n = Number(size);
@@ -152,10 +151,8 @@ export function divModFixForLine(
     if (!left || !right) {
         return null;
     }
-    // `div` is `template <typename T> T div(T a, T b)`, so a bare literal beside a typed operand gives
-    // two candidate deductions for T and the call does not resolve. There is no suffix that is right for
-    // every dividend type, and this pass sees tokens rather than types, so the fix declines instead of
-    // rewriting the line into something that will not compile.
+    // `div` deduces one T from both operands, so a bare literal beside a typed operand does not resolve.
+    // No suffix is right for every dividend type and this pass sees tokens, so the fix declines instead.
     if (/^\d+$/.test(left[1]) || /^\d+$/.test(right[1])) {
         return null;
     }

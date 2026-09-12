@@ -208,13 +208,8 @@ test("cheatcodes survive the QPI narrowing", () => {
     expect(keepCompletionLabel("SomethingElse", allowed, inDocument)).toBe(false);
 });
 
-// Round 6 asked whether opening a sibling contract changes what the file you return to may complete:
 // `contractPrefixPath` is one module global set by the last contract regenerated, and the allowed set is
-// walked from it. Asking that through the editor measures clangd's index as well, which volunteers and
-// withholds system symbols between requests — two rounds of that noise were mistaken for a real loss.
-//
-// The property is a property of the walk, so it is tested as one: two contracts of the same project
-// yield the same allowed set, and any divergence is named rather than counted.
+// walked from it — so the property is tested as a property of the walk, not through clangd's noisy index.
 test.if(hasCore)("sibling contracts of one project walk to the same allowed set", () => {
     const ws = mkdtempSync(join(tmpdir(), "qpi-allowed-"));
     try {

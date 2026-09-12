@@ -355,9 +355,8 @@ function regenerateContract(doc: vscode.TextDocument, context: vscode.ExtensionC
             refreshClangd(root, out, sourceDetails.corePath);
         }
         out.appendLine(`clangd config ready: ${result.name} (slot ${result.slot}) -> ${result.prefixPath}`);
-        // Every `Dropped::` reference in this file is about to read as an undeclared identifier, and
-        // clangd cannot say why. This is the only place that knows, so it is recorded for the diagnostics
-        // pass that runs next and logged for anyone reading the channel.
+        // Every `Dropped::` reference is about to read as an undeclared identifier and clangd cannot say
+        // why. This is the only place that knows, so the reason is recorded for the diagnostics pass.
         droppedCalleesByFile.set(doc.fileName, result.droppedCallees);
         for (const dropped of result.droppedCallees) {
             out.appendLine(`callee dropped from the prelude: ${dropped.type} — ${dropped.reason}`);

@@ -1,19 +1,5 @@
-// The oracle E17 said did not exist.
-//
-// Round 10 recorded that a `MIGRATE` which narrows a state field is silent in clang, in the TypeScript
-// backend and in the editor, and pinned it as `NO-ORACLE` because nothing refuses it. That is true of
-// every static tool, and it is where the round stopped. It is not true of the machine: redeploy the
-// contract in the simulator and the state itself says what happened. This runs each migration shape
-// against a live contract that has already stored a value, and prints what the value became.
-//
-// The consequence is what a warning would have to be justified by, so it is measured rather than
-// asserted — round 10 wrote that a signedness change "turns every persisted negative value into a very
-// large positive one", and the machine says something more precise than that.
-//
-// These deploy straight into the simulator's registry, which is deliberately below `qinit deploy` and
-// its `stateCarryoverRejection` guard: the two rows that redeploy a changed layout with no MIGRATE are
-// refused by that guard before an upload, and are here to show what the guard is protecting against.
-// The narrowing rows are not — there the handler really does run, and truncates.
+// The oracle E17 lacked. Static tools accept a narrowing migration, so this redeploys each shape over a
+// live contract that has already stored a value and prints what the value became.
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader } from "@qinit/compiler";
@@ -28,8 +14,7 @@ await initK12();
 const headers = loadQpiHeader(CORE_PATH);
 const SLOT = 28;
 
-// Every version reports through the same four uint64, so nothing the state narrowed is re-widened on
-// the way out and the sign is read as the contract itself would read it.
+// Every version reports through the same four uint64, so nothing narrowed is re-widened on the way out.
 const OUTPUT = "uint64 a; uint64 b; uint64 c; uint64 bIsNegative;";
 const READ = "output.a = state.get().a; output.b = state.get().b; output.c = state.get().c; output.bIsNegative = (state.get().b < 0) ? 1 : 0;";
 const V1_FIELDS = "uint64 a; sint64 b; uint64 c;";
@@ -73,9 +58,8 @@ const PROBES: Probe[] = [
     { name: "sint64 -> sint32, MIGRATE copies it", state: "uint64 a; sint32 b; uint64 c;", old: V1_FIELDS, migrate: COPY_ALL },
     { name: "uint64 -> uint32, NO MIGRATE", state: "uint32 a; sint64 b; uint64 c;", old: null, migrate: "" },
     { name: "a field inserted first, NO MIGRATE", state: "uint64 z; uint64 a; sint64 b; uint64 c;", old: null, migrate: "" },
-    // `registry.ts:64` runs MIGRATE only when `OldStateData` is exactly the size of the state on disk.
-    // A wrong `OldStateData` is therefore not an error: the entry is skipped and the raw copy runs.
-    // The sentinel says which path was taken — 777 only exists inside this MIGRATE.
+    // `registry.ts:64` runs MIGRATE only when `OldStateData` is exactly the size of the state on disk, so a
+    // wrong `OldStateData` is skipped rather than refused. The 777 sentinel says which path was taken.
     {
         name: "MIGRATE with a short OldStateData",
         state: V1_FIELDS,

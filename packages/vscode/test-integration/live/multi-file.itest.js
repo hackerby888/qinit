@@ -1,13 +1,5 @@
-// One file open is not the state a developer is in. `contractAnalysisContexts` is keyed per document,
-// so diagnostics analyse each contract under its own identity — but `contractPrefixPath` and
-// `contractCorePath` are single module globals (`extension.ts:20-21`) set by whichever contract was last
-// regenerated, and `filterCompletions` walks the allowed-identifier set from that one global
-// (`extension.ts:190-191`). Switching editor tabs fires no open event, so the global stays pointed at
-// the file you left while you complete in the file you returned to.
-//
-// Two mitigations stand between that and a wrong answer: every contract's prefix walks the same QPI
-// surface, and `documentIdentifiers(doc.getText())` keeps whatever the current buffer itself mentions.
-// These cases measure what actually survives rather than assuming either way.
+// One file open is not the state a developer is in. `contractPrefixPath` is a module global set by whichever
+// contract was last regenerated, and switching tabs fires no open event — so these measure what survives.
 const assert = require("node:assert");
 const { clangdRunning, open, completionLabels, resolvedMemberLabels, stableLabels, sleep } = require("../campaign-lib");
 
@@ -17,9 +9,8 @@ const FEED = "contracts/Feed.h";
 /** A stable, comparable view of a completion list. */
 const fingerprint = (labels) => [...new Set(labels)].sort();
 
-// clangd decorates some labels with a leading bullet and varies which compiler builtins it volunteers
-// between a cold and a warm index. Neither is the allowed-identifier set, so neither is the subject
-// here: strip the decoration and drop the `_`-led builtins before comparing.
+// clangd decorates some labels with a leading bullet and varies which builtins it volunteers between a cold
+// and a warm index. Neither is the allowed set, so strip the decoration and drop `_`-led builtins.
 const qpiSurface = (labels) => fingerprint(labels.map((label) => label.replace(/^[^A-Za-z_]+/, "")).filter((label) => !label.startsWith("_")));
 
 const diff = (a, b) => ({
@@ -57,19 +48,15 @@ suite("live — several contracts open at once", function () {
         assert.deepStrictEqual({ lost, gained }, { lost: [], gained: [] }, "the active contract decides its own member list");
     });
 
-    // The identifier tier is the one the allow-set actually gates. The position matters: a receiver deep
-    // in an expression answers with one or two items, which cannot tell a filtered list from an intact
-    // one. A bare `B` at type position answers with tens of QPI names and is where a lost entry shows.
+    // The identifier tier is the one the allow-set gates. A receiver deep in an expression answers with one or
+    // two items; a bare `B` at type position answers with tens of QPI names, which is where a lost entry shows.
     test("an identifier list does not change because another contract was opened", async () => {
         const meter = await open(METER);
         const marker = "        BitArray<8> flags;";
         const upto = "        B";
 
-        // clangd volunteers the odd system symbol inconsistently — `arc4random_buf`, `simde_bool` — and
-        // that variance is its index, not the allowed-identifier set. Two readings in the *same* state
-        // measure it, so the comparison across states can be restricted to names that are stable anyway:
-        // lost is what both same-state readings agreed on and the other state lacks, and gained is what
-        // the other state has and neither same-state reading ever produced.
+        // clangd volunteers the odd system symbol inconsistently, and that variance is its index rather than the
+        // allowed set — so two readings in the *same* state measure it and bound the cross-state comparison.
         const first = qpiSurface((await stableLabels(meter, marker, upto)).labels);
         const second = qpiSurface((await stableLabels(meter, marker, upto)).labels);
         const stable = first.filter((name) => second.includes(name));
@@ -87,13 +74,8 @@ suite("live — several contracts open at once", function () {
         const gained = after.filter((name) => !everSeen.has(name));
         console.log(`      lost: [${lost.slice(0, 12).join(", ")}]  gained: [${gained.slice(0, 12).join(", ")}]`);
 
-        // What the allowed set does is a property of the walk, and it is asserted where it can be
-        // measured exactly — "sibling contracts of one project walk to the same allowed set" in
-        // completion-filter.test.ts, which compares the two sets name by name and finds them identical.
-        // Through clangd the same question also measures its index, which volunteers and withholds
-        // system symbols between requests on a period longer than a couple of samples: two rounds read
-        // that noise as a lost name. So the counts are printed here for drift, and the assertion is kept
-        // to the one thing clangd's variance cannot manufacture — a sibling's own names appearing.
+        // The allowed set is asserted exactly in completion-filter.test.ts; through clangd the same question also
+        // measures its index, so counts are printed for drift and only a sibling's own names are asserted on.
         const foreign = gained.filter((label) => /^(Reading|Poll|Bump|Meter|Sample)/.test(label));
         assert.deepStrictEqual(foreign, [], `a sibling's own names must not appear: [${gained.join(", ")}]`);
     });

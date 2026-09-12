@@ -1,16 +1,5 @@
-// The IDL hover's three claims, carried through to the machine that has to honour them.
-//
-// Hovering an entry states an index and an input/output codec, and those are what a developer builds a
-// call from — the codec line is the qubic-cli format string `qinit call --in` takes. Every round so far
-// has checked those claims against `buildContractIdl`, which is the same source that produced them.
-// This one deploys the contract, encodes each input **from the hover's format string alone**, calls the
-// index the hover gives, and checks the entry that answered is the one named. A wrong index, or a codec
-// string that does not resolve to the layout the ABI wants, is a transaction sent to the wrong place.
-//
-// Each entry writes a tag no other entry writes, so a misdispatch cannot hide behind a plausible value.
-// `Pad` is the reason the format string is resolved rather than read: `uint8, uint64` is sixteen bytes
-// with the second field at offset 8, and a caller who packed it into nine would get no error back —
-// a short input is zero-filled, so the call succeeds with the field silently dropped.
+// The IDL hover's index and codec, carried through to the engine that has to honour them: each input is
+// encoded from the hover's format string alone, and each entry writes a tag no other entry writes.
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader } from "@qinit/compiler";

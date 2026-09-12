@@ -461,18 +461,16 @@ export function completeMembersAt(options: MemberQueryOptions): MemberCompletion
     const lineEnd = options.source.indexOf("\n", receiverEnd);
     const receiverText = options.source.slice(receiverStart, receiverEnd).replace(/\n/g, " ");
     if (receiverText.trim() === "") return undefined;
-    // An entry written on one line carries its macro and braces on the receiver's line, and replacing the
-    // whole line takes them with it, so the contract no longer parses and the query declines. Keeping the
-    // brace either side leaves the body intact. A receiver on its own line has neither, so nothing moves.
+    // An entry written on one line carries its macro and braces on the receiver's line, so keep the brace
+    // either side: replacing the whole line would take the body with it. A receiver alone has neither.
     const beforeReceiver = options.source.slice(lineStart, receiverStart);
     const afterReceiver = lineEnd < 0 ? "" : options.source.slice(receiverEnd, lineEnd);
     const openBrace = beforeReceiver.lastIndexOf("{");
     const closeBrace = afterReceiver.indexOf("}");
     const keptPrefix = openBrace >= 0 ? beforeReceiver.slice(0, openBrace + 1) : "";
     const keptSuffix = closeBrace >= 0 ? afterReceiver.slice(closeBrace) : "";
-    // A statement spread over several lines takes its syntax with it when only the receiver's line is
-    // replaced: `sadd(` on the line above and `1);` on the line below no longer pair with anything. Those
-    // lines are blanked to spaces instead — the newlines stay, because the probe is found by line number.
+    // A statement spread over lines leaves `sadd(` above and `1);` below paired with nothing, so the
+    // spilled lines are blanked to spaces — newlines stay, because the probe is found by line number.
     const spillBefore = openBrace >= 0 ? -1 : statementSpillBefore(options.source, lineStart);
     const spillAfter = closeBrace >= 0 ? -1 : statementSpillAfter(options.source, lineEnd);
     const head =

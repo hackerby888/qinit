@@ -1,9 +1,5 @@
-// The editing session, not the snapshot. Everything here happens to a document that is already open,
-// because that is where a contract developer actually lives: they rename, delete, retype and undo, and
-// the extension regenerates only on open and save (`extension.ts` wires regenerateDocument to
-// onDidOpenTextDocument/onDidSaveTextDocument, while onDidChangeTextDocument only reschedules
-// diagnostics). The window between an edit and a save is therefore a real state a developer sees, and
-// these cases assert what is shown inside it rather than only at the endpoints.
+// The editing session, not the snapshot: the extension regenerates only on open and save, so the window
+// between an edit and a save is a real state a developer sees, and these cases assert what is shown inside it.
 const assert = require("node:assert");
 const vscode = require("vscode");
 const { clangdRunning, open, settle, replaceDocument, diagnosticsFor, completionLabels, sleep } = require("../campaign-lib");
@@ -12,7 +8,7 @@ const METER = "contracts/Meter.h";
 
 /** qpi/qinit-compiler/qinit-project diagnostics: the extension's own, not clangd's. */
 const ownDiagnostics = (doc) => diagnosticsFor(doc, ["qpi", "qinit-compiler", "qinit-project"]);
-const codesOf = (list) => [...new Set(list.map((d) => String(d.code)))].sort();
+const codesOf = (list) => [...new Set(list.map((diagnostic) => String(diagnostic.code)))].sort();
 
 /** Settles on the extension's own diagnostics reaching a shape, and always reports what it saw. */
 async function settleOwn(doc, ok, opts = {}) {
@@ -39,9 +35,9 @@ suite("live — the editing session", function () {
 
     test("the untouched contract is clean to start", async () => {
         const doc = await open(METER);
-        const r = await settleOwn(doc, (d) => d.length === 0);
-        console.log(`    baseline own-diagnostics -> ${r.value.length} ${codesOf(r.value).join(",")}`);
-        assert.deepStrictEqual(codesOf(r.value), [], "a valid contract must start clean");
+        const result = await settleOwn(doc, (diagnostics) => diagnostics.length === 0);
+        console.log(`    baseline own-diagnostics -> ${result.value.length} ${codesOf(result.value).join(",")}`);
+        assert.deepStrictEqual(codesOf(result.value), [], "a valid contract must start clean");
     });
 
     // De-classifying must clear every squiggle the contract had: the file is no longer a contract, so
@@ -50,11 +46,11 @@ suite("live — the editing session", function () {
         const doc = await open(METER);
         // First make it dirty in a way that definitely squiggles, so there is something to clear.
         await replaceDocument(doc, doc.getText().replace("uint64 calls;", "double calls;"));
-        const dirty = await settleOwn(doc, (d) => d.length > 0);
+        const dirty = await settleOwn(doc, (diagnostics) => diagnostics.length > 0);
         console.log(`    with a double in state -> ${codesOf(dirty.value).join(",") || "(none)"}`);
 
         await replaceDocument(doc, doc.getText().replace("struct Meter : public ContractBase", "struct Meter"));
-        const cleared = await settleOwn(doc, (d) => d.length === 0);
+        const cleared = await settleOwn(doc, (diagnostics) => diagnostics.length === 0);
         console.log(`    after de-classifying   -> ${cleared.value.length} (${cleared.ms} ms)`);
         assert.deepStrictEqual(codesOf(cleared.value), [], "a non-contract must carry no QPI diagnostics");
     });
@@ -68,12 +64,13 @@ suite("live — the editing session", function () {
             .replace("struct Meter2", "struct Gauge2")
             .replace("struct Meter : public ContractBase", "struct Gauge : public ContractBase");
         await replaceDocument(doc, renamed);
-        const r = await settleOwn(doc, (d) => d.length === 0);
-        console.log(`    renamed Meter->Gauge, own-diagnostics -> ${r.value.length} ${codesOf(r.value).join(",") || "(clean)"}`);
-        for (const d of r.value.slice(0, 5)) console.log(`      ${d.source}:${d.code} — ${String(d.message).slice(0, 90)}`);
+        const result = await settleOwn(doc, (diagnostics) => diagnostics.length === 0);
+        console.log(`    renamed Meter->Gauge, own-diagnostics -> ${result.value.length} ${codesOf(result.value).join(",") || "(clean)"}`);
+        for (const diagnostic of result.value.slice(0, 5))
+            console.log(`      ${diagnostic.source}:${diagnostic.code} — ${String(diagnostic.message).slice(0, 90)}`);
         // The rename makes the file disagree with qinit.json's contractName; whatever the extension
         // decides, it must not be a stale diagnostic pointing at a name no longer in the buffer.
-        const stale = r.value.filter((d) => String(d.message).includes("Meter"));
+        const stale = result.value.filter((diagnostic) => String(diagnostic.message).includes("Meter"));
         assert.deepStrictEqual(stale, [], "no diagnostic may name the type the buffer no longer declares");
     });
 
@@ -90,7 +87,7 @@ suite("live — the editing session", function () {
             // The analyzer may legitimately complain about a half-typed file; it may not crash the host.
             assert.ok(Array.isArray(shown), "diagnostics must remain readable while typing");
         }
-        const done = await settleOwn(doc, (d) => d.length === 0);
+        const done = await settleOwn(doc, (diagnostics) => diagnostics.length === 0);
         assert.deepStrictEqual(codesOf(done.value), [], "the finished file must settle clean");
     });
 
@@ -99,9 +96,11 @@ suite("live — the editing session", function () {
     test("commenting out a registration is visible before saving", async () => {
         const doc = await open(METER);
         await replaceDocument(doc, doc.getText().replace("REGISTER_USER_PROCEDURE(Bump, 2);", "// REGISTER_USER_PROCEDURE(Bump, 2);"));
-        const r = await settleOwn(doc, (d) => d.some((x) => String(x.code) === "qpi/unregistered"), { timeout: 12000 });
-        console.log(`    unsaved unregister -> ${codesOf(r.value).join(",") || "(silent)"} after ${r.ms} ms`);
-        assert.ok(r.settled, `an unregistered entry must be reported from the buffer, got [${codesOf(r.value).join(", ")}]`);
+        const result = await settleOwn(doc, (diagnostics) => diagnostics.some((diagnostic) => String(diagnostic.code) === "qpi/unregistered"), {
+            timeout: 12000,
+        });
+        console.log(`    unsaved unregister -> ${codesOf(result.value).join(",") || "(silent)"} after ${result.ms} ms`);
+        assert.ok(result.settled, `an unregistered entry must be reported from the buffer, got [${codesOf(result.value).join(", ")}]`);
     });
 
     // A big paste followed by undo: the analyzer must track the buffer both ways.
@@ -109,12 +108,12 @@ suite("live — the editing session", function () {
         const doc = await open(METER);
         const noise = Array.from({ length: 400 }, (_, i) => `// padding line ${i} — a developer pasting a block of commentary`).join("\n");
         await replaceDocument(doc, `${noise}\n${pristine}`);
-        const pasted = await settleOwn(doc, (d) => d.length === 0, { timeout: 20000 });
+        const pasted = await settleOwn(doc, (diagnostics) => diagnostics.length === 0, { timeout: 20000 });
         console.log(`    after a ${noise.length}-char paste -> ${pasted.value.length} diagnostics (${pasted.ms} ms)`);
         assert.deepStrictEqual(codesOf(pasted.value), [], "comment padding must not change the verdict");
 
         await replaceDocument(doc, pristine);
-        const undone = await settleOwn(doc, (d) => d.length === 0);
+        const undone = await settleOwn(doc, (diagnostics) => diagnostics.length === 0);
         assert.deepStrictEqual(codesOf(undone.value), [], "undo must return to clean");
     });
 
@@ -135,7 +134,7 @@ suite("live — the editing session", function () {
         await restarting;
         console.log(`    completion during restart -> ${during.join(", ")}`);
         assert.deepStrictEqual(
-            during.filter((x) => typeof x === "string"),
+            during.filter((entry) => typeof entry === "string"),
             [],
             "a completion request during a restart must not throw",
         );
@@ -151,14 +150,8 @@ suite("live — the editing session", function () {
     });
 });
 
-// Project resolution throws for several ordinary shapes — a callee that does not exist yet, a slot
-// outside the dynamic window, a qinit.json pointing at a missing file — and the throw is published as
-// `qinit/project-dependencies`, which is how the developer learns what went wrong.
-//
-// E11, pinned failing: that only holds for the contract qinit.json names. The identical mistake in any
-// other contract of the same project is rolled back by the bare `catch {}` in project-dependencies.ts
-// (the sibling walk), so the file silently degrades to standalone with no callees and the developer is
-// left with raw clang "use of undeclared identifier" and nothing naming the cause.
+// Project resolution throws for several ordinary shapes and publishes `qinit/project-dependencies`. E11,
+// pinned failing: only for the contract qinit.json names — a sibling's identical mistake degrades silently.
 suite("live — project shapes", function () {
     this.timeout(240000);
 
@@ -232,22 +225,23 @@ struct Missing : public ContractBase
         fs.writeFileSync(wsUri(CALLER).fsPath, CALLER_SOURCE);
         const doc = await open(CALLER);
 
-        const reported = await settleOwn(doc, (d) => d.some((x) => String(x.code) === "qinit/project-dependencies"), { timeout: 20000 });
-        const message = String(reported.value.find((d) => String(d.code) === "qinit/project-dependencies")?.message ?? "");
+        const reported = await settleOwn(doc, (diagnostics) => diagnostics.some((diagnostic) => String(diagnostic.code) === "qinit/project-dependencies"), {
+            timeout: 20000,
+        });
+        const message = String(reported.value.find((diagnostic) => String(diagnostic.code) === "qinit/project-dependencies")?.message ?? "");
         console.log(`    missing callee -> ${codesOf(reported.value).join(",") || "(silent)"} after ${reported.ms} ms`);
-        const clang = diagnosticsFor(doc, ["clang"]).filter((d) => d.severity === vscode.DiagnosticSeverity.Error);
+        const clang = diagnosticsFor(doc, ["clang"]).filter((diagnostic) => diagnostic.severity === vscode.DiagnosticSeverity.Error);
         console.log(`      clang says: ${clang.length} errors, first: ${String(clang[0]?.message ?? "(none)").slice(0, 70)}`);
         console.log(`      message: ${message.slice(0, 130)}`);
         assert.ok(reported.settled, `a callee with no source must be reported, got [${codesOf(reported.value).join(", ")}]`);
         assert.ok(message.includes("Missing"), `the message must name the callee it cannot find: ${message}`);
 
-        // Now the developer creates the file. Saving the caller is what re-resolves the project — and a
-        // save only fires an event when the buffer is dirty, so the edit is what makes this realistic
-        // rather than a no-op: creating a sibling on disk does not by itself re-resolve an open file.
+        // Saving the caller is what re-resolves the project, and a save only fires an event when the buffer
+        // is dirty — so the edit is what makes this realistic rather than a no-op.
         fs.writeFileSync(wsUri(CALLEE).fsPath, CALLEE_SOURCE);
         await replaceDocument(doc, `${CALLER_SOURCE}\n// touched so the save fires\n`);
         await doc.save();
-        const cleared = await settleOwn(doc, (d) => d.length === 0, { timeout: 30000 });
+        const cleared = await settleOwn(doc, (diagnostics) => diagnostics.length === 0, { timeout: 30000 });
         console.log(`    after creating the callee -> ${cleared.value.length} diagnostics (${cleared.ms} ms) ${codesOf(cleared.value).join(",")}`);
         assert.deepStrictEqual(codesOf(cleared.value), [], "creating the callee must clear the resolution error");
     });

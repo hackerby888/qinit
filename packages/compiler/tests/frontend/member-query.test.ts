@@ -211,10 +211,8 @@ test("splits a receiver into its root and plain-identifier hops", () => {
     expect(at("no member operator")).toBeUndefined();
 });
 
-// The query rewrites the receiver's line into a statement of its own so it parses. When the entry body
-// is written on one line, that line also carries the macro and both braces — replacing it took them with
-// it, the contract stopped parsing, and every receiver in such a body silently declined. Four of core's
-// own thirty-five contracts are written this way, and it is also the shape a body has while being typed.
+// The query rewrites the receiver's line into a statement of its own. A one-line entry body carries the macro
+// and both braces on that line, so replacing it stopped the contract parsing — four of core's thirty-five.
 test("a receiver inside a one-line entry body still resolves", () => {
     const inline = `using namespace QPI;
 struct Ledger2 {};
@@ -242,11 +240,8 @@ struct Ledger : public ContractBase {
     expect(spreadAt?.map((item) => item.name)).toEqual(["amount", "kind"]);
 });
 
-// A preprocessor directive emits nothing, and every remap downstream — the diagnostic remapper and this
-// query, which looks for the statement on an exact line — maps a generated line to a user line by
-// subtracting one constant. Dropping the directive's own line silently shifted both for the rest of the
-// file: core's QUtil.h has a `#if 0` block at line 77, and every one of its 139 member positions
-// declined. A comment block of the same length never did, which is what named the cause.
+// A preprocessor directive emits nothing, and dropping its own line shifted every remap below it: core's
+// QUtil.h has a `#if 0` block at line 77, and every one of the 139 member positions under it declined.
 test("a preprocessor directive above the cursor does not silence the member query", () => {
     const build = (parked: string) => `using namespace QPI;
 ${parked}
@@ -274,9 +269,8 @@ struct Desk : public ContractBase
     expect(members("#if 0\nstruct A { uint64 x; };\nstruct B { uint64 y; };\nstruct C { uint64 z; };\n#endif")).toEqual(["alpha", "beta"]);
 });
 
-// The same shift from the other direction: a macro invocation whose arguments span lines consumes those
-// lines and emits one. QPayhub.h's three-line `SUBSCRIBE_ORACLE(...)` sat halfway down the file, and
-// every `state.` receiver above it resolved while every one below it declined — 53 of them.
+// The same shift from the other direction: a macro invocation spanning lines consumes them and emits one.
+// QPayhub.h's three-line `SUBSCRIBE_ORACLE(...)` silenced all 53 `state.` receivers below it.
 test("a macro invocation spanning lines does not silence the receivers below it", () => {
     const build = (register: string) => `using namespace QPI;
 struct Desk2 {};
@@ -305,10 +299,8 @@ struct Desk : public ContractBase
     ).toEqual(["alpha", "beta"]);
 });
 
-// Three shapes the receiver walk used to take too much of, measured on core's own contracts: 121 of
-// 2 993 receiver positions declined, and these were most of them. The walk keeps `-` because `->` needs
-// it, so `-state.get()` was resolved as a whole expression, and a C-style cast reads as a call's
-// parentheses from the back. Neither is part of the thing whose members are being completed.
+// Shapes the receiver walk used to take too much of, measured on core: it keeps `-` because `->` needs it,
+// so `-state.get()` was resolved whole, and a C-style cast reads as a call's parentheses from the back.
 test("a prefix operator or a cast is not part of the receiver", () => {
     const body = (line: string) => `using namespace QPI;
 struct Desk2 {};
@@ -339,9 +331,8 @@ ${line}
     ]);
 });
 
-// The fourth: a statement spread over lines. Replacing only the receiver's line leaves `sadd(` above and
-// `1);` below paired with nothing, so the contract stops parsing and the query declines. The spilled
-// lines are blanked to spaces instead, which keeps every line number the probe is located by.
+// A statement spread over lines: replacing only the receiver's line leaves `sadd(` above and `1);` below
+// paired with nothing, so the spilled lines are blanked to spaces, which keeps every line number intact.
 test("a statement spread over several lines still resolves its receiver", () => {
     const source = `using namespace QPI;
 struct Desk2 {};

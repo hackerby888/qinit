@@ -31,9 +31,8 @@ test("a changed layout with a MIGRATE handler that fits the deployed state is th
     expect(stateCarryoverRejection("Box", idl(24, "uint64, uint64, uint64"), idl(32, "uint64, uint64, uint64, uint64", 24))).toBeNull();
 });
 
-// The runtime fires MIGRATE only when OldStateData is exactly the deployed state's size, so a handler
-// declared against the wrong old layout never runs — and its presence alone used to satisfy this guard,
-// which is the one case where the bytes are reinterpreted with every check passed.
+// MIGRATE fires only when OldStateData is exactly the deployed state's size, so a handler declared against
+// the wrong old layout never runs — and its presence alone used to satisfy this guard.
 test("a MIGRATE handler that cannot run is refused, naming the two sizes", () => {
     const rejection = stateCarryoverRejection("Box", idl(24, "uint64, uint64, uint64"), idl(32, "uint64, uint64, uint64, uint64", 16));
 

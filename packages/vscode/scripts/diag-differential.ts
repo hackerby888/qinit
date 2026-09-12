@@ -1,14 +1,5 @@
-// What the editor squiggles versus what the build actually does, on the same source.
-//
-// The extension's whole job is to predict the compiler, so the interesting rows are the disagreements.
-// Three oracles, because one does not cover the surface:
-//
-//   policy rules  — `qpi/*` fire as WARNINGS and clang compiles the source happily, so clang cannot
-//                   judge them; the probe names the code it must produce.
-//   clang         — the oracle for everything semantic. It refuses, so the editor must say something.
-//   the controls  — clang builds and the probe expects silence, so any diagnostic is a false positive.
-//
-// Every refusal row carries an accepted control beside it, so "fixed by refusing everything" is visible.
+// What the editor squiggles versus what the build does, on the same source. Three oracles: `qpi/*` policy
+// rules name the code they must produce, clang judges everything semantic, and controls must stay silent.
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -81,10 +81,8 @@ export function process(preprocessor: Preprocessor, src: string): string {
                 preprocessor.result = preprocessor.result.slice(0, resultLength);
                 preprocessor.result += maskSource(preprocessor.input.slice(start, preprocessor.pos));
             } else {
-                // A directive's own lines produce no output, and everything downstream maps a generated
-                // line back to a user line by subtracting a constant: the diagnostic remapper
-                // (`driver/diagnostics.ts`) and the member query, which looks for the statement on an
-                // exact line. Dropping the lines silently shifts both for the whole rest of the file.
+                // A directive's own lines produce no output, and every remap downstream maps a generated
+                // line to a user line by subtracting a constant, so dropping them shifts the rest of the file.
                 preprocessor.result += consumedNewlines(preprocessor.input.slice(start, preprocessor.pos));
             }
             continue;
@@ -135,9 +133,8 @@ export function process(preprocessor: Preprocessor, src: string): string {
             const expanded = preprocessor.expandMacros ? preprocessor.tryExpandMacro(ident) : null;
             if (expanded !== null) {
                 preprocessor.result += expanded;
-                // An invocation whose arguments span lines consumes those lines and emits one, which
-                // shifts every line below it for the rest of the file — the same way a directive did.
-                // QPayhub.h's three-line `SUBSCRIBE_ORACLE(...)` is where this was measured.
+                // An invocation whose arguments span lines consumes them and emits one, shifting every
+                // line below it — QPayhub.h's three-line `SUBSCRIBE_ORACLE(...)` is where this was measured.
                 preprocessor.result += missingNewlines(preprocessor.input.slice(identifierStart, preprocessor.pos), expanded);
             } else {
                 preprocessor.result += ident;

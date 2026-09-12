@@ -30,9 +30,8 @@ export interface ProjectSourceDetails {
     slot: number;
     dynCallees: DynCallees;
     analysis: ProjectAnalysisContext;
-    // Set when this file is a contract of the project that the plan could not keep. Resolution still
-    // degrades to standalone, because losing the clangd config too would be worse — but the reason is
-    // carried out so the editor can say it instead of leaving clangd's "undeclared identifier" alone.
+    // Set when the plan could not keep this contract. Resolution still degrades to standalone, but the
+    // reason is carried out so the editor can say it rather than leaving clangd's error unexplained.
     unresolved?: { name: string; reason: string };
 }
 

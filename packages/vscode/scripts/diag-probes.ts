@@ -528,9 +528,8 @@ struct DiffProbe : public ContractBase
         expect: "clang refuses: there is no OldStateData to read",
     },
 
-    // ---- a migration that changes a field's width or signedness. C++ permits the implicit conversion,
-    // ---- so clang is right to accept it and there is no oracle at all — but the value being converted
-    // ---- is a deployed contract's persisted state, and the conversion happens once, irreversibly.
+    // ---- a migration that narrows a field or flips its signedness. C++ permits the conversion, so no tool
+    // ---- refuses it — and the value being converted is a deployed contract's state, converted once.
     {
         name: "migrate/narrows-uint64-to-uint32",
         source: migration("uint64", "uint32"),

@@ -46,15 +46,8 @@ export class IdlHover implements vscode.HoverProvider {
     }
 }
 
-// The provider matches a bare word against the IDL, so the name of an entry mentioned in prose, in a
-// string literal, or declared as a field used to answer as though it were a reference to the entry. A
-// token pass settles both: hover is a user gesture, not a keystroke, so the cost is affordable.
-//
-// Two adjacent identifiers are a declaration in C++ — `uint64 Bump;` declares a field, it does not refer
-// to the procedure `Bump`. Every way of *referring* to a name puts something else in front of it: `.`,
-// `(`, `,`, an operator, or a keyword such as `return`. A declarator whose type is a template
-// (`Array<Note, 4> Bump;`) follows `>` instead, which a comparison also does, so that one is left alone
-// rather than risk silencing a real reference.
+// A bare word match answers on prose, string literals and field declarations too, so the word must be an
+// identifier token whose predecessor is not one — only a declarator follows a bare identifier.
 function isEntryReference(doc: vscode.TextDocument, wordRange: vscode.Range): boolean {
     const offset = doc.offsetAt(wordRange.start);
     try {
@@ -68,10 +61,8 @@ function isEntryReference(doc: vscode.TextDocument, wordRange: vscode.Range): bo
     }
 }
 
-// `CALL_OTHER_CONTRACT_FUNCTION(Feed, Read, …)`: the second argument is an entry of Feed, and this
-// provider only holds the IDL of the file being edited. Answering from that IDL hands the developer
-// another contract's index for the call in front of them, so the entry argument of a cross-contract
-// call is left alone.
+// `CALL_OTHER_CONTRACT_FUNCTION(Feed, Read, …)`: the second argument is Feed's entry, and this provider
+// holds only the edited file's IDL — answering would hand over another contract's index.
 const FOREIGN_CALL = /\b(?:CALL_OTHER_CONTRACT_FUNCTION|INVOKE_OTHER_CONTRACT_PROCEDURE)(?:_E)?\s*\(\s*\w+\s*,\s*$/;
 
 function namesAnotherContractsEntry(doc: vscode.TextDocument, wordRange: vscode.Range): boolean {

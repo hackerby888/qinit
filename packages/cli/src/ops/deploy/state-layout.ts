@@ -47,10 +47,8 @@ export function stateCarryoverRejection(name: string, previous: ContractIdl, nex
     }
     const changed = `state layout changed — was ${before.size} B (${before.format || "empty"}), now ${after.size} B (${after.format || "empty"}) — `;
 
-    // A MIGRATE handler is the answer to a changed layout, but only when it can run: the runtime fires
-    // it only if OldStateData is exactly the size of the state already on the node (engine
-    // `contract/registry.ts:64`). Declared against the wrong old layout it is skipped in silence, the
-    // bytes are reinterpreted anyway, and its mere presence has already satisfied this guard.
+    // A handler only answers a changed layout when it can run: the runtime fires MIGRATE only if
+    // OldStateData is exactly the deployed state's size, and a wrong one is skipped in silence.
     if (next.migration) {
         const declared = next.migration.oldState.size;
         if (declared === before.size) {

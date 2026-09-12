@@ -1,19 +1,5 @@
-// What E7's fix would actually cost, and whether E7 fires on code that is correct.
-//
-// E7 — the editor stops before the compiler does — was pinned partly on a cost: running the full
-// compile on every debounced settle was measured at 215 ms against 65 ms for `analyzeContract`. That
-// number compared the wrong two things. The diagnostics the editor is missing are raised while
-// lowering bodies (`compile-contract.ts:58`, the "generating wasm" phase); the step after it,
-// "assembling wasm", turns the WAT into a binary the editor would throw away. So the option E7
-// describes is not "run the compile", it is "run the compile and stop one phase early", and the
-// compiler's own `CompilationPhaseTracker` can price that exactly.
-//
-// The second column is a control the differential could never run: core's 29 deployed contracts are
-// correct code, so `analyzeContract` and the full compile must agree on every one of them. A
-// disagreement here is either a real editor gap on production source or a bug in this harness — and
-// the first draft of it was the harness, three times over: all 28 siblings passed as callees instead
-// of the contract's own closure, and the log-header gate left strict for the two contracts the build
-// exempts. Wired the way `compile/typescript.ts:108-147` wires it, the disagreements went to zero.
+// What E7's fix would cost. The diagnostics the editor misses are raised while lowering, so the option is
+// to stop the compile one phase early — the driver's own phase tracker prices that, per deployed contract.
 import { initK12 } from "@qinit/core";
 import { analyzeContract } from "@qinit/compiler/analyzer";
 import { compileContractWithTypeScript, loadQpiHeader } from "@qinit/compiler";
@@ -99,8 +85,7 @@ for (const contract of contracts) {
     );
 }
 
-// Contracts of a few hundred lines are all fixed cost, and `assembling wasm` has a large one of its
-// own — the encoder charges tens of milliseconds before it looks at the contract — so the ratio is
+// Small contracts are all fixed cost, and `assembling wasm` has a large one of its own, so the ratio is
 // only meaningful where the contract dominates.
 const FLOOR = 500;
 const scaled = rows.filter((row) => row.lines >= FLOOR);

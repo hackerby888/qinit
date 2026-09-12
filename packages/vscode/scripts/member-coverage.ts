@@ -1,13 +1,5 @@
-// Where the member fallback actually answers.
-//
-// The fallback exists because clangd 17-22 returns an empty or word-scraped list for a member reached
-// through a preamble type, and it is the extension's whole defence against that. When it declines, the
-// developer is left with whatever clangd said — so a shape it cannot resolve is a shape where the bug is
-// simply unmitigated. Round 7 found it returning `undefined` for `locals.note.` where `Noted` is a
-// struct declared in the same contract, which is the simplest case there is; this maps the rest.
-//
-// Every row is the same contract with one receiver varied, so a decline is about the receiver and not
-// about the file around it.
+// Where the member fallback answers. Every row is the same contract with one receiver varied, so a decline
+// is about the receiver rather than the file around it.
 import { initK12 } from "@qinit/core";
 import { completeMembersAt } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";

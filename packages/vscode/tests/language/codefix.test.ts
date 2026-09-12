@@ -68,11 +68,8 @@ test("rewrites simple division and modulo", () => {
     expect(applyFix("locals.v = locals.x / locals.y;", "qpi/no-division")).toBe("locals.v = QPI::div(locals.x, locals.y);");
 });
 
-// `div` is `template <typename T> T div(T a, T b)`, so `QPI::div(total, 10)` gives two candidate
-// deductions for T and clang answers "no matching function" — this suite used to assert exactly that
-// rewrite. No literal spelling fixes it either: `10ULL` compiles against a uint64 dividend and is
-// refused against sint64 and uint32, and a token-level rule cannot know which it has. Declining leaves
-// the developer with the warning and its message rather than a file that no longer builds.
+// `div` is a template, so `QPI::div(total, 10)` gives two candidate deductions for T. No literal spelling
+// fixes it for every dividend type, and a token-level rule cannot know which it has, so it declines.
 test("declines to rewrite a division whose operand is a bare literal", () => {
     expect(fixFor("output.x = total % 10;", "qpi/no-modulo")).toBeNull();
     expect(fixFor("locals.v = input.amt / 100;", "qpi/no-division")).toBeNull();

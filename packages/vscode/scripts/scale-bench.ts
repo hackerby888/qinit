@@ -1,9 +1,5 @@
-// How the editor's per-keystroke work scales with a real contract.
-//
-// `QpiDiagnostics` calls `analyzeContract` on a debounce after every edit, and `completeMembersAt` runs
-// on every member completion the fallback answers. Both have only ever been timed against fixtures of a
-// few hundred lines; core's own contracts run to six and a half thousand. If the cost is superlinear,
-// the contracts that need the editor most are the ones it serves worst — and nothing has measured it.
+// How the editor's per-keystroke work scales with a real contract: `analyzeContract` on a debounce after
+// every edit, `completeMembersAt` on every fallback completion. Only ever timed on a few hundred lines.
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { initK12 } from "@qinit/core";
@@ -88,9 +84,8 @@ for (const entry of files) {
     );
 }
 
-// Linear cost shows a flat µs/line; a rising one is the signal that big contracts are served worst.
-// Files below a few hundred lines are all fixed cost — parsing the QPI header dwarfs parsing them — so
-// comparing the very smallest against the largest measures startup, not scaling.
+// Flat µs/line is linear cost; a rising one means big contracts are served worst. Small files are all
+// fixed cost, so comparing the smallest against the largest would measure startup rather than scaling.
 const perLineOf = (row: Row) => (row.analyzeMs * 1000) / row.lines;
 const SCALING_FLOOR = 500;
 const scaled = rows.filter((row) => row.lines >= SCALING_FLOOR);

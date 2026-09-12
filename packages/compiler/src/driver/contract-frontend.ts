@@ -21,9 +21,8 @@ export interface PreprocessedContractSource {
 export function preprocessContractSource(options: CompileOptions, seedMacros: PreprocessorInput["seedMacros"]): PreprocessedContractSource {
     // `__LINE__` counts physical lines, directives included, so the base is measured from the real prefix; the block's length is independent of its number.
     const mode = options.cheats ?? CheatMode.ON;
-    // The boundary marker has to be the last line before the user source: `userBoundaryLine` is the
-    // constant every remap subtracts, so anything emitted between the marker and the user's line 1
-    // shifts every diagnostic and every member query in the file.
+    // The marker must be the last line before the user source: `userBoundaryLine` is the constant every
+    // remap subtracts, so anything emitted after it shifts every diagnostic and member query in the file.
     const boundary = `struct ${USER_BOUNDARY} {};`;
     // +1 because the preprocessor prepends its own newline before this source (preprocessor-core.ts).
     const prefixLines = [SCAFFOLD_MACROS, cheatMacros(mode, 0), boundary].join("\n").split("\n").length + 1;

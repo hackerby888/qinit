@@ -644,9 +644,8 @@ test("flags an unqualified div/mod call and offers the QPI:: fix, but not declar
     }
 });
 
-// The catch-all that reports a failed analysis used to hardcode line 1, so a mistyped type deep in a
-// file squiggled the top of the file instead of itself. The span travels with the error and is mapped
-// back out of preprocessed coordinates, where the generated prelude would otherwise push it past EOF.
+// The catch-all that reports a failed analysis used to hardcode line 1, so a mistyped type deep in a file
+// squiggled the top of the file instead of itself. The span now travels with the error.
 test("a failed analysis points at the type that failed, not at line 1", () => {
     const filler = Array.from({ length: 40 }, (_, i) => `// filler line ${i}`).join("\n");
     const source = `using namespace QPI;

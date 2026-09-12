@@ -1,20 +1,5 @@
-// Not whether the member list answers, but whether it is right.
-//
-// Round 9 mapped where the fallback answers — eighteen receiver shapes, all of them resolved — and left
-// the harder question alone: the list it hands back is a list of names, and nothing has ever checked
-// those names against the type. A list that quietly omits a field is a field the developer stops using;
-// a list that invents one is a line that will not compile, offered as though it would. Both are worse
-// than declining, because a decline at least falls back to clangd.
-//
-// The receivers with an exact, independent ground truth are the ones tied to a declared struct:
-// `state.get()`/`state.mut()` are always `StateData`, and `input`/`output` inside an entry body are
-// always that entry's own structs. The IDL names every field of all three, so the comparison is a set
-// difference rather than a judgement — run against core's own deployed contracts rather than fixtures.
-//
-// Only an omission is a failure. The IDL lists the fields of the *payload*, and a struct can carry
-// members that are not payload — GQMPROP's `SetProposal_input` is `ProposalDataV1<false>`, whose
-// `supportScalarVotes` is a `static constexpr bool` occupying no bytes. Offering it is right and leaving
-// it out of the IDL is right, so extras are printed for inspection rather than counted as inventions.
+// Not whether the member list answers, but whether it is right: `state.get()`, `input` and `output` have an
+// exact ground truth in the IDL, so the comparison is a set difference over core's deployed contracts.
 import { initK12 } from "@qinit/core";
 import { analyzeContract, completeMembersAt } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
