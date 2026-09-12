@@ -1639,3 +1639,45 @@ script as the watchdog — it exits non-zero only on an omission, so the decline
 rather than a gate.
 
 Pinned findings: **three** — E5's drop, E7 and E17.
+
+# Round 16 — the last 5% of the member query
+
+Round 15 left the decline rate at **166 of 2 993** receiver positions and attributed the residue to the
+limitation E16 named. That attribution was made from a sample taken _before_ E20 was fixed, and it was
+wrong: once the line shift was gone, every `if`/`for` header in it resolved. Classify after fixing the
+dominant cause, not before.
+
+Probing the shapes in isolation instead named four:
+
+| shape                                      | before   | after    |
+| ------------------------------------------ | -------- | -------- |
+| `locals.s = -state.get().beta;`            | declines | resolves |
+| `locals.s = (sint64)state.get().alpha;`    | declines | resolves |
+| the same cast inside a `for (…)` header    | declines | resolves |
+| an argument list spread over several lines | declines | resolves |
+
+## E21 — the receiver walk took too much, the line rewrite too little (fixed)
+
+The first three are one cause. `receiverStartOf` walks back over receiver characters, and `-` is in that
+set because `->` needs it — so `-state.get()` was taken whole, and an expression has no members. A
+C-style cast is worse: from the back it is indistinguishable from a call's parentheses, so `(sint64)`
+came along too. Fixed by allowing `-` only as the first half of `->`, and trimming a leading cast after
+the walk — `(a + b).c` is deliberately not matched and keeps its parenthesised receiver.
+
+The fourth is the opposite mistake. The probe replaces the receiver's **line** with the receiver alone,
+which is only sound when the line is a whole statement; `sadd(` on the line above and `1);` on the line
+below were left paired with nothing. The spilled lines are now blanked to spaces — the newlines stay,
+because the probe is located by line number, which is the same constraint E20 turned out to rest on.
+The widening stands down whenever the span carries a brace, so the one-line entry body of E16 keeps the
+rewrite that was written for it.
+
+|                              | declined | of 2 993 |
+| ---------------------------- | -------- | -------- |
+| before round 15              | 355      | 11.9%    |
+| after E20                    | 166      | 5.5%     |
+| prefix operator and cast     | 121      | 4.0%     |
+| statement spilled over lines | **32**   | **1.1%** |
+
+No list omits a declared field at any point in that sequence, and `member:coverage` stays 18/18.
+
+Pinned findings: **three** — E5's drop, E7 and E17.

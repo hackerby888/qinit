@@ -304,3 +304,70 @@ struct Desk : public ContractBase
         members("REGISTER_USER_FUNCTION(\n            First,\n            1);\n        REGISTER_USER_FUNCTION(\n            Second,\n            2);"),
     ).toEqual(["alpha", "beta"]);
 });
+
+// Three shapes the receiver walk used to take too much of, measured on core's own contracts: 121 of
+// 2 993 receiver positions declined, and these were most of them. The walk keeps `-` because `->` needs
+// it, so `-state.get()` was resolved as a whole expression, and a C-style cast reads as a call's
+// parentheses from the back. Neither is part of the thing whose members are being completed.
+test("a prefix operator or a cast is not part of the receiver", () => {
+    const body = (line: string) => `using namespace QPI;
+struct Desk2 {};
+struct Desk : public ContractBase
+{
+    struct StateData { uint64 alpha; sint64 beta; };
+    struct Go_input { uint64 n; }; struct Go_output { uint64 v; };
+    struct Go_locals { uint64 i; sint64 s; uint64 t; };
+    PUBLIC_FUNCTION_WITH_LOCALS(Go)
+    {
+${line}
+        output.v = 0;
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Go, 1); }
+};
+`;
+    const members = (line: string, marker: string) => {
+        const source = body(line);
+        return completeMembersAt({ source, offset: source.indexOf(marker) + marker.length, contractName: "Desk", slot: 28 })?.map((item) => item.name);
+    };
+
+    expect(members("        locals.t = state.get().alpha;", "state.get().")).toEqual(["alpha", "beta"]);
+    expect(members("        locals.s = -state.get().beta;", "-state.get().")).toEqual(["alpha", "beta"]);
+    expect(members("        locals.s = (sint64)state.get().alpha;", "state.get().")).toEqual(["alpha", "beta"]);
+    expect(members("        for (locals.i = 0; locals.i < (uint64)state.get().alpha; ++locals.i) { locals.t = 1; }", "state.get().")).toEqual([
+        "alpha",
+        "beta",
+    ]);
+});
+
+// The fourth: a statement spread over lines. Replacing only the receiver's line leaves `sadd(` above and
+// `1);` below paired with nothing, so the contract stops parsing and the query declines. The spilled
+// lines are blanked to spaces instead, which keeps every line number the probe is located by.
+test("a statement spread over several lines still resolves its receiver", () => {
+    const source = `using namespace QPI;
+struct Desk2 {};
+struct Desk : public ContractBase
+{
+    struct StateData { uint64 alpha; sint64 beta; };
+    struct Go_input { uint64 n; }; struct Go_output { uint64 v; };
+    struct Go_locals { uint64 i; uint64 t; };
+    PUBLIC_FUNCTION_WITH_LOCALS(Go)
+    {
+        locals.t = sadd(
+            state.get().alpha,
+            1);
+        if (locals.i > 0
+            && state.get().alpha > 0) { locals.t = 1; }
+        output.v = 0;
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Go, 1); }
+};
+`;
+    const at = (marker: string, occurrence = 0) => {
+        let index = -1;
+        for (let found = 0; found <= occurrence; found++) index = source.indexOf(marker, index + 1);
+        return completeMembersAt({ source, offset: index + marker.length, contractName: "Desk", slot: 28 })?.map((item) => item.name);
+    };
+
+    expect(at("state.get().")).toEqual(["alpha", "beta"]);
+    expect(at("state.get().", 1)).toEqual(["alpha", "beta"]);
+});
