@@ -28,7 +28,7 @@ export class IdlHover implements vscode.HoverProvider {
         }
 
         const word = doc.getText(wordRange);
-        if (!isIdentifierToken(doc, wordRange) || namesAnotherContractsEntry(doc, wordRange)) {
+        if (!isEntryReference(doc, wordRange) || namesAnotherContractsEntry(doc, wordRange)) {
             return undefined;
         }
 
@@ -46,13 +46,22 @@ export class IdlHover implements vscode.HoverProvider {
     }
 }
 
-// The provider matches a bare word against the IDL, so the name of an entry mentioned in prose or in a
-// string literal used to answer as though it were a reference to the entry. A token pass is the cheap
-// way to ask whether the thing under the cursor is code at all; hover is a user gesture, not a keystroke.
-function isIdentifierToken(doc: vscode.TextDocument, wordRange: vscode.Range): boolean {
+// The provider matches a bare word against the IDL, so the name of an entry mentioned in prose, in a
+// string literal, or declared as a field used to answer as though it were a reference to the entry. A
+// token pass settles both: hover is a user gesture, not a keystroke, so the cost is affordable.
+//
+// Two adjacent identifiers are a declaration in C++ — `uint64 Bump;` declares a field, it does not refer
+// to the procedure `Bump`. Every way of *referring* to a name puts something else in front of it: `.`,
+// `(`, `,`, an operator, or a keyword such as `return`. A declarator whose type is a template
+// (`Array<Note, 4> Bump;`) follows `>` instead, which a comparison also does, so that one is left alone
+// rather than risk silencing a real reference.
+function isEntryReference(doc: vscode.TextDocument, wordRange: vscode.Range): boolean {
     const offset = doc.offsetAt(wordRange.start);
     try {
-        return new Lexer(doc.getText()).tokenize().some((token) => token.kind === TokenKind.IDENTIFIER && token.span.start === offset);
+        const tokens = new Lexer(doc.getText()).tokenize();
+        const index = tokens.findIndex((token) => token.span.start === offset);
+        if (index < 0 || tokens[index].kind !== TokenKind.IDENTIFIER) return false;
+        return tokens[index - 1]?.kind !== TokenKind.IDENTIFIER;
     } catch {
         // A half-typed buffer that will not tokenize should not silently lose its hovers.
         return true;

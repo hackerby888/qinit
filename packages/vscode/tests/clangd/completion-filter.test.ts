@@ -1,8 +1,12 @@
 import { test, expect } from "bun:test";
+
+const CORE = process.env.QINIT_CORE ?? "";
+const hasCore = CORE !== "" && existsSync(join(CORE, "src", "qpi", "qpi.h"));
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { generateClangdConfig } from "../../src/clangd-config";
 import {
     completionScope,
     documentIdentifiers,
@@ -202,4 +206,49 @@ test("cheatcodes survive the QPI narrowing", () => {
     expect(keepCompletionLabel("CC_PRINT", allowed, inDocument)).toBe(true);
     expect(keepCompletionLabel("CC_ASSERT", allowed, inDocument)).toBe(true);
     expect(keepCompletionLabel("SomethingElse", allowed, inDocument)).toBe(false);
+});
+
+// Round 6 asked whether opening a sibling contract changes what the file you return to may complete:
+// `contractPrefixPath` is one module global set by the last contract regenerated, and the allowed set is
+// walked from it. Asking that through the editor measures clangd's index as well, which volunteers and
+// withholds system symbols between requests — two rounds of that noise were mistaken for a real loss.
+//
+// The property is a property of the walk, so it is tested as one: two contracts of the same project
+// yield the same allowed set, and any divergence is named rather than counted.
+test.if(hasCore)("sibling contracts of one project walk to the same allowed set", () => {
+    const ws = mkdtempSync(join(tmpdir(), "qpi-allowed-"));
+    try {
+        mkdirSync(join(ws, "contracts"), { recursive: true });
+        const contract = (name: string, body: string) => `using namespace QPI;
+struct ${name}2 {};
+struct ${name} : public ContractBase {
+    struct StateData { uint64 c; };
+    struct Go_input {}; struct Go_output {};
+    PUBLIC_PROCEDURE(Go) { ${body} }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};
+`;
+        writeFileSync(join(ws, "contracts", "Alpha.h"), contract("Alpha", "state.mut().c += 1;"));
+        writeFileSync(join(ws, "contracts", "Beta.h"), contract("Beta", "state.mut().c += 2;"));
+
+        const allowedFor = (name: string) => {
+            const generated = generateClangdConfig({
+                contractPath: join(ws, "contracts", `${name}.h`),
+                corePath: CORE,
+                workspaceRoot: ws,
+                name,
+            });
+            return qpiAllowedIdentifiers(generated.prefixPath, CORE);
+        };
+
+        const alpha = allowedFor("Alpha");
+        const beta = allowedFor("Beta");
+        expect(alpha.size).toBeGreaterThan(100);
+
+        const onlyAlpha = [...alpha].filter((name) => !beta.has(name));
+        const onlyBeta = [...beta].filter((name) => !alpha.has(name));
+        expect({ onlyAlpha, onlyBeta }).toEqual({ onlyAlpha: [], onlyBeta: [] });
+    } finally {
+        rmSync(ws, { recursive: true, force: true });
+    }
 });

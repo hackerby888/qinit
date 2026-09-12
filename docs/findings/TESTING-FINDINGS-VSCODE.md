@@ -838,11 +838,13 @@ The same match fired on any word spelling an entry name. Two shapes:
   function `Poll`. **Fixed**: the hovered offset must correspond to an `IDENTIFIER` token, using the
   analyzer's own `Lexer`. A buffer too broken to tokenize keeps its hovers rather than losing them
   silently.
-- **A struct field sharing the name** — `uint64 Bump;` still hovers as the procedure `Bump`. The field
-  _is_ a real identifier token, so the token pass cannot see the difference; telling a declarator from a
-  reference needs parse context the provider does not have. Left unfixed and pinned: the payload shown
-  is correct, merely about something else, which puts it at the bottom of the severity order rather
-  than in the same class as E13.
+- **A struct field sharing the name** — `uint64 Bump;` hovered as the procedure `Bump`. **Fixed in
+  round 11.** This entry claimed that telling a declarator from a reference "needs parse context the
+  provider does not have"; it needs one token. Two adjacent identifiers are a declaration in C++, and
+  every way of _referring_ to a name puts something else in front of it — `.`, `(`, `,`, an operator, or
+  a keyword such as `return`. A declarator whose type is a template (`Array<Note, 4> Bump;`) follows `>`
+  instead, which a comparison also does, so that one spelling is left alone rather than risk silencing a
+  real reference.
 
 ## What held up
 
@@ -1208,3 +1210,85 @@ two from this one); the two no-oracle rows are E17.
 
 Round 9 reported pinned findings "down from four to two". That was wrong: E14 was still pinned and still
 failing in `test:live`, so the count was three. With this round it is four — E5's drop, E7, E14 and E17.
+
+---
+
+# Round 11 — scale, and the last small pinned finding
+
+Every probe family in the prompt has now been campaigned. What had never been measured is the one thing
+the prompt's sixth ground rule asks for by name — timings — against anything bigger than a fixture. The
+existing suite budgets warm completion at 500 ms on a sixty-line file; core's own contracts run to
+6 517 lines, and `analyzeContract` is what `QpiDiagnostics` calls on a debounce after every edit.
+
+## The editor scales linearly, and there is headroom (nothing to fix)
+
+`packages/vscode/scripts/scale-bench.ts` (`bun run --filter qpi-vscode scale`) measures all 35 of core's
+contracts, median of five runs each.
+
+|                                      |                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------ |
+| fixed cost                           | a 13-line contract still takes 4 ms — parsing the QPI header dwarfs parsing the file |
+| per line, 26 contracts of 500+ lines | **22–39 µs, median 28**                                                              |
+| spread across an 11× size range      | **1.8×** — flat, so the cost is linear, not quadratic                                |
+| largest (`NOST`, 6 517 lines)        | **154 ms** analyze, **43 ms** member completion                                      |
+| over the 500 ms budget               | **0 of 35**                                                                          |
+
+A rising µs/line would have meant the contracts that need the editor most are the ones it serves worst.
+It does not rise. 154 ms on a debounce is comfortable, and the benchmark stays in the tree as the thing
+that will notice if that changes.
+
+One presentation bug is worth recording because the first run stated it wrongly: the summary compared
+the largest contract's µs/line against the _smallest_, and reported "0.0x". The 13-line file is almost
+entirely fixed cost, so that ratio measures startup rather than scaling. The comparison now runs over
+contracts of 500+ lines, where per-line cost is the thing actually varying.
+
+## E14 — closed
+
+The remaining half of E14 was a struct field sharing an entry's name: `uint64 Bump;` hovered as the
+procedure `Bump`. Round 5 pinned it on the grounds that telling a declarator from a reference needs
+parse context the provider does not have. It does not — it needs one token.
+
+Two adjacent identifiers are a declaration in C++. Measured across every context a name can appear in:
+
+| spelling                           | token before the name  |                                                   |
+| ---------------------------------- | ---------------------- | ------------------------------------------------- |
+| `uint64 Bump;`                     | `identifier("uint64")` | declarator                                        |
+| `Note Bump;`                       | `identifier("Note")`   | declarator                                        |
+| `output.value = Bump;`             | `eq`                   | reference                                         |
+| `state.mut().Bump`                 | `dot`                  | reference                                         |
+| `PUBLIC_PROCEDURE(Bump)`           | `l_paren`              | reference — and the position the hover exists for |
+| `REGISTER_USER_PROCEDURE(Bump, 2)` | `l_paren`              | reference                                         |
+| `return Bump;`                     | `kw_return`            | reference                                         |
+
+Only a declarator follows a bare identifier. `Array<Note, 4> Bump;` follows `>`, which a comparison also
+does, so that one spelling is left alone rather than risk silencing a real reference — a stated limit
+rather than an oversight. `test:live` is now **17 passing, exit 0**.
+
+## The round-6 question, answered properly
+
+Round 6 asked whether opening a sibling contract changes what the file you return to may complete, and
+answered it through the editor. That measurement failed again this round on
+`ProposalByAnyoneVotingByComputors` — a real QPI type, "stable" across the two same-state readings round
+8 added, and absent from the third. Rather than add a fourth sample, the question was taken somewhere it
+can be answered exactly:
+
+```
+Meter.prefix.h -> 1622 allowed names
+Feed.prefix.h  -> 1622 allowed names
+in Meter only: 0        in Feed only: 0
+```
+
+The two allowed sets are **identical, name for name**, and both contain the name that went missing. The
+extension cannot be dropping it; clangd's index volunteers and withholds system symbols between requests
+on a period longer than a couple of samples, and three rounds running that noise was read as a signal.
+
+What the allowed set does is a property of a pure function, so it is now tested as one — "sibling
+contracts of one project walk to the same allowed set" in `completion-filter.test.ts` builds two
+contracts, walks both prefixes and compares the sets name by name. The editor case keeps the measurement
+for drift and asserts only what clangd's variance cannot manufacture: a sibling's own names appearing.
+
+That is the third time this campaign mistook clangd's own variability for a finding. The lesson is not
+"sample harder" — it is that a property of the extension should be measured on the extension, and only
+the things that genuinely require an editor belong in an editor test.
+
+Pinned findings: **three** — E5's drop, E7 and E17.
