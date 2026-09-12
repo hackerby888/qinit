@@ -674,3 +674,101 @@ extension bugs.
    reads as "everything agrees".
 
 Neither changed a verdict in the end, but both would have.
+
+---
+
+# Round 4 — the quick fix has to compile
+
+Round 3 asked whether the editor's diagnostics match the build. This round asks the same of its
+_remedies_. A quick fix is the one place the extension writes the developer's code for them: they
+accept it on the extension's authority, so a fix that produces source the compiler rejects is worse
+than no fix at all — the file is now broken in a way they did not type and did not choose.
+
+The instrument is `packages/vscode/scripts/fix-differential.ts`
+(`bun run --filter qpi-vscode fix:diff`). It applies every fix the analyzer offers and asks three
+questions of the result: is the diagnostic the fix was attached to gone, did any new diagnostic
+appear, and — the only one that really matters — does clang accept the fixed source. A fix is correct
+only when all three hold, and a source clang already refused is scored separately, because there the
+fix cannot be blamed for a build that was broken anyway.
+
+Two of the three fix producers were handing out source that does not compile.
+
+## E9 — `Convert to Array<T, N>` breaks a file that built (fixed)
+
+`Array<T, N>` carries a `static_assert` that N is a power of two. `arrayFixForLine` copied the C array
+size through verbatim:
+
+| written by the developer | offered by the fix        | clang                       |
+| ------------------------ | ------------------------- | --------------------------- |
+| `uint64 slots[8];`       | `Array<uint64, 8> slots;` | builds                      |
+| `uint64 slots[6];`       | `Array<uint64, 6> slots;` | **static assertion failed** |
+| `uint64 slots[3];`       | `Array<uint64, 3> slots;` | **static assertion failed** |
+
+The original `uint64 slots[6];` **compiles** — a C array is a QPI policy violation, not a clang error —
+so this is the worst shape a fix can have: the developer's file built, they accepted the lightbulb, and
+it stopped building. Fixed by declining when the size is a literal that is not a power of two. A size
+that is not a literal (`uint64 owners[CAP];`) may well be legal and is still offered.
+
+## E10 — `Convert to QPI::div(a, b)` breaks on the commonest divisor there is (fixed)
+
+`div` is `template <typename T> inline static constexpr T div(T a, T b)` — one type parameter for both
+operands. A bare integer literal beside a typed operand therefore gives two candidate deductions for T
+and the call does not resolve:
+
+```
+locals.a = locals.a / 2;   ->   locals.a = QPI::div(locals.a, 2);
+                                error: no matching function for call to 'div'
+```
+
+`x / 2` and `x % 10` are the ordinary way anyone writes division, so this was the common path, not the
+corner. The repository's own `codefix.test.ts` asserted the broken rewrite
+(`QPI::mod(total, 10)`) — the assertion was changed, with the compiler's refusal recorded beside it.
+
+No literal spelling fixes it either. Measured against clang, `10ULL` builds for a `uint64` dividend and
+is refused for `sint64` and `uint32`, and this rule runs on tokens with no types to hand. So the fix
+declines when either operand is a bare literal, leaving the developer the warning and its message
+rather than a file that no longer builds. A mixed-type pair of _variables_ (`uint64 / uint32`) has the
+same problem and is beyond what a token-level rule can see; it is left as a known limit.
+
+## E11 — a resolution failure outside the main contract is silent (not fixed)
+
+`resolveProjectSourceDetails` roots the dependency plan at `config.contract` and, for any file not in
+the resulting plan, falls back to `standaloneDetails` — no callees at all
+(`packages/vscode/src/project-context.ts:222-226`). Siblings are not second-class in general; the
+asymmetry is narrower and only appears when something fails:
+
+| the file being edited           | its callee | resolution                      | the developer sees                              |
+| ------------------------------- | ---------- | ------------------------------- | ----------------------------------------------- |
+| the contract `qinit.json` names | exists     | `calleeSources=1`               | nothing, correctly                              |
+| a sibling contract              | exists     | `calleeSources=2`               | nothing, correctly                              |
+| the contract `qinit.json` names | **absent** | **throws**                      | `qinit/project-dependencies`, naming the callee |
+| a sibling contract              | **absent** | **`calleeSources=0`, no throw** | **only clang's "use of undeclared identifier"** |
+
+The bare `catch {}` at `packages/build/src/contracts/project-dependencies.ts:281` rolls the sibling and
+its subtree out of the plan and discards the reason. The file then looks standalone, which is
+indistinguishable from a header that genuinely belongs to no project, so nothing is reported.
+
+The developer action that hits this is completely ordinary: add a second contract, reference a callee,
+create that callee's file next. Until the file exists they get five raw clang errors and nothing that
+names the cause.
+
+Not fixed, and deliberately so — this is E5's design question at a second site (what a plan should do
+when a contract in it cannot be analysed), and the honest answer is a `packages/build` change with its
+own review rather than a patch invented in a testing round. Pinned as a failing case in `test:live`:
+"a callee referenced before its file exists is reported, then clears when it appears".
+
+## What held up
+
+- **The stack-local fix is exemplary.** `uint64 scratch = 3;` becomes
+  `struct Go_locals { uint64 scratch; };` with `locals.scratch = 3;` in the body and every reference
+  rewritten. The initializer a struct member cannot carry is preserved as an assignment rather than
+  dropped — the failure mode that a "does it build" check alone would never have caught.
+- **Every remaining fix.** After E9 and E10, all 12 fixes the corpus provokes clear their own
+  diagnostic, introduce nothing new, and produce source clang accepts.
+- **The rest of the project shapes.** No `qinit.json`, malformed JSON, a JSON array where an object
+  belongs, and a header that is not a contract all resolve to sensible standalone details without
+  throwing. A slot outside the dynamic window is refused with a message that names the window.
+
+One cosmetic note: `qpi/no-brackets` fires once for `[` and once for `]`, so the same
+`Convert to Array<T, N>` appears twice in the lightbulb for one declaration. Two legitimate
+diagnostics, each offering the same remedy — recorded, not worth a change.
