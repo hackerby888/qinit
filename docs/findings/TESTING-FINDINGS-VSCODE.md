@@ -696,6 +696,56 @@ Code actions are the lesser half: QPI's rules are contract rules, so offering no
 defensible. The hover is not — a gtest is precisely where a developer reads an entry's index and payload
 to build a call, and the answer is one map lookup away.
 
+## Round 20 — the blind spot, sized against the corpus
+
+Every previous editor-versus-compiler differential ran on a hand-written probe list. This round runs the
+real one: all 6 654 generated corpus contracts through both oracles, the editor's `analyzeContract` and
+the TypeScript backend, classifying every disagreement. `packages/vscode/scripts/corpus-blind-spot.ts`
+reproduces it in about six minutes.
+
+```
+6310 contracts compared (344 skipped)
+  agree, both clean                 6269
+  agree, both error                   19
+  editor silent, backend refuses      22   in 2 distinct classes
+  editor errors, backend clean         0
+```
+
+**Zero false positives in 6 310 contracts.** Whatever else is true of the editor, it does not squiggle
+code that builds — which is the property that makes a red squiggle worth reading.
+
+The 22 blind rows collapse to two classes, the rest being generated variants of the same two shapes.
+
+**A harness correction, recorded because the first run got it wrong.** The first pass reported **366**
+blind rows, 344 of them in the `intercontract` family with messages like
+`unsupported inter-contract call to 'RewardLedger' (no callee ID)`. Those are not the editor's blind
+spot: the generator pairs each intercontract caller with a callee it holds in memory and never writes to
+disk (`run-differential.ts:78`, `execute.ts:31`), so compiling a caller alone fails on the missing
+callee. The family is skipped, and the number is 22 rather than 366. The same contamination shape as
+round 12 — a harness that supplies less than the product does, read as a product defect.
+
+### A fifth E7 instance: a log payload whose terminator is not last
+
+`LogTerminatorFirst`, 9 variants. The backend refuses:
+
+```
+__qinit_log_info payload _terminator must be the last field; a field after it is never logged
+```
+
+The editor reports **0 errors and produces a complete IDL**. This is not one of the four probes E7
+records, and it is the worst-behaved of them: a field after the terminator is not a compile error the
+developer can see, it is a field that silently never reaches the log. The contract ships and the data is
+gone.
+
+### The enum-hiding row, confirmed at scale
+
+`NsEnumConstantHiddenByMember`, 13 variants: `'Helper' names a member function of this contract, which
+hides the file-scope enum constant`. E7's table already carries this as its first probe, measured once.
+It reproduces across every generated variant of the shape, so the row is a class rather than a one-off.
+
+Both classes share E7's cause: every blind diagnostic here is **uncoded**. They are raised while lowering
+a function body, carry a message and no code, and the editor stops before that phase runs.
+
 ## E7 — the editor stops before the compiler does (not fixed)
 
 `analyzeContract` runs the frontend and `prepareContractModule`, and stops. It never lowers a function
