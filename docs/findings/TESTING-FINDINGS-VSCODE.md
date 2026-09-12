@@ -1138,3 +1138,73 @@ contract, a struct declared at file scope, a callee's type and its nested type, 
 bare and through a struct field, `input`, `output`, and `qpi` with its 48 host calls. The fallback is in
 better shape than the E1 investigation left it looking; its one real hole was the formatting of the line
 it rewrites.
+
+---
+
+# Round 10 — the migration entry
+
+`MIGRATE` is the one entry that runs against a state layout the contract no longer declares. It runs
+once, on a live contract, against persisted state, and there is no second chance — which makes it the
+highest-stakes body a developer writes and the last untouched probe family in the prompt.
+
+Completion there is fine. `oldState.` resolves to `OldStateData`'s fields and `state.mut().` to the new
+ones, in the same body, without confusing the two. The diagnostics are another matter.
+
+## E17 — a migration that narrows a field is silent everywhere (not fixed)
+
+| migration                      | clang      | TypeScript backend | editor                            |
+| ------------------------------ | ---------- | ------------------ | --------------------------------- |
+| `uint32` → `uint64` (widening) | builds     | silent             | silent — correct, nothing is lost |
+| **`uint64` → `uint32`**        | **builds** | **silent**         | **silent**                        |
+| **`sint64` → `uint64`**        | **builds** | **silent**         | **silent**                        |
+
+The narrowing row truncates every persisted value above 2³², once, irreversibly, on a deployed
+contract. The signedness row turns every persisted negative value into a very large positive one.
+
+Unlike every gap this campaign has found so far, **there is no oracle**. C++ permits both conversions
+implicitly, so clang is right to accept them and the build cannot be appealed to; the TypeScript backend
+agrees; and the editor says nothing. The developer's only protection is noticing.
+
+The differential grew a `NO-ORACLE` verdict to say this, because the existing ones could not: `GAP`
+means clang refused and the editor stayed quiet, and here nothing refuses at all.
+
+Not fixed, deliberately. The remedy is a new rule — compare `OldStateData` against `StateData` field by
+field and warn when the new type cannot hold the old one — and a new rule is a product decision, not a
+testing round's to make: someone may narrow on purpose after proving the range, so it would have to be a
+warning, and where it lives (a `qpi/*` policy rule, or the compiler) is a design question. It is pinned
+as two `NO-ORACLE` rows so the decision is visible rather than lost.
+
+## Two more E7 instances, on the surface where it matters most
+
+| probe                                                | clang   | backend                                         | editor     |
+| ---------------------------------------------------- | ------- | ----------------------------------------------- | ---------- |
+| `MIGRATE` reads a field `OldStateData` does not have | refuses | `unsupported member read [oldState.migratedAt]` | **silent** |
+| `MIGRATE` with no `OldStateData` declared at all     | refuses | `unsupported member read [oldState.counter]`    | **silent** |
+
+Both are E7 exactly — the message comes from `value-expression.ts:173`, in the lowering phase the editor
+never reaches, and arrives uncoded. They are recorded here rather than given new numbers because the
+mechanism is identical; what is new is where they land. Renaming a state field and forgetting to update
+the migration is an ordinary refactor, and the editor stays green on it.
+
+`MIGRATE` assigning **to** `oldState` is caught (`compiler/semantic`), and a well-formed migration is
+clean.
+
+## An instrument bug that had been shrinking the corpus silently
+
+Appending probes left a stray comma between entries twice — once in round 3, once here — which makes a
+JavaScript **array hole**. The check written in round 3 to catch it (`PROBES.filter((p) => !p).length`)
+cannot: `filter` and `map` _skip_ holes rather than yielding `undefined` for them, so a corpus that had
+quietly lost probes reported zero holes and a clean run. Here it took two probes out of fifty-nine and
+the only symptom was a crash further along; had the crash not happened, the row count would simply have
+been wrong.
+
+Both differentials now check properly — `[...Array(n).keys()].filter((i) => !(i in PROBES))` — and exit
+2 with the offending index rather than running a corpus that is not the corpus.
+
+Final run: **51/59 agree · 6 GAP · 2 NO-ORACLE · 0 SPURIOUS**. The six gaps are E7 (four from round 3,
+two from this one); the two no-oracle rows are E17.
+
+## A correction to round 9's summary
+
+Round 9 reported pinned findings "down from four to two". That was wrong: E14 was still pinned and still
+failing in `test:live`, so the count was three. With this round it is four — E5's drop, E7, E14 and E17.

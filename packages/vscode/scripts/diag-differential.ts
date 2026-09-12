@@ -92,12 +92,17 @@ async function clangAccepts(source: string): Promise<{ ok: boolean; detail: stri
     }
 }
 
-type Verdict = "ok" | "MISSING-RULE" | "GAP" | "SPURIOUS" | "CONTROL-REFUSED" | "RULE-NOT-REFUSAL";
+type Verdict = "ok" | "MISSING-RULE" | "GAP" | "SPURIOUS" | "CONTROL-REFUSED" | "RULE-NOT-REFUSAL" | "NO-ORACLE";
 
 function verdictOf(probe: Probe, editor: Reading, clangOk: boolean): Verdict {
     if (probe.code) {
         // A policy rule: the code must appear, at whatever severity the rule chose.
         return editor.codes.includes(probe.code) ? "ok" : "MISSING-RULE";
+    }
+    if (probe.wantsWarning) {
+        // Nothing refuses this, so there is no oracle to appeal to: the editor is the only thing that
+        // could tell the developer, and saying nothing is the finding.
+        return editor.codes.length > 0 ? "ok" : "NO-ORACLE";
     }
     if (probe.refused) {
         // clang is expected to refuse. If it builds instead, the probe is wrong, not the editor.
@@ -107,6 +112,14 @@ function verdictOf(probe: Probe, editor: Reading, clangOk: boolean): Verdict {
     // A control: it must build, and the editor must be silent.
     if (!clangOk) return "CONTROL-REFUSED";
     return editor.codes.length === 0 ? "ok" : "SPURIOUS";
+}
+
+// A stray comma in the corpus leaves an array hole, and `filter`/`map` skip holes rather than reporting
+// them — so a corpus that silently lost probes looks like a corpus that passed. Fail loudly instead.
+const holes = [...Array(PROBES.length).keys()].filter((index) => !(index in PROBES));
+if (holes.length) {
+    console.error(`diag-probes has ${holes.length} array hole(s) at index ${holes.join(", ")} — a stray comma between entries`);
+    process.exit(2);
 }
 
 const only = process.argv.slice(2).filter((a) => !a.startsWith("--"));
@@ -133,6 +146,7 @@ if (bad.length) {
     for (const row of bad) {
         console.log(`\n${row.verdict}: ${row.probe.name}`);
         console.log(`  expected: ${row.probe.expect}`);
+        if (row.probe.wantsWarning) console.log(`  at stake: ${row.probe.wantsWarning}`);
         console.log(`  clang:    ${row.clangOk ? "accepts" : `refuses — ${row.detail}`}`);
         console.log(`  editor:   ${row.editor.codes.length ? [...new Set(row.editor.codes)].join(", ") : "(silent)"}`);
         console.log(`  backend:  ${row.backend.length ? [...new Set(row.backend)].join(", ") : "(silent)"}`);
@@ -142,6 +156,7 @@ if (bad.length) {
 const count = (v: Verdict) => bad.filter((r) => r.verdict === v).length;
 console.log(
     `\n${rows.length - bad.length}/${rows.length} agree · ${count("GAP")} GAP · ${count("MISSING-RULE")} MISSING-RULE · ` +
-        `${count("SPURIOUS")} SPURIOUS · ${count("CONTROL-REFUSED")} CONTROL-REFUSED · ${count("RULE-NOT-REFUSAL")} RULE-NOT-REFUSAL`,
+        `${count("SPURIOUS")} SPURIOUS · ${count("CONTROL-REFUSED")} CONTROL-REFUSED · ${count("RULE-NOT-REFUSAL")} RULE-NOT-REFUSAL · ` +
+        `${count("NO-ORACLE")} NO-ORACLE`,
 );
 process.exitCode = bad.length ? 1 : 0;

@@ -74,6 +74,14 @@ async function clangAccepts(source: string): Promise<{ ok: boolean; detail: stri
     }
 }
 
+// See diag-differential: a hole from a stray comma is invisible to filter/map and silently shrinks the
+// corpus, so it is checked rather than trusted.
+const holes = [...Array(FIX_PROBES.length).keys()].filter((index) => !(index in FIX_PROBES));
+if (holes.length) {
+    console.error(`fix-probes has ${holes.length} array hole(s) at index ${holes.join(", ")} — a stray comma between entries`);
+    process.exit(2);
+}
+
 const only = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const selected = only.length ? FIX_PROBES.filter((p) => only.some((o) => p.name.includes(o))) : FIX_PROBES;
 

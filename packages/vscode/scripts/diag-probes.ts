@@ -9,6 +9,8 @@ export interface Probe {
     refused?: boolean;
     /** clang builds it and the editor must say nothing at all. */
     clean?: boolean;
+    /** clang accepts it and no oracle objects, but the editor is the last thing that could warn. */
+    wantsWarning?: string;
     expect: string;
 }
 
@@ -59,6 +61,30 @@ ${parts.locals}
 `,
         body: parts.body,
     }).replace("PUBLIC_PROCEDURE(Go)", "PUBLIC_PROCEDURE_WITH_LOCALS(Go)");
+}
+
+/** The same contract with one state field's type changed across the migration boundary. */
+function migration(oldType: string, newType: string): string {
+    return `using namespace QPI;
+
+struct DiffProbe2
+{
+};
+
+struct DiffProbe : public ContractBase
+{
+    struct StateData { ${newType} counter; };
+    struct OldStateData { ${oldType} counter; };
+    struct Go_input {};
+    struct Go_output {};
+    PUBLIC_PROCEDURE(Go) { state.mut().counter += 1; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+    MIGRATE()
+    {
+        state.mut().counter = oldState.counter;
+    }
+};
+`;
 }
 
 export const PROBES: Probe[] = [
@@ -395,5 +421,132 @@ export const PROBES: Probe[] = [
         }),
         refused: true,
         expect: "clang refuses: an aggregate is not a scalar",
+    },
+
+    // ---- MIGRATE: the one entry that runs against a state layout the contract no longer declares.
+    // ---- A mistake here corrupts a deployed contract's state, so what the editor says about it matters.
+    {
+        name: "migrate/well-formed",
+        source: `using namespace QPI;
+
+struct DiffProbe2
+{
+};
+
+struct DiffProbe : public ContractBase
+{
+    struct StateData { uint64 counter; uint64 migratedAt; };
+    struct OldStateData { uint64 counter; };
+    struct Go_input {};
+    struct Go_output {};
+    PUBLIC_PROCEDURE(Go) { state.mut().counter += 1; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+    MIGRATE()
+    {
+        state.mut().counter = oldState.counter;
+        state.mut().migratedAt = qpi.tick();
+    }
+};
+`,
+        clean: true,
+        expect: "builds clean",
+    },
+    {
+        name: "migrate/reads-a-field-the-old-state-lacks",
+        source: `using namespace QPI;
+
+struct DiffProbe2
+{
+};
+
+struct DiffProbe : public ContractBase
+{
+    struct StateData { uint64 counter; uint64 migratedAt; };
+    struct OldStateData { uint64 counter; };
+    struct Go_input {};
+    struct Go_output {};
+    PUBLIC_PROCEDURE(Go) { state.mut().counter += 1; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+    MIGRATE()
+    {
+        state.mut().counter = oldState.counter;
+        state.mut().migratedAt = oldState.migratedAt;
+    }
+};
+`,
+        refused: true,
+        expect: "clang refuses: OldStateData has no migratedAt",
+    },
+    {
+        name: "migrate/assigns-to-the-old-state",
+        source: `using namespace QPI;
+
+struct DiffProbe2
+{
+};
+
+struct DiffProbe : public ContractBase
+{
+    struct StateData { uint64 counter; };
+    struct OldStateData { uint64 counter; };
+    struct Go_input {};
+    struct Go_output {};
+    PUBLIC_PROCEDURE(Go) { state.mut().counter += 1; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+    MIGRATE()
+    {
+        oldState.counter = 7;
+        state.mut().counter = oldState.counter;
+    }
+};
+`,
+        refused: true,
+        expect: "clang refuses: the old state is what is being migrated from, not written to",
+    },
+    {
+        name: "migrate/without-an-old-state-declared",
+        source: `using namespace QPI;
+
+struct DiffProbe2
+{
+};
+
+struct DiffProbe : public ContractBase
+{
+    struct StateData { uint64 counter; };
+    struct Go_input {};
+    struct Go_output {};
+    PUBLIC_PROCEDURE(Go) { state.mut().counter += 1; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+    MIGRATE()
+    {
+        state.mut().counter = oldState.counter;
+    }
+};
+`,
+        refused: true,
+        expect: "clang refuses: there is no OldStateData to read",
+    },
+
+    // ---- a migration that changes a field's width or signedness. C++ permits the implicit conversion,
+    // ---- so clang is right to accept it and there is no oracle at all — but the value being converted
+    // ---- is a deployed contract's persisted state, and the conversion happens once, irreversibly.
+    {
+        name: "migrate/narrows-uint64-to-uint32",
+        source: migration("uint64", "uint32"),
+        wantsWarning: "every persisted value above 2^32 is truncated, once, on a live contract",
+        expect: "clang accepts; nothing warns",
+    },
+    {
+        name: "migrate/flips-sint64-to-uint64",
+        source: migration("sint64", "uint64"),
+        wantsWarning: "every persisted negative value becomes a very large positive one",
+        expect: "clang accepts; nothing warns",
+    },
+    {
+        name: "control/migrate-widens-uint32-to-uint64",
+        source: migration("uint32", "uint64"),
+        clean: true,
+        expect: "widening loses nothing and must stay quiet",
     },
 ];
