@@ -780,6 +780,63 @@ raises these".
 **17 traps are not the editor's to catch.** `DivQpi` and friends compile under both backends and trap at
 runtime on particular inputs. No static pass catches those; they are listed here so the 22 is not read as 39.
 
+## Round 22 — every quick fix, against real contracts
+
+The fix differential has always run on 14 hand-written probes. This round injects a rule violation into
+real corpus contracts — one variant per archetype, 449 of them — and checks every fix the analyzer offers:
+did the diagnostic clear, did anything new appear, does the result still build.
+
+```
+skipped, original does not build standalone: 28
+injections 840 · fixes applied 1264
+  clean (cleared, nothing new, still builds) : 1259
+  diagnostic did not clear                   :    3
+  introduced a new error                     :    2
+  fixed source no longer builds              :    0
+```
+
+**99.6% of fixes are safe, and none breaks a build.** The E9/E10 class — a fix that hands back a file
+that no longer compiles — is closed on this evidence. All five failures are one archetype and one fix.
+
+**A harness correction, the third of its kind.** The first pass reported 84 broken builds, every one in the
+`intercontract` family. The precondition was "only mutate a contract that is clean", checked with the
+_editor_ — which is blind to the phase that rejects a caller whose callee is absent. So contracts that
+never built were mutated, and the fix was blamed for the missing callee. Requiring the original to build
+under the backend drops those 84 to 0. Rounds 12, 20 and 22 have all hit this: **a precondition has to be
+checked with the same oracle as the assertion.**
+
+## E25 — the with-locals fix corrupts a contract that shadows a name in a block (not fixed)
+
+`namespaces/NsBlockScopeShadowChain`. The contract builds, and the editor reports two _warnings_:
+
+```
+qpi/stack-local line 66: Stack-local `tier` is forbidden in QPI …
+qpi/stack-local line 69: Stack-local `tier` is forbidden in QPI …
+```
+
+Applying the first, `Move into <fn>_locals struct (use *_WITH_LOCALS)`:
+
+```cpp
+  64|         locals.atOne = locals.tier;        // rewritten correctly
+  65|         {
+  66|         locals.tier = 20;                  // rewritten correctly, type dropped
+  67|         locals.atTwo = locals.tier;
+  68|         {
+  69|         uint64 locals.tier = 300;          // type kept AND name prefixed
+```
+
+`uint64 locals.tier = 300;` is not valid C++. The analysis goes from `idl=true` with two warnings to
+`idl=false` with three `compiler/syntax` errors: _Expected expression but got dot (.)_.
+
+The cause is the assumption the fix inherits from the backend's locals model — one slot per name per entry
+— which F217 already records as wrong for block scopes. Two declarations of `tier` exist in nested blocks;
+the fix for the first reaches the second, rewrites its identifier, and leaves its declaration keyword
+behind.
+
+This is a worse shape than E9 and E10. Those produced a file that failed to compile; this produces one
+that fails to **parse**, from a single click, on a contract that built. The three "diagnostic did not
+clear" rows are the same archetype: the second warning survives its own fix for the same reason.
+
 ## E7 — the editor stops before the compiler does (not fixed)
 
 `analyzeContract` runs the frontend and `prepareContractModule`, and stops. It never lowers a function
