@@ -533,32 +533,50 @@ refuses more is visible as such.
 Two corrections to my own instrument are recorded below rather than quietly fixed: both made the
 extension look better than it was.
 
-## E6 — `qpi/no-qpicontext` bans the one context type nobody writes (fixed)
+## E6 — `qpi/no-qpicontext` bans the one context type nobody writes (withdrawn)
 
 Core spells the privileged host context as **ten** distinct types. `KEYWORD_RULES` is an exact-match
 table keyed on `QpiContext`, which is the _rarest_ of them:
 
-| spelling                         | occurrences in core | banned before |
-| -------------------------------- | ------------------- | ------------- |
-| `QpiContextFunctionCall`         | 95                  | no            |
-| `QpiContextProcedureCall`        | 69                  | no            |
-| `QpiContextProposalFunctionCall` | 20                  | no            |
-| `QpiContext`                     | 16                  | **yes**       |
-| …six more                        | 31                  | no            |
+| spelling                         | occurrences in core | banned |
+| -------------------------------- | ------------------- | ------ |
+| `QpiContextFunctionCall`         | 95                  | no     |
+| `QpiContextProcedureCall`        | 69                  | no     |
+| `QpiContextProposalFunctionCall` | 20                  | no     |
+| `QpiContext`                     | 16                  | yes    |
+| …six more                        | 31                  | no     |
 
-In a `_locals` struct, where `qpi/stack-local` does not apply to absorb it, the miss is total:
+Round 5 widened the rule to ban the family by prefix. **That fix is reverted, and the finding is
+withdrawn**: the ban guards nothing, so widening its reach only cost.
+
+The rule is advisory. `qpi/no-qpicontext` is not in `BUILD_GATE_RULES`, and a contract that declares
+one of these types analyses to a complete IDL — the only objection is the rule itself:
 
 ```
-QpiContext* ctx;                -> qpi/no-qpicontext
-QpiContextFunctionCall* ctx;    -> (silent)
-QpiContextProcedureCall* ctx;   -> (silent)
+QpiContextFunctionCall ctx;   -> idl produced: YES   other diagnostics: none
+QpiContext ctx;               -> idl produced: YES   other diagnostics: none
+uint64 ok;                    -> idl produced: YES   (control)
 ```
 
-Fixed in `packages/compiler/src/analyzer/source-policy.ts` by banning the family by prefix, but only
-where the name is used as a _type_ — followed by `*`, `&`, `::` or a declarator. The first attempt
-matched the prefix alone and flagged `uint64 QpiContextual;`, a false positive that is recorded here
-because the tightened form is what shipped. Now 30/30 (ten types × type/pointer/reference spellings)
-are caught and both controls stay clean. Comments and string literals never reach the token pass.
+So a contract that writes one builds and ships today, with or without the rule. Widening it bought
+two defects and no protection:
+
+- **A false positive on names the developer owns.** The tightened form still flagged a user's own
+  type: `struct Go_locals { QpiContextualPricing pricing; };` reported "`QpiContext` may not be used
+  directly in a contract" — naming a type absent from the file, with no action that clears it but a
+  rename. Declaring the type was clean; using it was an error. An earlier note here claimed the
+  tightening had removed this false positive. It had not — it narrowed it from any use to type use.
+- **An editor that recommends what it condemns.** `QPI_BANNED_KEYWORDS` is `Object.keys(KEYWORD_RULES)`,
+  so the completion allow-set only ever suppressed the exact name. Measured against pinned core, five
+  spellings — `QpiContextForInit`, `QpiContextFunctionCall`, `QpiContextProcedureCall`,
+  `QpiContextProposalFunctionCall`, `QpiContextProposalProcedureCall` — stayed in the 1 563-name
+  allow-set while the widened diagnostic flagged them. Type `QpiC`, accept the suggestion, watch it
+  turn red.
+
+The measurement stands: the exact-match table does bar the rarest spelling and miss the nine a
+contract actually reaches for. What round 5 got wrong was treating that as a gap worth closing. A
+rule no build enforces, over a name no contract author writes by accident, is not worth a false
+positive — and the person who writes one deliberately is reaching for the host context on purpose.
 
 ## E7 — the editor stops before the compiler does (not fixed)
 

@@ -52,15 +52,6 @@ const UNQUALIFIED_MATH: Record<string, { code: string; message: string }> = {
 // Rule codes that apply to user contracts only; core's own contracts are exempt (they are built by Qinit too).
 export const USER_CONTRACT_RULES: ReadonlySet<string> = new Set(Object.values(UNQUALIFIED_MATH).map((rule) => rule.code));
 
-// Core spells the context as ten types and an exact-match table banned only the rarest. The family is
-// banned by prefix, but only as a type (`*`, `&`, `::`, declarator), so `QpiContextual` is left alone.
-function qpiContextRule(tokens: Token[], index: number): { code: string; message: string } | undefined {
-    if (!tokens[index].text.startsWith("QpiContext")) return undefined;
-    const next = tokens[index + 1]?.kind;
-    const asType = next === TokenKind.STAR || next === TokenKind.AMP || next === TokenKind.D_COLON || next === TokenKind.IDENTIFIER;
-    return asType ? KEYWORD_RULES.QpiContext : undefined;
-}
-
 const MEMBER_ACCESS_KINDS = new Set<TokenKind>([TokenKind.D_COLON, TokenKind.DOT, TokenKind.ARROW]);
 const DECLARATOR_KINDS = new Set<TokenKind>([TokenKind.IDENTIFIER, TokenKind.R_ANGLE, TokenKind.AMP, TokenKind.STAR, TokenKind.KW_INLINE]);
 
@@ -416,7 +407,7 @@ function forbiddenConstructs(source: string, tokens: Token[], cheatRanges: Array
             continue;
         }
 
-        const keyword = KEYWORD_RULES[token.text] ?? qpiContextRule(tokens, index);
+        const keyword = KEYWORD_RULES[token.text];
         if (keyword) {
             diagnostics.push(diagnostic(keyword.code, keyword.message, token.span));
             continue;

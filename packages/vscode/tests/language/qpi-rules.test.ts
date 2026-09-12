@@ -41,28 +41,6 @@ test("flags each forbidden construct (one crafted violation per rule)", () => {
     expect(rulesOf("using Money = uint64;")).toContain("qpi/no-global-using");
 });
 
-// Core spells the context as ten types and bans the rarest by name, so the spellings a contract actually
-// reaches for used to pass the rule untouched. A name that merely starts the same way is not a type.
-test("every QpiContext* type is banned, and a lookalike identifier is not", () => {
-    for (const type of [
-        "QpiContext",
-        "QpiContextFunctionCall",
-        "QpiContextProcedureCall",
-        "QpiContextProposalFunctionCall",
-        "QpiContextProposalProcedureCall",
-        "QpiContextForInit",
-        "QpiContextUserProcedureCall",
-        "QpiContextUserFunctionCall",
-        "QpiContextUserProcedureNotificationCall",
-        "QpiContextSystemProcedureCall",
-    ]) {
-        for (const form of [`${type} ctx;`, `${type}* ctx;`, `${type}& ctx;`]) {
-            expect(rulesOf(form)).toContain("qpi/no-qpicontext");
-        }
-    }
-    expect(rulesOf("uint64 QpiContextual;")).not.toContain("qpi/no-qpicontext");
-});
-
 test("the qpi.h dev-include is an exception (no diagnostics); other directives are not", () => {
     expect(rulesOf('#include "qpi.h"')).toEqual(new Set());
     expect(rulesOf('#include "qpi/qpi.h"')).toEqual(new Set());
