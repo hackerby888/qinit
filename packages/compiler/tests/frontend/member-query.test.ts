@@ -241,3 +241,66 @@ struct Ledger : public ContractBase {
     const spreadAt = completeMembersAt({ source: spread, offset: spread.indexOf("locals.note.") + "locals.note.".length, contractName: "Ledger", slot: 28 });
     expect(spreadAt?.map((item) => item.name)).toEqual(["amount", "kind"]);
 });
+
+// A preprocessor directive emits nothing, and every remap downstream — the diagnostic remapper and this
+// query, which looks for the statement on an exact line — maps a generated line to a user line by
+// subtracting one constant. Dropping the directive's own line silently shifted both for the rest of the
+// file: core's QUtil.h has a `#if 0` block at line 77, and every one of its 139 member positions
+// declined. A comment block of the same length never did, which is what named the cause.
+test("a preprocessor directive above the cursor does not silence the member query", () => {
+    const build = (parked: string) => `using namespace QPI;
+${parked}
+struct Desk2 {};
+struct Desk : public ContractBase
+{
+    struct StateData { uint64 alpha; uint64 beta; };
+    struct Go_input {}; struct Go_output { uint64 v; };
+    PUBLIC_FUNCTION(Go)
+    {
+        output.v = state.get().alpha;
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Go, 1); }
+};
+`;
+    const members = (parked: string) => {
+        const source = build(parked);
+        const marker = "state.get().";
+        return completeMembersAt({ source, offset: source.indexOf(marker) + marker.length, contractName: "Desk", slot: 28 })?.map((item) => item.name);
+    };
+
+    expect(members("")).toEqual(["alpha", "beta"]);
+    expect(members("#define PARKED 1")).toEqual(["alpha", "beta"]);
+    expect(members("#if 0\nstruct Parked { uint64 x; };\n#endif")).toEqual(["alpha", "beta"]);
+    expect(members("#if 0\nstruct A { uint64 x; };\nstruct B { uint64 y; };\nstruct C { uint64 z; };\n#endif")).toEqual(["alpha", "beta"]);
+});
+
+// The same shift from the other direction: a macro invocation whose arguments span lines consumes those
+// lines and emits one. QPayhub.h's three-line `SUBSCRIBE_ORACLE(...)` sat halfway down the file, and
+// every `state.` receiver above it resolved while every one below it declined — 53 of them.
+test("a macro invocation spanning lines does not silence the receivers below it", () => {
+    const build = (register: string) => `using namespace QPI;
+struct Desk2 {};
+struct Desk : public ContractBase
+{
+    struct StateData { uint64 alpha; uint64 beta; };
+    struct First_input {}; struct First_output { uint64 v; };
+    struct Second_input {}; struct Second_output { uint64 v; };
+    PUBLIC_FUNCTION(First) { output.v = 1; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { ${register} }
+    PUBLIC_FUNCTION(Second)
+    {
+        output.v = state.get().beta;
+    }
+};
+`;
+    const members = (register: string) => {
+        const source = build(register);
+        const marker = "state.get().";
+        return completeMembersAt({ source, offset: source.indexOf(marker) + marker.length, contractName: "Desk", slot: 28 })?.map((item) => item.name);
+    };
+
+    expect(members("REGISTER_USER_FUNCTION(First, 1); REGISTER_USER_FUNCTION(Second, 2);")).toEqual(["alpha", "beta"]);
+    expect(
+        members("REGISTER_USER_FUNCTION(\n            First,\n            1);\n        REGISTER_USER_FUNCTION(\n            Second,\n            2);"),
+    ).toEqual(["alpha", "beta"]);
+});

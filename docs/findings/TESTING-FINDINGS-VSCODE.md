@@ -1555,3 +1555,87 @@ the IDL or through the format-string codec, both of which size the payload corre
 hover's codec line has no margin for error, and why the differential above now exists.
 
 Pinned findings: **three** — E5's drop, E7 and E17.
+
+# Round 15 — is the member list right, or only present?
+
+Round 9 mapped where the member fallback answers: eighteen receiver shapes, all resolved. It never asked
+the next question. The list it hands back is a list of names, and nothing has ever compared those names
+to the type. A list that omits a field is a field the developer stops using; a list that invents one is a
+line that will not compile, offered as though it would. Both are worse than declining, because a decline
+at least falls through to clangd.
+
+Three receivers have an exact, independent ground truth: `state.get()` and `state.mut()` are always
+`StateData`, and `input`/`output` inside an entry body are always that entry's own structs. The IDL names
+every field of all three, so the comparison is a set difference rather than a judgement —
+`packages/vscode/scripts/member-truth.ts` (`bun run --filter qpi-vscode member:truth`) runs it over every
+such receiver in core's 29 deployed contracts.
+
+**2 993 positions asked · 0 omitted a declared field.** Where the fallback answers, it is right.
+
+It also declined **355 of them**, and one contract — QUTIL — declined **all 139**.
+
+## E20 — one dropped line silences the rest of the file (fixed)
+
+QUTIL's first receiver is an ordinary assignment on its own line, and it declines. QPayhub's receivers
+resolve down to line 878 and decline from 928 on, with nothing between them that looks like a boundary.
+The minimal repro turned out to be three lines long:
+
+| above the cursor                   | member list  | the same file's diagnostic |
+| ---------------------------------- | ------------ | -------------------------- |
+| nothing                            | resolves     | on its own line            |
+| `#define PARKED 1`                 | **declines** | **one line too high**      |
+| `#if 0` … `#endif`                 | **declines** | **two lines too high**     |
+| a comment block of the same length | resolves     | on its own line            |
+
+A comment is masked to spaces and keeps its newlines; a directive produces nothing at all, and its own
+line simply disappears. Everything downstream maps a generated line back to a user line by subtracting
+one constant — `userBoundaryLine` — so a single vanished line silently shifts **every diagnostic below
+it** and, because `completeMembersAt` looks for the probe statement on an exact line, kills member
+completion for the rest of the file.
+
+The second trigger is the one QPayhub had, and it is not a directive at all: a **macro invocation whose
+arguments span lines**. `SUBSCRIBE_ORACLE(...)` is written across three lines at 915, consumes three and
+emits one, and every receiver below it declined — 53 of them.
+
+Fixed in three places, all of them the same rule — consuming input lines must not cost line numbers:
+
+- `preprocessor-core.ts` emits the newlines a directive occupied. The preserve-offsets path already did
+  this through `maskSource`; the compile path, which is the one the editor uses, did not.
+- the same for a macro expansion, padding the expansion to the line count of the invocation it replaced.
+- that alone made things **worse**, and the reason is worth recording: the boundary marker sat _before_
+  the cheat-macro block, and that only worked because the block's `#define`s emitted zero lines. With
+  lines preserved the constant was nine too small and every file shifted. The marker now sits directly
+  before the user source, which is what `userBoundaryLine` has always been read as meaning.
+
+The effect, measured on the same 2 993 positions:
+
+|                            | declined       | QUTIL      | QPAYHUB |
+| -------------------------- | -------------- | ---------- | ------- |
+| before                     | 355 (11.9%)    | 139 of 139 | 53      |
+| directive lines preserved  | 227 (7.6%)     | 11         | 53      |
+| macro-invocation lines too | **166 (5.5%)** | **11**     | **0**   |
+
+Four regression tests, in `member-query.test.ts` and a new `driver/preprocessor-lines.test.ts`; all four
+fail without the fix. The full compiler suite passes, which matters more than the tests I wrote — this
+changes the generated source of every compile, and the suite is what says the cheat-macro `__LINE__`
+accounting and the diagnostic remapper still agree with it.
+
+## The one extra name, which is not an invention
+
+GQMPROP's `SetProposal_input` is `ProposalDataV1<false>`, and the member list offers a
+`supportScalarVotes` the IDL does not list. Both are right: it is a `static constexpr bool` and occupies
+no bytes, so it belongs in the member list and not in the payload. The differential prints extras for
+inspection and fails only on an omission — an ABI field is something the list must have, a C++ member is
+not something the ABI must.
+
+## The 166 that still decline
+
+5.5%, and they are the limitation E16 already named rather than a new one: the query replaces the
+receiver's **line** with the receiver alone, which is only sound when the line is a whole statement. A
+receiver inside an `if (…)` or `for (…)` header, or on the second line of a condition that spans two,
+takes its syntax with it. Sampled across four contracts: 34 in a conditional or loop header, 33 on a
+continuation line, and a residue this round did not root-cause. Recorded as a measured baseline with the
+script as the watchdog — it exits non-zero only on an omission, so the decline rate is a number to watch
+rather than a gate.
+
+Pinned findings: **three** — E5's drop, E7 and E17.

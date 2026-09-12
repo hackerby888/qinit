@@ -69,7 +69,8 @@
         "scale": "bun run scripts/scale-bench.ts",
         "lowering:cost": "bun run scripts/lowering-cost.ts",
         "migrate:oracle": "bun run scripts/migration-oracle.ts",
-        "hover:engine": "bun run scripts/hover-vs-engine.ts"
+        "hover:engine": "bun run scripts/hover-vs-engine.ts",
+        "member:truth": "bun run scripts/member-truth.ts"
     },
     "devDependencies": {
         "@qinit/build": "workspace:*",
