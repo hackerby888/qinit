@@ -9,7 +9,7 @@ import { Lexer } from "../../src/frontend/lexer";
 import { Parser } from "../../src/frontend/parser";
 import { SemanticAnalyzer } from "../../src/semantics/semantic-analysis";
 
-// A half-consumed expression reads as a shorter, passing one, so a parse is only accepted at EOF with no errors — the guard parseLayout keeps in abi-fmt.
+// A half-consumed expression reads as a shorter, passing one, so a parse is only accepted at EOF with no errors — the guard parseLayout keeps in abi/type-format.
 function parse(text: string): Expression {
     const parser = new Parser(new Lexer(text).tokenize());
     const expression = parser.expressions.parseExpression();

@@ -1,6 +1,6 @@
 // Generated type trees run through every layer that must agree: qpi-layout geometry, formatAbiType, the parser and both decoders — shapes nobody thought of.
 import { test, expect } from "bun:test";
-import { decodeAbiValue, decodeOutput, encodeInput, layoutOf, structFieldOffsets, zeroInputFormat } from "../../src/abi-fmt";
+import { decodeAbiValue, decodeOutput, encodeInput, layoutOf, structFieldOffsets, zeroInputFormat } from "../../src/abi";
 import { formatAbiType, type AbiType } from "../../src/contract-idl";
 import { arr, ba, bit, co, hm, hs, i8, i16, i32, i64, i128, id, ll, m256i, st, u8, u16, u32, u64, u128, validated } from "./abi-builders";
 

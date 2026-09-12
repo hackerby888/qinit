@@ -1,5 +1,5 @@
 // Decode a contract LOG_* call. Qubic SCs cannot use strings, so logs are numeric structs ending at `sint8 _terminator`; the node records every preceding byte.
-import { abiJsonValue, decodeOutput, structFieldOffsets } from "./abi-fmt";
+import { abiJsonValue, decodeOutput, structFieldOffsets } from "./abi";
 import { LOG_SEVERITY as SEVERITY } from "./protocol";
 import { AbiTypeKind, type AbiStruct, type ContractLog } from "./contract-idl";
 import { hexToBytes } from "@qinit/core";

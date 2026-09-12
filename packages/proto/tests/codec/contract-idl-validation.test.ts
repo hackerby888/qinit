@@ -11,7 +11,7 @@ import {
     type AbiStruct,
     type AbiType,
 } from "../../src/contract-idl";
-import { hasOverlappingAbiType } from "../../src/abi-fmt";
+import { hasOverlappingAbiType } from "../../src/abi";
 import { arr, co, contractIdl, hm, hs, id, ll, named, st, u8, u64, validated } from "./abi-builders";
 
 const STATE = st(u64) as AbiStruct;

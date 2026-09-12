@@ -1,6 +1,6 @@
 // Contract call/invoke, qubic-cli style, over the built-in RPC — a function (read) goes to POST /live/v1/querySmartContract.
 import { LiteRpc, buildSignedTx, broadcastTx, type BroadcastResult, type SignedTx } from "@qinit/core";
-import { decodeOutput, encodeInput, encodeInputJson } from "./abi-fmt";
+import { decodeOutput, encodeInput, encodeInputJson } from "./abi";
 import type { AbiType } from "./contract-idl";
 import { TX_TICK_OFFSET } from "./protocol";
 

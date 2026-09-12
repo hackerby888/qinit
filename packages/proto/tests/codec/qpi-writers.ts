@@ -1,6 +1,6 @@
 // The reverse of the views: logical entries in, container bytes out, so a test states what a container holds and lets the view prove it reads it.
 // Payloads are deterministic filler, keeping these on the bookkeeping the writers own — flags, population, stride, links, the PoV tree — not value decoding.
-import { decodeAbiValue } from "../../src/abi-fmt";
+import { decodeAbiValue } from "../../src/abi";
 import {
     AbiScalarKind,
     AbiTypeKind,

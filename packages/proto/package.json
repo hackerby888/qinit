@@ -20,6 +20,11 @@
             "types": "./dist/contract-idl.d.ts",
             "bun": "./src/contract-idl.ts",
             "import": "./dist/contract-idl.js"
+        },
+        "./abi": {
+            "types": "./dist/abi/index.d.ts",
+            "bun": "./src/abi/index.ts",
+            "import": "./dist/abi/index.js"
         }
     },
     "files": [

@@ -1,4 +1,4 @@
-import { decodeAbiValue } from "../abi-fmt";
+import { decodeAbiValue } from "../abi/decode";
 import { AbiTypeKind, type AbiArray } from "../contract-idl";
 import { arrayGeometry } from "../qpi-layout";
 import { QpiIncompleteReadError } from "./errors";

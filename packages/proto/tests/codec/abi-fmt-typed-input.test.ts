@@ -1,6 +1,6 @@
 // The typed encode path (AbiType, not a format string) has its own validation the string dialect's tests never reach, so a dropped check survives there.
 import { test, expect } from "bun:test";
-import { encodeInputJson, parseInputJson, decodeOutput, zeroInputFormat, encodeInput } from "../../src/abi-fmt";
+import { encodeInputJson, parseInputJson, decodeOutput, zeroInputFormat, encodeInput } from "../../src/abi";
 import { AbiScalarKind, AbiTypeKind, type AbiStruct, type AbiType } from "../../src/contract-idl";
 import { arr, bit, named, st, u8, u32, u64, i32, i64, id, validated } from "./abi-builders";
 

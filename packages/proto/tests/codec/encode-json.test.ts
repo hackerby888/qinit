@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { jsonToInputFormat, encodeInputJson, encodeInput, decodeOutput, hasOverlappingAbiType, zeroInputFormat } from "../../src/abi-fmt";
+import { jsonToInputFormat, encodeInputJson, encodeInput, decodeOutput, hasOverlappingAbiType, zeroInputFormat } from "../../src/abi";
 import { callFunction } from "../../src/call";
 import { linkedListGeometry } from "../../src/qpi-layout";
 import { AbiScalarKind, AbiTypeKind, type AbiStruct, type AbiType } from "../../src/contract-idl";

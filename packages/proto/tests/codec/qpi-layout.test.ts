@@ -21,7 +21,7 @@ import {
     COLLECTION_POV_FMT,
     type ContainerRegion,
 } from "../../src/qpi-layout";
-import { layoutOf } from "../../src/abi-fmt";
+import { layoutOf } from "../../src/abi";
 
 test("BitArray word count covers every logical bit", () => {
     expect([1, 64, 65, 4096].map(bitWordCount)).toEqual([1, 1, 2, 64]);

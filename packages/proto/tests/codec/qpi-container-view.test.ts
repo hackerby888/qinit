@@ -30,7 +30,7 @@ import {
     type QpiByteSource,
 } from "../../src";
 import { bytesToIdentity } from "@qinit/core";
-import { decodeAbiValue } from "../../src/abi-fmt";
+import { decodeAbiValue } from "../../src/abi";
 import { arr, ba, co, hm, id, ll, st, u8, u16, u64, u128, validated } from "./abi-builders";
 
 const uint8Type: AbiScalar = {

@@ -28,10 +28,10 @@ export {
     parseLayout,
     structFieldOffsets,
     layoutOf,
-} from "./abi-fmt";
+} from "./abi";
 export { decodeLog, loggedSizeOf } from "./decode-log";
 export type { DecodedLog } from "./decode-log";
-export type { TypeNode } from "./abi-fmt";
+export type { TypeNode } from "./abi";
 export { callFunction, invokeProcedure, sendTransfer, contractAddress, resolveDeploymentSlot } from "./call";
 export type { TypedContractInput, SubmittedTx } from "./call";
 export * from "./qpi-layout"; // QPI container layout: single source of truth (idl.ts + decoders share it)

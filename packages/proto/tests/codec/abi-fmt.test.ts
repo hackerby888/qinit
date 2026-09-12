@@ -10,7 +10,7 @@ import {
     layoutOf,
     parseLayout,
     zeroInputFormat,
-} from "../../src/abi-fmt";
+} from "../../src/abi";
 import { formatAbiType, type AbiType } from "../../src/contract-idl";
 import { hashMapGeometry } from "../../src/qpi-layout";
 import { arr, ba, bit, co, hm, hs, i8, i16, i32, i64, i128, id, ll, m256i, named, st, u8, u16, u32, u64, u128, validated } from "./abi-builders";

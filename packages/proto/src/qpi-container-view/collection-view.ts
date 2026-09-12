@@ -1,4 +1,4 @@
-import { decodeAbiValue } from "../abi-fmt";
+import { decodeAbiValue } from "../abi/decode";
 import { AbiScalarKind, AbiTypeKind, type AbiCollection, type AbiScalar } from "../contract-idl";
 import { collectionGeometry } from "../qpi-layout";
 import { QpiContainerConsistencyError, QpiIncompleteReadError } from "./errors";

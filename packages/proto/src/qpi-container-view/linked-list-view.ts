@@ -1,4 +1,4 @@
-import { decodeAbiValue } from "../abi-fmt";
+import { decodeAbiValue } from "../abi/decode";
 import { AbiTypeKind, type AbiLinkedList } from "../contract-idl";
 import { linkedListGeometry } from "../qpi-layout";
 import { QpiContainerConsistencyError, QpiIncompleteReadError } from "./errors";
