@@ -851,3 +851,57 @@ The same match fired on any word spelling an entry name. Two shapes:
   both matching their `REGISTER_USER_*` lines.
 - **Invalidation.** The `ws` suite already covers re-hovering after an edit changes an index, and after
   `: public ContractBase` is deleted; both still hold.
+
+---
+
+# Round 6 — several contracts open at once
+
+The campaign prompt's own ground rule 5 says one file open is not the state a developer is in, and
+until now every round has campaigned one file at a time. The reason to care is visible in the source:
+`contractAnalysisContexts` is a `Map` keyed per document, so diagnostics analyse each contract under its
+own identity — but `contractPrefixPath` and `contractCorePath` are **single module globals**
+(`extension.ts:20-21`), set by whichever contract was last regenerated, and `filterCompletions` walks
+the allowed-identifier set from that one global (`extension.ts:190-191`). Switching editor tabs fires no
+open event, so the global stays pointed at the file you left while you complete in the file you
+returned to.
+
+**Nothing leaked.** Measured in `test:live`, suite "live — several contracts open at once":
+
+| probe                                     | Meter's prefix live         | Feed's prefix live          | difference                       |
+| ----------------------------------------- | --------------------------- | --------------------------- | -------------------------------- |
+| member list at `locals.scratch.` in Meter | 2 items — `flags, tick`     | 2 items — `flags, tick`     | none                             |
+| identifier list at type position in Meter | 41 names (3/3 warm samples) | 41 names (3/3 warm samples) | **nothing lost, nothing gained** |
+| Meter's own names offered in Feed         | —                           | —                           | none                             |
+| warm completion, two contracts open       | —                           | —                           | 14–16 ms against a 500 ms budget |
+
+Two mitigations are doing that work, and both are worth naming because the global on its own would not
+be enough: every contract's prefix walks the same QPI surface, so the sets are near-identical to begin
+with, and `documentIdentifiers(doc.getText())` keeps whatever the current buffer itself mentions
+regardless of which prefix is live. The global is still a smell — a per-document map beside two globals
+that must agree with it — but on this workspace it does not produce a wrong answer.
+
+## Getting the instrument to the point where that claim means anything
+
+The first three runs all "found" something, and all three were the harness. They are recorded because a
+negative result is only worth as much as the probe's ability to have seen a positive one.
+
+1. **A `settle` that accepted the answer it was waiting for.** The member probe waited for the list to
+   contain `tick`. clangd's degraded reply is a word-scrape of the whole buffer, which contains `tick`
+   — so the wait was satisfied by the scrape, and the run compared 48 scraped words against 2 real
+   members and called it a leak. Waiting on a name cannot distinguish a resolved list from a scrape.
+2. **A kind check that did not separate them either.** The obvious repair — reject a list that is
+   wholly `Text`-kind, as round 3's canary measured — did not hold here: at this position clangd
+   returned the scrape with real kinds attached. What does separate them is content: a member list is
+   the receiver's fields, and never contains `struct`, `namespace`, `using`, `public` or `class`.
+   That is now the discriminator.
+3. **A one-item probe, and then a noisy one.** The identifier tier was first measured at a position
+   offering a single item, which cannot show a difference at all; moving to a position offering forty
+   exposed the opposite problem, that clangd volunteers the odd C library symbol between a cold and a
+   warm index (`arc4random_buf` gained on one run, a QPI name lost on the next). Sampling three times
+   and intersecting — after settling each sample to a warm one, because a request made straight after a
+   tab switch comes back nearly empty — gives 41 names reproducibly in both states.
+
+The assertion was also narrowed deliberately, and the narrowing is the point rather than a way to make
+a red test green: the hazard is a name the contract needs going missing, or a sibling's name appearing.
+clangd's own volunteered symbols are neither, so they are printed on every run and left out of the
+assertion.

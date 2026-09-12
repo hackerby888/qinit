@@ -104,6 +104,52 @@ async function idlHoverAt(doc, marker, offsetInto = 0) {
         .join("\n");
 }
 
+// A word-scrape carries whatever is in the buffer, keywords included; a resolved member list is the
+// receiver's fields and nothing else. Kind alone does not separate them — clangd sometimes returns the
+// scrape with real kinds attached — but a member list never contains `struct` or `namespace`.
+const SCRAPE_ONLY = ["struct", "namespace", "using", "public", "class"];
+
+/**
+ * Member labels, settled on a list that is actually resolved rather than one that merely contains the
+ * word being waited for. clangd's degraded answer holds every identifier in the file, including that
+ * one, so waiting on the name alone silently accepts the scrape and compares noise against noise.
+ */
+async function resolvedMemberLabels(doc, marker, dot, opts) {
+    const result = await settle(
+        () => completionItems(doc, marker, dot),
+        (items) => {
+            if (!items.length) return false;
+            const labels = items.map(labelOf);
+            return !SCRAPE_ONLY.some((keyword) => labels.includes(keyword));
+        },
+        { timeout: 30000, ...opts },
+    );
+    return { settled: result.settled, ms: result.ms, labels: result.value.map(labelOf) };
+}
+
+/**
+ * The names a position offers consistently. clangd volunteers the odd extra symbol between a cold and a
+ * warm index, and a request made too soon after switching documents comes back nearly empty — so each
+ * sample is first settled to a warm one, and only the intersection of several is reported.
+ */
+async function stableLabels(doc, marker, upto, { samples = 3, minimum = 20, timeout = 20000 } = {}) {
+    let common = null;
+    let warm = 0;
+    for (let i = 0; i < samples; i++) {
+        const settled = await settle(
+            () => completionLabels(doc, marker, upto),
+            (labels) => labels.length >= minimum,
+            { timeout, interval: 300 },
+        );
+        if (!settled.settled) continue;
+        warm++;
+        const labels = new Set(settled.value);
+        common = common === null ? labels : new Set([...common].filter((label) => labels.has(label)));
+        await sleep(150);
+    }
+    return { labels: [...(common ?? [])].sort(), warm };
+}
+
 function compileEntries() {
     return JSON.parse(fs.readFileSync(wsUri("compile_commands.json").fsPath, "utf8"));
 }
@@ -130,4 +176,6 @@ module.exports = {
     diagnosticsFor,
     hoverAt,
     idlHoverAt,
+    resolvedMemberLabels,
+    stableLabels,
 };
