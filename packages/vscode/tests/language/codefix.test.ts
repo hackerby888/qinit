@@ -51,11 +51,29 @@ test("declines unsafe array shapes", () => {
     expect(fixFor("Array<uint64, 8> ok;", "qpi/no-brackets")).toBeNull();
 });
 
+// Array<T, N> static_asserts that N is a power of two, so this rewrite used to hand back a file that
+// failed on the assertion. A size that is not a literal may well be legal and is still offered.
+test("declines an array size that Array<T, N> cannot hold", () => {
+    for (const size of [3, 6, 10, 100]) {
+        expect(fixFor(`uint64 slots[${size}];`, "qpi/no-brackets")).toBeNull();
+    }
+    for (const size of [1, 2, 4, 8, 1024]) {
+        expect(applyFix(`uint64 slots[${size}];`, "qpi/no-brackets")).toBe(`Array<uint64, ${size}> slots;`);
+    }
+    expect(applyFix("id owners[CAP];", "qpi/no-brackets")).toBe("Array<id, CAP> owners;");
+});
+
 test("rewrites simple division and modulo", () => {
     expect(applyFix("locals.r = a / b;", "qpi/no-division")).toBe("locals.r = QPI::div(a, b);");
-    expect(applyFix("output.x = total % 10;", "qpi/no-modulo")).toBe("output.x = QPI::mod(total, 10);");
-    expect(applyFix("locals.v = input.amt / 100;", "qpi/no-division")).toBe("locals.v = QPI::div(input.amt, 100);");
     expect(applyFix("locals.v = locals.x / locals.y;", "qpi/no-division")).toBe("locals.v = QPI::div(locals.x, locals.y);");
+});
+
+// `div` is a template, so `QPI::div(total, 10)` gives two candidate deductions for T. No literal spelling
+// fixes it for every dividend type, and a token-level rule cannot know which it has, so it declines.
+test("declines to rewrite a division whose operand is a bare literal", () => {
+    expect(fixFor("output.x = total % 10;", "qpi/no-modulo")).toBeNull();
+    expect(fixFor("locals.v = input.amt / 100;", "qpi/no-division")).toBeNull();
+    expect(fixFor("locals.v = 100 / input.amt;", "qpi/no-division")).toBeNull();
 });
 
 test("division fix rewrites only the immediate operands", () => {

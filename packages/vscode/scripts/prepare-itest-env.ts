@@ -16,7 +16,7 @@ function which(binary: string): string | undefined {
 const clangd = process.env.CLANGD?.trim() || which("clangd");
 
 // Every workspace a .vscode-test.mjs entry opens needs the pin, not just the first one.
-const WORKSPACES = ["ws", "zoo", "xross"];
+const WORKSPACES = ["ws", "zoo", "xross", "live"];
 
 for (const workspace of WORKSPACES) {
     const settingsDir = resolve(import.meta.dir, "..", "test-fixtures", workspace, ".vscode");

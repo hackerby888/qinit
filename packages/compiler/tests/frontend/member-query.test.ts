@@ -210,3 +210,155 @@ test("splits a receiver into its root and plain-identifier hops", () => {
     expect(at("t.fixture().out.")).toBeUndefined();
     expect(at("no member operator")).toBeUndefined();
 });
+
+// The query rewrites the receiver's line into a statement of its own. A one-line entry body carries the macro
+// and both braces on that line, so replacing it stopped the contract parsing — four of core's thirty-five.
+test("a receiver inside a one-line entry body still resolves", () => {
+    const inline = `using namespace QPI;
+struct Ledger2 {};
+struct Ledger : public ContractBase {
+    struct Note { uint64 amount; uint8 kind; };
+    struct StateData { uint64 calls; Note last; };
+    struct Go_input {}; struct Go_output {};
+    struct Go_locals { Note note; };
+    PUBLIC_PROCEDURE_WITH_LOCALS(Go) { locals.note.amount = 0; state.mut().calls += 1; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};
+`;
+    const at = (receiver: string) =>
+        completeMembersAt({ source: inline, offset: inline.indexOf(receiver) + receiver.length, contractName: "Ledger", slot: 28 });
+
+    expect(at("locals.note.")?.map((item) => item.name)).toEqual(["amount", "kind"]);
+    expect(at("state.mut().")?.map((item) => item.name)).toEqual(["calls", "last"]);
+
+    // The same contract across lines answered before this fix and must answer identically after it.
+    const spread = inline.replace(
+        "PUBLIC_PROCEDURE_WITH_LOCALS(Go) { locals.note.amount = 0; state.mut().calls += 1; }",
+        "PUBLIC_PROCEDURE_WITH_LOCALS(Go)\n    {\n        locals.note.amount = 0;\n        state.mut().calls += 1;\n    }",
+    );
+    const spreadAt = completeMembersAt({ source: spread, offset: spread.indexOf("locals.note.") + "locals.note.".length, contractName: "Ledger", slot: 28 });
+    expect(spreadAt?.map((item) => item.name)).toEqual(["amount", "kind"]);
+});
+
+// A preprocessor directive emits nothing, and dropping its own line shifted every remap below it: core's
+// QUtil.h has a `#if 0` block at line 77, and every one of the 139 member positions under it declined.
+test("a preprocessor directive above the cursor does not silence the member query", () => {
+    const build = (parked: string) => `using namespace QPI;
+${parked}
+struct Desk2 {};
+struct Desk : public ContractBase
+{
+    struct StateData { uint64 alpha; uint64 beta; };
+    struct Go_input {}; struct Go_output { uint64 v; };
+    PUBLIC_FUNCTION(Go)
+    {
+        output.v = state.get().alpha;
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Go, 1); }
+};
+`;
+    const members = (parked: string) => {
+        const source = build(parked);
+        const marker = "state.get().";
+        return completeMembersAt({ source, offset: source.indexOf(marker) + marker.length, contractName: "Desk", slot: 28 })?.map((item) => item.name);
+    };
+
+    expect(members("")).toEqual(["alpha", "beta"]);
+    expect(members("#define PARKED 1")).toEqual(["alpha", "beta"]);
+    expect(members("#if 0\nstruct Parked { uint64 x; };\n#endif")).toEqual(["alpha", "beta"]);
+    expect(members("#if 0\nstruct A { uint64 x; };\nstruct B { uint64 y; };\nstruct C { uint64 z; };\n#endif")).toEqual(["alpha", "beta"]);
+});
+
+// The same shift from the other direction: a macro invocation spanning lines consumes them and emits one.
+// QPayhub.h's three-line `SUBSCRIBE_ORACLE(...)` silenced all 53 `state.` receivers below it.
+test("a macro invocation spanning lines does not silence the receivers below it", () => {
+    const build = (register: string) => `using namespace QPI;
+struct Desk2 {};
+struct Desk : public ContractBase
+{
+    struct StateData { uint64 alpha; uint64 beta; };
+    struct First_input {}; struct First_output { uint64 v; };
+    struct Second_input {}; struct Second_output { uint64 v; };
+    PUBLIC_FUNCTION(First) { output.v = 1; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { ${register} }
+    PUBLIC_FUNCTION(Second)
+    {
+        output.v = state.get().beta;
+    }
+};
+`;
+    const members = (register: string) => {
+        const source = build(register);
+        const marker = "state.get().";
+        return completeMembersAt({ source, offset: source.indexOf(marker) + marker.length, contractName: "Desk", slot: 28 })?.map((item) => item.name);
+    };
+
+    expect(members("REGISTER_USER_FUNCTION(First, 1); REGISTER_USER_FUNCTION(Second, 2);")).toEqual(["alpha", "beta"]);
+    expect(
+        members("REGISTER_USER_FUNCTION(\n            First,\n            1);\n        REGISTER_USER_FUNCTION(\n            Second,\n            2);"),
+    ).toEqual(["alpha", "beta"]);
+});
+
+// Shapes the receiver walk used to take too much of, measured on core: it keeps `-` because `->` needs it,
+// so `-state.get()` was resolved whole, and a C-style cast reads as a call's parentheses from the back.
+test("a prefix operator or a cast is not part of the receiver", () => {
+    const body = (line: string) => `using namespace QPI;
+struct Desk2 {};
+struct Desk : public ContractBase
+{
+    struct StateData { uint64 alpha; sint64 beta; };
+    struct Go_input { uint64 n; }; struct Go_output { uint64 v; };
+    struct Go_locals { uint64 i; sint64 s; uint64 t; };
+    PUBLIC_FUNCTION_WITH_LOCALS(Go)
+    {
+${line}
+        output.v = 0;
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Go, 1); }
+};
+`;
+    const members = (line: string, marker: string) => {
+        const source = body(line);
+        return completeMembersAt({ source, offset: source.indexOf(marker) + marker.length, contractName: "Desk", slot: 28 })?.map((item) => item.name);
+    };
+
+    expect(members("        locals.t = state.get().alpha;", "state.get().")).toEqual(["alpha", "beta"]);
+    expect(members("        locals.s = -state.get().beta;", "-state.get().")).toEqual(["alpha", "beta"]);
+    expect(members("        locals.s = (sint64)state.get().alpha;", "state.get().")).toEqual(["alpha", "beta"]);
+    expect(members("        for (locals.i = 0; locals.i < (uint64)state.get().alpha; ++locals.i) { locals.t = 1; }", "state.get().")).toEqual([
+        "alpha",
+        "beta",
+    ]);
+});
+
+// A statement spread over lines: replacing only the receiver's line leaves `sadd(` above and `1);` below
+// paired with nothing, so the spilled lines are blanked to spaces, which keeps every line number intact.
+test("a statement spread over several lines still resolves its receiver", () => {
+    const source = `using namespace QPI;
+struct Desk2 {};
+struct Desk : public ContractBase
+{
+    struct StateData { uint64 alpha; sint64 beta; };
+    struct Go_input { uint64 n; }; struct Go_output { uint64 v; };
+    struct Go_locals { uint64 i; uint64 t; };
+    PUBLIC_FUNCTION_WITH_LOCALS(Go)
+    {
+        locals.t = sadd(
+            state.get().alpha,
+            1);
+        if (locals.i > 0
+            && state.get().alpha > 0) { locals.t = 1; }
+        output.v = 0;
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Go, 1); }
+};
+`;
+    const at = (marker: string, occurrence = 0) => {
+        let index = -1;
+        for (let found = 0; found <= occurrence; found++) index = source.indexOf(marker, index + 1);
+        return completeMembersAt({ source, offset: index + marker.length, contractName: "Desk", slot: 28 })?.map((item) => item.name);
+    };
+
+    expect(at("state.get().")).toEqual(["alpha", "beta"]);
+    expect(at("state.get().", 1)).toEqual(["alpha", "beta"]);
+});

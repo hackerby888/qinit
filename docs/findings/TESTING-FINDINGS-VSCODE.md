@@ -514,3 +514,1259 @@ one; at minimum the reason should surface as a diagnostic instead of vanishing.
 
 Repro: `bun run --filter qpi-vscode test:xross` — the case
 "the caller compiles: a transitive callee is not dropped from the prelude".
+
+---
+
+# Round 3 — the compiler as the oracle
+
+Rounds 1 and 2 asked what the editor _offers_. This round asks what it _says_, against the only
+authority that matters: the build. The instrument is `packages/vscode/scripts/diag-differential.ts`
+(`bun run --filter qpi-vscode diag:diff`), 52 probes, each compiled three ways — `analyzeContract`,
+which is the call behind every `qpi`/`qinit-compiler` squiggle; the TypeScript backend; and clang.
+
+Three oracles, because one does not cover the surface. Policy rules (`qpi/*`) fire as **warnings** and
+clang compiles them happily, so clang cannot judge them and each probe names the code it must produce.
+clang is the oracle for everything semantic. Controls must build _and_ stay silent, so a diagnostic on
+one is a false positive. Every refusal row carries an accepted control beside it, so a rule that simply
+refuses more is visible as such.
+
+Two corrections to my own instrument are recorded below rather than quietly fixed: both made the
+extension look better than it was.
+
+## E6 — `qpi/no-qpicontext` bans the one context type nobody writes (withdrawn)
+
+Core spells the privileged host context as **ten** distinct types. `KEYWORD_RULES` is an exact-match
+table keyed on `QpiContext`, which is the _rarest_ of them:
+
+| spelling                         | occurrences in core | banned |
+| -------------------------------- | ------------------- | ------ |
+| `QpiContextFunctionCall`         | 95                  | no     |
+| `QpiContextProcedureCall`        | 69                  | no     |
+| `QpiContextProposalFunctionCall` | 20                  | no     |
+| `QpiContext`                     | 16                  | yes    |
+| …six more                        | 31                  | no     |
+
+Round 5 widened the rule to ban the family by prefix. **That fix is reverted, and the finding is
+withdrawn**: the ban guards nothing, so widening its reach only cost.
+
+The rule is advisory. `qpi/no-qpicontext` is not in `BUILD_GATE_RULES`, and a contract that declares
+one of these types analyses to a complete IDL — the only objection is the rule itself:
+
+```
+QpiContextFunctionCall ctx;   -> idl produced: YES   other diagnostics: none
+QpiContext ctx;               -> idl produced: YES   other diagnostics: none
+uint64 ok;                    -> idl produced: YES   (control)
+```
+
+So a contract that writes one builds and ships today, with or without the rule. Widening it bought
+two defects and no protection:
+
+- **A false positive on names the developer owns.** The tightened form still flagged a user's own
+  type: `struct Go_locals { QpiContextualPricing pricing; };` reported "`QpiContext` may not be used
+  directly in a contract" — naming a type absent from the file, with no action that clears it but a
+  rename. Declaring the type was clean; using it was an error. An earlier note here claimed the
+  tightening had removed this false positive. It had not — it narrowed it from any use to type use.
+- **An editor that recommends what it condemns.** `QPI_BANNED_KEYWORDS` is `Object.keys(KEYWORD_RULES)`,
+  so the completion allow-set only ever suppressed the exact name. Measured against pinned core, five
+  spellings — `QpiContextForInit`, `QpiContextFunctionCall`, `QpiContextProcedureCall`,
+  `QpiContextProposalFunctionCall`, `QpiContextProposalProcedureCall` — stayed in the 1 563-name
+  allow-set while the widened diagnostic flagged them. Type `QpiC`, accept the suggestion, watch it
+  turn red.
+
+The measurement stands: the exact-match table does bar the rarest spelling and miss the nine a
+contract actually reaches for. What round 5 got wrong was treating that as a gap worth closing. A
+rule no build enforces, over a name no contract author writes by accident, is not worth a false
+positive — and the person who writes one deliberately is reaching for the host context on purpose.
+
+## E7 — the editor stops before the compiler does (not fixed)
+
+`analyzeContract` runs the frontend and `prepareContractModule`, and stops. It never lowers a function
+body. **Seven** error sites live in that unreached phase — three under `backend/wasm/expressions`, four
+under `backend/wasm/calls` — and every diagnostic they raise is invisible to the editor. Four
+confirmed, same source, three readings:
+
+| probe                                               | clang   | TypeScript backend | editor     |
+| --------------------------------------------------- | ------- | ------------------ | ---------- |
+| a member function hiding a file-scope enum constant | refuses | error              | **silent** |
+| `BitArray + 1` (no viable operator)                 | refuses | silent             | **silent** |
+| an aggregate assigned to a scalar                   | refuses | error              | **silent** |
+| a default-constructed `AssetOwnershipIterator`      | refuses | error              | **silent** |
+
+The first is already tracked as refused by `clang-refusal-diff.test.ts`; that suite asserts the
+_backend_ catches it, and it does. The editor does not, which is the finding: a green editor for a file
+neither backend will build — the top of the severity order in the campaign prompt.
+
+Not fixed, because the two available fixes are both design calls, not patches. Moving the seven checks
+into semantic analysis, where they are arguably semantic facts rather than codegen facts, is the better
+answer and is a compiler change with its own review. The other — running more of the compiler in the
+editor — was dismissed here on a cost of "215 ms against 65 ms for `analyzeContract` on `StateZoo.h`,
+3.3× on every debounced settle". That figure priced the wrong option and round 12 replaces it: the
+editor would stop one phase earlier than a build does, and doing so costs a median **1.3×** analyze
+across core's 29 deployed contracts. Pinned as four `GAP` rows in the differential.
+
+The last row is the sharpest illustration: main's `7539bda` added a frontend rejection for exactly that
+declaration, and the editor still shows nothing, because the diagnostic that actually fires for this
+shape is raised while lowering the `begin()` call.
+
+A second, smaller defect sits underneath it: diagnostics raised during lowering carry **no `code`** at
+all, only a message. `QpiDiagnostics` sets `diagnostic.code = item.code`, so even if these reached the
+editor they would arrive uncoded and unkeyable for a quick fix.
+
+## E8 — every mistyped type squiggles line 1 and blames the compiler (fixed)
+
+The most common error a developer makes is a typo in a type name. Every one of them lands in
+`internalDiagnostic`, the catch-all in `analyzer/index.ts`, which hardcoded
+`span: { line: 1, column: 1 }`:
+
+```
+uint64   -> (silent)
+uint46   -> compiler/internal[error]    "Source analysis failed: unknown type 'uint46'"
+Uint64   -> compiler/internal[error]
+unit64   -> compiler/internal[error]
+```
+
+A typo on line 44 of a 48-line file drew its red squiggle on **line 1**.
+
+Fixed in two places. `abi-type-builder.ts` now attaches the offending type's own span to the error it
+throws — `TypeSpec` has always carried one; it was simply discarded. `analyzer/index.ts` hoists
+`preprocessed` out of the `try` so the catch-all can map that span back into user coordinates, which
+matters because a span raised behind the generated prelude is in preprocessed lines: the first version
+of this fix reported **line 55 of a 48-line file**. Both files now report the exact typo line, verified
+at two file lengths, and an error carrying no span still lands at the top of the file as before.
+
+The _code_ is left alone deliberately. `compiler/internal` reads as "the compiler broke" where this is
+ordinary user error, but it is the shared catch-all for genuine internal faults too, and
+re-classifying it is a compiler decision rather than a testing-round one.
+
+## A note on `qpi/public-complex-type`
+
+The rule inspects a registered entry struct's own members, so a forbidden container nested one struct
+deep does not reach it. The developer is not left in the dark — the semantic pass reports
+_"Collection is forbidden in registered entry 'Take_input'"_ on the right line, which is the same
+sentence the dedicated rule would have written — but it arrives as `compiler/semantic`. The cost is
+consistency and quick-fix keying, not a missing diagnostic, so it is recorded rather than fixed.
+
+## What held up
+
+Worth recording, because a campaign that only lists failures overstates itself.
+
+- **The editing session.** A new `live` workspace and suite (`bun run --filter qpi-vscode test:live`,
+  7 passing) mutate an open buffer the way a developer does. De-classifying by deleting
+  `: public ContractBase` clears every stale squiggle in 400 ms; renaming the contract type strands
+  nothing; typing the file from empty in eight steps produces only honest `compiler/syntax` at the
+  half-typed marks and settles clean; commenting out a registration reports `qpi/unregistered` from the
+  **unsaved buffer** in 401 ms; a 25 000-character paste and undo both settle clean; and five
+  completion requests fired during `clangd.restart` returned 69, 2, 2, 2, 2 items without a throw,
+  recovering afterwards. This is the family the prompt called "the part that finds things", and it
+  found nothing — the extension handles it.
+- **The container zoo against clang.** Ten container probes — `Array<HashMap<…>>`, `Array<Array<…>>`,
+  a struct `HashMap` key with padding holes, `HashMap<id, Array<…>>`, `Collection`, `HashSet`,
+  `BitArray`, three-level nesting, and a state holding all of them — build clean and draw no
+  diagnostic. No false positives anywhere in the corpus: **0 SPURIOUS across 52 probes**.
+- **The banned surface.** Every other policy rule fires on a crafted violation and stays silent on its
+  control, including the div/mod pairs where the qualified spelling must survive.
+- **A workspace root the developer already occupies.** The extension rewrites `compile_commands.json`,
+  `.clangd` and `.vscode/settings.json` in the developer's own root, so every way that root can already
+  be taken is a way to destroy their setup. Eight conditions were tried and none misbehaved: a
+  hand-written `.clangd` is never rewritten; someone else's database at the root pushes ours into
+  `.qpi/clangd/` and `.clangd` is rewritten to name it; with **both** occupied nothing of theirs is
+  touched and the result reports `clangdConfigured: false`, which the caller turns into a toast naming
+  the file and the directory to point at; a database that cannot be parsed — malformed JSON, or a JSON
+  object where an array belongs — is treated as someone else's rather than overwritten in place; and an
+  ownership marker left behind by a different checkout does not license a clobber either. Nothing threw.
+  These paths had no coverage, so they are now pinned in `clangd-config.test.ts`.
+
+## Two corrections to the instrument
+
+Both are the campaign's own ground rule 7 — suspect the probe first — and both initially read as
+extension bugs.
+
+1. **Five "clang refuses a valid contract" rows were my template.** It emitted `types:` _after_
+   `StateData`, so a struct used by state was declared below it; clang's real error was
+   `use of undeclared identifier 'Cell'`, not anything about containers. Two more were bad C++ of mine
+   (`get()` returns a const reference, and `m256i` has no `_0` member on this core). Fixed; all 14
+   container/deep/scalar probes then agreed.
+2. **The harness reported a real error as silence.** Lowering-phase diagnostics carry no `code`, and
+   the harness mapped `d.code` and joined — so `[undefined]` rendered as `(silent)`. E7 was found
+   because the raw diagnostic list disagreed with the summary line. The harness now labels an uncoded
+   diagnostic by its message. Separately, the harness did not call `initK12()`, which the backend needs;
+   without it `compileContractWithTypeScript` returns no diagnostics rather than failing loudly, which
+   reads as "everything agrees".
+
+Neither changed a verdict in the end, but both would have.
+
+---
+
+# Round 4 — the quick fix has to compile
+
+Round 3 asked whether the editor's diagnostics match the build. This round asks the same of its
+_remedies_. A quick fix is the one place the extension writes the developer's code for them: they
+accept it on the extension's authority, so a fix that produces source the compiler rejects is worse
+than no fix at all — the file is now broken in a way they did not type and did not choose.
+
+The instrument is `packages/vscode/scripts/fix-differential.ts`
+(`bun run --filter qpi-vscode fix:diff`). It applies every fix the analyzer offers and asks three
+questions of the result: is the diagnostic the fix was attached to gone, did any new diagnostic
+appear, and — the only one that really matters — does clang accept the fixed source. A fix is correct
+only when all three hold, and a source clang already refused is scored separately, because there the
+fix cannot be blamed for a build that was broken anyway.
+
+Two of the three fix producers were handing out source that does not compile.
+
+## E9 — `Convert to Array<T, N>` breaks a file that built (fixed)
+
+`Array<T, N>` carries a `static_assert` that N is a power of two. `arrayFixForLine` copied the C array
+size through verbatim:
+
+| written by the developer | offered by the fix        | clang                       |
+| ------------------------ | ------------------------- | --------------------------- |
+| `uint64 slots[8];`       | `Array<uint64, 8> slots;` | builds                      |
+| `uint64 slots[6];`       | `Array<uint64, 6> slots;` | **static assertion failed** |
+| `uint64 slots[3];`       | `Array<uint64, 3> slots;` | **static assertion failed** |
+
+The original `uint64 slots[6];` **compiles** — a C array is a QPI policy violation, not a clang error —
+so this is the worst shape a fix can have: the developer's file built, they accepted the lightbulb, and
+it stopped building. Fixed by declining when the size is a literal that is not a power of two. A size
+that is not a literal (`uint64 owners[CAP];`) may well be legal and is still offered.
+
+## E10 — `Convert to QPI::div(a, b)` breaks on the commonest divisor there is (fixed)
+
+`div` is `template <typename T> inline static constexpr T div(T a, T b)` — one type parameter for both
+operands. A bare integer literal beside a typed operand therefore gives two candidate deductions for T
+and the call does not resolve:
+
+```
+locals.a = locals.a / 2;   ->   locals.a = QPI::div(locals.a, 2);
+                                error: no matching function for call to 'div'
+```
+
+`x / 2` and `x % 10` are the ordinary way anyone writes division, so this was the common path, not the
+corner. The repository's own `codefix.test.ts` asserted the broken rewrite
+(`QPI::mod(total, 10)`) — the assertion was changed, with the compiler's refusal recorded beside it.
+
+No literal spelling fixes it either. Measured against clang, `10ULL` builds for a `uint64` dividend and
+is refused for `sint64` and `uint32`, and this rule runs on tokens with no types to hand. So the fix
+declines when either operand is a bare literal, leaving the developer the warning and its message
+rather than a file that no longer builds. A mixed-type pair of _variables_ (`uint64 / uint32`) has the
+same problem and is beyond what a token-level rule can see; it is left as a known limit.
+
+## E11 — a resolution failure outside the main contract is silent (not fixed)
+
+`resolveProjectSourceDetails` roots the dependency plan at `config.contract` and, for any file not in
+the resulting plan, falls back to `standaloneDetails` — no callees at all
+(`packages/vscode/src/project-context.ts:222-226`). Siblings are not second-class in general; the
+asymmetry is narrower and only appears when something fails:
+
+| the file being edited           | its callee | resolution                      | the developer sees                              |
+| ------------------------------- | ---------- | ------------------------------- | ----------------------------------------------- |
+| the contract `qinit.json` names | exists     | `calleeSources=1`               | nothing, correctly                              |
+| a sibling contract              | exists     | `calleeSources=2`               | nothing, correctly                              |
+| the contract `qinit.json` names | **absent** | **throws**                      | `qinit/project-dependencies`, naming the callee |
+| a sibling contract              | **absent** | **`calleeSources=0`, no throw** | **only clang's "use of undeclared identifier"** |
+
+The bare `catch {}` at `packages/build/src/contracts/project-dependencies.ts:281` rolls the sibling and
+its subtree out of the plan and discards the reason. The file then looks standalone, which is
+indistinguishable from a header that genuinely belongs to no project, so nothing is reported.
+
+The developer action that hits this is completely ordinary: add a second contract, reference a callee,
+create that callee's file next. Until the file exists they get five raw clang errors and nothing that
+names the cause.
+
+Not fixed, and deliberately so — this is E5's design question at a second site (what a plan should do
+when a contract in it cannot be analysed), and the honest answer is a `packages/build` change with its
+own review rather than a patch invented in a testing round. Pinned as a failing case in `test:live`:
+"a callee referenced before its file exists is reported, then clears when it appears".
+
+## What held up
+
+- **The stack-local fix is exemplary.** `uint64 scratch = 3;` becomes
+  `struct Go_locals { uint64 scratch; };` with `locals.scratch = 3;` in the body and every reference
+  rewritten. The initializer a struct member cannot carry is preserved as an assignment rather than
+  dropped — the failure mode that a "does it build" check alone would never have caught.
+- **Every remaining fix.** After E9 and E10, all 12 fixes the corpus provokes clear their own
+  diagnostic, introduce nothing new, and produce source clang accepts.
+- **The rest of the project shapes.** No `qinit.json`, malformed JSON, a JSON array where an object
+  belongs, and a header that is not a contract all resolve to sensible standalone details without
+  throwing. A slot outside the dynamic window is refused with a message that names the window.
+
+One cosmetic note: `qpi/no-brackets` fires once for `[` and once for `]`, so the same
+`Convert to Array<T, N>` appears twice in the lightbulb for one declaration. Two legitimate
+diagnostics, each offering the same remedy — recorded, not worth a change.
+
+---
+
+# Round 5 — the hover a developer builds a call from
+
+`idl-hover.ts` is fifty lines and had never been campaigned. It is also the one place the extension
+states a **number the developer copies into a transaction**: the registration index. A completion that
+is missing costs a developer a few seconds; an index that is wrong costs them a call to the wrong entry.
+
+The provider resolves the word under the cursor against `analysisFor(doc).idl` — the IDL of the file
+being edited — by bare-name match, with no check that the word is being _used_ as an entry of this
+contract. Three consequences, found by hovering the same four positions in a two-contract workspace
+(`test:live`, suite "live — the IDL hover").
+
+One hypothesis was disproved before it cost anything: the hover prints `entry.inputType` under the
+label "index", which looked like it might be a type id rather than the registration index. Traced to
+`registrations.ts:87` — `inputType` is the second argument of `REGISTER_USER_FUNCTION`, so the label is
+correct. The line-number fallback beside it applies only to oracle-reply notifications, where `__LINE__`
+genuinely is the synthetic id.
+
+## E12 — a procedure's output was hidden (fixed)
+
+`hoverFor` printed the output line only when `kind === "function"`. A QPI procedure carries an output
+struct exactly as a function does, so half the payload was missing:
+
+```
+before   Bump · index 2   input  : (empty)
+after    Bump · index 2   input  : (empty)
+                          output : uint64
+```
+
+One line. The existing suites only ever asserted function hovers, which is why it survived.
+
+## E13 — a callee's entry borrowed this contract's index (fixed)
+
+The headline. `Meter` calls `Feed`:
+
+```cpp
+CALL_OTHER_CONTRACT_FUNCTION(Feed, Read, locals.in, locals.out);
+```
+
+`Read` here is **Feed's** function, registered at index 1. If Meter also registers an entry called
+`Read` — an ordinary name collision, `Read` being about as common as an entry name gets — hovering the
+call site answered from Meter's IDL:
+
+| hovered                                                 | truth                        | shown before           |
+| ------------------------------------------------------- | ---------------------------- | ---------------------- |
+| `Read` in `PUBLIC_PROCEDURE(Read)`                      | Meter's procedure, index 3   | procedure, index 3 ✓   |
+| `Read` in `CALL_OTHER_CONTRACT_FUNCTION(Feed, Read, …)` | **Feed's function, index 1** | **procedure, index 3** |
+
+Both the kind and the index were wrong, for the call the developer was looking at.
+
+Fixed by declining when the word is the entry argument of a cross-contract call —
+`CALL_OTHER_CONTRACT_FUNCTION`, `INVOKE_OTHER_CONTRACT_PROCEDURE` and their `_E` variants. Answering
+_correctly_ would mean resolving against the callee's own IDL, which this provider does not hold
+(`analysisFor` returns only the edited file's), so silence is the honest answer rather than a
+confident wrong one.
+
+## E14 — the bare-name match reaches things that are not references (partly fixed)
+
+The same match fired on any word spelling an entry name. Two shapes:
+
+- **In prose or a string literal** — a comment reading "Poll is mentioned here" hovered as the QPI
+  function `Poll`. **Fixed**: the hovered offset must correspond to an `IDENTIFIER` token, using the
+  analyzer's own `Lexer`. A buffer too broken to tokenize keeps its hovers rather than losing them
+  silently.
+- **A struct field sharing the name** — `uint64 Bump;` hovered as the procedure `Bump`. **Fixed in
+  round 11.** This entry claimed that telling a declarator from a reference "needs parse context the
+  provider does not have"; it needs one token. Two adjacent identifiers are a declaration in C++, and
+  every way of _referring_ to a name puts something else in front of it — `.`, `(`, `,`, an operator, or
+  a keyword such as `return`. A declarator whose type is a template (`Array<Note, 4> Bump;`) follows `>`
+  instead, which a comparison also does, so that one spelling is left alone rather than risk silencing a
+  real reference.
+
+## What held up
+
+- **The index and payload for this contract's own entries.** `Poll` reads
+  `QPI function · index 1 · input uint64 · output uint64` and `Bump` reads `QPI procedure · index 2`,
+  both matching their `REGISTER_USER_*` lines.
+- **Invalidation.** The `ws` suite already covers re-hovering after an edit changes an index, and after
+  `: public ContractBase` is deleted; both still hold.
+
+---
+
+# Round 6 — several contracts open at once
+
+The campaign prompt's own ground rule 5 says one file open is not the state a developer is in, and
+until now every round has campaigned one file at a time. The reason to care is visible in the source:
+`contractAnalysisContexts` is a `Map` keyed per document, so diagnostics analyse each contract under its
+own identity — but `contractPrefixPath` and `contractCorePath` are **single module globals**
+(`extension.ts:20-21`), set by whichever contract was last regenerated, and `filterCompletions` walks
+the allowed-identifier set from that one global (`extension.ts:190-191`). Switching editor tabs fires no
+open event, so the global stays pointed at the file you left while you complete in the file you
+returned to.
+
+**Nothing leaked.** Measured in `test:live`, suite "live — several contracts open at once":
+
+| probe                                     | Meter's prefix live         | Feed's prefix live          | difference                       |
+| ----------------------------------------- | --------------------------- | --------------------------- | -------------------------------- |
+| member list at `locals.scratch.` in Meter | 2 items — `flags, tick`     | 2 items — `flags, tick`     | none                             |
+| identifier list at type position in Meter | 41 names (3/3 warm samples) | 41 names (3/3 warm samples) | **nothing lost, nothing gained** |
+| Meter's own names offered in Feed         | —                           | —                           | none                             |
+| warm completion, two contracts open       | —                           | —                           | 14–16 ms against a 500 ms budget |
+
+Two mitigations are doing that work, and both are worth naming because the global on its own would not
+be enough: every contract's prefix walks the same QPI surface, so the sets are near-identical to begin
+with, and `documentIdentifiers(doc.getText())` keeps whatever the current buffer itself mentions
+regardless of which prefix is live. The global is still a smell — a per-document map beside two globals
+that must agree with it — but on this workspace it does not produce a wrong answer.
+
+## Getting the instrument to the point where that claim means anything
+
+The first three runs all "found" something, and all three were the harness. They are recorded because a
+negative result is only worth as much as the probe's ability to have seen a positive one.
+
+1. **A `settle` that accepted the answer it was waiting for.** The member probe waited for the list to
+   contain `tick`. clangd's degraded reply is a word-scrape of the whole buffer, which contains `tick`
+   — so the wait was satisfied by the scrape, and the run compared 48 scraped words against 2 real
+   members and called it a leak. Waiting on a name cannot distinguish a resolved list from a scrape.
+2. **A kind check that did not separate them either.** The obvious repair — reject a list that is
+   wholly `Text`-kind, as round 3's canary measured — did not hold here: at this position clangd
+   returned the scrape with real kinds attached. What does separate them is content: a member list is
+   the receiver's fields, and never contains `struct`, `namespace`, `using`, `public` or `class`.
+   That is now the discriminator.
+3. **A one-item probe, and then a noisy one.** The identifier tier was first measured at a position
+   offering a single item, which cannot show a difference at all; moving to a position offering forty
+   exposed the opposite problem, that clangd volunteers the odd C library symbol between a cold and a
+   warm index (`arc4random_buf` gained on one run, a QPI name lost on the next). Sampling three times
+   and intersecting — after settling each sample to a warm one, because a request made straight after a
+   tab switch comes back nearly empty — gives 41 names reproducibly in both states.
+
+The assertion was also narrowed deliberately, and the narrowing is the point rather than a way to make
+a red test green: the hazard is a name the contract needs going missing, or a sibling's name appearing.
+clangd's own volunteered symbols are neither, so they are printed on every run and left out of the
+assertion.
+
+---
+
+# Round 7 — the allowed-identifier set
+
+Three rules decide what a contract developer is allowed to see, and none had been exercised against a
+real editor: the `_`-led member gate, the gtest exemption, and the `CC_*` whitelist. Measured in
+`test:campaign`, suite "campaign — the allowed-identifier set".
+
+## E15 — WITHDRAWN: a `_`-led member completes exactly as designed
+
+`keepMemberLabel` hides a `_`-led member until the developer types a leading underscore, because a log
+struct's `_type` and `_terminator` are real members worth completing
+(`completion-filter.ts:140-150`). The extension's half of that works. clangd's half does not:
+
+| reading    | `locals.note.`        | `locals.note._` |
+| ---------- | --------------------- | --------------- |
+| filter on  | `amount`              | `amount`        |
+| filter off | **`_type`, `amount`** | `amount`        |
+
+> **Withdrawn in round 9. There is no defect here; the probe never typed an underscore.**
+>
+> `completionItems` advances a cursor from a marker — it does not insert text. The buffer held
+> `locals.note.amount`, and "completing after `locals.note._`" advanced thirteen characters into it,
+> landing after `locals.note.a`. Every reading above is therefore the list for the typed prefix `a`, and
+> `amount` is the right answer to it. Round 7 recorded that this helper cannot type, fixed two other
+> probes for exactly that reason in the same round, and left this one.
+>
+> Re-measured with `locals.note._type = 0;` actually in the buffer:
+>
+> | position        | offered                                        |
+> | --------------- | ---------------------------------------------- |
+> | `locals.note.`  | `amount` — the `_`-led member correctly hidden |
+> | `locals.note._` | `_type` — correctly revealed                   |
+>
+> The rule works as written, in both directions. `test:campaign` is 14 passing, exit 0.
+>
+> A change to widen the fallback trigger had been written against this finding before it was withdrawn;
+> it was reverted rather than kept, since it fixed nothing.
+
+The original entry read as follows.
+
+With the filter off, clangd offers `_type` at the bare receiver and the filter correctly removes it. At
+`locals.note._` — the one position where the rule would let it through — **clangd no longer offers it**,
+filter or no filter. The reveal has nothing to reveal, so a `_`-led member is unreachable by any
+keystroke and the rule is dead in practice.
+
+Attribution is the three readings from ground rule 2, and they place this in clangd's list rather than
+in the extension's filter. `memberCompletions` only consults the fallback when clangd's list is empty or
+wholly `Text`-kind — a list that is merely _missing the `_`-led members_ is not "unresolved" by that
+test — so closing it means widening when the fallback fires. That is a design question, so it stays
+pinned.
+
+> **Corrected in round 9.** This section first said the fallback "cannot cover it either", because
+> `completeMembersAt` returned `null` for this receiver. That was wrong, and wrong for the reason round 1
+> had already recorded: the probe contract carried its entry body on a single line, which is a shape the
+> fallback declines — E16 below. Given the same contract with the body across lines it answers
+> `amount, _type`. The fallback resolves this receiver fine. Round 9 then withdrew E15 outright: the
+> probe behind it had never typed the underscore it claimed to.
+
+## What held up
+
+- **The gtest exemption.** `TEST` completes in `Desk.test.cpp` (as `•TEST` — clangd decorates it), the
+  identifier tier is not narrowed, and the member step still applies. A gtest keeps the library it is
+  written in.
+- **`std::` inside a contract.** Zero C++ library names. The rule was also checked in isolation:
+  `completionScope("        std::")` classifies as qualified with qualifier `std`, and
+  `keepQualifiedScope` refuses it.
+- **Operators and destructors.** Seven members at a container receiver, none of them `operator` or `~`.
+- **Cheatcodes.** 24 `CC_*` names offered in Desk — and correctly, because Desk's own generated prefix
+  header declares fourteen of them. The pattern whitelist has no check of its own, so what keeps a
+  production contract clean is the prefix, and the unit suite already covers the production wrapper that
+  declares none. This hypothesis was disproved by reading the generated header rather than by argument.
+
+## Three probes that were measuring the wrong thing
+
+- **`executeCompletionItemProvider` aggregates every provider.** A `std::` probe that counted items saw
+  134 and looked like a leak; the list was `a, an, and, answers, are, at` — VS Code's built-in
+  word-based suggestions, drawn from the file's own comments, which no extension filter governs. The
+  probe now names the C++ library symbols it would object to instead of counting.
+- **The helper cannot type.** `completionItems` advances the cursor from a marker; it does not insert
+  text. Probes for "after `std::`" and "after `CC_`" were positioning the cursor at arbitrary offsets on
+  an unrelated line. Every probe now writes the line it completes on into the buffer first, and the
+  helper accepts a character count as well as a string.
+- **A lesson from round 3, not applied.** The `_`-led probe was first written against `id`'s `_0.._3`
+  limbs — which this core's `m256i` does not have, exactly as round 3 recorded when a probe of mine died
+  the same way. A log struct's `_type` is the vehicle that actually exists.
+
+---
+
+# Round 8 — closing the silent failures
+
+Seven rounds had produced five pinned findings, each deferred as a design question. Two of them —
+**E5** and **E11** — turned out to share one root cause and one contained fix, so this round closed
+them rather than adding a sixth.
+
+Both were bare `catch` blocks that roll a contract out of the plan and discard the reason. The rollback
+itself is right: a sibling that cannot be analysed should not fail the file being edited. Doing it
+_silently_ is what leaves the developer with clangd's "use of undeclared identifier" and nothing to
+connect it to. So the fix keeps every rollback exactly as it was and only carries the reason out:
+`buildCalleePrelude` and the sibling walk in `project-dependencies.ts` each take an optional reporter,
+additive, so no existing caller changes.
+
+## E11 — closed
+
+A contract that is not the one `qinit.json` names, referencing a callee that does not exist yet, used
+to degrade to standalone with no diagnostic at all. It now reports, and clears by itself:
+
+```
+missing callee            -> qinit/project-dependencies after 0 ms
+  'Caller' could not be resolved as part of this project, so its callees are unavailable here
+  and references to them will not resolve: unknown callee 'Missing' referenced by Caller
+after creating the callee -> 0 diagnostics (0 ms)
+```
+
+Resolution still degrades to standalone rather than throwing, deliberately: throwing would also fail
+clangd config generation for that file, which is worse than the missing callees. The reason rides
+alongside as a **warning**, because the file does still work.
+
+## E5 — half closed, and the half that is left is the design question
+
+`Bank` is still dropped from `Teller`'s prelude, and `Teller.h` still shows eight
+`use of undeclared identifier 'Bank'` errors. Resolving a callee's own callees before parsing its
+registrations is a `packages/build` change with its own review, and that stands pinned.
+
+What is no longer true is that nothing names the cause:
+
+```
+qinit/callee-dropped — 'Bank' could not be analysed, so it is missing from this contract's callee
+prelude and every 'Bank::' reference will read as an undeclared identifier:
+Source analysis failed: unknown type 'Ledger::Stamp' (not a QPI scalar, enum, typedef or struct)
+```
+
+The pinned case was renamed to say what it now tests, and a second case asserts the report.
+
+## Two existing assertions had to change, and why
+
+Neither was weakened to go green; both had been standing in for something they no longer measure.
+
+- **"the project resolves at all"** (round 2) asserted _zero_ `qinit-project` diagnostics on `Teller.h`
+  as a proxy for "resolution succeeded". A dropped callee is now reported under that same source as a
+  warning, so the proxy would have failed on an improvement. It now asserts zero `qinit-project`
+  **errors**, and the warning is asserted by the new case beside it.
+- **"an identifier list does not change…"** (round 6) asserted that no name is lost when a sibling is
+  opened. It failed on `simde_bool` lost and `arc4random_buf` gained — the same clangd index jitter
+  round 6 recorded, in both directions. Rather than exclude those names by hand, the probe now takes
+  **two readings in the same state** to measure clangd's own variance, and compares across states only
+  the names that were stable anyway: 42 of 44 stable, nothing lost, nothing gained.
+
+## One more thing the repro taught
+
+The first version of the E11 test created the callee file and called `doc.save()`. A save on a buffer
+with no unsaved edits fires no event, so nothing re-resolved and the diagnostic sat there for the full
+thirty-second timeout looking like a failure to clear. The test now makes a real edit first — which is
+also the honest scenario, because **creating a sibling on disk does not by itself re-resolve an open
+file**; something has to save it.
+
+Pinned findings now stand at four: E5's drop, E7, E14 and E15.
+
+---
+
+# Round 9 — where the member fallback actually answers
+
+The member fallback is the extension's entire defence against the clangd bug that started this campaign.
+When it declines, the developer gets whatever clangd said, so every shape it cannot resolve is a shape
+where the bug is simply unmitigated — and nobody had ever mapped which those are.
+
+`packages/vscode/scripts/member-coverage.ts` (`bun run --filter qpi-vscode member:coverage`) asks
+`completeMembersAt` for eighteen receiver shapes in one contract, varying only the receiver so a decline
+is about the receiver and not the file around it.
+
+## E16 — a one-line entry body made every receiver in it decline (fixed)
+
+The query rewrites the receiver's line into a statement of its own so it parses. That line normally
+holds nothing else. When the entry body is written on **one line** it also holds the macro and both
+braces, and replacing the line took them with it: the contract stopped parsing, `findContractStruct`
+found nothing, and the query returned `undefined` for every receiver in that body.
+
+```
+PUBLIC_PROCEDURE_WITH_LOCALS(Go) { locals.note.amount = 0; }   -> declines
+PUBLIC_PROCEDURE_WITH_LOCALS(Go)
+{
+    locals.note.amount = 0;                                    -> amount, _type
+}
+```
+
+Not a corner: **four of core's own thirty-five contracts** are written this way
+(`PUBLIC_FUNCTION(Get) { output.value = state.get().n; }`), and it is also the shape a body has while
+it is being typed, before the developer splits it.
+
+Fixed by keeping the brace either side of the receiver when the line has one. A receiver on its own
+line has neither, so the constructed probe is byte-identical to before for every shape that already
+worked — which the coverage map confirms: 15/18 before the fix with exactly the three one-line rows
+declining, 18/18 after.
+
+## The correction this round forced
+
+Round 7 justified pinning **E15** partly on "the member fallback cannot cover it either:
+`completeMembersAt` returns `null` for this receiver". That was wrong. The probe contract I used had its
+entry body on one line, so what I measured was E16, not a limit of the receiver. Given the same contract
+across lines the fallback answers `amount, _type`.
+
+Round 1 had already recorded this exact trap — _"contract body with two statements on one line made
+`completeMembersAt` report UNRESOLVED for everything"_ — and I walked into it again six rounds later and
+drew a conclusion from it. The round 7 entry now carries the correction inline, and E15's remaining
+obstacle is only the trigger condition in `memberCompletions`, which is a smaller thing than I claimed.
+
+## E15, withdrawn
+
+Chasing E16 back through round 7's probes turned up that **E15 was never real**. Its probe advanced a
+cursor thirteen characters into `locals.note.amount` and called the result "completing after
+`locals.note._`" — it never typed an underscore, so every reading was the list for the prefix `a`. With
+`locals.note._type = 0;` actually in the buffer, `locals.note.` offers `amount` and `locals.note._`
+offers `_type`: the rule works in both directions. The round 7 entry is marked withdrawn with the
+re-measurement beside it, and `test:campaign` is now 14 passing, exit 0.
+
+Round 7 had itself recorded that this helper cannot type, and fixed two other probes for that reason in
+the same round. This is the second time in two rounds that a finding turned out to be a probe repeating
+a mistake the campaign had already written down — which is an argument for the coverage script above
+over one-off probes: it exercises one construction across eighteen shapes instead of eighteen
+hand-written cursors.
+
+A widening of the fallback trigger had been written against E15 before it was withdrawn. It was
+reverted rather than kept: it fixed nothing, and an unused branch in the completion path is a cost.
+
+## What held up
+
+Fifteen of the eighteen shapes answered before this round's fix and still do: a struct declared in the
+contract, a struct declared at file scope, a callee's type and its nested type, two levels of nesting,
+`Array` and `BitArray` method lists, a member through `get(0)`, `state.get()` and `state.mut()` both
+bare and through a struct field, `input`, `output`, and `qpi` with its 48 host calls. The fallback is in
+better shape than the E1 investigation left it looking; its one real hole was the formatting of the line
+it rewrites.
+
+---
+
+# Round 10 — the migration entry
+
+`MIGRATE` is the one entry that runs against a state layout the contract no longer declares. It runs
+once, on a live contract, against persisted state, and there is no second chance — which makes it the
+highest-stakes body a developer writes and the last untouched probe family in the prompt.
+
+Completion there is fine. `oldState.` resolves to `OldStateData`'s fields and `state.mut().` to the new
+ones, in the same body, without confusing the two. The diagnostics are another matter.
+
+## E17 — a migration that narrows a field is silent everywhere (not fixed)
+
+| migration                      | clang      | TypeScript backend | editor                            |
+| ------------------------------ | ---------- | ------------------ | --------------------------------- |
+| `uint32` → `uint64` (widening) | builds     | silent             | silent — correct, nothing is lost |
+| **`uint64` → `uint32`**        | **builds** | **silent**         | **silent**                        |
+| **`sint64` → `uint64`**        | **builds** | **silent**         | **silent**                        |
+
+The narrowing row truncates every persisted value above 2³², once, irreversibly, on a deployed
+contract. The signedness row turns every persisted negative value into a very large positive one.
+
+Unlike every gap this campaign has found so far, **there is no oracle**. C++ permits both conversions
+implicitly, so clang is right to accept them and the build cannot be appealed to; the TypeScript backend
+agrees; and the editor says nothing. The developer's only protection is noticing.
+
+The differential grew a `NO-ORACLE` verdict to say this, because the existing ones could not: `GAP`
+means clang refused and the editor stayed quiet, and here nothing refuses at all.
+
+Not fixed, deliberately. The remedy is a new rule — compare `OldStateData` against `StateData` field by
+field and warn when the new type cannot hold the old one — and a new rule is a product decision, not a
+testing round's to make: someone may narrow on purpose after proving the range, so it would have to be a
+warning, and where it lives (a `qpi/*` policy rule, or the compiler) is a design question. It is pinned
+as two `NO-ORACLE` rows so the decision is visible rather than lost.
+
+## Two more E7 instances, on the surface where it matters most
+
+| probe                                                | clang   | backend                                         | editor     |
+| ---------------------------------------------------- | ------- | ----------------------------------------------- | ---------- |
+| `MIGRATE` reads a field `OldStateData` does not have | refuses | `unsupported member read [oldState.migratedAt]` | **silent** |
+| `MIGRATE` with no `OldStateData` declared at all     | refuses | `unsupported member read [oldState.counter]`    | **silent** |
+
+Both are E7 exactly — the message comes from `value-expression.ts:173`, in the lowering phase the editor
+never reaches, and arrives uncoded. They are recorded here rather than given new numbers because the
+mechanism is identical; what is new is where they land. Renaming a state field and forgetting to update
+the migration is an ordinary refactor, and the editor stays green on it.
+
+`MIGRATE` assigning **to** `oldState` is caught (`compiler/semantic`), and a well-formed migration is
+clean.
+
+## An instrument bug that had been shrinking the corpus silently
+
+Appending probes left a stray comma between entries twice — once in round 3, once here — which makes a
+JavaScript **array hole**. The check written in round 3 to catch it (`PROBES.filter((p) => !p).length`)
+cannot: `filter` and `map` _skip_ holes rather than yielding `undefined` for them, so a corpus that had
+quietly lost probes reported zero holes and a clean run. Here it took two probes out of fifty-nine and
+the only symptom was a crash further along; had the crash not happened, the row count would simply have
+been wrong.
+
+Both differentials now check properly — `[...Array(n).keys()].filter((i) => !(i in PROBES))` — and exit
+2 with the offending index rather than running a corpus that is not the corpus.
+
+Final run: **51/59 agree · 6 GAP · 2 NO-ORACLE · 0 SPURIOUS**. The six gaps are E7 (four from round 3,
+two from this one); the two no-oracle rows are E17.
+
+## A correction to round 9's summary
+
+Round 9 reported pinned findings "down from four to two". That was wrong: E14 was still pinned and still
+failing in `test:live`, so the count was three. With this round it is four — E5's drop, E7, E14 and E17.
+
+---
+
+# Round 11 — scale, and the last small pinned finding
+
+Every probe family in the prompt has now been campaigned. What had never been measured is the one thing
+the prompt's sixth ground rule asks for by name — timings — against anything bigger than a fixture. The
+existing suite budgets warm completion at 500 ms on a sixty-line file; core's own contracts run to
+6 517 lines, and `analyzeContract` is what `QpiDiagnostics` calls on a debounce after every edit.
+
+## The editor scales linearly, and there is headroom (nothing to fix)
+
+`packages/vscode/scripts/scale-bench.ts` (`bun run --filter qpi-vscode scale`) measures all 35 of core's
+contracts, median of five runs each.
+
+|                                      |                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------ |
+| fixed cost                           | a 13-line contract still takes 4 ms — parsing the QPI header dwarfs parsing the file |
+| per line, 26 contracts of 500+ lines | **22–39 µs, median 28**                                                              |
+| spread across an 11× size range      | **1.8×** — flat, so the cost is linear, not quadratic                                |
+| largest (`NOST`, 6 517 lines)        | 172 ms analyze, **206 ms** stopped after lowering                                    |
+
+Three runs of the whole sweep, because a ratio this close to 1 is worth sampling more than once: the
+median came out 1.3×, 1.4×, 1.3× and the assembly share 59%, 61%, 59%. The spread across contracts moves
+more than the median does.
+| over the 500 ms budget | **0 of 35** |
+
+A rising µs/line would have meant the contracts that need the editor most are the ones it serves worst.
+It does not rise. 154 ms on a debounce is comfortable, and the benchmark stays in the tree as the thing
+that will notice if that changes.
+
+One presentation bug is worth recording because the first run stated it wrongly: the summary compared
+the largest contract's µs/line against the _smallest_, and reported "0.0x". The 13-line file is almost
+entirely fixed cost, so that ratio measures startup rather than scaling. The comparison now runs over
+contracts of 500+ lines, where per-line cost is the thing actually varying.
+
+## E14 — closed
+
+The remaining half of E14 was a struct field sharing an entry's name: `uint64 Bump;` hovered as the
+procedure `Bump`. Round 5 pinned it on the grounds that telling a declarator from a reference needs
+parse context the provider does not have. It does not — it needs one token.
+
+Two adjacent identifiers are a declaration in C++. Measured across every context a name can appear in:
+
+| spelling                           | token before the name  |                                                   |
+| ---------------------------------- | ---------------------- | ------------------------------------------------- |
+| `uint64 Bump;`                     | `identifier("uint64")` | declarator                                        |
+| `Note Bump;`                       | `identifier("Note")`   | declarator                                        |
+| `output.value = Bump;`             | `eq`                   | reference                                         |
+| `state.mut().Bump`                 | `dot`                  | reference                                         |
+| `PUBLIC_PROCEDURE(Bump)`           | `l_paren`              | reference — and the position the hover exists for |
+| `REGISTER_USER_PROCEDURE(Bump, 2)` | `l_paren`              | reference                                         |
+| `return Bump;`                     | `kw_return`            | reference                                         |
+
+Only a declarator follows a bare identifier. `Array<Note, 4> Bump;` follows `>`, which a comparison also
+does, so that one spelling is left alone rather than risk silencing a real reference — a stated limit
+rather than an oversight. `test:live` is now **17 passing, exit 0**.
+
+## The round-6 question, answered properly
+
+Round 6 asked whether opening a sibling contract changes what the file you return to may complete, and
+answered it through the editor. That measurement failed again this round on
+`ProposalByAnyoneVotingByComputors` — a real QPI type, "stable" across the two same-state readings round
+8 added, and absent from the third. Rather than add a fourth sample, the question was taken somewhere it
+can be answered exactly:
+
+```
+Meter.prefix.h -> 1622 allowed names
+Feed.prefix.h  -> 1622 allowed names
+in Meter only: 0        in Feed only: 0
+```
+
+The two allowed sets are **identical, name for name**, and both contain the name that went missing. The
+extension cannot be dropping it; clangd's index volunteers and withholds system symbols between requests
+on a period longer than a couple of samples, and three rounds running that noise was read as a signal.
+
+What the allowed set does is a property of a pure function, so it is now tested as one — "sibling
+contracts of one project walk to the same allowed set" in `completion-filter.test.ts` builds two
+contracts, walks both prefixes and compares the sets name by name. The editor case keeps the measurement
+for drift and asserts only what clangd's variance cannot manufacture: a sibling's own names appearing.
+
+That is the third time this campaign mistook clangd's own variability for a finding. The lesson is not
+"sample harder" — it is that a property of the extension should be measured on the extension, and only
+the things that genuinely require an editor belong in an editor test.
+
+Pinned findings: **three** — E5's drop, E7 and E17.
+
+# Round 12 — what E7 would actually cost
+
+E7 is the largest pinned finding: seven error sites live in a phase the editor never reaches, so a file
+that neither backend will build can show a clean editor. Two fixes were named, and the cheaper one —
+run more of the compiler on the debounce — was dismissed on a measurement: 215 ms against 65 ms for
+`analyzeContract`, 3.3× on every settle. Round 11 built the instrument that makes that re-checkable, so
+this round re-checks it, and the figure does not survive.
+
+## The measurement priced an option nobody proposed
+
+The diagnostics the editor is missing are raised while **lowering** bodies to WAT — the `generating wasm`
+phase in `driver/compile-contract.ts:58`. The phase after it, `assembling wasm`, encodes that WAT into a
+binary. An editor would never want the binary, so the option E7 describes is not "run the compile", it
+is "run the compile and stop one phase early" — and the compiler's own `CompilationPhaseTracker` prices
+that exactly, per phase, without a stopwatch of mine anywhere near it.
+
+`packages/vscode/scripts/lowering-cost.ts` (`bun run --filter qpi-vscode lowering:cost`) measures all 29
+contracts in `contract_def.h`, wired the way `compile/typescript.ts:108-147` wires them, median of three
+runs each.
+
+|                                                   |                                                                       |
+| ------------------------------------------------- | --------------------------------------------------------------------- |
+| compile stopped after lowering, against `analyze` | **median 1.3×** over the 24 contracts of 500+ lines, spread 0.9×–2.9× |
+| `assembling wasm`                                 | **41–76% of the full compile, median ~60%** — all of it wasted        |
+| its fixed cost                                    | **64 ms** on a 13-line contract, before it looks at the contract      |
+| largest (`NOST`, 6 517 lines)                     | 172 ms analyze, **206 ms** stopped after lowering                     |
+
+Three runs of the whole sweep, because a ratio this close to 1 is worth sampling more than once: the
+median came out 1.3×, 1.4×, 1.3× and the assembly share 59%, 61%, 59%. The spread across contracts moves
+more than the median does.
+
+The floor sits at or just below 1.0×, and that is not the warm-cache artifact it looks like. The two
+paths are not prefix and superset: `analyzeContract` runs the frontend and then `prepareContractModule`
+and `buildContractIdl` (`analyzer/index.ts:172-183`), while the driver reaches the same ground inside
+`generateWasmModule`. They overlap; neither contains the other. The first run of this measurement _was_
+an artifact — analyze was timed first, so the compile inherited caches it had filled and came out faster
+than its own prefix — and it is fixed by warming both before timing either.
+
+So the cost is one of two numbers, depending on how conservative the implementation is. Sharing the one
+pipeline, the editor pays **1.3×** what it pays today. Keeping `analyzeContract` and adding a lowering
+pass beside it — which is what a first patch would do, because the source-policy rules the editor shows
+come from the analyzer and not from the driver — costs **2.3×**, putting the largest contract in core at
+378 ms on a debounce. That is still inside the 500 ms budget round 11 measured against, though not by
+much. Neither number is 3.3×, and neither involves emitting wasm that is thrown away.
+
+**E7 stays open.** What changes is the argument: the objection is now entirely about where these checks
+belong, not about what they cost. The second defect recorded under E7 — lowering diagnostics carry no
+`code` at all — is unaffected and remains the thing that would have to be fixed either way.
+
+## The control this round could finally run
+
+The differential answers "editor versus compiler" on probes written to be wrong. It has never been able
+to ask the same question of code that is right, because the fixtures are not production contracts. The
+29 in `contract_def.h` are, and the same script now asserts it: **29 of 29 agree**, zero errors from
+`analyzeContract` and zero from a full compile, on every deployed contract.
+
+That is a weaker claim than it looks — correct code has no errors, so agreement is the expected answer —
+but it is the one thing that bounds E7's blast radius. The gap is not silently passing broken production
+source; it opens only while a developer is writing code that is wrong, which is a narrower finding than
+round 3 stated and still the surface an editor exists for.
+
+## Three harness bugs, all found by disbelieving the result
+
+Getting that zero took three tries. The drafts reported as many as **4 of 29** disagreeing, with QRWA
+alone at 36 compile errors the editor never mentioned. Every one was mine:
+
+| what the harness did                                                    | what it manufactured                                              |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| swept every contract file at `slot: 31` with no callees at all          | `no callee IDL`, in every contract that calls a sibling           |
+| then passed **all 28 siblings** as callees instead of the closure       | `unknown type 'Success_output'` in QUTIL, 7 errors in GQMPROP     |
+| left the log-header gate strict for the two contracts the build exempts | 39 `__qinit_log_info payload must open with a 4-byte word` errors |
+
+The last one is the sharpest: `KNOWN_LOG_HEADER_VIOLATIONS` in `system-contracts.ts:10` names
+`VottunBridge.h` and `qRWA.h` as contracts whose leading log word the host overwrites, and the build
+passes `strict: false` for exactly those two. A harness that does not is not measuring the compiler the
+developer has. Wired with `systemContractClosure` and the same strictness flag, the disagreements went
+to zero — and the way to find that out was that `gqmprop-upstream.test.ts:60` already asserts GQMPROP
+compiles with **no** errors, which my run contradicted. When a probe contradicts an existing passing
+test, the probe is wrong.
+
+Pinned findings: **three** — E5's drop, E7 and E17. E7's disposition is unchanged; its justification is
+not.
+
+# Round 13 — the oracle E17 said did not exist
+
+E17 is pinned with the sentence _"unlike every gap this campaign has found so far, there is no oracle"_,
+and the differential grew a whole `NO-ORACLE` verdict to say it. That is true of clang, of the
+TypeScript backend and of the editor, and it is where round 10 stopped. It is not true of the machine.
+Deploy the contract, store a value, redeploy the narrowed version, and read the state back: the state
+itself says what happened, and the simulator has been able to do that the whole time.
+
+`packages/vscode/scripts/migration-oracle.ts` (`bun run --filter qpi-vscode migrate:oracle`) stores
+`a = 1 099 511 627 783`, `b = −1 099 511 640 121`, `c = 99` in a v1 contract, redeploys ten v2 shapes over
+it, and reads all three back through a `Get` whose output is four `uint64` so nothing is re-widened on
+the way out.
+
+| redeployed as                          | what the contract now reads              | diagnostics |
+| -------------------------------------- | ---------------------------------------- | ----------- |
+| identical layout, with/without MIGRATE | everything intact — the control          | 0           |
+| `uint64` → `uint32`                    | **a = 7**                                | 0           |
+| `uint64` → `uint8`                     | **a = 7**                                | 0           |
+| `sint64` → `uint64`                    | same bits, but **`b < 0` is now false**  | 0           |
+| `sint64` → `sint32`                    | **b = −12 345**                          | 0           |
+| `uint64` → `uint32`, **no MIGRATE**    | **a = 7** — the same truncation          | 0           |
+| a field inserted, **no MIGRATE**       | a ← old `b`, b ← 99, c ← 0, sign flipped | 0           |
+
+Seven of ten redeploys changed the state, and not one of them produced a diagnostic from the editor or
+from either backend. E17 stays pinned and its evidence is now a number rather than an inference.
+
+## Two corrections to how round 10 wrote it
+
+**The signedness row does not change a single bit.** Round 10 said `sint64` → `uint64` "turns every
+persisted negative value into a very large positive one". The value is the same 64 bits before and
+after; what changes is what the contract's own code makes of them, which the probe shows by asking the
+contract rather than the bytes: `state.get().b < 0` answers yes under v1 and **no** under v2. That
+matters for the rule the finding asks for — it would have to key on the declared type changing, because
+there is nothing in the data to compare.
+
+**The narrowing does not need a `MIGRATE` at all.** Round 10 framed E17 as a property of migration
+bodies. Redeploying the narrowed layout with no `MIGRATE` declared truncates identically, through the
+raw-overlap path in `engine/contract/registry.ts:68`. A rule that inspects only `MIGRATE` bodies would
+catch half of it.
+
+## E18 — a MIGRATE that cannot run satisfies the guard that would have caught its absence (fixed)
+
+`qinit deploy` already refuses a changed layout: `stateCarryoverRejection` compares the deployed state's
+size and format against the new one and rejects, naming both layouts and the ways out. Its last clause
+was `if (next.migration) return null` — a handler is there, so the reinterpretation is the handler's
+job.
+
+The runtime disagrees about when a handler has a job. `registry.ts:64` fires `MIGRATE` only when
+`OldStateData` is **exactly** the size of the state already on the node; any other size falls through to
+the raw overlap copy, in silence. Nothing compared the two, and both numbers were sitting in the IDLs the
+guard already had:
+
+```
+v1 state:               24 B  (uint64, sint64, uint64)
+v2 state:               32 B  (uint64, uint64, sint64, uint64)
+v2 MIGRATE OldStateData: 16 B (uint64, sint64)
+deploy guard says:      PROCEED
+```
+
+So a developer who changes the state layout, writes a migration, and gets `OldStateData` subtly wrong
+gets the worst of every path: the migration never runs, the guard that refuses a bare layout change has
+already stood down because a migration exists, and the redeploy lands with every field reading at the
+wrong offset. The oracle's last row measures exactly that — `a` becomes the old `b`, `b` becomes 99,
+`c` becomes 0.
+
+Fixed in `cli/src/ops/deploy/state-layout.ts`: when a migration is declared, its `oldState.size` must
+equal the deployed state's size, and the rejection names both numbers rather than repeating "no MIGRATE
+handler". The escape hatch is unchanged — `--allow-state-carryover` still bypasses the whole check. Two
+tests cover it, and the pre-existing "a changed layout with a MIGRATE handler is the handler's job" case
+was carrying a 32-byte `OldStateData` over a 24-byte state, which is the bug in fixture form; it now
+declares a handler that fits.
+
+One smaller case stays open and is recorded rather than fixed: when the layout does **not** change, the
+guard returns before it looks at anything, so a `MIGRATE` with a wrong `OldStateData` is still skipped
+without a word. Nothing is corrupted — the raw copy is correct when the layouts match — but a handler
+that also stamps a migration tick, or bumps a version field, silently does not. Catching it needs a
+check on a redeploy that is otherwise a no-op, which is a different call from refusing data loss.
+
+## Where this belongs, and where it does not
+
+E18 is a deploy-time fact, not an editor one: the buffer holds one version of the contract and the editor
+has no way to know what is on a node. It was found here because round 12 established that the runtime can
+be an oracle and this round went looking for what else that oracle sees. Recording it under an editor
+campaign is the honest place for it — it is where the evidence was produced — and the fix landed where
+the check belongs.
+
+The demonstration against the deploy guard lives in `cli/tests/contracts/state-layout.test.ts` rather
+than in the campaign script, because `test-utils/import-style.test.ts` forbids reaching into another
+package by relative path and the script has no business depending on the CLI. The script stays what it
+is: the runtime oracle.
+
+Pinned findings: **three** — E5's drop, E7 and E17. E17 keeps its `NO-ORACLE` rows in the differential,
+which remains the right verdict there: no _static_ tool refuses it. The runtime does now answer, and the
+answer is on record.
+
+# Round 14 — the hover, carried to the machine
+
+Round 13 established that the runtime answers questions the static tools cannot. The claim most worth
+pointing it at is the IDL hover: it states an entry's **index** and its **input/output codec**, and those
+are what a developer builds a call from. Every round that has checked them — round 5, which found E12 and
+E13 — checked them against `buildContractIdl`, which is the same source that produced them. Nothing has
+ever made the engine honour them.
+
+`packages/vscode/scripts/hover-vs-engine.ts` (`bun run --filter qpi-vscode hover:engine`) deploys a
+contract whose registration indexes are deliberately out of order and gapped, encodes each input **from
+the hover's format string alone**, calls the index the hover gives, and checks which body answered — each
+one writes a tag no other body writes, so a misdispatch cannot hide behind a plausible value.
+
+| what the hover says                            | engine |
+| ---------------------------------------------- | ------ |
+| function `Echo` · index 3 · `uint64, uint64`   | ok     |
+| function `Pad` · index 2 · `uint8, uint64`     | ok     |
+| function `Small` · index 1 · `(empty)`         | ok     |
+| procedure `Bump` · index 1 · `uint64`          | ok     |
+| procedure `Store` · index 9 · `uint64, sint64` | ok     |
+
+Five of five, on the index and in the size stated. `Small` and `Bump` share index 1, which is only
+correct if the engine dispatches on the entry kind as well as the number — it does. This is a control
+rather than a finding, and it is the control E13 would have been caught by.
+
+## E19 — WITHDRAWN: the codec line is not a type list, and is not incomplete
+
+The round opened on what looked like a serious defect. `Pad_input { uint8 flag; uint64 amount; }` hovers
+as `input : uint8, uint64`, and the ABI wants **sixteen** bytes with `amount` at offset 8. Encode what
+that line appears to say — one byte then eight — and the engine answers:
+
+```
+hand-packed as nine bytes instead of the 16 `uint8, uint64` resolves to:
+  the call still succeeds and amount comes back as 0, sent 500
+```
+
+Success, and the amount silently gone, because a short input is zero-filled rather than refused. I wrote
+the fix — a `codecLine` helper rendering `uint8, uint64 · 16 B, fields at 0, 8`, five unit tests and two
+editor cases, all passing — and then went looking for who actually consumes that string.
+
+`@qinit/proto/abi-fmt` does. It is the qubic-cli-compatible format-string codec, the one behind
+`qinit call --in`, and it applies the ABI's alignment rules itself:
+
+```
+uint8, uint64   -> size 16, align 8, offsets [0, 8]
+uint64, uint8   -> size 16, align 8, offsets [0, 8]
+```
+
+So the hover is not printing a type list that happens to omit padding; it is printing a **format string**,
+and the format string resolves to exactly the layout the contract reads. A developer who copies that line
+into `qinit call --in` gets a correct payload. The nine-byte encoding was mine, not the hover's.
+
+Withdrawn, and the change reverted — the same disposition E15 got in round 7, and for the same reason. It
+was not a wrong rendering; it was my reading of it. **Before calling a rendered string wrong, find the
+consumer that parses it.** The differential keeps the lesson enforceable rather than remembered: every
+input it sends is encoded from the format string through that codec, so if the hover's line ever stops
+resolving to the layout the ABI wants, the row fails on a size mismatch before the call is even made.
+
+## Two things this round ruled out by reading, recorded so they are not re-walked
+
+Round 4 established that every quick fix produces source that builds. It never established that the fixed
+source still **computes** the same thing, which is the half that matters more. Both fixes that can change
+behaviour turn out not to:
+
+- The div/mod fix rewrites `a / b` to `QPI::div(a, b)`, and `div` is `return b ? (a / b) : T(0)`
+  (`qpi.h:54`). Identical for every input except `b == 0`, where C++ has no answer at all — which is the
+  rule's whole purpose, not a behaviour change smuggled in beside it.
+- The stack-local fix moves `uint64 total = 5;` into `_locals`, where a struct member cannot carry an
+  initializer. It does not drop it: `moveLocalToWithLocalsEdits` re-emits the declaration as
+  `locals.total = 5;` in place (`rules/fixes.ts:273-278`), so the value is still assigned before use.
+
+One real behaviour is worth naming even though it is not the editor's: **a short input is zero-filled and
+never refused.** Sending eight bytes to a sixteen-byte entry returns success with the second field at
+zero. Nothing in this campaign's scope owns that, and `qinit call` cannot produce it — it encodes through
+the IDL or through the format-string codec, both of which size the payload correctly — but it is why the
+hover's codec line has no margin for error, and why the differential above now exists.
+
+Pinned findings: **three** — E5's drop, E7 and E17.
+
+# Round 15 — is the member list right, or only present?
+
+Round 9 mapped where the member fallback answers: eighteen receiver shapes, all resolved. It never asked
+the next question. The list it hands back is a list of names, and nothing has ever compared those names
+to the type. A list that omits a field is a field the developer stops using; a list that invents one is a
+line that will not compile, offered as though it would. Both are worse than declining, because a decline
+at least falls through to clangd.
+
+Three receivers have an exact, independent ground truth: `state.get()` and `state.mut()` are always
+`StateData`, and `input`/`output` inside an entry body are always that entry's own structs. The IDL names
+every field of all three, so the comparison is a set difference rather than a judgement —
+`packages/vscode/scripts/member-truth.ts` (`bun run --filter qpi-vscode member:truth`) runs it over every
+such receiver in core's 29 deployed contracts.
+
+**2 993 positions asked · 0 omitted a declared field.** Where the fallback answers, it is right.
+
+It also declined **355 of them**, and one contract — QUTIL — declined **all 139**.
+
+## E20 — one dropped line silences the rest of the file (fixed)
+
+QUTIL's first receiver is an ordinary assignment on its own line, and it declines. QPayhub's receivers
+resolve down to line 878 and decline from 928 on, with nothing between them that looks like a boundary.
+The minimal repro turned out to be three lines long:
+
+| above the cursor                   | member list  | the same file's diagnostic |
+| ---------------------------------- | ------------ | -------------------------- |
+| nothing                            | resolves     | on its own line            |
+| `#define PARKED 1`                 | **declines** | **one line too high**      |
+| `#if 0` … `#endif`                 | **declines** | **two lines too high**     |
+| a comment block of the same length | resolves     | on its own line            |
+
+A comment is masked to spaces and keeps its newlines; a directive produces nothing at all, and its own
+line simply disappears. Everything downstream maps a generated line back to a user line by subtracting
+one constant — `userBoundaryLine` — so a single vanished line silently shifts **every diagnostic below
+it** and, because `completeMembersAt` looks for the probe statement on an exact line, kills member
+completion for the rest of the file.
+
+The second trigger is the one QPayhub had, and it is not a directive at all: a **macro invocation whose
+arguments span lines**. `SUBSCRIBE_ORACLE(...)` is written across three lines at 915, consumes three and
+emits one, and every receiver below it declined — 53 of them.
+
+Fixed in three places, all of them the same rule — consuming input lines must not cost line numbers:
+
+- `preprocessor-core.ts` emits the newlines a directive occupied. The preserve-offsets path already did
+  this through `maskSource`; the compile path, which is the one the editor uses, did not.
+- the same for a macro expansion, padding the expansion to the line count of the invocation it replaced.
+- that alone made things **worse**, and the reason is worth recording: the boundary marker sat _before_
+  the cheat-macro block, and that only worked because the block's `#define`s emitted zero lines. With
+  lines preserved the constant was nine too small and every file shifted. The marker now sits directly
+  before the user source, which is what `userBoundaryLine` has always been read as meaning.
+
+The effect, measured on the same 2 993 positions:
+
+|                            | declined       | QUTIL      | QPAYHUB |
+| -------------------------- | -------------- | ---------- | ------- |
+| before                     | 355 (11.9%)    | 139 of 139 | 53      |
+| directive lines preserved  | 227 (7.6%)     | 11         | 53      |
+| macro-invocation lines too | **166 (5.5%)** | **11**     | **0**   |
+
+Four regression tests, in `member-query.test.ts` and a new `driver/preprocessor-lines.test.ts`; all four
+fail without the fix. The full compiler suite passes, which matters more than the tests I wrote — this
+changes the generated source of every compile, and the suite is what says the cheat-macro `__LINE__`
+accounting and the diagnostic remapper still agree with it.
+
+## The one extra name, which is not an invention
+
+GQMPROP's `SetProposal_input` is `ProposalDataV1<false>`, and the member list offers a
+`supportScalarVotes` the IDL does not list. Both are right: it is a `static constexpr bool` and occupies
+no bytes, so it belongs in the member list and not in the payload. The differential prints extras for
+inspection and fails only on an omission — an ABI field is something the list must have, a C++ member is
+not something the ABI must.
+
+## The 166 that still decline
+
+5.5%, and they are the limitation E16 already named rather than a new one: the query replaces the
+receiver's **line** with the receiver alone, which is only sound when the line is a whole statement. A
+receiver inside an `if (…)` or `for (…)` header, or on the second line of a condition that spans two,
+takes its syntax with it. Sampled across four contracts: 34 in a conditional or loop header, 33 on a
+continuation line, and a residue this round did not root-cause. Recorded as a measured baseline with the
+script as the watchdog — it exits non-zero only on an omission, so the decline rate is a number to watch
+rather than a gate.
+
+Pinned findings: **three** — E5's drop, E7 and E17.
+
+# Round 16 — the last 5% of the member query
+
+Round 15 left the decline rate at **166 of 2 993** receiver positions and attributed the residue to the
+limitation E16 named. That attribution was made from a sample taken _before_ E20 was fixed, and it was
+wrong: once the line shift was gone, every `if`/`for` header in it resolved. Classify after fixing the
+dominant cause, not before.
+
+Probing the shapes in isolation instead named four:
+
+| shape                                      | before   | after    |
+| ------------------------------------------ | -------- | -------- |
+| `locals.s = -state.get().beta;`            | declines | resolves |
+| `locals.s = (sint64)state.get().alpha;`    | declines | resolves |
+| the same cast inside a `for (…)` header    | declines | resolves |
+| an argument list spread over several lines | declines | resolves |
+
+## E21 — the receiver walk took too much, the line rewrite too little (fixed)
+
+The first three are one cause. `receiverStartOf` walks back over receiver characters, and `-` is in that
+set because `->` needs it — so `-state.get()` was taken whole, and an expression has no members. A
+C-style cast is worse: from the back it is indistinguishable from a call's parentheses, so `(sint64)`
+came along too. Fixed by allowing `-` only as the first half of `->`, and trimming a leading cast after
+the walk — `(a + b).c` is deliberately not matched and keeps its parenthesised receiver.
+
+The fourth is the opposite mistake. The probe replaces the receiver's **line** with the receiver alone,
+which is only sound when the line is a whole statement; `sadd(` on the line above and `1);` on the line
+below were left paired with nothing. The spilled lines are now blanked to spaces — the newlines stay,
+because the probe is located by line number, which is the same constraint E20 turned out to rest on.
+The widening stands down whenever the span carries a brace, so the one-line entry body of E16 keeps the
+rewrite that was written for it.
+
+|                              | declined | of 2 993 |
+| ---------------------------- | -------- | -------- |
+| before round 15              | 355      | 11.9%    |
+| after E20                    | 166      | 5.5%     |
+| prefix operator and cast     | 121      | 4.0%     |
+| statement spilled over lines | **32**   | **1.1%** |
+
+No list omits a declared field at any point in that sequence, and `member:coverage` stays 18/18.
+
+Pinned findings: **three** — E5's drop, E7 and E17.
+
+# Round 17 — E5, closed
+
+The campaign had stopped. This round exists because a question about E5 — "from the caller's perspective
+nothing is broken, only the callee's level?" — turned out to have the answer backwards, and checking it
+properly showed the finding had been understated for fourteen rounds.
+
+## The correction: E5 is a build failure, not an editor degradation
+
+Rounds 3 and 8 both describe E5 as a degraded editor: `clangd --check` reporting eight
+`use of undeclared identifier 'Bank'` errors on `Teller.h`. Neither asked whether the **build** survives.
+It does not. On a clean three-contract diamond — `Ledger::Stamp` in Bank's private state only, so no
+`qpi/public-callee-type` violation confounds the result:
+
+```
+qinit build Ledger  : OK
+qinit build Bank    : OK       <- the callee is fine
+qinit build Teller  : FAILS    <- inter-contract resolve failed: unknown type 'Ledger::Stamp'
+```
+
+The callee is not broken; the **caller** is, and `qinit build` refuses a valid project. The two paths
+differ because a referenced callee goes through `resolveCallee` uncaught (`intercontract.ts:228`) and
+throws, while an unreferenced sibling is caught and dropped. Round 8 fixed the silence on the second
+path and never touched the first.
+
+## The fix: discover before analysing
+
+`resolveCallee` called `parseRegisters` on each callee **in isolation** — its name, slot and the QPI
+header, but not its own callee sources — so a qualified `Ledger::Stamp` inside Bank was an unknown type.
+The information was gathered on the very next line, by `scanCallees`, one statement too late.
+
+The scan now runs first, its results resolve, and `parseRegisters` receives them as `calleeSources`.
+Four things make that safe, and each is now a test rather than an assumption:
+
+- **`scanCallees` cannot fail the way `parseRegisters` does.** `analyzeContract` computes `calls` via
+  `collectSourceContractCalls` before the compile that can throw and returns it unconditionally; only
+  `idl` goes missing. An unanalysable contract still yields its callee graph — which is exactly the
+  asymmetry E5 lived in, and is now asserted directly.
+- **A cycle stops recursing rather than throwing.** The old `resolved.has(type)` memo was the termination
+  guard and the reorder moves it, so a `visiting` stack replaces it. It does _not_ copy
+  `systemContractClosure`'s throw-on-cycle: `buildCalleePrelude` is called unwrapped from
+  `clangd-config.ts:129`, and `robustness.test.ts:53` holds `generateClangdConfig` to not throwing.
+- **Each callee gets its own closure, never the full sibling set.** Round 13 measured what the lazy
+  version does: all 28 core siblings as `calleeSources` manufactured errors that were not there.
+- **The referenced-callee throw stays.** A genuinely broken referenced callee _should_ fail the caller's
+  build. It now fires only on real breakage — which is what makes round 8's drop-and-report a good enough
+  answer for the sibling path, and why the design question E5 was pinned on stops being load-bearing
+  instead of needing an answer.
+
+## Evidence
+
+|                                              | before                | after              |
+| -------------------------------------------- | --------------------- | ------------------ |
+| `qinit build Teller` on a clean diamond      | FAILS                 | **OK**             |
+| `Teller.h` clang errors in the editor        | 8                     | **0**              |
+| `test:xross`                                 | 5 passing / 1 failing | **6 / 0**          |
+| prelude for core's 13 contracts with callees | —                     | **byte-identical** |
+
+That last row is the one that bounds the risk: the generated prelude for every core contract that makes
+an inter-contract call is unchanged to the byte, so the blast radius is confined to the case that was
+already broken.
+
+## The test that lost its premise
+
+`"the drop is reported even though the caller still does not compile"` asserted that Bank drops and says
+so. Bank no longer drops, so the case was re-pointed at `Orphan.h` — a well-formed contract naming a
+contract this project does not have, which is the shape that still legitimately fails to analyse. The
+drop-reporting path round 8 added keeps its end-to-end coverage, and `onDropped` now has unit coverage
+too, which the agent survey found it had never had.
+
+Pinned findings: **two** — E7 and E17.

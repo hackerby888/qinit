@@ -1,4 +1,5 @@
 import type { Span } from "../ast";
+import type { PreprocessedContractSource } from "../driver/contract-frontend";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 import type { ParserDiagnostic } from "../frontend/parser";
 import { AnalysisPhase, DiagnosticCategory, DiagnosticSeverity, MemberCompletionKind, QpiContextKind, SourceAnalysisOrigin } from "../shared/enums";
@@ -131,6 +132,8 @@ function analyzeCompiler(
         };
     }
 
+    // Declared outside the try so the catch-all can map a carried span back into user coordinates.
+    let preprocessed: PreprocessedContractSource | undefined;
     try {
         const compileOptions: CompileOptions = {
             source: options.source,
@@ -141,7 +144,7 @@ function analyzeCompiler(
             calleeSources: options.calleeSources,
         };
         const qpiContext = getQpiContext(options.qpiHeader);
-        const preprocessed = preprocessContractSource(compileOptions, getQpiMacros(options.qpiHeader));
+        preprocessed = preprocessContractSource(compileOptions, getQpiMacros(options.qpiHeader));
         const parserDiagnostics: ParserDiagnostic[] = [];
         const translationUnit = parseContractSource(preprocessed, parserDiagnostics);
         const diagnostics = parserDiagnostics.map((item) => compilerDiagnostic(item, AnalysisPhase.SYNTAX));
@@ -203,7 +206,7 @@ function analyzeCompiler(
         };
     } catch (error: any) {
         return {
-            diagnostics: [internalDiagnostic(error)],
+            diagnostics: [internalDiagnostic(error, preprocessed)],
         };
     }
 }
@@ -218,18 +221,24 @@ function compilerDiagnostic(item: ParserDiagnostic, phase: AnalysisPhase): Sourc
     };
 }
 
-function internalDiagnostic(error: any): SourceAnalysisDiagnostic {
+const TOP_OF_FILE = { start: 0, end: 0, line: 1, column: 1 };
+
+// An error that knows where it came from points there, in the user's own coordinates: spans raised
+// behind the generated prelude are in preprocessed lines and would otherwise land past the file's end.
+function carriedSpan(error: any, preprocessed?: PreprocessedContractSource): Span {
+    const span: Span | undefined = error?.span;
+    if (!span) return TOP_OF_FILE;
+    if (!preprocessed || span.line <= preprocessed.userBoundaryLine) return span;
+    return preprocessed.remapDiagnostic({ message: "", severity: DiagnosticSeverity.ERROR, span } as ParserDiagnostic).span;
+}
+
+function internalDiagnostic(error: any, preprocessed?: PreprocessedContractSource): SourceAnalysisDiagnostic {
     return {
         origin: SourceAnalysisOrigin.COMPILER,
         code: "compiler/internal",
         severity: DiagnosticSeverity.ERROR,
         message: `Source analysis failed: ${String(error?.message ?? error)}`,
-        span: {
-            start: 0,
-            end: 0,
-            line: 1,
-            column: 1,
-        },
+        span: carriedSpan(error, preprocessed),
     };
 }
 

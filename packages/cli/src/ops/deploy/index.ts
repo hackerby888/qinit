@@ -213,12 +213,12 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
         }
     };
 
-    // A reused slot keeps its state bytes; a changed StateData with no MIGRATE handler would read them at the wrong offsets, so the redeploy is refused.
+    // A reused slot keeps its state bytes; a changed StateData that no runnable MIGRATE rewrites would read them at the wrong offsets, so the redeploy is refused.
     if (reused && build.idl && !options.allowStateCarryover) {
         const previous = await deployedStateIdl(rpc, slot, options.core, options.idlPath);
         const rejection = previous ? stateCarryoverRejection(options.name, previous, build.idl) : null;
         if (rejection) {
-            emit({ step: "upload", state: "fail", detail: "state layout changed without MIGRATE" });
+            emit({ step: "upload", state: "fail", detail: "state layout would be reinterpreted" });
             return { ok: false, slot, hash, error: rejection };
         }
     }

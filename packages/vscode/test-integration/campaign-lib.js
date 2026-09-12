@@ -63,11 +63,15 @@ async function replaceDocument(doc, source) {
 
 const labelOf = (item) => (typeof item.label === "string" ? item.label : item.label.label).trim();
 
-/** Completion items at the first occurrence of `marker`, with the cursor placed after `dot`. */
+/**
+ * Completion items at the first occurrence of `marker`, with the cursor advanced past `dot` — either the
+ * text to place the cursor after, or a plain character count when the text would be awkward to repeat.
+ */
 async function completionItems(doc, marker, dot) {
     const offset = doc.getText().indexOf(marker);
     assert.ok(offset >= 0, `missing completion marker ${marker}`);
-    const pos = doc.positionAt(offset + dot.length);
+    const advance = typeof dot === "number" ? dot : dot.length;
+    const pos = doc.positionAt(offset + advance);
     const list = await vscode.commands.executeCommand("vscode.executeCompletionItemProvider", doc.uri, pos);
     return list?.items ?? [];
 }
@@ -85,6 +89,68 @@ async function settledLabels(doc, marker, dot, wanted, opts) {
         (labels) => labels.some((l) => l === wanted || l.startsWith(`${wanted}(`)),
         opts,
     );
+}
+
+/** Hover text at the first occurrence of `marker`, flattened to one string. */
+async function hoverAt(doc, marker, offsetInto = 0) {
+    const offset = doc.getText().indexOf(marker);
+    assert.ok(offset >= 0, `missing hover marker ${marker}`);
+    const hovers = await vscode.commands.executeCommand("vscode.executeHoverProvider", doc.uri, doc.positionAt(offset + offsetInto));
+    return (hovers || []).flatMap((hover) => hover.contents.map((content) => (typeof content === "string" ? content : content.value))).join("\n");
+}
+
+/** Only the extension's own IDL hover, ignoring whatever clangd contributes at the same position. */
+async function idlHoverAt(doc, marker, offsetInto = 0) {
+    const text = await hoverAt(doc, marker, offsetInto);
+    return text
+        .split("\n")
+        .filter((line) => /QPI (function|procedure)|index \*\*|input  :|output :/.test(line))
+        .join("\n");
+}
+
+// A word-scrape carries whatever is in the buffer, keywords included; a resolved member list is the
+// receiver's fields and nothing else. Kind alone does not separate them, but a member list has no `struct`.
+const SCRAPE_ONLY = ["struct", "namespace", "using", "public", "class"];
+
+/**
+ * Member labels, settled on a list that is actually resolved rather than one that merely contains the
+ * word being waited for. clangd's degraded answer holds every identifier in the file, including that
+ * one, so waiting on the name alone silently accepts the scrape and compares noise against noise.
+ */
+async function resolvedMemberLabels(doc, marker, dot, opts) {
+    const result = await settle(
+        () => completionItems(doc, marker, dot),
+        (items) => {
+            if (!items.length) return false;
+            const labels = items.map(labelOf);
+            return !SCRAPE_ONLY.some((keyword) => labels.includes(keyword));
+        },
+        { timeout: 30000, ...opts },
+    );
+    return { settled: result.settled, ms: result.ms, labels: result.value.map(labelOf) };
+}
+
+/**
+ * The names a position offers consistently. clangd volunteers the odd extra symbol between a cold and a
+ * warm index, and a request made too soon after switching documents comes back nearly empty — so each
+ * sample is first settled to a warm one, and only the intersection of several is reported.
+ */
+async function stableLabels(doc, marker, upto, { samples = 3, minimum = 20, timeout = 20000 } = {}) {
+    let common = null;
+    let warm = 0;
+    for (let i = 0; i < samples; i++) {
+        const settled = await settle(
+            () => completionLabels(doc, marker, upto),
+            (labels) => labels.length >= minimum,
+            { timeout, interval: 300 },
+        );
+        if (!settled.settled) continue;
+        warm++;
+        const labels = new Set(settled.value);
+        common = common === null ? labels : new Set([...common].filter((label) => labels.has(label)));
+        await sleep(150);
+    }
+    return { labels: [...(common ?? [])].sort(), warm };
 }
 
 function compileEntries() {
@@ -111,4 +177,8 @@ module.exports = {
     settledLabels,
     compileEntries,
     diagnosticsFor,
+    hoverAt,
+    idlHoverAt,
+    resolvedMemberLabels,
+    stableLabels,
 };

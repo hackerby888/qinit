@@ -5,7 +5,15 @@ import * as vscode from "vscode";
 import { loadConfigSafe } from "@qinit/core/project";
 import { QpiCodeActions } from "./codeactions";
 import { generateClangdConfig, generateTestClangdConfig } from "./clangd-config";
-import { completionScope, documentIdentifiers, keepCompletionLabel, keepMemberLabel, keepQualifiedScope, qpiAllowedIdentifiers, typedPrefix } from "./completion-filter";
+import {
+    completionScope,
+    documentIdentifiers,
+    keepCompletionLabel,
+    keepMemberLabel,
+    keepQualifiedScope,
+    qpiAllowedIdentifiers,
+    typedPrefix,
+} from "./completion-filter";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
 import { memberFallbackCompletions, type FallbackItem } from "./member-fallback";
@@ -23,6 +31,9 @@ let filterReported = false;
 let fallbackReported = false;
 // Keyed per document: a contract analyzes under its own name, slot and callees, not the last-regenerated one.
 const contractAnalysisContexts = new Map<string, ProjectAnalysisContext>();
+// Recorded when the prefix header is generated, read when diagnostics refresh: only the generator knows
+// which callees were dropped, and only the diagnostics collection can put that in front of the developer.
+const droppedCalleesByFile = new Map<string, ReadonlyArray<{ type: string; reason: string }>>();
 
 function warnOnce(key: string, message: string): void {
     if (warned.has(key)) return;
@@ -71,10 +82,7 @@ function memberSnippet(item: FallbackItem): vscode.SnippetString {
 // Only `label.detail` renders inline after the name, so a field annotates its type there as a method shows its parameters; both also fill the details pane.
 function fallbackCompletionItem(item: FallbackItem): vscode.CompletionItem {
     if (item.kind !== "method") {
-        const field = new vscode.CompletionItem(
-            { label: item.name, detail: item.returnType && `: ${item.returnType}` },
-            vscode.CompletionItemKind.Field,
-        );
+        const field = new vscode.CompletionItem({ label: item.name, detail: item.returnType && `: ${item.returnType}` }, vscode.CompletionItemKind.Field);
         field.detail = item.returnType;
         field.filterText = item.name;
         return field;
@@ -195,7 +203,9 @@ async function filterCompletions(
     if (scope.kind === "member") {
         kept = await memberCompletions(doc, position, linePrefix, items, token, out);
     } else if (scope.kind === "qualified") {
-        kept = keepQualifiedScope(scope.qualifier, allowed, documentNames) ? items.filter((item) => keepMemberLabel(labelOf(item), typedPrefix(linePrefix))) : [];
+        kept = keepQualifiedScope(scope.qualifier, allowed, documentNames)
+            ? items.filter((item) => keepMemberLabel(labelOf(item), typedPrefix(linePrefix)))
+            : [];
     } else {
         kept = items.filter((item) => keepCompletionLabel(labelOf(item), allowed, documentNames));
     }
@@ -345,6 +355,12 @@ function regenerateContract(doc: vscode.TextDocument, context: vscode.ExtensionC
             refreshClangd(root, out, sourceDetails.corePath);
         }
         out.appendLine(`clangd config ready: ${result.name} (slot ${result.slot}) -> ${result.prefixPath}`);
+        // Every `Dropped::` reference is about to read as an undeclared identifier and clangd cannot say
+        // why. This is the only place that knows, so the reason is recorded for the diagnostics pass.
+        droppedCalleesByFile.set(doc.fileName, result.droppedCallees);
+        for (const dropped of result.droppedCallees) {
+            out.appendLine(`callee dropped from the prelude: ${dropped.type} — ${dropped.reason}`);
+        }
     } catch (error: any) {
         out.appendLine(`clangd config failed: ${String(error?.message ?? error)}`);
     }
@@ -427,14 +443,14 @@ function regenerateDocument(doc: vscode.TextDocument, context: vscode.ExtensionC
 export function activate(context: vscode.ExtensionContext): void {
     const out = vscode.window.createOutputChannel("Qubic QPI");
     const core = bundledCore(context);
-    const diagnostics = new QpiDiagnostics(
-        (doc) =>
-            resolveProjectSourceDetails({
-                filePath: doc.fileName,
-                workspaceRoot: workspaceRoot(doc),
-                fallbackCorePath: core,
-            }).analysis,
-    );
+    const diagnostics = new QpiDiagnostics((doc) => {
+        const details = resolveProjectSourceDetails({
+            filePath: doc.fileName,
+            workspaceRoot: workspaceRoot(doc),
+            fallbackCorePath: core,
+        });
+        return { analysis: details.analysis, unresolved: details.unresolved, droppedCallees: droppedCalleesByFile.get(doc.fileName) };
+    });
     context.subscriptions.push(out, diagnostics);
 
     const onDocument = (doc?: vscode.TextDocument) => {

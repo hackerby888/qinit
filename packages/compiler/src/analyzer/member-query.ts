@@ -95,6 +95,9 @@ function receiverEndOf(source: string, offset: number): number | undefined {
     return undefined;
 }
 
+/** A cast, not a call: `(sint64)` before a receiver. A grouped expression — `(a + b)` — does not match. */
+const LEADING_CAST = /^\(\s*[A-Za-z_]\w*\s*\)\s*/;
+
 // Where the receiver begins, over a balanced call/subscript tail so `state.mut().q` survives whole. Textual, because the tree cannot locate the cursor.
 function receiverStartOf(source: string, receiverEnd: number): number {
     let index = receiverEnd;
@@ -105,10 +108,15 @@ function receiverStartOf(source: string, receiverEnd: number): number {
         else if (character === "(" || character === "[") {
             if (depth === 0) break;
             depth--;
-        } else if (depth === 0 && !/[A-Za-z0-9_.:>\-]/.test(character)) break;
+            // `-` is a receiver character only as the first half of `->`. As a prefix operator it is not
+            // part of the receiver: `-state.get()` was resolved whole, and an expression has no members.
+        } else if (depth === 0 && !/[A-Za-z0-9_.:>]/.test(character) && !(character === "-" && source[index] === ">")) break;
         index--;
     }
-    return index;
+
+    // The walk cannot tell a cast from a call's parentheses, so the cast is trimmed after it.
+    const cast = LEADING_CAST.exec(source.slice(index, receiverEnd));
+    return cast ? index + cast[0].length : index;
 }
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -397,6 +405,51 @@ export function completeMembersOfType(options: TypeMemberQueryOptions): MemberCo
     }
 }
 
+/** Everything but the newlines, so a span can be removed without moving a single line. */
+function blankOut(source: string): string {
+    return source.replace(/[^\n]/g, " ");
+}
+
+// `;`, `{` and `}` end a statement; a brace in the spilled span means the widening would take a block
+// with it, so the caller declines to widen there and keeps the line-only rewrite.
+const STATEMENT_EDGE = /[;{}]/;
+
+/** Where the receiver's statement began on an earlier line, or -1 when its own line starts it. */
+function statementSpillBefore(source: string, lineStart: number): number {
+    let index = lineStart;
+    while (index > 0 && /\s/.test(source[index - 1]!)) index--;
+    if (index === 0 || STATEMENT_EDGE.test(source[index - 1]!)) return -1;
+
+    let at = index;
+    let depth = 0;
+    while (at > 0) {
+        const character = source[at - 1]!;
+        if (character === ")" || character === "]") depth++;
+        else if (character === "(" || character === "[") depth--;
+        else if (depth <= 0 && STATEMENT_EDGE.test(character)) break;
+        at--;
+    }
+    return source.slice(at, lineStart).includes("{") || source.slice(at, lineStart).includes("}") ? -1 : at;
+}
+
+/** Where the receiver's statement ends on a later line, or -1 when its own line ends it. */
+function statementSpillAfter(source: string, lineEnd: number): number {
+    if (lineEnd < 0) return -1;
+    let index = lineEnd;
+    while (index > 0 && /\s/.test(source[index - 1]!)) index--;
+    if (index === 0 || STATEMENT_EDGE.test(source[index - 1]!)) return -1;
+
+    let depth = 0;
+    for (let at = lineEnd; at < source.length; at++) {
+        const character = source[at]!;
+        if (character === "(" || character === "[") depth++;
+        else if (character === ")" || character === "]") depth--;
+        else if (depth <= 0 && character === ";") return source.slice(lineEnd, at).includes("{") ? -1 : at + 1;
+        else if (character === "{" || character === "}") return -1;
+    }
+    return -1;
+}
+
 /** Members of the type left of the cursor's member operator; undefined when nothing resolves. */
 export function completeMembersAt(options: MemberQueryOptions): MemberCompletion[] | undefined {
     const receiverEnd = receiverEndOf(options.source, options.offset);
@@ -408,7 +461,27 @@ export function completeMembersAt(options: MemberQueryOptions): MemberCompletion
     const lineEnd = options.source.indexOf("\n", receiverEnd);
     const receiverText = options.source.slice(receiverStart, receiverEnd).replace(/\n/g, " ");
     if (receiverText.trim() === "") return undefined;
-    const probeSource = `${options.source.slice(0, lineStart)}${receiverText};${lineEnd < 0 ? "" : options.source.slice(lineEnd)}`;
+    // An entry written on one line carries its macro and braces on the receiver's line, so keep the brace
+    // either side: replacing the whole line would take the body with it. A receiver alone has neither.
+    const beforeReceiver = options.source.slice(lineStart, receiverStart);
+    const afterReceiver = lineEnd < 0 ? "" : options.source.slice(receiverEnd, lineEnd);
+    const openBrace = beforeReceiver.lastIndexOf("{");
+    const closeBrace = afterReceiver.indexOf("}");
+    const keptPrefix = openBrace >= 0 ? beforeReceiver.slice(0, openBrace + 1) : "";
+    const keptSuffix = closeBrace >= 0 ? afterReceiver.slice(closeBrace) : "";
+    // A statement spread over lines leaves `sadd(` above and `1);` below paired with nothing, so the
+    // spilled lines are blanked to spaces — newlines stay, because the probe is found by line number.
+    const spillBefore = openBrace >= 0 ? -1 : statementSpillBefore(options.source, lineStart);
+    const spillAfter = closeBrace >= 0 ? -1 : statementSpillAfter(options.source, lineEnd);
+    const head =
+        spillBefore < 0 ? options.source.slice(0, lineStart) : options.source.slice(0, spillBefore) + blankOut(options.source.slice(spillBefore, lineStart));
+    const tail =
+        lineEnd < 0
+            ? ""
+            : spillAfter < 0
+              ? options.source.slice(lineEnd)
+              : blankOut(options.source.slice(lineEnd, spillAfter)) + options.source.slice(spillAfter);
+    const probeSource = `${head}${keptPrefix}${receiverText};${keptSuffix}${tail}`;
     const qpiHeader = options.qpiHeader ?? QPI_SNAPSHOT;
     const compileOptions: CompileOptions = {
         source: probeSource,

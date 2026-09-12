@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { ProjectSourceDetails } from "./project-context";
 import {
     analyzeContract,
     DiagnosticSeverity,
@@ -24,6 +25,13 @@ function toDiagnostic(doc: vscode.TextDocument, item: SourceAnalysisDiagnostic):
     return diagnostic;
 }
 
+/** What the extension hands back for a document: its analysis context, and why it lost one if it did. */
+export type ResolvedContext = Pick<ProjectSourceDetails, "unresolved"> & {
+    analysis: ProjectAnalysisContext;
+    /** Callees missing from this file's prelude: every reference to one will read as undeclared. */
+    droppedCallees?: ReadonlyArray<{ type: string; reason: string }>;
+};
+
 export class QpiDiagnostics implements vscode.Disposable {
     private readonly coll = vscode.languages.createDiagnosticCollection("qpi");
     private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -38,6 +46,10 @@ export class QpiDiagnostics implements vscode.Disposable {
         }
     >();
     private readonly contextErrors = new Map<string, { version: number; message: string }>();
+    // A contract the project could not keep in its plan: analysis still succeeds, standalone, so this
+    // rides alongside the ordinary diagnostics rather than replacing them.
+    private readonly unresolvedContracts = new Map<string, { version: number; name: string; reason: string }>();
+    private readonly droppedCallees = new Map<string, { version: number; items: ReadonlyArray<{ type: string; reason: string }> }>();
     private readonly fixes = new Map<
         string,
         {
@@ -46,7 +58,7 @@ export class QpiDiagnostics implements vscode.Disposable {
         }
     >();
 
-    constructor(private readonly resolveContext?: (doc: vscode.TextDocument) => ProjectAnalysisContext) {}
+    constructor(private readonly resolveContext?: (doc: vscode.TextDocument) => ResolvedContext) {}
 
     private applies(doc: vscode.TextDocument): boolean {
         return isContractDoc(doc);
@@ -83,11 +95,22 @@ export class QpiDiagnostics implements vscode.Disposable {
         const identity = configuredContractIdentity(doc.fileName);
         let context: ProjectAnalysisContext | undefined;
         try {
-            context = this.resolveContext?.(doc);
+            const resolved = this.resolveContext?.(doc);
+            context = resolved?.analysis;
             this.contextErrors.delete(key);
+            this.unresolvedContracts.delete(key);
+            this.droppedCallees.delete(key);
+            if (resolved?.unresolved) {
+                this.unresolvedContracts.set(key, { version: doc.version, ...resolved.unresolved });
+            }
+            if (resolved?.droppedCallees?.length) {
+                this.droppedCallees.set(key, { version: doc.version, items: resolved.droppedCallees });
+            }
         } catch (error: any) {
             this.analyses.delete(key);
             this.fixes.delete(key);
+            this.unresolvedContracts.delete(key);
+            this.droppedCallees.delete(key);
             this.contextErrors.set(key, {
                 version: doc.version,
                 message: String(error?.message ?? error),
@@ -142,6 +165,35 @@ export class QpiDiagnostics implements vscode.Disposable {
             return;
         }
 
+        const unresolved = this.unresolvedContracts.get(doc.uri.toString());
+        const extra: vscode.Diagnostic[] = [];
+        if (unresolved?.version === doc.version) {
+            const diagnostic = new vscode.Diagnostic(
+                new vscode.Range(0, 0, 0, Math.min(1, doc.lineAt(0).text.length)),
+                `'${unresolved.name}' could not be resolved as part of this project, so its callees are unavailable here and ` +
+                    `references to them will not resolve: ${unresolved.reason}`,
+                vscode.DiagnosticSeverity.Warning,
+            );
+            diagnostic.source = "qinit-project";
+            diagnostic.code = "qinit/project-dependencies";
+            extra.push(diagnostic);
+        }
+
+        const dropped = this.droppedCallees.get(doc.uri.toString());
+        if (dropped?.version === doc.version) {
+            for (const callee of dropped.items) {
+                const diagnostic = new vscode.Diagnostic(
+                    new vscode.Range(0, 0, 0, Math.min(1, doc.lineAt(0).text.length)),
+                    `'${callee.type}' could not be analysed, so it is missing from this contract's callee prelude and every ` +
+                        `'${callee.type}::' reference will read as an undeclared identifier: ${callee.reason}`,
+                    vscode.DiagnosticSeverity.Warning,
+                );
+                diagnostic.source = "qinit-project";
+                diagnostic.code = "qinit/callee-dropped";
+                extra.push(diagnostic);
+            }
+        }
+
         const fixes = new Map<string, SourceFix[]>();
         const diagnostics = result.diagnostics.map((item) => {
             const value = toDiagnostic(doc, item);
@@ -155,7 +207,7 @@ export class QpiDiagnostics implements vscode.Disposable {
             version: doc.version,
             items: fixes,
         });
-        this.coll.set(doc.uri, diagnostics);
+        this.coll.set(doc.uri, [...extra, ...diagnostics]);
     }
 
     fixesFor(doc: vscode.TextDocument, diagnostic: vscode.Diagnostic): SourceFix[] {
@@ -185,6 +237,8 @@ export class QpiDiagnostics implements vscode.Disposable {
         this.timers.clear();
         this.analyses.clear();
         this.contextErrors.clear();
+        this.unresolvedContracts.clear();
+        this.droppedCallees.clear();
         this.fixes.clear();
         this.coll.dispose();
     }
