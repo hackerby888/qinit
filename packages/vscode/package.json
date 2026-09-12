@@ -66,7 +66,8 @@
         "diag:diff": "bun run scripts/diag-differential.ts",
         "fix:diff": "bun run scripts/fix-differential.ts",
         "member:coverage": "bun run scripts/member-coverage.ts",
-        "scale": "bun run scripts/scale-bench.ts"
+        "scale": "bun run scripts/scale-bench.ts",
+        "lowering:cost": "bun run scripts/lowering-cost.ts"
     },
     "devDependencies": {
         "@qinit/build": "workspace:*",

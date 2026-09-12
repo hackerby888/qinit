@@ -578,11 +578,13 @@ The first is already tracked as refused by `clang-refusal-diff.test.ts`; that su
 _backend_ catches it, and it does. The editor does not, which is the finding: a green editor for a file
 neither backend will build — the top of the severity order in the campaign prompt.
 
-Not fixed, because the two available fixes are both design calls, not patches. Running the full compile
-in the editor costs **215 ms against 65 ms** for `analyzeContract` on `StateZoo.h` — 3.3× on every
-debounced settle, plus emitting wasm that is thrown away. Moving the seven checks into semantic
-analysis, where they are arguably semantic facts rather than codegen facts, is the better answer and is
-a compiler change with its own review. Pinned as four `GAP` rows in the differential.
+Not fixed, because the two available fixes are both design calls, not patches. Moving the seven checks
+into semantic analysis, where they are arguably semantic facts rather than codegen facts, is the better
+answer and is a compiler change with its own review. The other — running more of the compiler in the
+editor — was dismissed here on a cost of "215 ms against 65 ms for `analyzeContract` on `StateZoo.h`,
+3.3× on every debounced settle". That figure priced the wrong option and round 12 replaces it: the
+editor would stop one phase earlier than a build does, and doing so costs a median **1.3×** analyze
+across core's 29 deployed contracts. Pinned as four `GAP` rows in the differential.
 
 The last row is the sharpest illustration: main's `7539bda` added a frontend rejection for exactly that
 declaration, and the editor still shows nothing, because the diagnostic that actually fires for this
@@ -1230,8 +1232,12 @@ contracts, median of five runs each.
 | fixed cost                           | a 13-line contract still takes 4 ms — parsing the QPI header dwarfs parsing the file |
 | per line, 26 contracts of 500+ lines | **22–39 µs, median 28**                                                              |
 | spread across an 11× size range      | **1.8×** — flat, so the cost is linear, not quadratic                                |
-| largest (`NOST`, 6 517 lines)        | **154 ms** analyze, **43 ms** member completion                                      |
-| over the 500 ms budget               | **0 of 35**                                                                          |
+| largest (`NOST`, 6 517 lines)        | 172 ms analyze, **206 ms** stopped after lowering                                    |
+
+Three runs of the whole sweep, because a ratio this close to 1 is worth sampling more than once: the
+median came out 1.3×, 1.4×, 1.3× and the assembly share 59%, 61%, 59%. The spread across contracts moves
+more than the median does.
+| over the 500 ms budget | **0 of 35** |
 
 A rising µs/line would have meant the contracts that need the editor most are the ones it serves worst.
 It does not rise. 154 ms on a debounce is comfortable, and the benchmark stays in the tree as the thing
@@ -1292,3 +1298,86 @@ That is the third time this campaign mistook clangd's own variability for a find
 the things that genuinely require an editor belong in an editor test.
 
 Pinned findings: **three** — E5's drop, E7 and E17.
+
+# Round 12 — what E7 would actually cost
+
+E7 is the largest pinned finding: seven error sites live in a phase the editor never reaches, so a file
+that neither backend will build can show a clean editor. Two fixes were named, and the cheaper one —
+run more of the compiler on the debounce — was dismissed on a measurement: 215 ms against 65 ms for
+`analyzeContract`, 3.3× on every settle. Round 11 built the instrument that makes that re-checkable, so
+this round re-checks it, and the figure does not survive.
+
+## The measurement priced an option nobody proposed
+
+The diagnostics the editor is missing are raised while **lowering** bodies to WAT — the `generating wasm`
+phase in `driver/compile-contract.ts:58`. The phase after it, `assembling wasm`, encodes that WAT into a
+binary. An editor would never want the binary, so the option E7 describes is not "run the compile", it
+is "run the compile and stop one phase early" — and the compiler's own `CompilationPhaseTracker` prices
+that exactly, per phase, without a stopwatch of mine anywhere near it.
+
+`packages/vscode/scripts/lowering-cost.ts` (`bun run --filter qpi-vscode lowering:cost`) measures all 29
+contracts in `contract_def.h`, wired the way `compile/typescript.ts:108-147` wires them, median of three
+runs each.
+
+|                                                   |                                                                       |
+| ------------------------------------------------- | --------------------------------------------------------------------- |
+| compile stopped after lowering, against `analyze` | **median 1.3×** over the 24 contracts of 500+ lines, spread 0.9×–2.9× |
+| `assembling wasm`                                 | **41–76% of the full compile, median ~60%** — all of it wasted        |
+| its fixed cost                                    | **64 ms** on a 13-line contract, before it looks at the contract      |
+| largest (`NOST`, 6 517 lines)                     | 172 ms analyze, **206 ms** stopped after lowering                     |
+
+Three runs of the whole sweep, because a ratio this close to 1 is worth sampling more than once: the
+median came out 1.3×, 1.4×, 1.3× and the assembly share 59%, 61%, 59%. The spread across contracts moves
+more than the median does.
+
+The floor sits at or just below 1.0×, and that is not the warm-cache artifact it looks like. The two
+paths are not prefix and superset: `analyzeContract` runs the frontend and then `prepareContractModule`
+and `buildContractIdl` (`analyzer/index.ts:172-183`), while the driver reaches the same ground inside
+`generateWasmModule`. They overlap; neither contains the other. The first run of this measurement _was_
+an artifact — analyze was timed first, so the compile inherited caches it had filled and came out faster
+than its own prefix — and it is fixed by warming both before timing either.
+
+So the cost is one of two numbers, depending on how conservative the implementation is. Sharing the one
+pipeline, the editor pays **1.3×** what it pays today. Keeping `analyzeContract` and adding a lowering
+pass beside it — which is what a first patch would do, because the source-policy rules the editor shows
+come from the analyzer and not from the driver — costs **2.3×**, putting the largest contract in core at
+378 ms on a debounce. That is still inside the 500 ms budget round 11 measured against, though not by
+much. Neither number is 3.3×, and neither involves emitting wasm that is thrown away.
+
+**E7 stays open.** What changes is the argument: the objection is now entirely about where these checks
+belong, not about what they cost. The second defect recorded under E7 — lowering diagnostics carry no
+`code` at all — is unaffected and remains the thing that would have to be fixed either way.
+
+## The control this round could finally run
+
+The differential answers "editor versus compiler" on probes written to be wrong. It has never been able
+to ask the same question of code that is right, because the fixtures are not production contracts. The
+29 in `contract_def.h` are, and the same script now asserts it: **29 of 29 agree**, zero errors from
+`analyzeContract` and zero from a full compile, on every deployed contract.
+
+That is a weaker claim than it looks — correct code has no errors, so agreement is the expected answer —
+but it is the one thing that bounds E7's blast radius. The gap is not silently passing broken production
+source; it opens only while a developer is writing code that is wrong, which is a narrower finding than
+round 3 stated and still the surface an editor exists for.
+
+## Three harness bugs, all found by disbelieving the result
+
+Getting that zero took three tries. The drafts reported as many as **4 of 29** disagreeing, with QRWA
+alone at 36 compile errors the editor never mentioned. Every one was mine:
+
+| what the harness did                                                    | what it manufactured                                              |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| swept every contract file at `slot: 31` with no callees at all          | `no callee IDL`, in every contract that calls a sibling           |
+| then passed **all 28 siblings** as callees instead of the closure       | `unknown type 'Success_output'` in QUTIL, 7 errors in GQMPROP     |
+| left the log-header gate strict for the two contracts the build exempts | 39 `__qinit_log_info payload must open with a 4-byte word` errors |
+
+The last one is the sharpest: `KNOWN_LOG_HEADER_VIOLATIONS` in `system-contracts.ts:10` names
+`VottunBridge.h` and `qRWA.h` as contracts whose leading log word the host overwrites, and the build
+passes `strict: false` for exactly those two. A harness that does not is not measuring the compiler the
+developer has. Wired with `systemContractClosure` and the same strictness flag, the disagreements went
+to zero — and the way to find that out was that `gqmprop-upstream.test.ts:60` already asserts GQMPROP
+compiles with **no** errors, which my run contradicted. When a probe contradicts an existing passing
+test, the probe is wrong.
+
+Pinned findings: **three** — E5's drop, E7 and E17. E7's disposition is unchanged; its justification is
+not.
