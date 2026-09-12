@@ -112,6 +112,15 @@ function spanFromOffsets(source: string, start: number, end: number): Span {
     };
 }
 
+// `Array<T, N>` static_asserts that N is a power of two, so converting `x[6]` to `Array<T, 6>` hands the
+// developer a file that no longer compiles. A size we cannot evaluate — a named constant — is left alone
+// and still offered, since it may well be legal.
+function isUnusableArraySize(size: string): boolean {
+    if (!/^\d+$/.test(size)) return false;
+    const n = Number(size);
+    return !Number.isSafeInteger(n) || n <= 0 || (n & (n - 1)) !== 0;
+}
+
 export function arrayFixForLine(line: string): string | null {
     const match = line.match(/^(\s*)([A-Za-z_][\w:<>,\s]*?)\s+([A-Za-z_]\w*)\s*\[\s*([^\]]+?)\s*\]\s*;(.*)$/);
     if (!match) {
@@ -119,6 +128,9 @@ export function arrayFixForLine(line: string): string | null {
     }
     const [, indent, type, name, size, tail] = match;
     if (/[\[\],]/.test(type)) {
+        return null;
+    }
+    if (isUnusableArraySize(size.trim())) {
         return null;
     }
     return `${indent}Array<${type.trim()}, ${size.trim()}> ${name};${tail}`;
@@ -138,6 +150,13 @@ export function divModFixForLine(
     const left = line.slice(0, column).match(new RegExp(`(${OPERAND})\\s*$`));
     const right = line.slice(column + 1).match(new RegExp(`^\\s*(${OPERAND})`));
     if (!left || !right) {
+        return null;
+    }
+    // `div` is `template <typename T> T div(T a, T b)`, so a bare literal beside a typed operand gives
+    // two candidate deductions for T and the call does not resolve. There is no suffix that is right for
+    // every dividend type, and this pass sees tokens rather than types, so the fix declines instead of
+    // rewriting the line into something that will not compile.
+    if (/^\d+$/.test(left[1]) || /^\d+$/.test(right[1])) {
         return null;
     }
 
