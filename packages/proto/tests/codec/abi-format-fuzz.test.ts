@@ -1,6 +1,6 @@
 // Generated type trees run through every layer that must agree: qpi-layout geometry, formatAbiType, the parser and both decoders — shapes nobody thought of.
 import { test, expect } from "bun:test";
-import { decodeAbiValue, decodeOutput, encodeInput, layoutOf, structFieldOffsets, zeroInputFormat } from "../../src/abi";
+import { decodeAbiValue, decodeAbi, encodeInputFormat, layoutOf, structFieldOffsets, zeroInputFormat } from "../../src/abi";
 import { formatAbiType, type AbiType } from "../../src/contract-idl";
 import { arr, ba, bit, co, hm, hs, i8, i16, i32, i64, i128, id, ll, m256i, st, u8, u16, u32, u64, u128, validated } from "./abi-builders";
 
@@ -67,7 +67,7 @@ test("the all-zero sample for a generated type encodes to exactly that type's si
         if (type.size > SIZE_CAP) continue;
 
         const sample = zeroInputFormat(type);
-        const bytes = await encodeInput(sample);
+        const bytes = await encodeInputFormat(sample);
         expect({ seed, sample: sample.slice(0, 120), length: bytes.length }).toEqual({ seed, sample: sample.slice(0, 120), length: type.size });
         expect(bytes.every((byte) => byte === 0)).toBe(true);
         checked++;
@@ -84,7 +84,7 @@ test("the string decoder and the typed decoder read a generated type identically
 
         const fmt = formatAbiType(type);
         const bytes = filler(type.size);
-        const fromString = await decodeOutput(bytes, fmt);
+        const fromString = await decodeAbi(bytes, fmt);
         const fromType = await decodeAbiValue(bytes, type);
         expect({ seed, fmt, value: fromString }).toEqual({ seed, fmt, value: fromType });
         checked++;
@@ -139,11 +139,11 @@ test("every scalar pair lays out, encodes and decodes the same through all three
 
             expect({ label, ...layoutOf(fmt) }).toEqual({ label, size: type.size, align: type.align });
 
-            const zeroed = await encodeInput(zeroInputFormat(type));
+            const zeroed = await encodeInputFormat(zeroInputFormat(type));
             expect({ label, length: zeroed.length }).toEqual({ label, length: type.size });
 
             const bytes = filler(type.size);
-            expect({ label, value: await decodeOutput(bytes, fmt) }).toEqual({ label, value: await decodeAbiValue(bytes, type) });
+            expect({ label, value: await decodeAbi(bytes, fmt) }).toEqual({ label, value: await decodeAbiValue(bytes, type) });
 
             expect({ label, offsets: structFieldOffsets(fmt) }).toEqual({
                 label,
@@ -161,10 +161,10 @@ test("an array of every scalar keeps the element stride its own alignment implie
             const fmt = formatAbiType(type);
 
             expect({ label, ...layoutOf(fmt) }).toEqual({ label, size: type.size, align: type.align });
-            expect({ label, length: (await encodeInput(zeroInputFormat(type))).length }).toEqual({ label, length: type.size });
+            expect({ label, length: (await encodeInputFormat(zeroInputFormat(type))).length }).toEqual({ label, length: type.size });
 
             const bytes = filler(type.size);
-            expect({ label, value: await decodeOutput(bytes, fmt) }).toEqual({ label, value: await decodeAbiValue(bytes, type) });
+            expect({ label, value: await decodeAbi(bytes, fmt) }).toEqual({ label, value: await decodeAbiValue(bytes, type) });
         }
     }
 });

@@ -1,5 +1,5 @@
 // Decode a contract LOG_* call. Qubic SCs cannot use strings, so logs are numeric structs ending at `sint8 _terminator`; the node records every preceding byte.
-import { abiJsonValue, decodeOutput, structFieldOffsets } from "./abi";
+import { abiValueToJson, decodeAbi, structFieldOffsets } from "./abi";
 import { LOG_SEVERITY as SEVERITY } from "./protocol";
 import { AbiTypeKind, type AbiStruct, type ContractLog } from "./contract-idl";
 import { hexToBytes } from "@qinit/core";
@@ -18,8 +18,8 @@ export interface DecodedLog {
 }
 
 // offsetof(_terminator): end of the last field — internal padding included, tail padding excluded.
-export function loggedSizeOf(fmt: string | AbiStruct): number {
-    const fo = structFieldOffsets(fmt);
+export function loggedSizeOf(type: string | AbiStruct): number {
+    const fo = structFieldOffsets(type);
     if (!fo.length) return 0;
     const last = fo[fo.length - 1];
     return last.off + last.size;
@@ -45,10 +45,10 @@ export async function decodeLog(type: number, size: number, hex: string, catalog
             const structBytes = new Uint8Array(hit[0].type.size);
             structBytes.set(loggedBytes.subarray(0, structBytes.length));
             const struct = hit[0].type;
-            const decoded = await decodeOutput(structBytes, struct);
-            // decodeOutput unwraps a one-field struct to its bare value, which may itself be an array.
+            const decoded = await decodeAbi(structBytes, struct);
+            // decodeAbi unwraps a one-field struct to its bare value, which may itself be an array.
             const vals = struct.fields.length === 1 ? [decoded] : (decoded as unknown[]);
-            const fields = abiJsonValue(vals, struct) as Record<string, unknown>;
+            const fields = abiValueToJson(vals, struct) as Record<string, unknown>;
             const tv = fields["_type"];
             const typeName = enums && (typeof tv === "number" || typeof tv === "bigint") ? enums[String(tv)] : undefined;
             return {

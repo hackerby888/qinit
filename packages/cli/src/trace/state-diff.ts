@@ -1,5 +1,5 @@
 // Diffs read as fields/elements/members, not offsets and hex — container internals come from the member tables in @qinit/proto/qpi-layout.
-import { decodeOutput, decodedJsonValue } from "@qinit/proto";
+import { decodeAbi, decodedAbiToJson } from "@qinit/proto";
 import { AbiScalarKind, AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import {
     arrayGeometry,
@@ -246,8 +246,8 @@ const bytesEqual = (left: Uint8Array, right: Uint8Array) => left.length === righ
 const toHex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 async function renderValue(bytes: Uint8Array, type: AbiType): Promise<{ text: string; data: unknown }> {
-    const decoded = await decodeOutput(bytes, type);
-    const data = decodedJsonValue(decoded, type);
+    const decoded = await decodeAbi(bytes, type);
+    const data = decodedAbiToJson(decoded, type);
     if (allZero(bytes)) {
         return { text: "0", data }; // matches how `qinit state` collapses an untouched element
     }
@@ -402,7 +402,7 @@ export async function stateDiffLines(fields: StateField[], regions: DebugStateRe
         const end = region.off + Math.min(before.length, after.length);
         const slice = (bytes: Uint8Array, from: number, to: number) => bytes.slice(from - region.off, to - region.off);
 
-        const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeOutput(bytes, type), type);
+        const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeAbi(bytes, type), type);
 
         // The key labelling a record is read from the window, not the rows: an update leaves the key bytes alone, so it never produces a row of its own.
         const entrySiteOf = async (keyed: KeyedLeaf, short: string): Promise<EntryBase | undefined> => {

@@ -65,15 +65,15 @@ export function sizeOf(n: TypeNode): number {
     }
 }
 
-// Byte offset + size of each top-level field of a layout, mapping a changed state byte offset back to a field name for the debugger's state diff.
-export function structFieldOffsets(fmt: string | AbiStruct): { off: number; size: number }[] {
-    if (typeof fmt !== "string") {
-        return fmt.fields.map((field) => ({
+// Byte offset + size of each top-level field, e.g. "uint8, uint64" -> [{0,1},{8,8}]; maps a changed state byte back to a field name for the state diff.
+export function structFieldOffsets(type: string | AbiStruct): { off: number; size: number }[] {
+    if (typeof type !== "string") {
+        return type.fields.map((field) => ({
             off: field.offset,
             size: field.size,
         }));
     }
-    const node = parseLayout(fmt);
+    const node = parseTypeFormat(type);
     const fields = node.kind === "struct" ? node.fields : [node];
     const out: { off: number; size: number }[] = [];
     let off = 0;
@@ -85,15 +85,15 @@ export function structFieldOffsets(fmt: string | AbiStruct): { off: number; size
     return out;
 }
 
-// Total size + alignment of a layout (the C++ array stride of a T is roundUp(size, align)). For container decode.
-export function layoutOf(fmt: string | AbiType): { size: number; align: number } {
-    if (typeof fmt !== "string") {
+// Size + alignment of a type, e.g. "[4;uint64]" -> { size: 32, align: 8 }. The C++ array stride of a T is roundUp(size, align).
+export function layoutOf(type: string | AbiType): { size: number; align: number } {
+    if (typeof type !== "string") {
         return {
-            size: fmt.size,
-            align: fmt.align,
+            size: type.size,
+            align: type.align,
         };
     }
-    const n = parseLayout(fmt);
+    const n = parseTypeFormat(type);
     return { size: sizeOf(n), align: alignOf(n) };
 }
 
@@ -111,7 +111,7 @@ export function nodeOf(type: AbiType): TypeNode {
             elem: nodeOf(type.element),
         };
     }
-    return parseLayout(formatAbiType(type));
+    return parseTypeFormat(formatAbiType(type));
 }
 
 // type-grammar parser (output layout / decode schema)
@@ -191,8 +191,9 @@ function splitTop(s: string): string[] {
     return trimmed.filter((x) => x.length);
 }
 
-export function parseLayout(fmt: string): TypeNode {
-    const t = fmt.trim();
+// Type text -> type tree, e.g. "{ uint64, id }" -> a struct of two fields.
+export function parseTypeFormat(typeFormat: string): TypeNode {
+    const t = typeFormat.trim();
     if (!t) return { kind: "struct", fields: [] };
     const parts = splitTop(t); // top-level list: 1 -> that node; >1 -> implicit struct (symmetric with encode)
     // parseType stops at the end of one type, so leftover text is another field the caller meant — dropping it would read a missing ',' as a shorter layout.
@@ -219,6 +220,7 @@ export function hasOverlappingFields(type: AbiStruct): boolean {
     return false;
 }
 
+// True when any struct in the tree overlaps its own fields (a union), which forces the raw-bytes encode path.
 export function hasOverlappingAbiType(type: AbiType): boolean {
     switch (type.kind) {
         case AbiTypeKind.SCALAR:

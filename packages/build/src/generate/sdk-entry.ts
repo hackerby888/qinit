@@ -1,6 +1,6 @@
 // Test SDK assembled from canonical Qinit codec, transaction, and RPC sources.
 export { DEFAULT_RPC_BASE, deriveIdentity, bytesToIdentity, identityToBytes, buildSignedTx, broadcastTx, initK12, LiteRpc } from "@qinit/core/browser";
-export { encodeInput, encodeInputJson, decodeOutput, callFunction, invokeProcedure, contractAddress } from "@qinit/proto";
+export { encodeInputFormat, encodeInputJson, decodeAbi, callFunction, invokeProcedure, contractAddress } from "@qinit/proto";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core/browser";
 
 const ORACLE_STATUS_SUCCESS = 3;

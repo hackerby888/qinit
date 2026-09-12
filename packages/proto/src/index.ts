@@ -13,25 +13,25 @@ export {
 export type { UploadBeginParams, UploadChunkParams, DeployParams } from "./deploy";
 export { TX_TICK_OFFSET } from "./protocol";
 export {
-    abiJsonValue,
-    decodedJsonValue,
-    encodeInput,
+    abiValueToJson,
+    decodedAbiToJson,
+    encodeInputFormat,
     encodeInputJson,
-    encodeInputTyped,
-    parseInputTokens,
+    encodeInputFormatAs,
+    parseInputFormat,
     parseInputJson,
-    checkInputSize,
+    assertInputSize,
     hasOverlappingAbiType,
     jsonToInputFormat,
     zeroInputFormat,
-    decodeOutput,
-    parseLayout,
+    decodeAbi,
+    parseTypeFormat,
     structFieldOffsets,
     layoutOf,
 } from "./abi";
 export { decodeLog, loggedSizeOf } from "./decode-log";
 export type { DecodedLog } from "./decode-log";
-export type { TypeNode } from "./abi";
+export type { InputFormatNode, InputFormatStruct, TypeNode } from "./abi";
 export { callFunction, invokeProcedure, sendTransfer, contractAddress, resolveDeploymentSlot } from "./call";
 export type { TypedContractInput, SubmittedTx } from "./call";
 export * from "./qpi-layout"; // QPI container layout: single source of truth (idl.ts + decoders share it)

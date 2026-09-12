@@ -3,7 +3,7 @@ import { bytesToIdentity, roundUp } from "@qinit/core";
 import { AbiScalarKind, AbiTypeKind, type AbiType } from "../contract-idl";
 import { createQpiContainerView } from "../qpi-container-view";
 import { qpiBorrowedSource } from "../qpi-container-view/source";
-import { alignOf, parseLayout, sizeOf, type TypeNode } from "./type-format";
+import { alignOf, parseTypeFormat, sizeOf, type TypeNode } from "./type-format";
 
 // output decode (aligned; async: id -> 60-char identity)
 async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[any, number]> {
@@ -162,14 +162,14 @@ function readUint128(view: DataView, offset: number): bigint {
     return (high << 64n) | low;
 }
 
-// The format dialect reads field by field, so a layout wider than the bytes surfaces as the DataView's RangeError; name both sizes, as the typed path does.
-async function decodeFormat(view: DataView, fmt: string): Promise<any> {
-    const node = parseLayout(fmt);
+// The type text reads field by field, so a layout wider than the bytes surfaces as the DataView's RangeError; name both sizes, as the typed path does.
+async function decodeTypeFormat(view: DataView, typeFormat: string): Promise<any> {
+    const node = parseTypeFormat(typeFormat);
     try {
         return (await decodeNode(view, 0, node))[0];
     } catch (error) {
         if (error instanceof RangeError) {
-            throw new RangeError(`${fmt} reads ${sizeOf(node)} bytes, only ${view.byteLength} returned`);
+            throw new RangeError(`${typeFormat} reads ${sizeOf(node)} bytes, only ${view.byteLength} returned`);
         }
         throw error;
     }
@@ -181,22 +181,23 @@ export function assertBounds(view: DataView, offset: number, size: number): void
     }
 }
 
-export async function decodeOutput(bytes: Uint8Array, fmt: string | AbiType): Promise<any> {
+// Bytes -> value, e.g. 01 00 … as "uint64" -> 1n. A 0- or 1-field struct unwraps to [] or that field's value.
+export async function decodeAbi(bytes: Uint8Array, type: string | AbiType): Promise<any> {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const decoded = typeof fmt === "string" ? await decodeFormat(view, fmt) : await decodeAbiValue(bytes, fmt);
-    if (typeof fmt !== "string" && fmt.kind === AbiTypeKind.STRUCT) {
-        if (fmt.fields.length === 0) {
+    const decoded = typeof type === "string" ? await decodeTypeFormat(view, type) : await decodeAbiValue(bytes, type);
+    if (typeof type !== "string" && type.kind === AbiTypeKind.STRUCT) {
+        if (type.fields.length === 0) {
             return [];
         }
-        if (fmt.fields.length === 1) {
+        if (type.fields.length === 1) {
             return decoded[0];
         }
     }
     return decoded;
 }
 
-// Decoded value -> JSON shape. Structs come back positional and are named here; scalars stay as decoded — bigint for 64/128-bit, identity text for id.
-export function abiJsonValue(value: any, type: AbiType): unknown {
+// Positional decoded struct -> name-keyed object, e.g. [1n] for "{ uint64 count }" -> { count: 1n }; scalars stay bigint / identity text.
+export function abiValueToJson(value: any, type: AbiType): unknown {
     switch (type.kind) {
         case AbiTypeKind.SCALAR:
         case AbiTypeKind.BIT_ARRAY:
@@ -205,35 +206,36 @@ export function abiJsonValue(value: any, type: AbiType): unknown {
             const values = Array.isArray(value) ? value : [value];
             const named: Record<string, unknown> = {};
             type.fields.forEach((field, index) => {
-                named[field.name] = abiJsonValue(values[index], field.type);
+                named[field.name] = abiValueToJson(values[index], field.type);
             });
             return named;
         }
         case AbiTypeKind.ARRAY:
-            return Array.isArray(value) ? value.map((item) => abiJsonValue(item, type.element)) : value;
+            return Array.isArray(value) ? value.map((item) => abiValueToJson(item, type.element)) : value;
         case AbiTypeKind.HASH_MAP:
             return Array.isArray(value)
-                ? value.map((entry) => ({ ...entry, key: abiJsonValue(entry.key, type.key), value: abiJsonValue(entry.value, type.value) }))
+                ? value.map((entry) => ({ ...entry, key: abiValueToJson(entry.key, type.key), value: abiValueToJson(entry.value, type.value) }))
                 : value;
         case AbiTypeKind.HASH_SET:
-            return Array.isArray(value) ? value.map((entry) => ({ ...entry, key: abiJsonValue(entry.key, type.key) })) : value;
+            return Array.isArray(value) ? value.map((entry) => ({ ...entry, key: abiValueToJson(entry.key, type.key) })) : value;
         case AbiTypeKind.COLLECTION:
         case AbiTypeKind.LINKED_LIST:
-            return Array.isArray(value) ? value.map((entry) => ({ ...entry, value: abiJsonValue(entry.value, type.value) })) : value;
+            return Array.isArray(value) ? value.map((entry) => ({ ...entry, value: abiValueToJson(entry.value, type.value) })) : value;
     }
 }
 
-// The JSON shape of what decodeOutput returned, which already unwrapped a one-field struct to its value.
-export function decodedJsonValue(value: any, type: AbiType): unknown {
+// The JSON shape of what decodeAbi returned, which already unwrapped a one-field struct to its value.
+export function decodedAbiToJson(value: any, type: AbiType): unknown {
     if (type.kind === AbiTypeKind.STRUCT && type.fields.length === 0) {
         return {};
     }
     if (type.kind === AbiTypeKind.STRUCT && type.fields.length === 1) {
-        return abiJsonValue(value, type.fields[0].type);
+        return abiValueToJson(value, type.fields[0].type);
     }
-    return abiJsonValue(value, type);
+    return abiValueToJson(value, type);
 }
 
+// Bytes -> the positional value tree, without decodeAbi's one-field struct unwrap.
 export async function decodeAbiValue(bytes: Uint8Array, type: AbiType): Promise<any> {
     return await decodeAbiType(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), 0, type);
 }

@@ -1,6 +1,6 @@
-// The typed encode path (AbiType, not a format string) has its own validation the string dialect's tests never reach, so a dropped check survives there.
+// The schema-checked encode path has its own validation the schema-free one never reaches, so a dropped check survives there.
 import { test, expect } from "bun:test";
-import { encodeInputJson, parseInputJson, decodeOutput, zeroInputFormat, encodeInput } from "../../src/abi";
+import { encodeInputJson, parseInputJson, decodeAbi, zeroInputFormat, encodeInputFormat } from "../../src/abi";
 import { AbiScalarKind, AbiTypeKind, type AbiStruct, type AbiType } from "../../src/contract-idl";
 import { arr, bit, named, st, u8, u32, u64, i32, i64, id, validated } from "./abi-builders";
 
@@ -32,7 +32,7 @@ test("the typed path keeps each scalar's extremes encodable", async () => {
     const widest = named(["u", u64], ["s", i32]);
     const bytes = await encodeInputJson(widest, { u: "18446744073709551615", s: -2147483648 });
 
-    expect(await decodeOutput(bytes, widest)).toEqual([18446744073709551615n, -2147483648]);
+    expect(await decodeAbi(bytes, widest)).toEqual([18446744073709551615n, -2147483648]);
 });
 
 test("a typed bit takes only 0 and 1, however the value arrives", async () => {
@@ -113,10 +113,10 @@ test("a three-level typed input agrees byte-for-byte with the value dialect it p
     };
 
     const typed = await encodeInputJson(outer, json);
-    const dialect = await encodeInput("{ { [2; { 1uint8, 1uint64 }, { 2uint8, 2uint64 } ], 9uint32 }, 3uint8 }");
+    const dialect = await encodeInputFormat("{ { [2; { 1uint8, 1uint64 }, { 2uint8, 2uint64 } ], 9uint32 }, 3uint8 }");
 
     expect(typed).toEqual(dialect);
-    expect(await decodeOutput(typed, outer)).toEqual([
+    expect(await decodeAbi(typed, outer)).toEqual([
         [
             [
                 [1, 1n],
@@ -134,14 +134,14 @@ test("parseInputJson keeps integer literals past 2^53 exact", async () => {
     const json = parseInputJson('{"u":18446744073709551615,"s":-9223372036854775808,"mid":9007199254740993,"f":42}');
 
     expect(json).toEqual({ u: "18446744073709551615", s: "-9223372036854775808", mid: "9007199254740993", f: 42 });
-    expect(await decodeOutput(await encodeInputJson(wide, json), wide)).toEqual([18446744073709551615n, -9223372036854775808n, 9007199254740993n, 42]);
+    expect(await decodeAbi(await encodeInputJson(wide, json), wide)).toEqual([18446744073709551615n, -9223372036854775808n, 9007199254740993n, 42]);
     // Everything JSON.parse already gets right is untouched, floats and exponents included.
     expect(parseInputJson('{"a":[1.5, 1e3, -7], "b":{"c":"18446744073709551615"}}')).toEqual({ a: [1.5, 1000, -7], b: { c: "18446744073709551615" } });
 });
 
 // An --out wider than the answer used to surface as the DataView's bare "Out of bounds access".
 test("a format wider than the bytes names both sizes", async () => {
-    await expect(decodeOutput(new Uint8Array(8), "id")).rejects.toThrow("id reads 32 bytes, only 8 returned");
+    await expect(decodeAbi(new Uint8Array(8), "id")).rejects.toThrow("id reads 32 bytes, only 8 returned");
     // A narrower format still reads the leading bytes: --out stays an escape hatch for a stale IDL.
-    expect(await decodeOutput(new Uint8Array([7, 0, 0, 0, 1, 0, 0, 0]), "uint32")).toBe(7);
+    expect(await decodeAbi(new Uint8Array([7, 0, 0, 0, 1, 0, 0, 0]), "uint32")).toBe(7);
 });

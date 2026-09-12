@@ -4,8 +4,8 @@ import { buildSignedTx, k12Hex, deriveIdentity, identityToBytes, LITE_DEPLOY_ADD
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { TEST_SLOT_LAYOUT } from "../../../../test-utils/slot-layout";
 import {
-    encodeInput,
-    decodeOutput,
+    encodeInputFormat,
+    decodeAbi,
     contractAddress,
     encodeUploadBegin,
     encodeUploadChunk,
@@ -49,7 +49,7 @@ test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)
     expect(c.procedures.map((p) => p.inputType)).toContain(1);
 
     // Get (function) via querySmartContract + the real proto decode
-    expect(await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64")).toBe(0n);
+    expect(await decodeAbi(await eng.querySmartContract(28, 1, await encodeInputFormat("")), "uint64")).toBe(0n);
 
     // Inc (procedure) via a REAL @qubic-lib signed tx -> broadcastTx (validates the engine decodes the real wire)
     const tx = await buildSignedTx(SEED, {
@@ -57,11 +57,11 @@ test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)
         amount: 0,
         tick: 10,
         inputType: 1,
-        payload: await encodeInput(""),
+        payload: await encodeInputFormat(""),
     });
     expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
 
-    expect(await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64")).toBe(1n);
+    expect(await decodeAbi(await eng.querySmartContract(28, 1, await encodeInputFormat("")), "uint64")).toBe(1n);
 });
 
 test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe -> oracle)", async () => {
@@ -95,10 +95,10 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
     expect(reg.contracts.find((x) => x.index === DYN)?.name).toBe("DigestProbe");
 
     // Exercise the wire-deployed contract + reproduce the cross-platform digest oracle through the seam.
-    expect(await decodeOutput(await eng.querySmartContract(DYN, 1, await encodeInput("")), "uint64")).toBe(0n);
+    expect(await decodeAbi(await eng.querySmartContract(DYN, 1, await encodeInputFormat("")), "uint64")).toBe(0n);
     eng.fund(UNSIGNED_SOURCE, 1n);
     await eng.broadcastTx(wrapTx(1, new Uint8Array(0), contractAddress(DYN))); // Inc (procedure it=1)
-    expect(await decodeOutput(await eng.querySmartContract(DYN, 1, await encodeInput("")), "uint64")).toBe(1n);
+    expect(await decodeAbi(await eng.querySmartContract(DYN, 1, await encodeInputFormat("")), "uint64")).toBe(1n);
     expect(eng.sim.digest(DYN)).toBe(ORACLE);
 });
 
@@ -274,10 +274,10 @@ test("signature verification (opt-in): valid signed tx accepted, tampered one re
         amount: 0,
         tick: 10,
         inputType: 1,
-        payload: await encodeInput(""),
+        payload: await encodeInputFormat(""),
     });
     expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
-    expect(await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64")).toBe(1n); // applied
+    expect(await decodeAbi(await eng.querySmartContract(28, 1, await encodeInputFormat("")), "uint64")).toBe(1n); // applied
 
     const bad = tx.bytes.slice();
     bad[bad.length - 1] ^= 0xff; // flip a signature byte
@@ -317,9 +317,9 @@ test("VirtualNode exposes the simulator's direct procedure, query, and digest op
     const eng = await VirtualNode.create({ fees: "off" });
     eng.deploy(28, await wasm("Counter"), "Counter");
 
-    expect(await decodeOutput(eng.query(28, 1), "uint64")).toBe(0n);
+    expect(await decodeAbi(eng.query(28, 1), "uint64")).toBe(0n);
     eng.procedure(28, 1); // direct Inc (instant, no signing)
-    expect(await decodeOutput(eng.query(28, 1), "uint64")).toBe(1n);
+    expect(await decodeAbi(eng.query(28, 1), "uint64")).toBe(1n);
 
     // they delegate to the same engine -> byte-identical to reaching into eng.sim
     expect(eng.query(28, 1)).toEqual(eng.sim.query(28, 1));
@@ -376,7 +376,7 @@ test("engine emits a diagnostic log stream (deploy/tick/tx events via onLog)", a
         amount: 0,
         tick: 10,
         inputType: 1,
-        payload: await encodeInput(""),
+        payload: await encodeInputFormat(""),
     });
     await eng.broadcastTx(tx.bytes);
     expect(ev.some((e) => e.cat === "tx" && e.level === "info")).toBe(true);

@@ -14,7 +14,7 @@ import {
     arrayGeometry,
     bitArrayGeometry,
     collectionGeometry,
-    decodeOutput,
+    decodeAbi,
     hashMapGeometry,
     hashSetGeometry,
     linkedListGeometry,
@@ -253,7 +253,7 @@ test("HashSet view excludes marked-for-removal slots", async () => {
     setBytes[setGeometry.flagsOffset] = (2 << 2) | (1 << 6);
     setUint64(setBytes, setGeometry.populationOffset, 1);
     expect(await new QpiHashSetView(setType, qpiSnapshotSource(setBytes)).entries()).toEqual([{ slot: 3, key: 33n }]);
-    expect(await decodeOutput(setBytes, setType)).toEqual([{ slot: 3, key: 33n }]);
+    expect(await decodeAbi(setBytes, setType)).toEqual([{ slot: 3, key: 33n }]);
 });
 
 test("Collection view validates and walks each active PoV tree", async () => {
@@ -310,7 +310,7 @@ test("Collection view validates and walks each active PoV tree", async () => {
     ]);
     expect(entries.map((entry) => entry.povSlot)).toEqual([0, 0, 0, 2]);
     expect(entries[0].pov).not.toBe(entries[3].pov);
-    expect(await decodeOutput(bytes, type)).toEqual(entries);
+    expect(await decodeAbi(bytes, type)).toEqual(entries);
 
     setInt64(bytes, geometry.elementsOffset + geometry.elementStride + geometry.elementBstParentOffset, 2);
     await expect(new QpiCollectionView(type, qpiSnapshotSource(bytes)).entries()).rejects.toBeInstanceOf(QpiContainerConsistencyError);

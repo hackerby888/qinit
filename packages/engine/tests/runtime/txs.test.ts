@@ -1,7 +1,7 @@
 // Covers contract transactions, plain transfers, spectrum balances, TickData, and getEntity.
 import { test, expect } from "bun:test";
 import { buildSignedTx, deriveIdentity } from "@qinit/core";
-import { contractAddress, encodeInput } from "@qinit/proto";
+import { contractAddress, encodeInputFormat } from "@qinit/proto";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
@@ -102,7 +102,7 @@ test("contract procedure tx (real signed): source debited, procedure runs with i
         amount: 100,
         tick: 10,
         inputType: 1,
-        payload: await encodeInput(""),
+        payload: await encodeInputFormat(""),
     });
     expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
 

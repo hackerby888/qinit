@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { systemContracts, systemNames } from "@qinit/build";
-import { encodeInput, encodeInputJson, zeroInputFormat } from "@qinit/proto";
+import { encodeInputFormat, encodeInputJson, zeroInputFormat } from "@qinit/proto";
 import { parseContractIdl } from "@qinit/proto/contract-idl";
 
 test.skipIf(!process.env.QINIT_CORE)("systemContracts: live contract_def catalog includes typed IDL", async () => {
@@ -20,7 +20,7 @@ test.skipIf(!process.env.QINIT_CORE)("systemContracts: live contract_def catalog
         for (const [kind, entries] of entryGroups) {
             for (const entry of entries) {
                 try {
-                    const encoded = await encodeInput(zeroInputFormat(entry.input));
+                    const encoded = await encodeInputFormat(zeroInputFormat(entry.input));
                     if (encoded.byteLength !== entry.inSize) {
                         encodingFailures.push(
                             `${contract.name} ${kind} ${entry.name}: input type ${entry.inputType}, expected ${entry.inSize}, encoded ${encoded.byteLength}`,

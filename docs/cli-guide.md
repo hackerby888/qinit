@@ -991,11 +991,11 @@ inputs and outputs, matching the QPI restriction that only integers, `bit`, `id`
 
 ```text
 --args JSON or --in format
-  -> encodeInputJson() or encodeInput()
+  -> encodeInputJson() or encodeInputFormat()
   -> callFunction()
   -> LiteRpc.querySmartContract()
   -> POST /live/v1/querySmartContract
-  -> decodeOutput()
+  -> decodeAbi()
   -> fmtVal()
   -> terminal
 ```
@@ -1180,7 +1180,7 @@ and reads only `counter`:
 GET /live/v1/dev/state-read?slot=100&off=0&len=8
   -> response hex: 0700000000000000
   -> hexToBytes()
-  -> decodeOutput(bytes, uint64)
+  -> decodeAbi(bytes, uint64)
   -> 7
   -> { name: "counter", value: "7" }
 ```

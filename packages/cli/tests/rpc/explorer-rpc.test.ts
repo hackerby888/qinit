@@ -3,7 +3,7 @@ import { test, expect, beforeAll } from "bun:test";
 import { EngineServer } from "@qinit/engine/server";
 import { VirtualNode } from "@qinit/engine";
 import { LiteRpc, buildSignedTx, deriveIdentity, initK12 } from "@qinit/core";
-import { contractAddress, encodeInput } from "@qinit/proto";
+import { contractAddress, encodeInputFormat } from "@qinit/proto";
 import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
 
 const SEED = "a".repeat(55);
@@ -23,7 +23,7 @@ async function explorerFixture() {
         amount: 0,
         tick: engine.sim.currentTick + 1,
         inputType: 1,
-        payload: await encodeInput(""),
+        payload: await encodeInputFormat(""),
     });
     await engine.broadcastTx(tx.bytes);
     engine.advanceTickN(2); // apply the queued tx deterministically

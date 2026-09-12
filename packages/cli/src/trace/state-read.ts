@@ -1,12 +1,12 @@
 // Reads a contract's state over an RPC client and hands the decoded bytes to the pure formatters.
 import {
-    decodeOutput,
+    decodeAbi,
     createQpiContainerView,
     qpiSnapshotSource,
     QpiContainerConsistencyError,
     QpiIncompleteReadError,
     type QpiByteSource,
-    decodedJsonValue,
+    decodedAbiToJson,
 } from "@qinit/proto";
 import { AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import { extractIdl, type CalleeSource } from "@qinit/build";
@@ -240,7 +240,7 @@ export async function valueBlock(bytes: Uint8Array, type: AbiType): Promise<Stat
         const slice = bytes.subarray(field.off, field.off + field.size);
 
         if (!field.container) {
-            lines.push({ label: field.name, text: formatStateValue(await decodeOutput(slice, field.abi!), field.abi!, true, true), filled: true });
+            lines.push({ label: field.name, text: formatStateValue(await decodeAbi(slice, field.abi!), field.abi!, true, true), filled: true });
             continue;
         }
 
@@ -310,8 +310,8 @@ export async function decodeValueBlocks(bytes: Uint8Array, type: AbiType, prefix
             continue;
         }
 
-        const decoded = await decodeOutput(slice, field.abi!);
-        blocks.fields.push({ name, value: scalarText(decoded, field.abi!), data: decodedJsonValue(decoded, field.abi!) });
+        const decoded = await decodeAbi(slice, field.abi!);
+        blocks.fields.push({ name, value: scalarText(decoded, field.abi!), data: decodedAbiToJson(decoded, field.abi!) });
     }
 
     return blocks;
@@ -575,9 +575,9 @@ export async function readState(
                         return;
                     }
 
-                    const decoded = await decodeOutput(bytes, field.abi!);
+                    const decoded = await decodeAbi(bytes, field.abi!);
                     slot.value = scalarText(decoded, field.abi!);
-                    slot.data = decodedJsonValue(decoded, field.abi!);
+                    slot.data = decodedAbiToJson(decoded, field.abi!);
                 } catch (error) {
                     slot.value = `(read failed: ${stateReadError(error)})`;
                 }

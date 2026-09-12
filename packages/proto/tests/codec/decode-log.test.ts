@@ -288,7 +288,7 @@ test("the log struct and its values come back alongside the named top-level fiel
     expect(d.fields).toEqual({ a: 0, point: { x: 1, y: 2 } });
 });
 
-// decodeOutput unwraps a one-field struct to its bare value, which the positional list has to undo.
+// decodeAbi unwraps a one-field struct to its bare value, which the positional list has to undo.
 test("a one-field log keeps its value in the positional list", async () => {
     const cat = [log("One", [["only", AbiScalarKind.UINT64]])];
 

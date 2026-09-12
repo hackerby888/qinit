@@ -5,7 +5,7 @@ import { initK12 } from "../../src/support/k12";
 import { VirtualNode } from "../../src/transport";
 import { EngineServer } from "../../src/server";
 import { buildSignedTx, deriveIdentity } from "@qinit/core";
-import { contractAddress, encodeInput } from "@qinit/proto";
+import { contractAddress, encodeInputFormat } from "@qinit/proto";
 
 const SEED = "a".repeat(55);
 const SLOT = 28;
@@ -33,7 +33,7 @@ async function serveWithTx(): Promise<{
         amount: 0,
         tick: engine.sim.currentTick + 1,
         inputType: 1,
-        payload: await encodeInput(""),
+        payload: await encodeInputFormat(""),
     });
     expect((await engine.broadcastTx(tx.bytes)).ok).toBe(true);
 

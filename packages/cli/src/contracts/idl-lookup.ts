@@ -1,5 +1,5 @@
 import { LiteRpc, debug } from "@qinit/core";
-import { decodeOutput, jsonToInputFormat } from "@qinit/proto";
+import { decodeAbi, jsonToInputFormat } from "@qinit/proto";
 import { AbiTypeKind, type ContractEntry, type ContractIdl } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { loadConfiguredQpiHeader } from "../config";
@@ -78,7 +78,7 @@ export function entryFor(slot: number | null | undefined, inputType: number, idl
 
 export interface DecodedInput {
     fields: [name: string, value: string][];
-    format?: string;
+    inputFormat?: string;
 }
 
 // Decode a call's input against its entry, padded or truncated to the registered size as the engine's dispatch frame does, so a short input decodes as it ran.
@@ -91,13 +91,13 @@ export async function decodeTxInput(entry: ContractEntry, bytes: Uint8Array): Pr
     const padded = new Uint8Array(type.size);
     padded.set(bytes.subarray(0, Math.min(bytes.length, type.size)));
 
-    const decoded = await decodeOutput(padded, type);
+    const decoded = await decodeAbi(padded, type);
     const values = type.fields.length === 1 ? [decoded] : decoded;
     const fields = type.fields.map((field, index): [string, string] => [field.name, formatStateValue(values[index], field.type, false)]);
 
     // The value grammar is a bonus on top of the named fields — linked_list and overlapping inputs have no representation in it and must not cost those fields.
     try {
-        return { fields, format: jsonToInputFormat(type, values) };
+        return { fields, inputFormat: jsonToInputFormat(type, values) };
     } catch (error) {
         debug("decodeTxInput: no value format for this input", error);
         return { fields };

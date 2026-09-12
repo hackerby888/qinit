@@ -1,6 +1,6 @@
 // Contract call/invoke, qubic-cli style, over the built-in RPC — a function (read) goes to POST /live/v1/querySmartContract.
 import { LiteRpc, buildSignedTx, broadcastTx, type BroadcastResult, type SignedTx } from "@qinit/core";
-import { decodeOutput, encodeInput, encodeInputJson } from "./abi";
+import { decodeAbi, encodeInputFormat, encodeInputJson } from "./abi";
 import type { AbiType } from "./contract-idl";
 import { TX_TICK_OFFSET } from "./protocol";
 
@@ -55,12 +55,12 @@ export async function callFunction(
     contractIndex: number,
     functionId: number,
     input: string | Uint8Array | TypedContractInput,
-    outputFormat: string | AbiType,
+    outputType: string | AbiType,
 ): Promise<any> {
     const encodedInput =
-        typeof input === "string" ? await encodeInput(input) : input instanceof Uint8Array ? input : await encodeInputJson(input.type, input.value);
+        typeof input === "string" ? await encodeInputFormat(input) : input instanceof Uint8Array ? input : await encodeInputJson(input.type, input.value);
     const output = await rpc.querySmartContract(contractIndex, functionId, encodedInput);
-    return await decodeOutput(output, outputFormat);
+    return await decodeAbi(output, outputType);
 }
 
 // What every signed-tx submission returns: the broadcast result plus how far confirmation got.
@@ -192,7 +192,7 @@ export async function invokeProcedure(
             ? opts.input
             : opts.input
               ? await encodeInputJson(opts.input.type, opts.input.value)
-              : await encodeInput(opts.inputFormat ?? "");
+              : await encodeInputFormat(opts.inputFormat ?? "");
     const buildTx = (tick: number) =>
         buildSignedTx(opts.seed, {
             destination: contractAddress(opts.contractIndex),

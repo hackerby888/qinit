@@ -1,5 +1,5 @@
 // Decodes one debug trace entry into the strings the trace views render.
-import { decodeOutput, decodeLog, decodedJsonValue, type DecodedLog } from "@qinit/proto";
+import { decodeAbi, decodeLog, decodedAbiToJson, type DecodedLog } from "@qinit/proto";
 import { AbiTypeKind, type AbiType, type ContractCheat, type ContractIdl } from "@qinit/proto/contract-idl";
 import type { DebugCheat } from "@qinit/core";
 import { extractIdl, type CalleeSource } from "@qinit/build";
@@ -61,16 +61,16 @@ export async function describeTrace(
 
         if (inputType && entry.inHex) {
             await orElse(undefined, async () => {
-                const decoded = await decodeOutput(hexToBytes(entry.inHex), inputType);
+                const decoded = await decodeAbi(hexToBytes(entry.inHex), inputType);
                 input = formatStateValue(decoded, inputType, false, true);
-                inputJson = decodedJsonValue(decoded, inputType);
+                inputJson = decodedAbiToJson(decoded, inputType);
             });
         }
         if (metadata && entry.outHex) {
             await orElse(undefined, async () => {
-                const decoded = await decodeOutput(hexToBytes(entry.outHex), metadata.output);
+                const decoded = await decodeAbi(hexToBytes(entry.outHex), metadata.output);
                 output = formatStateValue(decoded, metadata.output, false, true);
-                outputJson = decodedJsonValue(decoded, metadata.output);
+                outputJson = decodedAbiToJson(decoded, metadata.output);
             });
         }
 
@@ -239,11 +239,11 @@ async function cheatBlocks(record: DebugCheat, type: AbiType): Promise<ValueBloc
 async function cheatValue(record: DebugCheat, type: AbiType): Promise<string> {
     try {
         if (record.size === type.size) {
-            return scalarText(await decodeOutput(hexToBytes(record.hex), type), type);
+            return scalarText(await decodeAbi(hexToBytes(record.hex), type), type);
         }
 
         if (record.size === 0 && type.kind === AbiTypeKind.SCALAR && type.size <= 8) {
-            return scalarText(await decodeOutput(registerBytes(record.value).subarray(0, type.size), type), type);
+            return scalarText(await decodeAbi(registerBytes(record.value).subarray(0, type.size), type), type);
         }
     } catch {
         // Shown raw below.

@@ -3,7 +3,7 @@ import { hexToBytes, identityToBytes } from "@qinit/core";
 import { AbiScalarKind, AbiTypeKind, forbiddenPublicType, formatAbiType, type AbiStruct, type AbiType } from "../contract-idl";
 import { arrayGeometry, bitWordCount } from "../qpi-layout";
 import { assertBounds } from "./decode";
-import { hasOverlappingAbiType, hasOverlappingFields, nodeOf, parseLayout, SCALAR_SIZE, splitTop, type TypeNode } from "./type-format";
+import { hasOverlappingAbiType, hasOverlappingFields, nodeOf, parseTypeFormat, SCALAR_SIZE, splitTop, type TypeNode } from "./type-format";
 
 // input encode (value-driven, aligned, async for id)
 async function encodeAbiType(view: DataView, offset: number, type: AbiType, value: any): Promise<void> {
@@ -338,14 +338,14 @@ function scalarToken(tok: string): { numStr: string; type: string } {
     return { numStr, type };
 }
 
-// JSON -> input value-format, field-name keyed: builds encodeInput's value format from named JSON fields or positional nested arrays.
-function jsonValueToFmt(typeTok: string, value: any): string {
+// JSON -> input value-format, field-name keyed: builds encodeInputFormat's value format from named JSON fields or positional nested arrays.
+function jsonValueToInputFormat(typeTok: string, value: any): string {
     typeTok = typeTok.trim();
     if (typeTok[0] === "{") {
         const parts = splitTop(typeTok.slice(1, typeTok.lastIndexOf("}")));
         if (!Array.isArray(value)) throw new Error(`nested struct '${typeTok}' needs a positional JSON array, got ${JSON.stringify(value)}`);
         if (value.length !== parts.length) throw new Error(`struct '${typeTok}' expects ${parts.length} values, got ${value.length}`);
-        return `{ ${parts.map((p, i) => jsonValueToFmt(p, value[i])).join(", ")} }`;
+        return `{ ${parts.map((p, i) => jsonValueToInputFormat(p, value[i])).join(", ")} }`;
     }
     if (typeTok[0] === "[") {
         const inner = typeTok.slice(1, typeTok.lastIndexOf("]"));
@@ -354,7 +354,7 @@ function jsonValueToFmt(typeTok: string, value: any): string {
         const elem = inner.slice(semi + 1).trim();
         if (!Array.isArray(value)) throw new Error(`array '${typeTok}' needs a JSON array, got ${JSON.stringify(value)}`);
         if (value.length !== n) throw new Error(`array '${typeTok}' expects ${n} elements, got ${value.length}`);
-        return `[${n}; ${value.map((v) => jsonValueToFmt(elem, v)).join(", ")}]`;
+        return `[${n}; ${value.map((v) => jsonValueToInputFormat(elem, v)).join(", ")}]`;
     }
     if (typeTok === "id" || typeTok === "m256i") {
         const s = String(value).replace(/^0x/, "");
@@ -374,14 +374,15 @@ function rejectComplexInput(fields: InputFields): void {
     }
 }
 
+// JSON -> value text, e.g. { amount: 1 } -> "1uint64".
 export function jsonToInputFormat(fields: InputFields, json: any): string {
     rejectComplexInput(fields);
     if (!Array.isArray(fields)) {
         if (fields.kind !== AbiTypeKind.STRUCT) {
-            return typedJsonValueToFmt(fields, json);
+            return typedJsonValueToInputFormat(fields, json);
         }
         const values = structValues(fields, json);
-        return fields.fields.map((field, index) => typedJsonValueToFmt(field.type, values[index])).join(", ");
+        return fields.fields.map((field, index) => typedJsonValueToInputFormat(field.type, values[index])).join(", ");
     }
     const arr = Array.isArray(json)
         ? json
@@ -389,10 +390,10 @@ export function jsonToInputFormat(fields: InputFields, json: any): string {
               if (json == null || !(f.name in json)) throw new Error(`missing input field '${f.name}'`);
               return json[f.name];
           });
-    return fields.map((f, i) => jsonValueToFmt(f.type, arr[i])).join(", ");
+    return fields.map((f, i) => jsonValueToInputFormat(f.type, arr[i])).join(", ");
 }
 
-// JSON.parse rounds an integer past 2^53 before any range check sees it; the reviver's source text keeps such a literal exact as a string.
+// JSON text -> value, keeping an integer past 2^53 exact as a string: JSON.parse rounds it before any range check sees it, so the reviver reads the source text.
 export function parseInputJson(text: string): any {
     type Reviver = (this: any, key: string, value: any, context?: { source?: string }) => any;
     const exact: Reviver = (_key, value, context) => {
@@ -407,6 +408,7 @@ export function parseInputJson(text: string): any {
     return JSON.parse(text, exact as (key: string, value: any) => any);
 }
 
+// JSON -> bytes, e.g. { amount: 1 } for "{ uint64 amount }" -> 01 00 00 00 00 00 00 00.
 export async function encodeInputJson(fields: InputFields, json: any): Promise<Uint8Array> {
     rejectComplexInput(fields);
     if (!Array.isArray(fields)) {
@@ -414,16 +416,16 @@ export async function encodeInputJson(fields: InputFields, json: any): Promise<U
         await encodeAbiType(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), 0, fields, json);
         return bytes;
     }
-    return encodeInput(jsonToInputFormat(fields, json));
+    return encodeInputFormat(jsonToInputFormat(fields, json));
 }
 
-function typedJsonValueToFmt(type: AbiType, value: any): string {
+function typedJsonValueToInputFormat(type: AbiType, value: any): string {
     if (type.kind === AbiTypeKind.STRUCT) {
         if (hasOverlappingFields(type)) {
             throw new Error("overlapping struct input requires raw bytes");
         }
         const values = structValues(type, value);
-        return `{ ${type.fields.map((field, index) => typedJsonValueToFmt(field.type, values[index])).join(", ")} }`;
+        return `{ ${type.fields.map((field, index) => typedJsonValueToInputFormat(field.type, values[index])).join(", ")} }`;
     }
     if (type.kind === AbiTypeKind.ARRAY) {
         if (!Array.isArray(value)) {
@@ -432,7 +434,7 @@ function typedJsonValueToFmt(type: AbiType, value: any): string {
         if (value.length !== type.count) {
             throw new Error(`array '${formatAbiType(type)}' expects ${type.count} elements, got ${value.length}`);
         }
-        return `[${type.count}; ${value.map((item) => typedJsonValueToFmt(type.element, item)).join(", ")}]`;
+        return `[${type.count}; ${value.map((item) => typedJsonValueToInputFormat(type.element, item)).join(", ")}]`;
     }
     if (type.kind === AbiTypeKind.BIT_ARRAY) {
         const bits = bitArrayValue(type.bitCount, value);
@@ -447,7 +449,7 @@ function typedJsonValueToFmt(type: AbiType, value: any): string {
     if (type.kind === AbiTypeKind.LINKED_LIST) {
         throw new Error("LinkedList input is not supported");
     }
-    return jsonValueToFmt(formatAbiType(type), value);
+    return jsonValueToInputFormat(formatAbiType(type), value);
 }
 
 function bitArrayValue(bitCount: number, value: any): number[] {
@@ -465,10 +467,10 @@ function bitArrayValue(bitCount: number, value: any): number[] {
     return value;
 }
 
-// Build an ALL-ZERO input value-format from a type-format, so a user whose input fails to parse gets a valid, copy-pasteable sample matching their entry.
-export function zeroInputFormat(fmt: string | AbiType): string {
-    if (typeof fmt !== "string" && hasOverlappingAbiType(fmt)) {
-        return `[${fmt.size}; 0uint8 ×${fmt.size}]`;
+// Type -> an all-zero value text sample, e.g. "{ uint64, id }" -> "0uint64, 0id", so a user whose input fails to parse gets a copy-pasteable one.
+export function zeroInputFormat(type: string | AbiType): string {
+    if (typeof type !== "string" && hasOverlappingAbiType(type)) {
+        return `[${type.size}; 0uint8 ×${type.size}]`;
     }
     const emit = (n: TypeNode): string => {
         switch (n.kind) {
@@ -489,14 +491,14 @@ export function zeroInputFormat(fmt: string | AbiType): string {
                 return `{ ${n.fields.map(emit).join(", ")} }`;
         }
     };
-    const node = typeof fmt === "string" ? parseLayout(fmt) : nodeOf(fmt);
-    // top-level struct renders WITHOUT braces (mirrors encodeInput's implicit top-level struct of the input fields)
+    const node = typeof type === "string" ? parseTypeFormat(type) : nodeOf(type);
+    // top-level struct renders WITHOUT braces (mirrors encodeInputFormat's implicit top-level struct of the input fields)
     return node.kind === "struct" ? node.fields.map(emit).join(", ") : emit(node);
 }
 
-// Top-level value tokens (comma-separated) = an implicit struct. "" = empty input.
-export async function encodeInput(fmt: string): Promise<Uint8Array> {
-    const t = (fmt ?? "").trim();
+// Value text -> bytes, with no schema, e.g. "1uint32" -> 01 00 00 00. Top-level tokens are an implicit struct; "" is an empty input.
+export async function encodeInputFormat(inputFormat: string): Promise<Uint8Array> {
+    const t = (inputFormat ?? "").trim();
     if (!t) return new Uint8Array(1);
     const parts = expandReps(splitTop(t));
     const out: number[] = [];
@@ -507,19 +509,19 @@ export async function encodeInput(fmt: string): Promise<Uint8Array> {
 }
 
 // --in against the IDL: every token checked against the field it lands in
-export type InputStruct = { kind: "struct"; items: InputNode[]; raw: string };
-export type InputNode =
-    InputStruct | { kind: "array"; count: number | null; items: InputNode[]; raw: string } | { kind: "scalar"; type: string; text: string; raw: string };
+export type InputFormatStruct = { kind: "struct"; items: InputFormatNode[]; raw: string };
+export type InputFormatNode =
+    InputFormatStruct | { kind: "array"; count: number | null; items: InputFormatNode[]; raw: string } | { kind: "scalar"; type: string; text: string; raw: string };
 
 const WIDE_SUFFIXES = ["m256i", "uint128", "sint128", "id"];
 
-// The value dialect as a tree, so a schema can check each token's spelled type before any byte is placed.
-export function parseInputTokens(fmt: string): InputStruct {
-    const t = (fmt ?? "").trim();
+// Value text -> token tree, e.g. "{1uint8, 2uint8}" -> a struct of two scalars, so a schema can check each spelled type before any byte is placed.
+export function parseInputFormat(inputFormat: string): InputFormatStruct {
+    const t = (inputFormat ?? "").trim();
     return { kind: "struct", items: t ? expandReps(splitTop(t)).map(parseInputToken) : [], raw: t };
 }
 
-function parseInputToken(tok: string): InputNode {
+function parseInputToken(tok: string): InputFormatNode {
     tok = tok.trim();
     if (tok[0] === "{") {
         if (tok[tok.length - 1] !== "}") throw new Error(`struct value is missing its closing '}': '${tok}'`);
@@ -547,9 +549,9 @@ function parseInputToken(tok: string): InputNode {
     return { kind: "scalar", type, text: numStr, raw: tok };
 }
 
-// `--in` with the entry's schema in hand: tokens are checked field by field and written at the schema's offsets, so a wrong-width spelling is refused.
-export async function encodeInputTyped(type: AbiType, fmt: string): Promise<Uint8Array> {
-    const root = parseInputTokens(fmt);
+// Value text -> bytes checked against an entry's schema and written at its offsets, e.g. "1uint32" for a uint64 field is refused.
+export async function encodeInputFormatAs(type: AbiType, inputFormat: string): Promise<Uint8Array> {
+    const root = parseInputFormat(inputFormat);
     const node = type.kind === AbiTypeKind.STRUCT ? unwrapInputBraces(root, type) : root.items.length === 1 ? root.items[0] : root;
     const bytes = new Uint8Array(type.size);
     await writeInputNode(new DataView(bytes.buffer), 0, type, node, "input");
@@ -557,13 +559,13 @@ export async function encodeInputTyped(type: AbiType, fmt: string): Promise<Uint
 }
 
 // "{a, b}" and "a, b" both spell the input struct; only a one-field struct wrapping another struct keeps its braces.
-function unwrapInputBraces(root: InputStruct, type: AbiStruct): InputNode {
+function unwrapInputBraces(root: InputFormatStruct, type: AbiStruct): InputFormatNode {
     const only = root.items.length === 1 ? root.items[0] : null;
     if (only?.kind !== "struct") return root;
     return type.fields.length === 1 && type.fields[0].type.kind === AbiTypeKind.STRUCT ? root : only;
 }
 
-async function writeInputNode(view: DataView, offset: number, type: AbiType, node: InputNode, path: string): Promise<void> {
+async function writeInputNode(view: DataView, offset: number, type: AbiType, node: InputFormatNode, path: string): Promise<void> {
     switch (type.kind) {
         case AbiTypeKind.SCALAR: {
             if (node.kind !== "scalar" || node.type !== type.scalar) {
@@ -577,7 +579,7 @@ async function writeInputNode(view: DataView, offset: number, type: AbiType, nod
                 throw new Error(`${path} is a struct ${formatAbiType(type)}, got '${node.raw}'`);
             }
             if (hasOverlappingFields(type)) {
-                await writeSpelledNode(view, offset, type, node, path);
+                await writeRawInputNode(view, offset, type, node, path);
                 return;
             }
             if (node.items.length !== type.fields.length) {
@@ -604,11 +606,11 @@ async function writeInputNode(view: DataView, offset: number, type: AbiType, nod
         }
         default:
             // Bit arrays are spelled as their physical words and containers have no value dialect, so those keep the spelling's bytes, checked only for size.
-            await writeSpelledNode(view, offset, type, node, path);
+            await writeRawInputNode(view, offset, type, node, path);
     }
 }
 
-async function writeSpelledNode(view: DataView, offset: number, type: AbiType, node: InputNode, path: string): Promise<void> {
+async function writeRawInputNode(view: DataView, offset: number, type: AbiType, node: InputFormatNode, path: string): Promise<void> {
     const out: number[] = [];
     await encodeToken(node.raw, out);
     if (out.length !== type.size) {
@@ -618,13 +620,13 @@ async function writeSpelledNode(view: DataView, offset: number, type: AbiType, n
 }
 
 // The typed scalar writer takes the JSON spellings, where a zero id or m256i is spelled out in full.
-function inputScalarValue(node: InputNode & { kind: "scalar" }): string {
+function inputScalarValue(node: InputFormatNode & { kind: "scalar" }): string {
     if ((node.type === "id" || node.type === "m256i") && node.text === "0") return "0".repeat(64);
     return node.text;
 }
 
-// encodeInput sees only values, never the schema, so a self-consistent but wrong-shaped input encodes fine and the engine silently zero-fills or truncates.
-export function checkInputSize(type: AbiType, bytes: Uint8Array, label: string): void {
+// Throws unless the encoded bytes match the entry's size — the guard the schema-free path needs, since it never sees the schema and the engine would silently zero-fill or truncate.
+export function assertInputSize(type: AbiType, bytes: Uint8Array, label: string): void {
     if (bytes.length === type.size) return;
     const shape = type.format ? ` (${type.format})` : " (no input)";
     throw new Error(`encodes to ${bytes.length} bytes, ${label} wants ${type.size}${shape}`);

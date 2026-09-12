@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { jsonToInputFormat, encodeInputJson, encodeInput, decodeOutput, hasOverlappingAbiType, zeroInputFormat } from "../../src/abi";
+import { jsonToInputFormat, encodeInputJson, encodeInputFormat, decodeAbi, hasOverlappingAbiType, zeroInputFormat } from "../../src/abi";
 import { callFunction } from "../../src/call";
 import { linkedListGeometry } from "../../src/qpi-layout";
 import { AbiScalarKind, AbiTypeKind, type AbiStruct, type AbiType } from "../../src/contract-idl";
@@ -54,7 +54,7 @@ test("jsonToInputFormat: uint128 decimal string remains lossless", async () => {
     const max = (1n << 128n) - 1n;
     expect(jsonToInputFormat([{ name: "n", type: "uint128" }], { n: max.toString() })).toBe(`${max}uint128`);
     const b = await encodeInputJson([{ name: "n", type: "uint128" }], { n: max.toString() });
-    expect(await decodeOutput(b, "uint128")).toBe(max);
+    expect(await decodeAbi(b, "uint128")).toBe(max);
 });
 
 test("jsonToInputFormat: missing field + arity mismatch throw", () => {
@@ -63,12 +63,12 @@ test("jsonToInputFormat: missing field + arity mismatch throw", () => {
     expect(() => jsonToInputFormat([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1] })).toThrow(/expects 2 values/);
 });
 
-test("encodeInputJson === encodeInput of the equivalent fmt (incl alignment)", async () => {
+test("encodeInputJson === encodeInputFormat of the equivalent fmt (incl alignment)", async () => {
     const a = await encodeInputJson([{ name: "value", type: "uint64" }], { value: 3 });
-    expect([...a]).toEqual([...(await encodeInput("3uint64"))]);
+    expect([...a]).toEqual([...(await encodeInputFormat("3uint64"))]);
     // {uint8, uint64}: 1B + 7B pad + 8B
     const b = await encodeInputJson([{ name: "s", type: "{ uint8, uint64 }" }], { s: [5, 9] });
-    expect([...b]).toEqual([...(await encodeInput("{ 5uint8, 9uint64 }"))]);
+    expect([...b]).toEqual([...(await encodeInputFormat("{ 5uint8, 9uint64 }"))]);
     expect(b.length).toBe(16);
 });
 
@@ -92,7 +92,7 @@ test("encodeInputJson: m256i field round-trips (64-hex -> 32 bytes)", async () =
     const dg = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
     const b = await encodeInputJson([{ name: "d", type: "m256i" }], { d: dg });
     expect(b.length).toBe(32);
-    expect(await decodeOutput(b, "m256i")).toBe(dg);
+    expect(await decodeAbi(b, "m256i")).toBe(dg);
 });
 
 test("encodeInputJson: deep nested array-of-structs (positional) round-trips", async () => {
@@ -103,7 +103,7 @@ test("encodeInputJson: deep nested array-of-structs (positional) round-trips", a
             [3, 4],
         ],
     });
-    expect(await decodeOutput(b, "[2;{ uint32, uint32 }]")).toEqual([
+    expect(await decodeAbi(b, "[2;{ uint32, uint32 }]")).toEqual([
         [1, 2],
         [3, 4],
     ]);
@@ -148,7 +148,7 @@ test("typed codec honors explicit field offsets", async () => {
     expect(bytes[0]).toBe(7);
     expect(bytes.slice(1, 16)).toEqual(new Uint8Array(15));
     expect(new DataView(bytes.buffer).getBigUint64(16, true)).toBe(99n);
-    expect(await decodeOutput(bytes, padded)).toEqual([7, 99n]);
+    expect(await decodeAbi(bytes, padded)).toEqual([7, 99n]);
 });
 
 test("typed codec accepts direct scalar and array roots", async () => {
@@ -175,7 +175,7 @@ test("typed codec accepts direct scalar and array roots", async () => {
     };
 
     const scalarBytes = await encodeInputJson(scalar, 42n);
-    expect(await decodeOutput(scalarBytes, scalar)).toBe(42n);
+    expect(await decodeAbi(scalarBytes, scalar)).toBe(42n);
     expect(jsonToInputFormat(scalar, 42n)).toBe("42uint64");
     let captured: number[] = [];
     const rpc = {
@@ -188,7 +188,7 @@ test("typed codec accepts direct scalar and array roots", async () => {
     expect(captured).toEqual([...scalarBytes]);
 
     const arrayBytes = await encodeInputJson(array, [3, 5, 8]);
-    expect(await decodeOutput(arrayBytes, array)).toEqual([3, 5, 8]);
+    expect(await decodeAbi(arrayBytes, array)).toEqual([3, 5, 8]);
     expect(jsonToInputFormat(array, [3, 5, 8])).toBe("[3; 3uint16, 5uint16, 8uint16]");
 });
 
@@ -223,7 +223,7 @@ test("typed array preserves nested one-field structs", async () => {
     };
 
     const bytes = await encodeInputJson(array, [[7], [9]]);
-    expect(await decodeOutput(bytes, array)).toEqual([[7], [9]]);
+    expect(await decodeAbi(bytes, array)).toEqual([[7], [9]]);
 });
 
 test("typed codec encodes an empty struct as one zero byte", async () => {
@@ -236,8 +236,8 @@ test("typed codec encodes an empty struct as one zero byte", async () => {
     };
 
     expect(await encodeInputJson(schema, {})).toEqual(Uint8Array.of(0));
-    expect(await decodeOutput(Uint8Array.of(0), schema)).toEqual([]);
-    await expect(decodeOutput(new Uint8Array(0), schema)).rejects.toThrow(RangeError);
+    expect(await decodeAbi(Uint8Array.of(0), schema)).toEqual([]);
+    await expect(decodeAbi(new Uint8Array(0), schema)).rejects.toThrow(RangeError);
 });
 
 test("typed codec accepts a zero-length array", async () => {
@@ -271,7 +271,7 @@ test("typed codec accepts a zero-length array", async () => {
 
     const bytes = await encodeInputJson(schema, { values: [] });
     expect(bytes).toEqual(new Uint8Array());
-    expect(await decodeOutput(bytes, schema)).toEqual([]);
+    expect(await decodeAbi(bytes, schema)).toEqual([]);
 });
 
 test("overlapping input fields require one raw union view", async () => {
@@ -314,7 +314,7 @@ test("overlapping input fields require one raw union view", async () => {
     expect(await encodeInputJson(union, raw)).toEqual(raw);
     expect(await encodeInputJson(union, [...raw])).toEqual(raw);
     await expect(encodeInputJson(union, [256, 0, 0, 0, 0, 0, 0, 0])).rejects.toThrow(/0 to 255/);
-    expect(await decodeOutput(raw, union)).toEqual([5n, 5]);
+    expect(await decodeAbi(raw, union)).toEqual([5n, 5]);
 });
 
 test("typed container decode keeps nested field offsets", async () => {
@@ -373,7 +373,7 @@ test("typed container decode keeps nested field offsets", async () => {
     view.setBigUint64(32, 1n, true);
     view.setBigUint64(40, 1n, true);
 
-    expect(await decodeOutput(bytes, map)).toEqual([{ slot: 0, key: 3, value: [7, 99n] }]);
+    expect(await decodeAbi(bytes, map)).toEqual([{ slot: 0, key: 3, value: [7, 99n] }]);
 });
 
 test("typed BitArray encodes logical bits LSB-first and ignores padding", async () => {
@@ -393,13 +393,13 @@ test("typed BitArray encodes logical bits LSB-first and ignores padding", async 
     const bytes = await encodeInputJson(bitArray, bits);
     expect(new DataView(bytes.buffer).getBigUint64(0, true)).toBe((1n << 63n) | 1n);
     expect(new DataView(bytes.buffer).getBigUint64(8, true)).toBe((1n << 63n) | 1n);
-    expect(await decodeOutput(bytes, bitArray)).toEqual(bits);
+    expect(await decodeAbi(bytes, bitArray)).toEqual(bits);
     expect(jsonToInputFormat(bitArray, bits)).toBe("[2; 9223372036854775809uint64, 9223372036854775809uint64]");
     expect(zeroInputFormat(bitArray)).toBe("[2; 0uint64 ×2]");
     expect(hasOverlappingAbiType(bitArray)).toBe(false);
 
     expect(
-        await decodeOutput(new Uint8Array(8).fill(0xff), {
+        await decodeAbi(new Uint8Array(8).fill(0xff), {
             ...bitArray,
             bitCount: 2,
             size: 8,
@@ -447,7 +447,7 @@ test("typed LinkedList decodes logical order and rejects public input", async ()
     view.setBigInt64(geometry.tailOffset, 1n, true);
     view.setBigUint64(geometry.populationOffset, 2n, true);
 
-    expect(await decodeOutput(bytes, linkedList)).toEqual([
+    expect(await decodeAbi(bytes, linkedList)).toEqual([
         { slot: 5, value: 50n },
         { slot: 1, value: 10n },
     ]);

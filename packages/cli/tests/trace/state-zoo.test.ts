@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/engine/support/k12";
-import { decodeOutput } from "@qinit/proto";
+import { decodeAbi } from "@qinit/proto";
 import { bytesToIdentity } from "@qinit/core";
 import { CORE_PATH, HAS_CORE, HAS_WASI } from "../../../../test-utils/paths";
 import { loadWasmFixture, loadWasmFixtureIdl, wasmFixtureManifest } from "../../../../test-utils/wasm-fixtures";
@@ -65,7 +65,7 @@ class Zoo {
 
     private async query<T>(name: string, input: Uint8Array): Promise<T> {
         const meta = this.idl.functions.find((candidate) => candidate.name === name)!;
-        return (await decodeOutput(this.sim.query(SLOT, meta.inputType, input), meta.output)) as T;
+        return (await decodeAbi(this.sim.query(SLOT, meta.inputType, input), meta.output)) as T;
     }
     lookup(i: bigint) {
         return this.query<Lookup>("Lookup", u64(SEED, i));

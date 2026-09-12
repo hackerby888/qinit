@@ -1,7 +1,7 @@
 // The explorer reads a transaction's input from nothing but its inputType and the contract's IDL, so these pin naming an entry and decoding bytes back.
 import { expect, test } from "bun:test";
 import { extractIdl } from "@qinit/build";
-import { encodeInput } from "@qinit/proto";
+import { encodeInputFormat } from "@qinit/proto";
 import { decodeTxInput, entryFor } from "../../src/contracts/idl-lookup";
 import { inputTypeLabel } from "../../src/commands/deploy-interact/explorer/chrome";
 
@@ -57,7 +57,7 @@ test("an entry is resolved by slot and inputType, and named", () => {
 
 test("input bytes decode to named fields and back to the --in format", async () => {
     const entry = entryNamed("IssueAsset");
-    const bytes = await encodeInput("1096040772uint64, 1000000000sint64, -3sint8");
+    const bytes = await encodeInputFormat("1096040772uint64, 1000000000sint64, -3sint8");
 
     const decoded = await decodeTxInput(entry, bytes);
 
@@ -66,13 +66,13 @@ test("input bytes decode to named fields and back to the --in format", async () 
         ["numberOfShares", "1000000000"],
         ["decimals", "-3"],
     ]);
-    expect(decoded.format).toBe("1096040772uint64, 1000000000sint64, -3sint8");
-    expect(await encodeInput(decoded.format!)).toEqual(bytes);
+    expect(decoded.inputFormat).toBe("1096040772uint64, 1000000000sint64, -3sint8");
+    expect(await encodeInputFormat(decoded.inputFormat!)).toEqual(bytes);
 });
 
 test("a short input is zero-padded the way the engine's dispatch frame pads it", async () => {
     const entry = entryNamed("IssueAsset");
-    const full = await encodeInput("7uint64, 0sint64, 0sint8");
+    const full = await encodeInputFormat("7uint64, 0sint64, 0sint8");
 
     const decoded = await decodeTxInput(entry, full.subarray(0, 8));
 
@@ -82,7 +82,7 @@ test("a short input is zero-padded the way the engine's dispatch frame pads it",
 // A struct field is a record, not a list: it has to keep its own field names rather than collapse to the positional array the ABI decoder hands back.
 test("a nested struct field keeps its field names", async () => {
     const entry = entryNamed("Move");
-    const bytes = await encodeInput("{1sint32, 2sint32}, 3026uint64");
+    const bytes = await encodeInputFormat("{1sint32, 2sint32}, 3026uint64");
 
     const decoded = await decodeTxInput(entry, bytes);
 
@@ -96,5 +96,5 @@ test("an entry with no input has nothing to show", async () => {
     const decoded = await decodeTxInput(entryNamed("Ping"), new Uint8Array(0));
 
     expect(decoded.fields).toEqual([]);
-    expect(decoded.format).toBeUndefined();
+    expect(decoded.inputFormat).toBeUndefined();
 });

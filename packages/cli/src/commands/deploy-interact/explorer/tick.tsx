@@ -238,7 +238,7 @@ export function TxView({
     const nameWidth = Math.min(NAME_WIDTH, Math.max(0, ...shownFields.map(([name]) => name.length)));
     const valueWidth = Math.max(8, width - nameWidth - 2);
     const fieldRows = shownFields.map(([name, value]): [string, string] => [truncMid(name, nameWidth).padEnd(nameWidth), truncMid(value, valueWidth)]);
-    const formatRow = decoded?.format ? truncMid(`--in "${decoded.format}"`, width) : "";
+    const formatRow = decoded?.inputFormat ? truncMid(`--in "${decoded.inputFormat}"`, width) : "";
     const decodedRows = fieldRows.length + (hiddenFields > 0 ? 1 : 0) + (formatRow ? 2 : 0);
 
     // 15 fixed rows (title band 5, KV block 8, hint 2); the dump costs its own margin, header and overflow line, so a short terminal drops dump rows first.

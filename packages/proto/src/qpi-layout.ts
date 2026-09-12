@@ -301,7 +301,7 @@ export function linkedListMembers(value: Layout, capacity: number): ContainerReg
     ];
 }
 
-// Sub-record field-token shapes (type-format fragments; alignment handled by parseLayout), e.g. PoV{ id value; uint64 population; sint64 head, tail, bstRoot }.
+// Sub-record field-token shapes (type-format fragments; alignment handled by parseTypeFormat), e.g. PoV{ id value; uint64 population; sint64 head, tail, bstRoot }.
 export const COLLECTION_POV_FMT = "id, uint64, sint64, sint64, sint64";
 //   Collection Element trailer after the T value: sint64 priority, povIndex, bstParent, bstLeft, bstRight
 export const COLLECTION_ELEM_TRAILER_FMT = "sint64, sint64, sint64, sint64, sint64";

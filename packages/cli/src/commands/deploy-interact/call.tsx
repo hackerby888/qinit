@@ -8,12 +8,12 @@ import {
     contractAddress,
     callFunction,
     invokeProcedure,
-    encodeInput,
+    encodeInputFormat,
     encodeInputJson,
-    encodeInputTyped,
-    decodedJsonValue,
+    encodeInputFormatAs,
+    decodedAbiToJson,
     parseInputJson,
-    checkInputSize,
+    assertInputSize,
     zeroInputFormat,
     layoutOf,
     TX_TICK_OFFSET,
@@ -322,8 +322,8 @@ function CallOneShot({
                         // No --in/--args encodes as empty: the entry's format is a type string, not a value, so feeding it reported a phantom parse error.
                         input =
                             inputFormat !== undefined && entryIdl
-                                ? await encodeInputTyped(entryIdl.input, inputFormat)
-                                : await encodeInput(inputFormat ?? "");
+                                ? await encodeInputFormatAs(entryIdl.input, inputFormat)
+                                : await encodeInputFormat(inputFormat ?? "");
                     } catch (enc: any) {
                         let z = "";
                         try {
@@ -336,7 +336,7 @@ function CallOneShot({
                 }
                 if (entryIdl) {
                     try {
-                        checkInputSize(entryIdl.input, input, `${mode} ${idx}/${entry}`);
+                        assertInputSize(entryIdl.input, input, `${mode} ${idx}/${entry}`);
                     } catch (size: any) {
                         throw new Error(`bad input: ${size?.message ?? size}`);
                     }
@@ -414,7 +414,7 @@ function CallOneShot({
                     const ne = empty ? await nodeErr() : "";
                     // An explicit --out format overrides the IDL, and only the IDL type carries field names.
                     const rendered = !outputFormat && entryIdl ? formatStateValue(out, entryIdl.output, showAll, true) : fmtVal(out, showAll);
-                    const outJson = !outputFormat && entryIdl ? decodedJsonValue(out, entryIdl.output) : out;
+                    const outJson = !outputFormat && entryIdl ? decodedAbiToJson(out, entryIdl.output) : out;
                     const info = ne ? undefined : await contractInfo();
                     setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, out: rendered, outJson, address: info?.address, balance: info?.balance });
                     setResult({
