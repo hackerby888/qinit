@@ -17,8 +17,13 @@ Nothing here was fixed or committed. Contracts, dumps and captures live outside 
 | --- | --- | --- |
 | simulator × typescript | **live** | `qinit node run --runtime simulator --compiler typescript --core-dir <patched v0.0.47 headers>` |
 | simulator × clang | **live** | same node; `qinit deploy --compiler clang` per contract |
-| core × typescript | **could not be started** | see below |
-| core × clang | **could not be started** | see below |
+| core × typescript | **could not be started** (rounds 1–6) | see below |
+| core × clang | **could not be started** (rounds 1–6) | see below |
+
+> **Superseded for the S7/S8 fixes.** The blocker below is the *published release* being ABI v6. A
+> checkout of core-lite `develop` is ABI v7, and with one in hand the node builds and runs — see
+> *The core cells, at last* in the S7/S8 fixes section. It still cannot be driven, for an entirely
+> different reason recorded there.
 
 ### Both core cells are unavailable at this commit — ABI v6 vs v7
 
@@ -1622,6 +1627,289 @@ a real core contract driven through its *own* procedures rather than by byte inj
 needs a 512-byte `bit_4096` input and collateral, and `registerVault` a 16-element owner array, so both
 were left for a later round.
 
+---
+
+# Fixes — S7 and S8
+
+Applied on the same branch, on top of round 4. Both defects were reproduced and root-caused in round 4
+and left open because each needed a decision rather than a patch. One mechanism answers both: a per-slot
+**state version**, produced by both runtimes and consumed by both fixes. S8 compares it across the reads
+that compose one container view; S7 uses it only to decide whether a key fetched *now* may be trusted for
+a trace captured *then*.
+
+Verification is the treatment S1–S6 received — every repro replayed against a live node with its
+control, the 148-checkpoint regression corpus diffed, the suite run over every file that can reach the
+changed modules, a typecheck — plus three things the earlier rounds could not do: a run against an
+**unpatched** node, to show the client degrades to exactly today's behaviour rather than to a worse one;
+a measurement of what the new error costs on a busy contract; and a core cell that finally builds and
+starts, though it still cannot be driven (see below).
+
+## What changed
+
+| # | File | Change |
+| --- | --- | --- |
+| S7.1 | `packages/cli/src/trace/state-diff.ts` | decode the merged windows once, and look a record's key up across **all** of them instead of only the window whose bytes moved |
+| S7.2 | `packages/cli/src/trace/state-diff.ts`, `format.ts`, `commands/deploy-interact/call.tsx` | when the key is in no window at all, read it back from the node — guarded by the state version, and never for a removal |
+| S7.3 | `packages/cli/src/trace/state-diff.ts`, `views.tsx` | mark a row whose key stayed unresolved, so the fallback is visible instead of silent |
+| S8 | `packages/cli/src/trace/state-read.ts` | hold the first response's version in the byte source and fail the container if a later response reports a different one |
+| — | `packages/engine/src/contract/{registry,runtime}.ts`, `qubic-simulator.ts`, `transport.ts`, `logging/trace.ts` | the simulator produces the version: a per-slot counter bumped on every non-function dispatch, returned by `stateRead` and recorded on the trace entry |
+| — | `packages/core/src/net/{transport,rpc/client,rpc/types}.ts` | carry the optional field over the wire |
+
+Sixteen files, +378 −56, eleven new tests. The version is **optional at every hop**: a node that does not
+send it leaves both new paths inert, so the client, the engine and core-lite ship independently and in
+any order.
+
+### S7 step 1 needs nothing from the node, and is the only thing that can fix a removal
+
+The key insight that made this small: if a record's key bytes *changed* during the dispatch, they are
+already in the diff by construction — just in a different, non-adjacent window, which
+`mergeAdjacentWindows` never joined and both bounds checks never looked at. Recovering them is local.
+
+That matters beyond code size, because it is the **only** correct fix for the removal case. A removal
+zeroes the record, so a key read back after the fact returns zeros and would label the row `m[AAAA…]` —
+a confident lie, strictly worse than the honest bucket fallback. Step 1 recovers the real key from the
+*before* image; the fetch in step 2 is therefore wired to `entryIdentityOf` only, never to `namedFlags`,
+and `keyForLabel` refuses the fetched key whenever the flag says the entry left.
+
+### S8 lives in the one RPC-backed byte source
+
+`stateByteSource` is the only `QpiByteSource` that talks to a node — every other one is in-memory and
+inherently consistent — and a fresh one is built per retry attempt. Putting the check there means **no
+change to `packages/proto` and none to any of the six container views**, and it covers every kind at any
+size, including `array-view` and `bit-array-view`, which have no invariant of their own and until now
+accepted a torn read in silence.
+
+The retry loop is untouched: a version mismatch is just another `QpiContainerConsistencyError`, so one
+inconsistent view is still retried before the container fails. A container that cannot settle reports
+`status: "error"` with `complete: false` and exit 1 — the existing failure shape, with a message naming
+the field and the version transition. No new status was added.
+
+## Verification
+
+**1. S7 replayed against a live node** (`QINIT_STATE_DIFF=verify` throughout, confirmed by reading
+`/proc/15251/environ`, not assumed). `contracts/Windows.h`, all eight records updated — the same
+experiment round 4 used to state the rule:
+
+```
+                        before (round 4)            after
+slot 0  value @272      m.slot[0].value             m[UQNKTPSXQUDRKDQSXCPLDAPVOJZFWXJTNZRTZHKACBSFXSFYVLRBJKUBBJYC]
+slot 1  value @312      m[LBBU…]                    m[LBBU…]
+slot 2..5, 7            m[…]                        m[…]
+slot 6  value @512      m.slot[6].value             m[EZMQOEPYEZQOGBELDVMBMADACHVDANNNIXWCBBNZJGKUNMUNXVLNIQMBJGJI]
+```
+
+Eight for eight. The two keys the reader fetched are exactly the ones the container view — an independent
+reader over the same bytes, which never lost them — reports for those buckets.
+
+Repeated on the **clang cell** (same source, `qinit deploy --compiler clang`, same node), the two records
+that were anonymous before come back named there too — `m[UQNK…] 1008 → 3008` and `m[EZMQ…] 1006 → 3006`.
+The diff reader is compiler-independent, as round 4 found when filing this, and the fix is too.
+
+`contracts/BigVal.h`, the amplifier where one record spans two windows:
+
+```
+SetTail (value + 392)   before:  bm.slot[0].value.tail  22 → 444
+                        after:   bm[WGWCHSCIUWGLKESIGVCONKSXRDZGYHZXDDODDKNUBCQRCGNCNMOWZVXAJQJF].tail  22 → 444
+```
+
+**2. The controls that would catch an over-reach.**
+
+```
+remove id#8 (slot 0)    m[UQNK…] 2008 → (removed)     — the real key, from the before image
+remove id#6 (slot 6)    m[EZMQ…] 2006 → (removed)     — never m[AAAA…]
+re-insert id#8          m[UQNK…] = 4242 (new)         — inserts still named
+```
+
+The all-zero identity never appears. This is the anti-regression the design was shaped around.
+
+**3. Safe degradation, measured rather than argued.** The same eight updates, same new client, against a
+node running the **pre-fix** engine (started before the commit, so it serves no version):
+
+```
+slot 1..5, 7    m[…]                                     — named, exactly as today
+slot 0, 6       m.slot[0].value / m.slot[6].value        — anonymous, exactly as today
+                keyUnresolved: true                      — the one difference: the fallback now says so
+```
+
+No fetch is attempted, nothing throws, no row changed. The client is strictly additive against an old
+node.
+
+**4. S8, end to end, with both controls.** `contracts/RaceTick.h` is a `HashMap<id, uint64, 131072>`
+fragmented by 24 scattered keys — 24 occupied runs, so one container view costs 26 sequential reads —
+next to an `END_TICK` that writes state on every tick. The race is then a property of the contract rather
+than of timing luck.
+
+```
+                                                              reads  reported error
+post-fix client, writer every 20 ms                             12        12
+post-fix client, writer every 5000 ms  (quiet control)          12         0
+pre-fix  client, writer every 20 ms    (same node, same map)    12         0
+```
+
+The middle row is the false-positive control: on a quiet node every read still comes back `loaded`,
+`complete: true`, 24 occupied slots. The bottom row is the one that matters — the **pre-fix client saw
+the same twelve interleavings and called every one of them complete**. The new message names both the
+field and the transition:
+
+```
+big changed while it was being read (state version 268 → 269)
+```
+
+At the byte level, three raw reads of the same offset through the node's own API: version 7, version 7,
+then a procedure call, then version 8. Stable while nothing writes; moves exactly when something does.
+
+**5. The churn this costs, measured.** The policy chosen for a container that cannot settle is the
+existing error shape. On this probe — which writes on *every* tick, the worst case by construction — the
+error rate against the tick period is:
+
+```
+tick 50 ms (the engine default)   20/20 reads error
+tick 100 ms                        3/20
+tick 200 ms                        0/20
+tick 400 ms                        0/20
+```
+
+Read honestly: a contract that writes state every tick, whose container is large enough to need more than
+a tick's worth of round trips, is **unreadable** at the default tick rate — every attempt reports the
+race rather than a view. That is correct behaviour (the writes are real and the old answer was a stitched
+view reported as complete), but it is a real cost, and it is the strongest argument for the follow-up the
+plan already named: narrow the comparison to writes that overlap the ranges actually read, using the
+write journal both engines already keep. A per-slot version cannot tell a write to `ticks` from a write
+to `big`; this probe's `END_TICK` only ever touches `ticks`, and the read still fails.
+
+Contracts that write only when called are unaffected — that is what the quiet control measures.
+
+**6. The corpus.** The 148-checkpoint regression corpus — every hand-written sequence from rounds 1–3,
+19 deploys, 15 state digests, replayed end to end — captured before and after:
+
+```
+1290 lines captured, 1 changed
+< mapsets.slot[1].value.slot[1]              | 0 → LBBU…
+> mapsets[PKTGIKYHNHNMMFZJDPYUKFZTKDPAVBWBFVJDWUTVDDFRWEIWPCBAUODAFZAK].slot[1] | 0 → LBBU…
+```
+
+All 15 digests byte-identical, all 19 deploys identical, and the single changed line is the intended
+category: a nested container's row that was named by its bucket is now named by the outer record's key.
+The checkpoint is a `SetAdd` whose own input is `PKTG…id, LBBU…id` — the key the new label prints is
+literally the argument the call was given.
+
+**7. Tests.** `bun run typecheck` clean. The 195-file scope — all of
+`packages/{proto,cli,engine,core,build}` plus `packages/compiler/tests/differential/container-view-native.test.ts`,
+the complete set that can reach the changed modules:
+
+```
+before (round 6 tip):  1459 pass  35 skip  8 fail   (1502 tests)
+after:                 1470 pass  35 skip  8 fail   (1513 tests)
+```
+
+The 8 failures are the *same 8 by name* in both runs — `diff` of the sorted lists is empty — and all 8
+are environmental, not behavioural: they read a core checkout this sandbox's header tree does not carry.
+The 11 extra tests are the 11 new ones.
+
+## The core cells, at last — and how far they got
+
+Six rounds reported both core cells unstartable because the only published core-lite release was ABI v6
+against the repo's v7. With a checkout of `develop` in hand that is no longer true, so this round built
+one: `cmake -DLITE_WASM_SC=ON -DTESTNET=ON -DTESTNET_LITE_RAM=ON`, clang 18, WAMR pinned at
+`0e47872`, libffi — **`[100%] Built target Qubic`, with the patch applied**. That is real compile
+verification of all four changed headers, not the extracted-snippet check that preceded it. The node
+then started and ticked (epoch 230, 1.0 s/tick, `QINIT_STATE_DIFF=verify` confirmed through
+`/proc/6820/environ`).
+
+It could not be **driven**, and the reason is worth stating exactly rather than rounding off to
+"unavailable":
+
+```
+node.log:53   Error opening file in load spectrum.230!
+/live/v1/dev/funded-seeds  ->  8 seeds, every one of them balance 0
+deploy                     ->  ok:false, "signer … has no balance on this node —
+                               it accepts the transaction and then drops it at tick assembly"
+/live/v1/dev/state-read    ->  {"error":"bad slot"} for every index tried (1..6, 9, 10, 29, 30)
+```
+
+The node starts with an empty spectrum, so nothing can pay for a deployment; with no contract loaded
+there is no slot for the patched reader to answer for. **So the core runtime behaviour of this patch is
+unverified**: what is verified there is that it compiles into a real build and that the node runs with
+it. Everything behavioural above is from the two simulator cells. The seqlock's own logic is covered
+separately, below, by a test that compiles the shipped source text.
+
+## The core-lite side
+
+Four existing files under `src/extensions/`, +98 −5, **no new file**. No upstream file is touched, so it
+does not conflict with merges from `qubic/core` and does not disturb the `contract_def.h` markers
+`qinit integrate` parses. The commit is local in the core-lite clone; the patch is at
+`/home/user/core-lite-state-seq.patch` and applies cleanly to `develop` at `f8c2990`.
+
+| File | Change |
+| --- | --- |
+| `wasm/runtime/state_backend.h` | the counter and its RAII scope, beside the existing `g_wasmOwnedSlot[contractCount]` |
+| `wasm/runtime/dispatch.h` | raise the scope around a writing dispatch and a migration; record the post-dispatch version on the trace entry |
+| `wasm/runtime/trace.h` | the trace entry carries `stateVersion` |
+| `http/controller/rpc_live_controller.h` | the seqlock read loop, `json["version"]`, and `stateVersion` in the debug-trace JSON |
+
+**Why a seqlock and not `contractStateLock`.** That lock is writer-priority; holding it across a
+multi-megabyte hex encode on an HTTP worker would stall the contract processor for the whole encode. The
+seqlock never blocks the writer at all — it only lets the reader find out, afterwards, whether its copy
+was clean.
+
+**What it cannot disturb.** The counter lives outside the state bytes, so `K12(StateData)`, the contract
+digest, the state files and consensus are byte-identical with or without it. A counter kept *inside* the
+state buffer would change every digest and break consensus — which is why it is not there.
+
+**The seqlock's own test.** The concurrency argument is not something a reading can settle, so it was
+measured. A test extracts the declaration and scope from the shipped `state_backend.h` (not a copy of
+them), compiles them, and runs the controller's exact read loop against a writer thread that tears the
+bytes on purpose — the writer only ever leaves a buffer where every byte is equal, so any snapshot the
+reader calls trustworthy must be self-consistent.
+
+```
+patched reader          20000 reads   19626 carried a version   374 withheld it    0 torn reads reported
+negative control        20000 reads   20000 carried a version     0 withheld it  551 torn reads reported
+(same writer, same reader, sequence check disabled = the pre-patch behaviour)
+```
+
+The control is the point: the test can see tearing (551 of it), and with the check in place it reports
+none, while still serving a version on 98% of reads. The same run also asserts the two invariants that
+are easy to get wrong — a nested scope must not close the write window, and the version
+`finishDispatchTrace` records must equal the value the sequence settles on once the outermost scope is
+gone.
+
+## Two of my own errors, caught and corrected
+
+**A new header file, which qinit validates against.** The patch first declared the counter in a new
+`src/extensions/wasm/runtime/state_seq.h`. That is a file in a directory qinit checks: running the
+repo's own suite against the patched checkout turned `packages/core/tests/wasm/headers.test.ts` red —
+*"declares every shared, SDK, and runtime source exactly once"* — because `CORE_WASM_HEADERS` is a
+canonical manifest of that tree and the new file was not in it. Adding the manifest entry would have
+been worse, not better: it would then fail the other way for anyone on an unpatched core-lite, coupling
+two repositories that ship separately. The counter moved into `state_backend.h` beside
+`g_wasmOwnedSlot[contractCount]`, which the plan had named in the first place and which already carries
+that dependency. `23 pass / 0 fail` against the patched checkout afterwards. The lesson is the one the
+brief keeps making: run the tool against the thing you changed, rather than reasoning about it.
+
+**A reader that could return no bytes.** The first read loop `continue`d when it found the sequence odd,
+and with a budget of two attempts a slot written twice in a row would fall out of the loop with `hex`
+still empty — a response claiming `len: N` and carrying nothing. The loop now copies on every attempt and
+withholds only the *version*, never the payload. Caught by reading the loop back before committing, not
+by a test, which is worth admitting.
+
+## What these fixes do *not* do
+
+- They do not widen `DIFF_WINDOW`. It would reduce S7's rate without closing it — the window a record
+  needs scales with its value size, which is unbounded — and it would enlarge every trace payload on
+  every call.
+- They add no logic to `packages/proto` and change no container view.
+- They give S8 no new status. A container that cannot settle uses the existing error shape.
+- **The churn is real and is the open question.** A per-slot version cannot tell a write to one field
+  from a write to another: `RaceTick`'s `END_TICK` only ever touches `ticks`, yet a read of `big` still
+  fails, because the slot's version moved. On a contract that writes every tick, at the engine's default
+  50 ms, that is every read. The narrowing fix — compare only against writes that overlap the ranges
+  actually read, using the write journal both engines already keep — is a larger change than this one and
+  was deliberately left out; these measurements are the argument for doing it next.
+- **Unverified on core**, per the section above: compiled and running there, never driven.
+
+---
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
@@ -2149,4 +2437,51 @@ RNDX   earnedAmount @0 · distributedAmount @8 · burnedAmount @16 · bitFee @24
 QRPX   teamAddress @0..32 · ownerAddress @32..64
        allowedSmartContracts @64: records @64..4160, flags @4160..4192,
                                   _population @4192, _markRemovalCounter @4200
+```
+
+### Fixes probe — S8
+
+```cpp
+// S8 probe: a container big enough that reading it takes many separate range reads, next to a state
+// write that happens on EVERY tick. The reader's population/flags/record reads therefore straddle a
+// write without any external driving, so the race is a property of the contract, not of timing luck.
+using namespace QPI;
+
+struct RaceTickUnused
+{
+};
+
+struct RaceTick : public ContractBase
+{
+    struct StateData
+    {
+        HashMap<id, uint64, 131072> big;
+        uint64 ticks;
+    };
+
+    struct Put_input { id k; uint64 v; };
+    struct Put_output { sint64 idx; };
+    struct Quiet_input {};
+    struct Quiet_output {};
+
+    PUBLIC_PROCEDURE(Put)
+    {
+        output.idx = state.mut().big.set(input.k, input.v);
+    }
+    // Registered so the contract can be called without writing, as a control.
+    PUBLIC_PROCEDURE(Quiet)
+    {
+    }
+
+    END_TICK()
+    {
+        state.mut().ticks += 1;
+    }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    {
+        REGISTER_USER_PROCEDURE(Put, 1);
+        REGISTER_USER_PROCEDURE(Quiet, 2);
+    }
+};
 ```
