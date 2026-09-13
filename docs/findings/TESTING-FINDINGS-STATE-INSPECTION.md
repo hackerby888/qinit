@@ -464,6 +464,263 @@ that says the container sizes are right.
 
 ---
 
+# Round 2
+
+Same repo commit (`47b219d`), same two live cells (simulator × typescript, simulator × clang; both core
+cells still unavailable for the ABI reason above), same `QINIT_STATE_DIFF=verify` node.
+
+New ground, chosen because round 1 did not touch it: every QPI scalar width and sign, containers nested
+*inside another container's element*, the `MIGRATE` old-state decode, cross-contract frames, and the
+`qinit debug` TUI.
+
+## Findings
+
+### S4 — a nested container's `_population` is relabelled as the outer entry's *value*
+
+**Class 4 (a row labelled by the wrong thing). Cells: simulator × typescript and simulator × clang —
+both, byte-for-byte identical.**
+
+When a keyed container's value type is itself a container, `memberLeaf` (`state-diff.ts:167`-`:233`, the overwrite at `:218`-`:232`)
+resolves into the nested container and then **overwrites** whatever the nested resolve attached:
+
+```ts
+const leaf = resolveLeaf(named, recordStart + member.off, idlType(member.type), …);
+const keyMember = span.members.find((candidate) => candidate.type === "key");
+if (!keyMember) return leaf;
+return { ...leaf, recordKey: { part: member.type, container: names.label, … } };   // outer record wins
+```
+
+So every leaf inside the nested container carries the **outer** record's key, including the nested
+container's own `_population` word. `collapseEntries` then takes the `part === "value"` branch, replaces
+the label with `outer[key]` and replaces the text with `entryText()` — which also drops the `entries`
+suffix that is the only cue the row is a counter.
+
+**Repro** (`contracts/NestCount2.h`, one contract carrying its own control — the *same* nested
+`HashSet<id, 4>` reached two ways):
+
+```cpp
+struct StateData {
+    HashMap<id, HashSet<id, 4>, 2> mapsets;  uint64 m1;   // nested in a keyed container
+    Array<HashSet<id, 4>, 2>       arrsets;  uint64 m2;   // nested in an Array  <- control
+};
+```
+
+```sh
+qinit deploy NestCount2.h --contract-name NestCount2 --compiler typescript --slot 31
+qinit call --proc NestCount2 1 --in="<K3>id, <K4>id"     --trace --json   # MapAdd
+qinit call --proc NestCount2 2 --in="0uint64, <K4>id"    --trace --json   # ArrAdd (control)
+```
+
+**Actual** — the two rows describe the same kind of word (a nested `HashSet._population` going 0 → 1):
+
+```
+MapAdd:
+  I mapsets.slot[1].key   | 0 → PKTG…
+    mapsets[PKTG…].slot[0]                | = IOQK… (new)      (detail: mapsets.slot[1].value.slot[0])
+    mapsets.slot[1].value[IOQK…]          | (new)              (detail: mapsets.slot[1].value._occupationFlags[0])
+    mapsets[PKTG…]                        | = 1 (new)          (detail: mapsets.slot[1].value._population)   <-- WRONG
+  I mapsets._occupationFlags[1]           | 0 → 1
+    mapsets                               | 0 → 1 entries      (detail: mapsets._population)
+
+ArrAdd (control):
+    arrsets[0][IOQK…]                     | (new)              (detail: arrsets[0].slot[0])
+  I arrsets[0]._occupationFlags[0]        | 0 → 1
+    arrsets[0]                            | 0 → 1 entries      (detail: arrsets[0]._population)              <-- right
+```
+
+`mapsets[PKTG…] = 1` reads as "the map's value for key PKTG… is 1". The value is a 152-byte
+`HashSet<id, 4>` whose membership is `{IOQK…}`; the `1` is that set's population. Nothing in the row
+says so, and it sits directly above `mapsets 0 → 1 entries`, which is a genuine count row — two rows
+that look alike and mean different things.
+
+**Oracle — the raw bytes** (`qinit state NestCount2 --dump`, 712-byte state, IDL offsets):
+
+```
+@184..247 (64B)  outer record 1 key [184,216)  +  nested set record 0 key [216,248)
+@344            = 1   nested set _occupationFlags (slot 0 = 0b01)
+@352            = 1   nested set _population        <-- the word rendered as "mapsets[PKTG…] = 1"
+@368            = 4   outer map _occupationFlags (slot 1)
+@376            = 1   outer map _population
+@400..431 (32B) = the control's nested set record 0 key
+@528            = 1   control nested set _occupationFlags
+@536            = 1   control nested set _population  <-- the word rendered as "arrsets[0] 0 → 1 entries"
+8 runs, 102 changed bytes — every one named by a row, so nothing is missing; the defect is the label.
+```
+
+**It is not stable, either.** The relabel only fires when the outer record's key happens to fall inside
+the same 256-byte diff window. In `contracts/NestCount.h` (a 400-byte state) three consecutive adds to
+one outer entry produced, for the *same* `_population` word:
+
+```
+add 1 (new outer key)   mapsets[PKTG…]              | = 1 (new)
+add 2 (slot 1 member)   mapsets[PKTG…]              | 1 → 2
+add 3 (slot 2 member)   mapsets.slot[1].value       | 2 → 3 entries        <- correct form
+```
+
+The third add's member lands past the window boundary, the outer key is then out of window,
+`entryIdentityOf` returns undefined, and the row keeps its own name. So the same word is reported two
+contradictory ways depending on where the nested member hashed.
+
+**The control that rules out my own error**: `arrsets`, in the same state, in the same call batch, at
+the same nesting depth, with the same nested type — an Array element has no record key, so nothing
+overwrites the nested resolve and the row is correct. Reproduced identically under both compilers
+(rows `diff`-clean, state dumps `cmp`-clean).
+
+**Visible in the default view.** `qinit call --proc NestCount 1 … --trace` prints:
+
+```
+  state
+    mapsets[BNQG…]  = 1 (new)
+    mapsets         1 → 2 entries
+    ⋯ 2 container internals hidden · --trace-full
+```
+
+**Severity: dangerous (silently wrong label and text).** No error, no hint, and the correct reading
+(`mapsets.slot[1].value._population`) is only in the `detail` field, which the default human view never
+shows. `HashMap<id, HashSet<…>>` and `HashMap<id, Collection<…>>` are ordinary index shapes.
+
+---
+
+### S5 — `call --trace --json` drops the nested contract call the human view reports
+
+**Class 3 (a state change with no row naming it), in the `--json` surface only. Cells: simulator ×
+typescript.**
+
+`--trace` documents itself as "show state changes **and contract calls**" (`qinit help call`). The human
+renderer prints a `host` line for a cross-contract invocation; the `--json` document has no equivalent
+key at either trace level.
+
+**Repro** (`contracts/Caller.h` invoking `contracts/Callee.h`, which writes a `HashMap` and a counter of
+its own):
+
+```sh
+qinit deploy Callee.h --contract-name Callee --compiler typescript --slot 29
+qinit deploy Caller.h --contract-name Caller --compiler typescript --slot 30 --callee "Callee=Callee.h@29"
+qinit call --proc Caller 1 --in="<K>id, 700uint64, 9uint64" --trace        # human
+qinit call --proc Caller 1 --in="<K>id, 900uint64, 11uint64" --trace-full --json
+```
+
+**Human** (correct):
+
+```
+  state
+    sent     500 → 1200
+    last     DDZY… → WGWC…
+    marks[9] 0 → 1
+  host   invokeProcedure → @29 proc #1 reward=0
+```
+
+**`--json`**, same call shape:
+
+```
+keys: [address, balance, caller, contract, entry, error, execNs, in, kind, logs, ok, out, slot,
+       state, tick, tx]
+state rows: [("sent", "1200 → 2100"), ("last", "WGWC… → PKTG…"), ("marks[11]", "0 → 1")]
+any mention of the callee or the host call?  False
+```
+
+`--trace-full --json` is identical — there is no `host`, `calls` or `frames` key at any level. A script
+reading `state[]` concludes the call touched three fields of one contract. It in fact also wrote
+`Callee.log[K] = 700` and `Callee.hits 1 → 2`, which `qinit state Callee` and `qinit debug Callee` both
+show correctly:
+
+```
+qinit state Callee --all --json
+   fields [("hits", "2")]
+   log slot[1] | DDZY… = 500
+   log slot[2] | WGWC… = 700
+
+qinit debug Callee   (the callee's own frame, caller = the Caller contract's address)
+   log[WGWC…] = 700 (new)
+   log        1 → 2 entries
+   hits       1 → 2
+```
+
+**The control that rules out my own error**: the same `--json` document *does* carry `state[]` and
+`logs[]`, and the human renderer built from the same `DecodedTrace` prints the host line — so this is
+the JSON projection dropping a section, not the trace lacking it.
+
+**Severity: low-to-medium — loud enough to notice if you use the human view, invisible if you script.**
+Scoping `state[]` to the invoked contract is a defensible design; omitting any signal that another
+contract ran is what makes the JSON misleading on its own terms.
+
+---
+
+## Round 2 — what was exercised, and what came back clean
+
+54 dispatches over 14 successful deploys, all through `build → node run → deploy → call → inspect`.
+`QINIT_STATE_DIFF=verify` was live on the node for every one (checked via `/proc/<pid>/environ`) and
+**never threw**. 7 more byte-level conservation checks (dump before, dump after, every changed run
+matched by hand against the IDL offsets and the rows) — all accounted for, including the two behind S4.
+
+**Every QPI scalar, at its boundaries — clean.** `contracts/Scalars.h` puts `sint8 uint8 sint16 uint16
+sint32 uint32 sint64 uint64 bit uint128 id m256i` in one state, then the same widths signed inside a
+`HashMap<id, sint64, 4>`, an `Array<sint32, 4>` and a `Collection<sint64, 4>`:
+
+```
+i8   0 → -128                       raw @0   = 0x80
+u8   0 → 255                        raw @1   = 0xff
+i16  0 → -32768                     raw @2.. = 0x0080
+u16  0 → 65535
+i32  0 → -2147483648                raw @11  = 0x80
+u32  0 → 4294967295
+i64  0 → -9223372036854775808       raw @23  = 0x80
+u64  0 → 18446744073709551615
+b    0 → 1
+u128 0 → 340282366920938463463374607431768211455   raw @40..56 = 16 × 0xff
+who  0 → DDZYFAHIBMAKIDZEJ…          (id    -> 60-char identity)
+raw  0 → 25303b46515c6772…           (m256i -> hex, over the SAME 32 bytes)
+```
+
+Negatives inside containers read back correctly too — `smap[DDZY…] = -9223372036854775808`,
+`sarr[1] = -2147483648`, and a `Collection` ordered by negative priorities renders
+`9 (p0)`, `-7 (p-1)`, `-5 (p-100)` in descending priority order. The four markers stayed at their
+declared offsets throughout, which is what says the `uint128` field's size/alignment (16/8, offset 40)
+matches the C++ `uint128_t { uint64 low; uint64 high; }`. The ten-operation sequence replayed against a
+clang build produced **identical rows** (`diff` empty), byte-identical state and the same digest
+`fbf011d1c1e21a69e67c356824ab167f2adc2a5b456f855f3f76ea8aad1114f7`.
+
+**Containers inside containers — clean apart from S4.** `contracts/NestDeep.h` holds
+`Array<HashMap<id,uint64,4>, 2>`, `LinkedList<Array<uint64,2>, 4>`, `Collection<{uint64 tag;
+BitArray<64> bits}, 4>` and `HashMap<id, HashSet<id,4>, 2>`. Rows name the full path correctly at every
+depth:
+
+```
+maps[1][DDZY…]         | = 77 (new)           (detail: maps[1].slot[1].value)
+lists[0][0]            | 0 → 11               (detail: lists._nodes[0].value[0])
+coll[0].tag            | 0 → 5                (detail: coll._elements[0].value.tag)
+coll[0].bits[9]        | 0 → 1                (detail: coll._elements[0].value.bits[9])   <- a BitArray three levels down
+```
+
+and the container view renders a container below a container's element as inline JSON, as documented:
+`maps [1] | [{"slot":1,"key":"DDZY…","value":"77"}]`.
+
+**`MIGRATE` — clean.** `contracts/MigZoo1.h` → `MigZoo2.h` (old state = `HashMap<id,uint64,4> bal;
+uint64 marker;`, new state adds `extra`). The migration carried both over (`Get` returns
+`{marker: 1, extra: 4242, pop: 2}`) and the migrate entry decodes correctly in `qinit debug`: its `in`
+is the old state with the container inline as JSON, and its `state` diff shows
+`bal[DDZY…] = 111 (new)`, `bal 0 → 2 entries`, `marker 0 → 1`, `extra 0 → 4242`, with 4 container
+internals correctly hidden until `ctrl+t`.
+
+**`qinit debug` (the Ink TUI) — clean.** Driven under tmux at 200×50 with `capture-pane` for true
+frames, one key per `send-keys`. The call list, `↑/↓` selection, the detail pane and `ctrl+t`
+(show/hide internals) all behaved; internals were hidden by default and complete when toggled; the
+callee's own frames appear under `qinit debug Callee` with the Caller contract's address as `caller`.
+
+**Not a state-inspection finding, but a compiler differential worth passing on**: the TypeScript backend
+accepts `state.mut().u128 = ((uint128)input.hi << 64) | (uint128)input.lo;` and builds a contract from
+it; clang rejects the same line —
+`error: use of overloaded operator '<<' is ambiguous (with operand types 'uint128' (aka 'uint128_t') and 'int')`.
+clang is the oracle here, so the TypeScript backend is accepting C++ that does not compile. Rewriting
+as `uint128(input.hi, input.lo)` builds under both. This belongs to `docs/testing-agent-prompt.md`'s
+area, not this one, so it is recorded rather than filed.
+
+**Still not covered, still not claimed**: both core cells (unchanged reason); logs (`decode-log.ts`
+remains analysed only — see the leads section above); `qinit explorer`; and the `bit`-with-a-raw-byte
+above 1 case, which needs injected bytes exactly like S1 and would add nothing to it.
+
+---
+
 ## Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
@@ -703,4 +960,107 @@ struct StateData { HashMap<id, uint64, 262144> big; uint64 marker; Array<uint64,
 
 struct StateData { Array<uint64, 1048576> arr; uint64 marker; BitArray<8388608> bits; uint64 marker2; };
 // 8 MB array (two 4 MB MAX_STATE_READ chunks) + 1 MB bit array
+```
+
+### Round 2 probes
+
+```cpp
+// NestCount2.h — S4, with its own control (S4's minimal form is NestCount.h: just `mapsets` + a marker)
+using namespace QPI;
+struct NestCount2Unused {};
+struct NestCount2 : public ContractBase
+{
+    struct StateData
+    {
+        HashMap<id, HashSet<id, 4>, 2> mapsets;  uint64 m1;
+        Array<HashSet<id, 4>, 2>       arrsets;  uint64 m2;
+    };
+    struct MapAdd_input { id k; id member; };          struct MapAdd_output { sint64 idx; };  struct MapAdd_locals { HashSet<id, 4> s; };
+    struct ArrAdd_input { uint64 which; id member; };  struct ArrAdd_output { sint64 idx; };  struct ArrAdd_locals { HashSet<id, 4> s; };
+    struct Bump_input { uint64 which; };               struct Bump_output {};
+    PUBLIC_PROCEDURE_WITH_LOCALS(MapAdd)
+    {
+        state.get().mapsets.get(input.k, locals.s);
+        output.idx = locals.s.add(input.member);
+        state.mut().mapsets.set(input.k, locals.s);
+    }
+    PUBLIC_PROCEDURE_WITH_LOCALS(ArrAdd)
+    {
+        locals.s = state.get().arrsets.get(input.which);
+        output.idx = locals.s.add(input.member);
+        state.mut().arrsets.set(input.which, locals.s);
+    }
+    PUBLIC_PROCEDURE(Bump)
+    { if (input.which == 1) state.mut().m1 += 1; if (input.which == 2) state.mut().m2 += 1; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    { REGISTER_USER_PROCEDURE(MapAdd, 1); REGISTER_USER_PROCEDURE(ArrAdd, 2); REGISTER_USER_PROCEDURE(Bump, 3); }
+};
+```
+
+```cpp
+// Callee.h / Caller.h — S5
+struct Callee : public ContractBase
+{
+    struct StateData { HashMap<id, uint64, 4> log; uint64 hits; };
+    struct Take_input { id who; uint64 amount; };  struct Take_output { sint64 idx; };
+    struct Read_input {};                          struct Read_output { uint64 hits; };
+    PUBLIC_PROCEDURE(Take) { output.idx = state.mut().log.set(input.who, input.amount); state.mut().hits += 1; }
+    PUBLIC_FUNCTION(Read)  { output.hits = state.get().hits; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Take, 1); REGISTER_USER_FUNCTION(Read, 1); }
+};
+
+struct Caller : public ContractBase
+{
+    struct StateData { uint64 sent; id last; BitArray<64> marks; };
+    struct Fire_input { id who; uint64 amount; uint64 markIdx; };
+    struct Fire_output { sint64 idx; };
+    struct Fire_locals { Callee::Take_input takeIn; Callee::Take_output takeOut; };
+    PUBLIC_PROCEDURE_WITH_LOCALS(Fire)
+    {
+        locals.takeIn.who = input.who;
+        locals.takeIn.amount = input.amount;
+        { INVOKE_OTHER_CONTRACT_PROCEDURE(Callee, Take, locals.takeIn, locals.takeOut, 0); }
+        output.idx = locals.takeOut.idx;
+        state.mut().sent += input.amount;
+        state.mut().last = input.who;
+        state.mut().marks.set(input.markIdx, true);
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Fire, 1); }
+};
+```
+Deploy the pair with `--callee "Callee=<path>/Callee.h@29"` on the caller.
+
+```cpp
+// Scalars.h — every QPI scalar plus signed values in three container kinds
+struct StateData
+{
+    sint8 i8; uint8 u8; sint16 i16; uint16 u16; sint32 i32; uint32 u32;
+    sint64 i64; uint64 u64; bit b; uint128 u128; id who; m256i raw; uint64 marker;
+    HashMap<id, sint64, 4> smap;  uint64 marker2;
+    Array<sint32, 4>       sarr;  uint64 marker3;
+    Collection<sint64, 4>  sq;    uint64 marker4;
+};
+// IDL offsets: 0,1,2,4,8,12,16,24,32,40,56,88,120,128,312,320,336,344,816 — total 824.
+// Write u128 as uint128(hi, lo); the shift form does not compile under clang (see the note above).
+// `--in` values that start with '-' need the `--in=…` form: the parser otherwise reads them as options.
+```
+
+```cpp
+// NestDeep.h — a container inside another container's element, four ways
+struct Inner { uint64 tag; BitArray<64> bits; };
+struct StateData
+{
+    Array<HashMap<id, uint64, 4>, 2>  maps;     uint64 m1;
+    LinkedList<Array<uint64, 2>, 4>   lists;    uint64 m2;
+    Collection<Inner, 4>              coll;     uint64 m3;
+    HashMap<id, HashSet<id, 4>, 2>    mapsets;  uint64 m4;
+};
+```
+
+```cpp
+// MigZoo1.h -> MigZoo2.h — the MIGRATE old-state decode
+// v1: struct StateData { HashMap<id, uint64, 4> bal; uint64 marker; };
+// v2: adds `uint64 extra`, declares OldStateData == v1's StateData, and
+//     MIGRATE() { state.mut().bal = oldState.bal; state.mut().marker = oldState.marker; state.mut().extra = 4242; }
+// Redeploying v2 over v1's slot runs the migration; the entry shows up in `qinit debug <Name>` as `migrate`.
 ```
