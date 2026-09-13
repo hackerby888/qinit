@@ -1,5 +1,5 @@
 // Diffs read as fields/elements/members, not offsets and hex — container internals come from the member tables in @qinit/proto/qpi-layout.
-import { decodeAbi, decodedAbiToJson } from "@qinit/proto";
+import { decodeAbi, decodeAbiValue, decodedAbiToJson } from "@qinit/proto";
 import { AbiScalarKind, AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import {
     arrayGeometry,
@@ -218,7 +218,10 @@ function memberLeaf(
 
     const leaf = resolveLeaf(named, recordStart + member.off, idlType(member.type), Math.max(0, offsetInRecord - member.off), windowHolds);
     const keyMember = span.members.find((candidate) => candidate.type === "key");
-    if (!keyMember) {
+    // Only a value the contract wrote is named by the record's key. A container stored as the value has
+    // bookkeeping of its own — its population and flags — and labelling those as the entry's value would
+    // report a nested counter as the value itself.
+    if (!keyMember || leaf.role !== "payload") {
         return leaf;
     }
 
@@ -419,8 +422,10 @@ export async function stateDiffLines(fields: StateField[], changedWindows: Debug
         // An absolute state range as a window-relative slice of `before` or `after`.
         const slice = (bytes: Uint8Array, from: number, to: number) => bytes.slice(from - changedWindow.off, to - changedWindow.off);
 
-        // Key bytes -> the label text the entry's rows are named by.
-        const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeAbi(bytes, type), type);
+        // Key bytes -> the label text the entry's rows are named by. `decodeAbiValue` keeps a one-field
+        // struct positional, which is the shape `keyLabel` formats; `decodeAbi` would unwrap it to the
+        // bare field value and every field would render undefined.
+        const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeAbiValue(bytes, type), type);
 
         // The key labelling a record is read from the window, not the rows: an update leaves the key bytes alone, so it never produces a row of its own.
         const entryIdentityOf = async (recordKey: ResolvedRecordKey, label: string): Promise<EntryIdentity | undefined> => {
@@ -483,8 +488,11 @@ export async function stateDiffLines(fields: StateField[], changedWindows: Debug
                     continue;
                 }
 
-                // Past the last field, alignment slack and a changedWindow longer than the whole state look the same, and the second is worth saying.
-                reportUnknownBytes();
+                // Past the last field only alignment slack remains, and the window always reaches the
+                // state's end; say something only when those bytes actually moved.
+                if (!bytesEqual(slice(before, stateOffset, windowEnd), slice(after, stateOffset, windowEnd))) {
+                    reportUnknownBytes();
+                }
                 break;
             }
 

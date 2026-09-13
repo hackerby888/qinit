@@ -30,14 +30,15 @@ export class QpiHashSetView {
 
     async entries(): Promise<QpiHashSetEntry[]> {
         const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
-        if (!population) {
-            return [];
-        }
-
+        // The flags are read before the empty shortcut: a population of 0 over occupied slots is an
+        // inconsistency worth reporting, not an empty container.
         const flags = await readQpiBytes(this.source, this.geometry.flagsOffset, this.geometry.flagsBytes);
         const slots = occupiedSlots(flags, this.capacity);
         if (slots.length !== population) {
             throw new QpiContainerConsistencyError(`HashSet has ${slots.length} occupied slots but population ${population}`);
+        }
+        if (!population) {
+            return [];
         }
 
         const entries: QpiHashSetEntry[] = [];

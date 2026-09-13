@@ -92,9 +92,14 @@ export function callJsonResult(
                       severity: log.severity,
                       type: log.type,
                       name: log.name ?? null,
+                      // The enum name the human trace shows beside the struct name, when the `_type` word resolves to one.
+                      ...(log.typeName ? { typeName: log.typeName } : {}),
                       fields: log.fields ?? null,
                       hex: log.hex,
                   })),
+                  // The host rows the human trace prints. Without them a nested contract call that
+                  // succeeded leaves no mark in the document, so `state` reads as the whole story.
+                  ...(trace.e.hostCalls?.length ? { calls: trace.e.hostCalls.map((call) => ({ name: call.name, detail: call.detail })) } : {}),
               }
             : {}),
     };
@@ -111,7 +116,7 @@ async function calleePrints(rpc: LiteRpc, frames: readonly DebugEntry[], warn: (
         if (!frame.ok) {
             // the caller only sees NO_CALL_ERROR with a zero-filled output, so the callee's own input and logs are the only record of what actually failed.
             const view = await describeTrace(frame, undefined, contract, undefined, idl);
-            warn(`⚠ ${contract}${entryLabel(frame.kind, frame.entry)} trapped inside this call${frame.trap ? `: ${frame.trap}` : ""}`);
+            warn(`⚠ ${contract} ${entryLabel(frame.kind, frame.entry)} trapped inside this call${frame.trap ? `: ${frame.trap}` : ""}`);
             if (view.inDecoded) {
                 warn(`    called with ${view.inDecoded}`);
             }

@@ -485,9 +485,20 @@ test("an untouched alignment gap costs no row", async () => {
     expect(await rowsFor(GAP_FIELDS, [window])).toEqual(["tail 0 → 99"]);
 });
 
-// Past the last field, alignment slack and a region longer than the whole state are indistinguishable, so that row stays unconditional.
-test("a region running past the last field still says so", async () => {
+// Past the last field is the state's own alignment slack, which every window reaches because a window
+// runs to the end of the state. Reporting it unconditionally put a row on every call that touched the
+// last field, so it is reported on the same terms as a gap between two fields: only when it moved.
+test("an untouched region past the last field costs no row", async () => {
     const window = diffWindow(0, 32, undefined, (bytes) => writeLe(bytes, 16, 99));
+
+    expect(await rowsFor(GAP_FIELDS, [window])).toEqual(["tail 0 → 99"]);
+});
+
+test("a region running past the last field still says so when those bytes move", async () => {
+    const window = diffWindow(0, 32, undefined, (bytes) => {
+        writeLe(bytes, 16, 99);
+        bytes[28] = 5;
+    });
 
     expect(await rowsFor(GAP_FIELDS, [window])).toEqual(["tail 0 → 99", "@24 (outside any known field)"]);
 });

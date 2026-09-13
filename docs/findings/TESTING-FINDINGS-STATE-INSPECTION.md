@@ -843,7 +843,231 @@ the fill sequence, every one named. The six markers stayed at their declared off
 
 ---
 
-## Appendix — the probe contracts, in full
+# Fixes
+
+Applied on the same branch, on top of the findings above. Each is the smallest change that removes the
+defect. Verification is four-part: every filed repro replayed against a live node with its control, a
+148-checkpoint regression corpus diffed before and after, the test suite run both ways over every file
+that can reach the changed modules, and a check that an inconsistent state stays usable everywhere the
+new error could surface.
+
+## What changed
+
+| # | File | Change |
+| --- | --- | --- |
+| S1 | `packages/proto/src/qpi-container-view/{hash-map,hash-set,linked-list,collection}-view.ts` | read the occupation flags and run the consistency check **before** the empty-container shortcut |
+| S2 | `packages/cli/src/trace/state-diff.ts`, `packages/proto/src/index.ts` | decode a record key with `decodeAbiValue`, which keeps a one-field struct positional |
+| S3 | `packages/cli/src/trace/state-diff.ts` | report bytes past the last field only when they moved, on the same terms as a gap between two fields |
+| S4 | `packages/cli/src/trace/state-diff.ts` | attach the record's key only to a **payload** leaf, never to a nested container's own bookkeeping |
+| S5 | `packages/cli/src/commands/deploy-interact/call.tsx` | emit the host rows as `calls`, and a log's `typeName`; both only when present |
+| S6 | `packages/cli/src/commands/deploy-interact/call.tsx` | one space between the contract name and the entry label in the nested-trap warning |
+
+The three `state-diff.ts` fixes are one-line conditions. S1 is a reordering. S5 adds two optional keys.
+
+### S1 — the trade, stated plainly
+
+The early return was **not** an oversight: `packages/proto/tests/codec/qpi-container-view.test.ts` had a
+test named *"HashMap view reads only population when empty"* pinning it, and two more in
+`packages/cli/tests/format/trace-format.test.ts` pinned the same thing at the `readState` level. The fix
+gives that optimisation up, so those three tests were updated to state the new contract and why.
+
+The cost is one extra read of `capacity / 4` bytes, and only for a container the reader was about to
+answer "empty" for. Measured end to end on the largest container I can build — an empty
+`HashMap<id, uint64, 262144>`, 10 551 312 bytes, 65 536 bytes of flags — against the same live node, five
+runs each, with only the four view files stashed between them:
+
+```
+before the fix:  3511  3451  3419  3470  3580 ms   (median 3470)
+after  the fix:  3745  3572  3576  3596  3593 ms   (median 3593)
+```
+
+about **120 ms**, against a ~3.4 s floor that is almost entirely CLI start-up. For the small containers
+in everyday use the flags are a handful of bytes.
+
+Note the Collection needed different treatment: its `_population` counts *elements* while its flags index
+*PoVs*, so the two cannot be compared directly. There the check is that an empty collection has no active
+PoV, and the existing `povSlots.length > population` check stays for the non-empty case.
+
+### S3 — also previously pinned, also deliberate
+
+`state-diff-scale.test.ts` carried *"a region running past the last field still says so"* with a comment
+defending the unconditional row: "alignment slack and a region longer than the whole state are
+indistinguishable". They are distinguishable by the one thing that matters — whether those bytes moved —
+which is exactly the test the branch above it already applies to a gap *between* two fields. The test was
+split in two so both directions are pinned:
+
+```
+an untouched region past the last field costs no row                  -> ["tail 0 → 99"]
+a region running past the last field still says so when those bytes move
+                                                      -> ["tail 0 → 99", "@24 (outside any known field)"]
+```
+
+So the diagnostic survives for every byte that actually moved; what goes away is the row that fired on
+every call touching the last field of any state with trailing slack.
+
+### S4 — why `role !== "payload"` is the right cut
+
+`memberLeaf` overwrote the nested resolve's `recordKey` unconditionally. Restricting it to payload leaves
+is precise rather than approximate: in `qpi-layout`'s member tables a record's `key` and `value` members
+are `payload`, a container's `_population` is `count`, and its flags, `_markRemovalCounter`, link indices
+and BST indices are `internal`. So a value the contract wrote is still named by the key, and only a
+nested container's own bookkeeping stops being labelled as the entry's value. A *top-level* Collection
+or LinkedList is untouched either way — its records declare no `key` member, so the function returns
+before this point.
+
+There are two shapes of nested container and they take different paths, so both were run. A nested
+**keyed** container (`HashMap<id, HashSet<id,4>, 2>`) carries its own `flagRecords` geometry, which the
+bit-row builder prefers over the outer key, so only its `_population` was mislabelled. A nested
+**unkeyed** one (`HashMap<id, LinkedList<uint64,4>, 2>`) has no such geometry, so *every* internal word
+took the outer key. A fresh probe for that second shape, same deploy hash either side:
+
+```
+before:  maplists[WGWC…] = 1 (new)                      <- the list's population, as the entry's value
+         maplists[WGWC…]._occupiedFlags[0] = 1 (new)
+         maplists[WGWC…]._freeHeadIndex = -1 (new)
+         maplists[WGWC…]._nextUnusedIndex = 1 (new)
+         maplists[WGWC…][0] = 222 (new)
+
+after:   maplists.slot[0].value 0 → 1 entries
+         maplists.slot[0].value._occupiedFlags[0] 0 → 1
+         maplists.slot[0].value._freeHeadIndex 0 → -1
+         maplists.slot[0].value._nextUnusedIndex 0 → 1
+         maplists[WGWC…][0] = 222 (new)                 <- unchanged: the element value is payload
+```
+
+Ten rows before, ten after, in both directions of the sequence: no byte that moved lost its row, the
+element the contract actually wrote keeps the outer key, and `state --all` reads `complete True` /
+`maplists status loaded` either side.
+
+## Verification
+
+**1. Every filed repro, replayed against a live node** (`QINIT_STATE_DIFF=verify` set, checked through
+`/proc/<pid>/environ`), each with the control that would catch an over-reach:
+
+```
+=== S1: population 0 with occupied flags ===
+  PASS  S1 hashmap reports the inconsistency          PASS  S1 hashset reports it
+  PASS  S1 hashmap marks the state incomplete         PASS  S1 collection reports it
+  PASS  S1 hashmap no longer answers 'loaded'         PASS  S1 linkedlist reports it
+  PASS  S1 markers still read
+=== control: a healthy empty container still reads as empty ===
+  PASS  healthy empty state stays complete            PASS  healthy empty containers do not error
+=== S2: one-field struct key ===
+  PASS  S2 hashmap key renders its field              PASS  S2 hashset key renders its field
+  PASS  S2 hashmap key is not undefined               PASS  S2 removal path too
+  PASS  S2 control: two-field key unchanged
+=== S3: trailing alignment slack ===
+  PASS  S3 no phantom row on SetLast                  PASS  S3 no phantom row on SetTail
+  PASS  S3 the real row survives (×2)                 PASS  S3 earlier-window write unaffected
+=== S4: nested container count ===
+  PASS  S4 nested population keeps its own name       PASS  S4 outer population still correct
+  PASS  S4 nested population says entries             PASS  S4 nested key row still named by the outer key
+  PASS  S4 no longer reported as the entry value      PASS  S4 control: array-nested unchanged
+=== S5: nested call in --json ===
+  PASS  S5 json carries the nested call               PASS  S5 json names the callee slot
+  (a call with no nested invocation keeps the old key set — `calls` is absent, not empty)
+=== S6: the nested-trap warning spacing ===
+  PASS  S6 name and entry are separated               PASS  S6 no run-together name
+
+VERIFY SUMMARY: 29 passed, 0 failed
+```
+
+The three rows that were wrong now read:
+
+```
+S2   m1[{w: 1000}] = 7 (new)                 (was m1[{w: undefined}])
+S3   last 0 → 7                              (was followed by "@281 (outside any known field)")
+S4   mapsets.slot[1].value 0 → 1 entries     (was mapsets[PKTG…] = 1 (new))
+S5   "calls": [{"name": "invokeProcedure", "detail": "→ @29 proc #1 reward=0"}]
+```
+
+**2. The regression corpus.** A 148-checkpoint corpus replays every hand-written sequence from all three
+rounds — 19 deploys, 131 captured row-sets, 15 state views and digests — against a live node, and was
+captured before and after the change. Diffing the two (tick numbers normalised, since they are
+wall-clock dependent):
+
+- **All 15 state digests identical.** All 19 deploys identical (same `codeHash` per contract).
+- **53 changed lines**, every one of them in exactly six categories and nothing else:
+
+```
+  3  S3  "@281 (outside any known field)" rows removed (SetLast, SetTail, SetKey on Straddle)
+  8  S2  {w: undefined} -> {w: 1000}          (insert, hashset add, and both removal rows)
+ 10  S4  mapsets[PKTG…] = 1 (new)  ->  mapsets.slot[1].value 0 → 1 entries
+  8  S1  the four carried-over containers now report their inconsistency instead of "loaded",
+         and those two probes' `complete` goes True -> False
+  4  S5  the "calls" key appears, carrying {"name": "invokeProcedure", "detail": "→ @29 proc #1 reward=0"}
+  3  S5  "typeName": "KindAlpha" / "KindGamma" added to the log objects
+```
+
+Every other row, label, value, container view and count across all 148 checkpoints is byte-identical.
+
+**3. Tests.** `bun run typecheck` clean. The suites covering every file touched —
+`packages/proto/tests/codec`, `packages/cli/tests/{format,trace,commands}`, 66 files — went from
+**662 pass / 6 skip / 0 fail** to **663 pass / 6 skip / 0 fail** (the extra test is S3's new one). Four
+tests were edited, all of them pinning behaviour a fix deliberately changes; no test was deleted and no
+assertion was weakened.
+
+Beyond those 66 files, the whole of `packages/{proto,cli,engine,core,build}` plus
+`packages/compiler/tests/differential/container-view-native.test.ts` — 195 files, the complete set that
+can reach the changed modules — was run twice against the same node and the same `QINIT_CORE`, once with
+the change stashed and once with it applied:
+
+```
+before:  1458 pass  35 skip  8 fail   (1501 tests, 195 files, 258 s)
+after:   1459 pass  35 skip  8 fail   (1502 tests, 195 files, 263 s)
+```
+
+The 8 failures are the *same 8*, by name, in both runs — 6 are the core-tree layout tests, which read
+files the patched header tree in this sandbox does not carry, and 2 are the core gtest corpus tests,
+which need a real core-lite checkout. `diff` of the two sorted failure lists is empty. The one extra
+test is S3's new one.
+
+`packages/compiler`'s other 151 files were not run to completion: each spawns clang and the full 357-file
+suite does not finish inside an hour here. Of that package only `container-view-native.test.ts` reaches
+any changed module (it is the only file outside `packages/{proto,cli}` that imports
+`createQpiContainerView`), and it is in the 195 above; the rest import neither the container views nor
+the diff module.
+
+**4. The inconsistent state stays usable.** S1 widens which byte patterns raise
+`QpiContainerConsistencyError`, so the question is where that throw can now surface. It is caught in
+exactly one place — `state-read.ts` retries once and then reports `status: "error"` — and every other
+`decodeAbi` call site routes containers away from the throwing branch before reaching it
+(`field.container` / `holdsContainer`), with the one remaining path already inside a
+`(read failed: …)` catch. Run against the carried-over inconsistent `Carry` state:
+
+```
+state --digest      ok, 03441e78…                      (unchanged)
+state --all         ✗ incomplete, "[1] bal · read failed · use --container 1 to retry
+                       HashMap has 1 occupied slots but population 0"
+call --proc Bump    ok, 1 row:  marker 777 → 778
+call --proc Put     ok, 4 rows: bal.slot[1].key, bal[LBBU…] = 55 (new),
+                                bal._occupationFlags[1] 0 → 1, bal 0 → 1 entries
+call --fn Look      ok, {v: 55, pop: 1}
+```
+
+So calls, traces, diffs and the digest are untouched; only the container *view* changes its answer, from
+a wrong "empty" to a named failure. `state --all` now exits 1 on such a state, which is the exit code it
+already used for every other incomplete read.
+
+## What these fixes do *not* do
+
+- They do not touch the engine, the compilers, qpi.h, or any wire format. Only the read-back path.
+- They do not change any row that names a value a contract wrote. Every label and text change is either
+  a nested container's own bookkeeping (S4), a key that previously rendered `undefined` (S2), or a row
+  about bytes that did not move (S3).
+- S5 adds keys to the `--json` document; it removes none and renames none. `calls` and `typeName` are
+  absent rather than empty when there is nothing to say, which is the convention the file already states
+  ("Trace keys are absent without --trace rather than empty").
+- **Not fixed, deliberately**: the two items in the "passed on" lists — the TypeScript backend accepting
+  a `uint128` shift clang rejects, and `INVOKE_OTHER_CONTRACT_PROCEDURE_E` reporting `NoCallError` for a
+  callee that trapped. Both are compiler/engine semantics, outside this brief, and both need a decision
+  about intended behaviour rather than a reader change.
+- **Still unverified on core**: both core cells remain unstartable at this commit (ABI v6 vs v7), so every
+  claim above is from the two simulator cells. S3 in particular is about window shapes, and core reports
+  aligned dirty pages rather than the simulator's 256-byte windows — the fix is strictly more
+  conservative there (it can only remove rows about unmoved bytes), but it has not been run against core.
+
+# Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
 `qinit deploy <file> --contract-name <Name> --compiler <typescript|clang> --slot <n>`. The clang
@@ -1240,4 +1464,16 @@ struct StateData
     Collection<uint64, 1> q;   uint64 c;   LinkedList<uint64, 1> l; uint64 d;
     Array<uint64, 1> arr;      uint64 e;   BitArray<1> bits;        uint64 f;
 };
+```
+
+### Fix-verification probe
+
+```cpp
+// NestList.h — S4's second shape: a nested container with no key of its own.
+// A nested HashSet carries flagRecords geometry, which the bit-row builder prefers over the outer key,
+// so only its _population was mislabelled. A nested LinkedList has no such geometry, so before the fix
+// every one of its internal words took the outer key too.
+struct StateData { HashMap<id, LinkedList<uint64, 4>, 2> maplists; uint64 marker; };
+// ListAdd: maplists.get(k, l); output.idx = l.addTail(v); maplists.set(k, l);
+// Bump:    marker += 1
 ```

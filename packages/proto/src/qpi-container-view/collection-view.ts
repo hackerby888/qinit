@@ -59,12 +59,16 @@ export class QpiCollectionView {
 
     async entries(): Promise<QpiCollectionEntry[]> {
         const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
-        if (!population) {
-            return [];
-        }
-
+        // The flags are read before the empty shortcut. The population counts elements and the flags
+        // index PoVs, so an empty collection is consistent only when no PoV is still active.
         const flags = await readQpiBytes(this.source, this.geometry.flagsOffset, this.geometry.flagsBytes);
         const povSlots = occupiedSlots(flags, this.capacity);
+        if (!population) {
+            if (povSlots.length) {
+                throw new QpiContainerConsistencyError(`Collection has ${povSlots.length} active PoVs but population 0`);
+            }
+            return [];
+        }
         if (!povSlots.length || povSlots.length > population) {
             throw new QpiContainerConsistencyError("Collection population does not match its active PoVs");
         }
