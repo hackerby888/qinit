@@ -457,6 +457,45 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         }
     });
 
+    // Class scope is searched first, so a member function hides a file-scope constant of the same name.
+    // Lowering catches the read and the editor stops before that, so the plain assignment shape is checked early.
+    test("an assignment from a name a member function hides is reported", () => {
+        const hidden = `using namespace QPI;
+enum Kind { Helper = 3, Other = 4 };
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { uint64 kind; };
+  struct Helper_input { uint64 value; }; struct Helper_output { uint64 doubled; };
+  PRIVATE_FUNCTION(Helper) { output.doubled = input.value * 2; }
+  struct Assign_input { uint64 seed; }; struct Assign_output {};
+  PUBLIC_PROCEDURE(Assign) { state.mut().kind = Helper; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Assign, 1); }
+};`;
+        const findings = compilerDiagnostics(hidden);
+
+        expect(findings.map((item) => item.message)).toEqual([
+            "'Helper' names a member function of this contract, which hides the file-scope declaration of the same name — a function is not a value",
+        ]);
+        expect(findings[0].severity).toBe(DiagnosticSeverity.ERROR);
+    });
+
+    // The same contract without the collision must stay silent, or the check is reading the wrong thing.
+    test("an assignment from an enum constant nothing hides is not reported", () => {
+        const clean = `using namespace QPI;
+enum Kind { Marker = 3, Other = 4 };
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { uint64 kind; };
+  struct Helper_input { uint64 value; }; struct Helper_output { uint64 doubled; };
+  PRIVATE_FUNCTION(Helper) { output.doubled = input.value * 2; }
+  struct Assign_input { uint64 seed; }; struct Assign_output {};
+  PUBLIC_PROCEDURE(Assign) { state.mut().kind = Marker; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Assign, 1); }
+};`;
+
+        expect(compilerDiagnostics(clean)).toEqual([]);
+    });
+
     test("a scalar payload is reported as a non-struct", () => {
         const source = LOGGING_SOURCE.replace("LOG_INFO(locals.message);", "LOG_INFO(input.value);");
 

@@ -979,6 +979,49 @@ The nine log-payload contracts moved from blind to caught, the blind spot fell 4
 contracts that build stayed clean** — the property that matters, since a wrong walk would have invented
 errors in working code. One class remains blind: the enum constant hidden by a member function.
 
+## Round 26 — the blind spot reaches zero
+
+The one class left after round 25 was `'Helper' names a member function of this contract, which hides the
+file-scope declaration` — 13 corpus contracts, every one of them the shape
+
+```cpp
+enum Kind { Helper = 3, Other = 4 };
+...
+PRIVATE_FUNCTION(Helper) { ... }
+PUBLIC_PROCEDURE_WITH_LOCALS(Assign) { state.mut().kind = Helper; }
+```
+
+Unlike the log payload, this one **is** E7's documented shape. The check lives at
+`value-expression.ts:123` — inside expression lowering, in the phase the editor never runs — and it fires
+on any identifier reaching a value position, which is knowledge only lowering has.
+
+Duplicating that scope logic early was the obvious move and the wrong one: the campaign's most valuable
+measured property is **0 false positives in 6 269 building contracts**, and a check that guesses at value
+position would spend it. There is a subset that needs no guessing, though — a bare identifier on the right
+of an assignment is a value read in every shape C++ permits, and all 13 contracts are exactly that.
+
+`validateHiddenMemberReads` (`hidden-member-validation.ts`) runs in module analysis beside
+`validateLogCalls`, over the same set of state-parameter functions lowering means by `hasStateParam`. It is
+deliberately narrower than the lowering check: it reports only the assignment shape, and leaves every other
+value position to lowering, which still catches them for the build.
+
+```
+                                   round 20   round 25   round 26
+  agree, both clean                   6269       6269       6269
+  agree, both error                     19         28         41
+  editor silent, backend refuses        22         13          0
+  editor errors, backend clean           0          0          0
+```
+
+**The editor's blind spot on this corpus is zero, and the 6 269 contracts that build are still clean.**
+Checked separately: the backend reports the read once, not twice, so the earlier check does not duplicate
+the one in lowering — editor and backend now produce the same single diagnostic on the same line.
+
+E7 is not closed in general. It records seven error sites in the unreached phase and this round moved one
+of them; `BitArray + 1` and the rest still have no corpus instance to measure against. What is closed is
+the measurable statement: on 6 654 generated contracts, there is no longer a case where the build refuses
+and the editor says nothing.
+
 ## E7 — the editor stops before the compiler does (not fixed)
 
 `analyzeContract` runs the frontend and `prepareContractModule`, and stops. It never lowers a function
