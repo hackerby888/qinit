@@ -646,7 +646,7 @@ it is not a defect a developer currently meets. Downgraded accordingly.
 two sibling tests, which then read the same word-scrape. It was removed after answering its question; a
 restart probe needs its own workspace, not a shared one.
 
-## E23 — a single-line `for` with an initializer declines (not fixed)
+## E23 — a single-line `for` with an initializer declines (latent, not reachable)
 
 `for (locals.i = 0; locals.i < 8; locals.i++) { locals.t = state.get().alpha; }` — completing
 `state.get().` on that line declines. Narrowed by elimination:
@@ -667,9 +667,31 @@ match, so when both sit on one line the initializer wins and the query resolves 
 of the receiver. The comment above it states the premise a one-line `for` violates: "The probe
 statement is alone on its line."
 
-Impact is small: **0 occurrences** of that shape in core's 35 contracts. It is reachable while typing,
-and the fix is to prefer the body over the initializer, or to match the receiver by column as well as
-line.
+Impact is small: **0 occurrences** of that shape in core's 35 contracts. The fix is to prefer the body
+over the initializer, or to match the receiver by column as well as line.
+
+**Not reachable, measured — the same conclusion as E22, for the same reason.** The table above was taken
+against `completeMembersAt` directly, which is the fallback. Asked in the real editor, on the same
+fixture, clangd answers the position itself and the fallback never runs:
+
+```
+                             editor (clangd first)     completeMembersAt alone
+pristine, no loop         ->  calls, recent             calls, recent
+multi-line for body       ->  calls, recent             calls, recent
+one-line for body (E23)   ->  calls, recent             undefined      <- the defect
+```
+
+So the defect in `statementOnLine` is real and reproduces at the unit level, but the developer does not
+meet it: the one-line `for` is ordinary C++, clangd parses it without trouble, and its answer is taken
+before the fallback is consulted (`extension.ts:161-165`). E23 stays open as a latent inconsistency, and
+becomes reachable only if the fallback ever becomes the one answering there.
+
+**A note on how this was measured.** The first pass of this probe read `completionItems(doc, needle, dot)`
+as "find `dot` on the line holding `needle`". It does not — it advances `dot.length` characters from the
+start of `needle`, so the cursor landed mid-identifier on the left-hand side and the editor answered
+`reward`, the one member of `Touch_locals`. That looked like a much larger defect than E23. The tell was
+the control: a shape that should have been healthy failed identically. Same lesson as rounds 22 and 23 —
+a uniform result across differently-shaped inputs is the measurement, not the code.
 
 ## Round 19 — the gtest surface
 
