@@ -923,9 +923,15 @@ write, or a narrower one is offered 542 it may not — which is the allow-set's 
 meet here. Round 18 measured that siblings of one project walk to the same set, which is what keeps this
 from biting today. Nothing enforces that invariant, though, and the cache silently depends on it.
 
-The key is now the core root, the prefix path, and the prefix's **text** — the extension rewrites that file
-in place when a contract's callees change, so a path alone would still go stale. Transitive headers are
-not hashed; the walk is the expensive part and the previous behaviour did not track them either.
+The entry is keyed on the core root and the prefix path, and holds the prefix's **text** beside the set:
+the text decides whether the entry is still current, so a rewritten prefix is re-walked rather than served
+stale. Transitive headers are not hashed; the walk is the expensive part and the previous behaviour did not
+track them either.
+
+The first form of this fix put the text _in the key_, which fixed the correctness and introduced a leak —
+the extension rewrites that file on every save, so each revision retained a set of ~1 200 strings for the
+session. Measured after: 200 rewrites of one prefix hold one entry, and a warm call costs 3.5 µs against
+the 7.7 ms walk it avoids.
 
 ## Round 25 — the IDL the editor shows against the IDL that ships
 

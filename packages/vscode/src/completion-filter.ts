@@ -15,7 +15,9 @@ const CHEAT_PREFIX = /^CC_[A-Z0-9_]*$/;
 
 const NON_QPI_NAMESPACES = new Set(["std"]);
 
-const allowedByCoreSource = new Map<string, ReadonlySet<string>>();
+// One entry per prefix, replaced when that prefix's text changes: the extension rewrites the file in
+// place on every save, and keying on the text alone would retain a set per revision for the session.
+const allowedByPrefix = new Map<string, { text: string; allowed: ReadonlySet<string> }>();
 
 function identifiersIn(source: string): string[] {
     return source.match(IDENTIFIER_PATTERN) ?? [];
@@ -80,12 +82,14 @@ function prefixHeaderText(prefixHeaderPath: string): string {
 /** Identifiers a QPI contract may write, read off the headers its own compile includes. */
 export function qpiAllowedIdentifiers(prefixHeaderPath: string, corePath: string): ReadonlySet<string> {
     const coreSourceRoot = resolve(corePath, "src");
-    // The walk starts at the prefix, so two prefixes over one core yield different sets. Key on the prefix
-    // as well, and on its text: the extension rewrites that file in place when a contract's callees change.
-    const cacheKey = `${coreSourceRoot}\u0000${resolve(prefixHeaderPath)}\u0000${prefixHeaderText(prefixHeaderPath)}`;
-    const cached = allowedByCoreSource.get(cacheKey);
-    if (cached) {
-        return cached;
+    // The walk starts at the prefix, so two prefixes over one core yield different sets: the core alone is
+    // not enough to key on. The prefix's text decides whether the entry is still current.
+    const cacheKey = `${coreSourceRoot}\u0000${resolve(prefixHeaderPath)}`;
+    const text = prefixHeaderText(prefixHeaderPath);
+    const cached = allowedByPrefix.get(cacheKey);
+
+    if (cached && cached.text === text) {
+        return cached.allowed;
     }
 
     const allowed = new Set<string>();
@@ -103,7 +107,7 @@ export function qpiAllowedIdentifiers(prefixHeaderPath: string, corePath: string
         allowed.delete(banned);
     }
 
-    allowedByCoreSource.set(cacheKey, allowed);
+    allowedByPrefix.set(cacheKey, { text, allowed });
     return allowed;
 }
 
