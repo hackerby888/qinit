@@ -1481,6 +1481,147 @@ and 2 byte-level conservation checks. All through `build → node run → deploy
 system-contract state with actual bytes in it, which this simulator does not produce — every system
 contract here has `stateSize: 0`, so what was checked is their *layout derivation*, not their decoding.
 
+
+---
+
+# Round 6
+
+Same two cells, same unchanged core situation. `QINIT_STATE_DIFF=verify` live on the node throughout and
+it never threw.
+
+**No new findings.** This round closed the gap round 5 named: 27 real system-contract *layouts* had been
+verified, but every system slot held `stateSize: 0`, so nothing real had ever been **decoded**. Core's own
+contracts turn out to be deployable into dynamic slots, which gives a third-party layout with real bytes
+in it — the first time the readers face a complex state that neither I nor they authored.
+
+## Getting core's contracts onto a dynamic slot
+
+A straight copy is refused twice over, and both refusals are correct:
+
+```
+deploy Random.h --contract-name RANDOM   ->  contract name 'RANDOM' is reserved by system contract RANDOM at slot 3
+rename the struct only                   ->  Qubic protocol violations:
+                                             • Names declared in global scope have to start with the
+                                               state struct name (RNDX). Found invalid name: RANDOM_BITFEE
+```
+
+So the whole `RANDOM` prefix moves, not just the struct: `s/RANDOM/RNDX/` over `Random.h` deploys clean.
+That constraint is worth knowing — it is why core's contracts cannot simply be copied under a new name.
+
+## What was exercised, and what came back clean
+
+**A real 2.46 MB third-party state, read by all three readers.** `Random.h` as `RNDX` at slot 29:
+
+```
+ok true   complete true   exit 0
+4 scalar fields, 11 containers, every one `loaded`, none in error
+bitFee = 100        <- written by the contract's own INITIALIZE, not by me
+state --digest      -> stateSize 2459184
+```
+
+2,459,184 is exactly what the declared layout comes to by hand (`24 + 4 + pad 4` of scalars, then
+`16 + 131072 + 32768 + 131072 + 2097152 + 512 + 16384 + 32768 + 512 + 512 + 16384`), so the reader and the
+C++ header agree on the total to the byte.
+
+**Injected bytes decode to exactly the right field, index and width.** Using the documented
+`--allow-state-carryover` flow — a raw `Array<uint64, 524288>` contract deployed under the same name,
+poked at chosen words (each poke verified by reading the bytes straight back from the node), then the real
+contract redeployed over those bytes:
+
+```
+word      byte        injected                what the real layout says lives there   what the reader said
+0         0           111                     earnedAmount                            earnedAmount = 111
+16390     131120      987654321               collateralTiers[0]                       collateralTiers[0] = 987654321
+305351    2442808     (444 << 32) | 333       lastUpdateTick[2] and [3]                lastUpdateTick[2] = 333
+                                               (two uint32s packed in one word)         lastUpdateTick[3] = 444
+```
+
+The last row is the one worth dwelling on: 2.44 MB into the state, the reader splits a single injected
+64-bit word into the correct *pair* of `uint32` array elements at the correct indices.
+
+**A stable target, and a real `HashSet` decoded.** `QReservePool.h` as `QRPX` has no per-tick hook, so an
+injected state stays put. Its declared state is `id teamAddress; id ownerAddress; HashSet<id, 128>` —
+`32 + 32 + 4144 = 4208`, matching the reported `stateSize` exactly (the HashSet's own 4144 being
+`128 × 32` records + 32 bytes of flags + 8 population + 8 markRemovalCounter). Injecting the *same four
+words* into `teamAddress` and into HashSet record slot 3, plus that slot's occupation flag and a matching
+population:
+
+```
+teamAddress                        = TMNLNPDAAAAAAAMZAXAFHAAAAAAAFMOIOUKAAAAAAAYYBUBKOAAAAAAAIMEJ
+allowedSmartContracts  slot[3]     = TMNLNPDAAAAAAAMZAXAFHAAAAAAAFMOIOUKAAAAAAAYYBUBKOAAAAAAAIMEJ
+ownerAddress                       = RLPFPZRAAAAAAAKYCRCPVAAAAAAADLQCQEZAAAAAAAWXDODUCBAAAAAAIICF
+                                     occ 1 · entries 1 · loaded · no error
+```
+
+The same 32 bytes render as the identical 60-character identity through two different code paths — a
+scalar field decode and a container record decode — and the record appears at exactly the slot whose flag
+was set. The identity also matches what a different contract's `providers[0]` rendered from the same four
+values earlier in the round, so the encoding is stable across contracts and runs.
+
+**The S1 fix fires on third-party code.** Same injection with `population = 2` while only one flag is set:
+
+```
+ok false   complete false   exit 1
+allowedSmartContracts  status=error  occ=0  entries=0
+                       error: "HashSet has 1 occupied slots but population 2"
+```
+
+That is the fix from the Fixes section working on a container declared by someone else.
+
+## Three apparent disagreements, all of them the state moving under me
+
+Worth writing down because they looked like findings for a while, and the method that resolved them is the
+point.
+
+Injecting bytes into `RNDX` and reading back gave, at various times, `populations[0] = 2` where I had put
+7, `lastUpdateTick[1]` where I had put index 2, a missing `444`, a state that went all-zero, and finally
+`burnedAmount = 654` — a value I never wrote anywhere.
+
+Each time, reading the node's raw bytes **at the same moment** showed the reader agreeing with the bytes
+exactly. Five paired samples, raw read before and after each CLI read:
+
+```
+sample 1..5:  raw @131120 before = 987654321   after = 987654321   cli collateralTiers[0] = 987654321
+```
+
+The cause is in the contract, not the reader: `Random.h` has an `END_TICK` that runs every tick and
+rewrites the state — it clears an entropy stream, clears `contributedToEntropyFlags`, evicts providers
+that did not reveal and burns their locked collateral. `654` is `99 + 555`, the two values I had injected
+into `lockedCollateralAmounts`, summed into `burnedAmount` by that eviction path. The injected garbage was
+a *valid* state for the contract to act on, and it acted on it.
+
+The methodological lesson: a contract with a per-tick hook is not a stable substrate for testing a reader —
+it eats the state between the write and the read. `QReservePool`, with only an `END_EPOCH`, is stable, which
+is why the `HashSet` work above used it.
+
+**One observation I could not reproduce, recorded rather than filed.** On the first pass, the state went
+to all-zero except its first words after a carryover redeploy. Re-running the same sequence twice more —
+fresh deploy, undeploy, poker, poke, carryover redeploy, read immediately and again 20 seconds later — the
+bytes stayed carried over both times. I cannot reproduce it and have no evidence it is a reader problem
+(the raw bytes and the reader agreed at every sampling), so it is written down and not filed.
+
+## Two more of my own errors, caught and corrected
+
+- A `while read … done <<'POKES'` loop where the body ran `bun`, which consumed the remaining heredoc
+  lines from stdin. The loop *looked* like it poked 11 words; it did not. Every poke in the rerun is
+  followed by a raw read-back of that exact byte offset, and the batch runs with `< /dev/null`. The
+  `burnedAmount = 555` that first sent me looking for a decoder bug came from this, not from Qinit.
+- I had been discarding deploy output to `/dev/null` and assuming success. The reruns check `ok` on every
+  deploy before proceeding.
+
+## Numbers
+
+10 deploys (2 real core contracts, 2 poker contracts, several redeploys under carryover) and ≈55
+dispatches: 32 pokes, each verified by a direct byte read-back, plus 23 state reads across the human,
+`--json`, `--all`, `--digest` and raw-node readers. All through
+`build → node run → deploy → call → inspect`; no `stateDiffLines` called directly, no `DebugStateRegion`
+hand-built.
+
+**Still not covered, still not claimed**: both core cells (unchanged ABI reason); `qinit gtest`/`test`; and
+a real core contract driven through its *own* procedures rather than by byte injection — `RevealAndCommit`
+needs a 512-byte `bit_4096` input and collateral, and `registerVault` a 16-element owner array, so both
+were left for a later round.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
@@ -1969,3 +2110,43 @@ PUBLIC_FUNCTION_WITH_LOCALS(Walk)
 
 No new probe was needed for the system-contract half of round 5 — those 28 contracts ship with Qubic
 core and are loaded by `qinit node run`; `qinit ls --json` lists them under `system`.
+
+### Round 6 probes
+
+Round 6 used Qubic core's own contracts rather than hand-written ones. Two renamed copies and two
+poker contracts:
+
+```cpp
+// RNDX.h  = core's src/contracts/Random.h with s/RANDOM/RNDX/ applied to the WHOLE prefix.
+// Renaming only the struct fails: the QPI verifier requires every global name to start with the
+// state struct name, so RANDOM_BITFEE et al. must move too.
+//   state: 3 × uint64, uint32 bitFee, then 11 containers — 2,459,184 bytes.
+//   Has an END_TICK that rewrites the state every tick, so an injected state does not survive.
+
+// QRPX.h  = core's src/contracts/QReservePool.h with s/QRP/QRPX/.
+//   struct StateData { id teamAddress; id ownerAddress; HashSet<id, 128> allowedSmartContracts; };
+//   32 + 32 + 4144 = 4208 bytes. Only an END_EPOCH, so an injected state is stable.
+```
+
+```cpp
+// RNDXPoke.h / QRPXPoke.h — v1 for the carryover flow, named to match the real contract so the
+// slot's bytes can be written word by word and then reinterpreted by the real layout.
+struct StateData { Array<uint64, 524288> raw; };   // RNDXPoke: 4 MB > RNDX's 2,459,184
+struct StateData { Array<uint64, 1024>   raw; };   // QRPXPoke: 8 KB  > QRPX's 4,208
+PUBLIC_PROCEDURE(Poke) { state.mut().raw.set(input.idx, input.v); }
+```
+
+Offsets used, derived from the headers and confirmed by the reported `stateSize`:
+
+```
+RNDX   earnedAmount @0 · distributedAmount @8 · burnedAmount @16 · bitFee @24
+       populations @28..44 · providers @48..131120 · collateralTiers @131120..163888
+       commits @163888..294960 · reveals @294960..2392112 · revealOrCommitFlags @2392112..2392624
+       entropy @2392624..2409008 · lockedCollateralAmounts @2409008..2441776
+       revealedThisTickFlags @2441776..2442288 · contributedToEntropyFlags @2442288..2442800
+       lastUpdateTick @2442800..2459184
+
+QRPX   teamAddress @0..32 · ownerAddress @32..64
+       allowedSmartContracts @64: records @64..4160, flags @4160..4192,
+                                  _population @4192, _markRemovalCounter @4200
+```
