@@ -2262,3 +2262,45 @@ drop-reporting path round 8 added keeps its end-to-end coverage, and `onDropped`
 too, which the agent survey found it had never had.
 
 Pinned findings: **two** — E7 and E17.
+
+## Round 28 — which oracle actually speaks, for the two E7 shapes that were fixed
+
+E22 and E23 both turned out to be defects a developer never meets, because clangd answers the position
+first. The same question applies to the two E7 instances this branch moved: the blind-spot differential
+compares `analyzeContract` against `compileContractWithTypeScript` — **two qinit oracles, with clang not
+in the loop** — but the real editor runs clangd alongside them. Measured by injecting each shape into the
+zoo workspace and reading every diagnostic on the document by source:
+
+```
+hidden member read  -> qinit 1, other 1
+    [clang]           line 10: Assigning to 'uint64' from incompatible type 'void (const QPI::QpiContextFunctionCall&…)'
+    [qinit-compiler]  line 10: 'Helper' names a member function of this contract, which hides the file-scope declaration…
+
+nested log payload  -> qinit 1, other 0
+    [qinit-compiler]  line 13: __qinit_log_info payload _terminator must be the last field; a field after it is never logged
+```
+
+The two instances are not the same kind of finding:
+
+- **The nested log payload was genuinely invisible.** `_terminator must be last` is qinit's rule about
+  logging layout, not a C++ rule; the contract is well-formed C++ throughout, so clang has nothing to say.
+  Nine corpus contracts silently lost every field after the terminator, and nothing in the editor
+  mentioned it. This one closes a real blind spot.
+- **The hidden member read was already squiggled**, on the same line, by clang. Assigning a member
+  function to a `uint64` is a plain C++ type error. So the premise "the editor says nothing" is wrong for
+  this shape, exactly as it was for E22 and E23.
+
+**Why this one is still worth keeping, unlike E22 and E23.** Diagnostics *stack*; completion does not.
+The member fallback runs only when clangd returns nothing (`extension.ts:161-165`), so when clangd answers,
+the fallback's answer is discarded and fixing it changes nothing anyone sees. Both diagnostics are shown.
+What the qinit check adds is a message that names the cause — a member function hiding a file-scope
+declaration — where clang reports the symptom, an incompatible `void (const QPI::QpiContextFunctionCall&…)`.
+It also matches the build's message byte for byte, so editor and build agree. That is a smaller claim than
+"the editor was blind", and it is the accurate one.
+
+**What this costs the headline.** The 22 → 13 → 0 figure is exact for what it measures: the editor's own
+analysis against the build. It is not a claim that a developer saw nothing, because clang sits in the real
+editor and was never part of that differential. How many of the 22 classes clang already covered has not
+been measured; on the evidence here, at least the 13 hidden-member contracts were covered and the 9
+log-payload ones were not. Round 21 joined clang as a third oracle but asked the opposite question —
+whether clang refuses anything the others accept — so it does not answer this.
