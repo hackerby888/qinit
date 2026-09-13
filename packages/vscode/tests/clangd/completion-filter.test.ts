@@ -247,3 +247,35 @@ struct ${name} : public ContractBase {
         rmSync(ws, { recursive: true, force: true });
     }
 });
+
+// The set is walked from the prefix header, so caching it under the core path alone handed the second
+// contract whatever the first had computed — a wider prefix losing names, or a narrower one gaining them.
+test("two prefixes over one core each get their own allowed set", () => {
+    const root = mkdtempSync(join(tmpdir(), "qpi-prefix-"));
+    try {
+        const src = join(root, "src");
+        mkdirSync(join(src, "qpi"), { recursive: true });
+        writeFileSync(join(src, "qpi", "qpi.h"), "struct id {};\nstruct Quantity { uint64 amount; };\n");
+        writeFileSync(join(src, "qpi", "extra.h"), "struct ExtraOnlyType { uint64 extraOnlyField; };\n");
+
+        const narrow = join(root, "Narrow.prefix.h");
+        const wide = join(root, "Wide.prefix.h");
+        writeFileSync(narrow, '#include "qpi/qpi.h"\n');
+        writeFileSync(wide, '#include "qpi/qpi.h"\n#include "qpi/extra.h"\n');
+
+        // Whichever is asked for first must not decide the other's answer.
+        const narrowFirst = qpiAllowedIdentifiers(narrow, root);
+        const wideSecond = qpiAllowedIdentifiers(wide, root);
+
+        expect(narrowFirst.has("Quantity")).toBe(true);
+        expect(narrowFirst.has("ExtraOnlyType")).toBe(false);
+        expect(wideSecond.has("ExtraOnlyType")).toBe(true);
+        expect(wideSecond.has("extraOnlyField")).toBe(true);
+
+        // Asking again returns the cached set rather than walking the closure a second time.
+        expect(qpiAllowedIdentifiers(narrow, root)).toBe(narrowFirst);
+        expect(qpiAllowedIdentifiers(wide, root)).toBe(wideSecond);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});

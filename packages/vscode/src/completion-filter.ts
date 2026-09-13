@@ -68,10 +68,22 @@ function includeClosure(prefixHeaderPath: string, coreSourceRoot: string): strin
     return files;
 }
 
+/** The prefix's own text, or "" when it cannot be read — `includeClosure` tolerates a missing prefix too. */
+function prefixHeaderText(prefixHeaderPath: string): string {
+    try {
+        return readFileSync(prefixHeaderPath, "utf8");
+    } catch {
+        return "";
+    }
+}
+
 /** Identifiers a QPI contract may write, read off the headers its own compile includes. */
 export function qpiAllowedIdentifiers(prefixHeaderPath: string, corePath: string): ReadonlySet<string> {
     const coreSourceRoot = resolve(corePath, "src");
-    const cached = allowedByCoreSource.get(coreSourceRoot);
+    // The walk starts at the prefix, so two prefixes over one core yield different sets. Key on the prefix
+    // as well, and on its text: the extension rewrites that file in place when a contract's callees change.
+    const cacheKey = `${coreSourceRoot}\u0000${resolve(prefixHeaderPath)}\u0000${prefixHeaderText(prefixHeaderPath)}`;
+    const cached = allowedByCoreSource.get(cacheKey);
     if (cached) {
         return cached;
     }
@@ -91,7 +103,7 @@ export function qpiAllowedIdentifiers(prefixHeaderPath: string, corePath: string
         allowed.delete(banned);
     }
 
-    allowedByCoreSource.set(coreSourceRoot, allowed);
+    allowedByCoreSource.set(cacheKey, allowed);
     return allowed;
 }
 

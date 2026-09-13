@@ -884,6 +884,49 @@ The remaining "did not clear" row is the harness, not a defect — that contract
 injected one is fixed and its diagnostic clears, and the two declined `tier` warnings keep the code in the
 list. Verified directly: `idl` is still produced and the moved local is gone from the body.
 
+## Round 24 — the same input, a different moment
+
+The editor is one long-lived process that analyses many contracts through shared caches. Nothing had
+asked whether an answer depends on _when_ it was asked, or on the line endings the file happens to use.
+
+**Line endings: clean.** A violation injected as deep as line 407, on 249 contracts, in both encodings:
+
+```
+  LF    line + span both correct: 249/249
+  CRLF  line + span both correct: 249/249
+```
+
+`preprocessor-core.ts:68` normalises `\r\n` to `\n` while spans are reported against the original, so a
+per-line drift would have put a span ~400 characters wrong by that depth. It does not.
+
+**Analysis order: clean.** 300 contracts fingerprinted (IDL entries and every diagnostic code with its
+line), analysed forward, then in reverse, then forward again: **0 differ by order, 0 differ on repeat.**
+
+## E26 — the allowed-identifier cache is keyed on the core, but computed from the prefix (fixed)
+
+`qpiAllowedIdentifiers(prefixHeaderPath, corePath)` walks the include closure **starting at the prefix**,
+then cached the result under the core source root alone. Whichever prefix asked first decided the answer
+for every prefix afterwards:
+
+```
+before:  narrow-first:  narrow = 1021   wide = 1021     (wide should be 1563)
+         wide-first:    wide   = 1563   narrow = 1563   (narrow should be 1021)
+after:   narrow-first:  narrow = 1021   wide = 1563
+         wide-first:    wide   = 1563   narrow = 1021
+```
+
+Both directions are wrong in a way that matters: a wider contract silently loses 542 names it may legally
+write, or a narrower one is offered 542 it may not — which is the allow-set's entire purpose defeated.
+
+**Latent, and recorded as such.** A gtest returns before reaching this (`extension.ts:191`), and
+`contractPrefixPath` is only ever set on the contract path, so the two prefixes that differ most never
+meet here. Round 18 measured that siblings of one project walk to the same set, which is what keeps this
+from biting today. Nothing enforces that invariant, though, and the cache silently depends on it.
+
+The key is now the core root, the prefix path, and the prefix's **text** — the extension rewrites that file
+in place when a contract's callees change, so a path alone would still go stale. Transitive headers are
+not hashed; the walk is the expensive part and the previous behaviour did not track them either.
+
 ## E7 — the editor stops before the compiler does (not fixed)
 
 `analyzeContract` runs the frontend and `prepareContractModule`, and stops. It never lowers a function
