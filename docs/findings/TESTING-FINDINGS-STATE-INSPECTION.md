@@ -1322,6 +1322,165 @@ a state bug; at `rate 250` and above, submission is fine.
 live interleaving behind S8 (see the finding — the precondition and the output are shown, the race is not);
 and `qinit explorer`'s wallet view, which is about identities and balances rather than contract state.
 
+
+---
+
+# Round 5
+
+Same two cells, same unchanged core situation. `QINIT_STATE_DIFF=verify` live on the node throughout
+(confirmed via `/proc/831/environ`) and it never threw.
+
+**No new findings this round.** Both areas came back clean, so what follows is the evidence and the
+numbers rather than a verdict. One reader disagreement is recorded as a lead.
+
+Round 5 deliberately left my own probe contracts behind for the first half: every previous round read
+state I had written myself, so a layout the reader and I both misunderstood would have agreed with
+itself. The node loads 28 of Qubic core's real system contracts, whose `StateData` was written by other
+people.
+
+## What was exercised, and what came back clean
+
+**All 28 system contracts, read with every reader.** `qinit ls` lists them; each was read with
+`qinit state <name> --json`, and QX additionally with the human view, `--all`, `--container 1` and
+`--digest`. They fall into exactly three groups, and each group's answer is right:
+
+```
+25 contracts   layout derived, ok=false complete=false, every field carrying
+               "(read failed: short state read at N: expected X bytes, got 0)", exit 1
+               — because this simulator materialises no bytes for system slots:
+                 GET /live/v1/dev/state-read?slot=1&off=0&len=8  ->  {"stateSize":0,"hex":""}
+
+ 2 contracts   MLM, SWATCH — ok=true complete=true, "no scalar fields", exit 0
+               — and neither MyLastMatch.h nor SupplyWatcher.h declares a StateData at all. Correct.
+
+ 1 contract    QUTIL — ok=false, error carrying the diagnostics, fields 0, containers 0, exit 1
+               — qinit re-derives a system contract's IDL by parsing core's own header through its
+                 QPI verifier, and QUtil.h does not pass it:
+                   line 39:   `div(…)` is unqualified — write `QPI::div(…)`
+                   line 1695: `mod(…)` is unqualified — write `QPI::mod(…)`
+                   line 1815: Preprocessor directives (`#`) are forbidden in QPI
+```
+
+The QUTIL case is the one I initially misread as a missing layout, because my sweep printed field counts
+without the `error` key. It is not: `--json` reports `ok:false` with the full diagnostic, and the human
+view prints the offending lines. The distinction that matters — "no state" versus "could not read the
+state" — is carried correctly in both: MLM gives `ok:true / complete:true / exit 0`, QUTIL and the other
+25 give `ok:false / exit 1`.
+
+**A real third-party layout, hand-checked against its C++ header.** `RANDOM` (`Random.h`,
+`RANDOM_MAX_PROVIDERS = 4096`, `bit_4096` = `BitArray<4096>` = 512 B) — every member, in order:
+
+```
+  earnedAmount, distributedAmount, burnedAmount   uint64 ×3   -> 3 scalar fields      ✓
+  bitFee                                          uint32      -> 1 scalar field       ✓
+  Array<uint32, 4>        populations             ->     16 B  cap 4                  ✓
+  Array<id, 4096>         providers               -> 131072 B  cap 4096               ✓
+  Array<uint64, 4096>     collateralTiers         ->  32768 B  cap 4096               ✓
+  Array<id, 4096>         commits                 -> 131072 B  cap 4096               ✓
+  Array<bit_4096, 4096>   reveals                 -> 2097152 B cap 4096               ✓
+  bit_4096                revealOrCommitFlags     ->    512 B  cap 4096               ✓
+  Array<bit_4096, 32>     entropy                 ->  16384 B  cap 32                 ✓
+  Array<uint64, 4096>     lockedCollateralAmounts ->  32768 B  cap 4096               ✓
+  bit_4096                revealedThisTickFlags   ->    512 B  cap 4096               ✓
+  bit_4096                contributedToEntropy…   ->    512 B  cap 4096               ✓
+  Array<uint32, 4096>     lastUpdateTick          ->  16384 B  cap 4096               ✓
+```
+
+11 containers, 11 exact matches, including the two nested `Array<BitArray<4096>, N>` cases and the mixed
+element widths in between. `GQMPROP` was checked the same way and is also right: its `StateData` really
+does hold exactly two members (`proposals`, `revenueDonation`), which is what the reader shows. Across
+all 27 contracts whose source parses, no container came back with a zero capacity or a zero size.
+
+**Collection priority ordering over a deep BST — the contract itself as the oracle.**
+`contracts/BstZoo.h` holds a `Collection<uint64, 64>` and a `Walk` function that traverses a PoV with
+QPI's *own* `headIndex` / `nextElementIndex` / `element` / `priority`. So for every state below there are
+two independent orderings: the contract's, computed inside the VM, and the CLI's, reconstructed from the
+raw bytes. 25 dispatches, 5 walks, 4 comparisons — **every element matched, in order, every time**:
+
+```
+PoV A, 12 elements added with ASCENDING priorities 1..12 (a degenerate, 12-deep BST)
+  oracle  1200(p12) 1100(p11) 1000(p10) 900(p9) 800(p8) 700(p7) 600(p6) 500(p5) 400(p4) 300(p3) 200(p2) 100(p1)
+  cli     1200(p12) 1100(p11) 1000(p10) 900(p9) 800(p8) 700(p7) 600(p6) 500(p5) 400(p4) 300(p3) 200(p2) 100(p1)
+
+PoV B, 9 elements: duplicate priorities and both signed extremes
+  oracle  60(p9223372036854775807) 10(p50) 40(p50) 70(p7) 30(p0) 90(p0) 80(p-7) 20(p-50) 50(p-9223372036854775808)
+  cli     60(p9223372036854775807) 10(p50) 40(p50) 70(p7) 30(p0) 90(p0) 80(p-7) 20(p-50) 50(p-9223372036854775808)
+```
+
+`INT64_MAX` and `INT64_MIN` as priorities both render exactly, and the two duplicate-priority pairs
+(`p50`, `p0`) keep the same relative order in both readers. After an interior removal (15 rows), and
+after a removal whose replacement element is dragged across from the *other* PoV (18 rows), both PoVs
+still agree element for element.
+
+**The hardest diff in the system, reconciled byte for byte.** A Collection removal relocates the last
+element into the freed slot and rewires the tree, which is the most rows any single operation produces.
+Dump before, dump after, every changed run matched by hand against the declared geometry
+(PoVs `0..4096`, PoV flags `4096..4112`, elements `4112..7184` at stride 48, then `_population`):
+
+```
+15 changed byte runs   <->   16 diff rows
+  [3040..3041] pov[47].population      q.pov[47].population 10 → 9
+  [4240..4241] elem[2].bstLeft         q[2].bstLeftIndex 3 → 4
+  [4256..4258] elem[3].value           q[3] 400 → 70              <- the moved element
+  [4264..4265] elem[3].priority        q[3].priority 4 → 7
+  [4272..4273] elem[3].povIndex        q[3].povIndex 47 → 13      <- and it changes PoV
+  [4280..4281] elem[3].bstParent       q[3].bstParentIndex 2 → 15
+  [4288..4296] elem[3].bstLeft         q[3].bstLeftIndex 4 → -1
+  [4328..4329] elem[4].bstParent       q[4].bstParentIndex 3 → 2
+  [4872..4873] elem[15].bstRight       q[15].bstRightIndex 18 → 3
+  [4976..5024] elem[18].*              q[18] 70 → 0 · .priority · .povIndex · .bstParentIndex
+                                       · .bstLeftIndex · .bstRightIndex   (6 rows)
+  [7184..7185] _population             q 19 → 18 entries
+```
+
+16 rows against 15 runs because the last run is two adjacent 8-byte fields in one contiguous stretch.
+Every changed byte is named by a row and every row corresponds to changed bytes — including the
+`povIndex 47 → 13` that records the cross-PoV move. `_markRemovalCounter` neither moved nor was claimed,
+which is right: removing an *element* marks no PoV.
+
+**A `cleanup()` that had nothing to do produced 0 changed bytes and 0 rows** — the "missing diffs" class
+in reverse: a no-op call invents no rows.
+
+## A lead, recorded rather than filed
+
+**Two readers describe the same contract differently.** For a system contract with no materialised bytes:
+
+```
+qinit state QX            ->  renders the full layout: 20 fields each "(read failed: …)",
+                              "[1] _assetOrders · 302,514,192 bytes · use --container 1 to load"
+qinit state QX --digest   ->  {"ok":false,"error":"no deployed contract 'QX'"}
+```
+
+One says the contract exists with a 621 MB layout it could not read; the other says it is not deployed.
+Both exit 1 and neither prints a wrong *value*, so this is not one of the four classes — but the first
+also offers `use --container 1 to load`, which reads like "there is data here, go get it", and following
+it yields `read failed · use --container 1 to retry`. I checked the exit codes for a divergence and
+there is none: `state QX`, `--container 1`, `--all`, `--json` and `--digest` all exit 1.
+
+## Two of my own errors, caught and corrected
+
+Recorded because the brief asks for the control that rules out my own mistakes, and twice this round the
+first answer was mine rather than the tool's.
+
+- I read an exit code as `0` after a `… | sed | grep | tail` pipeline — which returns `tail`'s status,
+  the exact trap the brief warns about. Re-measured without a pipeline: every `qinit state QX` variant
+  exits 1, and there is no finding there.
+- I summarised the 28-contract sweep printing field and container counts but not the `error` key, and
+  briefly read QUTIL's `fields=0 containers=0` as a whole state going missing. It is a reported parse
+  refusal, not a silent one.
+
+## Numbers
+
+≈60 dispatches and state reads over 1 new deploy: 28 system-contract reads plus 7 extra reads of QX,
+QUTIL and MLM across the human, `--json`, `--all`, `--container` and `--digest` readers; 21 Collection
+adds, 3 removals, 1 `cleanup()`, 5 `Walk` oracle calls, 4 oracle-vs-CLI order comparisons, 4 state dumps
+and 2 byte-level conservation checks. All through `build → node run → deploy → call → inspect`; no
+`stateDiffLines` called directly, no `DebugStateRegion` hand-built.
+
+**Still not covered, still not claimed**: both core cells (unchanged ABI reason); `qinit gtest`/`test`;
+system-contract state with actual bytes in it, which this simulator does not produce — every system
+contract here has `stateSize: 0`, so what was checked is their *layout derivation*, not their decoding.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
@@ -1775,3 +1934,38 @@ S8's rendered output was reproduced with the round 1 pair, re-poked:
 `Carry1.h` writes the header words directly (index 40 = flags = 64, i.e. slot 3 = `0b01`;
 index 41 = population = 1; index 43 = marker = 777), then `Carry2.h` redeploys the same bytes as
 `HashMap<id,uint64,8> bal; uint64 marker;` under `--allow-state-carryover`.
+
+### Round 5 probe
+
+```cpp
+// BstZoo.h — Collection priority ordering over a deep BST, with the contract as its own oracle.
+// Walk() traverses a PoV using QPI's headIndex/nextElementIndex/element/priority, so the order the
+// contract sees inside the VM can be compared against the order qinit reconstructs from raw bytes.
+struct StateData { Collection<uint64, 64> q; uint64 marker; };
+
+struct Walk_input  { id pov; };
+struct Walk_output { Array<uint64,32> vals; Array<sint64,32> prios; uint64 n; uint64 pop; };
+struct Walk_locals { sint64 idx; uint64 k; };
+
+PUBLIC_FUNCTION_WITH_LOCALS(Walk)
+{
+    locals.k = 0;
+    output.pop = state.get().q.population(input.pov);
+    locals.idx = state.get().q.headIndex(input.pov);
+    while (locals.idx >= 0 && locals.k < 32)
+    {
+        output.vals.set(locals.k, state.get().q.element(locals.idx));
+        output.prios.set(locals.k, state.get().q.priority(locals.idx));
+        locals.k += 1;
+        locals.idx = state.get().q.nextElementIndex(locals.idx);
+    }
+    output.n = locals.k;
+}
+// Add(pov,v,prio) · Del(idx) · Clean() · Bump()
+// Geometry used for the conservation check: PoVs 0..4096 (64 × 64 B), PoV flags 4096..4112,
+// elements 4112..7184 (64 × 48 B: value, priority, povIndex, bstParent, bstLeft, bstRight),
+// _population @7184, _markRemovalCounter @7192, marker @7200; state size 7208.
+```
+
+No new probe was needed for the system-contract half of round 5 — those 28 contracts ship with Qubic
+core and are loaded by `qinit node run`; `qinit ls --json` lists them under `system`.
