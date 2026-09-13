@@ -584,7 +584,7 @@ Two sweeps over receiver shapes the first seventeen rounds never measured: 20 sh
 context, mid-word prefixes, call arguments, conditions and loops, then 12 more covering mid-edit
 breakage, nesting and typedefs. 30 of 32 resolved. The two that did not are below.
 
-## E22 — the member fallback never walks a base class (not fixed)
+## E22 — the member fallback never walks a base class (downgraded: not reachable)
 
 `member-query.ts:223` and `:259` resolve a receiver's members with
 `programAnalysis.templateMethods.get(<type name>)` — a direct lookup keyed on the type's own name.
@@ -620,11 +620,31 @@ The second face is a contract's own inheritance. `struct Derived : public Base` 
 `common` and `tag`: completing a `Derived` receiver offers only `extra`, while reading `thing.common`
 compiles.
 
-**Masked today.** The fallback runs only when clangd returns nothing or an all-`Text` list
-(`extension.ts:161-165`). Measured through the real editor, `qpi.` in a procedure answers **50 items,
-every kind `Method`** — clangd resolves the inheritance itself and the developer sees the full list. So
-this is a hole in the second line of defence, not a break in the first: it surfaces where the fallback
-is the one answering, which is the degraded case E1 documented.
+**Not reachable, measured.** The fallback runs only when clangd returns nothing or an all-`Text` list
+(`extension.ts:161-165`). Round 26 sampled the one window where that can happen — a live `clangd.restart`,
+which is also what a cold start looks like — asking `qpi.` in a procedure eight times across it:
+
+```
+healthy        -> 50 items, kinds Method=50, inherited 5/5
+during #1      -> 121 items, kinds Text=121, inherited 0/5
+during #2..#8  -> 50 items, kinds Method=50, inherited 5/5
+recovered      -> 50 items, kinds Method=50, inherited 5/5
+```
+
+Seven of eight samples had clangd answering completely. The one degraded sample did **not** show the
+fallback's 21-item list: it shows 121 `Text` items, which is the editor's word-scrape — meaning the
+fallback returned nothing at all there and `memberCompletions` fell through to the filtered scrape
+(`fallback.length > 0 ? fallback : kept`). So the "21 of 69" answer never reached the developer, in the
+only window where it could have.
+
+The 75% figure stands as written — it measures how much of core's procedure code _would_ be affected if
+the fallback were the one answering — but that antecedent does not hold for this receiver. E22 is a real
+inconsistency in the fallback's member resolution and a latent trap if the trigger conditions ever widen;
+it is not a defect a developer currently meets. Downgraded accordingly.
+
+**A note on how this was measured.** The probe restarted clangd inside the shared campaign suite and broke
+two sibling tests, which then read the same word-scrape. It was removed after answering its question; a
+restart probe needs its own workspace, not a shared one.
 
 ## E23 — a single-line `for` with an initializer declines (not fixed)
 
