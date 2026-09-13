@@ -282,3 +282,82 @@ test("nested containers are numbered in one sequence with the top-level ones", a
     const selected = await read({ containerIndexes: new Set([2]), collapseContainersAtBytes: 1 });
     expect(selected.containers.map((container) => `${container.name}/${container.status}`)).toEqual(["nums/collapsed", "inner.map/loaded", "set/collapsed"]);
 });
+
+// A container view is stitched from a population read, a flags read and a read per occupied run. A write landing
+// between them leaves each read well-formed, so only the slot's state version says the view spans two states.
+const versionShiftingReader = (liesForever: boolean) => {
+    const populationOffset = MAP.off + MAP_GEOMETRY.populationOffset;
+    let attempts = 0;
+    let mapReads = 0;
+
+    const rpc: StateReader = {
+        stateRead: async (_slot, offset, length) => {
+            const hex = Buffer.from(stateBytes().slice(offset, offset + length)).toString("hex");
+            if (offset < MAP.off || offset >= MAP.off + MAP.size) {
+                return { hex, version: 1 }; // another field, read once: nothing to compare against
+            }
+            if (offset <= populationOffset && populationOffset < offset + length) {
+                attempts++; // the population read opens each attempt at this container
+                mapReads = 0;
+            }
+            mapReads++;
+            return { hex, version: mapReads > 1 && (liesForever || attempts === 1) ? 2 : 1 };
+        },
+    };
+    return { rpc, attempts: () => attempts };
+};
+
+test("a state version that moves mid-read fails the container instead of reporting a stitched view", async () => {
+    const broken = versionShiftingReader(true);
+    const failed = await readLayout(broken.rpc);
+
+    expect(failed.containers[1].status).toBe("error");
+    expect(failed.containers[1].error).toMatch(/map changed while it was being read \(state version 1 → 2\)/);
+    expect(broken.attempts()).toBe(2); // retried exactly once, then gave up
+    expect(failed.complete).toBe(false);
+});
+
+test("a state version that settles on the retry loads normally", async () => {
+    const flaky = versionShiftingReader(false);
+    const recovered = await readLayout(flaky.rpc);
+
+    expect(recovered.containers[1].status).toBe("loaded");
+    expect(recovered.containers[1].occupiedSlots).toBe(1);
+    expect(flaky.attempts()).toBe(2);
+    expect(recovered.complete).toBe(true);
+});
+
+test("a node that reports no version is read exactly as before", async () => {
+    // Every existing fake omits `version`; the check must stay inert so an older node behaves as it always did.
+    const state = await readLayout(honestReader());
+
+    expect(state.containers[1].status).toBe("loaded");
+    expect(state.complete).toBe(true);
+});
+
+test("an Array and a BitArray are covered too, though neither has an invariant of its own", async () => {
+    // Chunked so each field takes several reads; without the version nothing in either view could notice a write,
+    // since only the keyed containers cross-check anything.
+    const CHUNK = 4; // small enough that even the 8-byte BitArray takes more than one read
+    const shifting = (fieldName: "nums" | "bits"): StateReader => {
+        const field = FIELDS.find((candidate) => candidate.name === fieldName)!;
+        let reads = 0;
+        return {
+            stateRead: async (_slot, offset, length) => {
+                const capped = Math.min(length, CHUNK);
+                const hex = Buffer.from(stateBytes().slice(offset, offset + capped)).toString("hex");
+                if (offset < field.off || offset >= field.off + field.size) {
+                    return { hex, version: 1 };
+                }
+                // Strictly increasing, so every attempt sees the state move under it however often it retries.
+                return { hex, version: ++reads };
+            },
+        };
+    };
+
+    const nums = await readLayout(shifting("nums"));
+    expect(nums.containers.find((container) => container.name === "nums")!.status).toBe("error");
+
+    const bits = await readLayout(shifting("bits"));
+    expect(bits.containers.find((container) => container.name === "bits")!.status).toBe("error");
+});

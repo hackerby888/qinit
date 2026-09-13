@@ -103,6 +103,8 @@ export interface TraceEndMetadata {
     stateDiff?: DebugStateRegion[];
     /** Journal overflow: the contract wrote more blocks than the journal could record. */
     stateTruncated?: boolean;
+    /** The slot's state version after this dispatch; a reader compares it before trusting current bytes against this diff. */
+    stateVersion?: number;
     execNs: number;
 }
 
@@ -182,6 +184,9 @@ export class TraceRecorder {
         entry.stateDiff = metadata.stateDiff ?? (metadata.stateChanged === false ? [] : diffRegions(metadata.stateBefore, metadata.stateAfter));
         if (metadata.stateTruncated !== undefined) {
             entry.stateTruncated = metadata.stateTruncated;
+        }
+        if (metadata.stateVersion !== undefined) {
+            entry.stateVersion = metadata.stateVersion;
         }
 
         this.stack.pop();

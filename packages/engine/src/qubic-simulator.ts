@@ -179,6 +179,8 @@ export class QubicSimulator {
             nowMs: () => this.nowMs(),
             numberOfTickTransactions: () => this.tickTxCount,
             markDirty: (slot) => this.dirty.add(slot),
+            bumpStateVersion: (slot) => this.registry.bumpStateVersion(slot),
+            stateVersion: (slot) => this.registry.stateVersion(slot),
             log: (slot, level, msg) => {
                 this.recorder.log(level, msg);
                 this.logStore?.log(slot, level, msg, this.currentEpoch);
@@ -382,6 +384,11 @@ export class QubicSimulator {
 
     get dirty(): Set<number> {
         return this.registry.dirty;
+    }
+
+    // The slot's state version, for a reader stitching one view out of several range reads.
+    stateVersion(slot: number): number {
+        return this.registry.stateVersion(slot);
     }
 
     // How far back finalized ticks are still kept. Anything older has been pruned and reads as an empty tick.

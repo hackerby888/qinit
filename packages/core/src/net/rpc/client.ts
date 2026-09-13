@@ -186,7 +186,9 @@ export class LiteRpc implements NodeTransport {
     }
     /** Read current contract state bytes (GET /live/v1/dev/state-read) — for current-state inspection. */
     stateRead(slot: number, off: number, len: number) {
-        return this.get<{ off: number; len: number; stateSize: number; hex: string }>(`/live/v1/dev/state-read?slot=${slot}&off=${off}&len=${len}`);
+        return this.get<{ off: number; len: number; stateSize: number; hex: string; version?: number }>(
+            `/live/v1/dev/state-read?slot=${slot}&off=${off}&len=${len}`,
+        );
     }
     /** K12 digest of the full effective resident state, as computed by the node. */
     contractDigest(slot: number) {

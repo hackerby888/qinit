@@ -771,6 +771,7 @@ export class VirtualNode implements NodeTransport {
             len,
             stateSize,
             hex: toHex(state.subarray(off, off + len)),
+            version: this.sim.stateVersion(slot),
         };
     }
 

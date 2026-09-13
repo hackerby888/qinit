@@ -61,7 +61,12 @@ function StateDiff({
     const all = shownStateLines(lines, showInternals);
     const start = maxRows ? Math.min(offset, Math.max(0, all.length - maxRows)) : 0;
     const shown = maxRows ? all.slice(start, start + maxRows) : all;
-    const labelOf = (line: StateDiffLine) => (showInternals ? line.detail : line.label);
+    // A row the diff could not name falls back to the bucket the record hashed into, which is not an identity —
+    // say so rather than letting it read like any other label. View-only: `line.label` stays the plain path.
+    const labelOf = (line: StateDiffLine) => {
+        const path = showInternals ? line.detail : line.label;
+        return line.keyUnresolved ? `${path} (key unknown)` : path;
+    };
     const width = Math.max(1, ...shown.map((line) => labelOf(line).length));
     const hidden = lines.length - all.length;
 

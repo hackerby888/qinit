@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity, hexToBytes, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
 import { activeNodeScratchDir } from "../../ops/node";
 import {
     contractAddress,
@@ -87,6 +87,8 @@ export function callJsonResult(
                       internal: line.internal,
                       ...("before" in line ? { before: line.before, after: line.after } : {}),
                       ...(line.change ? { change: line.change } : {}),
+                      // The label is a bucket index, not the key the contract wrote — a consumer keying on it should know.
+                      ...(line.keyUnresolved ? { keyUnresolved: true } : {}),
                   })),
                   logs: trace.view.logs.map((log) => ({
                       severity: log.severity,
@@ -565,7 +567,19 @@ function CallOneShot({
                     } catch {}
 
                     if (te) {
-                        const view = await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl, calleeSources);
+                        // A record whose key never changed is not in the diff, so naming its entry means reading the key back.
+                        // Safe only while the state still matches the trace: any write since moves the version, and a stale key is refused.
+                        const readKey =
+                            te.stateVersion === undefined
+                                ? undefined
+                                : async (off: number, size: number) => {
+                                      const answer = await rpc.stateRead(te.index, off, size);
+                                      if (answer.version !== te.stateVersion || answer.hex.length !== size * 2) {
+                                          return undefined;
+                                      }
+                                      return hexToBytes(answer.hex);
+                                  };
+                        const view = await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl, calleeSources, readKey);
                         if (children.length) {
                             view.cheats = mergePrints([{ contract: contractName, cheats: view.cheats }, ...(await calleePrints(rpc, children, addNote))]);
                             if (view.cheats.some((cheat) => cheat.ord === undefined)) {

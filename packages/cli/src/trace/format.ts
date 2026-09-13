@@ -3,7 +3,7 @@ import { decodeAbi, decodeLog, decodedAbiToJson, type DecodedLog } from "@qinit/
 import { AbiTypeKind, type AbiType, type ContractCheat, type ContractIdl } from "@qinit/proto/contract-idl";
 import type { DebugCheat } from "@qinit/core";
 import { extractIdl, type CalleeSource } from "@qinit/build";
-import { stateDiffLines, type StateDiffLine } from "./state-diff";
+import { stateDiffLines, type StateDiffLine, type StateKeyReader } from "./state-diff";
 import { enumMap, formatStateValue, holdsContainer, scalarText, stateFieldsOf, type StateField } from "./state-format";
 import { MIGRATE } from "./entry-label";
 import { decodeValueBlocks, type ValueBlocks } from "./state-read";
@@ -30,6 +30,9 @@ export async function describeTrace(
     qpiHeader?: string,
     contractIdl?: ContractIdl,
     calleeSources?: readonly CalleeSource[],
+    // Supplied only where the trace describes the state as it is now: a record whose key never changed is not in the
+    // diff, so naming its entry means reading those bytes back. The caller is what decides the state still matches.
+    readKey?: StateKeyReader,
 ): Promise<DecodedTrace> {
     let input = entry.inHex ? "0x" + entry.inHex : "(none)";
     let output = entry.outHex ? "0x" + entry.outHex : "(none)";
@@ -77,7 +80,7 @@ export async function describeTrace(
         // The fields stand on their own: a diff that cannot be read must not make the state look absent.
         if (idl.state) {
             fields = await orElse(fields, async () => stateFieldsOf(idl));
-            stateDiff = await orElse(stateDiff, () => stateDiffLines(fields, entry.stateDiff));
+            stateDiff = await orElse(stateDiff, () => stateDiffLines(fields, entry.stateDiff, readKey));
         }
 
         if (entry.logs?.length && idl.logs) {

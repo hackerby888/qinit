@@ -110,6 +110,8 @@ export interface DebugEntry {
     inHex: string;
     outHex: string;
     stateDiff: DebugStateRegion[];
+    /** The slot's state version once this dispatch finished, so a reader can tell whether the state still matches the diff. */
+    stateVersion?: number;
     trap?: string;
     hostCalls: DebugHostCall[];
     logs: DebugLog[];
