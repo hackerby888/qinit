@@ -1067,6 +1067,261 @@ already used for every other incomplete read.
   aligned dirty pages rather than the simulator's 256-byte windows — the fix is strictly more
   conservative there (it can only remove rows about unmoved bytes), but it has not been run against core.
 
+
+---
+
+# Round 4
+
+Same two cells as every round before it: **simulator × typescript** and **simulator × clang**. Both core
+cells are still unstartable for the unchanged reason in the Cells section (repo ABI v7, the only
+published core-lite release ABI v6), so nothing below is claimed for core.
+
+`QINIT_STATE_DIFF=verify` was live on the node throughout, confirmed by reading
+`/proc/23147/environ` rather than assumed, and it never threw.
+
+This round went after the four things the earlier rounds listed as *not covered*, plus one thing the
+earlier rounds created: the fixes themselves.
+
+## Findings
+
+### S7 — a HashMap value **update** loses the entry's key label when the key falls outside the value's 256-byte diff window
+
+**Class**: 4 — a row labelled by the bucket instead of the key the contract wrote. **Cells**: both
+simulator cells. The same three updates were replayed against a **clang** build of the identical source
+(different `codeHash`, `dde39803…`) and produced the same three labels — `m[LBBU…] 100 → 501`,
+`m.slot[6].value 100 → 77778`, `m.slot[0].value 100 → 1235` — so this is the reader, not a backend.
+
+`stateDiffLines` names a record's rows by reading the key **out of the changed window**
+(`entryIdentityOf`: `if (recordKey.keyOff < changedWindow.off || keyEnd > windowEnd) return undefined`).
+An insert or a removal writes the key bytes too, so the key is always inside the changed region and the
+row gets its name. An **update** leaves the key alone — so whether the entry has a name depends on
+whether the key happens to sit in the same 256-byte window as the bytes that moved.
+
+Minimal repro — `contracts/Windows.h` puts 240 bytes of padding before a `HashMap<id, uint64, 8>`, so the
+records land across the window grid at 240 + 40·slot:
+
+```
+qinit call --proc Windows 2 --in="<id#5>id, 501uint64"   --trace   (slot 1, value @312)
+    m[LBBULBSUZZCHFALHGRLJQAKPVFTCHJQJHFBDIQGYHFRIASXPNAUCEPKAMZSF] 500 → 501     detail=m.slot[1].value
+
+qinit call --proc Windows 2 --in="<id#6>id, 77778uint64" --trace   (slot 6, value @512)
+    m.slot[6].value                                                 77777 → 77778  detail=m.slot[6].value
+
+qinit call --proc Windows 2 --in="<id#8>id, 1235uint64"  --trace   (slot 0, value @272)
+    m.slot[0].value                                                 1234 → 1235    detail=m.slot[0].value
+```
+
+Same contract, same container, same operation. The `detail` is `m.slot[N].value` in all three — only the
+**label** differs, and only because of where the bytes sit.
+
+**The rule, stated and then tested.** The label survives exactly when the record's key lies in the same
+256-byte window as the bytes that moved. For a value update that means the value must start at least
+`sizeof(key)` bytes into its window. Predicting from the geometry alone and then updating all eight
+records:
+
+```
+slot  value offset  window        offset into window   label
+  0       272       [256, 512)         16              slot-only   <- predicted lost
+  1       312       [256, 512)         56              KEY
+  2       352       [256, 512)         96              KEY
+  3       392       [256, 512)        136              KEY
+  4       432       [256, 512)        176              KEY
+  5       472       [256, 512)        216              KEY
+  6       512       [512, 768)          0              slot-only   <- predicted lost
+  7       552       [512, 768)         40              KEY
+```
+
+Eight for eight against the prediction: `offset into window < 32` ⇔ the key label is dropped.
+
+**It gets worse as the value gets bigger.** `contracts/BigVal.h` is a `HashMap<id, Val, 2>` whose `Val` is
+400 bytes, so one record spans two windows and *the same entry* is named or not depending on which field
+moved:
+
+```
+Put      (insert)          m[WGWC…].head = 11 (new)        m[WGWC…].tail = 22 (new)
+SetHead  (value + 0)       m[WGWC…].head 11 → 333
+SetTail  (value + 392)     bm.slot[0].value.tail 22 → 444
+```
+
+Dump-to-dump for that `SetTail`: exactly one changed run, `[424..426]`, which lies in window
+`[256, 512)`; the record's key is at `0..32`, in window `[0, 256)`. One window changed, so there was
+nothing for `mergeAdjacentWindows` to merge with, and the key was simply not in the bytes the reader was
+handed. For any map whose value is ≥ ~224 bytes, every partial update past the first window is anonymous.
+
+**Why it matters.** The bucket index is not an identity — it is a function of the hash and the capacity.
+A reader given `m.slot[6].value 77777 → 77778` cannot say which key changed, while the row above it says
+`m[LBBU…] 500 → 501`. A script keying on the label sees two different shapes for one operation. The
+container view (`qinit state`) is unaffected — it reads whole containers over RPC and always has the
+keys — so this is also a case of two of the three readers disagreeing.
+
+**Controls.**
+
+1. *Same slot, different operation.* Slot 6 **insert** → `m[EZMQ…] = 77777 (new)`; slot 6 **remove** →
+   `m[EZMQ…] 70006 → (removed)`; slot 6 **update** → `m.slot[6].value`. So it is not the slot. (Insert and
+   remove both rewrite the key, so the changed run spans key *and* value, two adjacent windows merge, and
+   the key is in range.)
+2. *Same operation, different slot.* Slot 1 update keeps its key; slot 6 update does not.
+3. *Not my own fixes.* Reverting `packages/cli/src` and `packages/proto/src` to the pre-fix commit
+   `a4303b5` and re-running the same two updates against the same live node reproduces it exactly —
+   `m.slot[0].value 81111 → 82222` and `m[DDZY…] 70001 → 83333`. S7 is pre-existing; the first attempt at
+   this control was a no-op `git stash` on an already-clean tree and is discarded.
+4. *Byte level.* Conservation checks on the straddling writes account for every changed run:
+   insert into slot 0 → `[240..274]` (key + value, crossing 256), `[560..561]` (flags), `[568..569]`
+   (population) — four rows, three runs, nothing unnamed.
+
+**Severity**: medium-low. Nothing false is printed and no byte goes unreported; the entry is just
+anonymous. But it is silent, it is invisible to the user (the 256-byte grid is not a thing a contract
+author can see), and it is common: ~12.5% of records in a small-valued map, and nearly every partial
+update in a large-valued one.
+
+### S8 — a container read that spans a concurrent write can report a phantom entry keyed by the all-zero identity, with every signal green
+
+**Class**: 1 and 4 — a record rendering as zeros where a decoded value belongs, and a record the bytes do
+not support presented as real. **Cells**: both simulator cells.
+
+`QpiHashMapView.entries()` reads **population**, then the **occupation flags**, then **one range per run
+of occupied slots** — three or more separate RPC round trips. `state-read.ts` says as much in its own
+comment ("Separate range reads can span a state update, so one inconsistent view is retried before
+failing") and retries once on `QpiContainerConsistencyError`.
+
+The check that retry depends on is `occupiedSlots(flags).length !== population` — **both of which are read
+before the records**. A write that lands *after* the flags read and *before* the record reads is therefore
+invisible to it.
+
+**The precondition, proven against the node.** Driving the node's own read API in the order the reader
+uses it:
+
+```
+tick 11578   population word  0900000000000000        = 9
+tick 11578   flag word        0004000000000000        -> slot 208933 flag = 1 (occupied)
+tick 11593   qinit call --proc RaceMap 2 (Del)        ok, the entry is removed
+tick 11595   record @8357320 len 40                   00000000…00000000  (all zero)
+```
+
+Population and flags agree (9 = 9), so the consistency check passes — and the record the flags said was
+occupied has been zeroed underneath. The node serves every read from the state as of the moment it
+arrives; there is no snapshot across a container read.
+
+**What the reader then shows.** That byte pattern — population 1, flags say slot 3 occupied, record 3 all
+zero — reproduced deterministically through the documented `--allow-state-carryover` flow
+(`contracts/Carry1.h` writes the header words as a raw `Array<uint64,64>`, `Carry2.h` redeploys the same
+bytes as a `HashMap<id,uint64,8>` + marker):
+
+```
+qinit state Carry --all
+  marker 777
+  [1] bal · 1 entry · 7/8 slots unoccupied
+    slot[3]  AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFXIB = 0
+
+qinit state Carry --all --json
+  ok: True   complete: True   status: loaded   occupiedSlots: 1   totalEntries: 1   error: None
+  exit code 0
+```
+
+A record that does not exist, presented as "1 entry", keyed by the all-zero identity, with `complete:
+true`, no error and a zero exit code. The `marker 777` is the control: it reads at its declared offset,
+so the container geometry is right and this is not a misparse of the probe.
+
+Note that the all-zero identity is the one the brief says to avoid using as a container key. This is why:
+it is exactly what zeroed bytes decode to, so a phantom entry is indistinguishable from a real entry
+whose key is zero.
+
+**What I did *not* manage to do, stated plainly.** I did not catch this live. Nine hand-aligned attempts
+(a removal backgrounded and a container read launched at offsets of 0.0–0.9 s, against a 262144-slot map
+with 8–10 scattered entries) all produced self-consistent views. The reason is measurable: a raw
+`state-read` round trip is ~10 ms and the whole RPC phase of a container read is on the order of 100 ms,
+against a ~3.5 s `qinit state` cycle that is almost entirely CLI start-up — so the exposed window is a few
+percent of each attempt. What is demonstrated is the precondition (reads are not snapshot-consistent
+across a tick), the code path (the check cannot see a write that lands after the flags read), and the
+output (what the reader prints for that byte pattern). The three together are the finding; the live
+interleaving is not.
+
+The window grows with the container: more occupied runs mean more round trips. The diff reader is *not*
+exposed — its bytes come from windows the engine captures during execution, not from separate reads.
+
+**Severity**: medium. Silent and undetectable by the user when it happens; narrow in the simulator at
+these container sizes; wider for large containers and slower links.
+
+## Round 4 — what came back clean, with the evidence
+
+**≈80 dispatches over 7 successful deploys** — 6 in the typescript cell and 1 in the clang cell (plus 4
+refused: one `Array` capacity that was not a power of two, three on a slot already held by another
+contract), all through `build → node run → deploy → call → inspect`. No `stateDiffLines` was called
+directly and no `DebugStateRegion` was hand-built. 6 byte-level
+conservation checks (`--dump` before, `--dump` after, every changed run matched by hand against the
+declared offsets and the rows).
+
+**The S1 fix does not false-positive on an emptied container — all four keyed kinds.** This was the first
+thing tested, because the fix now reads occupation flags for every container including empty ones, and a
+container emptied by removal is a legitimate state whose flags are *not* zero. Each kind filled with two
+entries and then emptied by removal, with no `cleanup()`:
+
+```
+HashMap    _occupationFlags[2] 1 → 2, [5] 1 → 2   population 2 → 0   _markRemovalCounter 0 → 2
+HashSet    _occupationFlags[1] 1 → 2, [4] 1 → 2   population 2 → 0   _markRemovalCounter 0 → 2
+Collection _povOccupationFlags[7] 1 → 2           population 1 → 0   _markRemovalCounter 0 → 1
+LinkedList _occupiedFlags[0] 1 → 0, [1] 1 → 0     population 1 → 0   free list head 0 → 1
+
+qinit state SixPack --all --json  ->  complete True; all six containers `loaded`, occ 0, entries 0, no error
+```
+
+`occupiedSlots` counts only `0b01`, so a tombstone never inflates the count; and QPI marks a Collection's
+PoV `0b10` when its last element leaves, so the "population 0 with an active PoV" check I added never
+fires on a real state. The raw dump confirms the flags really were non-zero (this is not a vacuous test):
+`@320 = 0x820` is slots 2 and 5 both at `0b10`, `@608 = 0x208` is slots 1 and 4.
+
+**Every non-zero byte of that emptied state reconciles against `qpi.h`.** All 17 non-zero words named,
+using the member order declared in `core-v7/src/qpi/qpi_containers.h` rather than a guess — including
+`@1088`, which is PoV 7's `id` retained after marking (only the flag changes on removal), and the
+LinkedList's free-list chain (`_freeHeadIndex = 1`, node 1's `nextIndex = 0` pointing at the previous free
+head). Container sizes 344 + 8 + 280 + 8 + 920 + 8 + 240 + 8 + 8 + 8 + 32 + 8 = 1872 = the dumped size.
+
+**`cleanup()` on an all-tombstone container — clean.** `SetClean` on a set that is entirely tombstones
+cleared both flags and the counter (`3 rows`); `CollClean` on a collection whose only PoV was marked
+cleared the flag, the counter **and the retained PoV id** (`queue.pov[7] PKTG… → 0`), which is what
+confirms that `@1088` residue was live data by design. Tombstone reuse from a population-0 map also works
+(`bal._occupationFlags[5] 2 → 1`, population `0 → 1`).
+
+**Diff windows inside containers — clean apart from S7.** A record whose 32-byte key crosses 256
+(`[240..274]`), a record whose key ends exactly on 512 and whose value starts on it (`[480..515]`), two
+array elements on opposite sides of a window edge (`big[85]`/`big[86]`), and two writes 1392 bytes apart in
+one call (`p1[0] 0 → 4242`, `big[100] 0 → 9999` — two rows, nothing in between). Adjacent changed windows
+merge and the straddling values render whole; non-adjacent ones produce exactly their own rows and no
+phantom row between them, which is also S3's fix holding on a second, unrelated probe.
+
+**`qinit explorer` — driven for the first time, and it corroborates.** Under tmux at 200×50 with
+`capture-pane`, one key per `send-keys`. It is not a fourth container reader — it decodes no container —
+but three of its numbers are independent checks and all three agree:
+
+```
+contracts view      SixPack  state 1872 B   calls 19
+                    ^ matches --dump exactly    ^ matches my hand ledger of 19 dispatches, exactly
+contract detail     all 19 calls listed, in tick order, each with the right entry name
+                    (1 MapSet ×3, 2 MapDel ×2, 4 SetAdd ×2, 5 SetDel ×2, 6 SetClean,
+                     7 CollAdd ×2, 8 CollDel ×2, 9 CollClean, 10 ListAddTail ×2, 11 ListDel ×2)
+transaction detail  k "DDZYFAHIBMAKIDZEJ…"  v 333   input size 40 bytes
+                    raw: 25303b46515c6772…  4d01000000000000   (0x14d = 333)
+```
+
+The decoded input and the raw hex are printed side by side, so that view checks itself; the id's hex
+matches the same identity's `m256i` rendering from round 2. The `in` column in the call list shows
+`1 MapSet` rather than argument values — that is `inputTypeLabel`, the input *type*, by design, not a
+dropped decode.
+
+**`--container <n>` is a load selector, not a filter.** `qinit state SixPack --container 1` prints all six
+containers. That is correct: the flag forces a *collapsed* (too-large) container to load, and small ones
+load anyway. Worth stating because it is the exact advice the reader gives when a container read fails
+(`read failed · use --container 1 to retry`), and it reads like a filter.
+
+**A tick rate below the transaction offset breaks call submission, as it should.**
+`qinit tick rate 10` makes the chain outrun `TX_TICK_OFFSET = 3`:
+`transaction tick 8432 is outside 8446..8999`. Reported here only so the next person does not read it as
+a state bug; at `rate 250` and above, submission is fine.
+
+**Still not covered, still not claimed**: both core cells (unchanged ABI reason); `qinit gtest`/`test`; the
+live interleaving behind S8 (see the finding — the precondition and the output are shown, the race is not);
+and `qinit explorer`'s wallet view, which is about identities and balances rather than contract state.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
@@ -1477,3 +1732,46 @@ struct StateData { HashMap<id, LinkedList<uint64, 4>, 2> maplists; uint64 marker
 // ListAdd: maplists.get(k, l); output.idx = l.addTail(v); maplists.set(k, l);
 // Bump:    marker += 1
 ```
+
+### Round 4 probes
+
+```cpp
+// Windows.h — S7: diff-window boundaries falling INSIDE a container.
+// 240 bytes of padding put the HashMap at 240, so records land across the 256-byte grid:
+//   record 0 = 240..280  -> its 32-byte key spans 240..272 and CROSSES 256
+//   record 6 = 480..520  -> key 480..512 ends exactly ON 512, value 512..520 starts on it
+struct StateData
+{
+    Array<uint64,16> p1; Array<uint64,8> p2; Array<uint64,4> p3; Array<uint64,2> p4;  // 240 B
+    HashMap<id, uint64, 8> m;      //  240..584
+    uint64 g1;                     //  584..592
+    Array<uint64,128> big;         //  592..1616   far enough for two NON-adjacent windows
+    uint64 tail;
+};
+// Pad(which,idx,v) · MapSet(k,v) · MapDel(k) · BigSet(idx,v)
+// BigPair(idx,a,b): writes big[idx] and big[idx+1]  -> one call, both sides of a window edge
+// Far(a,b):         writes p1[0] and big[100]       -> one call, two windows 1392 bytes apart
+```
+
+```cpp
+// BigVal.h — S7 amplifier: a large value, so a field near its END sits in a different window
+// from the record's key at its START.  record 0: key 0..32, value 32..432.
+struct Val { uint64 head; Array<uint64,32> body1; Array<uint64,16> body2; uint64 tail; };  // 400 B
+struct StateData { HashMap<id, Val, 2> bm; uint64 marker; };
+// Put(k,head,tail) inserts; SetHead(k,head) touches value+0; SetTail(k,tail) touches value+392.
+// SetHead keeps the key label, SetTail loses it — same record, same key, same call shape.
+```
+
+```cpp
+// RaceMap.h — S8: a container big enough that reading it takes many separate range reads.
+struct StateData { HashMap<id, uint64, 262144> big; uint64 marker; };
+// Put(k,v) · Del(k) · Bump()
+// 8-10 scattered entries -> one range read each, plus the 65536-byte flags read.
+// Offsets used for the byte-level work: records 0..10485760, flags @10485760,
+// _population @10551296, _markRemovalCounter @10551304; state size 10551320.
+```
+
+S8's rendered output was reproduced with the round 1 pair, re-poked:
+`Carry1.h` writes the header words directly (index 40 = flags = 64, i.e. slot 3 = `0b01`;
+index 41 = population = 1; index 43 = marker = 777), then `Carry2.h` redeploys the same bytes as
+`HashMap<id,uint64,8> bal; uint64 marker;` under `--allow-state-carryover`.
