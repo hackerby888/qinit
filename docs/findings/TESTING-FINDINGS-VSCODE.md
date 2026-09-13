@@ -927,6 +927,58 @@ The key is now the core root, the prefix path, and the prefix's **text** — the
 in place when a contract's callees change, so a path alone would still go stale. Transitive headers are
 not hashed; the walk is the expensive part and the previous behaviour did not track them either.
 
+## Round 25 — the IDL the editor shows against the IDL that ships
+
+Every hover index, every payload size, every generated client reads the editor's IDL. Nobody had checked
+it against the one the backend actually emits. Both were built for every corpus contract and compared on
+entry names, entry indexes, input and output sizes, state layout and `sysprocMask`:
+
+```
+compared 6269 contracts (385 skipped)
+  entries (name, index, in/out size) match : 6269/6269
+  state layout (size, format) match        : 6269/6269
+  sysprocMask match                        : 6269/6269
+```
+
+A clean negative, and a broad one: E13 was a hover reading the _right_ IDL against the wrong word, and
+this settles that the data underneath it is sound.
+
+## E7 — the log-payload class, closed
+
+Round 20 found a log payload whose `_terminator` is not last: the backend refuses, the editor is silent,
+and every field after the terminator is never logged. Tracing it did not end where E7 predicted.
+
+`analyzer.test.ts` already asserted the editor reports this, and it does — for `LOG_INFO(locals.message)`.
+The corpus contracts write `LOG_INFO(state.mut().inner.scratch.emitMessage)`. Holding the defect fixed and
+varying only the spelling:
+
+| payload                                 | editor     | backend |
+| --------------------------------------- | ---------- | ------- |
+| `locals.message`                        | reports    | refuses |
+| `locals.inner.emitMessage`              | **silent** | refuses |
+| `state.mut().msg`                       | reports    | refuses |
+| `state.mut().inner.emitMessage`         | **silent** | refuses |
+| `state.mut().scratch.inner.emitMessage` | **silent** | refuses |
+
+So it was never about `state.mut()`, and never about the lowering phase: `resolvePayload`
+(`log-call-validation.ts`) resolved a payload **one field below its root and no deeper**, and said so in a
+comment — "deeper chains need codegen's typedef and template member-type resolution, so they fall
+through". `layoutOfType` already follows typedefs and template bindings, so the chain can simply be walked,
+one hop at a time, falling through exactly as before the moment a hop does not resolve.
+
+Measured on the corpus, before and after:
+
+|                                | before |    after |
+| ------------------------------ | -----: | -------: |
+| agree, both clean              |   6269 | **6269** |
+| agree, both error              |     19 |       28 |
+| editor silent, backend refuses |     22 |   **13** |
+| editor errors, backend clean   |      0 |    **0** |
+
+The nine log-payload contracts moved from blind to caught, the blind spot fell 41%, and **the 6 269
+contracts that build stayed clean** — the property that matters, since a wrong walk would have invented
+errors in working code. One class remains blind: the enum constant hidden by a member function.
+
 ## E7 — the editor stops before the compiler does (not fixed)
 
 `analyzeContract` runs the frontend and `prepareContractModule`, and stops. It never lowers a function

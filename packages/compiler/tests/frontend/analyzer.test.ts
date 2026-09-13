@@ -402,6 +402,61 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(findings[0].span.line).toBe(LOG_CALL_LINE);
     });
 
+    // A payload reached through a nested field is the shape core's own contracts use; the backend refuses it
+    // either way, so the editor staying quiet meant a log silently losing every field after the terminator.
+    test("a defect is reported through a nested payload, at any depth", () => {
+        const nested = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct LogMessage { uint32 _contractIndex; uint32 _type; uint64 value; sint8 _terminator; uint64 checksum; };
+  struct Inner { LogMessage emitMessage; };
+  struct Scratch { Inner inner; };
+  struct StateData { uint32 calls; Scratch scratch; };
+  struct Emit_input { uint64 value; }; struct Emit_output {};
+  struct Emit_locals { Inner inner; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Emit) {
+    PAYLOAD_CALL
+    state.mut().calls += 1;
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Emit, 1); }
+};`;
+        const after = "__qinit_log_info payload _terminator must be the last field; a field after it is never logged";
+
+        for (const call of [
+            "LOG_INFO(locals.inner.emitMessage);",
+            "LOG_INFO(state.mut().scratch.inner.emitMessage);",
+        ]) {
+            const findings = compilerDiagnostics(nested.replace("PAYLOAD_CALL", call));
+            expect(findings.map((item) => item.message)).toEqual([after]);
+        }
+    });
+
+    // The same depths with a well-formed payload must stay silent, or the walk has invented a defect.
+    test("a well-formed nested payload is not reported at any depth", () => {
+        const clean = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct LogMessage { uint32 _contractIndex; uint32 _type; uint64 value; sint8 _terminator; };
+  struct Inner { LogMessage emitMessage; };
+  struct Scratch { Inner inner; };
+  struct StateData { uint32 calls; Scratch scratch; };
+  struct Emit_input { uint64 value; }; struct Emit_output {};
+  struct Emit_locals { Inner inner; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Emit) {
+    PAYLOAD_CALL
+    state.mut().calls += 1;
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Emit, 1); }
+};`;
+
+        for (const call of [
+            "LOG_INFO(locals.inner.emitMessage);",
+            "LOG_INFO(state.mut().scratch.inner.emitMessage);",
+        ]) {
+            expect(compilerDiagnostics(clean.replace("PAYLOAD_CALL", call))).toEqual([]);
+        }
+    });
+
     test("a scalar payload is reported as a non-struct", () => {
         const source = LOGGING_SOURCE.replace("LOG_INFO(locals.message);", "LOG_INFO(input.value);");
 
