@@ -622,7 +622,14 @@ any mention of the callee or the host call?  False
 `--trace-full --json` is identical — there is no `host`, `calls` or `frames` key at any level. A script
 reading `state[]` concludes the call touched three fields of one contract. It in fact also wrote
 `Callee.log[K] = 700` and `Callee.hits 1 → 2`, which `qinit state Callee` and `qinit debug Callee` both
-show correctly:
+show correctly.
+
+**Scope, corrected in round 3.** The JSON is not blind to nested calls in general: when a nested call
+*traps*, the document does carry a `warnings` array with the same text the human view prints
+(`["⚠ FailCalleeproc#2 trapped inside this call: Integer overflow", "    called with {…}"]`). The gap is
+a nested call that **succeeds** — no warning, no host row, nothing. So the document already has a place
+to say a nested call happened, and says nothing exactly when the nested contract's state changed
+without incident.
 
 ```
 qinit state Callee --all --json
@@ -718,6 +725,121 @@ area, not this one, so it is recorded rather than filed.
 **Still not covered, still not claimed**: both core cells (unchanged reason); logs (`decode-log.ts`
 remains analysed only — see the leads section above); `qinit explorer`; and the `bit`-with-a-raw-byte
 above 1 case, which needs injected bytes exactly like S1 and would add nothing to it.
+
+---
+
+# Round 3
+
+Same commit, same two live cells, same `QINIT_STATE_DIFF=verify` node. New ground: what the readers say
+about a call that **aborts after writing**, a **nested call that traps**, **logs** (the one lead left
+unresolved after round 1), and **capacity-1 containers**.
+
+No new S1-class defect. One cosmetic defect, one correction to S5, one lead closed as *not* a defect,
+and two things outside this brief worth passing on.
+
+## Findings
+
+### S6 — the nested-trap warning runs the contract name into the entry label
+
+**Cosmetic. Cells: simulator × typescript (string formatting, compiler-independent).**
+
+`call.tsx:114` builds the warning as `` `⚠ ${contract}${entryLabel(frame.kind, frame.entry)} …` ``, and
+`entryLabel` returns `proc#2 (Name)` with no leading space — every other call site supplies its own.
+The result, in the human view and verbatim in the `--json` `warnings` array:
+
+```
+⚠ FailCalleeproc#2 trapped inside this call: Integer overflow
+```
+
+Expected `FailCallee proc#2`. Compare the frame header two lines above it, which gets it right:
+`✗ FailCallee proc#2 (FailAfterWrite) 1.3ms · tick 3022`.
+
+**Severity: cosmetic.** It garbles the contract name in the one line that tells a developer *which*
+contract trapped, and it is the string a script would have to parse out of `warnings`.
+
+---
+
+## Round 3 — what came back clean, with the evidence
+
+52 dispatches over 12 deploys, `QINIT_STATE_DIFF=verify` live throughout and never throwing.
+
+**An abort after writing — clean, and the readers agree.** `contracts/Rollback.h` writes a HashMap
+entry, a marker and a BitArray bit, then fails a `CC_ASSERT`. The simulator does not roll the writes
+back; it halts the node. Every byte that moved is named:
+
+```
+qinit call --proc Rollback 2 …   ->  "node halted: Rollback proc#2 trapped abort(0xCC000027) …"
+                                     --json omits `state` entirely (rather than an empty array),
+                                     so a script cannot read it as "nothing changed"
+
+qinit debug Rollback  (the same halted node still serves RPC)
+    bal[WGWC…] = 99 (new)
+    bal        1 → 2 entries
+    marker     1 → 101
+    bits[5]    0 → 1
+    ⋯ 2 container internals hidden · ctrl+t
+    trap   abort(3422552103)
+
+dump-to-dump:  5 runs, 37 changed bytes — all five named by the rows above.
+```
+
+The only rough edge is that `qinit call --trace` cannot show this, because the node halts before the
+trace can be fetched; the message says so and points at `qinit node run`. Not filed: the CLI reports a
+trap, not a quiet success.
+
+**A nested call that traps — clean.** `contracts/FailCallee.h` / `FailCaller.h`: the callee writes then
+traps on `div<sint64>(INT64_MIN, -1)`; the caller uses `INVOKE_OTHER_CONTRACT_PROCEDURE_E` and survives.
+`qinit debug FailCallee` records the callee's frame as `✗ … trap Integer overflow` with rows that match
+the surviving bytes exactly (4 runs / 4 rows), and the caller's own trace carries the `warnings` entry
+and the `host invokeProcedure → @29 proc #2` row. Nothing is reported that did not happen and nothing
+that happened goes unreported.
+
+**Logs — the `decode-log` lead is closed as *not* a defect.** Round 1 left this analysed but unproven.
+`contracts/LogZoo2.h` declares two log structs of different logged sizes (`AlphaLog` 16 B, `GammaLog`
+24 B) and a procedure that emits an `AlphaLog` carrying `GammaLog`'s `_type`:
+
+```
+EmitAlpha  ->  name=AlphaLog  fields={_contractIndex: 32, _type: 11, alpha: 77}
+EmitGamma  ->  name=GammaLog  fields={_contractIndex: 32, _type: 33, g1: 5, g2: 6}
+EmitLiar   ->  name=AlphaLog  fields={_contractIndex: 32, _type: 33, alpha: 99}
+human view ->  log INFO AlphaLog·KindGamma {_contractIndex: 32, _type: 33, alpha: 99}
+```
+
+`decodeLog` does skip `byTypeWord` when exactly one catalog entry matches the logged size — but the
+bytes really *are* 16 bytes, so `AlphaLog` is the right struct, and the reader prints the contradicting
+`_type` right beside it. The human view even names both halves (`AlphaLog·KindGamma`). The contract
+lied; the reader reported both facts. Nothing is hidden, so there is nothing to fix.
+
+I could not produce the other half of that lead either — one unparseable log emptying the whole list.
+`decodeLog` wraps its entire decode in `try {} catch {}` and returns the hex-only record on failure, so
+a bad payload cannot escape into `format.ts`'s `Promise.all`; only a throw from `loggedSizeOf()` could,
+and that needs a malformed IDL catalog entry, which no contract that compiles produces.
+
+One gap did turn up here and is folded into **S5** rather than filed separately: the `--json` log object
+drops `typeName`, which the human view shows (`AlphaLog·KindGamma` → `{"name": "AlphaLog", "_type": 33}`
+with no enum name). Same shape as S5 — the JSON projection losing what the human renderer has.
+
+**Capacity-1 containers — clean.** `contracts/Tiny.h` holds `HashMap<id,uint64,1>`, `HashSet<id,1>`,
+`Collection<uint64,1>`, `LinkedList<uint64,1>`, `Array<uint64,1>`, `BitArray<1>`, each followed by a
+marker. All six fill, render and read back correctly; the refused ninth-style insert into the full
+capacity-1 map produced `-1` and **0 rows**; remove-then-reinsert reused the tombstone
+(`m._occupationFlags[0] 1 → 2` then `2 → 1`) with the population going `1 → 0 → 1`. 16 byte runs across
+the fill sequence, every one named. The six markers stayed at their declared offsets.
+
+**Outside this brief, passed on rather than filed**
+
+- `INVOKE_OTHER_CONTRACT_PROCEDURE_E` reports `NoCallError` (0) for a callee that trapped. In the run
+  above the callee's frame is `✗ … trap Integer overflow`, its writes persisted (`hits 0 → 1000`, a new
+  `log` entry), the caller continued, and `trapError` — the macro's error variable — came back `0`, which
+  the caller stored as `lastError = 0`. A second call reports `0` again. The CLI's own comment at
+  `call.tsx` (“the caller only sees NO_CALL_ERROR with a zero-filled output”) says this is known, but if
+  it is intended then `InterContractCallError` has no code a contract can use to notice a trapped callee.
+  This is engine/QPI semantics, not state reading.
+- (From round 2, repeated here for one list) the TypeScript backend builds
+  `((uint128)hi << 64) | (uint128)lo`; clang rejects it as an ambiguous `operator<<`.
+
+**Still not covered, still not claimed**: both core cells (unchanged ABI reason), `qinit explorer`,
+`qinit gtest`/`test`, and state read under concurrent writes.
 
 ---
 
@@ -1063,4 +1185,59 @@ struct StateData
 // v2: adds `uint64 extra`, declares OldStateData == v1's StateData, and
 //     MIGRATE() { state.mut().bal = oldState.bal; state.mut().marker = oldState.marker; state.mut().extra = 4242; }
 // Redeploying v2 over v1's slot runs the migration; the entry shows up in `qinit debug <Name>` as `migrate`.
+```
+
+### Round 3 probes
+
+```cpp
+// Rollback.h — writes then aborts
+struct StateData { HashMap<id, uint64, 4> bal; uint64 marker; BitArray<64> bits; uint64 survived; };
+// Good:           bal.set, marker += 1, bits.set, survived += 1            (control)
+// WriteThenAbort: bal.set, marker += 100, bits.set, CC_ASSERT(input.v == 0), survived += 1000
+// WriteThenTrap:  bal.set, marker += 10000, div<sint64>(INT64_MIN, input.divisor), survived += 100000
+// QPI bans `/`, so a trap has to come from div<sint64>(INT64_MIN, -1) ("Integer overflow").
+```
+
+```cpp
+// FailCallee.h / FailCaller.h — a nested call that traps
+struct FailCallee : public ContractBase
+{
+    struct StateData { HashMap<id, uint64, 4> log; uint64 hits; };
+    struct Take_input { id who; uint64 amount; };                      struct Take_output { sint64 idx; };
+    struct FailAfterWrite_input { id who; uint64 amount; sint64 divisor; };
+    struct FailAfterWrite_output { sint64 idx; sint64 q; };
+    struct Read_input {};                                              struct Read_output { uint64 hits; };
+    PUBLIC_PROCEDURE(Take) { output.idx = state.mut().log.set(input.who, input.amount); state.mut().hits += 1; }
+    PUBLIC_PROCEDURE(FailAfterWrite)
+    {
+        output.idx = state.mut().log.set(input.who, input.amount);
+        state.mut().hits += 1000;
+        output.q = div<sint64>(INT64_MIN, input.divisor);   // traps at divisor = -1
+    }
+    PUBLIC_FUNCTION(Read) { output.hits = state.get().hits; }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    { REGISTER_USER_PROCEDURE(Take, 1); REGISTER_USER_PROCEDURE(FailAfterWrite, 2); REGISTER_USER_FUNCTION(Read, 1); }
+};
+
+// FailCaller.Fire: INVOKE_OTHER_CONTRACT_PROCEDURE_E(FailCallee, FailAfterWrite, in, out, 0, trapError);
+//                  then attempts += 1, lastError = (uint64)trapError, marks.set(markIdx, true).
+```
+
+```cpp
+// LogZoo2.h — the decode-log discriminator lead
+enum LogKind { KindAlpha = 11, KindGamma = 33 };
+struct AlphaLog { uint32 _contractIndex; uint32 _type; uint64 alpha; sint8 _terminator; };            // 16 B logged
+struct GammaLog { uint32 _contractIndex; uint32 _type; uint64 g1; uint64 g2; sint8 _terminator; };    // 24 B logged
+// EmitLiar fills an AlphaLog but sets _type = KindGamma, then LOG_INFO(m).
+// Note the IDL records the _type values it saw per struct: AlphaLog types [11, 33], GammaLog types [33].
+```
+
+```cpp
+// Tiny.h — capacity-1 everything
+struct StateData
+{
+    HashMap<id, uint64, 1> m;  uint64 a;   HashSet<id, 1> s;        uint64 b;
+    Collection<uint64, 1> q;   uint64 c;   LinkedList<uint64, 1> l; uint64 d;
+    Array<uint64, 1> arr;      uint64 e;   BitArray<1> bits;        uint64 f;
+};
 ```
