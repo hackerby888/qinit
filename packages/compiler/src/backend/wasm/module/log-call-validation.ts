@@ -185,14 +185,14 @@ export function resolvePayload(programAnalysis: ProgramAnalysis, roots: PayloadR
 
     // Walk out to the root, collecting the members to come back through in declaration order.
     const members: string[] = [];
-    let outermost = expression;
+    let rootExpression = expression;
 
-    while (outermost.kind === AstKind.MEMBER_ACCESS) {
-        members.unshift(outermost.member);
-        outermost = outermost.object;
+    while (rootExpression.kind === AstKind.MEMBER_ACCESS) {
+        members.unshift(rootExpression.member);
+        rootExpression = rootExpression.object;
     }
 
-    const base = rootLayout(roots, outermost);
+    const base = rootLayout(roots, rootExpression);
 
     // An unresolved prefix and qpi.h's `typedef NoData <fn>_locals` both arrive as an empty layout, and neither says anything about the payload.
     if (!base || base.fields.size === 0 || members.length === 0) {

@@ -422,10 +422,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
         const after = "__qinit_log_info payload _terminator must be the last field; a field after it is never logged";
 
-        for (const call of [
-            "LOG_INFO(locals.inner.emitMessage);",
-            "LOG_INFO(state.mut().scratch.inner.emitMessage);",
-        ]) {
+        for (const call of ["LOG_INFO(locals.inner.emitMessage);", "LOG_INFO(state.mut().scratch.inner.emitMessage);"]) {
             const findings = compilerDiagnostics(nested.replace("PAYLOAD_CALL", call));
             expect(findings.map((item) => item.message)).toEqual([after]);
         }
@@ -449,10 +446,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Emit, 1); }
 };`;
 
-        for (const call of [
-            "LOG_INFO(locals.inner.emitMessage);",
-            "LOG_INFO(state.mut().scratch.inner.emitMessage);",
-        ]) {
+        for (const call of ["LOG_INFO(locals.inner.emitMessage);", "LOG_INFO(state.mut().scratch.inner.emitMessage);"]) {
             expect(compilerDiagnostics(clean.replace("PAYLOAD_CALL", call))).toEqual([]);
         }
     });

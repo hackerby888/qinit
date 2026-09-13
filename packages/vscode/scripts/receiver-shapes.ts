@@ -68,10 +68,10 @@ const derived = contract(
     "    struct Base { uint64 common; uint8 flag; };\n    struct Derived : public Base { uint64 extra; };",
 );
 const withField = derived.replace("struct StateData { uint64 alpha;", "struct StateData { Derived thing; uint64 alpha;");
+const readsInheritedField = withField.replace("locals.tag.rank = 1;", "output.v = state.get().thing.extra;");
+const inheritedMembers = membersAt(readsInheritedField, "state.get().thing.");
 console.log("\ninherited members");
-console.log(
-    `  a contract's own Derived : public Base -> ${membersAt(withField.replace("locals.tag.rank = 1;", "output.v = state.get().thing.extra;"), "state.get().thing.")?.join(", ")}`,
-);
+console.log(`  a contract's own Derived : public Base -> ${inheritedMembers?.join(", ")}`);
 
 const contextMembers = (macro: string, register: string) => {
     const source = `using namespace QPI;
@@ -95,9 +95,9 @@ console.log(`  qpi. in a procedure -> ${inProcedure.length} items (missing ${inF
 
 // How much of core's real procedure code reaches for a method the procedure context does not offer.
 const lib = getQpiContext(qpiHeader).lib;
-const bare = (cls: string) => new Set([...(lib.templateMethods.get(cls)?.keys() ?? [])].filter((name) => !name.includes("/")));
-const functionOnly = bare("QpiContextFunctionCall");
-const procedureOwn = bare("QpiContextProcedureCall");
+const bareMethodNames = (className: string) => new Set([...(lib.templateMethods.get(className)?.keys() ?? [])].filter((name) => !name.includes("/")));
+const functionOnly = bareMethodNames("QpiContextFunctionCall");
+const procedureOwn = bareMethodNames("QpiContextProcedureCall");
 
 const contractDir = join(corePath, "src", "contracts");
 const isProcedure = /\b(PUBLIC_PROCEDURE|PRIVATE_PROCEDURE)(_WITH_LOCALS)?\s*\(/;

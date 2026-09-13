@@ -3,9 +3,8 @@ import type { FunctionDecl } from "../../../ast";
 import { collectPayloadRoots, visitStatement } from "./log-call-validation";
 import type { PreparedContractModule } from "./module-analysis";
 
-// Class scope is searched before namespace scope inside a member function, so a member function hides a
-// file-scope constant of the same name and the read has no value to produce. Lowering reports this, and
-// the editor stops before lowering runs, so the unambiguous shape is reported here where both can see it.
+// Class scope wins over namespace scope inside a member function, so a member function hides a file-scope
+// constant of the same name. Lowering reports that; the editor stops earlier, so the clear shape is here.
 export function validateHiddenMemberReads(prepared: PreparedContractModule): void {
     const contract = prepared.contract;
     const memberFunctions = prepared.programAnalysis.memberFnLine;
