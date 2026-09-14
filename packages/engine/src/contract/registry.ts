@@ -21,8 +21,8 @@ export interface FireContext {
 export class ContractRegistry {
     readonly contracts = new Map<number, Contract>();
     readonly dirty = new Set<number>(); // slots whose state changed this tick (qpi markDirty)
-    // Bumped alongside `dirty`, but never cleared: a reader assembling one view from several reads compares
-    // it across them to notice a write that landed in between. Lives outside the state bytes, so digests are unaffected.
+    // Never cleared; a reader compares it across the reads of one view.
+    // Outside the state bytes, so digests are unaffected.
     private readonly versions = new Map<number, number>();
     private readonly fees: FeeManager;
     private readonly recorder: TraceRecorder;

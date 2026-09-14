@@ -366,8 +366,7 @@ test("HashMap view reads population and occupation flags when empty", async () =
     const bytes = new Uint8Array(type.size);
     const tracked = sourceOf(bytes);
     expect(await new QpiHashMapView(type, tracked.source).entries()).toEqual([]);
-    // The flags cost one more read, and buy the consistency check: a population of 0 over occupied
-    // slots is reported rather than answered as an empty container.
+    // One more read, and it buys the consistency check on population 0 over occupied slots.
     expect(tracked.reads).toEqual([
         [geometry.populationOffset, 8],
         [geometry.flagsOffset, geometry.flagsBytes],

@@ -87,20 +87,19 @@ export function callJsonResult(
                       internal: line.internal,
                       ...("before" in line ? { before: line.before, after: line.after } : {}),
                       ...(line.change ? { change: line.change } : {}),
-                      // The label is a bucket index, not the key the contract wrote — a consumer keying on it should know.
+                      // Bucket index, not the contract's key.
                       ...(line.keyUnresolved ? { keyUnresolved: true } : {}),
                   })),
                   logs: trace.view.logs.map((log) => ({
                       severity: log.severity,
                       type: log.type,
                       name: log.name ?? null,
-                      // The enum name the human trace shows beside the struct name, when the `_type` word resolves to one.
+                      // Enum name shown beside the struct name.
                       ...(log.typeName ? { typeName: log.typeName } : {}),
                       fields: log.fields ?? null,
                       hex: log.hex,
                   })),
-                  // The host rows the human trace prints. Without them a nested contract call that
-                  // succeeded leaves no mark in the document, so `state` reads as the whole story.
+                  // Host rows; without them a successful nested call leaves no mark.
                   ...(trace.e.hostCalls?.length ? { calls: trace.e.hostCalls.map((call) => ({ name: call.name, detail: call.detail })) } : {}),
               }
             : {}),
@@ -567,8 +566,7 @@ function CallOneShot({
                     } catch {}
 
                     if (te) {
-                        // A record whose key never changed is not in the diff, so naming its entry means reading the key back.
-                        // Safe only while the state still matches the trace: any write since moves the version, and a stale key is refused.
+                        // Key not in the diff; read it back, refusing it if the version moved.
                         const readKey =
                             te.stateVersion === undefined
                                 ? undefined

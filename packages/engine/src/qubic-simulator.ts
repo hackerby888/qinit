@@ -386,7 +386,7 @@ export class QubicSimulator {
         return this.registry.dirty;
     }
 
-    // The slot's state version, for a reader stitching one view out of several range reads.
+    // Slot state version, for a reader spanning several range reads.
     stateVersion(slot: number): number {
         return this.registry.stateVersion(slot);
     }

@@ -485,8 +485,7 @@ test("an untouched alignment gap costs no row", async () => {
     expect(await rowsFor(GAP_FIELDS, [window])).toEqual(["tail 0 → 99"]);
 });
 
-// Past the last field is the state's own alignment slack, which every window reaches. Reporting it
-// unconditionally put a row on every call touching the last field, so it is reported only when it moved.
+// Past the last field is alignment slack every window reaches; report it only when it moved.
 test("an untouched region past the last field costs no row", async () => {
     const window = diffWindow(0, 32, undefined, (bytes) => writeLe(bytes, 16, 99));
 

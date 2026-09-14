@@ -30,8 +30,7 @@ export async function describeTrace(
     qpiHeader?: string,
     contractIdl?: ContractIdl,
     calleeSources?: readonly CalleeSource[],
-    // Supplied only where the trace describes the state as it is now: a record whose key never changed is not in the
-    // diff, so naming its entry means reading those bytes back. The caller is what decides the state still matches.
+    // Only where the trace still describes current state; the caller decides that.
     readKey?: StateKeyReader,
 ): Promise<DecodedTrace> {
     let input = entry.inHex ? "0x" + entry.inHex : "(none)";

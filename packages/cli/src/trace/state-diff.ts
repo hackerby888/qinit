@@ -16,7 +16,7 @@ import { holdsContainer, keyLabel, scalarText, type StateField, type StateLine }
 import { hexToBytes } from "@qinit/core";
 
 // A diff row keeps both label forms: `label` for the default view, `detail` the full path; `internal` marks container bookkeeping hidden until the full view.
-// `keyUnresolved` marks a row whose entry could not be named, so the fallback to the bucket index is visible rather than silent.
+// `keyUnresolved`: entry unnamed, label fell back to the bucket index.
 export type StateDiffLine = StateLine & {
     detail: string;
     internal: boolean;
@@ -26,8 +26,7 @@ export type StateDiffLine = StateLine & {
     keyUnresolved?: boolean;
 };
 
-// Reads a record's key bytes from the node when the diff never carried them. Only a value update gets here: an
-// entry arriving or leaving writes its key, so those keys are already somewhere in the windows.
+// Reads a record's key from the node when no window carries it. Only a value update gets here.
 export type StateKeyReader = (off: number, size: number) => Promise<Uint8Array | undefined>;
 
 // Container bookkeeping is not in the IDL — its indices and counters are plain 64-bit words.
@@ -91,7 +90,7 @@ type RecordEntryRef = {
     suffix: string;
     keyBefore?: string;
     keyAfter?: string;
-    // Read from the node rather than the diff, so it describes the key as it is now, not as this dispatch left it.
+    // From the node, so it is the key as it is now.
     keyFetched?: string;
     before: string;
     after: string;
@@ -232,8 +231,7 @@ function memberLeaf(
 
     const leaf = resolveLeaf(named, recordStart + member.off, idlType(member.type), Math.max(0, offsetInRecord - member.off), windowHolds);
     const keyMember = span.members.find((candidate) => candidate.type === "key");
-    // Only a value the contract wrote is named by the record's key. A container stored as the value has
-    // bookkeeping of its own, and labelling that as the entry's value would report a nested counter as the value.
+    // Only a payload leaf takes the key; a nested container's bookkeeping is not the entry's value.
     if (!keyMember || leaf.role !== "payload") {
         return leaf;
     }
@@ -330,8 +328,7 @@ function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, afte
 const groupOf = (entryRef: EntryRef) => `${entryRef.containerPath}#${entryRef.slot}`;
 
 // A record is zeroed when its slot is vacated, so only an arriving entry still has its key in the after image; undefined means the window never carried it.
-// A key read from the node describes the slot as it is now, which for a leaving entry is zeroed.
-// That one falls back to the bucket rather than naming the entry `0`.
+// A fetched key is the slot as it is now — zeroed for a leaving entry, which falls back to the bucket.
 const keyForLabel = (entryRef: RecordEntryRef, flag: FlagEntryRef | undefined) => {
     const imaged = flag && flag.to !== 1 ? entryRef.keyBefore : entryRef.keyAfter;
     return imaged ?? (flag?.to === 2 ? undefined : entryRef.keyFetched);
@@ -390,8 +387,7 @@ function collapseEntries(rows: AnnotatedRow[]): StateDiffLine[] {
         const flag = flags.get(group);
         const key = keyForLabel(entryRef, flag);
         const labelled = key === undefined ? line.label : `${entryRef.container}[${key}]${entryRef.suffix}`;
-        // A record that resolved an identity but whose label still cannot use it — a leaving entry refusing a key read
-        // back after it left — falls back to the bucket just the same, so it is marked just the same.
+        // Identity resolved but unusable (a leaving entry) still falls back to the bucket, so mark it too.
         if (entryRef.part === "value") {
             return key === undefined
                 ? { ...line, keyUnresolved: true as const }
@@ -435,7 +431,7 @@ function mergeAdjacentWindows(changedWindows: DebugStateRegion[]): DebugStateReg
 // (the IDL's state fields, the engine's changed windows) -> one row per change, named by field, element or entry.
 export async function stateDiffLines(fields: StateField[], changedWindows: DebugStateRegion[], readKey?: StateKeyReader): Promise<StateDiffLine[]> {
     const rows: AnnotatedRow[] = [];
-    // One read per distinct key, however many of an entry's rows ask for it. Bounded by the records the diff touches.
+    // One read per distinct key, however many rows ask for it.
     const fetched = new Map<string, Promise<Uint8Array | undefined>>();
     const fetchKey = (off: number, size: number) => {
         const at = `${off}:${size}`;
@@ -446,19 +442,17 @@ export async function stateDiffLines(fields: StateField[], changedWindows: Debug
         }
         return pending;
     };
-    // Decoded once: the walk needs each window's bytes, and so does the key lookup below, which reaches across windows.
+    // Decoded once: both the walk and the cross-window key lookup need these bytes.
     const windows = mergeAdjacentWindows(changedWindows).map((window) => ({
         off: window.off,
         before: hexToBytes(window.before),
         after: hexToBytes(window.after),
     }));
 
-    // Key bytes -> the label text the entry's rows are named by. `decodeAbiValue` keeps a one-field struct
-    // positional, which is the shape `keyLabel` formats; `decodeAbi` would unwrap it and render undefined.
+    // Key bytes -> label text. `decodeAbiValue` keeps a one-field struct positional; `decodeAbi` would unwrap it.
     const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeAbiValue(bytes, type), type);
 
-    // An absolute state range from whichever window holds all of it, not just the one being walked: a key that
-    // moved is somewhere in the diff, and only exactly-adjacent windows merge, so it can sit in a sibling window.
+    // Absolute range from whichever window holds all of it; only adjacent windows merge, so it may be a sibling.
     const imageAt = (side: "before" | "after", off: number, size: number): Uint8Array | undefined => {
         for (const window of windows) {
             const bytes = window[side];
@@ -470,7 +464,7 @@ export async function stateDiffLines(fields: StateField[], changedWindows: Debug
         return undefined;
     };
 
-    // The key labelling a record is read from the diff, not the rows: an update leaves the key bytes alone, so it never produces a row of its own.
+    // Read from the diff, not the rows: an update leaves the key bytes alone, so they produce no row.
     const entryIdentityOf = async (recordKey: ResolvedRecordKey, label: string): Promise<EntryIdentity | undefined> => {
         const keyBefore = imageAt("before", recordKey.keyOff, recordKey.keyType.size);
         const keyAfter = imageAt("after", recordKey.keyOff, recordKey.keyType.size);
@@ -484,8 +478,7 @@ export async function stateDiffLines(fields: StateField[], changedWindows: Debug
         if (keyBefore && keyAfter) {
             return { ...identity, keyBefore: await keyText(keyBefore, recordKey.keyType), keyAfter: await keyText(keyAfter, recordKey.keyType) };
         }
-        // The key is in no window, so this dispatch did not touch it: a value update. Current state still holds it,
-        // and the caller has checked the state has not moved since; an entry that left is refused above anyway.
+        // In no window, so untouched by this dispatch: a value update. Current state still holds it.
         if (!readKey) {
             return undefined;
         }
@@ -493,7 +486,7 @@ export async function stateDiffLines(fields: StateField[], changedWindows: Debug
         return live ? { ...identity, keyFetched: await keyText(live, recordKey.keyType) } : undefined;
     };
 
-    // A flag that opened or closed an entry carries its key when the record is anywhere in the diff — the only name an all-zero entry can ever get.
+    // A flag carries its key when the record is anywhere in the diff — the only name an all-zero entry gets.
     const namedFlags = (flagged: AnnotatedRow[], flagRecords: RecordKeyGeometry): Promise<AnnotatedRow[]> =>
         Promise.all(
             flagged.map(async (row) => {
@@ -513,7 +506,7 @@ export async function stateDiffLines(fields: StateField[], changedWindows: Debug
     for (const changedWindow of windows) {
         const { before, after } = changedWindow;
         const windowEnd = changedWindow.off + Math.min(before.length, after.length);
-        // An absolute state range as a window-relative slice of `before` or `after`.
+        // Absolute range as a window-relative slice.
         const slice = (bytes: Uint8Array, from: number, to: number) => bytes.slice(from - changedWindow.off, to - changedWindow.off);
 
         let stateOffset = changedWindow.off;
@@ -542,8 +535,7 @@ export async function stateDiffLines(fields: StateField[], changedWindows: Debug
                     continue;
                 }
 
-                // Past the last field only alignment slack remains, and the window always reaches the
-                // state's end; say something only when those bytes actually moved.
+                // Past the last field is alignment slack; report it only when it moved.
                 if (!bytesEqual(slice(before, stateOffset, windowEnd), slice(after, stateOffset, windowEnd))) {
                     reportUnknownBytes();
                 }
@@ -602,8 +594,7 @@ export async function stateDiffLines(fields: StateField[], changedWindows: Debug
                         before: renderedBefore.data,
                         after: renderedAfter.data,
                         ...(entryRef ? { entryRef } : {}),
-                        // The leaf belongs to a keyed record but the key could not be found: the label falls back to
-                        // the bucket the record hashed into, which is not an identity. Say so rather than look normal.
+                        // Keyed record, key not found: the label is the bucket, not an identity.
                         ...(leaf.recordKey && !entryRef ? { keyUnresolved: true as const } : {}),
                     });
                 } else {

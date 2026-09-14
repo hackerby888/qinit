@@ -172,8 +172,7 @@ export interface HostServices {
     nowMs(): number;
     numberOfTickTransactions(): number;
     markDirty(slot: number): void;
-    // Engine-internal, not a wasm import: the slot's state may be about to change, so a reader stitching one
-    // view out of several range reads can tell that it spanned a write.
+    // Engine-internal, not a wasm import.
     bumpStateVersion(slot: number): void;
     stateVersion(slot: number): number;
     log(slot: number, level: number, msg: Uint8Array): void;
@@ -656,8 +655,7 @@ export class Contract {
         // every dispatch frame begins here — registry.fire, read-only queries and inter-contract FUNCTION
         // calls alike — so the per-frame warp reset belongs here rather than in fire().
         this.host.clearCheatWarp?.();
-        // Anything but a read-only function may write the state, so the version moves before any of it lands.
-        // Deliberately conservative: a procedure that writes nothing still bumps, which only costs a reader a retry.
+        // Any non-function may write; conservative, a no-op procedure still bumps.
         if (kind !== CONTRACT_ENTRY_KIND.FUNCTION) {
             this.host.bumpStateVersion(this.slot);
         }
@@ -818,7 +816,7 @@ export class Contract {
     }
 
     migrate(oldState: Uint8Array): void {
-        // A migration rewrites the whole state and does not go through invoke(), so it moves the version itself.
+        // migrate() does not go through invoke(), so it bumps itself.
         this.host.bumpStateVersion(this.slot);
         const localsOffset = this.ioBase + INPUT_BUFFER_BYTES + OUTPUT_BUFFER_BYTES;
         const oldStateOffset = this.arenaBase;

@@ -30,8 +30,7 @@ export class QpiHashSetView {
 
     async entries(): Promise<QpiHashSetEntry[]> {
         const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
-        // The flags are read before the empty shortcut: a population of 0 over occupied slots is an
-        // inconsistency worth reporting, not an empty container.
+        // Flags read before the empty shortcut: population 0 over occupied slots is an inconsistency, not empty.
         const flags = await readQpiBytes(this.source, this.geometry.flagsOffset, this.geometry.flagsBytes);
         const slots = occupiedSlots(flags, this.capacity);
         if (slots.length !== population) {

@@ -554,8 +554,7 @@ test("readState: an empty HashMap reads population and occupation flags", async 
     const calls: StateReadCall[] = [];
     const state = await readState(fakeRpc(new Uint8Array(152), calls), 3, HASHMAP_SOURCE, "EmptyMap");
 
-    // The flags cost one more read and buy the consistency check: a population of 0 over occupied slots
-    // is reported rather than answered as an empty container.
+    // One more read, and it buys the consistency check on population 0 over occupied slots.
     expect(calls).toEqual([
         { slot: 3, off: 136, len: 8 },
         { slot: 3, off: 128, len: 8 },

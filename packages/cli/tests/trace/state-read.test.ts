@@ -283,8 +283,7 @@ test("nested containers are numbered in one sequence with the top-level ones", a
     expect(selected.containers.map((container) => `${container.name}/${container.status}`)).toEqual(["nums/collapsed", "inner.map/loaded", "set/collapsed"]);
 });
 
-// A container view is stitched from a population read, a flags read and a read per occupied run. A write landing
-// between them leaves each read well-formed, so only the slot's state version says the view spans two states.
+// A view is stitched from several reads, each well-formed across a write, so only the version reports one.
 const versionShiftingReader = (liesForever: boolean) => {
     const populationOffset = MAP.off + MAP_GEOMETRY.populationOffset;
     let attempts = 0;
@@ -294,10 +293,10 @@ const versionShiftingReader = (liesForever: boolean) => {
         stateRead: async (_slot, offset, length) => {
             const hex = Buffer.from(stateBytes().slice(offset, offset + length)).toString("hex");
             if (offset < MAP.off || offset >= MAP.off + MAP.size) {
-                return { hex, version: 1 }; // another field, read once: nothing to compare against
+                return { hex, version: 1 }; // read once: nothing to compare against
             }
             if (offset <= populationOffset && populationOffset < offset + length) {
-                attempts++; // the population read opens each attempt at this container
+                attempts++; // the population read opens each attempt
                 mapReads = 0;
             }
             mapReads++;
@@ -328,7 +327,7 @@ test("a state version that settles on the retry loads normally", async () => {
 });
 
 test("a node that reports no version is read exactly as before", async () => {
-    // Every existing fake omits `version`; the check must stay inert so an older node behaves as it always did.
+    // Existing fakes omit `version`; the check stays inert for an older node.
     const state = await readLayout(honestReader());
 
     expect(state.containers[1].status).toBe("loaded");
@@ -336,9 +335,8 @@ test("a node that reports no version is read exactly as before", async () => {
 });
 
 test("an Array and a BitArray are covered too, though neither has an invariant of its own", async () => {
-    // Chunked so each field takes several reads; without the version nothing in either view could notice a write,
-    // since only the keyed containers cross-check anything.
-    const CHUNK = 4; // small enough that even the 8-byte BitArray takes more than one read
+    // Chunked so each field takes several reads; without the version nothing here could notice a write.
+    const CHUNK = 4; // even the 8-byte BitArray then takes more than one read
     const shifting = (fieldName: "nums" | "bits"): StateReader => {
         const field = FIELDS.find((candidate) => candidate.name === fieldName)!;
         let reads = 0;
@@ -349,7 +347,7 @@ test("an Array and a BitArray are covered too, though neither has an invariant o
                 if (offset < field.off || offset >= field.off + field.size) {
                     return { hex, version: 1 };
                 }
-                // Strictly increasing, so every attempt sees the state move under it however often it retries.
+                // Strictly increasing: every attempt sees the state move.
                 return { hex, version: ++reads };
             },
         };

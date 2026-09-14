@@ -40,7 +40,7 @@ export type StateContainer = {
     sourceField: StateField;
 };
 export type StateReader = {
-    // `version` is the slot's state version; a node that predates it omits it, and the reader then makes no check.
+    // Absent on older nodes; the reader then makes no check.
     stateRead(slot: number, off: number, len: number): Promise<{ hex: string; version?: number }>;
 };
 export type StateReadProgress = (field: string, completedBytes: number, totalBytes: number) => void;
@@ -58,8 +58,7 @@ function stateReadError(error: unknown): string {
     return error instanceof Error && error.message ? error.message : String(error);
 }
 
-// One source serves one field for one attempt, so the version the first read reports is the state every later read
-// must agree with. Consistency is per field: `readState` reads fields concurrently, each with its own source.
+// One source per field per attempt: the first read's version is what later reads must match.
 function stateByteSource(rpc: StateReader, contractIndex: number, field: StateField, onRead?: (completedBytes: number) => void): QpiByteSource {
     let seenVersion: number | undefined;
 
@@ -86,7 +85,7 @@ function stateByteSource(rpc: StateReader, contractIndex: number, field: StateFi
             while (completedBytes < length) {
                 const remainingBytes = length - completedBytes;
                 const { hex, version } = await rpc.stateRead(contractIndex, absoluteOffset + completedBytes, remainingBytes);
-                // Checked before the hex is validated, so bytes caught mid-write read as retryable rather than malformed.
+                // Before hex validation, so a mid-write read is retryable, not malformed.
                 if (version !== undefined) {
                     if (seenVersion === undefined) {
                         seenVersion = version;
