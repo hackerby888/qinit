@@ -2,7 +2,7 @@
 // recorded clang rejecting all 22; round 28 measured clang silent on the log payload. One of them is wrong.
 import { readFileSync, mkdtempSync, rmSync, globSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { analyzeContract, DiagnosticSeverity } from "@qinit/compiler/analyzer";
 import { compileContractWithTypeScript, loadQpiHeader } from "@qinit/compiler";
 import { initK12 } from "@qinit/core";
@@ -20,10 +20,14 @@ const REPO_ROOT = resolve(import.meta.dir, "../../..");
 
 // One contract per class is enough to settle which oracle speaks: the corpus families are generated
 // from one template, so every member of a family has the same shape and the same verdict.
-const CLASSES: Array<{ label: string; glob: string }> = [
+const DEFAULT_CLASSES: Array<{ label: string; glob: string }> = [
     { label: "log payload, field after _terminator", glob: "corpus/solidity-port/variants/logging/LogTerminatorFirst__*.h" },
     { label: "enum constant hidden by a member fn ", glob: "corpus/solidity-port/variants/namespaces/NsEnumConstantHiddenByMember__*.h" },
 ];
+
+// Globs on the command line triage a new class without editing the defaults above.
+const requested = process.argv.slice(2);
+const CLASSES = requested.length > 0 ? requested.map((glob) => ({ label: glob.split("/").pop() ?? glob, glob })) : DEFAULT_CLASSES;
 
 await initK12();
 const qpiHeader = loadQpiHeader(CORE_PATH);
@@ -35,7 +39,7 @@ const errorMessagesOf = (diagnostics: readonly { severity: string; message?: str
 
 try {
     for (const contractClass of CLASSES) {
-        const paths = globSync(join(REPO_ROOT, contractClass.glob)).sort();
+        const paths = globSync(isAbsolute(contractClass.glob) ? contractClass.glob : join(REPO_ROOT, contractClass.glob)).sort();
 
         if (paths.length === 0) {
             console.log(`\n${contractClass.label} -> no corpus instance on disk`);

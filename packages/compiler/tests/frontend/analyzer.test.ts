@@ -473,6 +473,43 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(findings[0].severity).toBe(DiagnosticSeverity.ERROR);
     });
 
+    // Core's hash containers compare two keys inside their method bodies, and those bodies arrive in a header
+    // the wrapper includes after the contract, so the editor's own translation unit never instantiates them.
+    const HASH_KEY_SOURCE = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Pair { uint64 left; uint64 right; PAIR_EQUALS };
+  struct StateData { CONTAINER };
+  struct Put_input { uint64 left; uint64 amount; }; struct Put_output { bit stored; };
+  struct Put_locals { Pair key; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Put) { locals.key.left = input.left; CALL_UNDER_TEST }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Put, 1); }
+};`;
+
+    function hashKeyDiagnostics(container: string, callUnderTest: string, pairEquals = "") {
+        const source = HASH_KEY_SOURCE.replace("CONTAINER", container).replace("CALL_UNDER_TEST", callUnderTest).replace("PAIR_EQUALS", pairEquals);
+        return compilerDiagnostics(source).map((item) => item.message);
+    }
+
+    test("a hash key the contract declares without operator== is reported at the call that compares keys", () => {
+        expect(hashKeyDiagnostics("HashMap<Pair, uint64, 8> byPair;", "state.mut().byPair.set(locals.key, input.amount);")).toEqual([
+            "'Pair' is the key type of this HashMap and declares no 'operator==', which HashMap::set compares keys with",
+        ]);
+        expect(hashKeyDiagnostics("HashSet<Pair, 8> seen;", "state.mut().seen.add(locals.key);")).toEqual([
+            "'Pair' is the key type of this HashSet and declares no 'operator==', which HashSet::add compares keys with",
+        ]);
+    });
+
+    // Three shapes both compilers accept. Reporting any of them would spend the property this campaign values
+    // most, so each one is pinned: the operator declared, a scalar key, and a method that never compares.
+    test("a hash key that needs no operator== is not reported", () => {
+        const withEquals = "bit operator==(const Pair& other) const { return left == other.left && right == other.right; }";
+        expect(hashKeyDiagnostics("HashMap<Pair, uint64, 8> byPair;", "state.mut().byPair.set(locals.key, input.amount);", withEquals)).toEqual([]);
+        expect(hashKeyDiagnostics("HashMap<uint64, uint64, 8> byPair;", "state.mut().byPair.set(input.left, input.amount);")).toEqual([]);
+        expect(hashKeyDiagnostics("HashMap<id, uint64, 8> byId;", "state.mut().byId.set(qpi.invocator(), input.amount);")).toEqual([]);
+        expect(hashKeyDiagnostics("HashMap<Pair, uint64, 8> byPair;", "output.stored = state.get().byPair.population() > 0;")).toEqual([]);
+    });
+
     // The same contract without the collision must stay silent, or the check is reading the wrong thing.
     test("an assignment from an enum constant nothing hides is not reported", () => {
         const clean = `using namespace QPI;

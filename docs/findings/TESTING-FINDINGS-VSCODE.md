@@ -2382,3 +2382,85 @@ that omits clang and left the size of the omission unmeasured; this round measur
 figure closed. The 13 hidden-member contracts were already flagged by clangd in the editor — a developer
 was never blind to them. The 16 log-payload contracts were flagged by nothing the editor runs, so that fix
 is the editor's only source for the rule. Of the two classes the differential closed, one was real.
+
+## E27 — a hash key with no `operator==` compiles in the editor and in nothing else (fixed)
+
+Round 29 established that the editor's translation unit is a strict prefix of the build's. That result has a
+consequence bigger than the static_asserts it was measured on: the QPI container **implementations** are
+included after the contract too, so the editor sees every container's declarations and none of its bodies. A
+template body is only type-checked when it is instantiated, and the editor never instantiates one.
+
+Core's hash containers compare two keys inside their bodies:
+
+```cpp
+// qpi_hash_map_impl.h:136, inside HashMap<KeyT, ValueT, L>::set
+if (_elements[index].key == key)
+// qpi_hash_map_impl.h:473, inside HashSet<KeyT, L>::add
+if (_keys[index] == key)
+```
+
+So a key type without `operator==` is a build error that the editor cannot reach. Measured on a contract
+holding `HashMap<Pair, uint64, 8>`, where `Pair` is a plain two-field struct:
+
+```
+qinit editor  : clean
+clangd view   : CLEAN — no diagnostic
+qinit backend : Codegen failed: no viable operator== for 'Pair'
+clang         : REJECTS -> qpi_hash_map_impl.h:136: invalid operands to binary expression
+                ('Pair' and 'const Pair'), in instantiation of 'HashMap<Pair, uint64, 8>::set'
+```
+
+Both oracles a developer can see said nothing; both that build refused. The same holds for `HashSet`.
+
+**Why 29 rounds of corpus differentials never found it.** The generator produces **no** struct-keyed
+`HashMap` or `HashSet` — `grep -rlE "HashMap<[A-Z]|HashSet<[A-Z]"` over the 6 654 variants returns 0. The
+corpus measures what it contains, and a composite key is a shape it never writes.
+
+**The trigger is the call, not the declaration.** A contract may hold such a map and build, as long as it
+never calls a method that compares keys:
+
+| contract                                        | editor | backend | clang   |
+| ----------------------------------------------- | ------ | ------- | ------- |
+| `HashMap<Pair, …>` and `.set(key, …)`           | clean  | refuses | rejects |
+| `HashSet<Pair, …>` and `.add(key)`              | clean  | refuses | rejects |
+| `HashMap<Pair, …>` and only `.population()`     | clean  | clean   | accepts |
+
+So a check keyed on the declaration would report a contract that builds. The methods that reach a key
+comparison, directly or through `getElementIndex`, are `HashMap::{contains, get, getElementIndex,
+removeByKey, replace, set}` and `HashSet::{add, contains, getElementIndex, remove}`; every other method,
+`population` and `removeByIndex` among them, never compares.
+
+**The fix** (`hash-key-validation.ts`) reports at those call sites, in module analysis beside
+`validateLogCalls`, which the editor reaches. It judges **only a struct the contract itself declares**.
+That restriction is not tidiness — the first version without it reported `HashMap<id, …>`, because `id` is
+`m256i`, whose `operator==` is declared at namespace scope where the class-scope walk cannot see it, and
+clang accepts that contract. Reporting it would have spent the property this campaign values most.
+
+`operatorOwner` already walks base classes, so a key inheriting the operator resolves; it now takes the
+`ProgramAnalysis` it always read rather than a whole emission context, which is what lets module analysis
+ask the same question the lowering asks.
+
+Pinned by six fixtures, each checked against clang: the two that must report, and four that must not — the
+operator declared, a scalar key, an `id` key, and a comparing-free method.
+
+## Round 30 — the editor's own view, run over the corpus
+
+Round 29 measured what the editor cannot see. This round asks the other direction, which the campaign had
+never measured: does the editor's clangd **squiggle** anything the build accepts? Noise a developer cannot
+act on is worse than a miss.
+
+Reproducing clangd's translation unit exactly — the generated prefix, the editor's own flags from
+`compile_commands.json`, `-fsyntax-only` — over a 287-contract sample:
+
+```
+  type-checks clean    286
+  clang reports errors   1
+```
+
+The one is `ReadOnlyFunctionCallsPrivateProcedure`, a contract named for its defect: a read-only function
+calling a private procedure. All four oracles refuse it — qinit's editor analysis, the backend, the build's
+clang, and the editor's own view. A correct squiggle, not noise.
+
+The first pass of this sweep also flagged three `intercontract` contracts for an undeclared callee. That is
+the round-20 contamination again: the family's callee lives in generator memory and never reaches disk, so
+the caller alone cannot resolve it. Excluded here as `corpus-blind-spot.ts` already excludes it.
