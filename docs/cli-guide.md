@@ -1195,10 +1195,11 @@ being mistaken for empty state.
 
 ### Step 4: read the occupied HashMap bytes
 
-`readState()` first reads the container population counter. If it is zero, no
-entry storage is transferred and the full slot range is shown as unoccupied.
-Otherwise it reads the compact two-bit occupation flags, then requests only
-the occupied entry ranges.
+`readState()` first reads the container population counter, then the compact
+two-bit occupation flags, and fails the container if the occupied count and the
+population disagree — a population of zero over occupied slots included. Only
+then does it request the occupied entry ranges; an empty map transfers no entry
+storage.
 
 ```text
 population 1

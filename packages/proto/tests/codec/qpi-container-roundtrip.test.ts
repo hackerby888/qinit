@@ -153,6 +153,32 @@ test("a HashMap whose population disagrees with its flags is rejected", async ()
     await expect(new QpiHashMapView(type, source(written.bytes)).entries()).rejects.toBeInstanceOf(QpiContainerConsistencyError);
 });
 
+// population 0 is the one mismatch an early `return []` could swallow, and a read that races an insert produces exactly it: count read before, flags after.
+test("occupied slots over population 0 are rejected in every keyed or linked container, not read as empty", async () => {
+    const map = validated(hm(u64, u64, 8));
+    const writtenMap = await writeHashMap(map, [1, 6]);
+    setUint64(writtenMap.bytes, hashMapGeometry(map.key, map.value, map.capacity).populationOffset, 0);
+    await expect(new QpiHashMapView(map, source(writtenMap.bytes)).entries()).rejects.toThrow("HashMap has 2 occupied slots but population 0");
+
+    const set = validated(hs(u64, 8));
+    const writtenSet = await writeHashSet(set, [0, 3]);
+    setUint64(writtenSet.bytes, hashSetGeometry(set.key, set.capacity).populationOffset, 0);
+    await expect(new QpiHashSetView(set, source(writtenSet.bytes)).entries()).rejects.toThrow("HashSet has 2 occupied slots but population 0");
+
+    const list = validated(ll(u64, 8));
+    const writtenList = await writeLinkedList(list, [5, 1]);
+    setUint64(writtenList.bytes, linkedListGeometry(list.value, list.capacity).populationOffset, 0);
+    await expect(new QpiLinkedListView(list, source(writtenList.bytes)).entries()).rejects.toThrow("LinkedList has 2 occupied slots but population 0");
+
+    const queue = validated(co(u64, 8));
+    const writtenQueue = await writeCollection(queue, [
+        { slot: 2, count: 3 },
+        { slot: 5, count: 1 },
+    ]);
+    setUint64(writtenQueue.bytes, collectionGeometry(queue.value, queue.capacity).populationOffset, 0);
+    await expect(new QpiCollectionView(queue, source(writtenQueue.bytes)).entries()).rejects.toThrow("Collection has 2 active PoVs but population 0");
+});
+
 test("a HashSet with the invalid occupation pattern is rejected", async () => {
     const type = validated(hs(u64, 8));
     const written = await writeHashSet(type, [0, 2]);
