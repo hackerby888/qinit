@@ -2479,3 +2479,31 @@ clang, and the editor's own view. A correct squiggle, not noise.
 The first pass of this sweep also flagged three `intercontract` contracts for an undeclared callee. That is
 the round-20 contamination again: the family's callee lives in generator memory and never reaches disk, so
 the caller alone cannot resolve it. Excluded here as `corpus-blind-spot.ts` already excludes it.
+
+**At full scale, over every contract the corpus holds:**
+
+```
+6310 contracts, as the editor's translation unit sees them
+  type-checks clean     6285
+  clang reports errors    25   in 2 distinct classes
+
+  13x  assigning to 'uint64' from incompatible type 'void (const QPI::QpiContextFunctionCall &, …)'
+       namespaces/NsEnumConstantHiddenByMember__*.h
+  12x  no viable conversion from 'const QpiContextFunctionCall' to 'const QpiContextProcedureCall'
+       controlflow/ReadOnlyFunctionCallsPrivateProcedure__*.h
+```
+
+**Zero editor-only false positives.** Every contract clangd squiggles is one both backends also refuse. The
+editor is not noisy; the quadrant is empty.
+
+The two classes it does flag settle round 29 empirically rather than by argument:
+
+| class                            | in corpus | clangd in the editor | the build |
+| -------------------------------- | --------: | -------------------- | --------- |
+| enum constant hidden by a member |    **13** | **squiggles**        | refuses   |
+| log payload, field after `_terminator` | **16** | **silent**        | refuses   |
+
+The 13 are exactly the 13 round 26 closed, and clangd sees every one — so no developer was ever blind to
+that class. The 16 appear nowhere in this sweep, so nothing the editor runs mentions them, which is what
+makes the log-payload fix the editor's only source for that rule. One of the two classes the 22 → 13 → 0
+figure closed was real, measured now on all 6 310 rather than on one contract of each.
