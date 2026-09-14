@@ -1910,6 +1910,136 @@ by a test, which is worth admitting.
 
 ---
 
+# Round 7
+
+S1–S8 merged, and `main` then moved 22 commits — including `17b93ef`, a rewrite of the very module four
+of those fixes live in. Round 7 turns the eight findings around: they stop being results and become the
+oracle a stranger's rewrite has to satisfy.
+
+## The rewrite, and why it needed a regression sweep
+
+`17b93ef walk the state diff by type and render each row once` replaced `state-diff.ts` (476 added, 467
+removed) and, in its own words, made "the leaf, cursor and annotation types go away". The two-pass design
+S2/S3/S4/S7 were fixed inside — physical rows first, annotation afterwards — is gone, replaced by a single
+pass that builds each row with its entry already known. Every one of those four fixes lived in the part
+that was torn out. `8ccbc42 pin a window ending inside an alignment gap` and `5ec5d3d test population 0
+over occupied slots in every container` land on S3's and S1's ground as well.
+
+Nothing about that is careless — reading it, the rewrite carries the old reasoning forward, comments
+included. But reading is not testing, so every filed repro was replayed through the real flow:
+`build → node run → deploy → call --proc → inspect`.
+
+## The sweep came back clean
+
+| Repro set | Result |
+| --- | --- |
+| S1–S6, every filed repro plus its controls | **29 passed, 0 failed** |
+| S7 — value updates still named by their key | **8 / 8**, none fell back to the bucket |
+| S7 control — a removal must not be named by a key read back after the record was zeroed | passed; never produced `m[AAAA…]`, still named the real key from the before-image |
+| S8 — a view stitched across a write is reported | **12 / 12** on a write-every-tick contract at the 50 ms default |
+| S8 control — a quiet contract must not report a race | **0 / 12** false positives |
+
+The controls are the point: a sweep that only checks the fixed behaviour cannot tell a surviving fix from
+a reader that has stopped reporting anything at all.
+
+Two independent signals agree the tree is healthy: `bun run typecheck` exits 0, and the full suite gives
+**2224 pass / 834 skip / 2 fail across 362 files** — the 2 failures environmental, needing a core checkout
+via `QINIT_CORE`, and passing **7 / 7 / 0** when it is set.
+
+## E1 — the past-capacity warning guards the harmless case and misses the corrupting one
+
+`9640a60` and `1c0c57a` added a warning for a `BitArray` bit set beyond its declared capacity. It fires
+on the case that cannot hurt anyone and stays silent on the case that silently overwrites live state.
+
+QPI forces a power-of-two capacity (`static_assert(L && !(L & (L - 1)))`), so the two regimes are exact:
+
+| Capacity | Storage | `set(i)` past capacity | qinit today |
+| --- | --- | --- | --- |
+| `< 64`, e.g. 32 | one whole word, a dead tail | lands in the tail, nothing reads it | **⚠ warned**, `(past capacity 32)` |
+| `>= 64`, e.g. 128 | whole words, **no tail at all** | word index **wraps** onto a live word | **silent** |
+
+`get`/`set` mask the word index — `_values[(index >> 6) & (_elements - 1)]` — so on a `BitArray<128>`,
+`set(200)` resolves to word `(200 >> 6) & 1 = 1`, bit `200 & 63 = 8`: **absolute bit 72**, an ordinary
+in-capacity bit. The write corrupts real data and is indistinguishable from a deliberate `set(72)`.
+
+Probe `BitCap.h` (appendix), both cells:
+
+```
+set(small, 40)  ->  small[40] | 0 → 1 (past capacity 32)     ⚠ warning on the container
+set(large, 200) ->  large[72] | 0 → 1                         warnings = None
+set(large, 72)  ->  large[72] | 0 → 1                         byte-identical row
+```
+
+The oracle is the raw bytes, read with `--dump`, not qinit's own row:
+
+```
+large (8..24) : 00000000000000000001000000000000
+large bits set: [72]        small bits set: [5, 40]
+```
+
+**Cells:** simulator × typescript and simulator × clang, identical output on both.
+
+**The controls that rule out tester error.** The dump shows independently which bit moved, so the aliased
+index was not inferred from the output being accused. `set(72)` produces a byte-identical row, which is
+what makes the two indistinguishable rather than merely similar. And the `small` warning firing on the
+same contract, in the same call sequence, proves the warning machinery works — silence on `large` is the
+finding, not a broken harness.
+
+**What cannot be fixed, and where the fixable part is.** The mask happens inside the wasm, so by the time
+state bytes exist the request for 200 is gone: **qinit's reader cannot detect this at all**, and no
+reader-side warning is possible. The compiler validates only that the bit count is a power of two
+(`validatePowerOfTwoDimension`) and has no index check — and could not catch a runtime index regardless.
+So the actionable defect is narrower than "add a warning". `docs/cli-guide.md:1192` presents mechanism and
+consequence as one: *"core's `set(i)` masks only the word index, so an out-of-range `set` lands past the
+declared length"*. That consequence holds **only below 64**; above it the same mask lands *inside* the
+declared length. The container warning's own text generalises the same way — *"core doesn't reject"* —
+while only ever firing for the small case.
+
+**Severity: moderate.** No one is lied to about bytes; qinit reports both cases faithfully. But a
+developer reading the documentation, or trusting the ⚠, would conclude out-of-range sets are surfaced. On
+the arrays where such a set corrupts live state, they are not.
+
+## A lead, recorded rather than filed
+
+`changedWindowsOf` sets `end = off + Math.min(before.length, after.length)`, deliberately conservative
+against a window whose two images differ in length. `imageAt` then bounds a key lookup against the
+individual side's `image.length` instead of that `end`, so on a lopsided window it could read past the
+agreed end on the longer side.
+
+Not filed, because it is unreachable from this engine: `diffRegions` slices both images from the same
+range, and `journalRegions` sizes `after` from `before.length`. Equal by construction. Reaching it would
+mean hand-building a `DebugStateRegion`, which is not an oracle this engagement accepts — a defect that
+only exists when the inputs are fabricated is not a defect yet. Worth a second look if a producer ever
+emits an unequal pair.
+
+## One of my own errors, caught and corrected
+
+The env control in the new S7/S8 driver reported that it could not confirm `QINIT_STATE_DIFF=verify`, and
+I reported that failure before diagnosing it. It was my harness, not the environment: `qinit node run`
+daemonises, and the surviving process is `index.tsx __serve`, which the pattern `dev node run --runtime
+simulator` was never going to match. Reading `/proc/<pid>/environ` of the real daemon shows
+`QINIT_STATE_DIFF=verify` present. The corrected S7/S8 score is **6 passed, 0 failed**, and the pattern is
+fixed in the driver.
+
+A second, smaller one: `qinit state --dump` writes to `state/<Name>_dump.bin` **inside the repository**.
+It takes `--out`, and every dump in this round now goes to the scratchpad.
+
+## Numbers
+
+- 22 commits landed on `main` between the S1–S8 merge and this round; `state-diff.ts` rewritten, 476 added
+  and 467 removed.
+- 8 fixed defects replayed, **35 checks, 0 failures** (29 in the S1–S6 sweep, 6 in the S7/S8 driver).
+- Suite **2224 / 834 / 2** across 362 files; typecheck exit 0.
+- 1 finding filed, 1 lead recorded, 2 tester errors caught and corrected.
+- An empty 10 551 312-byte HashMap still reads in **2144 ms**.
+
+## Not covered by this round
+
+`state-format.ts` and the failed-field flagging of `af1d96f`, and the new edges the single-pass walk
+creates — a type straddling a window boundary, a key resolvable only from a sibling window. `main` moved
+again during the round (`d6b7f86`, `7f8336f`) and touched `state-format.ts` and `state-read.ts` further,
+so that surface is best hunted against the newer tree rather than the one this round measured.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
@@ -2482,6 +2612,65 @@ struct RaceTick : public ContractBase
     {
         REGISTER_USER_PROCEDURE(Put, 1);
         REGISTER_USER_PROCEDURE(Quiet, 2);
+    }
+};
+```
+
+## `BitCap.h` — a BitArray write past capacity, at both regimes
+
+Round 7 / E1. `small` is under 64 bits so it has a dead tail; `large` is a power of two at or above 64, so
+it fills whole words and a past-capacity `set` wraps onto a live bit instead. The `C`-suffixed twin
+`BitCapC.h` is the same source with the struct renamed, for the clang cell.
+
+```cpp
+// State-inspection probe: BitArray writes past the declared capacity.
+// QPI forces a power-of-two capacity, so:
+//   small (< 64) stores one whole word and has a dead tail  -> set(i>=L) lands in the tail
+//   large (>= 64) fills whole words and has NO tail         -> set(i>=L) MASKS the word index and
+//                                                              wraps onto a live in-capacity bit
+// e.g. BitArray<128>: set(200) -> word (200>>6)&1 = 1, bit 200&63 = 8 -> absolute bit 72.
+using namespace QPI;
+
+struct BitCapUnused
+{
+};
+
+struct BitCap : public ContractBase
+{
+    struct StateData
+    {
+        BitArray<32> small;    // one word, 32 dead tail bits
+        BitArray<128> large;   // two whole words, no tail
+        uint64 marker;
+    };
+
+    struct Small_input { uint64 idx; uint64 v; };
+    struct Small_output {};
+    struct Large_input { uint64 idx; uint64 v; };
+    struct Large_output {};
+    struct Mark_input { uint64 v; };
+    struct Mark_output {};
+
+    PUBLIC_PROCEDURE(Small)
+    {
+        state.mut().small.set(input.idx, input.v != 0);
+    }
+
+    PUBLIC_PROCEDURE(Large)
+    {
+        state.mut().large.set(input.idx, input.v != 0);
+    }
+
+    PUBLIC_PROCEDURE(Mark)
+    {
+        state.mut().marker = input.v;
+    }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    {
+        REGISTER_USER_PROCEDURE(Small, 1);
+        REGISTER_USER_PROCEDURE(Large, 2);
+        REGISTER_USER_PROCEDURE(Mark, 3);
     }
 };
 ```
