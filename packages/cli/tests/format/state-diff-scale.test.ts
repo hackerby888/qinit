@@ -485,6 +485,21 @@ test("an untouched alignment gap costs no row", async () => {
     expect(await rowsFor(GAP_FIELDS, [window])).toEqual(["tail 0 → 99"]);
 });
 
+// The simulator reports 256-byte blocks, so a field just before a block edge leaves a gap the window ends inside; that is still padding, not stale IDL.
+test("a window ending inside an untouched alignment gap costs no row", async () => {
+    expect(await rowsFor(GAP_FIELDS, [diffWindow(0, 4, undefined, (bytes) => (bytes[0] = 1))])).toEqual(["flag 0 → 1"]);
+    expect(await rowsFor(GAP_FIELDS, [diffWindow(2, 4)])).toEqual([]);
+});
+
+test("a change inside an alignment gap cut by the window end is still reported", async () => {
+    const window = diffWindow(0, 4, undefined, (bytes) => {
+        bytes[0] = 1;
+        bytes[3] = 7;
+    });
+
+    expect(await rowsFor(GAP_FIELDS, [window])).toEqual(["flag 0 → 1", "@1 (outside any known field)"]);
+});
+
 // Past the last field is alignment slack every window reaches; report it only when it moved.
 test("an untouched region past the last field costs no row", async () => {
     const window = diffWindow(0, 32, undefined, (bytes) => writeLe(bytes, 16, 99));
