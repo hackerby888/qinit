@@ -1,7 +1,7 @@
 // Windows the engine cannot aim on purpose: one opening inside a struct element, one covering a struct holding a container, entries leaving only a flag.
 import { expect, test } from "bun:test";
 import { collectionGeometry, hashMapGeometry, hashSetGeometry } from "@qinit/proto/qpi-layout";
-import { stateDiffLines, type StateDiffLine } from "../../src/trace/state-diff";
+import { pastCapacityWarnings, stateDiffLines, type StateDiffLine } from "../../src/trace/state-diff";
 import { diffWindow, fieldsOf, offsetOf, writeLe } from "./diff-window";
 import type { StateField } from "../../src/trace/state-format";
 import { bytesToIdentity, type DebugStateRegion } from "@qinit/core";
@@ -186,6 +186,7 @@ test("a bit flipped past a small BitArray's capacity is reported and marked, top
         bytes[7] = 0x80;
     });
     expect(await shown(small, [flip])).toEqual(["bits[1] 0 → 1", "bits[5] 0 → 1 (past capacity 2)", "bits[63] 0 → 1 (past capacity 2)"]);
+    expect((await stateDiffLines(small, [flip])).map((line) => line.pastCapacity)).toEqual([undefined, 2, 2]);
 
     // a BitArray<16> value is one uint64 word, so the record layout is MAP's
     const keyed = fieldsOf("KeyedSmall", "HashMap<uint64, BitArray<16>, 4> m;");
@@ -203,6 +204,10 @@ test("a bit flipped past a small BitArray's capacity is reported and marked, top
         },
     );
     expect(await shown(keyed, [update])).toEqual(["m[7][20] 0 → 1 (past capacity 16)"]);
+    expect(pastCapacityWarnings([...(await stateDiffLines(small, [flip])), ...(await stateDiffLines(keyed, [update]))])).toEqual([
+        "⚠ bits: bits 5, 63 written past BitArray<2> capacity — set() got an index ≥ 2, which core doesn't reject and get(i) reads back; check the index",
+        "⚠ m[7]: bit 20 written past BitArray<16> capacity — set() got an index ≥ 16, which core doesn't reject and get(i) reads back; check the index",
+    ]);
 
     // 64 bits fill the word, so every index is a real one and nothing is marked
     const full = fieldsOf("Full", "BitArray<64> bits;");

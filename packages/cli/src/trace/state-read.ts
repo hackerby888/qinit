@@ -21,6 +21,8 @@ import {
     scalarText,
     stateFieldsOf,
     linkedListValueLines,
+    indexRuns,
+    pastCapacityWarning,
     type StateContainerLayout,
     type StateField,
     type StateLine,
@@ -37,6 +39,8 @@ export type StateContainer = {
     totalEntries: number;
     lines: StateLine[];
     error?: string;
+    // not a failure: the rows are complete, and this names what in them the contract probably did not mean to write
+    warnings?: string[];
     sourceField: StateField;
 };
 export type StateReader = {
@@ -126,6 +130,7 @@ type FormattedContainerView = {
     stateLines: StateLine[];
     occupiedSlots: number;
     totalEntries: number;
+    warnings?: string[];
 };
 
 async function formatContainerView(field: StateField, source: QpiByteSource, full: boolean): Promise<FormattedContainerView> {
@@ -169,6 +174,7 @@ async function formatContainerView(field: StateField, source: QpiByteSource, ful
                 stateLines: formatted.lines,
                 occupiedSlots: formatted.setCount,
                 totalEntries: formatted.setCount,
+                ...(formatted.pastCapacity.length ? { warnings: [pastCapacityWarning("", view.capacity, formatted.pastCapacity)] } : {}),
             };
         }
         case AbiTypeKind.HASH_MAP: {
@@ -309,6 +315,7 @@ export async function decodeValueBlocks(bytes: Uint8Array, type: AbiType, prefix
                 occupiedSlots: view.occupiedSlots,
                 totalEntries: view.totalEntries,
                 lines: view.stateLines,
+                ...(view.warnings ? { warnings: view.warnings } : {}),
                 sourceField: field,
             });
             continue;
@@ -357,6 +364,7 @@ async function readContainerBlock(
                 occupiedSlots: formatted.occupiedSlots,
                 totalEntries: formatted.totalEntries,
                 lines: formatted.stateLines,
+                ...(formatted.warnings ? { warnings: formatted.warnings } : {}),
             };
         } catch (error) {
             lastError = error;
@@ -467,7 +475,7 @@ async function readArrayBlock(
 
 async function readBitArrayBlock(
     view: Extract<ReturnType<typeof createQpiContainerView>, { kind: AbiTypeKind.BIT_ARRAY }>,
-): Promise<{ lines: StateLine[]; setCount: number }> {
+): Promise<{ lines: StateLine[]; setCount: number; pastCapacity: number[] }> {
     const lines: StateLine[] = [];
     let setCount = 0;
     let nextIndex = 0;
@@ -494,32 +502,20 @@ async function readBitArrayBlock(
     addZeroRange(nextIndex, view.capacity - 1);
 
     // bits past the capacity are a contract writing an out-of-range index; get(i) still sees them, so they show rather than vanish.
-    const addPastCapacityRange = (start: number, end: number) => {
+    const pastCapacity: number[] = [];
+    for await (const index of view.setBitsPastCapacity()) {
+        pastCapacity.push(index);
+    }
+    for (const [start, end] of indexRuns(pastCapacity)) {
         const count = end - start + 1;
         lines.push({
             label: start === end ? `[${start}]` : `[${start}..${end}]`,
             text: `=1${count > 1 ? ` ×${count}` : ""} (past capacity ${view.capacity})`,
             filled: true,
         });
-    };
-    let runStart: number | undefined;
-    let runEnd = -1;
-    for await (const index of view.setBitsPastCapacity()) {
-        if (runStart !== undefined && index === runEnd + 1) {
-            runEnd = index;
-            continue;
-        }
-        if (runStart !== undefined) {
-            addPastCapacityRange(runStart, runEnd);
-        }
-        runStart = index;
-        runEnd = index;
-    }
-    if (runStart !== undefined) {
-        addPastCapacityRange(runStart, runEnd);
     }
 
-    return { lines, setCount };
+    return { lines, setCount, pastCapacity };
 }
 
 export async function readState(

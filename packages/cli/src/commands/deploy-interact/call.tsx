@@ -23,6 +23,7 @@ import { extractIdl } from "@qinit/build";
 import { describeTrace, mergePrints, type DecodedCheat, type DecodedTrace } from "../../trace/format";
 import { valueText, formatStateValue, bigintText } from "../../trace/state-format";
 import { entryLabel } from "../../trace/entry-label";
+import { pastCapacityWarnings } from "../../trace/state-diff";
 import { TraceView } from "../../trace/views";
 import { CallInteractive, type CollectedCall } from "./call-interactive";
 import { loadConfig, loadConfiguredQpiHeader, resolveSeed } from "../../config";
@@ -89,6 +90,7 @@ export function callJsonResult(
                       ...(line.change ? { change: line.change } : {}),
                       // Bucket index, not the contract's key.
                       ...(line.keyUnresolved ? { keyUnresolved: true } : {}),
+                      ...(line.pastCapacity !== undefined ? { pastCapacity: line.pastCapacity } : {}),
                   })),
                   logs: trace.view.logs.map((log) => ({
                       severity: log.severity,
@@ -578,6 +580,9 @@ function CallOneShot({
                                       return hexToBytes(answer.hex);
                                   };
                         const view = await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl, calleeSources, readKey);
+                        for (const warning of pastCapacityWarnings(view.stateDiff)) {
+                            addNote(warning);
+                        }
                         if (children.length) {
                             view.cheats = mergePrints([{ contract: contractName, cheats: view.cheats }, ...(await calleePrints(rpc, children, addNote))]);
                             if (view.cheats.some((cheat) => cheat.ord === undefined)) {

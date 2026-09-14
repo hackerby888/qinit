@@ -96,6 +96,18 @@ test("call JSON fails a call whose traced frame trapped and names the trap", () 
     expect(Object.keys(callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, null, TRACE))).not.toContain("trap");
 });
 
+test("call JSON marks a state row written past a BitArray's capacity", () => {
+    const facts = { contract: "Counter", slot: 29, entry: "Inc", tick: 1, tx: "abc" };
+    const past = { label: "flags[20]", detail: "flags[20]", text: "0 → 1 (past capacity 16)", filled: true, internal: false, before: 0, after: 1, pastCapacity: 16 };
+    const trace = { ...TRACE, view: { ...TRACE.view, stateDiff: [TRACE.view.stateDiff[0], past] } };
+    const result = callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, facts, trace);
+
+    expect(result.state).toEqual([
+        { label: "counter", detail: "counter", text: "15 → 16", internal: false, before: 15n, after: 16n },
+        { label: "flags[20]", detail: "flags[20]", text: "0 → 1 (past capacity 16)", internal: false, before: 0, after: 1, pastCapacity: 16 },
+    ]);
+});
+
 test("call JSON carries warnings only when there are some", () => {
     const facts = { contract: "Counter", slot: 29, entry: "Inc", tick: 1, tx: "abc" };
     const warned = callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, facts, null, ["⚠ signer X has no balance on this node"]);

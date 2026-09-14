@@ -12,11 +12,11 @@ import {
     type WordType,
 } from "@qinit/proto/qpi-layout";
 import type { DebugStateRegion } from "@qinit/core";
-import { holdsContainer, keyLabel, scalarText, type StateField, type StateLine } from "./state-format";
+import { holdsContainer, keyLabel, pastCapacityWarning, scalarText, type StateField, type StateLine } from "./state-format";
 import { hexToBytes } from "@qinit/core";
 
 // A diff row keeps both label forms: `label` for the default view, `detail` the full path; `internal` marks container bookkeeping hidden until the full view.
-// `keyUnresolved`: entry unnamed, label fell back to the bucket index.
+// `keyUnresolved`: entry unnamed, label fell back to the bucket index. `pastCapacity`: the BitArray's declared size, on a bit the row's index lies beyond.
 export type StateDiffLine = StateLine & {
     detail: string;
     internal: boolean;
@@ -24,6 +24,7 @@ export type StateDiffLine = StateLine & {
     after?: unknown;
     change?: "new" | "removed";
     keyUnresolved?: boolean;
+    pastCapacity?: number;
 };
 
 // Reads a record's key from the node when no window carries it. Only a value update gets here.
@@ -601,7 +602,9 @@ function rowOf(change: DecodedChange, entries: Map<string, EntryFacts>): StateDi
                 after: change.to,
             };
             const marked = (row: StateDiffLine) =>
-                change.pastCapacity === undefined ? row : { ...row, text: `${row.text} (past capacity ${change.pastCapacity})` };
+                change.pastCapacity === undefined
+                    ? row
+                    : { ...row, text: `${row.text} (past capacity ${change.pastCapacity})`, pastCapacity: change.pastCapacity };
             if (!change.entry) {
                 return marked(physical);
             }
@@ -629,6 +632,23 @@ function rowOf(change: DecodedChange, entries: Map<string, EntryFacts>): StateDi
             return recordRow(physical, change.entry, change.value.before.text, change.value.after.text, facts(change.entry));
         }
     }
+}
+
+// Rows -> one warning per BitArray written past its capacity, named by the row label without its bit index, e.g. `flags[20]` -> `flags`.
+export function pastCapacityWarnings(lines: readonly StateDiffLine[]): string[] {
+    const bitArrays = new Map<string, { capacity: number; indexes: number[] }>();
+
+    for (const line of lines) {
+        const bit = line.pastCapacity === undefined ? null : line.label.match(/^(.*)\[(\d+)\]$/);
+        if (!bit) {
+            continue;
+        }
+        const bitArray = bitArrays.get(bit[1]) ?? { capacity: line.pastCapacity!, indexes: [] };
+        bitArray.indexes.push(Number(bit[2]));
+        bitArrays.set(bit[1], bitArray);
+    }
+
+    return [...bitArrays].map(([path, bitArray]) => pastCapacityWarning(path, bitArray.capacity, bitArray.indexes));
 }
 
 // Decoded changes -> one row each, in state order.

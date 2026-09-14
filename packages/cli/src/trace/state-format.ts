@@ -122,6 +122,35 @@ function formatBits(bitCount: number, valueAt: (index: number) => number, full: 
 // A block row collapsed back to the one-line form the trace views and nested container values use.
 export const flatLine = (line: StateLine) => `${line.label} ${line.text}`;
 
+// ascending indexes folded into [start, end] runs, e.g. [20, 22, 23] -> [[20, 20], [22, 23]]
+export function indexRuns(indexes: readonly number[]): [number, number][] {
+    const runs: [number, number][] = [];
+
+    for (const index of indexes) {
+        const last = runs[runs.length - 1];
+        if (last && index === last[1] + 1) {
+            last[1] = index;
+        } else {
+            runs.push([index, index]);
+        }
+    }
+
+    return runs;
+}
+
+const PAST_CAPACITY_RUNS_SHOWN = 8;
+
+// a BitArray under 64 bits still stores a whole word and core's set(i) masks only the word index, so an out-of-range index lands there and get(i) reads it back.
+export function pastCapacityWarning(path: string, capacity: number, indexes: readonly number[]): string {
+    const runs = indexRuns(indexes);
+    const shown = runs.slice(0, PAST_CAPACITY_RUNS_SHOWN);
+    const hiddenBits = runs.slice(PAST_CAPACITY_RUNS_SHOWN).reduce((count, [start, end]) => count + end - start + 1, 0);
+    const list = shown.map(([start, end]) => (start === end ? `${start}` : `${start}..${end}`)).join(", ") + (hiddenBits ? `, +${hiddenBits} more` : "");
+    const noun = indexes.length === 1 ? "bit" : "bits";
+
+    return `⚠ ${path ? `${path}: ` : ""}${noun} ${list} written past BitArray<${capacity}> capacity — set() got an index ≥ ${capacity}, which core doesn't reject and get(i) reads back; check the index`;
+}
+
 export function linkedListValueLines(value: { slot: number; value: unknown }[], valueType: AbiType, capacity: number, full: boolean): StateLine[] {
     const logical = value.map((entry, index) => ({
         label: `item[${index}] slot[${entry.slot}]`,

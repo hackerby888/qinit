@@ -52,6 +52,7 @@ export function stateJsonResult(contract: string, slot: number | null, state: De
                 occupiedSlots: container.occupiedSlots,
                 totalEntries: container.totalEntries,
                 lines: container.lines.map((line) => ({ label: line.label, text: line.text, filled: line.filled })),
+                ...(container.warnings?.length ? { warnings: container.warnings } : {}),
                 error: container.error ?? null,
             })) ?? [],
         error: error || null,

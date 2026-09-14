@@ -1192,8 +1192,11 @@ Bit arrays use the same indexed block model and display every set bit in logical
 LSB-first order, collapsing zero runs. A `BitArray` under 64 bits still stores a
 whole word, and core's `set(i)` masks only the word index, so an out-of-range
 `set` lands past the declared length; those bits are listed after the block as
-`(past capacity N)` and are not counted. A failed read is reported as
-incomplete rather than being mistaken for empty state.
+`(past capacity N)`, are not counted, and put a `⚠` warning on the container
+(`warnings` in `--json`). A traced call that flips one gets the same warning
+and `pastCapacity` on its state row. Neither fails the read or the call. A
+failed read is reported as incomplete rather than being mistaken for empty
+state.
 
 ### Step 4: read the occupied HashMap bytes
 

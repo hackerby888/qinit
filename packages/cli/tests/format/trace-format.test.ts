@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { AbiScalarKind, AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import { describeTrace } from "../../src/trace/format";
-import { keyLabel } from "../../src/trace/state-format";
+import { keyLabel, pastCapacityWarning } from "../../src/trace/state-format";
 import { LARGE_STATE_CONTAINER_BYTES, loadStateContainer, readState, type StateReader, type StateContainer } from "../../src/trace/state-read";
 
 // A block's rows in the one-line form, for assertions where the label/text split adds nothing.
@@ -541,7 +541,38 @@ test("readState: BitArray bits past its capacity show as their own rows, outside
             { label: "[4..5]", text: "=1 ×2 (past capacity 2)", filled: true },
             { label: "[63]", text: "=1 (past capacity 2)", filled: true },
         ],
+        warnings: [
+            "⚠ bits 2, 4..5, 63 written past BitArray<2> capacity — set() got an index ≥ 2, which core doesn't reject and get(i) reads back; check the index",
+        ],
     });
+    // a warning, not a failure: the read is still whole
+    expect(state.containers[0].status).toBe("loaded");
+    expect(state.complete).toBe(true);
+});
+
+// the block path through a struct is a second place a BitArray is read, and it has to carry the same warning
+test("readState: a small BitArray inside a struct warns under its own path", async () => {
+    const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct Box { uint64 n; BitArray<16> bits; }; struct StateData { Box box; }; INITIALIZE() {} };`;
+    const bytes = new Uint8Array(16);
+    bytes[8] = 1;
+    bytes[10] = 1 << 4;
+
+    const state = await readState(fakeRpc(bytes), 2, source, "BoxBits");
+
+    expect(state.containers.map((container) => [container.name, container.warnings])).toEqual([
+        [
+            "box.bits",
+            ["⚠ bit 20 written past BitArray<16> capacity — set() got an index ≥ 16, which core doesn't reject and get(i) reads back; check the index"],
+        ],
+    ]);
+});
+
+test("pastCapacityWarning folds runs, names the path, and caps a long list", () => {
+    expect(pastCapacityWarning("m[7]", 16, [20])).toStartWith("⚠ m[7]: bit 20 written past BitArray<16> capacity");
+    expect(pastCapacityWarning("", 2, [2, 3, 4, 9])).toStartWith("⚠ bits 2..4, 9 written past BitArray<2> capacity");
+
+    const scattered = Array.from({ length: 12 }, (_, index) => 2 + index * 2);
+    expect(pastCapacityWarning("flags", 1, scattered)).toStartWith("⚠ flags: bits 2, 4, 6, 8, 10, 12, 14, 16, +4 more written past BitArray<1> capacity");
 });
 
 test("readState: a BitArray that fills its words has no tail to report", async () => {
@@ -554,6 +585,7 @@ test("readState: a BitArray that fills its words has no tail to report", async (
     expect(state.containers[0].occupiedSlots).toBe(64);
     expect(state.containers[0].lines.every((line) => line.text === "=1")).toBe(true);
     expect(state.containers[0].lines).toHaveLength(64);
+    expect(state.containers[0].warnings).toBeUndefined();
 });
 
 // A container two structs down is still a container: it takes the block a top-level one would, named for its path, rather than a line of JSON in its parent.

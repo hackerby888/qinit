@@ -28,13 +28,13 @@ function Rows({ rows, width, truncate }: { rows: { label: string; node: React.Re
 }
 
 // The one row every block of decoded state draws: a bracket-token label, then its value.
-function StateRow({ label, text, filled, width, wrap }: StateLine & { width: number; wrap?: "wrap" | "truncate-end" }) {
+function StateRow({ label, text, filled, width, wrap, warn = false }: StateLine & { width: number; wrap?: "wrap" | "truncate-end"; warn?: boolean }) {
     return (
         <Text wrap={wrap} dimColor={!filled}>
             <Text color={filled ? theme.accent : undefined} bold={filled}>
                 {label.padEnd(width)}
             </Text>{" "}
-            {text}
+            <Text color={warn ? theme.warn : undefined}>{text}</Text>
         </Text>
     );
 }
@@ -92,7 +92,14 @@ function StateDiff({
             </Text>
             <Box flexDirection="column" marginLeft={2}>
                 {shown.map((line, index) => (
-                    <StateRow key={index} {...line} label={labelOf(line)} width={width} wrap={maxRows ? "truncate-end" : "wrap"} />
+                    <StateRow
+                        key={index}
+                        {...line}
+                        label={labelOf(line)}
+                        width={width}
+                        wrap={maxRows ? "truncate-end" : "wrap"}
+                        warn={line.pastCapacity !== undefined}
+                    />
                 ))}
                 {tail.length ? (
                     <Text color={theme.mute} dimColor>
@@ -367,6 +374,13 @@ export function StateBlocks({
                             <Text dimColor>· {containerDetail(container, hidden, interactive)}</Text>
                         </Text>
                         <Box flexDirection="column" marginLeft={2}>
+                            {container.status === "loaded"
+                                ? container.warnings?.map((warning, index) => (
+                                      <Text key={`warning-${index}`} color={theme.warn} wrap="wrap">
+                                          {warning}
+                                      </Text>
+                                  ))
+                                : null}
                             {container.status === "error" ? (
                                 <Text color={theme.err} wrap="wrap">
                                     {container.error}

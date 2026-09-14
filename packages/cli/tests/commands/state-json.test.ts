@@ -64,6 +64,17 @@ test("state JSON drops the container's ABI layout", () => {
     }
 });
 
+test("state JSON carries a container's warnings only when it has some", () => {
+    const warned = {
+        ...DECODED,
+        containers: [{ ...DECODED.containers[0], kind: "bitarray", warnings: ["⚠ bit 20 written past BitArray<16> capacity"] }],
+    } as unknown as DecodedState;
+
+    expect(stateJsonResult("Counter", 29, warned, "").containers[0].warnings).toEqual(["⚠ bit 20 written past BitArray<16> capacity"]);
+    expect(stateJsonResult("Counter", 29, warned, "").ok).toBe(true);
+    expect(Object.keys(stateJsonResult("Counter", 29, DECODED, "").containers[0])).not.toContain("warnings");
+});
+
 test("state JSON reports a partial read as not ok", () => {
     const partial = { ...DECODED, complete: false } as DecodedState;
 
