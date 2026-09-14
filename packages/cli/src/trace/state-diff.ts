@@ -90,6 +90,7 @@ function changedWindowsOf(changedWindows: DebugStateRegion[]): ChangedWindow[] {
 
     for (const changedWindow of [...changedWindows].sort((left, right) => left.off - right.off)) {
         const last = joined[joined.length - 1];
+        // adjacency is measured on `before`: both producers send equal-length images, and a lopsided one would shift the `after` of what merges behind it
         if (last && last.off + last.before.length / 2 === changedWindow.off) {
             last.before += changedWindow.before;
             last.after += changedWindow.after;
@@ -167,6 +168,7 @@ function findChanges(fields: StateField[], window: ChangedWindow): Change[] {
     const moved = (start: number, end: number) => !bytesEqual(imageSlice(window, window.before, start, end), imageSlice(window, window.after, start, end));
     let cursor = window.start;
 
+    // IDL fields keep declaration order, which C++ lays out at rising offsets, so one forward pass sees every field and gap
     for (const field of fields) {
         if (field.off + field.size <= cursor) {
             continue;
@@ -292,6 +294,7 @@ function walkContainer(
 
             case "flags": {
                 // A flag that opened or closed an entry is named by that entry's key — the only name an all-zero entry can ever get.
+                // flag i names record i of the first records region — true for every qpi-layout table (Collection's PoV flags index _povs, its first)
                 const flagAt =
                     records && keyMember
                         ? (slot: number): EntryRef => ({
@@ -382,6 +385,7 @@ function compareBits(walk: Walk, names: Names, run: BitRun, role: MemberRole, en
     const before = imageSlice(window, window.before, visibleStart, visibleEnd);
     const after = imageSlice(window, window.after, visibleStart, visibleEnd);
     const firstVisibleIndex = ((visibleStart - run.start) * 8) / run.bitsPerIndex;
+    // reads one entry inside one byte: holds for the 1- and 2-bit runs core packs into little-endian words; a 3-bit run would straddle bytes
     const valueAt = (bytes: Uint8Array, index: number) => {
         const bit = (index - firstVisibleIndex) * run.bitsPerIndex;
         const byte = bytes[bit >> 3];
@@ -475,6 +479,8 @@ async function decodeChanges(changes: Change[], windows: ChangedWindow[], readKe
 // Stage three: rows. A record's changes all describe one entry, so they read as one line labelled by the key the contract wrote; the bucket stays on the full path.
 
 // What the other rows of an entry say about it: the flag that opened or closed the slot, and which record parts have a row that found its key.
+// `to` is the raw flag: 1 = occupied (0b01), 2 = marked for removal (0b10), the encoding HashMap and HashSet share in qpi_containers.h.
+// only a container with a key member reaches here, so a keyed container with other flags would need its own reading
 type EntryFacts = { flag?: { to: number }; hasKeyRow: boolean; hasValueRow: boolean; namedByValue: boolean };
 type DecodedEntry = EntryRef & { key?: EntryKey };
 
@@ -487,6 +493,7 @@ const changeOf = (flag: { to: number } | undefined): "new" | "removed" | undefin
 // The key an entry's rows are named by. A record is zeroed when its slot is vacated, so only an arriving entry still has its key in the after image,
 // and a key read back after a removal is those zeros — refused, so the row falls back to the bucket rather than naming a lie.
 function namingKey(key: EntryKey, flag: EntryFacts["flag"]): string | undefined {
+    // a slot only drops to 0 in cleanup() or reset(), which rewrite the record, so a 0 flag never meets a fetched key
     if ("fetched" in key) {
         return flag?.to === 2 ? undefined : key.fetched;
     }

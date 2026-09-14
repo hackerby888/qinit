@@ -182,6 +182,7 @@ async function formatContainerView(field: StateField, source: QpiByteSource, ful
                 throw new Error(`invalid ${field.name} container type`);
             }
             const entries = await view.entries();
+            // values render inline from decodeAbiValue, which keeps a BitArray's logical bits only; its past-capacity bits show in its own block and the diff, not here
             const formatted = entries.map((entry) => ({
                 slot: entry.slot,
                 text: `${keyLabel(entry.key, container.key)} = ${formatStateValue(entry.value, container.value, full)}`,
@@ -355,6 +356,7 @@ async function readContainerBlock(
     let lastError: unknown;
 
     // Separate range reads can span a state update, so one inconsistent view is retried before failing.
+    // without a node version only an inconsistent view is caught: a read spanning a write that stays self-consistent renders as whole (core-lite sends no version)
     for (let attempt = 0; attempt < 2; attempt++) {
         try {
             const formatted = await formatContainerView(field, stateByteSource(rpc, contractIndex, field, onRead), true);
