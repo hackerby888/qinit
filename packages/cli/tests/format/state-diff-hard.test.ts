@@ -228,3 +228,87 @@ test("a window covering the padded struct exactly still reports it as one row", 
 
     expect(await shown(PADDED, [window])).toEqual(["rec 0 → {a: 0, b: 42, c: 0, d: 44}"]);
 });
+
+// S7 step 1: a key and the row naming it can land in different, non-adjacent windows.
+const BIG_VALUE = "struct BigValue { uint64 lead; Array<uint64, 32> pad; uint64 last; };";
+const BIG_MAP = fieldsOf("BigMap", "HashMap<uint64, BigValue, 2> m; uint64 tail;", BIG_VALUE);
+const BIG_MAP_GEOMETRY = hashMapGeometry(U64, { size: 272, align: 8 }, 2);
+const BIG_MAP_OFF = offsetOf(BIG_MAP, "m");
+const LAST_IN_VALUE = 264;
+
+test("a record is named by a key that changed in another, non-adjacent window", async () => {
+    const key = diffWindow(BIG_MAP_OFF, 8, undefined, (bytes) => writeLe(bytes, 0, 11));
+    const last = diffWindow(BIG_MAP_OFF + BIG_MAP_GEOMETRY.valueOffset + LAST_IN_VALUE, 8, undefined, (bytes) => writeLe(bytes, 0, 99));
+
+    expect(await shown(BIG_MAP, [key, last])).toEqual(["m[11].last 0 → 99"]);
+});
+
+test("a leaving record is named by the key only its own window still holds, in the before image", async () => {
+    // The key survives only in that window's `before`; the row and the flag are in other windows.
+    const key = diffWindow(BIG_MAP_OFF, 8, (bytes) => writeLe(bytes, 0, 11), (bytes) => writeLe(bytes, 0, 0));
+    const last = diffWindow(BIG_MAP_OFF + BIG_MAP_GEOMETRY.valueOffset + LAST_IN_VALUE, 8, (bytes) => writeLe(bytes, 0, 99), (bytes) => writeLe(bytes, 0, 0));
+    // `setFlag` ORs and the after image copies before, so write the removal bit flat.
+    const flags = diffWindow(BIG_MAP_OFF + BIG_MAP_GEOMETRY.flagsOffset, 8, (bytes) => setFlag(bytes, 0, 0, 1), (bytes) => (bytes[0] = 2));
+
+    expect(await shown(BIG_MAP, [key, last, flags])).toEqual(["m[11].last 99 → (removed)"]);
+    // The flag row carries the same key — the only name for a record in another window.
+    expect(await hidden(BIG_MAP, [key, last, flags])).toContain("m._occupationFlags[0] 1 → 2");
+});
+
+// S7 step 2: an update leaves the key in no window, so naming the entry means reading it back.
+const KEY_AT = BIG_MAP_OFF;
+const LAST_AT = BIG_MAP_OFF + BIG_MAP_GEOMETRY.valueOffset + LAST_IN_VALUE;
+const keyReaderOf = (value: number | null) => {
+    const calls: [number, number][] = [];
+    const read = async (off: number, size: number) => {
+        calls.push([off, size]);
+        if (value === null) {
+            return undefined;
+        }
+        const bytes = new Uint8Array(size);
+        writeLe(bytes, 0, value);
+        return bytes;
+    };
+    return { read, calls };
+};
+
+test("a value update names its entry from a key read back from the node", async () => {
+    const update = diffWindow(LAST_AT, 8, (bytes) => writeLe(bytes, 0, 99), (bytes) => writeLe(bytes, 0, 42));
+    const reader = keyReaderOf(11);
+
+    expect((await stateDiffLines(BIG_MAP, [update], reader.read)).map(flat)).toEqual(["m[11].last 99 → 42"]);
+    expect(reader.calls).toEqual([[KEY_AT, 8]]);
+});
+
+test("a key the node cannot answer for leaves the row on its bucket, and says so", async () => {
+    const update = diffWindow(LAST_AT, 8, (bytes) => writeLe(bytes, 0, 99), (bytes) => writeLe(bytes, 0, 42));
+
+    for (const reader of [keyReaderOf(null).read, undefined]) {
+        const lines = await stateDiffLines(BIG_MAP, [update], reader);
+        expect(lines.map(flat)).toEqual(["m.slot[0].value.last 99 → 42"]);
+        expect(lines[0].keyUnresolved).toBe(true);
+    }
+});
+
+test("a leaving entry is never named by a key read back after it left", async () => {
+    // The slot now reads zeros; naming the row `m[0]` would be a lie, so fall back to the bucket.
+    const last = diffWindow(LAST_AT, 8, (bytes) => writeLe(bytes, 0, 99), (bytes) => writeLe(bytes, 0, 0));
+    const flags = diffWindow(BIG_MAP_OFF + BIG_MAP_GEOMETRY.flagsOffset, 8, (bytes) => setFlag(bytes, 0, 0, 1), (bytes) => (bytes[0] = 2));
+    const zeros = keyReaderOf(0);
+
+    const lines = await stateDiffLines(BIG_MAP, [last, flags], zeros.read);
+    // Unnamed: raw text, not the entry wording, and not `m[0]`.
+    expect(lines.map(flat).filter((line) => !line.startsWith("m._"))).toEqual(["m.slot[0].value.last 99 → 0"]);
+    expect(lines.map(flat).some((line) => line.startsWith("m[0]"))).toBe(false);
+});
+
+test("two rows of one record cost a single key read", async () => {
+    const both = diffWindow(BIG_MAP_OFF + BIG_MAP_GEOMETRY.valueOffset, 272, undefined, (bytes) => {
+        writeLe(bytes, 0, 7); // lead
+        writeLe(bytes, LAST_IN_VALUE, 8); // last
+    });
+    const reader = keyReaderOf(11);
+
+    expect((await stateDiffLines(BIG_MAP, [both], reader.read)).map(flat)).toEqual(["m[11].lead 0 → 7", "m[11].last 0 → 8"]);
+    expect(reader.calls).toEqual([[KEY_AT, 8]]);
+});

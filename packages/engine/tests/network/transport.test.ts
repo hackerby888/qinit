@@ -341,7 +341,21 @@ test("stateRead avoids copying the full contract state", async () => {
         len: 2,
         stateSize: contract.stateSize,
         hex: "0203",
+        version: 0,
     });
+});
+
+test("stateRead reports a state version that moves when the contract writes", async () => {
+    const eng = await VirtualNode.create({ fees: "off" });
+    eng.deploy(28, await wasm("Counter"), "Counter");
+
+    const before = (await eng.stateRead(28, 0, 8)).version!;
+    eng.sim.invokeProcedure(29, 28, 1, new Uint8Array(0), 0n, new Uint8Array(32));
+    const after = (await eng.stateRead(28, 0, 8)).version!;
+
+    // A container view spans several of these; the version is what reports a write between them.
+    expect(after).toBeGreaterThan(before);
+    expect((await eng.stateRead(28, 0, 8)).version).toBe(after); // stable while nothing writes
 });
 
 test("fund + balance accept either an id string or raw bytes (unified id type)", async () => {

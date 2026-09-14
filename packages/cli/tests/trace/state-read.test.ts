@@ -282,3 +282,80 @@ test("nested containers are numbered in one sequence with the top-level ones", a
     const selected = await read({ containerIndexes: new Set([2]), collapseContainersAtBytes: 1 });
     expect(selected.containers.map((container) => `${container.name}/${container.status}`)).toEqual(["nums/collapsed", "inner.map/loaded", "set/collapsed"]);
 });
+
+// A view is stitched from several reads, each well-formed across a write, so only the version reports one.
+const versionShiftingReader = (liesForever: boolean) => {
+    const populationOffset = MAP.off + MAP_GEOMETRY.populationOffset;
+    let attempts = 0;
+    let mapReads = 0;
+
+    const rpc: StateReader = {
+        stateRead: async (_slot, offset, length) => {
+            const hex = Buffer.from(stateBytes().slice(offset, offset + length)).toString("hex");
+            if (offset < MAP.off || offset >= MAP.off + MAP.size) {
+                return { hex, version: 1 }; // read once: nothing to compare against
+            }
+            if (offset <= populationOffset && populationOffset < offset + length) {
+                attempts++; // the population read opens each attempt
+                mapReads = 0;
+            }
+            mapReads++;
+            return { hex, version: mapReads > 1 && (liesForever || attempts === 1) ? 2 : 1 };
+        },
+    };
+    return { rpc, attempts: () => attempts };
+};
+
+test("a state version that moves mid-read fails the container instead of reporting a stitched view", async () => {
+    const broken = versionShiftingReader(true);
+    const failed = await readLayout(broken.rpc);
+
+    expect(failed.containers[1].status).toBe("error");
+    expect(failed.containers[1].error).toMatch(/map changed while it was being read \(state version 1 → 2\)/);
+    expect(broken.attempts()).toBe(2); // retried exactly once, then gave up
+    expect(failed.complete).toBe(false);
+});
+
+test("a state version that settles on the retry loads normally", async () => {
+    const flaky = versionShiftingReader(false);
+    const recovered = await readLayout(flaky.rpc);
+
+    expect(recovered.containers[1].status).toBe("loaded");
+    expect(recovered.containers[1].occupiedSlots).toBe(1);
+    expect(flaky.attempts()).toBe(2);
+    expect(recovered.complete).toBe(true);
+});
+
+test("a node that reports no version is read exactly as before", async () => {
+    // Existing fakes omit `version`; the check stays inert for an older node.
+    const state = await readLayout(honestReader());
+
+    expect(state.containers[1].status).toBe("loaded");
+    expect(state.complete).toBe(true);
+});
+
+test("an Array and a BitArray are covered too, though neither has an invariant of its own", async () => {
+    // Chunked so each field takes several reads; without the version nothing here could notice a write.
+    const CHUNK = 4; // even the 8-byte BitArray then takes more than one read
+    const shifting = (fieldName: "nums" | "bits"): StateReader => {
+        const field = FIELDS.find((candidate) => candidate.name === fieldName)!;
+        let reads = 0;
+        return {
+            stateRead: async (_slot, offset, length) => {
+                const capped = Math.min(length, CHUNK);
+                const hex = Buffer.from(stateBytes().slice(offset, offset + capped)).toString("hex");
+                if (offset < field.off || offset >= field.off + field.size) {
+                    return { hex, version: 1 };
+                }
+                // Strictly increasing: every attempt sees the state move.
+                return { hex, version: ++reads };
+            },
+        };
+    };
+
+    const nums = await readLayout(shifting("nums"));
+    expect(nums.containers.find((container) => container.name === "nums")!.status).toBe("error");
+
+    const bits = await readLayout(shifting("bits"));
+    expect(bits.containers.find((container) => container.name === "bits")!.status).toBe("error");
+});

@@ -40,7 +40,8 @@ export type StateContainer = {
     sourceField: StateField;
 };
 export type StateReader = {
-    stateRead(slot: number, off: number, len: number): Promise<{ hex: string }>;
+    // Absent on older nodes; the reader then makes no check.
+    stateRead(slot: number, off: number, len: number): Promise<{ hex: string; version?: number }>;
 };
 export type StateReadProgress = (field: string, completedBytes: number, totalBytes: number) => void;
 export type StateReadOptions = {
@@ -57,7 +58,10 @@ function stateReadError(error: unknown): string {
     return error instanceof Error && error.message ? error.message : String(error);
 }
 
+// One source per field per attempt: the first read's version is what later reads must match.
 function stateByteSource(rpc: StateReader, contractIndex: number, field: StateField, onRead?: (completedBytes: number) => void): QpiByteSource {
+    let seenVersion: number | undefined;
+
     return {
         byteLength: field.size,
         maxReadLength: MAX_STATE_READ,
@@ -80,7 +84,15 @@ function stateByteSource(rpc: StateReader, contractIndex: number, field: StateFi
 
             while (completedBytes < length) {
                 const remainingBytes = length - completedBytes;
-                const { hex } = await rpc.stateRead(contractIndex, absoluteOffset + completedBytes, remainingBytes);
+                const { hex, version } = await rpc.stateRead(contractIndex, absoluteOffset + completedBytes, remainingBytes);
+                // Before hex validation, so a mid-write read is retryable, not malformed.
+                if (version !== undefined) {
+                    if (seenVersion === undefined) {
+                        seenVersion = version;
+                    } else if (version !== seenVersion) {
+                        throw new QpiContainerConsistencyError(`${field.name} changed while it was being read (state version ${seenVersion} → ${version})`);
+                    }
+                }
                 if (hex.length % 2 || !/^[0-9a-f]*$/i.test(hex)) {
                     throw new QpiIncompleteReadError(`invalid state read at ${absoluteOffset + completedBytes}`);
                 }

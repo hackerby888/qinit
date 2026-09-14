@@ -172,6 +172,9 @@ export interface HostServices {
     nowMs(): number;
     numberOfTickTransactions(): number;
     markDirty(slot: number): void;
+    // Engine-internal, not a wasm import.
+    bumpStateVersion(slot: number): void;
+    stateVersion(slot: number): number;
     log(slot: number, level: number, msg: Uint8Array): void;
     // Development channel, deliberately separate from log(): it consumes no log id and never reaches qLogger.
     cheatPrint(slot: number, id: number, part: number, value: bigint, bytes: Uint8Array): void;
@@ -652,6 +655,10 @@ export class Contract {
         // every dispatch frame begins here — registry.fire, read-only queries and inter-contract FUNCTION
         // calls alike — so the per-frame warp reset belongs here rather than in fire().
         this.host.clearCheatWarp?.();
+        // Any non-function may write; conservative, a no-op procedure still bumps.
+        if (kind !== CONTRACT_ENTRY_KIND.FUNCTION) {
+            this.host.bumpStateVersion(this.slot);
+        }
         const nested = this.dispatchDepth > 0;
         let inputOffset: number;
         let outputOffset: number;
@@ -753,6 +760,7 @@ export class Contract {
                     stateChanged: trapStateChanged,
                     ...(trapOutcome ? { stateDiff: trapOutcome.stateDiff, stateTruncated: trapOutcome.stateTruncated } : {}),
                     execNs: (performance.now() - startedAt) * 1e6,
+                    stateVersion: this.host.stateVersion(this.slot),
                 });
             }
             // Checked after the trace entry closes: a trap leaves partial writes behind, which is exactly where a missed write path would hide.
@@ -789,6 +797,7 @@ export class Contract {
                 stateChanged,
                 ...(outcome ? { stateDiff: outcome.stateDiff, stateTruncated: outcome.stateTruncated } : {}),
                 execNs: (performance.now() - startedAt) * 1e6,
+                stateVersion: this.host.stateVersion(this.slot),
             });
         }
         if (outcome && verifying) {
@@ -807,6 +816,8 @@ export class Contract {
     }
 
     migrate(oldState: Uint8Array): void {
+        // migrate() does not go through invoke(), so it bumps itself.
+        this.host.bumpStateVersion(this.slot);
         const localsOffset = this.ioBase + INPUT_BUFFER_BYTES + OUTPUT_BUFFER_BYTES;
         const oldStateOffset = this.arenaBase;
         const memory = this.u8();
@@ -847,6 +858,7 @@ export class Contract {
                 stateBefore,
                 stateAfter,
                 execNs: (performance.now() - startedAt) * 1e6,
+                stateVersion: this.host.stateVersion(this.slot),
             });
 
             throw error instanceof ContractExecutionError ? error : new ContractExecutionError(this.slot, CONTRACT_ENTRY_KIND.MIGRATE, 0, error);
@@ -861,6 +873,7 @@ export class Contract {
                 stateBefore,
                 stateAfter: this.stateSnapshot(this.stateSize),
                 execNs: (performance.now() - startedAt) * 1e6,
+                stateVersion: this.host.stateVersion(this.slot),
             });
         }
         this.host.markDirty(this.slot);

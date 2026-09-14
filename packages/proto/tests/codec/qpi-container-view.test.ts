@@ -352,7 +352,7 @@ test("LinkedList view follows logical order and rejects broken links", async () 
     await expect(new QpiLinkedListView(type, qpiSnapshotSource(bytes)).entries()).rejects.toBeInstanceOf(QpiContainerConsistencyError);
 });
 
-test("HashMap view reads only population when empty", async () => {
+test("HashMap view reads population and occupation flags when empty", async () => {
     const geometry = hashMapGeometry(uint64Type, uint64Type, 4);
     const type: AbiHashMap = {
         kind: AbiTypeKind.HASH_MAP,
@@ -366,7 +366,11 @@ test("HashMap view reads only population when empty", async () => {
     const bytes = new Uint8Array(type.size);
     const tracked = sourceOf(bytes);
     expect(await new QpiHashMapView(type, tracked.source).entries()).toEqual([]);
-    expect(tracked.reads).toEqual([[geometry.populationOffset, 8]]);
+    // One more read, and it buys the consistency check on population 0 over occupied slots.
+    expect(tracked.reads).toEqual([
+        [geometry.populationOffset, 8],
+        [geometry.flagsOffset, geometry.flagsBytes],
+    ]);
 });
 
 test("snapshot sources copy their bytes", async () => {

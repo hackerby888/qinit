@@ -37,10 +37,7 @@ export class QpiLinkedListView {
 
     async entries(): Promise<QpiLinkedListEntry[]> {
         const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
-        if (!population) {
-            return [];
-        }
-
+        // Flags read before the empty shortcut: population 0 over occupied slots is an inconsistency, not empty.
         const flags = await readQpiBytes(this.source, this.geometry.flagsOffset, this.geometry.flagsBytes);
         const occupiedSlots: number[] = [];
         for (let slot = 0; slot < this.capacity; slot++) {
@@ -50,6 +47,9 @@ export class QpiLinkedListView {
         }
         if (occupiedSlots.length !== population) {
             throw new QpiContainerConsistencyError(`LinkedList has ${occupiedSlots.length} occupied slots but population ${population}`);
+        }
+        if (!population) {
+            return [];
         }
 
         const header = await readQpiBytes(this.source, this.geometry.headOffset, 16);

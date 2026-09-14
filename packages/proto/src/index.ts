@@ -25,6 +25,7 @@ export {
     jsonToInputFormat,
     zeroInputFormat,
     decodeAbi,
+    decodeAbiValue,
     parseTypeFormat,
     structFieldOffsets,
     layoutOf,

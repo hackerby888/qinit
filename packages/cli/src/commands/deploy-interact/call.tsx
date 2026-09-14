@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity, hexToBytes, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
 import { activeNodeScratchDir } from "../../ops/node";
 import {
     contractAddress,
@@ -87,14 +87,20 @@ export function callJsonResult(
                       internal: line.internal,
                       ...("before" in line ? { before: line.before, after: line.after } : {}),
                       ...(line.change ? { change: line.change } : {}),
+                      // Bucket index, not the contract's key.
+                      ...(line.keyUnresolved ? { keyUnresolved: true } : {}),
                   })),
                   logs: trace.view.logs.map((log) => ({
                       severity: log.severity,
                       type: log.type,
                       name: log.name ?? null,
+                      // Enum name shown beside the struct name.
+                      ...(log.typeName ? { typeName: log.typeName } : {}),
                       fields: log.fields ?? null,
                       hex: log.hex,
                   })),
+                  // Host rows; without them a successful nested call leaves no mark.
+                  ...(trace.e.hostCalls?.length ? { calls: trace.e.hostCalls.map((call) => ({ name: call.name, detail: call.detail })) } : {}),
               }
             : {}),
     };
@@ -111,7 +117,7 @@ async function calleePrints(rpc: LiteRpc, frames: readonly DebugEntry[], warn: (
         if (!frame.ok) {
             // the caller only sees NO_CALL_ERROR with a zero-filled output, so the callee's own input and logs are the only record of what actually failed.
             const view = await describeTrace(frame, undefined, contract, undefined, idl);
-            warn(`⚠ ${contract}${entryLabel(frame.kind, frame.entry)} trapped inside this call${frame.trap ? `: ${frame.trap}` : ""}`);
+            warn(`⚠ ${contract} ${entryLabel(frame.kind, frame.entry)} trapped inside this call${frame.trap ? `: ${frame.trap}` : ""}`);
             if (view.inDecoded) {
                 warn(`    called with ${view.inDecoded}`);
             }
@@ -560,7 +566,18 @@ function CallOneShot({
                     } catch {}
 
                     if (te) {
-                        const view = await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl, calleeSources);
+                        // Key not in the diff; read it back, refusing it if the version moved.
+                        const readKey =
+                            te.stateVersion === undefined
+                                ? undefined
+                                : async (off: number, size: number) => {
+                                      const answer = await rpc.stateRead(te.index, off, size);
+                                      if (answer.version !== te.stateVersion || answer.hex.length !== size * 2) {
+                                          return undefined;
+                                      }
+                                      return hexToBytes(answer.hex);
+                                  };
+                        const view = await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl, calleeSources, readKey);
                         if (children.length) {
                             view.cheats = mergePrints([{ contract: contractName, cheats: view.cheats }, ...(await calleePrints(rpc, children, addNote))]);
                             if (view.cheats.some((cheat) => cheat.ord === undefined)) {

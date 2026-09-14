@@ -15,6 +15,12 @@ export interface StateRead {
     len: number;
     stateSize: number;
     hex: string;
+    /**
+     * Per-slot counter that strictly increases whenever the slot's state bytes may have changed, so two
+     * reads reporting the same version observed the same state. A container view is assembled from several
+     * reads, and without this a write landing between them is invisible. Absent from a node that predates it.
+     */
+    version?: number;
 }
 
 // Spectrum entity (balances). Amounts are strings (i64 may exceed JS number / cross JSON).

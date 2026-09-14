@@ -59,12 +59,15 @@ export class QpiCollectionView {
 
     async entries(): Promise<QpiCollectionEntry[]> {
         const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
-        if (!population) {
-            return [];
-        }
-
+        // Flags read before the empty shortcut: population counts elements, flags index PoVs.
         const flags = await readQpiBytes(this.source, this.geometry.flagsOffset, this.geometry.flagsBytes);
         const povSlots = occupiedSlots(flags, this.capacity);
+        if (!population) {
+            if (povSlots.length) {
+                throw new QpiContainerConsistencyError(`Collection has ${povSlots.length} active PoVs but population 0`);
+            }
+            return [];
+        }
         if (!povSlots.length || povSlots.length > population) {
             throw new QpiContainerConsistencyError("Collection population does not match its active PoVs");
         }
