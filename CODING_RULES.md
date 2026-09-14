@@ -1,7 +1,7 @@
 # Coding Rules for Qinit
 
 - Keep behavior unchanged unless explicitly requested.
-- Keep comments short and useful (1–2 lines, no noise).
+- Keep comments short and useful (1–2 lines, no noise, straight into the problem, dont need correct english).
 - Prefer readable multiline code over dense one-line expressions (sometimes one-line is better if the code is still readable and simple, split it to multi-lines may even make it worse)
 - Use clear variable and function names where readability improves clarity.
 - Include the role, path kind, or unit when a shorter name would be ambiguous.
