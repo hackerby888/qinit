@@ -427,7 +427,8 @@ export async function loadStateContainer(
 }
 
 // `value` is the rendered text (an error message when the read failed); `data` the decoded value for --json.
-export type StateFieldValue = { name: string; value: string; data?: unknown };
+// `failed` marks that message, since a decoded value's text can contain the same words, e.g. a struct member named `undecodable`.
+export type StateFieldValue = { name: string; value: string; data?: unknown; failed?: boolean };
 
 export interface DecodedState {
     fields: StateFieldValue[];
@@ -547,9 +548,15 @@ export async function readState(
     let containerIndex = 0;
 
     // Fields read concurrently: a node answers about one request per tick, so sequence pays that latency per field. Results land in declaration order.
-    const slots: { field: StateField; value?: string; data?: unknown; container?: StateContainer; nested?: ValueBlocks; nestedFrom?: number }[] = fields.map(
-        (field) => ({ field }),
-    );
+    const slots: {
+        field: StateField;
+        value?: string;
+        data?: unknown;
+        failed?: boolean;
+        container?: StateContainer;
+        nested?: ValueBlocks;
+        nestedFrom?: number;
+    }[] = fields.map((field) => ({ field }));
     const reads: Promise<void>[] = [];
     let totalBytes = 0;
     let completedBytes = 0;
@@ -567,6 +574,7 @@ export async function readState(
         const field = slot.field;
         if (field.bad) {
             slot.value = `(undecodable: ${field.type} — fields below not shown)`;
+            slot.failed = true;
             continue;
         }
 
@@ -617,6 +625,7 @@ export async function readState(
                     slot.data = decodedAbiToJson(decoded, field.abi!);
                 } catch (error) {
                     slot.value = `(read failed: ${stateReadError(error)})`;
+                    slot.failed = true;
                 }
             })(),
         );
@@ -636,7 +645,12 @@ export async function readState(
             decodedFields.push(...slot.nested.fields);
             containers.push(...slot.nested.containers);
         } else if (slot.value !== undefined) {
-            decodedFields.push({ name: slot.field.name, value: slot.value, ...(slot.data !== undefined ? { data: slot.data } : {}) });
+            decodedFields.push({
+                name: slot.field.name,
+                value: slot.value,
+                ...(slot.data !== undefined ? { data: slot.data } : {}),
+                ...(slot.failed ? { failed: true } : {}),
+            });
         }
     }
 
@@ -650,8 +664,5 @@ export async function readState(
 }
 
 export function stateIsComplete(state: Pick<DecodedState, "fields" | "containers">): boolean {
-    return (
-        !state.fields.some((field) => field.value.includes("read failed") || field.value.includes("undecodable")) &&
-        state.containers.every((container) => container.status !== "error")
-    );
+    return !state.fields.some((field) => field.failed) && state.containers.every((container) => container.status !== "error");
 }

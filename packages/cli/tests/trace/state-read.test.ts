@@ -241,8 +241,8 @@ test("loadStateContainer fills in a container that was collapsed", async () => {
 
 test("stateIsComplete treats a failed read, an undecodable field, and an errored container alike", () => {
     expect(stateIsComplete({ fields: [{ name: "a", value: "1" }], containers: [] })).toBe(true);
-    expect(stateIsComplete({ fields: [{ name: "a", value: "(read failed: nope)" }], containers: [] })).toBe(false);
-    expect(stateIsComplete({ fields: [{ name: "a", value: "(undecodable: Weird — fields below not shown)" }], containers: [] })).toBe(false);
+    expect(stateIsComplete({ fields: [{ name: "a", value: "(read failed: nope)", failed: true }], containers: [] })).toBe(false);
+    expect(stateIsComplete({ fields: [{ name: "a", value: "(undecodable: Weird — fields below not shown)", failed: true }], containers: [] })).toBe(false);
     expect(
         stateIsComplete({
             fields: [],
@@ -250,6 +250,33 @@ test("stateIsComplete treats a failed read, an undecodable field, and an errored
         }),
     ).toBe(false);
     expect(stateIsComplete({ fields: [], containers: [{ status: "collapsed" } as never] })).toBe(true);
+});
+
+// completeness used to be read off the rendered text, so a member named like a failure marker failed a read that had succeeded
+test("a decoded value whose text looks like a failure marker is still complete, and a real failure is flagged", async () => {
+    const source = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Flags { uint64 undecodable; uint64 other; };
+  struct StateData { Flags status; };
+  INITIALIZE() {}
+};`;
+    const bytes = new Uint8Array(16);
+    bytes[0] = 5;
+    bytes[8] = 6;
+
+    const state = await readState(honestReader(bytes), 7, source, "Markers");
+    expect(state.fields).toEqual([{ name: "status", value: "{undecodable: 5, other: 6}", data: { undecodable: 5n, other: 6n } }]);
+    expect(state.complete).toBe(true);
+
+    const failed = await readState(
+        readerOf(() => ""),
+        7,
+        source,
+        "Markers",
+    );
+    expect(failed.fields[0]).toMatchObject({ name: "status", failed: true });
+    expect(failed.complete).toBe(false);
 });
 
 // A container inside a struct field takes the next number in declaration order, so every block is addressable.

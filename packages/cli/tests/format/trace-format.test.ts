@@ -216,6 +216,7 @@ test("readState: rejects a short field-scoped RPC read", async () => {
         {
             name: "value",
             value: "(read failed: short state read at 0: expected 8 bytes, got 4)",
+            failed: true,
         },
     ]);
 });
@@ -988,7 +989,7 @@ test("readState reports incomplete scalar and container reads", async () => {
     };
     const state = await readState(boom, 7, SRC, "Counter");
     expect(state.complete).toBe(false);
-    expect(state.fields).toEqual([{ name: "counter", value: "(read failed: rpc down)" }]);
+    expect(state.fields).toEqual([{ name: "counter", value: "(read failed: rpc down)", failed: true }]);
     expect(state.containers).toMatchObject([
         {
             name: "bal",
