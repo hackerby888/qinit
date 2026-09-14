@@ -29,6 +29,45 @@ export type StateDiffLine = StateLine & {
 // Reads a record's key from the node when no window carries it. Only a value update gets here.
 export type StateKeyReader = (off: number, size: number) => Promise<Uint8Array | undefined>;
 
+// Three stages: find what moved in each window, decode those bytes and look up the keys, then render every row once with its container entry known.
+// (the IDL's state fields, the engine's changed windows, a key reader for the node) -> one row per change, named by field, element or entry.
+export async function stateDiffLines(fields: StateField[], changedWindows: DebugStateRegion[], readKey?: StateKeyReader): Promise<StateDiffLine[]> {
+    const windows = changedWindowsOf(changedWindows);
+    const changes = windows.flatMap((window) => findChanges(fields, window));
+    const decoded = await decodeChanges(changes, windows, readKey);
+    return renderRows(decoded);
+}
+
+// Two names per change, the same pair a row carries: `detail` the resolved path through the container, `label` the shorter default view.
+// They differ only where a path runs through container internals.
+type Names = { detail: string; label: string };
+
+// Extends both names one level deeper, e.g. `balances` + `.slot[3]`; the label suffix differs only inside container internals.
+const descend = (names: Names, detailSuffix: string, labelSuffix = detailSuffix): Names => ({
+    detail: names.detail + detailSuffix,
+    label: names.label + labelSuffix,
+});
+
+// One changed window with its images decoded from hex, read to the shorter image when the two differ in length.
+type ChangedWindow = { start: number; end: number; before: Uint8Array; after: Uint8Array };
+type ImagePair = { before: Uint8Array; after: Uint8Array };
+type Rendered = { text: string; data: unknown };
+
+// The container entry a change belongs to: which part of which slot (with the path below the member), and where the key that names it sits.
+type EntryRef = { part: "key" | "value" | "flag"; container: Names; slot: number; suffix: string; keyStart: number; keyType: AbiType };
+
+// The entry's key once looked up: both images when a window holds it, or the live key read back from the node for an update.
+type EntryKey = { before: string; after: string } | { fetched: string };
+
+// What stage one finds in a window, and what stage two hands on: the same change with bytes turned into text and its entry's key looked up.
+type ChangeOf<Value, Entry> =
+    | { kind: "value"; names: Names; role: MemberRole; value: Value; entry?: Entry }
+    | { kind: "partial"; names: Names; role: MemberRole; offsetInValue: number; bytes: ImagePair }
+    | { kind: "bit"; names: Names; role: MemberRole; from: number; to: number; entry?: Entry }
+    | { kind: "unknown"; stateOffset: number };
+type Change = ChangeOf<ImagePair & { type: AbiType }, EntryRef>;
+type DecodedChange = ChangeOf<{ before: Rendered; after: Rendered }, EntryRef & { key?: EntryKey }>;
+
 // Container bookkeeping is not in the IDL — its indices and counters are plain 64-bit words.
 const wordType = (kind: AbiScalarKind, size = 8): AbiType => ({
     kind: AbiTypeKind.SCALAR,
@@ -43,374 +82,9 @@ const WORD_TYPES: Record<WordType, AbiType> = {
     id: wordType(AbiScalarKind.ID, 32),
 };
 
-// Two names per leaf, the same pair a row carries: `detail` the resolved path through the container, `label` the shorter default view.
-// They differ only where a path runs through container internals.
-type Names = { detail: string; label: string };
-
-// Extends both names one level deeper, e.g. `balances` + `.slot[3]`; the label suffix differs only inside container internals.
-const descend = (names: Names, detailSuffix: string, labelSuffix = detailSuffix): Names => ({
-    detail: names.detail + detailSuffix,
-    label: names.label + labelSuffix,
-});
-
-// One record of a keyed container plus the absolute offset its key sits at, so the row is labelled by the key the contract wrote rather than the bucket it hashed into.
-type ResolvedRecordKey = {
-    part: "key" | "value";
-    container: string;
-    containerPath: string;
-    slot: number;
-    member: string;
-    keyOff: number;
-    keyType: AbiType;
-};
-
-// The records a flags run indexes, as geometry rather than one offset: a flipped flag has to name its entry even when the record itself is outside the window.
-type RecordKeyGeometry = { container: string; containerPath: string; recordsOff: number; stride: number; keyOff: number; keyType: AbiType };
-
-// A decodable value at an absolute state offset, or packed bits reporting one changed index at a time. `role` is which of the three kinds of byte this is:
-// `payload` a value the contract wrote, `count` a container's entry total, `internal` the bookkeeping only the full view shows.
-type Leaf = Names & { recordKey?: ResolvedRecordKey; flagRecords?: RecordKeyGeometry } & (
-        | { kind: "value"; role: MemberRole; off: number; type: AbiType }
-        | {
-              kind: "bits";
-              role: MemberRole;
-              off: number;
-              size: number;
-              bitsPerIndex: number;
-              indexCount: number;
-          }
-    );
-
-// What a row contributes to its record's entry line. Both key images are kept because whether the entry arrived or left is only known once its flag turns up.
-type RecordEntryRef = {
-    part: "key" | "value";
-    container: string;
-    containerPath: string;
-    slot: number;
-    suffix: string;
-    keyBefore?: string;
-    keyAfter?: string;
-    // From the node, so it is the key as it is now.
-    keyFetched?: string;
-    before: string;
-    after: string;
-    beforeData?: unknown;
-    afterData?: unknown;
-};
-// `key` is set only for a flag that opened or closed an entry whose record sat in the same window.
-type FlagEntryRef = { part: "flag"; container: string; containerPath: string; slot: number; from: number; to: number; key?: string };
-type EntryRef = RecordEntryRef | FlagEntryRef;
-
-// What identifies a keyed record's entry; the before and after images are the row's own.
-type EntryIdentity = Omit<RecordEntryRef, "before" | "after">;
-
-// A pass-one row plus the annotation pass two needs; absent for anything outside a container record.
-type AnnotatedRow = StateDiffLine & { entryRef?: EntryRef };
-
-// A decodable leaf at an absolute state offset — the `value` half of `Leaf`, paired with `bitsLeaf`.
-const valueLeaf = (names: Names, off: number, type: AbiType, role: MemberRole = "payload"): Leaf => ({
-    kind: "value",
-    ...names,
-    role,
-    off,
-    type,
-});
-
-// The member of `type` that byte `relativeOffset` falls in. Indexed collections resolve per element; a struct stops as one row when the window holds all of it.
-// (names, absolute start of `type`, `type`, offset within it) -> the one named thing that byte belongs to.
-function resolveLeaf(names: Names, typeStart: number, type: AbiType, relativeOffset: number, windowHolds: (off: number, size: number) => boolean): Leaf {
-    switch (type.kind) {
-        case AbiTypeKind.STRUCT: {
-            // A struct holding a container is never one row: the container's members say what moved.
-            if (!holdsContainer(type) && windowHolds(typeStart, type.size)) {
-                return valueLeaf(names, typeStart, type);
-            }
-
-            const field = type.fields.find((candidate) => relativeOffset >= candidate.offset && relativeOffset < candidate.offset + candidate.size);
-            if (!field) {
-                // Padding inside the struct names nothing, so step the walk to the next field, or to the struct's end.
-                const next = type.fields.find((candidate) => candidate.offset > relativeOffset);
-                return paddingLeaf(names, typeStart + relativeOffset, (next?.offset ?? type.size) - relativeOffset);
-            }
-            return resolveLeaf(descend(names, `.${field.name}`), typeStart + field.offset, field.type, relativeOffset - field.offset, windowHolds);
-        }
-
-        case AbiTypeKind.ARRAY: {
-            const { stride } = arrayGeometry(type.element, type.count);
-            const index = Math.floor(relativeOffset / stride);
-            const offsetInElement = relativeOffset - index * stride;
-            const element = descend(names, `[${index}]`);
-            const elementStart = typeStart + index * stride;
-            if (offsetInElement >= type.element.size) {
-                return valueLeaf(element, elementStart, type.element);
-            }
-            return resolveLeaf(element, elementStart, type.element, offsetInElement, windowHolds);
-        }
-
-        case AbiTypeKind.HASH_MAP:
-            return memberLeaf(
-                names,
-                typeStart,
-                relativeOffset,
-                hashMapMembers(type.key, type.value, type.capacity),
-                (tag) => (tag === "key" ? type.key : type.value),
-                windowHolds,
-            );
-
-        case AbiTypeKind.HASH_SET:
-            return memberLeaf(names, typeStart, relativeOffset, hashSetMembers(type.key, type.capacity), () => type.key, windowHolds);
-
-        // Printing 256 bits twice to show one flip is the noise this whole module exists to remove.
-        case AbiTypeKind.BIT_ARRAY:
-            return bitsLeaf(names, typeStart, type.size, 1, type.bitCount, "payload");
-
-        case AbiTypeKind.COLLECTION:
-            return memberLeaf(names, typeStart, relativeOffset, collectionMembers(type.value, type.capacity), () => type.value, windowHolds);
-
-        case AbiTypeKind.LINKED_LIST:
-            return memberLeaf(names, typeStart, relativeOffset, linkedListMembers(type.value, type.capacity), () => type.value, windowHolds);
-
-        default:
-            return valueLeaf(names, typeStart, type);
-    }
-}
-
-// Matching takes the first member whose end passes the offset, so C padding belongs to the member after it and the leaf always ends past `relativeOffset`.
-// (container's absolute start, offset within it, its qpi-layout spans) -> that byte's leaf, tagged with the record key that names it.
-function memberLeaf(
-    names: Names,
-    containerStart: number,
-    relativeOffset: number,
-    layout: ContainerRegion[],
-    idlType: (tag: "key" | "value") => AbiType,
-    windowHolds: (off: number, size: number) => boolean,
-): Leaf {
-    const span = layout.find((candidate) => relativeOffset < candidate.end) ?? layout[layout.length - 1];
-
-    if (span.kind === "flags") {
-        const bits = bitsLeaf(descend(names, span.path), containerStart + span.off, span.end - span.off, span.bitsPer, span.count, "internal");
-        // Only a keyed container has anything better to label a record by than the bucket it hashed into.
-        const records = layout.find((candidate): candidate is Extract<ContainerRegion, { kind: "records" }> => candidate.kind === "records");
-        const keyMember = records?.members.find((candidate) => candidate.type === "key");
-        if (!records || !keyMember) {
-            return bits;
-        }
-        return {
-            ...bits,
-            flagRecords: {
-                container: names.label,
-                containerPath: names.detail,
-                recordsOff: containerStart + records.off,
-                stride: records.stride,
-                keyOff: keyMember.off,
-                keyType: idlType("key"),
-            },
-        };
-    }
-
-    if (span.kind === "word") {
-        return valueLeaf(descend(names, span.path, span.short), containerStart + span.off, WORD_TYPES[span.type], span.role);
-    }
-
-    const index = Math.floor((relativeOffset - span.off) / span.stride);
-    const offsetInRecord = relativeOffset - span.off - index * span.stride;
-    const recordStart = containerStart + span.off + index * span.stride;
-    const record = descend(names, `${span.path}[${index}]`, `${span.short}[${index}]`);
-
-    const member = span.members.find((candidate) => offsetInRecord < candidate.off + candidate.size);
-    if (!member) {
-        // Trailing pad after a record's last member names nothing, so step the walk past the record.
-        return paddingLeaf(record, recordStart + offsetInRecord, span.stride - offsetInRecord);
-    }
-
-    // qpi-layout spells the same pair `path`/`short`, so this is where its vocabulary meets this module's `detail`/`label`.
-    const named = descend(record, member.path, member.short);
-    if (member.type !== "key" && member.type !== "value") {
-        return valueLeaf(named, recordStart + member.off, WORD_TYPES[member.type], member.role);
-    }
-
-    const leaf = resolveLeaf(named, recordStart + member.off, idlType(member.type), Math.max(0, offsetInRecord - member.off), windowHolds);
-    const keyMember = span.members.find((candidate) => candidate.type === "key");
-    // Only a payload leaf takes the key; a nested container's bookkeeping is not the entry's value.
-    if (!keyMember || leaf.role !== "payload") {
-        return leaf;
-    }
-
-    return {
-        ...leaf,
-        recordKey: {
-            part: member.type,
-            container: names.label,
-            containerPath: names.detail,
-            slot: index,
-            member: named.label,
-            keyOff: recordStart + keyMember.off,
-            keyType: idlType("key"),
-        },
-    };
-}
-
-// `count` packed entries of `bitsPer` bits from an absolute state offset, reported as the indices that moved rather than as bytes.
-const bitsLeaf = (names: Names, off: number, size: number, bitsPerIndex: number, indexCount: number, role: MemberRole): Leaf => ({
-    kind: "bits",
-    ...names,
-    role,
-    off,
-    size,
-    bitsPerIndex,
-    indexCount,
-});
-
-// Bytes that name nothing — struct padding, a record's trailing pad. A zero-count bits leaf reports no row and still moves the walk past `length`.
-const paddingLeaf = (names: Names, off: number, length: number): Leaf => bitsLeaf(names, off, length, 1, 0, "internal");
-
-const allZero = (bytes: Uint8Array) => bytes.every((byte) => byte === 0);
-const bytesEqual = (left: Uint8Array, right: Uint8Array) => left.length === right.length && left.every((byte, index) => byte === right[index]);
-const toHex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-
-// Bytes + type -> display text and JSON data, e.g. `07 00 …` as uint64 -> `{ text: "7", data: 7n }`; an all-zero value collapses to `0`.
-async function renderValue(bytes: Uint8Array, type: AbiType): Promise<{ text: string; data: unknown }> {
-    const decoded = await decodeAbi(bytes, type);
-    const data = decodedAbiToJson(decoded, type);
-    if (allZero(bytes)) {
-        return { text: "0", data }; // matches how `qinit state` collapses an untouched element
-    }
-
-    return { text: scalarText(decoded, type), data };
-}
-
-// Occupation flags and BitArrays are packed, so report the indices that moved, not the raw words; `firstVisibleIndex` is where the visible slice starts.
-// (bits leaf, before/after slices, index the slice starts at) -> one row per index whose value moved.
-function bitRows(leaf: Extract<Leaf, { kind: "bits" }>, before: Uint8Array, after: Uint8Array, firstVisibleIndex: number, entry?: EntryIdentity): AnnotatedRow[] {
-    const rows: AnnotatedRow[] = [];
-    const entryRefOf = (index: number, from: number, to: number): { entryRef: EntryRef } | Record<never, never> => {
-        if (leaf.flagRecords) {
-            return { entryRef: { part: "flag", container: leaf.flagRecords.container, containerPath: leaf.flagRecords.containerPath, slot: index, from, to } };
-        }
-        return entry ? { entryRef: { ...entry, suffix: `${entry.suffix}[${index}]`, before: String(from), after: String(to) } } : {};
-    };
-    const valueAt = (bytes: Uint8Array, index: number) => {
-        const bit = (index - firstVisibleIndex) * leaf.bitsPerIndex;
-        const byte = bytes[bit >> 3];
-        if (byte === undefined) {
-            return undefined;
-        }
-        const mask = (1 << leaf.bitsPerIndex) - 1;
-        return (byte >> (bit & 7)) & mask;
-    };
-
-    // The slice only covers a bounded run of indices; without this the loop walks the whole capacity — 33M no-op turns per window on a 536 MB map.
-    const visibleBits = Math.min(before.length, after.length) * 8;
-    const lastIndex = Math.min(leaf.indexCount, firstVisibleIndex + Math.floor(visibleBits / leaf.bitsPerIndex));
-
-    for (let index = firstVisibleIndex; index < lastIndex; index++) {
-        const from = valueAt(before, index);
-        const to = valueAt(after, index);
-        if (from === undefined || to === undefined || from === to) {
-            continue;
-        }
-        rows.push({
-            label: `${leaf.label}[${index}]`,
-            detail: `${leaf.detail}[${index}]`,
-            text: `${from} → ${to}`,
-            filled: true,
-            internal: leaf.role === "internal",
-            before: from,
-            after: to,
-            ...entryRefOf(index, from, to),
-        });
-    }
-
-    return rows;
-}
-
-// The map key tying every row of one container entry together: container path + slot.
-const groupOf = (entryRef: EntryRef) => `${entryRef.containerPath}#${entryRef.slot}`;
-
-// A record is zeroed when its slot is vacated, so only an arriving entry still has its key in the after image; undefined means the window never carried it.
-// A fetched key is the slot as it is now — zeroed for a leaving entry, which falls back to the bucket.
-const keyForLabel = (entryRef: RecordEntryRef, flag: FlagEntryRef | undefined) => {
-    const imaged = flag && flag.to !== 1 ? entryRef.keyBefore : entryRef.keyAfter;
-    return imaged ?? (flag?.to === 2 ? undefined : entryRef.keyFetched);
-};
-
-// An entry that just arrived has a zero before image, so `= v` says more than `0 → v`; one that left keeps its arrow, since the value it held is what matters.
-function entryText(entryRef: RecordEntryRef, flag: FlagEntryRef | undefined): string {
-    if (flag?.to === 1) {
-        return `= ${entryRef.after} (new)`;
-    }
-    if (flag?.to === 2) {
-        return `${entryRef.before} → (removed)`;
-    }
-    return `${entryRef.before} → ${entryRef.after}`;
-}
-
-// A record's rows all describe one entry, so they read as one line labelled by the key the contract wrote; the bucket stays on the full path.
-// Pass one's physical rows -> one line per container entry.
-function collapseEntries(rows: AnnotatedRow[]): StateDiffLine[] {
-    const flags = new Map<string, FlagEntryRef>();
-    const valued = new Set<string>();
-    const keyRows = new Set<string>();
-    const collapsed = new Set<string>();
-
-    for (const { entryRef } of rows) {
-        if (entryRef?.part === "flag") {
-            flags.set(groupOf(entryRef), entryRef);
-        } else if (entryRef?.part === "value") {
-            valued.add(groupOf(entryRef));
-        } else if (entryRef?.part === "key") {
-            keyRows.add(groupOf(entryRef));
-        }
-    }
-
-    for (const { entryRef } of rows) {
-        if (entryRef?.part === "value" && keyForLabel(entryRef, flags.get(groupOf(entryRef))) !== undefined) {
-            collapsed.add(groupOf(entryRef));
-        }
-    }
-
-    return rows.map(({ entryRef, ...line }) => {
-        if (!entryRef) {
-            return line;
-        }
-
-        const group = groupOf(entryRef);
-
-        if (entryRef.part === "flag") {
-            // An entry whose key and value both stayed zero left only its flag, which then names it.
-            if (entryRef.key !== undefined && !valued.has(group) && !keyRows.has(group)) {
-                return { ...line, label: `${entryRef.container}[${entryRef.key}]`, text: entryRef.to === 1 ? "(new)" : "(removed)", internal: false, change: changeOf(entryRef) };
-            }
-            return line;
-        }
-
-        const flag = flags.get(group);
-        const key = keyForLabel(entryRef, flag);
-        const labelled = key === undefined ? line.label : `${entryRef.container}[${key}]${entryRef.suffix}`;
-        // Identity resolved but unusable (a leaving entry) still falls back to the bucket, so mark it too.
-        if (entryRef.part === "value") {
-            return key === undefined
-                ? { ...line, keyUnresolved: true as const }
-                : { ...line, label: labelled, text: entryText(entryRef, flag), change: changeOf(flag) };
-        }
-
-        // The entry line already names the key, so a key row is noise — unless nothing else carries the entry, as with a value that was and stays zero.
-        if (collapsed.has(group)) {
-            return { ...line, internal: true };
-        }
-        if (valued.has(group) || !flag || key === undefined) {
-            return line;
-        }
-        return { ...line, label: labelled, text: flag.to === 1 ? "(new)" : flag.to === 2 ? "(removed)" : line.text, change: changeOf(flag) };
-    });
-}
-
-// A flag's new value as the row's change kind: 1 -> new, 2 -> removed, anything else -> undefined.
-const changeOf = (flag: FlagEntryRef | undefined): "new" | "removed" | undefined => (flag?.to === 1 ? "new" : flag?.to === 2 ? "removed" : undefined);
-
 // A value straddling two windows can only be decoded once they are one range — core reports per dirty page, so a record crossing a page arrives split.
 // Only exactly-adjacent runs merge; the `/ 2` is because the images are hex.
-function mergeAdjacentWindows(changedWindows: DebugStateRegion[]): DebugStateRegion[] {
+function changedWindowsOf(changedWindows: DebugStateRegion[]): ChangedWindow[] {
     const joined: DebugStateRegion[] = [];
 
     for (const changedWindow of [...changedWindows].sort((left, right) => left.off - right.off)) {
@@ -424,13 +98,328 @@ function mergeAdjacentWindows(changedWindows: DebugStateRegion[]): DebugStateReg
         joined.push({ ...changedWindow });
     }
 
-    return joined;
+    return joined.map((changedWindow) => {
+        const before = hexToBytes(changedWindow.before);
+        const after = hexToBytes(changedWindow.after);
+        return { start: changedWindow.off, end: changedWindow.off + Math.min(before.length, after.length), before, after };
+    });
 }
 
-// Every changed window, resolved and decoded. Windows may be minimal runs or aligned pages; a run not covering a whole value keeps its bytes.
-// (the IDL's state fields, the engine's changed windows) -> one row per change, named by field, element or entry.
-export async function stateDiffLines(fields: StateField[], changedWindows: DebugStateRegion[], readKey?: StateKeyReader): Promise<StateDiffLine[]> {
-    const rows: AnnotatedRow[] = [];
+// Whether the window holds all of an absolute range.
+const covers = (window: ChangedWindow, start: number, size: number) => start >= window.start && start + size <= window.end;
+
+// Whether an absolute range and the window share any byte.
+const overlaps = (window: ChangedWindow, start: number, size: number) => start < window.end && start + size > window.start;
+
+// An absolute state range as a slice of one of the window's images.
+const imageSlice = (window: ChangedWindow, image: Uint8Array, start: number, end: number) => image.slice(start - window.start, end - window.start);
+
+// An absolute range from whichever window holds all of it on that side; only adjacent windows merge, so it may be a sibling of the window being read.
+function imageAt(windows: ChangedWindow[], side: "before" | "after", start: number, size: number): Uint8Array | undefined {
+    for (const window of windows) {
+        const image = window[side];
+        const offset = start - window.start;
+        if (offset >= 0 && offset + size <= image.length) {
+            return image.slice(offset, offset + size);
+        }
+    }
+    return undefined;
+}
+
+const allZero = (bytes: Uint8Array) => bytes.every((byte) => byte === 0);
+const bytesEqual = (left: Uint8Array, right: Uint8Array) => left.length === right.length && left.every((byte, index) => byte === right[index]);
+const toHex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+// Stage one: what moved. The walk visits only the parts of each type that share a byte with the window and compares them in place; padding is never visited.
+
+type Walk = { window: ChangedWindow; changes: Change[] };
+type RecordsRegion = Extract<ContainerRegion, { kind: "records" }>;
+
+// The keyed record a walk is inside: which of its members and where its key sits, so every payload change beneath can be named by the entry.
+type RecordScope = { part: "key" | "value"; container: Names; slot: number; member: string; keyStart: number; keyType: AbiType };
+
+// A packed run: `indexCount` entries of `bitsPerIndex` bits from an absolute state offset.
+type BitRun = { start: number; size: number; bitsPerIndex: number; indexCount: number };
+
+// The first and last index of a strided run that share a byte with the window — a 545 MB map's records or flags are never walked whole.
+function visibleIndices(window: ChangedWindow, start: number, stride: number, count: number): [number, number] {
+    const first = Math.max(0, Math.floor((window.start - start) / stride));
+    const last = Math.min(count - 1, Math.floor((window.end - 1 - start) / stride));
+    return [first, last];
+}
+
+// The entry a change under `scope` belongs to; the path below the member is what the leaf's label adds to the member's.
+const entryOf = (scope: RecordScope, label: string): EntryRef => ({
+    part: scope.part,
+    container: scope.container,
+    slot: scope.slot,
+    suffix: label.slice(scope.member.length),
+    keyStart: scope.keyStart,
+    keyType: scope.keyType,
+});
+
+// Windows may be minimal runs or aligned pages; a run not covering a whole value keeps its bytes.
+// (the IDL's state fields, one window) -> what moved in it, in state order.
+function findChanges(fields: StateField[], window: ChangedWindow): Change[] {
+    const walk: Walk = { window, changes: [] };
+    const moved = (start: number, end: number) => !bytesEqual(imageSlice(window, window.before, start, end), imageSlice(window, window.after, start, end));
+    let cursor = window.start;
+
+    for (const field of fields) {
+        if (field.off + field.size <= cursor) {
+            continue;
+        }
+
+        // Alignment padding between two fields belongs to neither; a byte that moved there is worth a row, and the walk goes on past it.
+        const gapEnd = Math.min(field.off, window.end);
+        if (gapEnd > cursor) {
+            if (moved(cursor, gapEnd)) {
+                walk.changes.push({ kind: "unknown", stateOffset: cursor });
+            }
+            cursor = gapEnd;
+        }
+        if (cursor >= window.end) {
+            return walk.changes;
+        }
+
+        // A field with no ABI cannot be decoded at all, which is still a reason to stop.
+        if (!field.abi) {
+            walk.changes.push({ kind: "unknown", stateOffset: cursor });
+            return walk.changes;
+        }
+
+        walkType(walk, { detail: field.name, label: field.name }, field.off, field.abi);
+        cursor = field.off + field.size;
+        if (cursor >= window.end) {
+            return walk.changes;
+        }
+    }
+
+    // Past the last field is alignment slack every window reaches; report it only when it moved.
+    if (moved(cursor, window.end)) {
+        walk.changes.push({ kind: "unknown", stateOffset: cursor });
+    }
+    return walk.changes;
+}
+
+// The parts of `type` the window touches. Indexed collections walk per element; a struct without a container that the window holds whole is one value.
+// (names, absolute start of `type`, `type`, the keyed record it sits in) -> changes pushed onto the walk.
+function walkType(walk: Walk, names: Names, start: number, type: AbiType, scope?: RecordScope): void {
+    const { window } = walk;
+
+    switch (type.kind) {
+        case AbiTypeKind.STRUCT: {
+            // A struct holding a container is never one row: the container's members say what moved.
+            if (!holdsContainer(type) && covers(window, start, type.size)) {
+                compareValue(walk, names, start, type, "payload", scope);
+                return;
+            }
+
+            for (const field of type.fields) {
+                if (overlaps(window, start + field.offset, field.size)) {
+                    walkType(walk, descend(names, `.${field.name}`), start + field.offset, field.type, scope);
+                }
+            }
+            return;
+        }
+
+        case AbiTypeKind.ARRAY: {
+            const { stride } = arrayGeometry(type.element, type.count);
+            const [first, last] = visibleIndices(window, start, stride, type.count);
+            for (let index = first; index <= last; index++) {
+                walkType(walk, descend(names, `[${index}]`), start + index * stride, type.element, scope);
+            }
+            return;
+        }
+
+        // Printing 256 bits twice to show one flip is the noise this whole module exists to remove.
+        case AbiTypeKind.BIT_ARRAY: {
+            const entry = scope && entryOf(scope, names.label);
+            const entryAt = entry && ((index: number) => ({ ...entry, suffix: `${entry.suffix}[${index}]` }));
+            compareBits(walk, names, { start, size: type.size, bitsPerIndex: 1, indexCount: type.bitCount }, "payload", entryAt);
+            return;
+        }
+
+        case AbiTypeKind.HASH_MAP:
+            walkContainer(walk, names, start, hashMapMembers(type.key, type.value, type.capacity), (tag) => (tag === "key" ? type.key : type.value), scope);
+            return;
+
+        case AbiTypeKind.HASH_SET:
+            walkContainer(walk, names, start, hashSetMembers(type.key, type.capacity), () => type.key, scope);
+            return;
+
+        case AbiTypeKind.COLLECTION:
+            walkContainer(walk, names, start, collectionMembers(type.value, type.capacity), () => type.value, scope);
+            return;
+
+        case AbiTypeKind.LINKED_LIST:
+            walkContainer(walk, names, start, linkedListMembers(type.value, type.capacity), () => type.value, scope);
+            return;
+
+        default:
+            compareValue(walk, names, start, type, "payload", scope);
+    }
+}
+
+// Each container region the window touches: records by index, a flags run by bit, the counters as words.
+// (names, container's absolute start, its qpi-layout regions, the IDL type behind `key`/`value`, the keyed record it sits in) -> changes pushed onto the walk.
+function walkContainer(
+    walk: Walk,
+    names: Names,
+    start: number,
+    layout: ContainerRegion[],
+    idlType: (tag: "key" | "value") => AbiType,
+    scope?: RecordScope,
+): void {
+    const { window } = walk;
+    // Only a keyed container has anything better to label a record by than the bucket it hashed into.
+    const records = layout.find((candidate): candidate is RecordsRegion => candidate.kind === "records");
+    const keyMember = records?.members.find((candidate) => candidate.type === "key");
+
+    for (const region of layout) {
+        if (!overlaps(window, start + region.off, region.end - region.off)) {
+            continue;
+        }
+
+        switch (region.kind) {
+            case "records":
+                walkRecords(walk, names, start + region.off, region, idlType, scope);
+                break;
+
+            case "flags": {
+                // A flag that opened or closed an entry is named by that entry's key — the only name an all-zero entry can ever get.
+                const flagAt =
+                    records && keyMember
+                        ? (slot: number): EntryRef => ({
+                              part: "flag",
+                              container: names,
+                              slot,
+                              suffix: "",
+                              keyStart: start + records.off + slot * records.stride + keyMember.off,
+                              keyType: idlType("key"),
+                          })
+                        : undefined;
+                const run = { start: start + region.off, size: region.end - region.off, bitsPerIndex: region.bitsPer, indexCount: region.count };
+                compareBits(walk, descend(names, region.path), run, "internal", flagAt);
+                break;
+            }
+
+            case "word":
+                compareValue(walk, descend(names, region.path, region.short), start + region.off, WORD_TYPES[region.type], region.role);
+                break;
+        }
+    }
+}
+
+// The records the window touches, member by member; a key or value member is walked as its IDL type inside the record's scope.
+// A nested container's payload keeps the outer entry's key, its bookkeeping words and flags stay its own.
+// (container names, absolute start of the records, the region, the IDL type behind `key`/`value`, the enclosing keyed record) -> changes pushed onto the walk.
+function walkRecords(walk: Walk, names: Names, start: number, region: RecordsRegion, idlType: (tag: "key" | "value") => AbiType, outer?: RecordScope): void {
+    const { window } = walk;
+    const keyMember = region.members.find((candidate) => candidate.type === "key");
+    const [first, last] = visibleIndices(window, start, region.stride, (region.end - region.off) / region.stride);
+
+    for (let index = first; index <= last; index++) {
+        const recordStart = start + index * region.stride;
+        const record = descend(names, `${region.path}[${index}]`, `${region.short}[${index}]`);
+
+        for (const member of region.members) {
+            if (!overlaps(window, recordStart + member.off, member.size)) {
+                continue;
+            }
+
+            // qpi-layout spells the same pair `path`/`short`, so this is where its vocabulary meets this module's `detail`/`label`.
+            const named = descend(record, member.path, member.short);
+            if (member.type !== "key" && member.type !== "value") {
+                compareValue(walk, named, recordStart + member.off, WORD_TYPES[member.type], member.role);
+                continue;
+            }
+
+            const own = keyMember && {
+                part: member.type,
+                container: names,
+                slot: index,
+                member: named.label,
+                keyStart: recordStart + keyMember.off,
+                keyType: idlType("key"),
+            };
+            walkType(walk, named, recordStart + member.off, idlType(member.type), outer ?? own);
+        }
+    }
+}
+
+// (names, the value's absolute start, its type) -> a `value` change when the window holds all of it, a `partial` one when the window cuts it, nothing when the bytes match.
+function compareValue(walk: Walk, names: Names, start: number, type: AbiType, role: MemberRole, scope?: RecordScope): void {
+    const { window } = walk;
+    const visibleStart = Math.max(start, window.start);
+    const visibleEnd = Math.min(start + type.size, window.end);
+    const bytes = { before: imageSlice(window, window.before, visibleStart, visibleEnd), after: imageSlice(window, window.after, visibleStart, visibleEnd) };
+
+    // A window carries unchanged bytes around the ones that moved; only the latter are worth a row.
+    if (bytesEqual(bytes.before, bytes.after)) {
+        return;
+    }
+
+    if (covers(window, start, type.size)) {
+        walk.changes.push({ kind: "value", names, role, value: { ...bytes, type }, entry: scope && entryOf(scope, names.label) });
+    } else {
+        // A partial run: report the bytes that did change rather than invent the ones that did not.
+        walk.changes.push({ kind: "partial", names, role, offsetInValue: visibleStart - start, bytes });
+    }
+}
+
+// Occupation flags and BitArrays are packed, so report the indices that moved, not the raw words.
+// (names, the packed run, the entry each index belongs to) -> one `bit` change per visible index whose value moved.
+function compareBits(walk: Walk, names: Names, run: BitRun, role: MemberRole, entryAt?: (index: number) => EntryRef): void {
+    const { window } = walk;
+    // The whole run may start windows behind this one; only its visible slice is read.
+    const visibleStart = Math.max(run.start, window.start);
+    const visibleEnd = Math.min(run.start + run.size, window.end);
+    const before = imageSlice(window, window.before, visibleStart, visibleEnd);
+    const after = imageSlice(window, window.after, visibleStart, visibleEnd);
+    const firstVisibleIndex = ((visibleStart - run.start) * 8) / run.bitsPerIndex;
+    const valueAt = (bytes: Uint8Array, index: number) => {
+        const bit = (index - firstVisibleIndex) * run.bitsPerIndex;
+        const byte = bytes[bit >> 3];
+        if (byte === undefined) {
+            return undefined;
+        }
+        const mask = (1 << run.bitsPerIndex) - 1;
+        return (byte >> (bit & 7)) & mask;
+    };
+
+    // The slice only covers a bounded run of indices; without this the loop walks the whole capacity — 33M no-op turns per window on a 536 MB map.
+    const visibleBits = Math.min(before.length, after.length) * 8;
+    const lastIndex = Math.min(run.indexCount, firstVisibleIndex + Math.floor(visibleBits / run.bitsPerIndex));
+
+    for (let index = firstVisibleIndex; index < lastIndex; index++) {
+        const from = valueAt(before, index);
+        const to = valueAt(after, index);
+        if (from === undefined || to === undefined || from === to) {
+            continue;
+        }
+        walk.changes.push({ kind: "bit", names: descend(names, `[${index}]`), role, from, to, entry: entryAt?.(index) });
+    }
+}
+
+// Stage two: bytes to text, the only step that decodes, and the only one that may ask the node for anything.
+
+// Bytes + type -> display text and JSON data, e.g. `07 00 …` as uint64 -> `{ text: "7", data: 7n }`; an all-zero value collapses to `0`.
+async function renderValue(bytes: Uint8Array, type: AbiType): Promise<Rendered> {
+    const decoded = await decodeAbi(bytes, type);
+    const data = decodedAbiToJson(decoded, type);
+    if (allZero(bytes)) {
+        return { text: "0", data }; // matches how `qinit state` collapses an untouched element
+    }
+
+    return { text: scalarText(decoded, type), data };
+}
+
+// Key bytes -> the label text an entry is named by, the same text `qinit state` prints. `decodeAbiValue` keeps a one-field struct positional; `decodeAbi` would unwrap it.
+const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeAbiValue(bytes, type), type);
+
+// (the changes, every window of the diff, the node's key reader) -> the same changes with values rendered and each entry's key looked up.
+async function decodeChanges(changes: Change[], windows: ChangedWindow[], readKey?: StateKeyReader): Promise<DecodedChange[]> {
     // One read per distinct key, however many rows ask for it.
     const fetched = new Map<string, Promise<Uint8Array | undefined>>();
     const fetchKey = (off: number, size: number) => {
@@ -442,179 +431,199 @@ export async function stateDiffLines(fields: StateField[], changedWindows: Debug
         }
         return pending;
     };
-    // Decoded once: both the walk and the cross-window key lookup need these bytes.
-    const windows = mergeAdjacentWindows(changedWindows).map((window) => ({
-        off: window.off,
-        before: hexToBytes(window.before),
-        after: hexToBytes(window.after),
-    }));
 
-    // Key bytes -> label text. `decodeAbiValue` keeps a one-field struct positional; `decodeAbi` would unwrap it.
-    const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeAbiValue(bytes, type), type);
-
-    // Absolute range from whichever window holds all of it; only adjacent windows merge, so it may be a sibling.
-    const imageAt = (side: "before" | "after", off: number, size: number): Uint8Array | undefined => {
-        for (const window of windows) {
-            const bytes = window[side];
-            const start = off - window.off;
-            if (start >= 0 && start + size <= bytes.length) {
-                return bytes.slice(start, start + size);
-            }
+    // The key is read from the diff, not the rows: an update leaves the key bytes alone, so they never produce a row of their own, and they may sit in a sibling window.
+    // In no window at all means this dispatch never touched it, so the node still holds it — except for a flag, since a record that left reads back as zeros.
+    const keyOf = async (entry: EntryRef): Promise<EntryKey | undefined> => {
+        const size = entry.keyType.size;
+        const before = imageAt(windows, "before", entry.keyStart, size);
+        const after = imageAt(windows, "after", entry.keyStart, size);
+        if (before && after) {
+            return { before: await keyText(before, entry.keyType), after: await keyText(after, entry.keyType) };
         }
-        return undefined;
-    };
-
-    // Read from the diff, not the rows: an update leaves the key bytes alone, so they produce no row.
-    const entryIdentityOf = async (recordKey: ResolvedRecordKey, label: string): Promise<EntryIdentity | undefined> => {
-        const keyBefore = imageAt("before", recordKey.keyOff, recordKey.keyType.size);
-        const keyAfter = imageAt("after", recordKey.keyOff, recordKey.keyType.size);
-        const identity = {
-            part: recordKey.part,
-            container: recordKey.container,
-            containerPath: recordKey.containerPath,
-            slot: recordKey.slot,
-            suffix: label.slice(recordKey.member.length),
-        };
-        if (keyBefore && keyAfter) {
-            return { ...identity, keyBefore: await keyText(keyBefore, recordKey.keyType), keyAfter: await keyText(keyAfter, recordKey.keyType) };
-        }
-        // In no window, so untouched by this dispatch: a value update. Current state still holds it.
-        if (!readKey) {
+        if (entry.part === "flag" || !readKey) {
             return undefined;
         }
-        const live = await fetchKey(recordKey.keyOff, recordKey.keyType.size);
-        return live ? { ...identity, keyFetched: await keyText(live, recordKey.keyType) } : undefined;
+        const live = await fetchKey(entry.keyStart, size);
+        return live && { fetched: await keyText(live, entry.keyType) };
     };
 
-    // A flag carries its key when the record is anywhere in the diff — the only name an all-zero entry gets.
-    const namedFlags = (flagged: AnnotatedRow[], flagRecords: RecordKeyGeometry): Promise<AnnotatedRow[]> =>
-        Promise.all(
-            flagged.map(async (row) => {
-                const entryRef = row.entryRef;
-                if (entryRef?.part !== "flag" || (entryRef.to !== 1 && entryRef.to !== 2)) {
-                    return row;
-                }
-                const keyStart = flagRecords.recordsOff + entryRef.slot * flagRecords.stride + flagRecords.keyOff;
-                const keyImage = imageAt(entryRef.to === 1 ? "after" : "before", keyStart, flagRecords.keyType.size);
-                if (!keyImage) {
-                    return row;
-                }
-                return { ...row, entryRef: { ...entryRef, key: await keyText(keyImage, flagRecords.keyType) } };
-            }),
-        );
+    const decoded: DecodedChange[] = [];
 
-    for (const changedWindow of windows) {
-        const { before, after } = changedWindow;
-        const windowEnd = changedWindow.off + Math.min(before.length, after.length);
-        // Absolute range as a window-relative slice.
-        const slice = (bytes: Uint8Array, from: number, to: number) => bytes.slice(from - changedWindow.off, to - changedWindow.off);
-
-        let stateOffset = changedWindow.off;
-
-        while (stateOffset < windowEnd) {
-            const field = fields.find((candidate) => stateOffset >= candidate.off && stateOffset < candidate.off + candidate.size);
-            const reportUnknownBytes = () => {
-                rows.push({
-                    label: `@${stateOffset}`,
-                    detail: `@${stateOffset}`,
-                    text: "(outside any known field)",
-                    filled: false,
-                    internal: false,
-                });
+    for (const change of changes) {
+        if (change.kind === "value") {
+            const value = {
+                before: await renderValue(change.value.before, change.value.type),
+                after: await renderValue(change.value.after, change.value.type),
             };
-
-            if (!field) {
-                const next = fields.find((candidate) => candidate.off > stateOffset);
-
-                // Alignment padding between two fields belongs to neither, so step over it: stopping here drops every later row in the window.
-                if (next && next.off < windowEnd) {
-                    if (!bytesEqual(slice(before, stateOffset, next.off), slice(after, stateOffset, next.off))) {
-                        reportUnknownBytes();
-                    }
-                    stateOffset = next.off;
-                    continue;
-                }
-
-                // Past the last field is alignment slack; report it only when it moved.
-                if (!bytesEqual(slice(before, stateOffset, windowEnd), slice(after, stateOffset, windowEnd))) {
-                    reportUnknownBytes();
-                }
-                break;
-            }
-
-            // A field with no ABI cannot be decoded at all, which is still a reason to stop.
-            if (!field.abi) {
-                reportUnknownBytes();
-                break;
-            }
-
-            const leaf = resolveLeaf(
-                { detail: field.name, label: field.name },
-                field.off,
-                field.abi,
-                stateOffset - field.off,
-                (off, size) => off >= changedWindow.off && off + size <= windowEnd,
-            );
-
-            if (leaf.kind === "bits") {
-                // The whole flags run starts at `leaf.off`, which may be windows behind this one.
-                const visibleStart = Math.max(leaf.off, changedWindow.off);
-                const visibleEnd = Math.min(leaf.off + leaf.size, windowEnd);
-                const firstVisibleIndex = ((visibleStart - leaf.off) * 8) / leaf.bitsPerIndex;
-                const entry = leaf.recordKey ? await entryIdentityOf(leaf.recordKey, leaf.label) : undefined;
-                const flagged = bitRows(leaf, slice(before, visibleStart, visibleEnd), slice(after, visibleStart, visibleEnd), firstVisibleIndex, entry);
-                rows.push(...(leaf.flagRecords ? await namedFlags(flagged, leaf.flagRecords) : flagged));
-                stateOffset = visibleEnd;
-                continue;
-            }
-
-            const valueEnd = leaf.off + leaf.type.size;
-            const visibleStart = Math.max(leaf.off, changedWindow.off);
-            const visibleEnd = Math.min(valueEnd, windowEnd);
-            const beforeBytes = slice(before, visibleStart, visibleEnd);
-            const afterBytes = slice(after, visibleStart, visibleEnd);
-
-            // A window carries unchanged bytes around the ones that moved; only the latter are worth a row.
-            if (!bytesEqual(beforeBytes, afterBytes)) {
-                const internal = leaf.role === "internal";
-                if (leaf.off >= changedWindow.off && valueEnd <= windowEnd) {
-                    const renderedBefore = await renderValue(beforeBytes, leaf.type);
-                    const renderedAfter = await renderValue(afterBytes, leaf.type);
-                    const change = `${renderedBefore.text} → ${renderedAfter.text}`;
-                    const entry = leaf.recordKey ? await entryIdentityOf(leaf.recordKey, leaf.label) : undefined;
-                    const entryRef = entry
-                        ? { ...entry, before: renderedBefore.text, after: renderedAfter.text, beforeData: renderedBefore.data, afterData: renderedAfter.data }
-                        : undefined;
-                    rows.push({
-                        label: leaf.label,
-                        detail: leaf.detail,
-                        text: leaf.role === "count" ? `${change} entries` : change,
-                        filled: true,
-                        internal,
-                        before: renderedBefore.data,
-                        after: renderedAfter.data,
-                        ...(entryRef ? { entryRef } : {}),
-                        // Keyed record, key not found: the label is the bucket, not an identity.
-                        ...(leaf.recordKey && !entryRef ? { keyUnresolved: true as const } : {}),
-                    });
-                } else {
-                    // A partial run: report the bytes that did change rather than invent the ones that did not.
-                    const inside = `+${visibleStart - leaf.off}`;
-                    rows.push({
-                        label: leaf.label + inside,
-                        detail: leaf.detail + inside,
-                        text: `0x${toHex(beforeBytes)} → 0x${toHex(afterBytes)}`,
-                        filled: true,
-                        internal,
-                        before: `0x${toHex(beforeBytes)}`,
-                        after: `0x${toHex(afterBytes)}`,
-                    });
-                }
-            }
-
-            stateOffset = Math.max(valueEnd, stateOffset + 1);
+            decoded.push({ ...change, value, entry: change.entry && { ...change.entry, key: await keyOf(change.entry) } });
+        } else if (change.kind === "bit") {
+            decoded.push({ ...change, entry: change.entry && { ...change.entry, key: await keyOf(change.entry) } });
+        } else {
+            decoded.push(change);
         }
     }
 
-    return collapseEntries(rows);
+    return decoded;
+}
+
+// Stage three: rows. A record's changes all describe one entry, so they read as one line labelled by the key the contract wrote; the bucket stays on the full path.
+
+// What the other rows of an entry say about it: the flag that opened or closed the slot, and which record parts have a row that found its key.
+type EntryFacts = { flag?: { to: number }; hasKeyRow: boolean; hasValueRow: boolean; namedByValue: boolean };
+type DecodedEntry = EntryRef & { key?: EntryKey };
+
+// The map key tying every change of one container entry together: container path + slot.
+const groupOf = (entry: EntryRef) => `${entry.container.detail}#${entry.slot}`;
+
+// A flag's new value as the row's change kind: 1 -> new, 2 -> removed, anything else -> undefined.
+const changeOf = (flag: { to: number } | undefined): "new" | "removed" | undefined => (flag?.to === 1 ? "new" : flag?.to === 2 ? "removed" : undefined);
+
+// The key an entry's rows are named by. A record is zeroed when its slot is vacated, so only an arriving entry still has its key in the after image,
+// and a key read back after a removal is those zeros — refused, so the row falls back to the bucket rather than naming a lie.
+function namingKey(key: EntryKey, flag: EntryFacts["flag"]): string | undefined {
+    if ("fetched" in key) {
+        return flag?.to === 2 ? undefined : key.fetched;
+    }
+    return flag && flag.to !== 1 ? key.before : key.after;
+}
+
+// An entry that just arrived has a zero before image, so `= v` says more than `0 → v`; one that left keeps its arrow, since the value it held is what matters.
+function entryText(before: string, after: string, flag: EntryFacts["flag"]): string {
+    if (flag?.to === 1) {
+        return `= ${after} (new)`;
+    }
+    if (flag?.to === 2) {
+        return `${before} → (removed)`;
+    }
+    return `${before} → ${after}`;
+}
+
+function entriesOf(decoded: DecodedChange[]): Map<string, EntryFacts> {
+    const entries = new Map<string, EntryFacts>();
+    const factsOf = (entry: EntryRef) => {
+        const group = groupOf(entry);
+        const facts = entries.get(group) ?? { hasKeyRow: false, hasValueRow: false, namedByValue: false };
+        entries.set(group, facts);
+        return facts;
+    };
+    const entryRows = decoded.flatMap((change) =>
+        (change.kind === "value" || change.kind === "bit") && change.entry ? [{ change, entry: change.entry }] : [],
+    );
+
+    // Flags first: whether a value row can name its entry depends on the flag, so that question comes second.
+    for (const { change, entry } of entryRows) {
+        if (entry.part === "flag" && change.kind === "bit") {
+            factsOf(entry).flag = { to: change.to };
+        } else if (entry.key && entry.part === "value") {
+            factsOf(entry).hasValueRow = true;
+        } else if (entry.key && entry.part === "key") {
+            factsOf(entry).hasKeyRow = true;
+        }
+    }
+    for (const { entry } of entryRows) {
+        if (entry.part === "value" && entry.key && namingKey(entry.key, factsOf(entry).flag) !== undefined) {
+            factsOf(entry).namedByValue = true;
+        }
+    }
+
+    return entries;
+}
+
+// A key or value row of a record, named by the entry's key; `before`/`after` are the row's own images as text.
+function recordRow(physical: StateDiffLine, entry: DecodedEntry, before: string, after: string, facts: EntryFacts): StateDiffLine {
+    const key = entry.key && namingKey(entry.key, facts.flag);
+    if (key === undefined) {
+        // Keyed record, key not found: the label is the bucket, not an identity, and the row says so.
+        return entry.part === "value" ? { ...physical, keyUnresolved: true } : physical;
+    }
+
+    const label = `${entry.container.label}[${key}]${entry.suffix}`;
+    if (entry.part === "value") {
+        return { ...physical, label, text: entryText(before, after, facts.flag), change: changeOf(facts.flag) };
+    }
+
+    // The entry line already names the key, so a key row is noise — unless nothing else carries the entry, as with a value that was and stays zero.
+    if (facts.namedByValue) {
+        return { ...physical, internal: true };
+    }
+    if (facts.hasValueRow || !facts.flag) {
+        return physical;
+    }
+    return { ...physical, label, text: facts.flag.to === 1 ? "(new)" : facts.flag.to === 2 ? "(removed)" : physical.text, change: changeOf(facts.flag) };
+}
+
+// A flag row stays bookkeeping unless it is all the entry left behind: a key and value that both stayed zero write no row of their own.
+function flagRow(physical: StateDiffLine, entry: DecodedEntry, to: number, facts: EntryFacts): StateDiffLine {
+    const key = entry.key && !("fetched" in entry.key) ? (to === 1 ? entry.key.after : to === 2 ? entry.key.before : undefined) : undefined;
+    if (key === undefined || facts.hasValueRow || facts.hasKeyRow) {
+        return physical;
+    }
+    return { ...physical, label: `${entry.container.label}[${key}]`, text: to === 1 ? "(new)" : "(removed)", internal: false, change: changeOf({ to }) };
+}
+
+// One decoded change -> its final row; a change inside a container record is named by its entry here and nowhere else.
+function rowOf(change: DecodedChange, entries: Map<string, EntryFacts>): StateDiffLine {
+    const facts = (entry: EntryRef) => entries.get(groupOf(entry)) ?? { hasKeyRow: false, hasValueRow: false, namedByValue: false };
+
+    switch (change.kind) {
+        case "unknown":
+            return { label: `@${change.stateOffset}`, detail: `@${change.stateOffset}`, text: "(outside any known field)", filled: false, internal: false };
+
+        case "partial": {
+            const inside = `+${change.offsetInValue}`;
+            const before = `0x${toHex(change.bytes.before)}`;
+            const after = `0x${toHex(change.bytes.after)}`;
+            return {
+                label: change.names.label + inside,
+                detail: change.names.detail + inside,
+                text: `${before} → ${after}`,
+                filled: true,
+                internal: change.role === "internal",
+                before,
+                after,
+            };
+        }
+
+        case "bit": {
+            const physical = {
+                label: change.names.label,
+                detail: change.names.detail,
+                text: `${change.from} → ${change.to}`,
+                filled: true,
+                internal: change.role === "internal",
+                before: change.from,
+                after: change.to,
+            };
+            if (!change.entry) {
+                return physical;
+            }
+            return change.entry.part === "flag"
+                ? flagRow(physical, change.entry, change.to, facts(change.entry))
+                : recordRow(physical, change.entry, String(change.from), String(change.to), facts(change.entry));
+        }
+
+        case "value": {
+            const text = `${change.value.before.text} → ${change.value.after.text}`;
+            const physical = {
+                label: change.names.label,
+                detail: change.names.detail,
+                text: change.role === "count" ? `${text} entries` : text,
+                filled: true,
+                internal: change.role === "internal",
+                before: change.value.before.data,
+                after: change.value.after.data,
+            };
+            if (!change.entry) {
+                return physical;
+            }
+            return recordRow(physical, change.entry, change.value.before.text, change.value.after.text, facts(change.entry));
+        }
+    }
+}
+
+// Decoded changes -> one row each, in state order.
+function renderRows(decoded: DecodedChange[]): StateDiffLine[] {
+    const entries = entriesOf(decoded);
+    return decoded.map((change) => rowOf(change, entries));
 }
