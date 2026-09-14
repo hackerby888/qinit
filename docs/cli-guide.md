@@ -1189,9 +1189,11 @@ Fields are separate HTTP reads. Large arrays and compact `BitArray` words are
 read in 4 MiB pages. An `Array` field is not a scalar row: it becomes a block
 of its own, one row per nonzero element, in the position its field is declared.
 Bit arrays use the same indexed block model and display every set bit in logical
-LSB-first order, collapsing zero runs and ignoring unused padding bits above
-their declared length. A failed read is reported as incomplete rather than
-being mistaken for empty state.
+LSB-first order, collapsing zero runs. A `BitArray` under 64 bits still stores a
+whole word, and core's `set(i)` masks only the word index, so an out-of-range
+`set` lands past the declared length; those bits are listed after the block as
+`(past capacity N)` and are not counted. A failed read is reported as
+incomplete rather than being mistaken for empty state.
 
 ### Step 4: read the occupied HashMap bytes
 

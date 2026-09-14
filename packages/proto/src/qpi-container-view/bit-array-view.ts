@@ -76,6 +76,23 @@ export class QpiBitArrayView {
         }
     }
 
+    // core masks only the word index, so set(i) with capacity <= i < 64 lands in the last word's tail and get(i) reads it back.
+    // only a capacity under 64 has such a tail.
+    async *setBitsPastCapacity(): AsyncIterable<number> {
+        const storageBits = this.type.size * 8;
+        if (storageBits === this.capacity) {
+            return;
+        }
+
+        const firstByte = this.capacity >> 3;
+        const bytes = await readQpiBytes(this.source, firstByte, this.type.size - firstByte);
+        for (let index = this.capacity; index < storageBits; index++) {
+            if (bitAt(bytes, index - firstByte * 8)) {
+                yield index;
+            }
+        }
+    }
+
     private assertIndex(index: number): void {
         if (!Number.isSafeInteger(index) || index < 0 || index >= this.capacity) {
             throw new RangeError(`BitArray index ${index} is outside 0..${this.capacity - 1}`);

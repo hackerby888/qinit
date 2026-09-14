@@ -492,6 +492,33 @@ async function readBitArrayBlock(
     }
 
     addZeroRange(nextIndex, view.capacity - 1);
+
+    // bits past the capacity are a contract writing an out-of-range index; get(i) still sees them, so they show rather than vanish.
+    const addPastCapacityRange = (start: number, end: number) => {
+        const count = end - start + 1;
+        lines.push({
+            label: start === end ? `[${start}]` : `[${start}..${end}]`,
+            text: `=1${count > 1 ? ` ×${count}` : ""} (past capacity ${view.capacity})`,
+            filled: true,
+        });
+    };
+    let runStart: number | undefined;
+    let runEnd = -1;
+    for await (const index of view.setBitsPastCapacity()) {
+        if (runStart !== undefined && index === runEnd + 1) {
+            runEnd = index;
+            continue;
+        }
+        if (runStart !== undefined) {
+            addPastCapacityRange(runStart, runEnd);
+        }
+        runStart = index;
+        runEnd = index;
+    }
+    if (runStart !== undefined) {
+        addPastCapacityRange(runStart, runEnd);
+    }
+
     return { lines, setCount };
 }
 

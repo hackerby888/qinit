@@ -63,7 +63,7 @@ type EntryKey = { before: string; after: string } | { fetched: string };
 type ChangeOf<Value, Entry> =
     | { kind: "value"; names: Names; role: MemberRole; value: Value; entry?: Entry }
     | { kind: "partial"; names: Names; role: MemberRole; offsetInValue: number; bytes: ImagePair }
-    | { kind: "bit"; names: Names; role: MemberRole; from: number; to: number; entry?: Entry }
+    | { kind: "bit"; names: Names; role: MemberRole; from: number; to: number; pastCapacity?: number; entry?: Entry }
     | { kind: "unknown"; stateOffset: number };
 type Change = ChangeOf<ImagePair & { type: AbiType }, EntryRef>;
 type DecodedChange = ChangeOf<{ before: Rendered; after: Rendered }, EntryRef & { key?: EntryKey }>;
@@ -139,7 +139,8 @@ type RecordsRegion = Extract<ContainerRegion, { kind: "records" }>;
 type RecordScope = { part: "key" | "value"; container: Names; slot: number; member: string; keyStart: number; keyType: AbiType };
 
 // A packed run: `indexCount` entries of `bitsPerIndex` bits from an absolute state offset.
-type BitRun = { start: number; size: number; bitsPerIndex: number; indexCount: number };
+// `capacity` set only when the run stores more indices than the container holds, as a small BitArray's last word does.
+type BitRun = { start: number; size: number; bitsPerIndex: number; indexCount: number; capacity?: number };
 
 // The first and last index of a strided run that share a byte with the window — a 545 MB map's records or flags are never walked whole.
 function visibleIndices(window: ChangedWindow, start: number, stride: number, count: number): [number, number] {
@@ -236,7 +237,9 @@ function walkType(walk: Walk, names: Names, start: number, type: AbiType, scope?
         case AbiTypeKind.BIT_ARRAY: {
             const entry = scope && entryOf(scope, names.label);
             const entryAt = entry && ((index: number) => ({ ...entry, suffix: `${entry.suffix}[${index}]` }));
-            compareBits(walk, names, { start, size: type.size, bitsPerIndex: 1, indexCount: type.bitCount }, "payload", entryAt);
+            // the whole storage word, not just bitCount: core's set(i) only masks the word index, so a small BitArray's tail bits are writable.
+            const run = { start, size: type.size, bitsPerIndex: 1, indexCount: type.size * 8, capacity: type.bitCount };
+            compareBits(walk, names, run, "payload", entryAt);
             return;
         }
 
@@ -398,7 +401,8 @@ function compareBits(walk: Walk, names: Names, run: BitRun, role: MemberRole, en
         if (from === undefined || to === undefined || from === to) {
             continue;
         }
-        walk.changes.push({ kind: "bit", names: descend(names, `[${index}]`), role, from, to, entry: entryAt?.(index) });
+        const pastCapacity = run.capacity !== undefined && index >= run.capacity ? run.capacity : undefined;
+        walk.changes.push({ kind: "bit", names: descend(names, `[${index}]`), role, from, to, pastCapacity, entry: entryAt?.(index) });
     }
 }
 
@@ -507,6 +511,7 @@ function entriesOf(decoded: DecodedChange[]): Map<string, EntryFacts> {
         entries.set(group, facts);
         return facts;
     };
+
     const entryRows = decoded.flatMap((change) =>
         (change.kind === "value" || change.kind === "bit") && change.entry ? [{ change, entry: change.entry }] : [],
     );
@@ -595,12 +600,16 @@ function rowOf(change: DecodedChange, entries: Map<string, EntryFacts>): StateDi
                 before: change.from,
                 after: change.to,
             };
+            const marked = (row: StateDiffLine) =>
+                change.pastCapacity === undefined ? row : { ...row, text: `${row.text} (past capacity ${change.pastCapacity})` };
             if (!change.entry) {
-                return physical;
+                return marked(physical);
             }
-            return change.entry.part === "flag"
-                ? flagRow(physical, change.entry, change.to, facts(change.entry))
-                : recordRow(physical, change.entry, String(change.from), String(change.to), facts(change.entry));
+            return marked(
+                change.entry.part === "flag"
+                    ? flagRow(physical, change.entry, change.to, facts(change.entry))
+                    : recordRow(physical, change.entry, String(change.from), String(change.to), facts(change.entry)),
+            );
         }
 
         case "value": {

@@ -198,6 +198,47 @@ test("BitArray view ignores padding and rejects invalid indexes and capacity", a
     expect(() => new QpiBitArrayView({ ...bitType, bitCount: 3 }, qpiSnapshotSource(bitBytes))).toThrow("positive power of two");
 });
 
+// core's set(i) masks only the word index, so under 64 bits the last word's tail is writable: logical bits stay logical, the tail is reported on its own.
+test("BitArray view reports bits set past its capacity apart from the logical bits", async () => {
+    const readBits = async (bits: AsyncIterable<number>) => {
+        const indexes: number[] = [];
+        for await (const index of bits) {
+            indexes.push(index);
+        }
+        return indexes;
+    };
+
+    // capacity 2: the tail starts inside byte 0, so a partial byte has to split correctly
+    const twoBytes = new Uint8Array(8);
+    twoBytes[0] = 0b0010_0001;
+    twoBytes[7] = 0x80;
+    const two = new QpiBitArrayView(validated(ba(2)), qpiSnapshotSource(twoBytes));
+    expect(await readBits(two.setBits())).toEqual([0]);
+    expect((await two.entries()).map((entry) => entry.value)).toEqual([1, 0]);
+    expect(await readBits(two.setBitsPastCapacity())).toEqual([5, 63]);
+
+    // capacity 16: the tail starts on a byte boundary, and only the tail bytes are read
+    const sixteenBytes = new Uint8Array(8);
+    sixteenBytes[1] = 0x80;
+    sixteenBytes[2] = 0x01;
+    const tracked = sourceOf(sixteenBytes);
+    const sixteen = new QpiBitArrayView(validated(ba(16)), tracked.source);
+    expect(await readBits(sixteen.setBitsPastCapacity())).toEqual([16]);
+    expect(tracked.reads).toEqual([[2, 6]]);
+    expect(await readBits(sixteen.setBits())).toEqual([15]);
+
+    // capacity 1: every bit but the first is tail
+    const oneBytes = new Uint8Array(8).fill(0xff);
+    const one = new QpiBitArrayView(validated(ba(1)), qpiSnapshotSource(oneBytes));
+    expect(await readBits(one.setBits())).toEqual([0]);
+    expect(await readBits(one.setBitsPastCapacity())).toEqual(Array.from({ length: 63 }, (_, index) => index + 1));
+
+    // capacity 64 and up fills its words, so there is no tail and nothing to read
+    const full = sourceOf(new Uint8Array(8).fill(0xff));
+    expect(await readBits(new QpiBitArrayView(validated(ba(64)), full.source).setBitsPastCapacity())).toEqual([]);
+    expect(full.reads).toEqual([]);
+});
+
 test("HashMap view groups occupied ranges across flag words", async () => {
     const mapGeometry = hashMapGeometry(uint64Type, uint64Type, 64);
     const mapType: AbiHashMap = {

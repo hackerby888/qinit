@@ -178,6 +178,37 @@ test("a BitArray held by a keyed record reads by the key, arriving and changing"
     expect(await shown(fields, [changed])).toEqual(["bitValues[1][63] 0 → 1"]);
 });
 
+// core's set(i) masks only the word index, so a BitArray under 64 bits has a writable tail; a flip there moved bytes and must not go without a row.
+test("a bit flipped past a small BitArray's capacity is reported and marked, top level and as a keyed value", async () => {
+    const small = fieldsOf("Small", "BitArray<2> bits; uint64 after;");
+    const flip = diffWindow(0, 16, undefined, (bytes) => {
+        bytes[0] = (1 << 1) | (1 << 5);
+        bytes[7] = 0x80;
+    });
+    expect(await shown(small, [flip])).toEqual(["bits[1] 0 → 1", "bits[5] 0 → 1 (past capacity 2)", "bits[63] 0 → 1 (past capacity 2)"]);
+
+    // a BitArray<16> value is one uint64 word, so the record layout is MAP's
+    const keyed = fieldsOf("KeyedSmall", "HashMap<uint64, BitArray<16>, 4> m;");
+    const record = MAP.recordStride;
+    const update = diffWindow(
+        0,
+        MAP.size,
+        (bytes) => {
+            writeLe(bytes, record, 7n);
+            setFlag(bytes, MAP.flagsOffset, 1, 1);
+            writeLe(bytes, MAP.populationOffset, 1n);
+        },
+        (bytes) => {
+            bytes[record + MAP.valueOffset + 2] = 1 << 4;
+        },
+    );
+    expect(await shown(keyed, [update])).toEqual(["m[7][20] 0 → 1 (past capacity 16)"]);
+
+    // 64 bits fill the word, so every index is a real one and nothing is marked
+    const full = fieldsOf("Full", "BitArray<64> bits;");
+    expect(await shown(full, [diffWindow(0, 8, undefined, (bytes) => (bytes[7] = 0x80))])).toEqual(["bits[63] 0 → 1"]);
+});
+
 test("no regions is no rows", async () => {
     expect(await stateDiffLines(ORDERS, [])).toEqual([]);
 });

@@ -516,23 +516,44 @@ test("readState: BitArray reads compact words and renders logical bits", async (
     expect(state.complete).toBe(true);
 });
 
-test("readState: BitArray ignores high padding bits", async () => {
+// core's set(i) masks only the word index, so BitArray<2>::set(5) writes a tail bit get(5) reads back; hiding it would hide the contract's bug.
+test("readState: BitArray bits past its capacity show as their own rows, outside the count", async () => {
     const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { BitArray<2> bits; }; INITIALIZE() {} };`;
     const calls: StateReadCall[] = [];
-    const bytes = new Uint8Array(8).fill(0xff);
+    const bytes = new Uint8Array(8);
+    bytes[0] = 0b0011_0101;
+    bytes[7] = 0x80;
 
     const state = await readState(fakeRpc(bytes, calls), 2, source, "SmallBits");
 
-    expect(calls).toEqual([{ slot: 2, off: 0, len: 1 }]);
+    expect(calls).toEqual([
+        { slot: 2, off: 0, len: 1 },
+        { slot: 2, off: 0, len: 8 },
+    ]);
     expect(state.fields).toEqual([]);
     expect(state.containers[0]).toMatchObject({
         kind: "bitarray",
-        occupiedSlots: 2,
+        occupiedSlots: 1,
         lines: [
             { label: "[0]", text: "=1", filled: true },
-            { label: "[1]", text: "=1", filled: true },
+            { label: "[1]", text: "=0 (skipped)", filled: false },
+            { label: "[2]", text: "=1 (past capacity 2)", filled: true },
+            { label: "[4..5]", text: "=1 ×2 (past capacity 2)", filled: true },
+            { label: "[63]", text: "=1 (past capacity 2)", filled: true },
         ],
     });
+});
+
+test("readState: a BitArray that fills its words has no tail to report", async () => {
+    const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { BitArray<64> bits; }; INITIALIZE() {} };`;
+    const calls: StateReadCall[] = [];
+
+    const state = await readState(fakeRpc(new Uint8Array(8).fill(0xff), calls), 2, source, "FullBits");
+
+    expect(calls).toEqual([{ slot: 2, off: 0, len: 8 }]);
+    expect(state.containers[0].occupiedSlots).toBe(64);
+    expect(state.containers[0].lines.every((line) => line.text === "=1")).toBe(true);
+    expect(state.containers[0].lines).toHaveLength(64);
 });
 
 // A container two structs down is still a container: it takes the block a top-level one would, named for its path, rather than a line of JSON in its parent.
