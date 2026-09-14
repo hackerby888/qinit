@@ -2304,3 +2304,81 @@ editor and was never part of that differential. How many of the 22 classes clang
 been measured; on the evidence here, at least the 13 hidden-member contracts were covered and the 9
 log-payload ones were not. Round 21 joined clang as a third oracle but asked the opposite question —
 whether clang refuses anything the others accept — so it does not answer this.
+
+## Round 29 — the editor's translation unit is a strict prefix of the build's
+
+Two of this campaign's own measurements disagreed. Round 21 recorded clang rejecting all 22 blind-spot
+contracts, both classes included. Round 28 measured clang saying nothing about the log payload, because
+the contract is well-formed C++. Both cannot be right, and which one is decides whether the log-payload
+fix closed anything a developer could see.
+
+Both are right, about different compilers. Asked of one real corpus contract per class:
+
+```
+log payload, field after _terminator   (16 in the corpus)
+  qinit editor  : __qinit_log_info payload _terminator must be the last field…
+  qinit backend : __qinit_log_info payload _terminator must be the last field…
+  clang         : REJECTS -> lhost_imports.h:174: static assertion failed due to requirement
+                  'sizeof(T) - __builtin_offsetof(T, _terminator) <= alignof(T)':
+                  Fields after _terminator are never logged
+
+enum constant hidden by a member fn    (13 in the corpus)
+  qinit editor  : 'Helper' names a member function of this contract, which hides…
+  qinit backend : 'Helper' names a member function of this contract, which hides…
+  clang         : REJECTS -> NsEnumConstantHiddenByMember.h:61:34: error: assigning to 'uint64'
+                  from incompatible type 'void (const QPI::QpiContextFunctionCall &, …)'
+```
+
+**The two rejections are not the same kind.** The hidden member is an error on the contract's own line 61,
+which needs nothing but the contract and its prefix — so clangd raises it in the editor too, as round 28
+measured. The log payload is a `static_assert` in `lhost_imports.h`, which the wrapper reaches only
+through `module_runtime.h` — and that include sits **after** the contract.
+
+`generateClangdConfig` builds the editor's prefix by truncating the wrapper at the contract include
+(`clangd-config.ts`, now `editorPrefixSource`). The generated `Desk.prefix.h` is 234 lines ending at
+`qpi_support.h`, and the string `_terminator` does not appear in it. So the editor's translation unit is a
+**strict prefix** of the build's, and every check core places after the contract is invisible to it by
+construction.
+
+Confirmed in the real editor rather than inferred. Round 28's probe stopped at the first diagnostic, and
+qinit's own arrives first, so it could not have seen a later clang wave. This round polled for over two
+minutes:
+
+```
++ 2s  qinit 1, other 0        +20s  qinit 1, other 0
++ 5s  qinit 1, other 0        +40s  qinit 1, other 0
++10s  qinit 1, other 0        +60s  qinit 1, other 0
+```
+
+clangd never speaks. The silence is structural, not a race.
+
+**How big the region is.** Walking core's includes from both halves of the wrapper and subtracting:
+
+```
+prefix closure (what the editor sees)   31 headers
+post-contract closure                   42 headers
+reachable only after the contract       23 headers
+static_asserts in that region           27
+```
+
+Of those 27, exactly **8 are parameterised on a type the contract author writes** — the log payload `T`,
+in `lhost_imports.h`, two rules across four log levels. The other 19 check core's own fixed structs and
+constants (`sizeof(issuance) == 32 + 1 + 7 + 1 + 7`, `sizeof(long) == 4`, tick-threshold ordering); no
+contract source can make them fire.
+
+**The class is closed today, by coincidence.** `log-payload.ts` implements both of core's rules —
+`TERMINATOR_TOO_EARLY` answers `offsetof(T, _terminator) >= 8` and `FIELD_AFTER_TERMINATOR` answers
+`sizeof(T) - offsetof(T, _terminator) <= alignof(T)` — plus three stricter ones core does not have. So
+qinit's analyzer is a superset, and the editor loses nothing. Nothing enforces that. A core release that
+adds a ninth user-parameterised assert to this region would go silent in the editor, and no test would
+notice.
+
+`post-contract-checks.test.ts` records the region: which headers past the prefix carry checks, how many
+each has, and the exact set of rules `lhost_imports.h` asserts. A core bump that changes any of it fails
+there instead of quietly widening the blind spot. Verified to fail by perturbing one count.
+
+**What this settles about the headline.** The 22 → 13 → 0 figure compares two qinit oracles. Round 28 said
+that omits clang and left the size of the omission unmeasured; this round measures it for both classes the
+figure closed. The 13 hidden-member contracts were already flagged by clangd in the editor — a developer
+was never blind to them. The 16 log-payload contracts were flagged by nothing the editor runs, so that fix
+is the editor's only source for the rule. Of the two classes the differential closed, one was real.

@@ -206,12 +206,17 @@ function ensureClangdConfig(workspaceRoot: string, databaseDir: string): { path:
     return { path, configured: true, rewritten: true };
 }
 
+// The editor compiles the contract behind this preamble, so its translation unit is a strict prefix of the
+// build's: whatever the wrapper includes after the contract, clangd never sees. Exported so a test can say so.
+export function editorPrefixSource(wrapper: string, contractFile: string): string {
+    const includeOffset = wrapper.indexOf(`#include "${contractFile}"`);
+    return includeOffset >= 0 ? wrapper.slice(0, includeOffset) : wrapper;
+}
+
 export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
     const details = sourceDetails(o);
     const wrapper = generateWasmWrapperSource(details.options);
-    const contractInclude = `#include "${details.contractFile}"`;
-    const includeOffset = wrapper.indexOf(contractInclude);
-    const preamble = includeOffset >= 0 ? wrapper.slice(0, includeOffset) : wrapper;
+    const preamble = editorPrefixSource(wrapper, details.contractFile);
     const prefixPath = join(details.dir, `${details.name}.prefix.h`);
     writeFileSync(prefixPath, preamble);
 
