@@ -2443,6 +2443,21 @@ ask the same question the lowering asks.
 Pinned by six fixtures, each checked against clang: the two that must report, and four that must not — the
 operator declared, a scalar key, an `id` key, and a comparing-free method.
 
+Verified against the corpus as well, where the check must never fire, since the generator writes no
+struct-keyed container:
+
+```
+6654 contracts through analyzeContract
+  clean            6613
+  reported errors    41      <- the same 41 round 26 recorded, unchanged
+  threw               0
+  hash-key reports    0
+```
+
+So the new rule adds no editor diagnostic anywhere in the corpus and throws on nothing. `bun test
+packages/compiler` is 1414 pass / 0 fail, sc-corpus included: 38 core contracts parsed, compiled to wasm
+and engine-loaded.
+
 ## Round 30 — the editor's own view, run over the corpus
 
 Round 29 measured what the editor cannot see. This round asks the other direction, which the campaign had
