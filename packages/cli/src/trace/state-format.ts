@@ -154,7 +154,7 @@ export function pastCapacityWarning(path: string, capacity: number, indexes: rea
 export function linkedListValueLines(value: { slot: number; value: unknown }[], valueType: AbiType, capacity: number, full: boolean): StateLine[] {
     const logical = value.map((entry, index) => ({
         label: `item[${index}] slot[${entry.slot}]`,
-        text: `= ${formatStateValue(entry.value, valueType, full)}`,
+        text: `= ${abiValueText(entry.value, valueType, { showAll: full })}`,
         filled: true,
     }));
     return logical.concat(
@@ -165,23 +165,30 @@ export function linkedListValueLines(value: { slot: number; value: unknown }[], 
     );
 }
 
-export function formatStateValue(value: unknown, type: AbiType, full: boolean, topLevel = false): string {
+// `showAll` lifts the 32-item cap (`… +N more (--all)`); `topLevel` lets a one-field struct read as its bare value.
+export type AbiValueTextOptions = { showAll?: boolean; topLevel?: boolean };
+
+// decoded abi value + its type -> display text: 1n as uint64 -> "1", [5, -6] as { sint32 x; sint32 y } -> "{x: 5, y: -6}", an id -> quoted, a BitArray -> index runs.
+// display only, not the `--in` encoding: "1uint64" comes from proto's input-format, and this never parses back.
+export function abiValueText(value: unknown, type: AbiType, { showAll = false, topLevel = false }: AbiValueTextOptions = {}): string {
     switch (type.kind) {
         case AbiTypeKind.BIT_ARRAY: {
             const bits = Array.isArray(value) ? value : [];
-            return formatBits(type.bitCount, (index) => Number(bits[index] ?? 0), full);
+            return formatBits(type.bitCount, (index) => Number(bits[index] ?? 0), showAll);
         }
         case AbiTypeKind.LINKED_LIST:
             return limitedParts(
-                linkedListValueLines(Array.isArray(value) ? (value as { slot: number; value: unknown }[]) : [], type.value, type.capacity, full).map(flatLine),
-                full,
+                linkedListValueLines(Array.isArray(value) ? (value as { slot: number; value: unknown }[]) : [], type.value, type.capacity, showAll).map(
+                    flatLine,
+                ),
+                showAll,
             ).join(", ");
         case AbiTypeKind.STRUCT: {
             if (!type.fields.length) {
                 return "{}";
             }
             const values = topLevel && type.fields.length === 1 ? [value] : Array.isArray(value) ? value : [];
-            const rawParts = type.fields.map((field, index) => formatStateValue(values[index], field.type, full, false));
+            const rawParts = type.fields.map((field, index) => abiValueText(values[index], field.type, { showAll }));
             // A one-field struct read as a whole field is its value, so it keeps the bare form.
             if (topLevel && type.fields.length === 1) {
                 return rawParts[0];
@@ -189,16 +196,16 @@ export function formatStateValue(value: unknown, type: AbiType, full: boolean, t
 
             const parts = limitedParts(
                 type.fields.map((field, index) => `${field.name || index}: ${rawParts[index]}`),
-                full,
+                showAll,
             );
             return `{${parts.join(", ")}}`;
         }
         case AbiTypeKind.ARRAY: {
             const values = Array.isArray(value) ? value : [];
-            return `[${limitedParts(groupedParts(values.map((element) => formatStateValue(element, type.element, full, false))), full).join(", ")}]`;
+            return `[${limitedParts(groupedParts(values.map((element) => abiValueText(element, type.element, { showAll }))), showAll).join(", ")}]`;
         }
         default:
-            return valueText(value, full);
+            return valueText(value, showAll);
     }
 }
 
@@ -207,11 +214,11 @@ export function scalarText(value: unknown, type: AbiType): string {
     if (typeof value === "string") {
         return value;
     }
-    return typeof value === "object" && value !== null ? formatStateValue(value, type, true, true) : String(value);
+    return typeof value === "object" && value !== null ? abiValueText(value, type, { showAll: true, topLevel: true }) : String(value);
 }
 
 // A struct key has to read like the value beside it, which takes the type — decoded structs are positional.
-export const keyLabel = (key: unknown, type?: AbiType) => (typeof key === "string" ? key : type ? formatStateValue(key, type, false) : jsonText(key));
+export const keyLabel = (key: unknown, type?: AbiType) => (typeof key === "string" ? key : type ? abiValueText(key, type) : jsonText(key));
 
 function gapLine(start: number, end: number, collection = false): StateLine {
     const count = end - start + 1;

@@ -15,7 +15,7 @@ import {
     containerLayoutOf,
     containerLines,
     flatLine,
-    formatStateValue,
+    abiValueText,
     holdsContainer,
     keyLabel,
     scalarText,
@@ -185,7 +185,7 @@ async function formatContainerView(field: StateField, source: QpiByteSource, ful
             // values render inline from decodeAbiValue, which keeps a BitArray's logical bits only; its past-capacity bits show in its own block and the diff, not here
             const formatted = entries.map((entry) => ({
                 slot: entry.slot,
-                text: `${keyLabel(entry.key, container.key)} = ${formatStateValue(entry.value, container.value, full)}`,
+                text: `${keyLabel(entry.key, container.key)} = ${abiValueText(entry.value, container.value, { showAll: full })}`,
             }));
             return {
                 stateLines: containerLines(container.capacity, formatted),
@@ -215,7 +215,7 @@ async function formatContainerView(field: StateField, source: QpiByteSource, ful
             const entries = await view.entries();
             const formatted = entries.map((entry) => ({
                 slot: entry.povSlot,
-                text: `${keyLabel(entry.pov)}: ${formatStateValue(entry.value, container.value, full)} (p${entry.priority})`,
+                text: `${keyLabel(entry.pov)}: ${abiValueText(entry.value, container.value, { showAll: full })} (p${entry.priority})`,
             }));
             return {
                 stateLines: containerLines(container.capacity, formatted, true),
@@ -259,7 +259,11 @@ export async function valueLines(bytes: Uint8Array, type: AbiType): Promise<Stat
         const slice = bytes.subarray(field.off, field.off + field.size);
 
         if (!field.container) {
-            lines.push({ label: field.name, text: formatStateValue(await decodeAbi(slice, field.abi!), field.abi!, true, true), filled: true });
+            lines.push({
+                label: field.name,
+                text: abiValueText(await decodeAbi(slice, field.abi!), field.abi!, { showAll: true, topLevel: true }),
+                filled: true,
+            });
             continue;
         }
 
@@ -465,7 +469,7 @@ async function readArrayBlock(
         addZeroRange(nextIndex, entry.index - 1);
         lines.push({
             label: `[${entry.index}]`,
-            text: formatStateValue(entry.value, type.element, true),
+            text: abiValueText(entry.value, type.element, { showAll: true }),
             filled: true,
         });
         setCount++;

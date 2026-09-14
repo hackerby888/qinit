@@ -21,7 +21,7 @@ import {
 import { AbiTypeKind, formatAbiType, type ContractEntry, type ContractIdl } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { describeTrace, mergePrints, type DecodedCheat, type DecodedTrace } from "../../trace/format";
-import { valueText, formatStateValue, bigintText } from "../../trace/state-format";
+import { valueText, abiValueText, bigintText } from "../../trace/state-format";
 import { entryLabel } from "../../trace/entry-label";
 import { pastCapacityWarnings } from "../../trace/state-diff";
 import { TraceView } from "../../trace/views";
@@ -421,7 +421,7 @@ function CallOneShot({
                     const empty = out == null || (typeof out === "object" && Object.keys(out).length === 0);
                     const ne = empty ? await nodeErr() : "";
                     // An explicit --out format overrides the IDL, and only the IDL type carries field names.
-                    const rendered = !outputFormat && entryIdl ? formatStateValue(out, entryIdl.output, showAll, true) : valueText(out, showAll);
+                    const rendered = !outputFormat && entryIdl ? abiValueText(out, entryIdl.output, { showAll, topLevel: true }) : valueText(out, showAll);
                     const outJson = !outputFormat && entryIdl ? decodedAbiToJson(out, entryIdl.output) : out;
                     const info = ne ? undefined : await contractInfo();
                     setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, out: rendered, outJson, address: info?.address, balance: info?.balance });

@@ -4,7 +4,7 @@ import { type DebugEntry } from "@qinit/core";
 import { Status, theme, truncEnd, truncMid, termCols } from "../ui";
 import { type DecodedTrace } from "./format";
 import { type DecodedState, type StateContainer, type ValueBlocks } from "./state-read";
-import { formatStateValue, jsonText, type StateLine } from "./state-format";
+import { abiValueText, jsonText, type StateLine } from "./state-format";
 import { sevColor } from "../ui";
 import { entryLabel } from "./entry-label";
 import { type StateDiffLine } from "./state-diff";
@@ -202,7 +202,7 @@ export function TraceView({
                     {l.name ? (
                         <Text>
                             {l.name}
-                            {l.typeName ? "·" + l.typeName : ""} <Text dimColor>{l.abi ? formatStateValue(l.values, l.abi, false) : jsonText(l.fields)}</Text>
+                            {l.typeName ? "·" + l.typeName : ""} <Text dimColor>{l.abi ? abiValueText(l.values, l.abi) : jsonText(l.fields)}</Text>
                         </Text>
                     ) : (
                         <Text dimColor>{l.size}B</Text>
