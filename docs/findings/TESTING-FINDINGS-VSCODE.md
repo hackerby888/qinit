@@ -578,6 +578,498 @@ contract actually reaches for. What round 5 got wrong was treating that as a gap
 rule no build enforces, over a name no contract author writes by accident, is not worth a false
 positive — and the person who writes one deliberately is reaching for the host context on purpose.
 
+## Round 18 — completion and IntelliSense, in depth
+
+Two sweeps over receiver shapes the first seventeen rounds never measured: 20 shapes covering the host
+context, mid-word prefixes, call arguments, conditions and loops, then 12 more covering mid-edit
+breakage, nesting and typedefs. 30 of 32 resolved. The two that did not are below.
+
+## E22 — the member fallback never walks a base class (downgraded: not reachable)
+
+`member-query.ts:223` and `:259` resolve a receiver's members with
+`programAnalysis.templateMethods.get(<type name>)` — a direct lookup keyed on the type's own name.
+There is no base-class walk anywhere in the file, so every inherited member is invisible.
+
+Two faces, one cause. The first is the host context:
+
+| receiver                  | offered | declared by core |
+| ------------------------- | ------: | ---------------: |
+| `qpi.` in a **function**  |      48 |               48 |
+| `qpi.` in a **procedure** |  **21** |      21 + **48** |
+
+`QpiContextProcedureCall` derives from `QpiContextFunctionCall`, so a procedure may call both sets.
+Verified by compiling each one inside a `PUBLIC_PROCEDURE`: `invocator`, `epoch`, `tick`, `originator`,
+`invocationReward` and `year` all produce a complete IDL, and none is offered.
+
+Measured against core's own 35 contracts:
+
+```
+qpi.* calls inside PROCEDURE bodies                  : 3976
+...of those, methods completion does not offer there : 2999  (75%)
+
+   1493  qpi.invocator()          108  qpi.epoch()
+   1100  qpi.invocationReward()    46  qpi.numberOfPossessedShares()
+
+contracts affected: 30 of 35
+```
+
+The two most-used are caller identity and payment amount — the access-control primitives of any
+procedure.
+
+The second face is a contract's own inheritance. `struct Derived : public Base` where `Base` declares
+`common` and `tag`: completing a `Derived` receiver offers only `extra`, while reading `thing.common`
+compiles.
+
+**Not reachable, measured.** The fallback runs only when clangd returns nothing or an all-`Text` list
+(`extension.ts:161-165`). Round 26 sampled the one window where that can happen — a live `clangd.restart`,
+which is also what a cold start looks like — asking `qpi.` in a procedure eight times across it:
+
+```
+healthy        -> 50 items, kinds Method=50, inherited 5/5
+during #1      -> 121 items, kinds Text=121, inherited 0/5
+during #2..#8  -> 50 items, kinds Method=50, inherited 5/5
+recovered      -> 50 items, kinds Method=50, inherited 5/5
+```
+
+Seven of eight samples had clangd answering completely. The one degraded sample did **not** show the
+fallback's 21-item list: it shows 121 `Text` items, which is the editor's word-scrape — meaning the
+fallback returned nothing at all there and `memberCompletions` fell through to the filtered scrape
+(`fallback.length > 0 ? fallback : kept`). So the "21 of 69" answer never reached the developer, in the
+only window where it could have.
+
+The 75% figure stands as written — it measures how much of core's procedure code _would_ be affected if
+the fallback were the one answering — but that antecedent does not hold for this receiver. E22 is a real
+inconsistency in the fallback's member resolution and a latent trap if the trigger conditions ever widen;
+it is not a defect a developer currently meets. Downgraded accordingly.
+
+**A note on how this was measured.** The probe restarted clangd inside the shared campaign suite and broke
+two sibling tests, which then read the same word-scrape. It was removed after answering its question; a
+restart probe needs its own workspace, not a shared one.
+
+## E23 — a single-line `for` with an initializer declines (latent, not reachable)
+
+`for (locals.i = 0; locals.i < 8; locals.i++) { locals.t = state.get().alpha; }` — completing
+`state.get().` on that line declines. Narrowed by elimination:
+
+| shape                                 | result       |
+| ------------------------------------- | ------------ |
+| `for` **header** receiver (E21)       | resolves     |
+| `for (init; …) { receiver }` one line | **declines** |
+| `for (; cond; step) { receiver }`     | resolves     |
+| `for (;;) { receiver }`               | resolves     |
+| same-line `while` / `if` / bare block | resolves     |
+| `for` body on its own line            | resolves     |
+| braceless `for` body, same line       | resolves     |
+
+The trigger is the initializer, not the step or the body. `statementOnLine` (`member-query.ts:181-203`)
+handles `AstKind.FOR` by pushing `[statement.initializer, statement.body]` and returning the first
+match, so when both sit on one line the initializer wins and the query resolves `locals.i = 0` instead
+of the receiver. The comment above it states the premise a one-line `for` violates: "The probe
+statement is alone on its line."
+
+Impact is small: **0 occurrences** of that shape in core's 35 contracts. The fix is to prefer the body
+over the initializer, or to match the receiver by column as well as line.
+
+**Not reachable, measured — the same conclusion as E22, for the same reason.** The table above was taken
+against `completeMembersAt` directly, which is the fallback. Asked in the real editor, on the same
+fixture, clangd answers the position itself and the fallback never runs:
+
+```
+                             editor (clangd first)     completeMembersAt alone
+pristine, no loop         ->  calls, recent             calls, recent
+multi-line for body       ->  calls, recent             calls, recent
+one-line for body (E23)   ->  calls, recent             undefined      <- the defect
+```
+
+So the defect in `statementOnLine` is real and reproduces at the unit level, but the developer does not
+meet it: the one-line `for` is ordinary C++, clangd parses it without trouble, and its answer is taken
+before the fallback is consulted (`extension.ts:161-165`). E23 stays open as a latent inconsistency, and
+becomes reachable only if the fallback ever becomes the one answering there.
+
+**A note on how this was measured.** The first pass of this probe read `completionItems(doc, needle, dot)`
+as "find `dot` on the line holding `needle`". It does not — it advances `dot.length` characters from the
+start of `needle`, so the cursor landed mid-identifier on the left-hand side and the editor answered
+`reward`, the one member of `Touch_locals`. That looked like a much larger defect than E23. The tell was
+the control: a shape that should have been healthy failed identically. Same lesson as rounds 22 and 23 —
+a uniform result across differently-shaped inputs is the measurement, not the code.
+
+## Round 19 — the gtest surface
+
+Round 18 noticed that `QpiDiagnostics.applies()` is gated on `isContractDoc`. This round measures what
+that costs on the surface it excludes. A gtest is where a developer builds calls against the contract
+under test, so it is where the index and payload matter most.
+
+Measured on the zoo workspace, the same project from both sides:
+
+| surface            | IDL hover                                            | own diagnostics | code actions | completion |
+| ------------------ | ---------------------------------------------------- | --------------: | -----------: | ---------: |
+| `contracts/Desk.h` | `Read` · index **1** · input (empty) · output uint64 |               0 |            1 |          2 |
+| `Desk.test.cpp`    | **(no hover)**                                       |               0 |        **0** |          4 |
+
+## E24 — two providers are registered on the gtest surface and can never answer there (not fixed)
+
+`extension.ts:481-486` registers both the IDL hover and the code actions for
+`**/*.{h,hpp,hxx,cpp,cc,cxx}` — `.cpp` included, so a gtest is in scope. Both read their data from
+`QpiDiagnostics`:
+
+```
+idl-hover.ts:20        this.diagnostics.analysisFor(doc)?.idl
+diagnostics.ts:63-64   private applies(doc) { return isContractDoc(doc); }
+diagnostics.ts:67-70   schedule(doc)  bails unless /\.(h|hpp|hxx)$/
+```
+
+`isContractDoc` requires a `.h/.hpp/.hxx` name **and** contract source, so a gtest fails both gates and
+`analysisFor` returns undefined. The providers are advertised on a surface that cannot serve them.
+
+The data to serve them already exists. `extension.ts:423` stores an analysis context for the gtest,
+pointing at the contract it exercises:
+
+```
+contractAnalysisContexts.set(doc.fileName, testAnalysisContext(sourceDetails));   // :423
+context: contractAnalysisContexts.get(doc.fileName),                              // :140, the completion path
+```
+
+That is why completion works in a gtest and the hover does not: completion reads the map, the hover
+reads `QpiDiagnostics`. The fix is to resolve the hover against the same context the completion path
+already uses, rather than widening `applies()` — widening it would run the QPI policy analyzer over a
+`.cpp` that is not a contract and light it up with rules that do not apply to it.
+
+Code actions are the lesser half: QPI's rules are contract rules, so offering none in a gtest is
+defensible. The hover is not — a gtest is precisely where a developer reads an entry's index and payload
+to build a call, and the answer is one map lookup away.
+
+## Round 20 — the blind spot, sized against the corpus
+
+Every previous editor-versus-compiler differential ran on a hand-written probe list. This round runs the
+real one: all 6 654 generated corpus contracts through both oracles, the editor's `analyzeContract` and
+the TypeScript backend, classifying every disagreement. `packages/vscode/scripts/corpus-blind-spot.ts`
+reproduces it in about six minutes.
+
+```
+6310 contracts compared (344 skipped)
+  agree, both clean                 6269
+  agree, both error                   19
+  editor silent, backend refuses      22   in 2 distinct classes
+  editor errors, backend clean         0
+```
+
+**Zero false positives in 6 310 contracts.** Whatever else is true of the editor, it does not squiggle
+code that builds — which is the property that makes a red squiggle worth reading.
+
+The 22 blind rows collapse to two classes, the rest being generated variants of the same two shapes.
+
+**A harness correction, recorded because the first run got it wrong.** The first pass reported **366**
+blind rows, 344 of them in the `intercontract` family with messages like
+`unsupported inter-contract call to 'RewardLedger' (no callee ID)`. Those are not the editor's blind
+spot: the generator pairs each intercontract caller with a callee it holds in memory and never writes to
+disk (`run-differential.ts:78`, `execute.ts:31`), so compiling a caller alone fails on the missing
+callee. The family is skipped, and the number is 22 rather than 366. The same contamination shape as
+round 12 — a harness that supplies less than the product does, read as a product defect.
+
+### A fifth E7 instance: a log payload whose terminator is not last
+
+`LogTerminatorFirst`, 9 variants. The backend refuses:
+
+```
+__qinit_log_info payload _terminator must be the last field; a field after it is never logged
+```
+
+The editor reports **0 errors and produces a complete IDL**. This is not one of the four probes E7
+records, and it is the worst-behaved of them: a field after the terminator is not a compile error the
+developer can see, it is a field that silently never reaches the log. The contract ships and the data is
+gone.
+
+### The enum-hiding row, confirmed at scale
+
+`NsEnumConstantHiddenByMember`, 13 variants: `'Helper' names a member function of this contract, which
+hides the file-scope enum constant`. E7's table already carries this as its first probe, measured once.
+It reproduces across every generated variant of the shape, so the row is a class rather than a one-off.
+
+Both classes share E7's cause: every blind diagnostic here is **uncoded**. They are raised while lowering
+a function body, carry a message and no code, and the editor stops before that phase runs.
+
+## Round 21 — three oracles on every corpus contract
+
+Round 20 compared the editor with the TypeScript backend, which structurally cannot see E7's worst row:
+a contract **clang** refuses while the backend stays quiet. This round runs the full-tier sweep (6 654
+contracts through clang and the backend, 30 minutes) and joins the editor's verdict onto every row.
+
+```
+  6596  clang=ok        backend=ok        editor=clean
+    22  clang=rejected  backend=rejected  editor=clean     <- the blind spot
+    19  clang=rejected  backend=rejected  editor=errors
+    17  clang=trap      backend=trap      editor=clean
+
+clang refuses, backend silent, editor silent: 0
+```
+
+Four results, in order of what they settle.
+
+**The blind spot is 22 contracts — 0.33% — and independently confirmed.** Round 20 found 22 by comparing
+the editor with the backend. Round 21 reaches the same 22 with clang as a third, independent oracle, and
+both compilers refuse every one of them. The two classes are the ones round 20 named: the log payload
+whose terminator is not last, and the enum constant hidden by a member function.
+
+**No contract in this corpus is refused by clang alone.** E7's table records `BitArray + 1` as a row
+where clang refuses and the backend is silent. That row is real as a probe, but the generated corpus
+contains no instance of it, so the backends agree on acceptance for all 6 654. The editor's gap is not
+"it trusts the wrong compiler" — it is the narrower and more tractable "it stops before the phase that
+raises these".
+
+**Zero false positives, from the clang side too.** There is no `clang=ok … editor=errors` bucket. Across
+6 654 contracts the editor never squiggles something clang accepts.
+
+**17 traps are not the editor's to catch.** `DivQpi` and friends compile under both backends and trap at
+runtime on particular inputs. No static pass catches those; they are listed here so the 22 is not read as 39.
+
+## Round 22 — every quick fix, against real contracts
+
+The fix differential has always run on 14 hand-written probes. This round injects a rule violation into
+real corpus contracts — one variant per archetype, 449 of them — and checks every fix the analyzer offers:
+did the diagnostic clear, did anything new appear, does the result still build.
+
+```
+skipped, original does not build standalone: 28
+injections 840 · fixes applied 1264
+  clean (cleared, nothing new, still builds) : 1259
+  diagnostic did not clear                   :    3
+  introduced a new error                     :    2
+  fixed source no longer builds              :    0
+```
+
+**99.6% of fixes are safe, and none breaks a build.** The E9/E10 class — a fix that hands back a file
+that no longer compiles — is closed on this evidence. All five failures are one archetype and one fix.
+
+**A harness correction, the third of its kind.** The first pass reported 84 broken builds, every one in the
+`intercontract` family. The precondition was "only mutate a contract that is clean", checked with the
+_editor_ — which is blind to the phase that rejects a caller whose callee is absent. So contracts that
+never built were mutated, and the fix was blamed for the missing callee. Requiring the original to build
+under the backend drops those 84 to 0. Rounds 12, 20 and 22 have all hit this: **a precondition has to be
+checked with the same oracle as the assertion.**
+
+## E25 — the with-locals fix corrupts a contract that shadows a name in a block (fixed)
+
+`namespaces/NsBlockScopeShadowChain`. The contract builds, and the editor reports two _warnings_:
+
+```
+qpi/stack-local line 66: Stack-local `tier` is forbidden in QPI …
+qpi/stack-local line 69: Stack-local `tier` is forbidden in QPI …
+```
+
+Applying the first, `Move into <fn>_locals struct (use *_WITH_LOCALS)`:
+
+```cpp
+  64|         locals.atOne = locals.tier;        // rewritten correctly
+  65|         {
+  66|         locals.tier = 20;                  // rewritten correctly, type dropped
+  67|         locals.atTwo = locals.tier;
+  68|         {
+  69|         uint64 locals.tier = 300;          // type kept AND name prefixed
+```
+
+`uint64 locals.tier = 300;` is not valid C++. The analysis goes from `idl=true` with two warnings to
+`idl=false` with three `compiler/syntax` errors: _Expected expression but got dot (.)_.
+
+The cause is the assumption the fix inherits from the backend's locals model — one slot per name per entry
+— which F217 already records as wrong for block scopes. Two declarations of `tier` exist in nested blocks;
+the fix for the first reaches the second, rewrites its identifier, and leaves its declaration keyword
+behind.
+
+This is a worse shape than E9 and E10. Those produced a file that failed to compile; this produces one
+that fails to **parse**, from a single click, on a contract that built. The three "diagnostic did not
+clear" rows are the same archetype: the second warning survives its own fix for the same reason.
+
+## Round 23 — where the squiggle lands, at scale
+
+E8 and E20 were both span defects found on hand-built fixtures. This round injects a violation at a
+**known** line into one variant per archetype and asks where the editor says it is.
+
+```
+brackets-in-state      n=420  on-line 420  wrong-line 0  no-diagnostic 0
+stack-local-in-entry   n=420  on-line 420  wrong-line 0  no-diagnostic 0
+unknown-type-in-state  n=420  on-line 420  wrong-line 0  no-diagnostic 0
+```
+
+**1 260 of 1 260 land on the exact line.** A clean negative: E8 and E20 hold across 420 real contracts of
+every shape the generator produces, including those carrying directives, nested namespaces and macros.
+
+The round cost three harness bugs, all caught before they were written up. The first two reported a
+uniform `+1` across every contract: a three-line insertion whose expected line was computed by arithmetic
+rather than searched, and an injection anchored on `struct StateData` that landed _between_ the
+declaration and its `{`, so the parser rightly flagged the brace. A defect that is exactly uniform across
+420 differently-shaped contracts is far more likely to be the measurement than the product. The harness
+now locates the expected line by **searching the mutated source for the marker**, the same technique
+`preprocessor-lines.test.ts` uses.
+
+## E25 — closed
+
+The fix declines where it cannot be correct, which is the same answer E9 and E10 reached.
+`source-policy.ts` now checks whether the name is declared more than once in the entry before offering the
+rewrite:
+
+```ts
+const shadowed = declarations.filter((other) => other.names.some((candidate) => candidate.text === name.text)).length > 1;
+```
+
+The warning and its message still appear; only the rewrite is withheld. Re-running round 22's sweep over
+the same 449 archetypes:
+
+|                          |   before |    after |
+| ------------------------ | -------: | -------: |
+| fixes offered            |     1264 |     1260 |
+| **clean**                | **1259** | **1259** |
+| introduced a new error   |        2 |    **0** |
+| diagnostic did not clear |        3 |        1 |
+
+The clean count is **unchanged**: exactly the four broken fixes stopped being offered and no safe one did.
+The remaining "did not clear" row is the harness, not a defect — that contract has three stack-locals, the
+injected one is fixed and its diagnostic clears, and the two declined `tier` warnings keep the code in the
+list. Verified directly: `idl` is still produced and the moved local is gone from the body.
+
+## Round 24 — the same input, a different moment
+
+The editor is one long-lived process that analyses many contracts through shared caches. Nothing had
+asked whether an answer depends on _when_ it was asked, or on the line endings the file happens to use.
+
+**Line endings: clean.** A violation injected as deep as line 407, on 249 contracts, in both encodings:
+
+```
+  LF    line + span both correct: 249/249
+  CRLF  line + span both correct: 249/249
+```
+
+`preprocessor-core.ts:68` normalises `\r\n` to `\n` while spans are reported against the original, so a
+per-line drift would have put a span ~400 characters wrong by that depth. It does not.
+
+**Analysis order: clean.** 300 contracts fingerprinted (IDL entries and every diagnostic code with its
+line), analysed forward, then in reverse, then forward again: **0 differ by order, 0 differ on repeat.**
+
+## E26 — the allowed-identifier cache is keyed on the core, but computed from the prefix (fixed)
+
+`qpiAllowedIdentifiers(prefixHeaderPath, corePath)` walks the include closure **starting at the prefix**,
+then cached the result under the core source root alone. Whichever prefix asked first decided the answer
+for every prefix afterwards:
+
+```
+before:  narrow-first:  narrow = 1021   wide = 1021     (wide should be 1563)
+         wide-first:    wide   = 1563   narrow = 1563   (narrow should be 1021)
+after:   narrow-first:  narrow = 1021   wide = 1563
+         wide-first:    wide   = 1563   narrow = 1021
+```
+
+Both directions are wrong in a way that matters: a wider contract silently loses 542 names it may legally
+write, or a narrower one is offered 542 it may not — which is the allow-set's entire purpose defeated.
+
+**Latent, and recorded as such.** A gtest returns before reaching this (`extension.ts:191`), and
+`contractPrefixPath` is only ever set on the contract path, so the two prefixes that differ most never
+meet here. Round 18 measured that siblings of one project walk to the same set, which is what keeps this
+from biting today. Nothing enforces that invariant, though, and the cache silently depends on it.
+
+The entry is keyed on the core root and the prefix path, and holds the prefix's **text** beside the set:
+the text decides whether the entry is still current, so a rewritten prefix is re-walked rather than served
+stale. Transitive headers are not hashed; the walk is the expensive part and the previous behaviour did not
+track them either.
+
+The first form of this fix put the text _in the key_, which fixed the correctness and introduced a leak —
+the extension rewrites that file on every save, so each revision retained a set of ~1 200 strings for the
+session. Measured after: 200 rewrites of one prefix hold one entry, and a warm call costs 3.5 µs against
+the 7.7 ms walk it avoids.
+
+## Round 25 — the IDL the editor shows against the IDL that ships
+
+Every hover index, every payload size, every generated client reads the editor's IDL. Nobody had checked
+it against the one the backend actually emits. Both were built for every corpus contract and compared on
+entry names, entry indexes, input and output sizes, state layout and `sysprocMask`:
+
+```
+compared 6269 contracts (385 skipped)
+  entries (name, index, in/out size) match : 6269/6269
+  state layout (size, format) match        : 6269/6269
+  sysprocMask match                        : 6269/6269
+```
+
+A clean negative, and a broad one: E13 was a hover reading the _right_ IDL against the wrong word, and
+this settles that the data underneath it is sound.
+
+## E7 — the log-payload class, closed
+
+Round 20 found a log payload whose `_terminator` is not last: the backend refuses, the editor is silent,
+and every field after the terminator is never logged. Tracing it did not end where E7 predicted.
+
+`analyzer.test.ts` already asserted the editor reports this, and it does — for `LOG_INFO(locals.message)`.
+The corpus contracts write `LOG_INFO(state.mut().inner.scratch.emitMessage)`. Holding the defect fixed and
+varying only the spelling:
+
+| payload                                 | editor     | backend |
+| --------------------------------------- | ---------- | ------- |
+| `locals.message`                        | reports    | refuses |
+| `locals.inner.emitMessage`              | **silent** | refuses |
+| `state.mut().msg`                       | reports    | refuses |
+| `state.mut().inner.emitMessage`         | **silent** | refuses |
+| `state.mut().scratch.inner.emitMessage` | **silent** | refuses |
+
+So it was never about `state.mut()`, and never about the lowering phase: `resolvePayload`
+(`log-call-validation.ts`) resolved a payload **one field below its root and no deeper**, and said so in a
+comment — "deeper chains need codegen's typedef and template member-type resolution, so they fall
+through". `layoutOfType` already follows typedefs and template bindings, so the chain can simply be walked,
+one hop at a time, falling through exactly as before the moment a hop does not resolve.
+
+Measured on the corpus, before and after:
+
+|                                | before |    after |
+| ------------------------------ | -----: | -------: |
+| agree, both clean              |   6269 | **6269** |
+| agree, both error              |     19 |       28 |
+| editor silent, backend refuses |     22 |   **13** |
+| editor errors, backend clean   |      0 |    **0** |
+
+The nine log-payload contracts moved from blind to caught, the blind spot fell 41%, and **the 6 269
+contracts that build stayed clean** — the property that matters, since a wrong walk would have invented
+errors in working code. One class remains blind: the enum constant hidden by a member function.
+
+## Round 26 — the blind spot reaches zero
+
+The one class left after round 25 was `'Helper' names a member function of this contract, which hides the
+file-scope declaration` — 13 corpus contracts, every one of them the shape
+
+```cpp
+enum Kind { Helper = 3, Other = 4 };
+...
+PRIVATE_FUNCTION(Helper) { ... }
+PUBLIC_PROCEDURE_WITH_LOCALS(Assign) { state.mut().kind = Helper; }
+```
+
+Unlike the log payload, this one **is** E7's documented shape. The check lives at
+`value-expression.ts:123` — inside expression lowering, in the phase the editor never runs — and it fires
+on any identifier reaching a value position, which is knowledge only lowering has.
+
+Duplicating that scope logic early was the obvious move and the wrong one: the campaign's most valuable
+measured property is **0 false positives in 6 269 building contracts**, and a check that guesses at value
+position would spend it. There is a subset that needs no guessing, though — a bare identifier on the right
+of an assignment is a value read in every shape C++ permits, and all 13 contracts are exactly that.
+
+`validateHiddenMemberReads` (`hidden-member-validation.ts`) runs in module analysis beside
+`validateLogCalls`, over the same set of state-parameter functions lowering means by `hasStateParam`. It is
+deliberately narrower than the lowering check: it reports only the assignment shape, and leaves every other
+value position to lowering, which still catches them for the build.
+
+```
+                                   round 20   round 25   round 26
+  agree, both clean                   6269       6269       6269
+  agree, both error                     19         28         41
+  editor silent, backend refuses        22         13          0
+  editor errors, backend clean           0          0          0
+```
+
+**The editor's blind spot on this corpus is zero, and the 6 269 contracts that build are still clean.**
+Checked separately: the backend reports the read once, not twice, so the earlier check does not duplicate
+the one in lowering — editor and backend now produce the same single diagnostic on the same line.
+
+E7 is not closed in general. It records seven error sites in the unreached phase and this round moved one
+of them; `BitArray + 1` and the rest still have no corpus instance to measure against. What is closed is
+the measurable statement: on 6 654 generated contracts, there is no longer a case where the build refuses
+and the editor says nothing.
+
 ## E7 — the editor stops before the compiler does (not fixed)
 
 `analyzeContract` runs the frontend and `prepareContractModule`, and stops. It never lowers a function
@@ -1770,3 +2262,45 @@ drop-reporting path round 8 added keeps its end-to-end coverage, and `onDropped`
 too, which the agent survey found it had never had.
 
 Pinned findings: **two** — E7 and E17.
+
+## Round 28 — which oracle actually speaks, for the two E7 shapes that were fixed
+
+E22 and E23 both turned out to be defects a developer never meets, because clangd answers the position
+first. The same question applies to the two E7 instances this branch moved: the blind-spot differential
+compares `analyzeContract` against `compileContractWithTypeScript` — **two qinit oracles, with clang not
+in the loop** — but the real editor runs clangd alongside them. Measured by injecting each shape into the
+zoo workspace and reading every diagnostic on the document by source:
+
+```
+hidden member read  -> qinit 1, other 1
+    [clang]           line 10: Assigning to 'uint64' from incompatible type 'void (const QPI::QpiContextFunctionCall&…)'
+    [qinit-compiler]  line 10: 'Helper' names a member function of this contract, which hides the file-scope declaration…
+
+nested log payload  -> qinit 1, other 0
+    [qinit-compiler]  line 13: __qinit_log_info payload _terminator must be the last field; a field after it is never logged
+```
+
+The two instances are not the same kind of finding:
+
+- **The nested log payload was genuinely invisible.** `_terminator must be last` is qinit's rule about
+  logging layout, not a C++ rule; the contract is well-formed C++ throughout, so clang has nothing to say.
+  Nine corpus contracts silently lost every field after the terminator, and nothing in the editor
+  mentioned it. This one closes a real blind spot.
+- **The hidden member read was already squiggled**, on the same line, by clang. Assigning a member
+  function to a `uint64` is a plain C++ type error. So the premise "the editor says nothing" is wrong for
+  this shape, exactly as it was for E22 and E23.
+
+**Why this one is still worth keeping, unlike E22 and E23.** Diagnostics *stack*; completion does not.
+The member fallback runs only when clangd returns nothing (`extension.ts:161-165`), so when clangd answers,
+the fallback's answer is discarded and fixing it changes nothing anyone sees. Both diagnostics are shown.
+What the qinit check adds is a message that names the cause — a member function hiding a file-scope
+declaration — where clang reports the symptom, an incompatible `void (const QPI::QpiContextFunctionCall&…)`.
+It also matches the build's message byte for byte, so editor and build agree. That is a smaller claim than
+"the editor was blind", and it is the accurate one.
+
+**What this costs the headline.** The 22 → 13 → 0 figure is exact for what it measures: the editor's own
+analysis against the build. It is not a claim that a developer saw nothing, because clang sits in the real
+editor and was never part of that differential. How many of the 22 classes clang already covered has not
+been measured; on the evidence here, at least the 13 hidden-member contracts were covered and the 9
+log-payload ones were not. Round 21 joined clang as a third oracle but asked the opposite question —
+whether clang refuses anything the others accept — so it does not answer this.

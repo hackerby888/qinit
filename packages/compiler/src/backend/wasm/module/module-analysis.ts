@@ -10,6 +10,7 @@ import { registerContractCallables, type ContractCallableCatalog } from "./contr
 import { findContractStruct } from "./contract-discovery";
 import { contextLayoutFromCodegen, type LibrarySymbolIndex, registerLibraryMetadata } from "./library-index";
 import { validateEntryContextConversions } from "./entry-context-validation";
+import { validateHiddenMemberReads } from "./hidden-member-validation";
 import { validateLogCalls } from "./log-call-validation";
 import { ContractLayoutResolver } from "./named-layouts";
 import { type ContractRegistration, registerEntryDispatchTargets, validateContractRegistrations, validateRegistrationInterfaces } from "./registrations";
@@ -101,6 +102,7 @@ export function prepareContractModule(request: PrepareContractModuleRequest): Pr
     };
 
     validateLogCalls(prepared);
+    validateHiddenMemberReads(prepared);
     validateEntryContextConversions(prepared);
     return prepared;
 }

@@ -402,6 +402,94 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(findings[0].span.line).toBe(LOG_CALL_LINE);
     });
 
+    // A payload reached through a nested field is the shape core's own contracts use; the backend refuses it
+    // either way, so the editor staying quiet meant a log silently losing every field after the terminator.
+    test("a defect is reported through a nested payload, at any depth", () => {
+        const nested = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct LogMessage { uint32 _contractIndex; uint32 _type; uint64 value; sint8 _terminator; uint64 checksum; };
+  struct Inner { LogMessage emitMessage; };
+  struct Scratch { Inner inner; };
+  struct StateData { uint32 calls; Scratch scratch; };
+  struct Emit_input { uint64 value; }; struct Emit_output {};
+  struct Emit_locals { Inner inner; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Emit) {
+    PAYLOAD_CALL
+    state.mut().calls += 1;
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Emit, 1); }
+};`;
+        const after = "__qinit_log_info payload _terminator must be the last field; a field after it is never logged";
+
+        for (const call of ["LOG_INFO(locals.inner.emitMessage);", "LOG_INFO(state.mut().scratch.inner.emitMessage);"]) {
+            const findings = compilerDiagnostics(nested.replace("PAYLOAD_CALL", call));
+            expect(findings.map((item) => item.message)).toEqual([after]);
+        }
+    });
+
+    // The same depths with a well-formed payload must stay silent, or the walk has invented a defect.
+    test("a well-formed nested payload is not reported at any depth", () => {
+        const clean = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct LogMessage { uint32 _contractIndex; uint32 _type; uint64 value; sint8 _terminator; };
+  struct Inner { LogMessage emitMessage; };
+  struct Scratch { Inner inner; };
+  struct StateData { uint32 calls; Scratch scratch; };
+  struct Emit_input { uint64 value; }; struct Emit_output {};
+  struct Emit_locals { Inner inner; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Emit) {
+    PAYLOAD_CALL
+    state.mut().calls += 1;
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Emit, 1); }
+};`;
+
+        for (const call of ["LOG_INFO(locals.inner.emitMessage);", "LOG_INFO(state.mut().scratch.inner.emitMessage);"]) {
+            expect(compilerDiagnostics(clean.replace("PAYLOAD_CALL", call))).toEqual([]);
+        }
+    });
+
+    // Class scope is searched first, so a member function hides a file-scope constant of the same name.
+    // Lowering catches the read and the editor stops before that, so the plain assignment shape is checked early.
+    test("an assignment from a name a member function hides is reported", () => {
+        const hidden = `using namespace QPI;
+enum Kind { Helper = 3, Other = 4 };
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { uint64 kind; };
+  struct Helper_input { uint64 value; }; struct Helper_output { uint64 doubled; };
+  PRIVATE_FUNCTION(Helper) { output.doubled = input.value * 2; }
+  struct Assign_input { uint64 seed; }; struct Assign_output {};
+  PUBLIC_PROCEDURE(Assign) { state.mut().kind = Helper; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Assign, 1); }
+};`;
+        const findings = compilerDiagnostics(hidden);
+
+        expect(findings.map((item) => item.message)).toEqual([
+            "'Helper' names a member function of this contract, which hides the file-scope declaration of the same name — a function is not a value",
+        ]);
+        expect(findings[0].severity).toBe(DiagnosticSeverity.ERROR);
+    });
+
+    // The same contract without the collision must stay silent, or the check is reading the wrong thing.
+    test("an assignment from an enum constant nothing hides is not reported", () => {
+        const clean = `using namespace QPI;
+enum Kind { Marker = 3, Other = 4 };
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { uint64 kind; };
+  struct Helper_input { uint64 value; }; struct Helper_output { uint64 doubled; };
+  PRIVATE_FUNCTION(Helper) { output.doubled = input.value * 2; }
+  struct Assign_input { uint64 seed; }; struct Assign_output {};
+  PUBLIC_PROCEDURE(Assign) { state.mut().kind = Marker; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Assign, 1); }
+};`;
+
+        expect(compilerDiagnostics(clean)).toEqual([]);
+    });
+
     test("a scalar payload is reported as a non-struct", () => {
         const source = LOGGING_SOURCE.replace("LOG_INFO(locals.message);", "LOG_INFO(input.value);");
 

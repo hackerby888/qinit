@@ -174,7 +174,8 @@ function checkLogStatement(programAnalysis: ProgramAnalysis, roots: PayloadRoots
     programAnalysis.error(message, span);
 }
 
-// Depth-1 payloads only (locals.x / state.get().x); deeper chains need codegen's typedef and template member-type resolution, so they fall through.
+// A payload may sit several fields below its root. Each hop resolves through `layoutOfType`, which already
+// follows typedefs and template bindings; a hop that does not resolve falls through, reporting nothing.
 export function resolvePayload(programAnalysis: ProgramAnalysis, roots: PayloadRoots, expression: Expression): ResolvedPayload | null {
     const direct = rootLayout(roots, expression);
 
@@ -182,27 +183,41 @@ export function resolvePayload(programAnalysis: ProgramAnalysis, roots: PayloadR
         return direct.fields.size === 0 ? null : { layout: direct, type: null };
     }
 
-    if (expression.kind !== AstKind.MEMBER_ACCESS) {
-        return null;
+    // Walk out to the root, collecting the members to come back through in declaration order.
+    const members: string[] = [];
+    let rootExpression = expression;
+
+    while (rootExpression.kind === AstKind.MEMBER_ACCESS) {
+        members.unshift(rootExpression.member);
+        rootExpression = rootExpression.object;
     }
 
-    const base = rootLayout(roots, expression.object);
+    const base = rootLayout(roots, rootExpression);
 
     // An unresolved prefix and qpi.h's `typedef NoData <fn>_locals` both arrive as an empty layout, and neither says anything about the payload.
-    if (!base || base.fields.size === 0) {
+    if (!base || base.fields.size === 0 || members.length === 0) {
         return null;
     }
 
-    const field = base.fields.get(expression.member);
+    let layout: StructLayout | null = base;
+    let type: TypeSpec | null = null;
 
-    if (!field) {
-        return null;
+    for (const member of members) {
+        if (!layout) {
+            return null;
+        }
+
+        const field = layout.fields.get(member);
+
+        if (!field) {
+            return null;
+        }
+
+        type = field.type;
+        layout = programAnalysis.layoutOfType(field.type);
     }
 
-    return {
-        layout: programAnalysis.layoutOfType(field.type),
-        type: field.type,
-    };
+    return { layout, type };
 }
 
 function rootLayout(roots: PayloadRoots, expression: Expression): StructLayout | null {
