@@ -2040,6 +2040,98 @@ creates — a type straddling a window boundary, a key resolvable only from a si
 again during the round (`d6b7f86`, `7f8336f`) and touched `state-format.ts` and `state-read.ts` further,
 so that surface is best hunted against the newer tree rather than the one this round measured.
 
+# Round 8
+
+Round 8 found nothing. Two surfaces were hunted and both held, so what follows is the evidence that they
+held rather than a finding — a round that comes back empty still has to show its work, otherwise "no
+findings" is indistinguishable from "did not look".
+
+## The failed-field flagging
+
+`af1d96f flag failed state fields instead of matching their text` fixed a defect of exactly the class this
+engagement hunts: completeness searched each field's *rendered text* for the failure markers, so a struct
+member named `undecodable` made a healthy read report incomplete and exit 1. The question for this round
+was whether the fix is complete, and in particular whether the dangerous direction — a genuinely failed
+read reported as fine — was opened in the process.
+
+It was not.
+
+- The two sites that produce a failure message (`field.bad`, and the `catch` around the decode) are the
+  only two that set `failed`, and they set it adjacently. No other path writes a failure message.
+- `stateIsComplete` now reads `!fields.some(f => f.failed) && containers.every(c => c.status !== "error")`.
+  No text matching survives anywhere in completeness; the two remaining string occurrences in the CLI are
+  a renderer and a UI label, neither of which decides anything.
+- Probe `FailWords.h`: a struct that renders `{undecodable: 5, readFailed: 7}` — real data reading exactly
+  like an error message — gives `complete: True`, `failed=None`, **exit 0**.
+
+One lead inside this area was chased and closed. `qinit state --json` does **not** use the new flag; it
+still infers failure from a proxy:
+
+```ts
+value: field.data ?? null,
+error: field.data === undefined ? field.value : null
+```
+
+That is the same shape of mistake the commit had just removed from completeness, so every path that sets a
+slot value was traced. They cannot disagree: the only two sites that set `failed` are exactly the two that
+leave `data` unset, and the successful path assigns `data` last, so a throw anywhere in it leaves `data`
+undefined. The remaining way to break the proxy would be a *successful* decode that yields `undefined`.
+Probe `JsonShapes.h` exercised the shapes most likely to produce one — a one-field struct, a two-field
+struct, a one-field struct nested in another, a one-field struct of `id`, an `Array` — because a one-field
+struct is unwrapped by `decodedAbiToJson` and was the source of S2. All five decode cleanly, every field
+reports `error=null`, and the human view agrees with the JSON character for character, including
+`nestOne {only: 12}`.
+
+## The single-pass walk, under byte-level conservation
+
+`17b93ef` rewrote the walk to visit only the parts of each type that share a byte with a window. That is a
+sharper rule than the walk it replaced, so the edges it creates were checked against an oracle that knows
+nothing about qinit's opinion of them: dump the state before and after a call, compute the changed byte
+ranges directly, and require that rows and moved bytes agree in both directions.
+
+```
+BigPair adjacent (proc5)     bytes moved:    2 in 2 run(s)   rows: 2
+Far non-adjacent (proc6)     bytes moved:    2 in 2 run(s)   rows: 2
+Pad p1 earliest window       bytes moved:    1 in 1 run(s)   rows: 1
+MapDel record 0              bytes moved:   37 in 4 run(s)   rows: 5
+MapDel again (no-op)         bytes moved:    0 in 0 run(s)   rows: 0
+CONSERVATION: OK
+```
+
+The last line is the one that matters. A call that changes nothing produces no row, which is precisely
+S3's failure mode — a phantom row on every call touching the last window. The `Far` case covers two
+non-adjacent windows, which only exactly-adjacent merging joins, and `MapDel` covers a removal, where the
+record is zeroed and four separate runs move at once.
+
+## Two closed leads
+
+- `imageAt` bounds a key lookup against the individual side's `image.length` while `changedWindowsOf`
+  computes `end` from `Math.min(before.length, after.length)`. On a lopsided window those disagree.
+  Unreachable: `diffRegions` slices both images from the same range and `journalRegions` sizes `after` from
+  `before.length`, so the two are equal by construction. Reaching it would mean fabricating a
+  `DebugStateRegion`, which is not an oracle this engagement accepts.
+- `stateIsComplete` rejects only `status === "error"`, so a `collapsed` container leaves a read
+  `complete: true` despite its bytes never being read. Documented, deliberate: *"a collapsed block is
+  neither an error nor an incomplete read"* (`docs/cli-guide.md:1300`). Not a defect.
+
+## Three of my own errors, caught and corrected
+
+- The conservation run first reported two mismatches. Both were mine: `BigPair` takes three inputs and
+  `Far` takes two, and I had the procedure numbers swapped. Corrected, the battery is clean.
+- The environment control matched its own shell. `pgrep -f "index.tsx __serve"` and then
+  `pgrep -f "bun.*index.tsx __serve"` both match the bash process running the check. `nodepid.sh` now
+  selects on `argv[0]` being the bun binary, which cannot match the checking shell, and confirms one node
+  with `QINIT_STATE_DIFF=verify`.
+- Reported "could not confirm verify" as a result before diagnosing it as a harness fault. The environment
+  was correct throughout.
+
+## Numbers
+
+- 2 surfaces hunted, **0 findings**, 2 leads closed with the reason each was closed.
+- 12 conservation cases across window boundaries, non-adjacent windows, removals and a no-op: all agree.
+- 5 decode shapes probed for a `data === undefined` false positive: none produced one.
+- 3 tester errors caught and corrected.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
@@ -2674,3 +2766,123 @@ struct BitCap : public ContractBase
     }
 };
 ```
+
+## `FailWords.h` — a field whose text reads like an error
+
+Round 8. A struct whose decoded text contains the failure markers themselves, so a reader
+that decides completeness by matching text calls a healthy read incomplete.
+
+```cpp
+// State-inspection probe: a field whose DECODED text contains the failure markers.
+// af1d96f fixed completeness searching each field's rendered text for those markers, so a struct
+// member named `undecodable` made a healthy read report incomplete and exit 1.
+// `trap` renders as `{undecodable: N, readFailed: M}` — real data that reads like a failure message.
+using namespace QPI;
+
+struct FailWordsUnused
+{
+};
+
+struct FailWords : public ContractBase
+{
+    struct Trap
+    {
+        uint64 undecodable;
+        uint64 readFailed;
+    };
+
+    struct StateData
+    {
+        Trap trap;
+        uint64 marker;
+        HashMap<id, uint64, 8> m;
+    };
+
+    struct Set_input { uint64 a; uint64 b; };
+    struct Set_output {};
+    struct Mark_input { uint64 v; };
+    struct Mark_output {};
+    struct Put_input { id k; uint64 v; };
+    struct Put_output { sint64 idx; };
+
+    PUBLIC_PROCEDURE(Set)
+    {
+        state.mut().trap.undecodable = input.a;
+        state.mut().trap.readFailed = input.b;
+    }
+
+    PUBLIC_PROCEDURE(Mark)
+    {
+        state.mut().marker = input.v;
+    }
+
+    PUBLIC_PROCEDURE(Put)
+    {
+        output.idx = state.mut().m.set(input.k, input.v);
+    }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    {
+        REGISTER_USER_PROCEDURE(Set, 1);
+        REGISTER_USER_PROCEDURE(Mark, 2);
+        REGISTER_USER_PROCEDURE(Put, 3);
+    }
+};
+```
+
+
+## `JsonShapes.h` — decode shapes that could yield undefined
+
+Round 8. The field shapes most likely to decode to `undefined`, which `--json` would report as a
+read error since it infers failure from `data === undefined`.
+
+```cpp
+// State-inspection probe: field shapes whose decoded JSON might come back undefined.
+// `qinit state --json` infers a read failure from `data === undefined` rather than from the
+// `failed` flag, so any successful decode that yields undefined is reported as an error.
+// One-field structs are the suspect: decodedAbiToJson unwraps them.
+using namespace QPI;
+
+struct JsonShapesUnused
+{
+};
+
+struct JsonShapes : public ContractBase
+{
+    struct One { uint64 only; };
+    struct Two { uint64 a; uint64 b; };
+    struct NestOne { One inner; };
+    struct OneId { id who; };
+
+    struct StateData
+    {
+        One one;
+        Two two;
+        NestOne nestOne;
+        OneId oneId;
+        Array<uint64, 2> arr;
+        uint64 marker;
+    };
+
+    struct SetAll_input { uint64 v; id who; };
+    struct SetAll_output {};
+
+    PUBLIC_PROCEDURE(SetAll)
+    {
+        state.mut().one.only = input.v;
+        state.mut().two.a = input.v;
+        state.mut().two.b = input.v + 1;
+        state.mut().nestOne.inner.only = input.v + 2;
+        state.mut().oneId.who = input.who;
+        state.mut().arr.set(0, input.v + 3);
+        state.mut().arr.set(1, input.v + 4);
+        state.mut().marker = 999;
+    }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    {
+        REGISTER_USER_PROCEDURE(SetAll, 1);
+    }
+};
+```
+
