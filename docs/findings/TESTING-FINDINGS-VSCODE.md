@@ -2604,3 +2604,53 @@ silent while clangd reports it. That is the hidden-member pattern from round 29 
 blind spot, because the developer sees a squiggle on the right line from the other oracle. Duplicating it in
 qinit's analyzer would mean modelling core's proposal-type requirements, which is a large surface to
 re-implement for a message a developer already gets.
+
+## Round 33 — what an E17 rule would actually cost and catch
+
+E17 is pinned as a product decision: a migration that narrows a persisted field is silent in all three
+oracles, and the remedy is a new rule, which a testing round should not invent. That was the right call, but
+the decision was left with no numbers behind it. This round supplies them without making it.
+
+**Feasibility, first.** `layouts.resolve("OldStateData")` and `prepared.stateLayout` are both resolved in
+module analysis — `system-procedures.ts:117` and `build-idl.ts:65` already do it — which is the phase the
+editor reaches. The IDL carries both shapes fully expanded, nested structs included, so the comparison needs
+no new machinery.
+
+**Blast radius, over every migration that exists:**
+
+```
+core's own contracts     2 of 35 have a MIGRATE
+corpus variants          0 of 6654
+```
+
+The corpus cannot test migrations at all. Every migration finding in this campaign — E18, the migration
+oracle, E17 itself — came from hand-built fixtures, and that is not a choice but a necessity.
+
+**The prototype, run on both halves of the question:**
+
+```
+=== every real migration that exists ===
+NOST                       no narrowing
+QRAFFLE                    no narrowing
+
+=== the rows E17 names ===
+uint32 -> uint64           no narrowing                                        <- widening, correctly silent
+uint64 -> uint32           balance: uint64 to uint32 truncates                 <- caught
+sint64 -> uint64           balance: sint64 to uint64 turns negatives into…     <- caught
+uint64 -> uint64           no narrowing                                        <- unchanged, correctly silent
+```
+
+So the rule catches both rows E17 records, stays quiet on widening and on no change, and fires on **zero**
+of the contracts that exist. n = 2 is a weak number, but it is not a sample — it is the entire real-world
+population of migrating contracts.
+
+**What this leaves for the decision.** Cost today is zero; catch today is zero, because nobody is narrowing
+right now; the value is entirely as a tripwire for a migration someone writes later, on a failure that is
+irreversible and on-chain. Roughly forty lines, in the phase the editor reaches. Whether that trade is worth
+making, whether it warns or errors, and whether it lives in `qpi/*` policy or the compiler are still product
+questions, and they stay open — but they are now decidable.
+
+**One observation, not a finding.** NOST's migration goes from 29 fields to 28, and its new state opens with
+a different field entirely: the migration is a restructure, not a field-type tweak. A rule matching fields by
+name would say nothing about a field that was dropped, which is a separate question from narrowing and a
+larger one — dropping a field discards persisted data outright.
