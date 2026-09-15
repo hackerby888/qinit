@@ -2230,6 +2230,90 @@ home for a case covering mutation through a const accessor.
 - 1 hypothesis falsified before it could become a false finding.
 - Raw-dump oracle on both cells; `inArray[1]` empty as the arithmetic self-check.
 
+# Round 10
+
+Round 9's E2 was found sideways — a probe that would not build on the clang cell. This round asks whether
+it was one accessor or a class of them, with clang as the oracle for what QPI actually permits.
+
+## The battery
+
+`qpi_containers.h` declares exactly four public accessors returning a const reference:
+
+| Container | Accessor | Line |
+| --- | --- | --- |
+| `Array` | `const T& get(uint64) const` | 133 |
+| `SlowAnySizeArray` | `const T& get(uint64) const` | 268 |
+| `HashMap` | `const KeyT& key(sint64) const`, `const ValueT& value(sint64) const` | 371, 374 |
+| `LinkedList` | `const T& element(sint64) const` | 723 |
+
+One minimal contract per accessor, each mutating a `BitArray<64>` reached *through* it, compiled on both
+cells:
+
+```
+case            typescript  clang       verdict
+ArrGet          OK          REJECT      ** DIVERGENCE **
+MapValue        OK          REJECT      ** DIVERGENCE **
+MapKey          REJECT      REJECT      agree
+ListElem        OK          REJECT      ** DIVERGENCE **
+```
+
+Clang's diagnostic is the same in every rejection, and it names the contract precisely:
+
+```
+error: 'this' argument to member function 'set' has type 'const BitArray<64>', but function is not marked const
+```
+
+## E1 — three QPI accessors declared `const T&` accept mutation on the typescript cell, and the write lands
+
+Compiling is only half of it. Both divergent cases were deployed on the typescript cell, the state dumped
+before and after one call, and the changed bytes compared:
+
+```
+MapValue: 416 bytes, changed at [45, 408, 409]   marker bytes moved: 2   OTHER bytes moved: 1 -> [45]
+ListElem: 312 bytes, changed at [13, 304, 305]   marker bytes moved: 2   OTHER bytes moved: 1 -> [13]
+
+MapValue: byte 45  0x00 -> 0x01   bit set = 0
+ListElem: byte 13  0x00 -> 0x01   bit set = 0
+```
+
+The two marker bytes are the procedure's one legal write. The single remaining byte in each case is
+`0x00 -> 0x01` at a byte-5 offset into the `BitArray<64>` — absolute bit 40, exactly what the const
+accessor was told to set. The write is not optimised away and does not land in a temporary: it reaches
+contract state through a path QPI forbids and the real core cannot compile.
+
+Round 9 established the same for `Array::get`, where the mutation persisted into `inArray[0].flags`.
+
+**Cells:** simulator × typescript accepts and executes; clang rejects at compile time. The divergence is
+the finding, so it exists only across the pair.
+
+**Severity: notable.** A contract can be written, compiled, deployed and observed behaving "correctly" on
+the typescript cell while being unbuildable for the real core. Until someone tries the clang path the
+divergence is invisible, and in the meantime state changes through an accessor whose whole purpose is to
+forbid it.
+
+## The control I thought I had, and did not
+
+`MapKey` rejecting on both cells looked like proof that the typescript compiler *can* enforce const, which
+would have made the other three deliberate omissions rather than a blind spot. Reading the diagnostic
+killed that reading:
+
+```
+error: unsupported call statement [state.mut(0).c.key(1).set(2)]
+```
+
+That is the analyzer failing to model the call shape, not enforcing const — `KeyT` is `id`, whose API has
+no matching `set`. So `MapKey` is not a control, and this round has **no** evidence that the typescript
+compiler models const-ness anywhere. Three of three const violations it could parse were accepted. Stated
+as a negative rather than dressed up as a positive.
+
+## Numbers
+
+- 4 const-reference accessors in QPI; **3 divergences**, 1 inconclusive (rejected for an unrelated reason).
+- 2 divergences carried through to a live node: **1 forbidden byte written in each**, alongside 2 marker
+  bytes of legal change.
+- 1 apparent control examined and discarded before it could prop up a stronger claim than the evidence
+  supports.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
@@ -3071,6 +3155,49 @@ struct BitNest : public ContractBase
         REGISTER_USER_PROCEDURE(InArray, 3);
         REGISTER_USER_PROCEDURE(MapPut, 4);
         REGISTER_USER_PROCEDURE(MapBit, 5);
+    }
+};
+```
+
+## `MapValue.h` — mutation through a `const ValueT&` accessor
+
+Round 10 / E1. One of four generated from the same template, one per const-reference accessor; the others
+differ only in the container declaration and the single offending statement.
+
+```cpp
+// R10 parity probe: mutation through a QPI accessor declared `const T&`.
+using namespace QPI;
+
+struct MapValueUnused
+{
+};
+
+struct MapValue : public ContractBase
+{
+    struct Holder
+    {
+        uint64 lead;
+        BitArray<64> flags;
+    };
+
+    struct StateData
+    {
+        HashMap<id, Holder, 8> c;
+        uint64 marker;
+    };
+
+    struct Poke_input { uint64 v; };
+    struct Poke_output {};
+
+    PUBLIC_PROCEDURE(Poke)
+    {
+        state.mut().c.value(0).flags.set(40, true);
+        state.mut().marker = input.v;
+    }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    {
+        REGISTER_USER_PROCEDURE(Poke, 1);
     }
 };
 ```
