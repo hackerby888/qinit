@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, globSync, readFileSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
 import { editorPrefixSource } from "../../src/clangd-config";
 import { generateWasmWrapperSource } from "@qinit/build/compile/clang";
@@ -107,4 +107,23 @@ test.if(hasCore)("the editor's own analyzer still covers every log rule core ass
             "Fields after _terminator are never logged",
         ]),
     );
+});
+
+// Round 31 swept every container method that can touch a user-supplied type — Collection and LinkedList with
+// a bare element struct, HashMap and HashSet with a bare value and a key that declares `operator==`, and
+// element types carrying a nested container. All three oracles agreed on every one, so the key comparison
+// E27 reports is the only thing these bodies ask of a contract's own type. That holds only while the set of
+// containers whose bodies live past the contract stays put, which is what this pins.
+const CONTAINERS_DEFINED_PAST_THE_CONTRACT = ["Collection", "HashMap", "HashSet", "LinkedList"];
+
+test.if(hasCore)("only these containers keep their method bodies past the editor's prefix", () => {
+    const containerNames = ["Array", "BitArray", "Collection", "HashMap", "HashSet", "LinkedList", "SlowAnySizeArray"];
+    const implSources = globSync(join(CORE_SOURCE_ROOT, "qpi/impl/*.h")).map((path) => readFileSync(path, "utf8"));
+
+    const definedPastTheContract = containerNames.filter((name) => implSources.some((source) => new RegExp(`\\b${name}\\s*<[^>]*>::`).test(source))).sort();
+
+    // Array, BitArray and SlowAnySizeArray define every body inline in `qpi_containers.h`, which the prefix
+    // carries, so the editor type-checks their uses in full. A container moving out of that group would take
+    // its bodies out of the editor's reach, and every requirement in them with it.
+    expect(definedPastTheContract).toEqual(CONTAINERS_DEFINED_PAST_THE_CONTRACT);
 });

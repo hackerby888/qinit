@@ -2507,3 +2507,47 @@ The 13 are exactly the 13 round 26 closed, and clangd sees every one — so no d
 that class. The 16 appear nowhere in this sweep, so nothing the editor runs mentions them, which is what
 makes the log-payload fix the editor's only source for that rule. One of the two classes the 22 → 13 → 0
 figure closed was real, measured now on all 6 310 rather than on one contract of each.
+
+## Round 31 — is E27 one of many, or the whole class?
+
+E27 was found by reading one container body and spotting one requirement. That is not evidence there are no
+others, so this round sweeps the mechanism instead of the instance: every QPI container method whose body
+can touch a user-supplied type, run through all three oracles.
+
+**The blind region is smaller than it looks.** A container whose methods are defined inline in
+`qpi_containers.h` is fully in the prefix, so the editor type-checks its uses completely. Only a container
+with bodies in `qpi/impl/*.h` — included after the contract — can hide anything:
+
+```
+Array, BitArray, SlowAnySizeArray   no impl file; every body inline, the editor sees it all
+Collection    15 methods            defined past the contract
+HashMap       16 methods            defined past the contract
+HashSet       13 methods            defined past the contract
+LinkedList    14 methods            defined past the contract
+```
+
+**Four probes, each through the editor, the backend and clang:**
+
+| probe                                                                             | editor | backend | clang   |
+| --------------------------------------------------------------------------------- | ------ | ------- | ------- |
+| `Collection<Pair, 8>`, bare struct — add, replace, element, remove, cleanup        | clean  | clean   | accepts |
+| `LinkedList<Pair, 8>`, bare struct — addHead/addTail, insertAfter/Before, replace  | clean  | clean   | accepts |
+| `HashMap`/`HashSet`, key with `operator==`, bare-struct value, every method        | clean  | clean   | accepts |
+| element, key and value types each carrying a nested `Array<uint64, 4>`             | clean  | clean   | accepts |
+
+Every T-taking method of every container in the blind region was called, `cleanup` included, which relocates
+elements and so copy-assigns the type.
+
+**So E27 is the whole class, not one of many.** The key comparison is the only thing these bodies ask of a
+contract's own type; everything else they do to it — storing, copying, relocating — a plain QPI struct
+already satisfies. This is a negative result, and it is the useful kind: it turns "there may be more" into a
+measured bound.
+
+It holds only while the set of containers with post-contract bodies stays put. A container moving its bodies
+into an impl file would take every requirement in them out of the editor's reach at once, so
+`post-contract-checks.test.ts` now pins that set as well. Verified to fail by adding one name to it.
+
+**A note on where the probes came from.** The first attempt read the method lists with a regex over
+`qpi_containers.h`, which does not track struct ends and assigned HashMap's methods to `SlowAnySizeArray`
+and LinkedList's to `Collection`. Parsing C++ that way would have pointed the whole sweep at the wrong
+methods. The lists used here come from qinit's own parse of core, via `templateMethods`.
