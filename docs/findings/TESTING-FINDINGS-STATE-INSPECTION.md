@@ -2532,6 +2532,73 @@ so the next round does not re-open it.
 - 1 candidate (trap halts the node) checked against documentation and closed.
 - 2 tester errors caught and corrected.
 
+# Round 14
+
+Round 2 covered `MIGRATE`, but `17b93ef` rewrote the diff reader afterwards, so the migration path had not
+been exercised against the single-pass walk. A migration rewrites the whole state — the largest changed
+window there is — which makes it the sharpest case for a walk that visits only what shares a byte with a
+window.
+
+## The state transition itself is exact
+
+`MigZoo1` (a `HashMap<id, uint64, 4>` and a marker) populated with two entries and a bumped marker, then
+migrated to `MigZoo2`, which adds a `uint64 extra`:
+
+```
+v1 = 192B   v2 = 200B   grew = 8
+differing bytes in the overlapping prefix: 0   []
+new tail: 9210000000000000        (little-endian 4242, matching `extra`)
+```
+
+Nothing carried over was disturbed, the new field is exactly the 8 bytes of growth, and the decoded state
+reads `marker = 1`, `extra = 4242`, `bal` with 2 entries. The migration is correct.
+
+## E1 — the MIGRATE trace's before-image is a zeroed buffer, so preserved values report as newly written
+
+The frame is reachable at `GET /live/v1/debug-trace`, `kind=3`:
+
+```
+kind=3 entry=None tick=3040 stateDiff regions=1 stateVersion=4
+MIGRATE region: off=0  before=200B  after=200B
+```
+
+Checked against dumps taken independently either side of the migration:
+
+```
+region.after  == post-migration dump   : True
+region.before entirely zero            : True   (all 200 bytes)
+pre-migration dump non-zero bytes      : 69 of 192
+bytes the region says moved            : 71, spanning 40..193
+bytes that actually moved (pre vs post): 0 in the overlapping 192-byte prefix
+```
+
+The after side is byte-exact. The before side is zeros throughout, while the real pre-migration state has
+69 non-zero bytes. So the rendered migration diff says roughly 152 bytes moved where **none** did, and
+every preserved value — the two map entries, the marker — reads as `0 → v`, appearing from nothing.
+
+A reader of that diff cannot distinguish "the migration preserved everything" from "the migration
+recreated everything from scratch". Those are very different events for anyone auditing an upgrade.
+
+**The control that rules out tester error.** `region.after` matches the post-migration dump byte for byte,
+so the trace and the dumps describe the same contract and the same state — the discrepancy is confined to
+the before side and cannot be a mismatched capture. An earlier reading that `region.before[0:40]` matched
+the old state was **coincidence** and was discarded: the real old state is also zero over those 40 bytes,
+so the agreement carried no information. Only comparing the whole image settled it.
+
+**Severity: moderate, with a caveat stated plainly.** There is a defensible reading in which this is
+correct: a migration allocates a fresh buffer for the new layout and the handler writes into it, so the
+before-image *of that buffer* genuinely was zeros, and the trace is truthful about writes. What makes it a
+finding anyway is that the engine demonstrably holds the old bytes — it copied them in, and the identical
+after-image proves it knows the result — so a before-image that reflects the prior state is available. As
+rendered, the diff is a true statement about a buffer and a false one about the contract's state.
+
+## Numbers
+
+- Migration state transition: **0 of 192 carried bytes changed**, growth exactly 8, new field value correct.
+- MIGRATE diff region: **71 bytes reported moved, 0 actually moved**; before-image 200/200 bytes zero
+  against 69 non-zero bytes of real prior state.
+- 1 coincidental agreement caught and discarded before it became a conclusion.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
