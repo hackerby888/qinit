@@ -2391,6 +2391,78 @@ and one that cannot.
   control write alongside it in the same contract.
 - Blind spot characterised precisely: assignment guarded, mutating method call not.
 
+# Round 12
+
+Every previous parity round hunted one direction: the typescript cell accepting what clang rejects. This
+round looks the other way — qinit refusing a contract that a real compiler accepts — and finds one, plus a
+correction to how the earlier rounds' oracle should be read.
+
+## A correction to the method, found before it could mislead
+
+The clang cell does **not** hand the source straight to clang. qinit's own IDL analysis runs first, on both
+paths:
+
+```
+typescript:  error: Expected semicolon but got char_literal ('000') in expression statement
+clang:       compiler IDL analysis failed: line 20: Expected semicolon but got char_literal ('000') …
+```
+
+Identical text, and the clang one is explicitly qinit's analysis rather than a compiler diagnostic. So at
+parse level "both cells reject" is one verdict reported twice, not two independent ones, and a rejection
+on the clang path is only clang's opinion when it carries a clang diagnostic.
+
+Rounds 10 and 11 survive this: every clang rejection there was a genuine compiler message with file, line
+and the const-ness complaint (`'this' argument to member function 'set' has type 'const …'`), which only
+clang emits. The oracle held where it was used; it simply does not extend to parse-level rules.
+
+## E1 — a C++14 digit separator is mis-lexed as a character literal
+
+`uint64 marker = 1'000'000;` is refused:
+
+```
+case            typescript  clang       verdict
+DigitSep        REJECT      REJECT      agree      <- both are qinit's tokenizer
+PlainNum        OK          OK          agree      <- control: same value, no separator
+CommentApos     OK          OK          agree      <- control: an apostrophe inside a comment
+```
+
+The tokenizer sees `'000'` and reports `char_literal`. QPI does forbid character literals
+(`qpi/no-char`), but a digit separator is not one — it is a numeric literal that happens to contain the
+same character.
+
+**The oracle is a real compiler, not the other cell.** Both installed compilers accept the construct and
+the program proves the two spellings are the same number:
+
+```
+clang++ -std=c++14 -Werror sep.cpp   exit=0    runs -> 0   (big == plain)
+g++     -std=c++14 -Werror sep.cpp   exit=0    runs -> 0
+```
+
+**The controls.** `PlainNum` writes the identical value without separators and is accepted on both cells,
+so the rejection is about the notation and not the statement, the type or the value. `CommentApos` puts an
+apostrophe inside a comment and is accepted, so the tokenizer is not simply allergic to the character —
+it mis-classifies it specifically in numeric position.
+
+**Severity: low-to-moderate, usability.** Nothing is corrupted and no contract in the tree is blocked
+today: core's five uses of the notation are all inside comments. But the idiom is native to this codebase
+— `qpi_context.h` documents a transfer bound as `[0..1'000'000'000'000'000]` — and an author who copies
+that bound from the comment into code is refused with a message about character literals, which points at
+the wrong thing entirely.
+
+## What did not pan out
+
+The token-based policy was the round's target on the theory that textual rules misfire. Mostly they do
+not: `qpi/no-division` and `qpi/no-modulo` match on `TokenKind.SLASH`/`SLASH_EQ` rather than raw text, so
+`//` comments are safe, and both are `WARNING` rather than blocking. Of the blocking rules, the ones with
+the most textual character (`qpi/no-char`, `qpi/no-preprocessor`, `qpi/no-dunder`) were probed and only
+the numeric-separator case misfired.
+
+## Numbers
+
+- 18 policy rules classified by severity; **13 blocking**, 5 warnings.
+- 3 probes, **1 false rejection** confirmed against two real compilers.
+- 2 controls, both behaved; 1 methodological correction recorded before it could invalidate a later claim.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
