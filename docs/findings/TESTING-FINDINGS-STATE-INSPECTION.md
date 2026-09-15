@@ -3110,6 +3110,83 @@ Only a real core node, compiled with its own flags, exposes the divergence.
 - GQMPROP: qinit **183,296** bytes expected against the node's **9,088** — the ratio tracks `676 / 8`.
 - `stateSize` returned on every read, referenced in **0** places in the reader.
 
+# Round 22
+
+Round 21 found qinit deriving contract layouts without the node's compile-time defines, caught on two
+contracts. Two failures out of twenty is a symptom, not a scope. This round bounds it, because a finding a
+maintainer cannot size is a finding they cannot prioritise.
+
+## Every constant that moves with a build flag
+
+Scanning the headers qinit parses for `#define`s that sit inside a `#if` mentioning `TESTNET`,
+`LITE_WASM_SC` or `TESTNET_LITE_RAM` gives exactly four:
+
+```
+ASSETS_DEPTH                      network_messages/common_def.h
+NUMBER_OF_COMPUTORS               network_messages/common_def.h
+NUMBER_OF_TRANSACTIONS_PER_TICK   network_messages/common_def.h
+SPECTRUM_DEPTH                    network_messages/common_def.h
+```
+
+Three of them appear in **0** contracts. Only `NUMBER_OF_COMPUTORS` reaches contract code at all, so the
+radius cannot be wider than that one constant.
+
+## Mentioning the constant is not the same as being sized by it
+
+Fourteen contracts reference `NUMBER_OF_COMPUTORS`, which would be an alarming number if it were the
+answer. It is not: a constant used as a loop bound or a quorum check does not change a state layout. Only
+a constant that sizes a **state member** does.
+
+```
+  contract                     sized by it?   evidence
+  ComputorControlledFund.h     YES            ProposalVoting
+  GeneralQuorumProposal.h      YES            ProposalVoting
+  Escrow.h, GGWP.h, MsVault.h, Pulse.h, QDuel.h, QRaffle.h,
+  QThirtyFour.h, Qswap.h, Quottery.h, Qx.h, RandomLottery.h,
+  VottunBridge.h               no             constant appears only in code
+```
+
+Those two are exactly the two that failed the round 21 sweep, and the twelve that use it in logic all read
+clean on the same node in the same run. The static reading predicts the empirical result with no
+residue — which is the check that the explanation is the real mechanism rather than a plausible story
+fitted to two data points afterwards.
+
+## The single construct that carries it
+
+```
+qpi_proposals.h:446   template <uint16 proposalSlotCount = NUMBER_OF_COMPUTORS>
+```
+
+One template default. `ProposalAndVotingByComputors` takes its slot count from the committee size unless
+told otherwise, `ProposalVoting` embeds it, and a contract that puts a `ProposalVoting` in its state
+inherits a layout that changes with the build. No other QPI type in the tree is sized by a build-flag
+constant.
+
+## The bound
+
+R21-E1's scope is:
+
+- **1** QPI template default (`proposalSlotCount = NUMBER_OF_COMPUTORS`),
+- **2** currently deployed system contracts (`CCF`, `GQMPROP`),
+- **any** future contract that adopts the proposal machinery — which is the part that does not shrink over
+  time, since the proposal types are the sanctioned way to do governance.
+
+That is small and identifiable, which is good news for the fix and bad news for leaving it alone: a
+contract author using the standard governance types gets an unreadable state on a stock dev node, with a
+message about short reads.
+
+Two independent remedies fall out of the shape. The general one is the safety net round 21 named — compare
+the layout's total against the `stateSize` the node returns on every read, and say so when they disagree.
+The specific one is to stop defaulting `proposalSlotCount` to a build-dependent constant, so the layout
+stops depending on flags qinit cannot see.
+
+## Numbers
+
+- 4 build-flag-dependent constants; **3 appear in no contract**.
+- 14 contracts mention the surviving one; **2 are sized by it**.
+- Static prediction against round 21's sweep: **2 predicted failures, 2 observed, 0 unexplained**.
+- 1 QPI template default carries the entire radius.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
