@@ -2659,6 +2659,72 @@ most dangerous kind, because nothing about the output looks wrong.
 - 3 all-zero before-images verified as legitimately zero rather than assumed defective.
 - 2 tester errors caught, one of which had produced four false positives.
 
+# Round 16
+
+No findings. `Collection` has the richest invariants of any QPI container — a BST ordering per point of
+view, per-PoV populations that must sum to the total, and every element reachable from its PoV's root — so
+it is the sharpest remaining test of a walk that visits only the parts of a type sharing a byte with a
+window. Round 5 exercised it before `17b93ef`; this round re-runs it after.
+
+## Ordering survives the rewrite
+
+`BstZoo` built across two points of view, with priorities deliberately inserted out of order:
+
+```
+PoV[37] inserted  10@p50, 20@p25, 30@p75, 40@p10, 50@p60
+PoV[10] inserted  60@p30, 70@p90
+```
+
+The container view returns each PoV's elements in descending priority, which is the BST order:
+
+```
+PoV[37] = … : 30 (p75), 50 (p60), 10 (p50), 20 (p25), 40 (p10)
+PoV[10] = … : 70 (p90), 60 (p30)
+```
+
+Both sequences are exactly the insert set re-sorted, and `totalEntries` is 7 across 2 occupied PoVs.
+
+## Removal keeps the topology consistent
+
+Two elements deleted, then a compaction and an unrelated scalar write, under the byte-level conservation
+oracle:
+
+```
+Del element idx 2       bytes moved:  39 in 17 run(s)   rows: 18
+Del again (same idx)    bytes moved:  34 in 12 run(s)   rows: 13
+Clean (compacts)        bytes moved:   0 in  0 run(s)   rows:  0
+Bump marker             bytes moved:   1 in  1 run(s)   rows:  1
+CONSERVATION: OK
+```
+
+A removal touches 17 separate byte runs — occupation flags, BST links, per-PoV counters, the element
+itself — and every one is accounted for by a row. The `Clean` line is the control that matters: an
+operation that changes nothing produces no row, the failure mode S3 was filed for.
+
+Afterwards the view reads 5 entries across the same 2 PoVs, the two removed elements (70@p90 and 30@p75)
+are gone, descending order is preserved in both, and `status=loaded` with `error=None` — so the view's own
+checks on PoV populations and element reachability pass on the post-removal topology, not just the clean
+one.
+
+## One of my own errors, caught
+
+The first read truncated each line to 60 characters, which cut the element values off and left five lines
+reading `PoV[37] = DDZY…` with no visible difference between them. That looked like duplicate rows for one
+PoV — a plausible finding, and wrong. The lines were correct; my printer was not. Printing the full text
+showed five distinct elements in priority order.
+
+Worth recording because the failure mode is specific: a display truncation in the *test harness* produced
+exactly the shape of defect the round was hunting for in the *tool*.
+
+## Numbers
+
+- 7 elements across 2 PoVs, inserted out of priority order: **ordering correct in both** before and after
+  removal.
+- 4 operations under conservation: **all agree**, including a 17-run removal and a no-op that produced no
+  row.
+- Post-removal invariants (`error=None`, populations, reachability): **pass**.
+- 1 tester error caught before it became a false finding.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
