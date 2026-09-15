@@ -3023,6 +3023,93 @@ Minor, but it is a statement about behaviour that the code no longer matches.
 - Fetch versus total read time: **0.19 s of 4 s** — the ratio that made the difference.
 - 1 stale comment identified.
 
+# Round 21
+
+The core cell made the real system contracts readable for the first time — the actual implementations with
+their real layouts, not probes whose answers I already knew. Twenty were swept with `--all`. Seventeen read
+clean. Three did not, and two of those three are a finding.
+
+## The sweep
+
+```
+QX QTRY RANDOM MLM SWATCH QEARN QVAULT MSVAULT QBAY QSWAP QDRAW RL QBOND QIP QRAFFLE QRWA   complete=True
+CCF        complete=False   1 container in error
+GQMPROP    complete=False   1 container in error
+NOST       complete=False   9 containers in error
+```
+
+```
+CCF     activeSubscriptions  short state read at 300040: expected 319488 bytes, got 176744
+GQMPROP revenueDonation      short state read at 177152: expected 6144 bytes, got 0
+NOST    fundaraisings        short state read at 1009126496: expected 4194240 bytes, got 0
+```
+
+## One of the three is my own setup, and is separated out
+
+`NOST` reads to offset 1,009,126,496 against a node whose state is 4,893,616 bytes — a 207× overshoot.
+`Nostromo.h` differs between the tree qinit parsed and the tree the node compiled (1648 lines against
+6516), so that one is ordinary version skew from my mismatched `--core-dir`. Not a finding, and kept apart
+from the two that are.
+
+## E1 — the layout is derived without the node's compile-time defines, and never checked against the size the node reports
+
+`ComputorControlledFund.h` and `GeneralQuorumProposal.h` are **byte-identical** in both trees (md5
+`52453c69` and `fed0c6ab`), so version skew cannot explain them. They still fail.
+
+Taking the small one: qinit expects `proposals` to occupy 177,152 bytes and `revenueDonation` 6,144 after
+it. The node's state is **9,088 bytes** in total.
+
+The cause is a preprocessor guard in the headers qinit parses:
+
+```cpp
+// Use a small committee for local dynamic-contract development.
+#if defined(TESTNET) && defined(LITE_WASM_SC)
+#define NUMBER_OF_COMPUTORS 8
+#else
+#define NUMBER_OF_COMPUTORS 676
+#endif
+```
+
+`GQMPROP`'s state is `ProposalVoting<ProposalAndVotingByComputors<NUMBER_OF_COMPUTORS>, …>`. The node was
+built with both defines and has the 8-computor layout; qinit parsed the same file without them and derived
+the 676-computor layout. Every system contract whose state is sized by the committee is affected, and the
+dev-node build sets those defines by default — so this is the normal configuration, not an exotic one.
+
+**The information to catch it is already in hand.** The node returns `stateSize` on *every* state-read
+response:
+
+```
+{"len": 8, "off": 0, "stateSize": 9088, "version": 0}
+```
+
+`stateSize` is declared in `rpc/types.ts`, returned by `client.ts`, and referenced **nowhere** in
+`state-read.ts`. So qinit asks for 183,296 bytes from a contract the same response tells it is 9,088 bytes
+long, and reports the result as `short state read at 177152: expected 6144 bytes, got 0` — a message about
+paging, pointing at an offset, that says nothing about the actual problem. A user sees what looks like a
+truncated transfer and has no route from there to "your `--core-dir` headers are configured differently
+from the node you are reading".
+
+**The controls.** Seventeen of twenty contracts read clean on the same node in the same sweep, so the
+reader works and only committee-sized layouts fail. `CCF` and `GQMPROP` have identical sources across both
+trees, which isolates the cause to build configuration rather than source drift. `NOST` is held separately
+precisely because its source *does* differ — conflating it with the other two would have turned one real
+finding into a vaguer claim about three.
+
+**Severity: notable.** It affects real system contracts under the default dev-node build, it produces an
+incomplete read reported as `complete: False`, and the diagnosis misdirects. It is also cheap to fix: one
+comparison against a number the node already sends.
+
+Round 5 read several of these contracts on the simulator without trouble, which fits — the simulator
+derives its layout from the same headers qinit parses, so both sides were wrong together and agreed.
+Only a real core node, compiled with its own flags, exposes the divergence.
+
+## Numbers
+
+- 20 system contracts swept on a real core node: **17 clean, 3 failing**.
+- 2 failures with byte-identical sources -> configuration, not version skew.
+- GQMPROP: qinit **183,296** bytes expected against the node's **9,088** — the ratio tracks `676 / 8`.
+- `stateSize` returned on every read, referenced in **0** places in the reader.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
