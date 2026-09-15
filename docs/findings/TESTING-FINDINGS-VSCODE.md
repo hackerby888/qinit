@@ -2538,10 +2538,13 @@ LinkedList    14 methods            defined past the contract
 Every T-taking method of every container in the blind region was called, `cleanup` included, which relocates
 elements and so copy-assigns the type.
 
-**So E27 is the whole class, not one of many.** The key comparison is the only thing these bodies ask of a
+**So E27 is the whole class for the containers.** The key comparison is the only thing these bodies ask of a
 contract's own type; everything else they do to it — storing, copying, relocating — a plain QPI struct
 already satisfies. This is a negative result, and it is the useful kind: it turns "there may be more" into a
 measured bound.
+
+That bound is over the container impls, which is what this round swept. Core has ten other `qpi/impl`
+headers, and whether any of them is also past the contract is a separate question — round 32 answers it.
 
 It holds only while the set of containers with post-contract bodies stays put. A container moving its bodies
 into an impl file would take every requirement in them out of the editor's reach at once, so
@@ -2551,3 +2554,53 @@ into an impl file would take every requirement in them out of the editor's reach
 `qpi_containers.h`, which does not track struct ends and assigned HashMap's methods to `SlowAnySizeArray`
 and LinkedList's to `Collection`. Parsing C++ that way would have pointed the whole sweep at the wrong
 methods. The lists used here come from qinit's own parse of core, via `templateMethods`.
+
+## Round 32 — the blind region, measured rather than inferred
+
+Round 31 swept the three container impls. Core has thirteen `qpi/impl` headers, and two of the untouched ten
+take a type the contract author writes: `qpi_proposals_impl.h` over `ProposalDataType`, and
+`qpi_oracle_impl.h` over `ContractStateType` and `LocalsType` — which are the contract's own `StateData` and
+`<fn>_locals`. If those bodies were past the contract too, E27 would have siblings on a surface real
+contracts use: `GeneralQuorumProposal`, `ComputorControlledFund` and `TestExampleA/B` all instantiate
+`ProposalVoting`.
+
+Three probes, each modelled on `GeneralQuorumProposal` and each measured before the next was written:
+
+| probe                                                            | editor | backend                            | clang   |
+| ---------------------------------------------------------------- | ------ | ---------------------------------- | ------- |
+| core's own `ProposalDataV1<false>` — the baseline                | clean  | clean                              | accepts |
+| a contract's **own** proposal data type, complete                 | clean  | clean                              | accepts |
+| the same type with `checkValidity()` omitted                      | clean  | `unsupported call as value`        | rejects |
+
+The third looks exactly like E27 — until the editor's own translation unit is asked, rather than qinit's
+analyzer alone:
+
+```
+editor view: 1 error
+  qpi/impl/qpi_proposals_impl.h:564: error: no member named 'checkValidity' in 'MyProposalData'
+```
+
+**clangd reports it.** The mechanism says why, and the wrapper settles it without inference:
+
+```
+line 108  #include "qpi/impl/qpi_proposals_impl.h"    <- before the contract, so the prefix carries it
+line 145  #include "<the contract>"
+line 149  #include "qpi/impl/qpi_collection_impl.h"   <- after
+line 150  #include "qpi/impl/qpi_linked_list_impl.h"
+line 154  #include "qpi/impl/qpi_hash_map_impl.h"
+line 158  #include "extensions/wasm/sdk/module_runtime.h"
+```
+
+**Core splits its impls, and the split is the whole blind region.** Proposals, oracle, trivial and the rest
+are included before the contract and the editor type-checks every use of them in full. Exactly three
+container impls and `module_runtime.h` arrive after. Round 29 measured what the latter carries (the log
+asserts) and round 31 swept the former (one requirement, E27). There is nothing else in the region.
+
+`post-contract-checks.test.ts` now pins the region directly — the exact set of headers the wrapper includes
+after the contract — which is a sharper guard than the two it had, and the one the whole result rests on.
+
+**A smaller finding, recorded not fixed.** On the omitted-`checkValidity` contract, qinit's own analyzer is
+silent while clangd reports it. That is the hidden-member pattern from round 29 again: a real defect, not a
+blind spot, because the developer sees a squiggle on the right line from the other oracle. Duplicating it in
+qinit's analyzer would mean modelling core's proposal-type requirements, which is a large surface to
+re-implement for a message a developer already gets.

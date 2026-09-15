@@ -127,3 +127,28 @@ test.if(hasCore)("only these containers keep their method bodies past the editor
     // its bodies out of the editor's reach, and every requirement in them with it.
     expect(definedPastTheContract).toEqual(CONTAINERS_DEFINED_PAST_THE_CONTRACT);
 });
+
+// Round 32 measured the region itself rather than guessing at it. Core splits its `qpi/impl` headers: the
+// proposals, oracle and trivial impls are included BEFORE the contract and are in the editor's prefix, while
+// these three arrive after it. That split is the whole of the editor's blind region — a contract with a
+// custom proposal data type missing a member is reported by clangd, a hash key missing `operator==` is not.
+const INCLUDED_AFTER_THE_CONTRACT = [
+    "extensions/wasm/sdk/module_runtime.h",
+    "qpi/impl/qpi_collection_impl.h",
+    "qpi/impl/qpi_hash_map_impl.h",
+    "qpi/impl/qpi_linked_list_impl.h",
+];
+
+test.if(hasCore)("the wrapper includes exactly these headers after the contract", () => {
+    const wrapper = generateWasmWrapperSource({
+        contractName: "Probe",
+        contractPath: "Probe.h",
+        slot: 31,
+        cheats: CheatMode.OFF,
+    } as Parameters<typeof generateWasmWrapperSource>[0]);
+
+    const afterContract = wrapper.slice(editorPrefixSource(wrapper, "Probe.h").length);
+    const included = [...afterContract.matchAll(/#\s*include\s+"([^"]+)"/g)].map((match) => match[1]!).filter((header) => header !== "Probe.h");
+
+    expect([...new Set(included)].sort()).toEqual(INCLUDED_AFTER_THE_CONTRACT);
+});
