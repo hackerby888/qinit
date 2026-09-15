@@ -2314,6 +2314,83 @@ as a negative rather than dressed up as a positive.
 - 1 apparent control examined and discarded before it could prop up a stronger claim than the evidence
   supports.
 
+# Round 11
+
+Round 10 left the typescript compiler's const modelling an open question. This round answers it at the
+place where it matters most — `state.get()`, the read-only state accessor — and finds a guard that exists,
+is deliberate, and has a precise hole in it.
+
+## What QPI declares
+
+```cpp
+const T& get() const { return _data; }
+T& mut() { ::__markContractStateDirty(contractIndex); return _data; }
+```
+
+`get()` is read-only, and `mut()` is also what raises the dirty marker. That made the interesting
+hypothesis testable: if a write through `get()` were accepted *and* landed, it would change state without
+the engine being told.
+
+## The battery, with controls on both sides
+
+```
+case            typescript  clang       verdict
+GetScalar       REJECT      REJECT      agree
+GetArray        OK          REJECT      ** DIVERGENCE **
+GetBits         OK          REJECT      ** DIVERGENCE **
+MutScalar       OK          OK          agree
+```
+
+`MutScalar` is the positive control — the legal form, accepted by both, so the harness is not rejecting
+everything. `GetScalar` is the negative control, and unlike round 10's `MapKey` it is a genuine one: the
+typescript compiler rejects it with a purpose-built diagnostic.
+
+## E1 — the `state.get()` guard catches assignment but not a mutating method call
+
+```
+typescript, GetScalar:  error: cannot modify through get(): it returns a read-only view — use mut()
+clang,      GetArray:   error: 'this' argument to member function 'set' has type 'const Array<uint64, 4>',
+                               but function is not marked const
+```
+
+The guard is not missing — it is specific and clearly intentional. It models the `get()`/`mut()`
+distinction for a direct assignment (`state.get().marker = v`) and misses a mutating method call on a
+sub-object (`state.get().arr.set(0, v)`, `state.get().flags.set(3, true)`). Both forms are equally illegal
+C++ and clang rejects both.
+
+**Severity: moderate.** A contract written against `state.get()` with container mutations compiles, deploys
+and behaves correctly on the typescript cell while being **unbuildable for the real core**. The cost is
+developer time and a late discovery, not corrupted state — see the falsified hypothesis below.
+
+**Cells:** the divergence exists only across the pair; simulator × typescript accepts, clang rejects.
+
+## The hypothesis that did not survive contact
+
+Because `mut()` raises `__markContractStateDirty` and `get()` does not, a write through `get()` looked like
+it should be invisible to the engine. `GetOnly.h` tests it directly: one procedure whose *only* write goes
+through `get()`, with `mut()` never called anywhere in it.
+
+```
+CONTROL  Honest (arr[1] through mut())    row: arr[1] | 0 → 4242    bytes changed: [16, 17]
+TEST     Sneak  (arr[0] through get())    row: arr[0] | 0 → 777     bytes changed: [8, 9]
+```
+
+The write lands and **is reported correctly**. The diff names `arr[0]`, and the changed bytes fall inside
+`arr[0]`'s range exactly as the honest write falls inside `arr[1]`'s. No hidden state change, no missing
+row. The typescript engine does not depend on the wasm-side dirty marker to notice a write, so the
+consequence that would have made this severe does not exist on that cell.
+
+Recorded because a hypothesis worth testing is worth reporting when it fails. The finding is a compile-time
+parity divergence and nothing more, and saying so is the difference between a report that can be trusted
+and one that cannot.
+
+## Numbers
+
+- 4 cases, **2 divergences**, 1 positive control, 1 negative control — both controls behaved.
+- 1 hypothesis (hidden state change via the bypassed dirty marker) tested and **falsified**, with the
+  control write alongside it in the same contract.
+- Blind spot characterised precisely: assignment guarded, mutating method call not.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
@@ -3198,6 +3275,52 @@ struct MapValue : public ContractBase
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
     {
         REGISTER_USER_PROCEDURE(Poke, 1);
+    }
+};
+```
+
+## `GetOnly.h` — a write whose only path is `state.get()`
+
+Round 11. `Sneak` never calls `mut()`, so the dirty marker is never raised; `Honest` is the control
+writing the neighbouring element the legal way.
+
+```cpp
+// R11: a procedure whose ONLY write goes through state.get(). mut() is never called, so
+// __markContractStateDirty is never raised — the engine is never told the state changed.
+using namespace QPI;
+
+struct GetOnlyUnused
+{
+};
+
+struct GetOnly : public ContractBase
+{
+    struct StateData
+    {
+        uint64 marker;
+        Array<uint64, 4> arr;
+        BitArray<64> flags;
+    };
+
+    struct Sneak_input { uint64 v; };
+    struct Sneak_output {};
+    struct Honest_input { uint64 v; };
+    struct Honest_output {};
+
+    PUBLIC_PROCEDURE(Sneak)
+    {
+        state.get().arr.set(0, input.v);
+    }
+
+    PUBLIC_PROCEDURE(Honest)
+    {
+        state.mut().arr.set(1, input.v);
+    }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    {
+        REGISTER_USER_PROCEDURE(Sneak, 1);
+        REGISTER_USER_PROCEDURE(Honest, 2);
     }
 };
 ```
