@@ -2599,6 +2599,66 @@ rendered, the diff is a true statement about a buffer and a false one about the 
   against 69 non-zero bytes of real prior state.
 - 1 coincidental agreement caught and discarded before it became a conclusion.
 
+# Round 15
+
+No new findings. The round's value is negative evidence that sharpens round 14: the zeroed before-image is
+**specific to `MIGRATE`**, not how this engine records frames generally.
+
+## Every other frame kind gets its before-image right
+
+Round 14 could not tell whether a zeroed before-image was a `MIGRATE` defect or a convention applied to
+every frame. The same oracle — a trace region checked against dumps taken either side of the call —
+answers it:
+
+| frame | before all-zero | before == real prior state | after == real post state |
+| --- | --- | --- | --- |
+| `kind=1` committed call, fresh contract | True *(correctly — the state was zero)* | **True** | **True** |
+| `kind=1` call that aborted after writing | False | **True** | **True** |
+| `kind=1` nested callee frame | True *(fresh contract)* | **True** | **True** |
+| `kind=1` outer caller frame | True *(fresh contract)* | **True** | **True** |
+| `kind=3` MIGRATE (round 14) | True | **False** | True |
+
+The aborted frame is the decisive row. Its state is not fresh — 39 non-zero bytes before the call — and its
+before-image reproduces them exactly. So the engine captures a true prior image even on the failure path
+that halts the tick loop. `MIGRATE` is the outlier, and round 14's finding stands narrowed rather than
+weakened.
+
+The all-zero before-images in rows 1, 3 and 4 are correct, not a second instance of the bug: each of those
+contracts had just been deployed, and the matching dump confirms the prior state really was zero. Reading
+"all zero" as suspicious without checking the dump would have produced three false findings.
+
+## Rounds 2 and 3 survive the rewrite
+
+Both surfaces were covered before `17b93ef` changed the walk, so both were re-checked:
+
+- **An abort after writing.** The writes that preceded the abort persist — 38 bytes changed by the aborted
+  call — and the trace frame commits with them. That matches what round 3 established (*"an abort after
+  writing — clean, and the readers agree"*) and what the documentation describes, so it is behaviour, not a
+  defect. Re-confirmed rather than re-filed.
+- **Cross-contract frames.** Two frames land for one `Caller` invocation, the nested `Callee` first
+  (`seq=1`, `index=29`) and the outer `Caller` second (`seq=2`, `index=30`), each with its own correct
+  before and after image over its own state.
+
+## Two of my own errors, caught
+
+- Called `Rollback` proc 1 with two inputs where it takes three (`id k; uint64 v; uint64 bitIdx`), and the
+  first run reported a state of 208 bytes and 0 non-zero as though the write had done nothing. The call had
+  simply been rejected.
+- Keyed the trace frames on `contractIndex`, which does not exist — the field is `index`. Every lookup
+  silently compared against empty bytes and reported `before == pre -> False` for all four frames, which
+  read exactly like a second instance of round 14's finding. Reading the entry's real keys turned four
+  apparent failures into four passes.
+
+The second one is worth stating plainly: a harness bug that fabricates the finding you are hunting is the
+most dangerous kind, because nothing about the output looks wrong.
+
+## Numbers
+
+- 5 frame kinds compared against independent dumps: **4 correct, 1 (MIGRATE) wrong** — unchanged from
+  round 14, now bounded.
+- 3 all-zero before-images verified as legitimately zero rather than assumed defective.
+- 2 tester errors caught, one of which had produced four false positives.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
