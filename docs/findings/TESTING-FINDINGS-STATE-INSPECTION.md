@@ -2463,6 +2463,75 @@ the numeric-separator case misfired.
 - 3 probes, **1 false rejection** confirmed against two real compilers.
 - 2 controls, both behaved; 1 methodological correction recorded before it could invalidate a later claim.
 
+# Round 13
+
+Round 12 established that the two cells share a front end, so a genuine backend divergence has to live in
+codegen. Arithmetic is where a C++ backend and a TypeScript one are most likely to part company, because
+C++ leaves the interesting cases undefined and every other language defines them differently. The
+hypothesis was that they would disagree. They do not.
+
+## Where QPI's guard stops
+
+```cpp
+inline static constexpr T div(T a, T b) { return b ? (a / b) : T(0); }
+```
+
+`b == 0` is handled; nothing else is. `div(INT64_MIN, -1)` overflows, which is undefined in C++, traps in
+wasm, and is perfectly representable in a BigInt implementation — the sharpest available wedge between the
+two backends.
+
+## Both agree, including where a naive implementation would not
+
+Results read back from state (procedures are transactions, so their output is not returned to the caller —
+the probe stores each result in `last`):
+
+| case | typescript | clang |
+| --- | --- | --- |
+| `div(10, 0)` | 0 | 0 |
+| `mod(10, 0)` | 0 | 0 |
+| `div(-7, 2)` | **-3** | **-3** |
+| `mod(-7, 2)` | **-1** | **-1** |
+| `div(7, -2)` | -3 | -3 |
+| `mod(7, -2)` | **1** | **1** |
+
+The negative-operand rows are the discriminating ones and the reason this is evidence rather than a
+coincidence. C++ truncates toward zero, so `div(-7, 2)` is `-3`; a floor-division implementation would
+answer `-4`. C++ takes the remainder's sign from the dividend, so `mod(-7, 2)` is `-1`; Python-style
+modulo would answer `+1`. The typescript backend gets both right, which a naive port would not.
+
+`div(INT64_MIN, -1)` traps identically on both:
+
+```
+node halted: EdgesC proc#1 trapped Integer overflow at tick 3029
+```
+
+## The halt is documented, not a finding
+
+The trap stops the node, which looked like a candidate until the documentation settled it:
+
+> An abort or trap inside a procedure, system procedure, or `MIGRATE` commits its trace frame (state diff
+> included), records the fault served by `GET /live/v1/dev/fault`, and halts the tick loop
+
+Deliberate dev-node behaviour, with the fault route and the restart instruction built around it. Recorded
+so the next round does not re-open it.
+
+## Two of my own errors, caught
+
+- The first comparison ran both cells against one node, so the typescript trap halted it and the clang row
+  that followed was reading a dead node — the two cells appeared to "agree" for the wrong reason. Redone
+  one cell at a time against a fresh node, the agreement is real.
+- The first table compared the procedures' `out` field, which is `null` for every call: a procedure is a
+  transaction and does not return output to the caller. Reading the persisted `last` field instead is what
+  produced the table above.
+
+## Numbers
+
+- 7 arithmetic edges across 2 backends: **7/7 agree**, including 3 cases where C++ semantics differ from
+  the obvious alternative implementation.
+- 1 hypothesis (codegen divergence on arithmetic) **falsified**.
+- 1 candidate (trap halts the node) checked against documentation and closed.
+- 2 tester errors caught and corrected.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
