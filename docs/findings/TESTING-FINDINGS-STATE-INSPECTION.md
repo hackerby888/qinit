@@ -2858,6 +2858,98 @@ which was the other half of round 3's unresolved lead.
 - Round 3's "one unparseable log empties the whole list" lead: **resolved negative** — 3 of 3 logs returned,
   1 refused, 2 decoded.
 
+# Round 19
+
+The core cells have been reported unavailable since round 6, and core-lite#11 merged with its runtime
+behaviour explicitly unverified for that reason. Both of those are now fixed, and the fix was a build flag.
+
+## Why the core cell never worked
+
+Every previous round reported the same symptom: the node starts and ticks, but the spectrum loads empty,
+so every funded identity has balance 0, deploys are accepted and then dropped at tick assembly, and
+`state-read` answers `bad slot` for every index. It was recorded as an environmental limit and worked
+around by using the simulator cells.
+
+It was not environmental. The build cache tells the whole story:
+
+```
+LITE_WASM_SC:BOOL=ON
+TESTNET:UNINITIALIZED=ON
+TESTNET_LITE_RAM:UNINITIALIZED=ON
+            <- TESTNET_PREFILL_QUS absent
+```
+
+`qubic.cpp` documents that flag as *"prefill computors / custom addresses with test QUs"* and, under it,
+gives each of the two `customSeeds` 10 billion QUs immediately after `loadSpectrum()`. Without it the
+spectrum is genuinely empty and nothing can pay for a deployment. core-lite's own CI passes
+`-DTESTNET_PREFILL_QUS=ON`; the local build did not.
+
+Rebuilt with the flag (`[100%] Built target Qubic`), the failure mode changes from "dropped at tick
+assembly" to an ordinary range error:
+
+```
+Tiny slot 29 is outside the dynamic window 30..77
+```
+
+which is a working node declining an out-of-range slot. Deploying into the window succeeds, and
+`qinit state` reads the contract back over the real RPC:
+
+```
+deploy ok=True slot=30
+complete: True   fields a..f = 0   containers m, s, q, l, arr, bits all status=loaded
+```
+
+**The core cell is available.** Six rounds of "cannot be started" were a missing `-D`.
+
+## core-lite#11 verified on a real node, at last
+
+That PR shipped with its limitation stated in the first paragraph of its description — it compiled, the
+node ticked, but nothing could be deployed, so the seqlock had never served a single real read. The
+standalone concurrency test covered the logic; the runtime path did not.
+
+It works:
+
+```
+version before any call      0
+after one writing call       2
+after a second               4
+```
+
+Even values, advancing by two per write, which is exactly the design: the scope bumps on entry making the
+sequence odd, bumps again on exit making it even, and a reader that sees an even value on both sides of
+its copy reports it. A quiescent slot that has never been written reports 0, not an omitted field, because
+0 is a real quiescent value rather than an unknown one.
+
+So the one thing core-lite#11 asked reviewers to weigh is now measured rather than argued.
+
+## Two corrections to my own earlier work
+
+**Round 12's severity was understated.** I wrote that core's uses of C++14 digit separators "are all
+inside comments", so no contract is blocked today. That was true of `core-v7`, the snapshot qinit compiles
+contracts against, and I generalised it to "core" without checking the other tree. core-lite's own source
+has **33 uses, many in executable code**:
+
+```
+src/extensions/overload.h:1593              5'000'000'000ULL
+src/extensions/tick_fork_rollback.h:37      1'000'000LL
+src/extensions/ant_walker_worker.h:28       60'000
+src/qubic.cpp:9267                          10'000'000'000
+```
+
+The notation is routine in this codebase, not merely documented in it. R12-E1 is stronger than filed.
+
+**A wrong note carried since the early rounds.** I had recorded that the engine's `state-read` takes
+`slot=` while core-lite's takes `contractIndex=`. Querying the real node with `contractIndex=` returns
+`{"error":"bad slot"}`; `slot=` returns the payload. Both take `slot=`. The note was never load-bearing —
+`qinit state` was always doing it correctly — but it was wrong and is now corrected.
+
+## Numbers
+
+- 1 missing build flag accounted for **6 rounds** of an unavailable cell.
+- Core cell: deploy, state read over RPC, and a procedure call all working.
+- core-lite#11's seqlock on a real node: version **0 → 2 → 4**, even throughout.
+- 2 corrections to earlier findings, one of which raises a severity rather than lowering it.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
