@@ -2132,6 +2132,104 @@ record is zeroed and four separate runs move at once.
 - 5 decode shapes probed for a `data === undefined` false positive: none produced one.
 - 3 tester errors caught and corrected.
 
+# Round 9
+
+Two findings, and the first arrived by way of a hypothesis that turned out to be wrong.
+
+## The lead that was wrong, and what testing it exposed
+
+`pastCapacityWarnings` keys each row on `line.label.match(/^(.*)\[(\d+)\]$/)` and `continue`s when the
+label does not end in `[digits]` — a warning dropped with no trace. The obvious suspects were BitArrays in
+positions whose label might not take that shape, so `BitNest.h` put one at four depths: top level, inside
+a struct, inside an `Array` element, and inside a `HashMap` record.
+
+The hypothesis was wrong. All four produce a matching label, including the deepest:
+
+```
+plain[40]
+inStruct.flags[40]
+inArray[0].flags[40]
+inMap[DDZYFAHIBMAKIDZEJRBWRKZMLCXFFKVHAKGEKZGTZABSIHSIKWBTFDSBEXLO].flags[40]
+```
+
+Every one of those diff rows carries `(past capacity 32)`. The regex is fine. But the same four positions
+read back through `qinit state` do not agree with each other, which is E1.
+
+## E1 — a nested BitArray renders as all-zero while its bytes carry a set past-capacity bit
+
+Where a BitArray gets its own container block it is listed and warned. Where it is rendered inline as part
+of an enclosing element's value, only the declared range is rendered and the set bit vanishes:
+
+```
+plain            [0..31] = =0 ×32 (skipped)
+                 [40]    = =1 (past capacity 32)          ⚠ warned
+
+inStruct.flags   [0..31] = =0 ×32 (skipped)
+                 [40]    = =1 (past capacity 32)          ⚠ warned
+
+inArray[0]       {lead: 0, flags: [0..31]=0 ×32 (skipped), trail: 0}    warnings = None
+inMap slot[5]    {lead: …}                                              warnings = None
+```
+
+This is not merely a missing warning. `qinit state` **displays the array as clean** while its storage
+carries a set bit, so a reader auditing the state concludes the opposite of the truth.
+
+The oracle is the raw dump, which knows nothing of how qinit chose to render anything:
+
+```
+typescript  plain @0   set=[40] past32=[40]      clang  plain @0   set=[40] past32=[40]
+            inStruct.flags @16 set=[40]                 inStruct.flags @16 set=[40]
+            inArray[0].flags @40 set=[40]               inArray[0].flags @40 set=[40]   <- rendered clean
+            inArray[1].flags @64 set=[]                 inArray[1].flags @64 set=[]
+```
+
+**Cells:** simulator × typescript and simulator × clang, identical on both.
+
+**The controls that rule out tester error.** `plain` and `inStruct.flags` warn in the *same* command on the
+*same* contract, so the warning machinery is working and the silence is the finding rather than a broken
+harness. The dump shows independently that the byte is set. `inArray[1].flags` is empty exactly as
+expected, which validates the offset arithmetic used to read the other three. And the diff row at write
+time *did* warn for `inArray`, so qinit saw the write and lost it only on read-back.
+
+**Severity: moderate, and unlike round 7's E1 this one is fixable.** There the request was destroyed inside
+the wasm before any byte existed. Here the reader already holds the bytes it rendered the element from; it
+simply does not descend into array elements or record values to inspect a BitArray's tail.
+
+## E2 — the typescript compiler permits a mutation through `const T& get()`, and the write persists
+
+Found while building E1's second cell. The first `BitNest.h` wrote through an array element directly:
+
+```cpp
+state.mut().inArray.get(input.slot).flags.set(input.idx, true);
+```
+
+The typescript cell compiled it, deployed it, and the write **persisted** — the dump above shows
+`inArray[0].flags` bit 40 set by exactly that call. The clang cell refuses the identical source:
+
+```
+error: 'this' argument to member function 'set' has type 'const BitArray<32>', but function is not marked const
+note: 'set' declared here   (core-v7/src/qpi/qpi_containers.h:35)
+```
+
+QPI is unambiguous — `inline const T& get(uint64 index) const`. Clang is right; the typescript backend is
+wrong, and wrong in the direction that lets state change through a path QPI forbids.
+
+**The controls.** The two sources are byte-identical apart from the struct rename (`diff` of the two
+procedure bodies is empty). The QPI header states the signature. Clang's diagnostic names precisely that
+const-ness. And the typescript deploy returned `ok=True` with the mutation visible in the raw bytes, so
+this is not a compile-only divergence — the write took effect.
+
+**Severity: notable.** A contract developed against the typescript cell can compile, run, and appear correct
+while being unbuildable for the real core. The parity suite (`container-parity.test.ts`) is the natural
+home for a case covering mutation through a const accessor.
+
+## Numbers
+
+- 4 nesting depths probed; 4/4 diff rows warn, **2/4 container views warn**.
+- Both findings reproduce on **2 of 2** buildable cells.
+- 1 hypothesis falsified before it could become a false finding.
+- Raw-dump oracle on both cells; `inArray[1]` empty as the arithmetic self-check.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
@@ -2882,6 +2980,97 @@ struct JsonShapes : public ContractBase
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
     {
         REGISTER_USER_PROCEDURE(SetAll, 1);
+    }
+};
+```
+
+## `BitNest.h` — a BitArray at four nesting depths
+
+Round 9 / E1. Each BitArray is under 64 bits, so every one has a dead tail and a past-capacity set is
+detectable in principle. `InArray` is shown in its corrected form; the original wrote straight through
+`Array::get()`, which is E2.
+
+```cpp
+// State-inspection probe: BitArray past-capacity warnings from nested positions.
+// pastCapacityWarnings() keys on a row label matching /^(.*)\[(\d+)\]$/ and drops the warning when it
+// does not. Each BitArray here is under 64 bits, so every one of them HAS a dead tail and a
+// past-capacity set is detectable in principle — the question is whether the label still matches.
+using namespace QPI;
+
+struct BitNestUnused
+{
+};
+
+struct BitNest : public ContractBase
+{
+    struct Holder
+    {
+        uint64 lead;
+        BitArray<32> flags;
+        uint64 trail;
+    };
+
+    struct StateData
+    {
+        BitArray<32> plain;              // control: top level, label `plain[i]`
+        Holder inStruct;                 // label should be `inStruct.flags[i]`
+        Array<Holder, 2> inArray;        // label should be `inArray[0].flags[i]`
+        HashMap<id, Holder, 8> inMap;    // label inside a keyed record
+    };
+
+    struct Plain_input { uint64 idx; };
+    struct Plain_output {};
+    struct InStruct_input { uint64 idx; };
+    struct InStruct_output {};
+    struct InArray_input { uint64 slot; uint64 idx; };
+    struct InArray_output {};
+    struct InArray_locals { Holder h; };
+    struct MapPut_input { id k; uint64 lead; };
+    struct MapPut_output { sint64 idx; };
+    struct MapPut_locals { Holder h; };
+    struct MapBit_input { id k; uint64 idx; };
+    struct MapBit_output { sint64 idx; };
+    struct MapBit_locals { Holder h; };
+
+    PUBLIC_PROCEDURE(Plain)
+    {
+        state.mut().plain.set(input.idx, true);
+    }
+
+    PUBLIC_PROCEDURE(InStruct)
+    {
+        state.mut().inStruct.flags.set(input.idx, true);
+    }
+
+    // Array::get returns `const T&`, so the element is copied out, mutated, and written back.
+    PUBLIC_PROCEDURE_WITH_LOCALS(InArray)
+    {
+        locals.h = state.get().inArray.get(input.slot);
+        locals.h.flags.set(input.idx, true);
+        state.mut().inArray.set(input.slot, locals.h);
+    }
+
+    PUBLIC_PROCEDURE_WITH_LOCALS(MapPut)
+    {
+        locals.h.lead = input.lead;
+        locals.h.trail = 0;
+        output.idx = state.mut().inMap.set(input.k, locals.h);
+    }
+
+    PUBLIC_PROCEDURE_WITH_LOCALS(MapBit)
+    {
+        state.get().inMap.get(input.k, locals.h);
+        locals.h.flags.set(input.idx, true);
+        output.idx = state.mut().inMap.set(input.k, locals.h);
+    }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    {
+        REGISTER_USER_PROCEDURE(Plain, 1);
+        REGISTER_USER_PROCEDURE(InStruct, 2);
+        REGISTER_USER_PROCEDURE(InArray, 3);
+        REGISTER_USER_PROCEDURE(MapPut, 4);
+        REGISTER_USER_PROCEDURE(MapBit, 5);
     }
 };
 ```
