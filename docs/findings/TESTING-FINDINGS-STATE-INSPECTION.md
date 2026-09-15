@@ -2785,6 +2785,79 @@ only on a list that has only ever grown.
 - Post-removal invariants (`error=None`, head/tail, link symmetry, reachability): **pass**.
 - 1 probe written to cover what the existing one could not reach.
 
+# Round 18
+
+Logs were round 3's other half and the last untouched piece of the brief. Round 3 filed the
+*differently-sized* mislabel — a log decoded by size with a contradicting `_type` printed beside it — and
+recorded the mechanism behind it: **the IDL records the set of `_type` values it saw at each struct's
+`LOG_` call sites** (`AlphaLog types [11, 33]`). It did not test what that costs the struct that legitimately
+owns the borrowed tag. It costs it everything.
+
+## E1 — one mislabelled `LOG_` call makes a correctly labelled log undecodable
+
+`LogZoo.h` declares `AlphaLog` and `BetaLog` at the **same** logged size, distinguished only by `_type`,
+and `EmitLiar` fills an `AlphaLog` while tagging it `KindBeta`. Every log in that contract:
+
+```
+EmitAlpha  ->  name=AlphaLog  typeName=KindAlpha  fields={_contractIndex:29, _type:11, alpha:"7"}
+EmitBeta   ->  name=None      typeName=None       fields=null      hex=0x1d000000160000002a…
+EmitGamma  ->  name=GammaLog  typeName=KindGamma  fields={… g1:"1", g2:"2"}
+EmitLiar   ->  name=None      typeName=None       fields=null      hex=0x1d000000160000002a…
+```
+
+`EmitBeta` emits a genuine, correctly labelled `BetaLog`. It does not decode. Neither does the liar, which
+is defensible — but the honest log is collateral damage.
+
+**The control is a contract identical but for the liar.** `LogClean.h` (appendix) declares the same three
+structs and the same three emitters, with no mislabelling procedure:
+
+```
+EmitAlpha  ->  name=AlphaLog  typeName=KindAlpha  fields={… alpha:"7"}
+EmitBeta   ->  name=BetaLog   typeName=KindBeta   fields={_contractIndex:30, _type:22, beta:"42"}
+EmitGamma  ->  name=GammaLog  typeName=KindGamma  fields={… g1:"1", g2:"2"}
+```
+
+`BetaLog` decodes perfectly. The only difference between the two contracts is the presence of a procedure
+that never runs in this comparison, so the loss is caused at **catalog-build time**, not at decode time.
+
+**Mechanism, from round 3's own observation.** The IDL collects per-struct type sets, so `EmitLiar` makes
+`AlphaLog` claim `[11, 22]` while `BetaLog` claims `[22]`. Tag 22 now has two owners, so the `byTypeWord`
+lookup is ambiguous; and because both structs log at the same size, round 3's size fallback — *"`decodeLog`
+does skip `byTypeWord` when exactly one catalog entry matches the logged size"* — cannot break the tie
+either. Both paths fail and `decodeLog`'s `try/catch` returns the hex-only record.
+
+**Severity: moderate.** Refusing to guess between two candidates is the right instinct, and the same
+instinct S7 was filed to enforce. Two things make it a finding anyway. It is **silent** — the caller gets
+`name: null, fields: null` with no indication that an ambiguous tag, rather than a malformed log, caused
+it, so the obvious conclusion is that the log itself is broken. And it is **collateral** — the contract
+author who wrote `BetaLog` correctly loses their decode because of an unrelated procedure elsewhere in the
+same file.
+
+It also sits oddly beside round 3's finding. Same-size ambiguity refuses silently; different-size
+ambiguity decodes by size and prints a contradicting `_type` (`AlphaLog·KindGamma`). Two mislabels, two
+different strategies, neither of which says "this tag is ambiguous".
+
+## Enums and payload shapes decode correctly
+
+Away from the ambiguity, decoding is exact. `KindAlpha` resolves from `_type: 11` to its name, and the hex
+confirms each field:
+
+```
+AlphaLog  hex=0x1d0000000b0000000700000000000000   1d000000=29  0b000000=11  0700…=7
+GammaLog  hex=0x1d0000002100000001…0200…           21000000=33  g1=1  g2=2
+```
+
+A three-log procedure (`EmitAll`) emits INFO, DEBUG and WARNING in order and the reader returns all three
+in order, decoding the first and third and refusing the middle one — so a refusal does not empty the list,
+which was the other half of round 3's unresolved lead.
+
+## Numbers
+
+- 3 log structs, 2 contracts differing only by a mislabelling procedure: **1 type lost in one, 0 in the other**.
+- 6 emissions checked against raw hex: every decoded field matches its bytes.
+- Round 3's "one unparseable log empties the whole list" lead: **resolved negative** — 3 of 3 logs returned,
+  1 refused, 2 decoded.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
@@ -3785,6 +3858,105 @@ struct LinkZoo : public ContractBase
         REGISTER_USER_PROCEDURE(InsertAfter, 3);
         REGISTER_USER_PROCEDURE(Remove, 4);
         REGISTER_USER_PROCEDURE(Bump, 5);
+    }
+};
+```
+
+## `LogClean.h` — LogZoo without the mislabelling procedure
+
+Round 18 / E1 control. Same three log structs and emitters as `LogZoo.h`, minus `EmitLiar`. `BetaLog`
+decodes here and not there, which locates the loss at catalog-build time.
+
+```cpp
+// R18 control: the same three log structs as LogZoo, with NO mislabelling procedure.
+// If BetaLog decodes here but not in LogZoo, a single mislabelled LOG_ call poisons the tag
+// for the correctly labelled log that owns it.
+using namespace QPI;
+
+enum LogKind { KindAlpha = 11, KindBeta = 22, KindGamma = 33 };
+
+struct LogCleanUnused
+{
+};
+
+struct LogClean : public ContractBase
+{
+    struct StateData
+    {
+        uint64 count;
+    };
+
+    struct AlphaLog
+    {
+        uint32 _contractIndex;
+        uint32 _type;
+        uint64 alpha;
+        sint8 _terminator;
+    };
+
+    struct BetaLog
+    {
+        uint32 _contractIndex;
+        uint32 _type;
+        uint64 beta;
+        sint8 _terminator;
+    };
+
+    struct GammaLog
+    {
+        uint32 _contractIndex;
+        uint32 _type;
+        uint64 g1;
+        uint64 g2;
+        sint8 _terminator;
+    };
+
+    struct EmitAlpha_input { uint64 v; };
+    struct EmitAlpha_output {};
+    struct EmitAlpha_locals { AlphaLog m; };
+    struct EmitBeta_input { uint64 v; };
+    struct EmitBeta_output {};
+    struct EmitBeta_locals { BetaLog m; };
+    struct EmitGamma_input { uint64 a; uint64 b; };
+    struct EmitGamma_output {};
+    struct EmitGamma_locals { GammaLog m; };
+
+    PUBLIC_PROCEDURE_WITH_LOCALS(EmitAlpha)
+    {
+        locals.m._contractIndex = 0;
+        locals.m._type = KindAlpha;
+        locals.m.alpha = input.v;
+        locals.m._terminator = 0;
+        LOG_INFO(locals.m);
+        state.mut().count += 1;
+    }
+
+    PUBLIC_PROCEDURE_WITH_LOCALS(EmitBeta)
+    {
+        locals.m._contractIndex = 0;
+        locals.m._type = KindBeta;
+        locals.m.beta = input.v;
+        locals.m._terminator = 0;
+        LOG_INFO(locals.m);
+        state.mut().count += 1;
+    }
+
+    PUBLIC_PROCEDURE_WITH_LOCALS(EmitGamma)
+    {
+        locals.m._contractIndex = 0;
+        locals.m._type = KindGamma;
+        locals.m.g1 = input.a;
+        locals.m.g2 = input.b;
+        locals.m._terminator = 0;
+        LOG_INFO(locals.m);
+        state.mut().count += 1;
+    }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    {
+        REGISTER_USER_PROCEDURE(EmitAlpha, 1);
+        REGISTER_USER_PROCEDURE(EmitBeta, 2);
+        REGISTER_USER_PROCEDURE(EmitGamma, 3);
     }
 };
 ```
