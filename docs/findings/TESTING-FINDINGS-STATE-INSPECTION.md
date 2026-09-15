@@ -2725,6 +2725,66 @@ exactly the shape of defect the round was hunting for in the *tool*.
 - Post-removal invariants (`error=None`, populations, reachability): **pass**.
 - 1 tester error caught before it became a false finding.
 
+# Round 17
+
+No findings. `LinkedList` was the last container kind whose invariants had not been re-exercised since
+`17b93ef`, and it is the one with the most ways to go subtly wrong: the view checks that head and tail are
+occupied slots, that `next`/`prev` are symmetric and in range, that walking from head visits exactly
+`population` elements without repeating, and that the set of visited slots matches the set of occupied
+ones.
+
+The existing `NestList.h` only appends, which never exercises any of that. `LinkZoo.h` (appendix) was
+written for this round with `addHead`, `addTail`, `insertAfter` and `remove`, so the list's shape keeps
+changing instead of only growing.
+
+## Order is right at every insertion position
+
+```
+addTail 10, 20, 30        ->  [10, 20, 30]
+addHead 5                 ->  [5, 10, 20, 30]
+insertAfter(slot1 = 20)   ->  [5, 10, 20, 99, 30]
+```
+
+The middle insertion is the one that matters: `insertAfter` has to relink two neighbours rather than
+extend an end, and the reader has to follow the new links rather than the slot order.
+
+## Removal from every position, under conservation
+
+```
+remove head   (slot3 = 5)    bytes moved:  28 in 7 run(s)   rows: 7
+remove tail   (slot2 = 30)   bytes moved:  29 in 7 run(s)   rows: 8
+remove middle (slot1 = 20)   bytes moved:  15 in 8 run(s)   rows: 8
+remove again  (slot1)        bytes moved:   0 in 0 run(s)   rows: 0
+bump marker                  bytes moved:   1 in 1 run(s)   rows: 1
+CONSERVATION: OK
+```
+
+Each removal rewrites a different combination of `_headIndex`, `_tailIndex`, `_freeHeadIndex`, the
+neighbours' links and the occupation flags — 7 to 8 distinct byte runs each — and every run is accounted
+for by a row. Removing an already-freed slot is the control: **0 bytes, 0 rows**, no phantom row for an
+operation that did nothing.
+
+Afterwards:
+
+```
+container list status=loaded entries=2 occupied=2 error=None
+   item[0] slot[0]  = 10
+   item[1] slot[4]  = 99
+```
+
+`[5, 10, 20, 99, 30]` minus head, tail and middle is `[10, 99]`, in that order. The slot numbers survive
+the free-list recycling — `99` is still at slot 4, not renumbered — and `error=None` means the link
+symmetry, head/tail validity and walk-without-repeat checks all pass on the post-removal shape rather than
+only on a list that has only ever grown.
+
+## Numbers
+
+- 3 insertion positions (head, tail, middle): **order correct at each**.
+- 3 removal positions plus a repeat and an unrelated write, under conservation: **all agree**, 7–8 byte
+  runs per removal, and the no-op produced no row.
+- Post-removal invariants (`error=None`, head/tail, link symmetry, reachability): **pass**.
+- 1 probe written to cover what the existing one could not reach.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
@@ -3655,6 +3715,76 @@ struct GetOnly : public ContractBase
     {
         REGISTER_USER_PROCEDURE(Sneak, 1);
         REGISTER_USER_PROCEDURE(Honest, 2);
+    }
+};
+```
+
+## `LinkZoo.h` — LinkedList shape changes, not just growth
+
+Round 17. `NestList.h` only appends; this one adds at head, tail and middle and removes from each, so the
+view's link-symmetry and reachability checks are exercised on a list that keeps changing shape.
+
+```cpp
+// R17 probe: LinkedList link topology — head, tail, middle insertion and removal, so the reader's
+// invariant checks (head/tail occupied, next/prev symmetric, walk visits population without repeating)
+// are exercised on a list whose shape keeps changing rather than one that only grows.
+using namespace QPI;
+
+struct LinkZooUnused
+{
+};
+
+struct LinkZoo : public ContractBase
+{
+    struct StateData
+    {
+        LinkedList<uint64, 16> list;
+        uint64 marker;
+    };
+
+    struct AddTail_input { uint64 v; };
+    struct AddTail_output { sint64 idx; };
+    struct AddHead_input { uint64 v; };
+    struct AddHead_output { sint64 idx; };
+    struct InsertAfter_input { sint64 at; uint64 v; };
+    struct InsertAfter_output { sint64 idx; };
+    struct Remove_input { sint64 at; };
+    struct Remove_output {};
+    struct Bump_input {};
+    struct Bump_output {};
+
+    PUBLIC_PROCEDURE(AddTail)
+    {
+        output.idx = state.mut().list.addTail(input.v);
+    }
+
+    PUBLIC_PROCEDURE(AddHead)
+    {
+        output.idx = state.mut().list.addHead(input.v);
+    }
+
+    PUBLIC_PROCEDURE(InsertAfter)
+    {
+        output.idx = state.mut().list.insertAfter(input.at, input.v);
+    }
+
+    PUBLIC_PROCEDURE(Remove)
+    {
+        state.mut().list.remove(input.at);
+    }
+
+    PUBLIC_PROCEDURE(Bump)
+    {
+        state.mut().marker += 1;
+    }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    {
+        REGISTER_USER_PROCEDURE(AddTail, 1);
+        REGISTER_USER_PROCEDURE(AddHead, 2);
+        REGISTER_USER_PROCEDURE(InsertAfter, 3);
+        REGISTER_USER_PROCEDURE(Remove, 4);
+        REGISTER_USER_PROCEDURE(Bump, 5);
     }
 };
 ```
