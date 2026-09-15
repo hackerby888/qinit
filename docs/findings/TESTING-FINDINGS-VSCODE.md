@@ -1664,7 +1664,7 @@ highest-stakes body a developer writes and the last untouched probe family in th
 Completion there is fine. `oldState.` resolves to `OldStateData`'s fields and `state.mut().` to the new
 ones, in the same body, without confusing the two. The diagnostics are another matter.
 
-## E17 — a migration that narrows a field is silent everywhere (not fixed)
+## E17 — a migration that narrows a field is silent everywhere (fixed: warns)
 
 | migration                      | clang      | TypeScript backend | editor                            |
 | ------------------------------ | ---------- | ------------------ | --------------------------------- |
@@ -2654,3 +2654,31 @@ questions, and they stay open — but they are now decidable.
 a different field entirely: the migration is a restructure, not a field-type tweak. A rule matching fields by
 name would say nothing about a field that was dropped, which is a separate question from narrowing and a
 larger one — dropping a field discards persisted data outright.
+
+## E17 — closed, as a warning
+
+With the numbers from round 33 in hand the product question was put and answered: warn, do not refuse.
+`migration-narrowing-validation.ts` runs in module analysis beside the other three, which is the phase the
+editor reaches, and compares `OldStateData` against `StateData` field by field.
+
+```
+uint32 -> uint64   silent                                                    widening keeps every value
+uint64 -> uint32   warning: migration narrows persisted field 'balance':
+                   uint64 to uint32 truncates. Every stored value outside
+                   the new range is rewritten once, irreversibly
+sint64 -> uint64   warning: … turns every negative value into a large positive one
+uint64 -> sint64   warning: … loses the top half of the range
+uint64 -> uint64   silent                                                    no change
+```
+
+**A warning, deliberately.** Narrowing after proving the range is a legitimate thing to do, and this rule
+cannot know whether the range was proved. Refusing would take that away; saying nothing is what E17 was.
+
+**What it does not judge.** A field only one side declares is left alone — adding a field loses nothing, and
+dropping one is a different and larger question than narrowing. Containers and any field whose kind changes
+are skipped too, because what it means to narrow one of those is not the same question. `id` and `m256i`
+have no range to lose. Nested state structs are followed by name, to a depth of eight.
+
+Verified on the whole population, not a sample: all **32** of core's contracts analyse with **0** warnings,
+the two that migrate included, and the corpus holds no migration to test. The rule fires only on the rows
+E17 recorded, which is what a tripwire for a future migration should do.

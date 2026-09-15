@@ -473,6 +473,62 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(findings[0].severity).toBe(DiagnosticSeverity.ERROR);
     });
 
+    // A migration rewrites persisted state once, irreversibly, on a deployed contract. C++ permits a narrowing
+    // and a signedness change implicitly, so no compiler refuses either and this rule is the only warning.
+    const MIGRATION_SOURCE = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct OldStateData { OLD_FIELDS };
+  struct StateData { NEW_FIELDS };
+  struct Go_input {}; struct Go_output {};
+  MIGRATE() { state.mut().epoch = oldState.epoch; }
+  PUBLIC_PROCEDURE(Go) { state.mut().epoch = 1; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};`;
+
+    function migrationFindings(oldFields: string, newFields: string) {
+        const source = MIGRATION_SOURCE.replace("OLD_FIELDS", oldFields).replace("NEW_FIELDS", newFields);
+        return compilerDiagnostics(source).filter((item) => item.message.includes("migration narrows"));
+    }
+
+    test("a migration that cannot carry a persisted value over is warned about, not refused", () => {
+        const truncating = migrationFindings("uint64 balance; uint32 epoch;", "uint32 balance; uint32 epoch;");
+        expect(truncating.map((item) => item.message)).toEqual([
+            "migration narrows persisted field 'balance': uint64 to uint32 truncates. Every stored value outside the new range is rewritten once, irreversibly",
+        ]);
+        // A warning, deliberately: narrowing after proving the range is a legitimate thing to do.
+        expect(truncating[0].severity).toBe(DiagnosticSeverity.WARNING);
+
+        expect(migrationFindings("sint64 balance; uint32 epoch;", "uint64 balance; uint32 epoch;")).toHaveLength(1);
+        expect(migrationFindings("uint64 balance; uint32 epoch;", "sint64 balance; uint32 epoch;")).toHaveLength(1);
+    });
+
+    test("a migration that keeps every persisted value is not warned about", () => {
+        // Widening, no change, a field only the new state has, and a field only the old state had.
+        expect(migrationFindings("uint32 balance; uint32 epoch;", "uint64 balance; uint32 epoch;")).toEqual([]);
+        expect(migrationFindings("uint64 balance; uint32 epoch;", "uint64 balance; uint32 epoch;")).toEqual([]);
+        expect(migrationFindings("uint32 epoch;", "uint64 balance; uint32 epoch;")).toEqual([]);
+        expect(migrationFindings("uint64 balance; uint32 epoch;", "uint32 epoch;")).toEqual([]);
+    });
+
+    test("a narrowing nested inside a state struct is found, and a contract without a migration is silent", () => {
+        const nested = migrationFindings("struct Inner { uint64 amount; } inner; uint32 epoch;", "struct Inner { uint32 amount; } inner; uint32 epoch;");
+        expect(nested.map((item) => item.message)).toEqual([
+            "migration narrows persisted field 'inner.amount': uint64 to uint32 truncates. Every stored value outside the new range is rewritten once, irreversibly",
+        ]);
+
+        const withoutMigration = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct OldStateData { uint64 balance; };
+  struct StateData { uint32 balance; };
+  struct Go_input {}; struct Go_output {};
+  PUBLIC_PROCEDURE(Go) { state.mut().balance = 1; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};`;
+        expect(compilerDiagnostics(withoutMigration).filter((item) => item.message.includes("migration narrows"))).toEqual([]);
+    });
+
     // Core's hash containers compare two keys inside their method bodies, and those bodies arrive in a header
     // the wrapper includes after the contract, so the editor's own translation unit never instantiates them.
     const HASH_KEY_SOURCE = `using namespace QPI;
