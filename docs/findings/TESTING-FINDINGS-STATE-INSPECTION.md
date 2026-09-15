@@ -2950,6 +2950,79 @@ The notation is routine in this codebase, not merely documented in it. R12-E1 is
 - core-lite#11's seqlock on a real node: version **0 → 2 → 4**, even throughout.
 - 2 corrections to earlier findings, one of which raises a severity rather than lowering it.
 
+# Round 20
+
+Round 19 made the core cells usable, so for the first time the S1–S8 repros could be run somewhere other
+than the simulator. S7 and S8 were the ones worth carrying over, because they are the only two that depend
+on the node rather than on client-side rendering.
+
+## S7 passes on core, which is also the first end-to-end proof of the pair
+
+```
+S7 value updates named by key:  8 / 8   (bucketed: 0)
+control — removal never names the all-zero id:      PASS
+control — removal still names the real key:         PASS
+```
+
+This matters beyond the repro. S7's guarded fetch only accepts a key when the node's `version` matches the
+`stateVersion` the trace recorded. On core that version comes from the seqlock added in core-lite#11. So
+eight successful fetches are eight round trips in which qinit's reader and core-lite's writer agreed about
+the state version — the two halves working as a pair on a real node, which neither PR could demonstrate
+when it merged.
+
+## S8 reports no race on core, and that is the correct answer
+
+```
+12 reads of a write-every-tick contract:     raced 0 / 12
+6 full reads with --all (~4 s each):         raced 0 / 6
+```
+
+The contract is demonstrably writing: sampling the slot version over six seconds gives
+`226, 228, 230, 232, 234, 236` — one bump per tick, matching the ~1 s core cadence. So writes were
+interleaving with the reads and nothing was reported.
+
+Two hypotheses for that were raised and both were killed by measurement rather than argument.
+
+**"core-lite withholds the version under load, disabling the check."** Plausible, because the reader omits
+`version` when it cannot find a quiescent window, and a busy slot would then silently lose its protection.
+Measured over 40 one-megabyte reads of the racing slot: **version present 40/40, withheld 0/40**. Not that.
+
+**"A four-second read must span four one-second writes."** This was my own reasoning and it was wrong. It
+assumed the four seconds is time spent fetching. Timing the fetch sequence the reader actually performs:
+
+```
+raw fetch of the whole 5.27 MB container: 0.19 s in 2 request(s)
+versions seen per request: [372, 372]     ->  identical
+```
+
+Nineteen hundredths of a second, two requests, one version. The remaining ~3.8 s is client-side decoding
+and rendering of a 131 072-slot container, which cannot affect consistency because the bytes are already
+in hand. The view really was assembled from a single quiescent state, so reporting it as whole is correct.
+
+S8 is not inert on core; there was simply nothing to detect. The same client code reports 12/12 races
+against the simulator at its 50 ms tick, where the fetch sequence genuinely does straddle writes.
+
+## A stale comment, now false
+
+`readContainerBlock` carries this, written when it was true:
+
+```ts
+// without a node version only an inconsistent view is caught: a read spanning a write that stays
+// self-consistent renders as whole (core-lite sends no version)
+```
+
+core-lite **does** send a version now, on every read measured this round. A maintainer reading that comment
+would conclude the container path is unprotected against a silent straddle on core, and would be wrong.
+Minor, but it is a statement about behaviour that the code no longer matches.
+
+## Numbers
+
+- S7 on core: **8/8** named, 2/2 controls — first confirmation outside the simulator.
+- S8 on core: **0/12** and **0/6** races, both correct; 2 hypotheses falsified by measurement.
+- Version availability under load: **40/40 present**.
+- Fetch versus total read time: **0.19 s of 4 s** — the ratio that made the difference.
+- 1 stale comment identified.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
