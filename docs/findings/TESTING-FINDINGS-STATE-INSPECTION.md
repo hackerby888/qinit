@@ -3187,6 +3187,69 @@ stops depending on flags qinit cannot see.
 - Static prediction against round 21's sweep: **2 predicted failures, 2 observed, 0 unexplained**.
 - 1 QPI template default carries the entire radius.
 
+# Round 23
+
+No findings. core-lite#11 merged with a consensus-safety claim argued entirely from the code:
+
+> The counter lives **outside the state bytes**, so `K12(StateData)`, the contract digest, the state files
+> and consensus are byte-identical with or without this change.
+
+That was reasoning, not measurement, and it is the single claim in that PR where being wrong would matter
+most — a counter accidentally inside the hashed region changes every digest and breaks consensus. The core
+cell now runs the merged seqlock, so it can be checked instead of asserted.
+
+## The digest is K12 of the state bytes, and nothing else
+
+`GQMPROP` at 9,088 bytes is small enough to read whole over RPC and hash independently with qinit's own
+`k12Sync`, which never sees the node's digest code:
+
+```
+node   /live/v1/dev/contract-digest?slot=6
+       bd85184d7ab139f87993164472f1e4650098bfdfb456c1d26fad68e3fe20ddb9
+
+mine   k12Sync(9088 bytes read via state-read)
+       bd85184d7ab139f87993164472f1e4650098bfdfb456c1d26fad68e3fe20ddb9
+```
+
+Identical. The digest is exactly K12 over the state bytes, with nothing else folded in.
+
+## It stays K12 of the state bytes while the counter advances
+
+The static match above would still hold if the counter happened to be zero. The claim that matters is that
+the digest tracks the *bytes* and not the *counter*, so the counter has to be moving:
+
+```
+version=0   digest=dbf51613102e10d0…   k12=dbf51613102e10d0…   MATCH
+version=2   digest=d3cc2138d76fe470…   k12=d3cc2138d76fe470…   MATCH
+version=4   digest=3867c42432bcbe20…   k12=3867c42432bcbe20…   MATCH
+```
+
+The counter advances 0 → 2 → 4 across two writing calls and the digest equals the independent K12 at every
+point. The digest does change between samples — because the state changed — but it changes in lockstep
+with the bytes.
+
+**This is the control that carries the claim.** My K12 is computed over the state bytes alone, which do not
+contain the counter. If the counter were inside the hashed region, the node's digest would move when the
+counter moved and mine would not, and the three rows would disagree. They agree at every sample, which is
+only possible if the counter sits outside what is hashed — exactly what the PR asserted.
+
+It also closes the loop on this engagement's original discipline: three independent readers over the same
+bytes — the container view, the raw dump, and now the digest — all agreeing.
+
+## What is still not verified
+
+The claim covers four things and this round measures two. `K12(StateData)` and the contract digest are
+confirmed. **The state files on disk and consensus across nodes are not** — a single local node cannot
+demonstrate either, and nothing in this round should be read as having tested them. They rest on the same
+mechanism (the counter is a separate `inline std::atomic` array, never adjacent to the state buffer), which
+is now evidenced rather than merely argued, but evidence for the digest is not evidence for consensus.
+
+## Numbers
+
+- 1 contract hashed independently: **digest == K12, byte for byte**.
+- 3 samples across 2 writing calls: **3/3 match** while the counter advanced 0 → 2 → 4.
+- 2 of the PR's 4 safety claims now measured; **2 explicitly still unmeasured**.
+
 # Appendix — the probe contracts, in full
 
 They live outside the repo (nothing was committed). Each is complete as written; deploy with
