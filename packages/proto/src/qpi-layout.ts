@@ -178,6 +178,7 @@ export type SlotsRegion = {
     off: number;
     end: number;
     stride: number;
+    capacity: number;
     path: string;
     short: string;
     source: string;
@@ -228,6 +229,7 @@ const slots = (off: number, stride: number, capacity: number, path: string, shor
     off,
     end: off + stride * capacity,
     stride,
+    capacity,
     path,
     short,
     source,

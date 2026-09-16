@@ -552,7 +552,7 @@ export async function readState(
     let containerIndex = 0;
 
     // Fields read concurrently: a node answers about one request per tick, so sequence pays that latency per field. Results land in declaration order.
-    const slots: {
+    const results: {
         field: StateField;
         value?: string;
         data?: unknown;
@@ -574,11 +574,11 @@ export async function readState(
         };
     };
 
-    for (const slot of slots) {
-        const field = slot.field;
+    for (const result of results) {
+        const field = result.field;
         if (field.bad) {
-            slot.value = `(undecodable: ${field.type} — fields below not shown)`;
-            slot.failed = true;
+            result.value = `(undecodable: ${field.type} — fields below not shown)`;
+            result.failed = true;
             continue;
         }
 
@@ -591,7 +591,7 @@ export async function readState(
                 options.collapseContainersAtBytes !== undefined && field.size >= options.collapseContainersAtBytes && !selected && !options.loadAllContainers;
 
             if (collapsed) {
-                slot.container = collapsedContainer(index, field, layout);
+                result.container = collapsedContainer(index, field, layout);
                 continue;
             }
 
@@ -599,7 +599,7 @@ export async function readState(
             const tracksReads = layout.kind === "array" || layout.kind === "bitarray";
             reads.push(
                 readContainerBlock(rpc, contractIndex, index, field, layout, tracksReads ? trackField() : undefined).then((loaded) => {
-                    slot.container = loaded;
+                    result.container = loaded;
                 }),
             );
             continue;
@@ -607,7 +607,7 @@ export async function readState(
 
         // A struct field holding containers takes the next numbers in declaration order, before its bytes arrive.
         if (field.abi && holdsContainer(field.abi)) {
-            slot.nestedFrom = containerIndex + 1;
+            result.nestedFrom = containerIndex + 1;
             containerIndex += countContainerBlocks(field.abi);
         }
 
@@ -620,16 +620,16 @@ export async function readState(
 
                     // A struct field can hold a container of its own; rendered as one value it would be a line of JSON, so it takes the state rows instead.
                     if (field.abi && holdsContainer(field.abi)) {
-                        slot.nested = await decodeValueBlocks(bytes, field.abi, `${field.name}.`, { next: slot.nestedFrom! });
+                        result.nested = await decodeValueBlocks(bytes, field.abi, `${field.name}.`, { next: result.nestedFrom! });
                         return;
                     }
 
                     const decoded = await decodeAbi(bytes, field.abi!);
-                    slot.value = scalarText(decoded, field.abi!);
-                    slot.data = decodedAbiToJson(decoded, field.abi!);
+                    result.value = scalarText(decoded, field.abi!);
+                    result.data = decodedAbiToJson(decoded, field.abi!);
                 } catch (error) {
-                    slot.value = `(read failed: ${stateReadError(error)})`;
-                    slot.failed = true;
+                    result.value = `(read failed: ${stateReadError(error)})`;
+                    result.failed = true;
                 }
             })(),
         );
@@ -642,18 +642,18 @@ export async function readState(
         onProgress?.("state", totalBytes, totalBytes);
     }
 
-    for (const slot of slots) {
-        if (slot.container) {
-            containers.push(slot.container);
-        } else if (slot.nested) {
-            decodedFields.push(...slot.nested.fields);
-            containers.push(...slot.nested.containers);
-        } else if (slot.value !== undefined) {
+    for (const result of results) {
+        if (result.container) {
+            containers.push(result.container);
+        } else if (result.nested) {
+            decodedFields.push(...result.nested.fields);
+            containers.push(...result.nested.containers);
+        } else if (result.value !== undefined) {
             decodedFields.push({
-                name: slot.field.name,
-                value: slot.value,
-                ...(slot.data !== undefined ? { data: slot.data } : {}),
-                ...(slot.failed ? { failed: true } : {}),
+                name: result.field.name,
+                value: result.value,
+                ...(result.data !== undefined ? { data: result.data } : {}),
+                ...(result.failed ? { failed: true } : {}),
             });
         }
     }
