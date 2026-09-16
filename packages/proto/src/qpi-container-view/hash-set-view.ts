@@ -2,10 +2,10 @@ import { decodeAbiValue } from "../abi/decode";
 import { AbiTypeKind, type AbiHashSet } from "../contract-idl";
 import { hashSetGeometry } from "../qpi-layout";
 import { QpiContainerConsistencyError, QpiIncompleteReadError } from "./errors";
-import { occupiedRanges, occupiedSlots, readQpiBytes, readUint64, type QpiByteSource } from "./source";
+import { occupiedRanges, occupiedSlotIndices, readQpiBytes, readUint64, type QpiByteSource } from "./source";
 
 export interface QpiHashSetEntry {
-    slot: number;
+    elementIndex: number;
     key: unknown;
 }
 
@@ -32,23 +32,23 @@ export class QpiHashSetView {
         const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
         // Flags read before the empty shortcut: population 0 over occupied slots is an inconsistency, not empty.
         const flags = await readQpiBytes(this.source, this.geometry.flagsOffset, this.geometry.flagsBytes);
-        const slots = occupiedSlots(flags, this.capacity);
-        if (slots.length !== population) {
-            throw new QpiContainerConsistencyError(`HashSet has ${slots.length} occupied slots but population ${population}`);
+        const occupied = occupiedSlotIndices(flags, this.capacity);
+        if (occupied.length !== population) {
+            throw new QpiContainerConsistencyError(`HashSet has ${occupied.length} occupied slots but population ${population}`);
         }
         if (!population) {
             return [];
         }
 
         const entries: QpiHashSetEntry[] = [];
-        for (const range of occupiedRanges(slots)) {
+        for (const range of occupiedRanges(occupied)) {
             const count = range.end - range.start + 1;
             const bytes = await readQpiBytes(this.source, range.start * this.geometry.keyStride, count * this.geometry.keyStride);
             for (let index = 0; index < count; index++) {
-                const slot = range.start + index;
+                const elementIndex = range.start + index;
                 const offset = index * this.geometry.keyStride;
                 entries.push({
-                    slot,
+                    elementIndex,
                     key: await decodeAbiValue(bytes.slice(offset, offset + this.type.key.size), this.type.key),
                 });
             }

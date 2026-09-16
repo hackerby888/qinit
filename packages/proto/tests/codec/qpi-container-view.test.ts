@@ -264,9 +264,9 @@ test("HashMap view groups occupied ranges across flag words", async () => {
     }
     const mapSource = sourceOf(mapBytes);
     expect(await new QpiHashMapView(mapType, mapSource.source).entries()).toEqual([
-        { slot: 1, key: 11n, value: 101n },
-        { slot: 2, key: 22n, value: 202n },
-        { slot: 33, key: 66n, value: 606n },
+        { elementIndex: 1, key: 11n, value: 101n },
+        { elementIndex: 2, key: 22n, value: 202n },
+        { elementIndex: 33, key: 66n, value: 606n },
     ]);
     expect(mapSource.reads).toEqual([
         [mapGeometry.populationOffset, 8],
@@ -293,8 +293,8 @@ test("HashSet view excludes marked-for-removal slots", async () => {
     setUint64(setBytes, setGeometry.keyStride * 3, 33);
     setBytes[setGeometry.flagsOffset] = (2 << 2) | (1 << 6);
     setUint64(setBytes, setGeometry.populationOffset, 1);
-    expect(await new QpiHashSetView(setType, qpiSnapshotSource(setBytes)).entries()).toEqual([{ slot: 3, key: 33n }]);
-    expect(await decodeAbi(setBytes, setType)).toEqual([{ slot: 3, key: 33n }]);
+    expect(await new QpiHashSetView(setType, qpiSnapshotSource(setBytes)).entries()).toEqual([{ elementIndex: 3, key: 33n }]);
+    expect(await decodeAbi(setBytes, setType)).toEqual([{ elementIndex: 3, key: 33n }]);
 });
 
 test("Collection view validates and walks each active PoV tree", async () => {
@@ -349,7 +349,7 @@ test("Collection view validates and walks each active PoV tree", async () => {
         { elementIndex: 2, priority: 2n, value: 20n },
         { elementIndex: 3, priority: 7n, value: 70n },
     ]);
-    expect(entries.map((entry) => entry.povSlot)).toEqual([0, 0, 0, 2]);
+    expect(entries.map((entry) => entry.povIndex)).toEqual([0, 0, 0, 2]);
     expect(entries[0].pov).not.toBe(entries[3].pov);
     expect(await decodeAbi(bytes, type)).toEqual(entries);
 
@@ -384,9 +384,9 @@ test("LinkedList view follows logical order and rejects broken links", async () 
     }
 
     expect(await new QpiLinkedListView(type, qpiSnapshotSource(bytes)).entries()).toEqual([
-        { slot: 6, value: 66n },
-        { slot: 1, value: 11n },
-        { slot: 2, value: 22n },
+        { elementIndex: 6, value: 66n },
+        { elementIndex: 1, value: 11n },
+        { elementIndex: 2, value: 22n },
     ]);
 
     setInt64(bytes, geometry.nodeStride + geometry.prevIndexOffset, 2);
@@ -485,9 +485,9 @@ test("HashMap view lists a sparse 545 MB map without walking every slot", async 
     const entries = await new QpiHashMapView(type, sparseSourceOf(type.size, seeded)).entries();
 
     expect(entries).toEqual([
-        { slot: 0, key: 100n, value: 200n },
-        { slot: 9822, key: 101n, value: 201n },
-        { slot: HUGE_CAPACITY - 1, key: 102n, value: 202n },
+        { elementIndex: 0, key: 100n, value: 200n },
+        { elementIndex: 9822, key: 101n, value: 201n },
+        { elementIndex: HUGE_CAPACITY - 1, key: 102n, value: 202n },
     ]);
     // One flag word read per 32 slots rather than one per slot: the old scan takes ~2700 ms here and the current one ~150 ms, so the bound clears both.
     expect(performance.now() - started).toBeLessThan(1000);
@@ -514,9 +514,9 @@ test("HashSet view lists a sparse large set by slot", async () => {
     seedUint64(seeded, geometry.populationOffset, slots.length);
 
     expect(await new QpiHashSetView(type, sparseSourceOf(type.size, seeded)).entries()).toEqual([
-        { slot: 0, key: 70n },
-        { slot: 300_000, key: 71n },
-        { slot: capacity - 1, key: 72n },
+        { elementIndex: 0, key: 70n },
+        { elementIndex: 300_000, key: 71n },
+        { elementIndex: capacity - 1, key: 72n },
     ]);
 });
 
@@ -562,7 +562,7 @@ test("HashMap view ignores flag bits past a capacity shorter than one word", asy
     setUint64(bytes, geometry.elementStride + geometry.elementValueOffset, 101);
     setUint64(bytes, geometry.populationOffset, 1);
 
-    expect(await new QpiHashMapView(type, qpiSnapshotSource(bytes)).entries()).toEqual([{ slot: 1, key: 11n, value: 101n }]);
+    expect(await new QpiHashMapView(type, qpiSnapshotSource(bytes)).entries()).toEqual([{ elementIndex: 1, key: 11n, value: 101n }]);
 });
 
 // containers nested inside containers: no fixture above reaches past one container level
@@ -610,11 +610,11 @@ test("a HashMap with a struct key and a LinkedList value decodes both nestings",
 
     expect(await decodeAbiValue(nestedMapBytes(), NESTED_MAP)).toEqual([
         {
-            slot: 1,
+            elementIndex: 1,
             key: [[await identityOfFirstByte(1), await identityOfFirstByte(2)], 99n],
             value: [
-                { slot: 1, value: 7n }, // logical order, not slot order
-                { slot: 0, value: 9n },
+                { elementIndex: 1, value: 7n }, // logical order, not slot order
+                { elementIndex: 0, value: 9n },
             ],
         },
     ]);
@@ -670,14 +670,14 @@ test("a Collection of a struct holding a BitArray and a uint128 walks the PoV tr
     expect(NESTED_COLLECTION.size).toBe(280);
 
     const entries = (await decodeAbiValue(nestedCollectionBytes(), NESTED_COLLECTION)) as {
-        povSlot: number;
+        povIndex: number;
         pov: string;
         elementIndex: number;
         priority: bigint;
         value: [number[], bigint];
     }[];
 
-    expect(entries.map((entry) => [entry.povSlot, entry.elementIndex, entry.priority])).toEqual([
+    expect(entries.map((entry) => [entry.povIndex, entry.elementIndex, entry.priority])).toEqual([
         [0, 1, 2n],
         [0, 0, 5n],
     ]);
@@ -714,10 +714,10 @@ test("an array of HashMap of BitArray decodes an empty inner container as no ent
     setNested.u64(bytes, second + geometry.flagsOffset, 1);
     setNested.u64(bytes, second + geometry.populationOffset, 1);
 
-    const decoded = (await decodeAbiValue(bytes, type)) as { slot: number; key: string; value: number[] }[][];
+    const decoded = (await decodeAbiValue(bytes, type)) as { elementIndex: number; key: string; value: number[] }[][];
     expect(decoded[0]).toEqual([]); // an empty map is no entries, not one null entry
     expect(decoded[1].length).toBe(1);
-    expect(decoded[1][0].slot).toBe(0);
+    expect(decoded[1][0].elementIndex).toBe(0);
     expect(decoded[1][0].key).toBe(await identityOfFirstByte(7));
     expect(decoded[1][0].value.slice(0, 4)).toEqual([1, 1, 0, 1]);
 
@@ -734,7 +734,7 @@ test("a container can be a HashMap key, a struct field, and a LinkedList value",
     keyedBytes[outerGeometry.elementValueOffset] = 42;
     setNested.u64(keyedBytes, outerGeometry.flagsOffset, 1);
     setNested.u64(keyedBytes, outerGeometry.populationOffset, 1);
-    expect(await decodeAbiValue(keyedBytes, keyedByMap)).toEqual([{ slot: 0, key: [], value: 42 }]);
+    expect(await decodeAbiValue(keyedBytes, keyedByMap)).toEqual([{ elementIndex: 0, key: [], value: 42 }]);
 
     const withNeighbours = validated(st(u8, hm(u8, u64, 2), u16)) as AbiStruct;
     const fieldGeometry = hashMapGeometry(u8, u64, 2);
@@ -746,7 +746,7 @@ test("a container can be a HashMap key, a struct field, and a LinkedList value",
     setNested.u64(structBytes, 8 + fieldGeometry.flagsOffset, 1);
     setNested.u64(structBytes, 8 + fieldGeometry.populationOffset, 1);
     new DataView(structBytes.buffer).setUint16(64, 513, true);
-    expect(await decodeAbiValue(structBytes, withNeighbours)).toEqual([7, [{ slot: 0, key: 1, value: 2n }], 513]);
+    expect(await decodeAbiValue(structBytes, withNeighbours)).toEqual([7, [{ elementIndex: 0, key: 1, value: 2n }], 513]);
 
     const listOfMaps = validated(ll(innerMap, 2));
     const listGeometry = linkedListGeometry(innerMap, 2);
@@ -762,7 +762,7 @@ test("a container can be a HashMap key, a struct field, and a LinkedList value",
     setNested.i64(listBytes, listGeometry.headIndexOffset, 0);
     setNested.i64(listBytes, listGeometry.tailIndexOffset, 0);
     setNested.u64(listBytes, listGeometry.populationOffset, 1);
-    expect(await decodeAbiValue(listBytes, listOfMaps)).toEqual([{ slot: 0, value: [{ slot: 0, key: 1, value: 2 }] }]);
+    expect(await decodeAbiValue(listBytes, listOfMaps)).toEqual([{ elementIndex: 0, value: [{ elementIndex: 0, key: 1, value: 2 }] }]);
 });
 
 test("a nested container view refuses a source shorter than the container it describes", () => {

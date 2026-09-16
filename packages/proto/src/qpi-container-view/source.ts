@@ -84,40 +84,42 @@ export function qpiBorrowedSource(bytes: Uint8Array): QpiByteSource {
     return byteArraySource(bytes);
 }
 
-// Two occupation bits per slot, 32 slots to a word: reading each word once and skipping empty ones makes a walk proportional to slots in use, not capacity.
-export function occupiedSlots(flags: Uint8Array, capacity: number): number[] {
-    const slots: number[] = [];
+// core's 2-bit occupation flags, 32 slots to a word: reading each word once and skipping empty ones makes a walk proportional to slots in use, not capacity.
+// only 0b01 counts. 0b10 is marked for removal and core already zeroed those bytes, so skipping them matches _population; they still cost a probe until cleanup()
+export function occupiedSlotIndices(occupationFlags: Uint8Array, capacity: number): number[] {
+    const occupied: number[] = [];
 
-    for (let word = 0; word * 32 < capacity; word++) {
-        const bits = uint64At(flags, word * 8);
+    for (let wordIndex = 0; wordIndex * 32 < capacity; wordIndex++) {
+        const bits = uint64At(occupationFlags, wordIndex * 8);
         if (bits === 0n) {
             continue;
         }
 
-        const base = word * 32;
-        for (let offset = 0; offset < 32 && base + offset < capacity; offset++) {
-            const flag = Number((bits >> BigInt(offset * 2)) & 3n);
-            if (flag === 1) {
-                slots.push(base + offset);
-            } else if (flag === 3) {
-                throw new QpiContainerConsistencyError(`invalid occupation flag at slot ${base + offset}`);
+        const firstSlotOfWord = wordIndex * 32;
+        for (let slotInWord = 0; slotInWord < 32 && firstSlotOfWord + slotInWord < capacity; slotInWord++) {
+            const occupation = Number((bits >> BigInt(slotInWord * 2)) & 3n);
+            if (occupation === 1) {
+                occupied.push(firstSlotOfWord + slotInWord);
+            } else if (occupation === 3) {
+                // 0b11 is unused in every core encoding, so it means a torn or misaligned read, not a full container
+                throw new QpiContainerConsistencyError(`invalid occupation flag at slot ${firstSlotOfWord + slotInWord}`);
             }
         }
     }
 
-    return slots;
+    return occupied;
 }
 
 // Neighbouring slots are read as one range, so a run of entries costs one fetch rather than one each.
-export function occupiedRanges(slots: number[]): Array<{ start: number; end: number }> {
+export function occupiedRanges(slotIndices: number[]): Array<{ start: number; end: number }> {
     const ranges: Array<{ start: number; end: number }> = [];
 
-    for (const slot of slots) {
+    for (const slotIndex of slotIndices) {
         const last = ranges[ranges.length - 1];
-        if (last && slot === last.end + 1) {
-            last.end = slot;
+        if (last && slotIndex === last.end + 1) {
+            last.end = slotIndex;
         } else {
-            ranges.push({ start: slot, end: slot });
+            ranges.push({ start: slotIndex, end: slotIndex });
         }
     }
 

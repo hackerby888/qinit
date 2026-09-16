@@ -108,7 +108,7 @@ test("a generated LinkedList reads back in list order, not slot order", async ()
         const written = await writeLinkedList(type, order);
         const read = await new QpiLinkedListView(type, source(written.bytes)).entries();
         expect({ seed, capacity, order, entries: read }).toEqual({ seed, capacity, order, entries: written.entries });
-        expect(read.map((entry) => entry.slot)).toEqual(order);
+        expect(read.map((entry) => entry.elementIndex)).toEqual(order);
     }
     // The property is worthless if every generated chain happened to run in slot order.
     expect(sawOutOfOrder).toBe(true);

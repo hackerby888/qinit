@@ -1235,7 +1235,7 @@ It returns a semantic entry rather than exposing the storage offsets:
 
 ```ts
 {
-  slot: 0,
+  elementIndex: 0,
   key: /* decoded id */,
   value: 42n,
 }

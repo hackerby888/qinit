@@ -184,7 +184,7 @@ async function formatContainerView(field: StateField, source: QpiByteSource, ful
             const entries = await view.entries();
             // values render inline from decodeAbiValue, which keeps a BitArray's logical bits only; its past-capacity bits show in its own block and the diff, not here
             const formatted = entries.map((entry) => ({
-                slot: entry.slot,
+                slot: entry.elementIndex,
                 text: `${keyLabel(entry.key, container.key)} = ${abiValueText(entry.value, container.value, { showAll: full })}`,
             }));
             return {
@@ -199,7 +199,7 @@ async function formatContainerView(field: StateField, source: QpiByteSource, ful
             }
             const entries = await view.entries();
             const formatted = entries.map((entry) => ({
-                slot: entry.slot,
+                slot: entry.elementIndex,
                 text: keyLabel(entry.key, container.key),
             }));
             return {
@@ -214,12 +214,12 @@ async function formatContainerView(field: StateField, source: QpiByteSource, ful
             }
             const entries = await view.entries();
             const formatted = entries.map((entry) => ({
-                slot: entry.povSlot,
+                slot: entry.povIndex,
                 text: `${keyLabel(entry.pov)}: ${abiValueText(entry.value, container.value, { showAll: full })} (p${entry.priority})`,
             }));
             return {
                 stateLines: containerLines(container.capacity, formatted, true),
-                occupiedSlots: new Set(entries.map((entry) => entry.povSlot)).size,
+                occupiedSlots: new Set(entries.map((entry) => entry.povIndex)).size,
                 totalEntries: entries.length,
             };
         }

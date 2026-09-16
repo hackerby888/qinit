@@ -151,16 +151,16 @@ export function pastCapacityWarning(path: string, capacity: number, indexes: rea
     return `⚠ ${path ? `${path}: ` : ""}${noun} ${list} written past BitArray<${capacity}> capacity — set() got an index ≥ ${capacity}, which core doesn't reject and get(i) reads back; check the index`;
 }
 
-export function linkedListValueLines(value: { slot: number; value: unknown }[], valueType: AbiType, capacity: number, full: boolean): StateLine[] {
+export function linkedListValueLines(value: { elementIndex: number; value: unknown }[], valueType: AbiType, capacity: number, full: boolean): StateLine[] {
     const logical = value.map((entry, index) => ({
-        label: `item[${index}] slot[${entry.slot}]`,
+        label: `item[${index}] slot[${entry.elementIndex}]`,
         text: `= ${abiValueText(entry.value, valueType, { showAll: full })}`,
         filled: true,
     }));
     return logical.concat(
         unoccupiedSlotLines(
             capacity,
-            value.map((entry) => entry.slot),
+            value.map((entry) => entry.elementIndex),
         ),
     );
 }
@@ -178,7 +178,7 @@ export function abiValueText(value: unknown, type: AbiType, { showAll = false, t
         }
         case AbiTypeKind.LINKED_LIST:
             return limitedParts(
-                linkedListValueLines(Array.isArray(value) ? (value as { slot: number; value: unknown }[]) : [], type.value, type.capacity, showAll).map(
+                linkedListValueLines(Array.isArray(value) ? (value as { elementIndex: number; value: unknown }[]) : [], type.value, type.capacity, showAll).map(
                     flatLine,
                 ),
                 showAll,

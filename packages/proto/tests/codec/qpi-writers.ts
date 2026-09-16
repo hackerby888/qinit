@@ -41,7 +41,7 @@ const slice = (bytes: Uint8Array, offset: number, length: number) => bytes.slice
 
 export interface WrittenHashMap {
     bytes: Uint8Array;
-    entries: { slot: number; key: unknown; value: unknown }[];
+    entries: { elementIndex: number; key: unknown; value: unknown }[];
 }
 
 export async function writeHashMap(type: AbiHashMap, occupied: number[], deleted: number[] = []): Promise<WrittenHashMap> {
@@ -63,7 +63,7 @@ export async function writeHashMap(type: AbiHashMap, occupied: number[], deleted
     const entries = [];
     for (const slot of slots) {
         entries.push({
-            slot,
+            elementIndex: slot,
             key: await decodeAbiValue(slice(bytes, slot * geometry.elementStride, type.key.size), type.key),
             value: await decodeAbiValue(slice(bytes, slot * geometry.elementStride + geometry.elementValueOffset, type.value.size), type.value),
         });
@@ -75,7 +75,7 @@ export async function writeHashSet(
     type: AbiHashSet,
     occupied: number[],
     deleted: number[] = [],
-): Promise<{ bytes: Uint8Array; entries: { slot: number; key: unknown }[] }> {
+): Promise<{ bytes: Uint8Array; entries: { elementIndex: number; key: unknown }[] }> {
     const geometry = hashSetGeometry(type.key, type.capacity);
     const bytes = new Uint8Array(type.size);
     const slots = [...occupied].sort((a, b) => a - b);
@@ -92,13 +92,16 @@ export async function writeHashSet(
 
     const entries = [];
     for (const slot of slots) {
-        entries.push({ slot, key: await decodeAbiValue(slice(bytes, slot * geometry.keyStride, type.key.size), type.key) });
+        entries.push({ elementIndex: slot, key: await decodeAbiValue(slice(bytes, slot * geometry.keyStride, type.key.size), type.key) });
     }
     return { bytes, entries };
 }
 
 // `order` is the list order the view has to reconstruct from next/prev, deliberately not slot order.
-export async function writeLinkedList(type: AbiLinkedList, order: number[]): Promise<{ bytes: Uint8Array; entries: { slot: number; value: unknown }[] }> {
+export async function writeLinkedList(
+    type: AbiLinkedList,
+    order: number[],
+): Promise<{ bytes: Uint8Array; entries: { elementIndex: number; value: unknown }[] }> {
     const geometry = linkedListGeometry(type.value, type.capacity);
     const bytes = new Uint8Array(type.size);
 
@@ -117,7 +120,7 @@ export async function writeLinkedList(type: AbiLinkedList, order: number[]): Pro
 
     const entries = [];
     for (const slot of order) {
-        entries.push({ slot, value: await decodeAbiValue(slice(bytes, slot * geometry.nodeStride, type.value.size), type.value) });
+        entries.push({ elementIndex: slot, value: await decodeAbiValue(slice(bytes, slot * geometry.nodeStride, type.value.size), type.value) });
     }
     return { bytes, entries };
 }
@@ -129,7 +132,7 @@ export interface CollectionPovSpec {
 
 export interface WrittenCollection {
     bytes: Uint8Array;
-    entries: { povSlot: number; elementIndex: number; pov: unknown; priority: bigint; value: unknown }[];
+    entries: { povIndex: number; elementIndex: number; pov: unknown; priority: bigint; value: unknown }[];
 }
 
 // Elements are packed at 0..population-1 since the view reads them as one run, so each PoV owns a contiguous slice with a balanced BST — head first, tail last.
@@ -177,7 +180,7 @@ export async function writeCollection(type: AbiCollection, povs: CollectionPovSp
         for (let index = range.start; index <= range.end; index++) {
             const elementOffset = geometry.elementsOffset + index * geometry.elementStride;
             entries.push({
-                povSlot: range.slot,
+                povIndex: range.slot,
                 elementIndex: index,
                 pov,
                 priority: BigInt(index - range.start),

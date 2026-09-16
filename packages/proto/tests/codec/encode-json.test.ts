@@ -373,7 +373,7 @@ test("typed container decode keeps nested field offsets", async () => {
     view.setBigUint64(32, 1n, true);
     view.setBigUint64(40, 1n, true);
 
-    expect(await decodeAbi(bytes, map)).toEqual([{ slot: 0, key: 3, value: [7, 99n] }]);
+    expect(await decodeAbi(bytes, map)).toEqual([{ elementIndex: 0, key: 3, value: [7, 99n] }]);
 });
 
 test("typed BitArray encodes logical bits LSB-first and ignores padding", async () => {
@@ -448,8 +448,8 @@ test("typed LinkedList decodes logical order and rejects public input", async ()
     view.setBigUint64(geometry.populationOffset, 2n, true);
 
     expect(await decodeAbi(bytes, linkedList)).toEqual([
-        { slot: 5, value: 50n },
-        { slot: 1, value: 10n },
+        { elementIndex: 5, value: 50n },
+        { elementIndex: 1, value: 10n },
     ]);
     await expect(encodeInputJson(linkedList, bytes)).rejects.toThrow(/LinkedList input is not supported/);
     expect(() => jsonToInputFormat(linkedList, [])).toThrow(/LinkedList input is not supported/);
