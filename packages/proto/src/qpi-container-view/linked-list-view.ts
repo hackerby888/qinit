@@ -52,7 +52,7 @@ export class QpiLinkedListView {
             return [];
         }
 
-        const header = await readQpiBytes(this.source, this.geometry.headOffset, 16);
+        const header = await readQpiBytes(this.source, this.geometry.headIndexOffset, 16);
         const head = sint64At(header, 0);
         const tail = sint64At(header, 8);
         const occupied = new Set(occupiedSlots);
@@ -105,8 +105,8 @@ export class QpiLinkedListView {
                 nodes.set(slot, {
                     slot,
                     value: await decodeAbiValue(bytes.slice(offset, offset + this.type.value.size), this.type.value),
-                    next: sint64At(bytes, offset + this.geometry.nextOffset),
-                    previous: sint64At(bytes, offset + this.geometry.prevOffset),
+                    next: sint64At(bytes, offset + this.geometry.nextIndexOffset),
+                    previous: sint64At(bytes, offset + this.geometry.prevIndexOffset),
                 });
             }
         }

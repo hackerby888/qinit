@@ -37,8 +37,8 @@ const DEEPER = fieldsOf("Deeper", "Deeper deeper;", "struct Deeper { uint64 valu
 
 // One live entry: key 5 → 6 in slot 2 of a HashMap<uint64, uint64, 4> that starts at `at`.
 function putEntry(bytes: Uint8Array, at: number, slot: number, key: bigint, value: bigint) {
-    writeLe(bytes, at + slot * MAP.recordStride, key);
-    writeLe(bytes, at + slot * MAP.recordStride + MAP.valueOffset, value);
+    writeLe(bytes, at + slot * MAP.elementStride, key);
+    writeLe(bytes, at + slot * MAP.elementStride + MAP.elementValueOffset, value);
     setFlag(bytes, at + MAP.flagsOffset, slot, 1);
     writeLe(bytes, at + MAP.populationOffset, 1n);
 }
@@ -60,7 +60,7 @@ test("a struct made only of containers reports each container's entries under it
     const field = fields.find((candidate) => candidate.name === "only")!;
     const window = diffWindow(field.off, field.size, undefined, (bytes) => {
         putEntry(bytes, 0, 1, 1n, 10n);
-        writeLe(bytes, MAP.size + 2 * SET.recordStride, 2n);
+        writeLe(bytes, MAP.size + 2 * SET.keyStride, 2n);
         setFlag(bytes, MAP.size + SET.flagsOffset, 2, 1);
         writeLe(bytes, MAP.size + SET.populationOffset, 1n);
     });
@@ -97,10 +97,10 @@ test("a negative key and a nested-struct key label their entries as the contract
     const byKey = offsetOf(fields, "byKey");
     const window = diffWindow(0, byKey + KEY.size, undefined, (bytes) => {
         putEntry(bytes, 0, 0, -5n, 9n);
-        writeLe(bytes, byKey + KEY.recordStride, 1n);
-        writeLe(bytes, byKey + KEY.recordStride + 8, 2n);
-        writeLe(bytes, byKey + KEY.recordStride + 16, 3n, 4);
-        writeLe(bytes, byKey + KEY.recordStride + KEY.valueOffset, 4n);
+        writeLe(bytes, byKey + KEY.elementStride, 1n);
+        writeLe(bytes, byKey + KEY.elementStride + 8, 2n);
+        writeLe(bytes, byKey + KEY.elementStride + 16, 3n, 4);
+        writeLe(bytes, byKey + KEY.elementStride + KEY.elementValueOffset, 4n);
         setFlag(bytes, byKey + KEY.flagsOffset, 1, 1);
         writeLe(bytes, byKey + KEY.populationOffset, 1n);
     });
@@ -151,11 +151,11 @@ test("the same flag with its record outside the window stays bookkeeping", async
 test("a BitArray held by a keyed record reads by the key, arriving and changing", async () => {
     const BITS = hashMapGeometry(U64, U64, 4);
     const fields = fieldsOf("Bits", "HashMap<uint64, BitArray<64>, 4> bitValues;");
-    const record = BITS.recordStride;
+    const record = BITS.elementStride;
     const arrived = diffWindow(0, BITS.size, undefined, (bytes) => {
         writeLe(bytes, record, 1n);
-        bytes[record + BITS.valueOffset] = 1 << 3;
-        bytes[record + BITS.valueOffset + 7] = 0x80;
+        bytes[record + BITS.elementValueOffset] = 1 << 3;
+        bytes[record + BITS.elementValueOffset + 7] = 0x80;
         setFlag(bytes, BITS.flagsOffset, 1, 1);
         writeLe(bytes, BITS.populationOffset, 1n);
     });
@@ -164,12 +164,12 @@ test("a BitArray held by a keyed record reads by the key, arriving and changing"
         BITS.size,
         (bytes) => {
             writeLe(bytes, record, 1n);
-            bytes[record + BITS.valueOffset] = 1 << 3;
+            bytes[record + BITS.elementValueOffset] = 1 << 3;
             setFlag(bytes, BITS.flagsOffset, 1, 1);
             writeLe(bytes, BITS.populationOffset, 1n);
         },
         (bytes) => {
-            bytes[record + BITS.valueOffset + 7] = 0x80;
+            bytes[record + BITS.elementValueOffset + 7] = 0x80;
         },
     );
 
@@ -190,7 +190,7 @@ test("a bit flipped past a small BitArray's capacity is reported and marked, top
 
     // a BitArray<16> value is one uint64 word, so the record layout is MAP's
     const keyed = fieldsOf("KeyedSmall", "HashMap<uint64, BitArray<16>, 4> m;");
-    const record = MAP.recordStride;
+    const record = MAP.elementStride;
     const update = diffWindow(
         0,
         MAP.size,
@@ -200,7 +200,7 @@ test("a bit flipped past a small BitArray's capacity is reported and marked, top
             writeLe(bytes, MAP.populationOffset, 1n);
         },
         (bytes) => {
-            bytes[record + MAP.valueOffset + 2] = 1 << 4;
+            bytes[record + MAP.elementValueOffset + 2] = 1 << 4;
         },
     );
     expect(await shown(keyed, [update])).toEqual(["m[7][20] 0 → 1 (past capacity 16)"]);
@@ -274,7 +274,7 @@ const LAST_IN_VALUE = 264;
 
 test("a record is named by a key that changed in another, non-adjacent window", async () => {
     const key = diffWindow(BIG_MAP_OFF, 8, undefined, (bytes) => writeLe(bytes, 0, 11));
-    const last = diffWindow(BIG_MAP_OFF + BIG_MAP_GEOMETRY.valueOffset + LAST_IN_VALUE, 8, undefined, (bytes) => writeLe(bytes, 0, 99));
+    const last = diffWindow(BIG_MAP_OFF + BIG_MAP_GEOMETRY.elementValueOffset + LAST_IN_VALUE, 8, undefined, (bytes) => writeLe(bytes, 0, 99));
 
     expect(await shown(BIG_MAP, [key, last])).toEqual(["m[11].last 0 → 99"]);
 });
@@ -282,7 +282,7 @@ test("a record is named by a key that changed in another, non-adjacent window", 
 test("a leaving record is named by the key only its own window still holds, in the before image", async () => {
     // The key survives only in that window's `before`; the row and the flag are in other windows.
     const key = diffWindow(BIG_MAP_OFF, 8, (bytes) => writeLe(bytes, 0, 11), (bytes) => writeLe(bytes, 0, 0));
-    const last = diffWindow(BIG_MAP_OFF + BIG_MAP_GEOMETRY.valueOffset + LAST_IN_VALUE, 8, (bytes) => writeLe(bytes, 0, 99), (bytes) => writeLe(bytes, 0, 0));
+    const last = diffWindow(BIG_MAP_OFF + BIG_MAP_GEOMETRY.elementValueOffset + LAST_IN_VALUE, 8, (bytes) => writeLe(bytes, 0, 99), (bytes) => writeLe(bytes, 0, 0));
     // `setFlag` ORs and the after image copies before, so write the removal bit flat.
     const flags = diffWindow(BIG_MAP_OFF + BIG_MAP_GEOMETRY.flagsOffset, 8, (bytes) => setFlag(bytes, 0, 0, 1), (bytes) => (bytes[0] = 2));
 
@@ -293,7 +293,7 @@ test("a leaving record is named by the key only its own window still holds, in t
 
 // S7 step 2: an update leaves the key in no window, so naming the entry means reading it back.
 const KEY_AT = BIG_MAP_OFF;
-const LAST_AT = BIG_MAP_OFF + BIG_MAP_GEOMETRY.valueOffset + LAST_IN_VALUE;
+const LAST_AT = BIG_MAP_OFF + BIG_MAP_GEOMETRY.elementValueOffset + LAST_IN_VALUE;
 const keyReaderOf = (value: number | null) => {
     const calls: [number, number][] = [];
     const read = async (off: number, size: number) => {
@@ -339,7 +339,7 @@ test("a leaving entry is never named by a key read back after it left", async ()
 });
 
 test("two rows of one record cost a single key read", async () => {
-    const both = diffWindow(BIG_MAP_OFF + BIG_MAP_GEOMETRY.valueOffset, 272, undefined, (bytes) => {
+    const both = diffWindow(BIG_MAP_OFF + BIG_MAP_GEOMETRY.elementValueOffset, 272, undefined, (bytes) => {
         writeLe(bytes, 0, 7); // lead
         writeLe(bytes, LAST_IN_VALUE, 8); // last
     });

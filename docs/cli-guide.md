@@ -1406,8 +1406,8 @@ opens partway into a run of flags too long to fit one window.
 
 A `HashMap` or `HashSet` record goes one step further: its rows collapse onto a single
 line named by the key the contract wrote, rather than by the bucket the entry hashed
-into — a placement detail no contract author picks. So `map.slot[31].key  0 → 45` and
-`map.slot[31].value  0 → 46` read as one `map[45]  = 46 (new)`. The key is read from
+into — a placement detail no contract author picks. So `map._elements[31].key  0 → 45` and
+`map._elements[31].value  0 → 46` read as one `map[45]  = 46 (new)`. The key is read from
 the changed window rather than from the rows, because an update leaves the key bytes
 alone and they never produce a row of their own. The occupation flag is what separates
 `(new)`, `(removed)` and a plain update, so a window carrying neither the flag nor the
@@ -1425,7 +1425,7 @@ keeps only two of the three classes:
 | internal | occupation flags, `_headIndex`/`_tailIndex`/`_freeHeadIndex`/`_nextUnusedIndex`, `bst*Index`, `povIndex`, per-PoV counters, `_markRemovalCounter`, node `nextIndex`/`prevIndex`, a collapsed entry's own `slot[i].key` | hidden  |
 
 Each row therefore carries two labels: the shown one drops the internal path segments
-(`trail._nodes[1].value` reads as `trail[1]`, `map.slot[31].value` as `map[45]`), and
+(`trail._nodes[1].value` reads as `trail[1]`, `map._elements[31].value` as `map[45]`), and
 the full path returns with the internal rows under `ctrl+t` in `qinit debug` or
 `--trace-full` on `qinit call`.
 Hidden rows are always counted in a tail line, so a call that touched only bookkeeping

@@ -30,7 +30,7 @@ function stateBytes(): Uint8Array {
     const view = new DataView(bytes.buffer);
     view.setBigUint64(0, 42n, true);
     view.setBigUint64(MAP.off, 5n, true);
-    view.setBigUint64(MAP.off + MAP_GEOMETRY.valueOffset, 6n, true);
+    view.setBigUint64(MAP.off + MAP_GEOMETRY.elementValueOffset, 6n, true);
     view.setBigUint64(MAP.off + MAP_GEOMETRY.flagsOffset, 1n, true);
     view.setBigUint64(MAP.off + MAP_GEOMETRY.populationOffset, 1n, true);
     return bytes;

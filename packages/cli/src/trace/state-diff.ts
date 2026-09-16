@@ -3,11 +3,12 @@ import { decodeAbi, decodeAbiValue, decodedAbiToJson } from "@qinit/proto";
 import { AbiScalarKind, AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import {
     arrayGeometry,
-    collectionMembers,
-    hashMapMembers,
-    hashSetMembers,
-    linkedListMembers,
+    collectionRegions,
+    hashMapRegions,
+    hashSetRegions,
+    linkedListRegions,
     type ContainerRegion,
+    type SlotsRegion,
     type MemberRole,
     type WordType,
 } from "@qinit/proto/qpi-layout";
@@ -135,7 +136,6 @@ const toHex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).
 // Stage one: what moved. The walk visits only the parts of each type that share a byte with the window and compares them in place; padding is never visited.
 
 type Walk = { window: ChangedWindow; changes: Change[] };
-type RecordsRegion = Extract<ContainerRegion, { kind: "records" }>;
 
 // The keyed record a walk is inside: which of its members and where its key sits, so every payload change beneath can be named by the entry.
 type RecordScope = { part: "key" | "value"; container: Names; slot: number; member: string; keyStart: number; keyType: AbiType };
@@ -247,19 +247,26 @@ function walkType(walk: Walk, names: Names, start: number, type: AbiType, scope?
         }
 
         case AbiTypeKind.HASH_MAP:
-            walkContainer(walk, names, start, hashMapMembers(type.key, type.value, type.capacity), (tag) => (tag === "key" ? type.key : type.value), scope);
+            walkContainer(
+                walk,
+                names,
+                start,
+                Object.values(hashMapRegions(type.key, type.value, type.capacity)),
+                (tag) => (tag === "key" ? type.key : type.value),
+                scope,
+            );
             return;
 
         case AbiTypeKind.HASH_SET:
-            walkContainer(walk, names, start, hashSetMembers(type.key, type.capacity), () => type.key, scope);
+            walkContainer(walk, names, start, Object.values(hashSetRegions(type.key, type.capacity)), () => type.key, scope);
             return;
 
         case AbiTypeKind.COLLECTION:
-            walkContainer(walk, names, start, collectionMembers(type.value, type.capacity), () => type.value, scope);
+            walkContainer(walk, names, start, Object.values(collectionRegions(type.value, type.capacity)), () => type.value, scope);
             return;
 
         case AbiTypeKind.LINKED_LIST:
-            walkContainer(walk, names, start, linkedListMembers(type.value, type.capacity), () => type.value, scope);
+            walkContainer(walk, names, start, Object.values(linkedListRegions(type.value, type.capacity)), () => type.value, scope);
             return;
 
         default:
@@ -279,7 +286,7 @@ function walkContainer(
 ): void {
     const { window } = walk;
     // Only a keyed container has anything better to label a record by than the bucket it hashed into.
-    const records = layout.find((candidate): candidate is RecordsRegion => candidate.kind === "records");
+    const records = layout.find((candidate): candidate is SlotsRegion => candidate.kind === "slots");
     const keyMember = records?.members.find((candidate) => candidate.type === "key");
 
     for (const region of layout) {
@@ -288,7 +295,7 @@ function walkContainer(
         }
 
         switch (region.kind) {
-            case "records":
+            case "slots":
                 walkRecords(walk, names, start + region.off, region, idlType, scope);
                 break;
 
@@ -306,7 +313,7 @@ function walkContainer(
                               keyType: idlType("key"),
                           })
                         : undefined;
-                const run = { start: start + region.off, size: region.end - region.off, bitsPerIndex: region.bitsPer, indexCount: region.count };
+                const run = { start: start + region.off, size: region.end - region.off, bitsPerIndex: region.bitsPerSlot, indexCount: region.capacity };
                 compareBits(walk, descend(names, region.path), run, "internal", flagAt);
                 break;
             }
@@ -321,7 +328,7 @@ function walkContainer(
 // The records the window touches, member by member; a key or value member is walked as its IDL type inside the record's scope.
 // A nested container's payload keeps the outer entry's key, its bookkeeping words and flags stay its own.
 // (container names, absolute start of the records, the region, the IDL type behind `key`/`value`, the enclosing keyed record) -> changes pushed onto the walk.
-function walkRecords(walk: Walk, names: Names, start: number, region: RecordsRegion, idlType: (tag: "key" | "value") => AbiType, outer?: RecordScope): void {
+function walkRecords(walk: Walk, names: Names, start: number, region: SlotsRegion, idlType: (tag: "key" | "value") => AbiType, outer?: RecordScope): void {
     const { window } = walk;
     const keyMember = region.members.find((candidate) => candidate.type === "key");
     const [first, last] = visibleIndices(window, start, region.stride, (region.end - region.off) / region.stride);

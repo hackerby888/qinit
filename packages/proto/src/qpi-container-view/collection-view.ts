@@ -130,9 +130,9 @@ export class QpiCollectionView {
                         POV_TYPE,
                     ),
                     population,
-                    head: sint64At(bytes, offset + this.geometry.povHeadOffset),
-                    tail: sint64At(bytes, offset + this.geometry.povTailOffset),
-                    root: sint64At(bytes, offset + this.geometry.povBstRootOffset),
+                    head: sint64At(bytes, offset + this.geometry.povHeadIndexOffset),
+                    tail: sint64At(bytes, offset + this.geometry.povTailIndexOffset),
+                    root: sint64At(bytes, offset + this.geometry.povBstRootIndexOffset),
                 });
             }
         }
@@ -144,9 +144,9 @@ export class QpiCollectionView {
         return {
             priority: sint64At(bytes, offset + this.geometry.elementPriorityOffset),
             povSlot: sint64At(bytes, offset + this.geometry.elementPovIndexOffset),
-            parent: sint64At(bytes, offset + this.geometry.elementBstParentOffset),
-            left: sint64At(bytes, offset + this.geometry.elementBstLeftOffset),
-            right: sint64At(bytes, offset + this.geometry.elementBstRightOffset),
+            parent: sint64At(bytes, offset + this.geometry.elementBstParentIndexOffset),
+            left: sint64At(bytes, offset + this.geometry.elementBstLeftIndexOffset),
+            right: sint64At(bytes, offset + this.geometry.elementBstRightIndexOffset),
         };
     }
 

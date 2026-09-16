@@ -437,14 +437,14 @@ test("typed LinkedList decodes logical order and rejects public input", async ()
     const setNode = (slot: number, item: bigint, next: bigint, previous: bigint) => {
         const offset = slot * geometry.nodeStride;
         view.setBigUint64(offset, item, true);
-        view.setBigInt64(offset + geometry.nextOffset, next, true);
-        view.setBigInt64(offset + geometry.prevOffset, previous, true);
+        view.setBigInt64(offset + geometry.nextIndexOffset, next, true);
+        view.setBigInt64(offset + geometry.prevIndexOffset, previous, true);
     };
     setNode(5, 50n, 1n, -1n);
     setNode(1, 10n, -1n, 5n);
     bytes[geometry.flagsOffset] = (1 << 5) | (1 << 1);
-    view.setBigInt64(geometry.headOffset, 5n, true);
-    view.setBigInt64(geometry.tailOffset, 1n, true);
+    view.setBigInt64(geometry.headIndexOffset, 5n, true);
+    view.setBigInt64(geometry.tailIndexOffset, 1n, true);
     view.setBigUint64(geometry.populationOffset, 2n, true);
 
     expect(await decodeAbi(bytes, linkedList)).toEqual([

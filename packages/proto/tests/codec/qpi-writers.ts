@@ -50,12 +50,12 @@ export async function writeHashMap(type: AbiHashMap, occupied: number[], deleted
     const slots = [...occupied].sort((a, b) => a - b);
 
     for (const slot of deleted) {
-        fill(bytes, slot * geometry.recordStride, geometry.recordStride, slot + 900);
+        fill(bytes, slot * geometry.elementStride, geometry.elementStride, slot + 900);
         setPairFlag(bytes, geometry.flagsOffset, slot, 2);
     }
     for (const slot of slots) {
-        fill(bytes, slot * geometry.recordStride, type.key.size, slot + 1);
-        fill(bytes, slot * geometry.recordStride + geometry.valueOffset, type.value.size, slot + 500);
+        fill(bytes, slot * geometry.elementStride, type.key.size, slot + 1);
+        fill(bytes, slot * geometry.elementStride + geometry.elementValueOffset, type.value.size, slot + 500);
         setPairFlag(bytes, geometry.flagsOffset, slot, 1);
     }
     setUint64(bytes, geometry.populationOffset, slots.length);
@@ -64,8 +64,8 @@ export async function writeHashMap(type: AbiHashMap, occupied: number[], deleted
     for (const slot of slots) {
         entries.push({
             slot,
-            key: await decodeAbiValue(slice(bytes, slot * geometry.recordStride, type.key.size), type.key),
-            value: await decodeAbiValue(slice(bytes, slot * geometry.recordStride + geometry.valueOffset, type.value.size), type.value),
+            key: await decodeAbiValue(slice(bytes, slot * geometry.elementStride, type.key.size), type.key),
+            value: await decodeAbiValue(slice(bytes, slot * geometry.elementStride + geometry.elementValueOffset, type.value.size), type.value),
         });
     }
     return { bytes, entries };
@@ -81,18 +81,18 @@ export async function writeHashSet(
     const slots = [...occupied].sort((a, b) => a - b);
 
     for (const slot of deleted) {
-        fill(bytes, slot * geometry.recordStride, geometry.recordStride, slot + 900);
+        fill(bytes, slot * geometry.keyStride, geometry.keyStride, slot + 900);
         setPairFlag(bytes, geometry.flagsOffset, slot, 2);
     }
     for (const slot of slots) {
-        fill(bytes, slot * geometry.recordStride, type.key.size, slot + 1);
+        fill(bytes, slot * geometry.keyStride, type.key.size, slot + 1);
         setPairFlag(bytes, geometry.flagsOffset, slot, 1);
     }
     setUint64(bytes, geometry.populationOffset, slots.length);
 
     const entries = [];
     for (const slot of slots) {
-        entries.push({ slot, key: await decodeAbiValue(slice(bytes, slot * geometry.recordStride, type.key.size), type.key) });
+        entries.push({ slot, key: await decodeAbiValue(slice(bytes, slot * geometry.keyStride, type.key.size), type.key) });
     }
     return { bytes, entries };
 }
@@ -104,15 +104,15 @@ export async function writeLinkedList(type: AbiLinkedList, order: number[]): Pro
 
     for (const [position, slot] of order.entries()) {
         fill(bytes, slot * geometry.nodeStride, type.value.size, slot + 1);
-        setSint64(bytes, slot * geometry.nodeStride + geometry.nextOffset, position + 1 < order.length ? order[position + 1] : -1);
-        setSint64(bytes, slot * geometry.nodeStride + geometry.prevOffset, position > 0 ? order[position - 1] : -1);
+        setSint64(bytes, slot * geometry.nodeStride + geometry.nextIndexOffset, position + 1 < order.length ? order[position + 1] : -1);
+        setSint64(bytes, slot * geometry.nodeStride + geometry.prevIndexOffset, position > 0 ? order[position - 1] : -1);
         setBitFlag(bytes, geometry.flagsOffset, slot);
     }
-    setSint64(bytes, geometry.headOffset, order.length ? order[0] : -1);
-    setSint64(bytes, geometry.tailOffset, order.length ? order[order.length - 1] : -1);
+    setSint64(bytes, geometry.headIndexOffset, order.length ? order[0] : -1);
+    setSint64(bytes, geometry.tailIndexOffset, order.length ? order[order.length - 1] : -1);
     // The view never reads these two, but core keeps them, so the bytes stay faithful to a real state.
-    setSint64(bytes, geometry.freeHeadOffset, -1);
-    setUint64(bytes, geometry.nextUnusedOffset, order.length);
+    setSint64(bytes, geometry.freeHeadIndexOffset, -1);
+    setUint64(bytes, geometry.nextUnusedIndexOffset, order.length);
     setUint64(bytes, geometry.populationOffset, order.length);
 
     const entries = [];
@@ -154,9 +154,9 @@ export async function writeCollection(type: AbiCollection, povs: CollectionPovSp
         const povOffset = geometry.povsOffset + range.slot * geometry.povStride;
         fill(bytes, povOffset + geometry.povValueOffset, POV_TYPE.size, range.slot + 7);
         setUint64(bytes, povOffset + geometry.povPopulationOffset, range.count);
-        setSint64(bytes, povOffset + geometry.povHeadOffset, range.start);
-        setSint64(bytes, povOffset + geometry.povTailOffset, range.end);
-        setSint64(bytes, povOffset + geometry.povBstRootOffset, (range.start + range.end) >> 1);
+        setSint64(bytes, povOffset + geometry.povHeadIndexOffset, range.start);
+        setSint64(bytes, povOffset + geometry.povTailIndexOffset, range.end);
+        setSint64(bytes, povOffset + geometry.povBstRootIndexOffset, (range.start + range.end) >> 1);
         setPairFlag(bytes, geometry.flagsOffset, range.slot, 1);
 
         for (let index = range.start; index <= range.end; index++) {
@@ -194,9 +194,9 @@ function linkBst(bytes: Uint8Array, geometry: ReturnType<typeof collectionGeomet
     }
     const middle = (low + high) >> 1;
     const offset = geometry.elementsOffset + middle * geometry.elementStride;
-    setSint64(bytes, offset + geometry.elementBstParentOffset, parent);
-    setSint64(bytes, offset + geometry.elementBstLeftOffset, linkBst(bytes, geometry, low, middle - 1, middle));
-    setSint64(bytes, offset + geometry.elementBstRightOffset, linkBst(bytes, geometry, middle + 1, high, middle));
+    setSint64(bytes, offset + geometry.elementBstParentIndexOffset, parent);
+    setSint64(bytes, offset + geometry.elementBstLeftIndexOffset, linkBst(bytes, geometry, low, middle - 1, middle));
+    setSint64(bytes, offset + geometry.elementBstRightIndexOffset, linkBst(bytes, geometry, middle + 1, high, middle));
     return middle;
 }
 

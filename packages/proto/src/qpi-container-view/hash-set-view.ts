@@ -43,10 +43,10 @@ export class QpiHashSetView {
         const entries: QpiHashSetEntry[] = [];
         for (const range of occupiedRanges(slots)) {
             const count = range.end - range.start + 1;
-            const bytes = await readQpiBytes(this.source, range.start * this.geometry.recordStride, count * this.geometry.recordStride);
+            const bytes = await readQpiBytes(this.source, range.start * this.geometry.keyStride, count * this.geometry.keyStride);
             for (let index = 0; index < count; index++) {
                 const slot = range.start + index;
-                const offset = index * this.geometry.recordStride;
+                const offset = index * this.geometry.keyStride;
                 entries.push({
                     slot,
                     key: await decodeAbiValue(bytes.slice(offset, offset + this.type.key.size), this.type.key),
