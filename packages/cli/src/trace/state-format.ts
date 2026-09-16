@@ -204,6 +204,28 @@ export function abiValueText(value: unknown, type: AbiType, { showAll = false, t
             const values = Array.isArray(value) ? value : [];
             return `[${limitedParts(groupedParts(values.map((element) => abiValueText(element, type.element, { showAll }))), showAll).join(", ")}]`;
         }
+        // a keyed container held as a value reads as its block rows would, e.g. {7 = 9}, {7}, {PKTG…: 9 (p7)}; without this it fell to jsonText's [{"elementIndex":…}]
+        case AbiTypeKind.HASH_MAP: {
+            const entries = Array.isArray(value) ? (value as { key: unknown; value: unknown }[]) : [];
+            return `{${limitedParts(
+                entries.map((entry) => `${keyLabel(entry.key, type.key)} = ${abiValueText(entry.value, type.value, { showAll })}`),
+                showAll,
+            ).join(", ")}}`;
+        }
+        case AbiTypeKind.HASH_SET: {
+            const entries = Array.isArray(value) ? (value as { key: unknown }[]) : [];
+            return `{${limitedParts(
+                entries.map((entry) => keyLabel(entry.key, type.key)),
+                showAll,
+            ).join(", ")}}`;
+        }
+        case AbiTypeKind.COLLECTION: {
+            const entries = Array.isArray(value) ? (value as { pov: unknown; priority: bigint; value: unknown }[]) : [];
+            return `{${limitedParts(
+                entries.map((entry) => `${keyLabel(entry.pov)}: ${abiValueText(entry.value, type.value, { showAll })} (p${entry.priority})`),
+                showAll,
+            ).join(", ")}}`;
+        }
         default:
             return valueText(value, showAll);
     }

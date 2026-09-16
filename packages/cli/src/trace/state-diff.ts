@@ -57,20 +57,25 @@ type ImagePair = { before: Uint8Array; after: Uint8Array };
 type Rendered = { text: string; data: unknown };
 
 // slot: the physical position core's isEmptySlot() speaks of. entry: the key -> value pair a row is named by. only hashmap and hashset have both.
-// The slot a change belongs to: which part of which slot (with the path below the member), and where the key that names it sits.
-type SlotRef = { part: "key" | "value" | "flag"; container: Names; slotIndex: number; suffix: string; keyStart: number; keyType: AbiType };
+// One keyed level under a change: its slot, where its key sits, and the label from the enclosing member down to it — "" at the top, ".s" for a set in a struct value.
+type SlotLevel = { container: Names; slotIndex: number; keyStart: number; keyType: AbiType; prefix: string };
+
+// The slot a change belongs to: every keyed level on the way down, outermost first, which part of the innermost it is, and the path below that member.
+// key, value and flag parts take part in naming and hiding an entry; a word only borrows the chain for its label.
+type SlotRef = { levels: SlotLevel[]; part: "key" | "value" | "flag" | "word"; suffix: string };
 
 // The entry's key once looked up: both images when a window holds it, or the live key read back from the node for an update.
 type EntryKey = { before: string; after: string } | { fetched: string };
 
-// What stage one finds in a window, and what stage two hands on: the same change with bytes turned into text and its slot's key looked up.
+// What stage one finds in a window, and what stage two hands on: the same change with bytes turned into text and every level's key looked up.
 type ChangeOf<Value, Slot> =
     | { kind: "value"; names: Names; role: MemberRole; value: Value; slot?: Slot }
     | { kind: "partial"; names: Names; role: MemberRole; offsetInValue: number; bytes: ImagePair }
     | { kind: "bit"; names: Names; role: MemberRole; from: number; to: number; pastCapacity?: number; slot?: Slot }
     | { kind: "unknown"; stateOffset: number };
 type Change = ChangeOf<ImagePair & { type: AbiType }, SlotRef>;
-type DecodedChange = ChangeOf<{ before: Rendered; after: Rendered }, SlotRef & { key?: EntryKey }>;
+type DecodedSlotRef = SlotRef & { keys: (EntryKey | undefined)[] };
+type DecodedChange = ChangeOf<{ before: Rendered; after: Rendered }, DecodedSlotRef>;
 
 // Container bookkeeping is not in the IDL — its indices and counters are plain 64-bit words.
 const wordType = (kind: AbiScalarKind, size = 8): AbiType => ({
@@ -139,8 +144,8 @@ const toHex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).
 
 type Walk = { window: ChangedWindow; changes: Change[] };
 
-// The keyed slot a walk is inside: which of its members and where its key sits, so every payload change beneath can be named by the entry.
-type KeyedSlot = { part: "key" | "value"; container: Names; slotIndex: number; member: string; keyStart: number; keyType: AbiType };
+// The keyed slot a walk is inside: every level so far, which member of the innermost opened it and that member's label, so every change beneath can be named.
+type KeyedScope = { levels: SlotLevel[]; part: "key" | "value"; member: string };
 
 // A packed run: `slotCount` slots of `bitsPerSlot` bits from an absolute state offset.
 // `declaredCapacity` set only when the run stores more slots than the container declares, as a small BitArray's last word does.
@@ -154,14 +159,14 @@ function visibleIndices(window: ChangedWindow, start: number, stride: number, co
 }
 
 // The slot a change under `scope` belongs to; the path below the member is what the leaf's label adds to the member's.
-const slotRefOf = (scope: KeyedSlot, label: string): SlotRef => ({
+const slotRefOf = (scope: KeyedScope, label: string): SlotRef => ({
+    levels: scope.levels,
     part: scope.part,
-    container: scope.container,
-    slotIndex: scope.slotIndex,
     suffix: label.slice(scope.member.length),
-    keyStart: scope.keyStart,
-    keyType: scope.keyType,
 });
+
+// A bookkeeping change under an entry: the chain names it, nothing about the entry is decided by it.
+const wordRefOf = (scope: KeyedScope, label: string): SlotRef => ({ ...slotRefOf(scope, label), part: "word" });
 
 // Windows may be minimal runs or aligned pages; a run not covering a whole value keeps its bytes.
 // (the IDL's state fields, one window) -> what moved in it, in state order.
@@ -211,14 +216,14 @@ function findChanges(fields: StateField[], window: ChangedWindow): Change[] {
 // The parts of `type` the window touches. Indexed collections walk per element; a struct without a container that the window holds whole is one value.
 // Each container has its own walker: the four share no internal layout beyond what qpi-layout spells out, so nothing here guesses across them.
 // (names, absolute start of `type`, `type`, the keyed slot it sits in) -> changes pushed onto the walk.
-function walkType(walk: Walk, names: Names, start: number, type: AbiType, scope?: KeyedSlot): void {
+function walkType(walk: Walk, names: Names, start: number, type: AbiType, scope?: KeyedScope): void {
     const { window } = walk;
 
     switch (type.kind) {
         case AbiTypeKind.STRUCT: {
             // A struct holding a container is never one row: the container's members say what moved.
             if (!holdsContainer(type) && covers(window, start, type.size)) {
-                compareValue(walk, names, start, type, "payload", scope);
+                compareValue(walk, names, start, type, "payload", scope && slotRefOf(scope, names.label));
                 return;
             }
 
@@ -266,88 +271,88 @@ function walkType(walk: Walk, names: Names, start: number, type: AbiType, scope?
             return;
 
         default:
-            compareValue(walk, names, start, type, "payload", scope);
+            compareValue(walk, names, start, type, "payload", scope && slotRefOf(scope, names.label));
     }
 }
 
 // core: struct Element { KeyT key; ValueT value; } _elements[L]; uint64 _occupationFlags[(L * 2 + 63) / 64]; uint64 _population; uint64 _markRemovalCounter;
-function walkHashMap(walk: Walk, names: Names, start: number, type: AbiHashMap, scope?: KeyedSlot): void {
+function walkHashMap(walk: Walk, names: Names, start: number, type: AbiHashMap, scope?: KeyedScope): void {
     const regions = hashMapRegions(type.key, type.value, type.capacity);
 
     walkSlots(walk, names, start, regions.elements, { key: type.key, value: type.value }, scope);
     // flag i belongs to _elements[i]; a flag that opened or closed a slot is the only name an all-zero element can get, so it carries where that element's key sits
-    walkFlags(walk, names, start, regions.occupationFlags, keyedFlagAt(names, start, regions.elements, type.key));
-    walkWord(walk, names, start, regions.population);
+    walkFlags(walk, names, start, regions.occupationFlags, scope, keyedFlagAt(names, start, regions.elements, type.key, scope));
+    walkWord(walk, names, start, regions.population, scope);
     // reusing a tombstone flips its flag 2 -> 1 but never decrements this counter, so it only rises until cleanup()
-    walkWord(walk, names, start, regions.markRemovalCounter);
+    walkWord(walk, names, start, regions.markRemovalCounter, scope);
 }
 
 // core: KeyT _keys[L]; uint64 _occupationFlags[(L * 2 + 63) / 64]; uint64 _population; uint64 _markRemovalCounter;
-function walkHashSet(walk: Walk, names: Names, start: number, type: AbiHashSet, scope?: KeyedSlot): void {
+function walkHashSet(walk: Walk, names: Names, start: number, type: AbiHashSet, scope?: KeyedScope): void {
     const regions = hashSetRegions(type.key, type.capacity);
 
     // a slot is the key itself; there is no value member below it
     walkSlots(walk, names, start, regions.keys, { key: type.key }, scope);
-    walkFlags(walk, names, start, regions.occupationFlags, keyedFlagAt(names, start, regions.keys, type.key));
-    walkWord(walk, names, start, regions.population);
-    walkWord(walk, names, start, regions.markRemovalCounter);
+    walkFlags(walk, names, start, regions.occupationFlags, scope, keyedFlagAt(names, start, regions.keys, type.key, scope));
+    walkWord(walk, names, start, regions.population, scope);
+    walkWord(walk, names, start, regions.markRemovalCounter, scope);
 }
 
 // core: struct PoV { id value; uint64 population; sint64 headIndex, tailIndex; sint64 bstRootIndex; } _povs[L]; uint64 _povOccupationFlags[(L * 2 + 63) / 64];
 //       struct Element { T value; sint64 priority; sint64 povIndex; sint64 bstParentIndex; sint64 bstLeftIndex; sint64 bstRightIndex; } _elements[L];
 //       uint64 _population; uint64 _markRemovalCounter;
-function walkCollection(walk: Walk, names: Names, start: number, type: AbiCollection, scope?: KeyedSlot): void {
+function walkCollection(walk: Walk, names: Names, start: number, type: AbiCollection, scope?: KeyedScope): void {
     const regions = collectionRegions(type.value, type.capacity);
 
     // _povs is the hash map. its pov id is typed "id", not "key", so no pov flag or element is named by it today; naming it would change every label
     walkSlots(walk, names, start, regions.povs, {}, scope);
-    walkFlags(walk, names, start, regions.povOccupationFlags);
+    walkFlags(walk, names, start, regions.povOccupationFlags, scope);
     // _elements has no flags: occupancy is implied by _population, and remove moves the last element into the gap, so a remove writes rows on an element nobody touched
     walkSlots(walk, names, start, regions.elements, { value: type.value }, scope);
-    walkWord(walk, names, start, regions.population);
-    walkWord(walk, names, start, regions.markRemovalCounter);
+    walkWord(walk, names, start, regions.population, scope);
+    walkWord(walk, names, start, regions.markRemovalCounter, scope);
 }
 
 // core: struct Node { T value; sint64 nextIndex; sint64 prevIndex; } _nodes[L]; uint64 _occupiedFlags[(L + 63) / 64];
 //       sint64 _headIndex; sint64 _tailIndex; sint64 _freeHeadIndex; uint64 _nextUnusedIndex; uint64 _population;
-function walkLinkedList(walk: Walk, names: Names, start: number, type: AbiLinkedList, scope?: KeyedSlot): void {
+function walkLinkedList(walk: Walk, names: Names, start: number, type: AbiLinkedList, scope?: KeyedScope): void {
     const regions = linkedListRegions(type.value, type.capacity);
 
     walkSlots(walk, names, start, regions.nodes, { value: type.value }, scope);
     // 1 bit per node and a node has no key, so a flag row stays bookkeeping with nothing to name
-    walkFlags(walk, names, start, regions.occupiedFlags);
-    walkWord(walk, names, start, regions.headIndex);
-    walkWord(walk, names, start, regions.tailIndex);
+    walkFlags(walk, names, start, regions.occupiedFlags, scope);
+    walkWord(walk, names, start, regions.headIndex, scope);
+    walkWord(walk, names, start, regions.tailIndex, scope);
     // the first add to zeroed state runs _initIfNeeded, which writes the NULL_INDEX sentinels: a first insert shows _freeHeadIndex 0 -> -1, not corruption
-    walkWord(walk, names, start, regions.freeHeadIndex);
-    walkWord(walk, names, start, regions.nextUnusedIndex);
-    walkWord(walk, names, start, regions.population);
+    walkWord(walk, names, start, regions.freeHeadIndex, scope);
+    walkWord(walk, names, start, regions.nextUnusedIndex, scope);
+    walkWord(walk, names, start, regions.population, scope);
 }
 
 // The IDL type behind a slot's `key` and `value` members; a container without one of them leaves it out.
 type SlotTypes = { key?: AbiType; value?: AbiType };
 
+// This container's place under the enclosing entry: its label below the member holding it, "" at the top.
+const prefixUnder = (names: Names, outer?: KeyedScope) => (outer ? names.label.slice(outer.member.length) : "");
+
 // Where slot i's key sits, for a flag row to be named by. Only a slots region with a key member can offer one, and that member is at offset 0 in both hashmap and hashset.
-function keyedFlagAt(container: Names, start: number, region: SlotsRegion, keyType: AbiType): (slotIndex: number) => SlotRef {
+function keyedFlagAt(container: Names, start: number, region: SlotsRegion, keyType: AbiType, outer?: KeyedScope): (slotIndex: number) => SlotRef {
     const keyMember = region.members.find((member) => member.type === "key");
     if (!keyMember) {
         throw new Error(`${region.source} has no key member to name a flag by`);
     }
 
+    const prefix = prefixUnder(container, outer);
     return (slotIndex) => ({
+        levels: [...(outer?.levels ?? []), { container, slotIndex, keyStart: start + region.off + slotIndex * region.stride + keyMember.off, keyType, prefix }],
         part: "flag",
-        container,
-        slotIndex,
         suffix: "",
-        keyStart: start + region.off + slotIndex * region.stride + keyMember.off,
-        keyType,
     });
 }
 
 // The slots the window touches, member by member; a key or value member is walked as its IDL type inside the slot's scope, a word member compared as is.
-// A nested container's payload keeps the outer entry's key; its bookkeeping words and flags stay its own.
-// mechanics only: which regions a container has and what may name its entries is each walker's call above
-function walkSlots(walk: Walk, names: Names, start: number, region: SlotsRegion, types: SlotTypes, outer?: KeyedSlot): void {
+// A keyed slot adds itself to the chain, so a container inside a container's value is named by every key on the way down; an unkeyed one passes the chain through.
+function walkSlots(walk: Walk, names: Names, start: number, region: SlotsRegion, types: SlotTypes, outer?: KeyedScope): void {
     const { window } = walk;
     if (!overlaps(window, start + region.off, region.end - region.off)) {
         return;
@@ -356,6 +361,7 @@ function walkSlots(walk: Walk, names: Names, start: number, region: SlotsRegion,
     // only hashmap and hashset declare a key member, so only their slots can name an entry; every other slot walks unnamed
     const keyMember = types.key && region.members.find((member) => member.type === "key");
     const naming = types.key && keyMember ? { keyType: types.key, keyOff: keyMember.off } : undefined;
+    const prefix = prefixUnder(names, outer);
     const [first, last] = visibleIndices(window, start + region.off, region.stride, region.capacity);
 
     for (let slotIndex = first; slotIndex <= last; slotIndex++) {
@@ -370,7 +376,9 @@ function walkSlots(walk: Walk, names: Names, start: number, region: SlotsRegion,
             // qpi-layout spells the same pair `path`/`short`, so this is where its vocabulary meets this module's `detail`/`label`.
             const named = descend(slot, member.path, member.short);
             if (member.type !== "key" && member.type !== "value") {
-                compareValue(walk, named, slotStart + member.off, WORD_TYPES[member.type], member.role);
+                // a payload word (an element's priority) is part of the enclosing entry; a bookkeeping word only borrows its chain for the label
+                const ref = outer && (member.role === "payload" ? slotRefOf(outer, named.label) : wordRefOf(outer, named.label));
+                compareValue(walk, named, slotStart + member.off, WORD_TYPES[member.type], member.role, ref);
                 continue;
             }
 
@@ -378,40 +386,40 @@ function walkSlots(walk: Walk, names: Names, start: number, region: SlotsRegion,
             if (!memberType) {
                 throw new Error(`${region.source} declares a ${member.type} member but its container has no ${member.type} type`);
             }
-            const own = naming && {
+            const own: KeyedScope | undefined = naming && {
+                levels: [...(outer?.levels ?? []), { container: names, slotIndex, keyStart: slotStart + naming.keyOff, keyType: naming.keyType, prefix }],
                 part: member.type,
-                container: names,
-                slotIndex,
                 member: named.label,
-                keyStart: slotStart + naming.keyOff,
-                keyType: naming.keyType,
             };
-            walkType(walk, named, slotStart + member.off, memberType, outer ?? own);
+            walkType(walk, named, slotStart + member.off, memberType, own ?? outer);
         }
     }
 }
 
-// A flags region as one packed run; `slotAt` names the slot a flag belongs to, when the container has a key to name it by.
-function walkFlags(walk: Walk, names: Names, start: number, region: FlagsRegion, slotAt?: (slotIndex: number) => SlotRef): void {
+// A flags region as one packed run; `slotAt` names the slot a flag belongs to when the container has a key to name it by, else the chain only labels it.
+function walkFlags(walk: Walk, names: Names, start: number, region: FlagsRegion, outer?: KeyedScope, slotAt?: (slotIndex: number) => SlotRef): void {
     if (!overlaps(walk.window, start + region.off, region.end - region.off)) {
         return;
     }
 
+    const flags = descend(names, region.path);
     const run = { start: start + region.off, size: region.end - region.off, bitsPerSlot: region.bitsPerSlot, slotCount: region.capacity };
-    compareBits(walk, descend(names, region.path), run, "internal", slotAt);
+    const labelledOnly = outer && ((slotIndex: number) => wordRefOf(outer, `${flags.label}[${slotIndex}]`));
+    compareBits(walk, flags, run, "internal", slotAt ?? labelledOnly);
 }
 
-// One bookkeeping word compared as the fixed type core stores it in.
-function walkWord(walk: Walk, names: Names, start: number, region: WordRegion): void {
+// One bookkeeping word compared as the fixed type core stores it in; under an entry it is labelled through the entry's keys, nothing more.
+function walkWord(walk: Walk, names: Names, start: number, region: WordRegion, outer?: KeyedScope): void {
     if (!overlaps(walk.window, start + region.off, region.end - region.off)) {
         return;
     }
 
-    compareValue(walk, descend(names, region.path, region.short), start + region.off, WORD_TYPES[region.type], region.role);
+    const named = descend(names, region.path, region.short);
+    compareValue(walk, named, start + region.off, WORD_TYPES[region.type], region.role, outer && wordRefOf(outer, named.label));
 }
 
 // (names, the value's absolute start, its type) -> a `value` change when the window holds all of it, a `partial` one when the window cuts it, nothing when the bytes match.
-function compareValue(walk: Walk, names: Names, start: number, type: AbiType, role: MemberRole, scope?: KeyedSlot): void {
+function compareValue(walk: Walk, names: Names, start: number, type: AbiType, role: MemberRole, slot?: SlotRef): void {
     const { window } = walk;
     const visibleStart = Math.max(start, window.start);
     const visibleEnd = Math.min(start + type.size, window.end);
@@ -423,7 +431,7 @@ function compareValue(walk: Walk, names: Names, start: number, type: AbiType, ro
     }
 
     if (covers(window, start, type.size)) {
-        walk.changes.push({ kind: "value", names, role, value: { ...bytes, type }, slot: scope && slotRefOf(scope, names.label) });
+        walk.changes.push({ kind: "value", names, role, value: { ...bytes, type }, slot });
     } else {
         // A partial run: report the bytes that did change rather than invent the ones that did not.
         walk.changes.push({ kind: "partial", names, role, offsetInValue: visibleStart - start, bytes });
@@ -482,7 +490,7 @@ async function renderValue(bytes: Uint8Array, type: AbiType): Promise<Rendered> 
 // Key bytes -> the label text an entry is named by, the same text `qinit state` prints. `decodeAbiValue` keeps a one-field struct positional; `decodeAbi` would unwrap it.
 const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeAbiValue(bytes, type), type);
 
-// (the changes, every window of the diff, the node's key reader) -> the same changes with values rendered and each slot's key looked up.
+// (the changes, every window of the diff, the node's key reader) -> the same changes with values rendered and every level's key looked up.
 async function decodeChanges(changes: Change[], windows: ChangedWindow[], readKey?: StateKeyReader): Promise<DecodedChange[]> {
     // One read per distinct key, however many rows ask for it.
     const fetched = new Map<string, Promise<Uint8Array | undefined>>();
@@ -498,18 +506,25 @@ async function decodeChanges(changes: Change[], windows: ChangedWindow[], readKe
 
     // The key is read from the diff, not the rows: an update leaves the key bytes alone, so they never produce a row of their own, and they may sit in a sibling window.
     // In no window at all means this dispatch never touched it, so the node still holds it — except for a flag, since a slot that left reads back as zeros.
-    const keyOf = async (slot: SlotRef): Promise<EntryKey | undefined> => {
-        const size = slot.keyType.size;
-        const before = imageAt(windows, "before", slot.keyStart, size);
-        const after = imageAt(windows, "after", slot.keyStart, size);
+    const keyOf = async (level: SlotLevel, part: SlotRef["part"]): Promise<EntryKey | undefined> => {
+        const size = level.keyType.size;
+        const before = imageAt(windows, "before", level.keyStart, size);
+        const after = imageAt(windows, "after", level.keyStart, size);
         if (before && after) {
-            return { before: await keyText(before, slot.keyType), after: await keyText(after, slot.keyType) };
+            return { before: await keyText(before, level.keyType), after: await keyText(after, level.keyType) };
         }
-        if (slot.part === "flag" || !readKey) {
+        if (part === "flag" || !readKey) {
             return undefined;
         }
-        const live = await fetchKey(slot.keyStart, size);
-        return live && { fetched: await keyText(live, slot.keyType) };
+        const live = await fetchKey(level.keyStart, size);
+        return live && { fetched: await keyText(live, level.keyType) };
+    };
+    const decodedSlot = async (slot: SlotRef): Promise<DecodedSlotRef> => {
+        const keys: (EntryKey | undefined)[] = [];
+        for (const level of slot.levels) {
+            keys.push(await keyOf(level, slot.part));
+        }
+        return { ...slot, keys };
     };
 
     const decoded: DecodedChange[] = [];
@@ -520,9 +535,9 @@ async function decodeChanges(changes: Change[], windows: ChangedWindow[], readKe
                 before: await renderValue(change.value.before, change.value.type),
                 after: await renderValue(change.value.after, change.value.type),
             };
-            decoded.push({ ...change, value, slot: change.slot && { ...change.slot, key: await keyOf(change.slot) } });
+            decoded.push({ ...change, value, slot: change.slot && (await decodedSlot(change.slot)) });
         } else if (change.kind === "bit") {
-            decoded.push({ ...change, slot: change.slot && { ...change.slot, key: await keyOf(change.slot) } });
+            decoded.push({ ...change, slot: change.slot && (await decodedSlot(change.slot)) });
         } else {
             decoded.push(change);
         }
@@ -537,10 +552,11 @@ async function decodeChanges(changes: Change[], windows: ChangedWindow[], readKe
 // `to` is the raw flag: 1 = occupied (0b01), 2 = marked for removal (0b10), the encoding HashMap and HashSet share in qpi_containers.h.
 // only a container with a key member reaches here, so a keyed container with other flags would need its own reading
 type SlotFacts = { flag?: { to: number }; hasKeyRow: boolean; hasValueRow: boolean; namedByValue: boolean };
-type DecodedSlotRef = SlotRef & { key?: EntryKey };
+const NO_FACTS: SlotFacts = { hasKeyRow: false, hasValueRow: false, namedByValue: false };
 
-// The map key tying every change of one slot together: container path + slot index.
-const slotIdOf = (slot: SlotRef) => `${slot.container.detail}#${slot.slotIndex}`;
+// The map key tying every change of one entry together: container path + slot index, at every level; a prefix of it is the enclosing entry's.
+const bucketOf = (levels: SlotLevel[]) => levels.map((level) => `${level.container.detail}#${level.slotIndex}`).join("/");
+type FactsAt = (levels: SlotLevel[]) => SlotFacts;
 
 // A flag's new value as the row's change kind: 1 -> new, 2 -> removed, anything else -> undefined.
 const changeOf = (flag: { to: number } | undefined): "new" | "removed" | undefined => (flag?.to === 1 ? "new" : flag?.to === 2 ? "removed" : undefined);
@@ -555,56 +571,98 @@ function namingKey(key: EntryKey, flag: SlotFacts["flag"]): string | undefined {
     return flag && flag.to !== 1 ? key.before : key.after;
 }
 
-// An entry that just arrived has a zero before image, so `= v` says more than `0 → v`; one that left keeps its arrow, since the value it held is what matters.
-function entryText(before: string, after: string, flag: SlotFacts["flag"]): string {
-    if (flag?.to === 1) {
-        return `= ${after} (new)`;
+// The key naming one level of an entry, read the way that level's own flag says.
+const levelKey = (slot: DecodedSlotRef, factsAt: FactsAt, index: number) => {
+    const key = slot.keys[index];
+    return key && namingKey(key, factsAt(slot.levels.slice(0, index + 1)).flag);
+};
+
+// The name a flag row gives its own level: the after image on arrival, the before image on removal, and never a key read back from the node.
+function flagKey(key: EntryKey | undefined, to: number): string | undefined {
+    if (!key || "fetched" in key) {
+        return undefined;
     }
-    if (flag?.to === 2) {
-        return `${before} → (removed)`;
+    if (to === 1) {
+        return key.after;
     }
-    return `${before} → ${after}`;
+    return to === 2 ? key.before : undefined;
 }
+
+// The label naming an entry through every level, e.g. `mapsets[PKTG…][IOQK…]`; `keyAt` picks each level's key, `levelKey` unless the row knows better.
+// Any level without a key leaves the whole entry unnamed: a physical inner path under a resolved outer key would read as a different entry.
+function entryLabel(
+    slot: DecodedSlotRef,
+    factsAt: FactsAt,
+    keyAt: (index: number) => string | undefined = (index) => levelKey(slot, factsAt, index),
+): string | undefined {
+    let label = "";
+
+    for (const [index, level] of slot.levels.entries()) {
+        const text = keyAt(index);
+        if (text === undefined) {
+            return undefined;
+        }
+        label += `${index === 0 ? level.container.label : level.prefix}[${text}]`;
+    }
+
+    return label;
+}
+
+// A flag row's label: its own level from the transition it reports, the levels above it like any other row.
+const flagLabel = (slot: DecodedSlotRef, factsAt: FactsAt, to: number) =>
+    entryLabel(slot, factsAt, (index) => (index === slot.levels.length - 1 ? flagKey(slot.keys[index], to) : levelKey(slot, factsAt, index)));
 
 function slotFactsOf(decoded: DecodedChange[]): Map<string, SlotFacts> {
     const facts = new Map<string, SlotFacts>();
-    const factsOf = (slot: SlotRef) => {
-        const id = slotIdOf(slot);
-        const known = facts.get(id) ?? { hasKeyRow: false, hasValueRow: false, namedByValue: false };
-        facts.set(id, known);
+    const factsAt: FactsAt = (levels) => {
+        const bucket = bucketOf(levels);
+        const known = facts.get(bucket) ?? { ...NO_FACTS };
+        facts.set(bucket, known);
         return known;
     };
 
-    const slotRows = decoded.flatMap((change) => ((change.kind === "value" || change.kind === "bit") && change.slot ? [{ change, slot: change.slot }] : []));
+    const slotRows = decoded.flatMap((change) =>
+        (change.kind === "value" || change.kind === "bit") && change.slot && change.slot.part !== "word" ? [{ change, slot: change.slot }] : [],
+    );
+    const keyed = (slot: DecodedSlotRef) => slot.keys.every((key) => key !== undefined);
 
     // Flags first: whether a value row can name its entry depends on the flag, so that question comes second.
     for (const { change, slot } of slotRows) {
         if (slot.part === "flag" && change.kind === "bit") {
-            factsOf(slot).flag = { to: change.to };
-        } else if (slot.key && slot.part === "value") {
-            factsOf(slot).hasValueRow = true;
-        } else if (slot.key && slot.part === "key") {
-            factsOf(slot).hasKeyRow = true;
+            factsAt(slot.levels).flag = { to: change.to };
+        } else if (keyed(slot) && slot.part === "value") {
+            factsAt(slot.levels).hasValueRow = true;
+        } else if (keyed(slot) && slot.part === "key") {
+            factsAt(slot.levels).hasKeyRow = true;
         }
     }
-    for (const { slot } of slotRows) {
-        if (slot.part === "value" && slot.key && namingKey(slot.key, factsOf(slot).flag) !== undefined) {
-            factsOf(slot).namedByValue = true;
+    for (const { change, slot } of slotRows) {
+        const named = slot.part === "flag" && change.kind === "bit" ? flagLabel(slot, factsAt, change.to) : entryLabel(slot, factsAt);
+        if (named === undefined) {
+            continue;
+        }
+        if (slot.part === "value") {
+            factsAt(slot.levels).namedByValue = true;
+        }
+        // an inner entry's row names every entry above it, so an outer key row is as redundant as beside a value of its own
+        for (let depth = 1; depth < slot.levels.length; depth++) {
+            factsAt(slot.levels.slice(0, depth)).namedByValue = true;
         }
     }
 
     return facts;
 }
 
-// A key or value row of a slot, named by the entry's key; `before`/`after` are the row's own images as text.
-function slotRow(physical: StateDiffLine, slot: DecodedSlotRef, before: string, after: string, facts: SlotFacts): StateDiffLine {
-    const key = slot.key && namingKey(slot.key, facts.flag);
-    if (key === undefined) {
+// A key or value row of a slot, named by the entry's keys; `before`/`after` are the row's own images as text.
+function slotRow(physical: StateDiffLine, slot: DecodedSlotRef, before: string, after: string, factsAt: FactsAt): StateDiffLine {
+    const facts = factsAt(slot.levels);
+    const entry = entryLabel(slot, factsAt);
+    if (entry === undefined) {
         // Keyed slot, key not found: the label is the slot index, not an identity, and the row says so.
         return slot.part === "value" ? { ...physical, keyUnresolved: true } : physical;
     }
 
-    const label = `${slot.container.label}[${key}]${slot.suffix}`;
+    const label = entry + slot.suffix;
     if (slot.part === "value") {
         return { ...physical, label, text: entryText(before, after, facts.flag), change: changeOf(facts.flag) };
     }
@@ -620,17 +678,35 @@ function slotRow(physical: StateDiffLine, slot: DecodedSlotRef, before: string, 
 }
 
 // A flag row stays bookkeeping unless it is all the entry left behind: a key and value that both stayed zero write no row of their own.
-function flagRow(physical: StateDiffLine, slot: DecodedSlotRef, to: number, facts: SlotFacts): StateDiffLine {
-    const key = slot.key && !("fetched" in slot.key) ? (to === 1 ? slot.key.after : to === 2 ? slot.key.before : undefined) : undefined;
-    if (key === undefined || facts.hasValueRow || facts.hasKeyRow) {
+function flagRow(physical: StateDiffLine, slot: DecodedSlotRef, to: number, factsAt: FactsAt): StateDiffLine {
+    const facts = factsAt(slot.levels);
+    const label = flagLabel(slot, factsAt, to);
+    if (label === undefined || facts.hasValueRow || facts.hasKeyRow) {
         return physical;
     }
-    return { ...physical, label: `${slot.container.label}[${key}]`, text: to === 1 ? "(new)" : "(removed)", internal: false, change: changeOf({ to }) };
+    return { ...physical, label, text: to === 1 ? "(new)" : "(removed)", internal: false, change: changeOf({ to }) };
+}
+
+// A bookkeeping row under an entry keeps its text and class; only its label reads through the entry's keys, e.g. `mapsets[PKTG…] 0 → 1 entries`.
+function wordRow(physical: StateDiffLine, slot: DecodedSlotRef, factsAt: FactsAt): StateDiffLine {
+    const entry = entryLabel(slot, factsAt);
+    return entry === undefined ? physical : { ...physical, label: entry + slot.suffix };
+}
+
+// An entry that just arrived has a zero before image, so `= v` says more than `0 → v`; one that left keeps its arrow, since the value it held is what matters.
+function entryText(before: string, after: string, flag: SlotFacts["flag"]): string {
+    if (flag?.to === 1) {
+        return `= ${after} (new)`;
+    }
+    if (flag?.to === 2) {
+        return `${before} → (removed)`;
+    }
+    return `${before} → ${after}`;
 }
 
 // One decoded change -> its final row; a change inside a container slot is named by its entry here and nowhere else.
 function rowOf(change: DecodedChange, facts: Map<string, SlotFacts>): StateDiffLine {
-    const factsOf = (slot: SlotRef) => facts.get(slotIdOf(slot)) ?? { hasKeyRow: false, hasValueRow: false, namedByValue: false };
+    const factsAt: FactsAt = (levels) => facts.get(bucketOf(levels)) ?? NO_FACTS;
 
     switch (change.kind) {
         case "unknown":
@@ -668,11 +744,14 @@ function rowOf(change: DecodedChange, facts: Map<string, SlotFacts>): StateDiffL
             if (!change.slot) {
                 return marked(physical);
             }
-            return marked(
-                change.slot.part === "flag"
-                    ? flagRow(physical, change.slot, change.to, factsOf(change.slot))
-                    : slotRow(physical, change.slot, String(change.from), String(change.to), factsOf(change.slot)),
-            );
+            switch (change.slot.part) {
+                case "flag":
+                    return marked(flagRow(physical, change.slot, change.to, factsAt));
+                case "word":
+                    return marked(wordRow(physical, change.slot, factsAt));
+                default:
+                    return marked(slotRow(physical, change.slot, String(change.from), String(change.to), factsAt));
+            }
         }
 
         case "value": {
@@ -689,7 +768,9 @@ function rowOf(change: DecodedChange, facts: Map<string, SlotFacts>): StateDiffL
             if (!change.slot) {
                 return physical;
             }
-            return slotRow(physical, change.slot, change.value.before.text, change.value.after.text, factsOf(change.slot));
+            return change.slot.part === "word"
+                ? wordRow(physical, change.slot, factsAt)
+                : slotRow(physical, change.slot, change.value.before.text, change.value.after.text, factsAt);
         }
     }
 }

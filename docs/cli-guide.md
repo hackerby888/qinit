@@ -1413,6 +1413,12 @@ alone and they never produce a row of their own. The occupation flag is what sep
 `(new)`, `(removed)` and a plain update, so a window carrying neither the flag nor the
 key leaves the row on its resolved path instead of guessing. `Collection` and
 `LinkedList` are addressed by index and already read short, so they keep their rows.
+A container held as a keyed container's value is named by every key on the way down:
+an entry of `HashMap<id, HashSet<id, 4>, 2> mapsets` reads `mapsets[PKTG…][IOQK…]  (new)`,
+and the inner set's own counter reads through the outer key, `mapsets[PKTG…]  0 → 1 entries`,
+keeping the `entries` suffix so it is never mistaken for the entry's value. A set held by a
+struct value keeps the member between the keys, `p[3].s[8]`. Any level whose key cannot
+be read leaves the whole row on its physical path.
 
 Resolving that deep also finds bookkeeping a contract author never wrote — free-list
 heads, BST links, per-PoV counters — so each row is classified and the default view

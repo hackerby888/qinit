@@ -1049,3 +1049,35 @@ test("keyLabel names a struct key's fields", () => {
     expect(keyLabel(7n, sint32)).toBe("7");
     expect(keyLabel("ICZREL")).toBe("ICZREL");
 });
+
+// A keyed container held as a map value reads as its rows would, not as the raw entry objects.
+test("readState: HashSet and HashMap values inside HashMap read as their entries", async () => {
+    const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { HashMap<uint64, HashSet<uint64, 4>, 4> sets; HashMap<uint64, HashMap<uint64, uint64, 4>, 4> maps; }; INITIALIZE() {} };`;
+    // sets: inner set 32 keys + 8 flags + 16 counters = 56, outer element 64, flags at 256, population at 264, size 280
+    // maps: inner map 64 elements + 8 flags + 16 counters = 88, outer element 96, flags at 664, population at 672, size 688
+    const bytes = new Uint8Array(688);
+    bytes.set(le(5, 8), 64); // sets slot 1 key
+    bytes.set(le(7, 8), 72 + 16); // sets slot 1 -> inner slot 2 key
+    bytes[72 + 32] = 1 << 4; // inner slot 2 occupied
+    bytes.set(le(1, 8), 72 + 40); // inner population
+    bytes[256] = 1 << 2; // sets slot 1 occupied
+    bytes.set(le(1, 8), 264);
+    bytes.set(le(5, 8), 280 + 96); // maps slot 1 key
+    bytes.set(le(7, 8), 280 + 104 + 32); // maps slot 1 -> inner slot 2 key
+    bytes.set(le(9, 8), 280 + 104 + 40); // inner slot 2 value
+    bytes[280 + 104 + 64] = 1 << 4; // inner slot 2 occupied
+    bytes.set(le(1, 8), 280 + 104 + 72); // inner population
+    bytes.set(le(6, 8), 280 + 2 * 96); // maps slot 2 key, empty inner map
+    bytes[280 + 384] = (1 << 2) | (1 << 4); // maps slots 1 and 2 occupied
+    bytes.set(le(2, 8), 280 + 392);
+
+    const state = await readState(fakeRpc(bytes), 6, source, "MapKeyed", undefined, undefined, { loadAllContainers: true });
+
+    expect(flatLines(state.containers[0])).toEqual(["slot[0] (unoccupied ×1; skipped)", "slot[1] 5 = {7}", "slots[2..3] (unoccupied ×2; skipped)"]);
+    expect(flatLines(state.containers[1])).toEqual([
+        "slot[0] (unoccupied ×1; skipped)",
+        "slot[1] 5 = {7 = 9}",
+        "slot[2] 6 = {}",
+        "slot[3] (unoccupied ×1; skipped)",
+    ]);
+});
