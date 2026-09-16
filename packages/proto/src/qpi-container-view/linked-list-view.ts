@@ -6,6 +6,7 @@ import { occupiedRanges, readQpiBytes, readUint64, sint64At, type QpiByteSource 
 
 const NULL_INDEX = -1n;
 
+// e.g. { elementIndex: 2, value: 7n }, in list order (head to tail), not slot order
 export interface QpiLinkedListEntry {
     elementIndex: number;
     value: unknown;
@@ -17,6 +18,7 @@ interface LinkedListNode extends QpiLinkedListEntry {
     prevIndex: bigint;
 }
 
+// reads _population, the 1-bit _occupiedFlags, head and tail, then walks the nodes head to tail
 export class QpiLinkedListView {
     readonly kind = AbiTypeKind.LINKED_LIST;
     readonly capacity: number;
@@ -36,6 +38,8 @@ export class QpiLinkedListView {
         assertSource(source, type.size);
     }
 
+    // e.g. slots 0 and 2 occupied, head 2, tail 0 -> [{ elementIndex: 2, value: 9n }, { elementIndex: 0, value: 7n }]
+    // a walk that ends early, misses the tail or revisits a slot throws
     async entries(): Promise<QpiLinkedListEntry[]> {
         const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
         // Flags read before the empty shortcut: population 0 over occupied slots is an inconsistency, not empty.
@@ -96,6 +100,7 @@ export class QpiLinkedListView {
         return ordered;
     }
 
+    // the occupied nodes by slot, links at value + 8 and + 16, e.g. { 0 => { value: 7n, nextIndex: 1n, prevIndex: -1n } }
     private async readNodes(occupiedIndices: number[]): Promise<Map<number, LinkedListNode>> {
         const nodes = new Map<number, LinkedListNode>();
         for (const range of occupiedRanges(occupiedIndices)) {

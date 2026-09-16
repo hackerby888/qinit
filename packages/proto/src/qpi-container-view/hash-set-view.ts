@@ -4,6 +4,7 @@ import { hashSetGeometry } from "../qpi-layout";
 import { QpiContainerConsistencyError, QpiIncompleteReadError } from "./errors";
 import { occupiedRanges, occupiedSlotIndices, readQpiBytes, readUint64, type QpiByteSource } from "./source";
 
+// e.g. { elementIndex: 2, key: 5n }
 export interface QpiHashSetEntry {
     elementIndex: number;
     key: unknown;
@@ -28,6 +29,7 @@ export class QpiHashSetView {
         assertSource(source, type.size);
     }
 
+    // e.g. occupied slots [1, 2] of HashSet<uint64, 4> -> one 16-byte read at 8 -> [{ elementIndex: 1, key: 5n }, { elementIndex: 2, key: 9n }]
     async entries(): Promise<QpiHashSetEntry[]> {
         const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
         // Flags read before the empty shortcut: population 0 over occupied slots is an inconsistency, not empty.

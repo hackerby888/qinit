@@ -5,6 +5,7 @@ import { QpiContainerConsistencyError, QpiIncompleteReadError } from "./errors";
 import { occupiedRanges, occupiedSlotIndices, readQpiBytes, readUint64, sint64At, uint64At, type QpiByteSource } from "./source";
 
 const NULL_INDEX = -1n;
+// a pov is keyed by id whatever T is
 const POV_TYPE: AbiScalar = {
     kind: AbiTypeKind.SCALAR,
     scalar: AbiScalarKind.ID,
@@ -13,6 +14,7 @@ const POV_TYPE: AbiScalar = {
     format: "id",
 };
 
+// e.g. { povIndex: 1, elementIndex: 0, pov: "FXHS…", priority: 5n, value: 7n }; two indices since _povs and _elements are separate slot runs
 export interface QpiCollectionEntry {
     povIndex: number;
     elementIndex: number;
@@ -40,6 +42,7 @@ interface CollectionElement {
     bstRightIndex: bigint;
 }
 
+// reads _population, the pov flags, the occupied _povs, then _elements 0..population-1 in one read; each pov's elements come out in bst order
 export class QpiCollectionView {
     readonly kind = AbiTypeKind.COLLECTION;
     readonly capacity: number;
@@ -59,6 +62,7 @@ export class QpiCollectionView {
         assertSource(source, type.size);
     }
 
+    // e.g. one pov holding elements 0 and 1 -> [{ povIndex: 1, elementIndex: 0, priority: 3n, value: 7n }, { povIndex: 1, elementIndex: 1, ... }]; seen != population throws
     async entries(): Promise<QpiCollectionEntry[]> {
         const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
         // Flags read before the empty shortcut: population counts elements, flags index PoVs.
@@ -114,6 +118,7 @@ export class QpiCollectionView {
         return entries;
     }
 
+    // e.g. pov slot 1 -> a 64-byte read at 64: id at +0, population +32, headIndex +40, tailIndex +48, bstRootIndex +56
     private async readPovs(povIndices: number[], totalPopulation: number): Promise<CollectionPov[]> {
         const povs: CollectionPov[] = [];
         for (const range of occupiedRanges(povIndices)) {
@@ -141,6 +146,7 @@ export class QpiCollectionView {
         return povs;
     }
 
+    // the trailer after the value: priority, povIndex, bstParent, bstLeft, bstRight, 8 bytes each
     private elementAt(bytes: Uint8Array, index: number): CollectionElement {
         const offset = index * this.geometry.elementStride;
         return {
@@ -152,6 +158,8 @@ export class QpiCollectionView {
         };
     }
 
+    // in-order walk of the pov's bst with an explicit stack, e.g. root 1 with left 0 and right 2 -> [0, 1, 2]
+    // head, tail, population and every parent link are checked on the way
     private walkPov(pov: CollectionPov, elements: CollectionElement[], seen: Set<number>, population: number): number[] {
         const root = elementIndex(pov.bstRootIndex, population, "root");
         const head = elementIndex(pov.headIndex, population, "head");
@@ -238,6 +246,7 @@ function elementIndex(value: bigint, population: number, label: string): number 
     return Number(value);
 }
 
+// -1n -> null (no child), else the index
 function optionalElementIndex(value: bigint, population: number, label: string): number | null {
     return value === NULL_INDEX ? null : elementIndex(value, population, label);
 }

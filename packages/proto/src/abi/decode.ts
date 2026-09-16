@@ -5,7 +5,7 @@ import { createQpiContainerView } from "../qpi-container-view";
 import { qpiBorrowedSource } from "../qpi-container-view/source";
 import { alignOf, parseTypeFormat, sizeOf, type TypeNode } from "./type-format";
 
-// output decode (aligned; async: id -> 60-char identity)
+// bytes -> value by TypeNode, e.g. 02 01 as uint16 -> [258, 2] (the value, the next offset); id decodes async to its 60-char identity
 async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[any, number]> {
     switch (node.kind) {
         case "scalar": {
@@ -69,6 +69,7 @@ async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[an
     }
 }
 
+// bytes -> value by AbiType, struct fields at their own offset, e.g. 01 00 00 00 00 00 00 00 01 as { uint64 count; uint8 flag } -> [1n, 1]
 export async function decodeAbiType(view: DataView, offset: number, type: AbiType): Promise<any> {
     assertBounds(view, offset, type.size);
 
@@ -87,6 +88,7 @@ export async function decodeAbiType(view: DataView, offset: number, type: AbiTyp
     }
 }
 
+// a container's bytes -> its entries: Array/BitArray as plain values [1n, 2n], the keyed ones as records, e.g. [{ elementIndex: 0, key: 5n, value: 9n }]
 async function decodeAbiContainer(
     view: DataView,
     offset: number,
@@ -111,6 +113,7 @@ async function decodeAbiContainer(
     }
 }
 
+// one scalar: uint64 -> 1n, uint32 -> 1, id -> its 60-char identity, m256i -> 64 hex chars, sint128 -> sign-corrected bigint
 export async function decodeAbiScalar(view: DataView, offset: number, scalar: AbiScalarKind): Promise<any> {
     switch (scalar) {
         case AbiScalarKind.BIT:
@@ -162,6 +165,7 @@ function readUint128(view: DataView, offset: number): bigint {
     return (high << 64n) | low;
 }
 
+// bytes -> positional values by type text, e.g. "uint16, uint32" -> [5, 7]
 // The type text reads field by field, so a layout wider than the bytes surfaces as the DataView's RangeError; name both sizes, as the typed path does.
 async function decodeTypeFormat(view: DataView, typeFormat: string): Promise<any> {
     const node = parseTypeFormat(typeFormat);
@@ -225,6 +229,7 @@ export function abiValueToJson(value: any, type: AbiType): unknown {
 }
 
 // The JSON shape of what decodeAbi returned, which already unwrapped a one-field struct to its value.
+// e.g. [1n, 1] for "{ uint64 count, uint8 flag }" -> { count: 1n, flag: 1 }; a one-field struct is already its bare value, so 1n -> 1n
 export function decodedAbiToJson(value: any, type: AbiType): unknown {
     if (type.kind === AbiTypeKind.STRUCT && type.fields.length === 0) {
         return {};
@@ -236,6 +241,7 @@ export function decodedAbiToJson(value: any, type: AbiType): unknown {
 }
 
 // Bytes -> the positional value tree, without decodeAbi's one-field struct unwrap.
+// e.g. Get_output { uint64 value } -> [1n] where decodeAbi gives 1n
 export async function decodeAbiValue(bytes: Uint8Array, type: AbiType): Promise<any> {
     return await decodeAbiType(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), 0, type);
 }

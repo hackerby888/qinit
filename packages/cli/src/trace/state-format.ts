@@ -1,6 +1,7 @@
 // Pure rendering of decoded state: values to text, container entries to rows. No I/O, so it is unit-testable without an RPC client.
 import { AbiTypeKind, type AbiType, type ContractIdl } from "@qinit/proto/contract-idl";
 
+// what a state field's container is, e.g. { kind: "hashmap", key: <uint64>, value: <uint64>, capacity: 8 } or { kind: "bitarray", capacity: 2 }
 export type StateContainerLayout =
     | {
           kind: "array";
@@ -32,6 +33,7 @@ export type StateContainerLayout =
           value: AbiType;
           capacity: number;
       };
+// one top-level state field, e.g. { name: "map", off: 64, size: 152, container: { kind: "hashmap", capacity: 8 } }; bad marks a type the decoder cannot read
 export type StateField = {
     name: string;
     off: number;
@@ -42,6 +44,7 @@ export type StateField = {
     bad?: boolean;
 };
 // One rendered row of a state block: the label is the bracket token the view highlights, and `filled` separates an occupied slot from a skipped range.
+// e.g. { label: "slot[1]", text: "11 = 101", filled: true } vs { label: "slots[3..5]", text: "(unoccupied ×3; skipped)", filled: false }
 export type StateLine = { label: string; text: string; filled: boolean };
 
 // JSON.stringify throws on a bigint, and a uint64 past 2^53 would lose digits as a number anyway.
@@ -51,6 +54,7 @@ export const jsonText = (value: any) => JSON.stringify(value, bigintText);
 const RUN_MIN = 6;
 const MAX_ITEMS = 32;
 
+// runs of RUN_MIN or more equal parts fold, e.g. ["1", "2", "2", "2", "2", "2", "2", "3"] -> ["1", "2 ×6", "3"]
 function groupedParts(parts: string[]): string[] {
     const groups: { value: string; count: number }[] = [];
     for (const part of parts) {
@@ -86,6 +90,7 @@ export function valueText(value: any, full = false): string {
     return typeof value === "bigint" ? value.toString() : String(value);
 }
 
+// the first 32 parts plus "… +18 more (--all)" unless full
 function limitedParts(parts: string[], full: boolean): string[] {
     if (full || parts.length <= MAX_ITEMS) {
         return parts;
@@ -93,6 +98,7 @@ function limitedParts(parts: string[], full: boolean): string[] {
     return parts.slice(0, MAX_ITEMS).concat(`… +${parts.length - MAX_ITEMS} more (--all)`);
 }
 
+// e.g. BitArray<128> with only bit 63 set -> "[0..62]=0 ×63 (skipped), [63]=1, [64..127]=0 ×64 (skipped)"
 function formatBits(bitCount: number, valueAt: (index: number) => number, full: boolean): string {
     const parts: string[] = [];
     let zeroStart: number | undefined;
@@ -120,6 +126,7 @@ function formatBits(bitCount: number, valueAt: (index: number) => number, full: 
 }
 
 // A block row collapsed back to the one-line form the trace views and nested container values use.
+// e.g. { label: "slot[1]", text: "11 = 101" } -> "slot[1] 11 = 101"
 export const flatLine = (line: StateLine) => `${line.label} ${line.text}`;
 
 // ascending indexes folded into [start, end] runs, e.g. [20, 22, 23] -> [[20, 20], [22, 23]]
@@ -141,6 +148,7 @@ export function indexRuns(indexes: readonly number[]): [number, number][] {
 const PAST_CAPACITY_RUNS_SHOWN = 8;
 
 // a BitArray under 64 bits still stores a whole word and core's set(i) masks only the word index, so an out-of-range index lands there and get(i) reads it back.
+// e.g. ("m[7]", 16, [20]) -> "⚠ m[7]: bit 20 written past BitArray<16> capacity …", indexes folded to runs like "bits 2..4, 9"
 export function pastCapacityWarning(path: string, capacity: number, indexes: readonly number[]): string {
     const runs = indexRuns(indexes);
     const shown = runs.slice(0, PAST_CAPACITY_RUNS_SHOWN);
@@ -151,6 +159,7 @@ export function pastCapacityWarning(path: string, capacity: number, indexes: rea
     return `⚠ ${path ? `${path}: ` : ""}${noun} ${list} written past BitArray<${capacity}> capacity — set() got an index ≥ ${capacity}, which core doesn't reject and get(i) reads back; check the index`;
 }
 
+// list order first, then the free slots, e.g. nodes in slots 6, 1, 2 of 8 -> item[0] slot[6] = 66, item[1] slot[1] = 11, item[2] slot[2] = 22, slot[0] (unoccupied ×1; skipped), …
 export function linkedListValueLines(value: { elementIndex: number; value: unknown }[], valueType: AbiType, capacity: number, full: boolean): StateLine[] {
     const logical = value.map((entry, index) => ({
         label: `item[${index}] slot[${entry.elementIndex}]`,
@@ -232,6 +241,7 @@ export function abiValueText(value: unknown, type: AbiType, { showAll = false, t
 }
 
 // A value on its own: a string (an id, an m256i) reads bare, and anything nested keeps `valueText`'s quoted form, so field, print and diff row agree.
+// e.g. "FXHS…" -> FXHS… bare, a struct -> {tag: 7, who: "FXHS…"}
 export function scalarText(value: unknown, type: AbiType): string {
     if (typeof value === "string") {
         return value;
@@ -240,8 +250,10 @@ export function scalarText(value: unknown, type: AbiType): string {
 }
 
 // A struct key has to read like the value beside it, which takes the type — decoded structs are positional.
+// e.g. ([1, 2], Point) -> "{x: 1, y: 2}", (7n, sint32) -> "7", an id -> itself
 export const keyLabel = (key: unknown, type?: AbiType) => (typeof key === "string" ? key : type ? abiValueText(key, type) : jsonText(key));
 
+// e.g. (3, 5) -> { label: "slots[3..5]", text: "(unoccupied ×3; skipped)", filled: false }; pov gaps read "PoV slot[0]"
 function gapLine(start: number, end: number, collection = false): StateLine {
     const count = end - start + 1;
     const noun = collection ? "PoV slots" : "slots";
@@ -249,6 +261,7 @@ function gapLine(start: number, end: number, collection = false): StateLine {
     return { label, text: `(unoccupied ×${count}; skipped)`, filled: false };
 }
 
+// entries and gaps in slot order, e.g. entries in slots 1, 2, 6 of 8 -> slot[0] (unoccupied ×1; skipped), slot[1] 11 = 101, slot[2] 22 = 202, slots[3..5] (unoccupied ×3; skipped), slot[6] 66 = 606, slot[7] …
 export function containerLines(capacity: number, entries: { slot: number; text: string }[], collection = false): StateLine[] {
     const lines: StateLine[] = [];
     const slots = [...new Set(entries.map((entry) => entry.slot))];
@@ -277,6 +290,7 @@ export function containerLines(capacity: number, entries: { slot: number; text: 
     return lines;
 }
 
+// e.g. (8, [6, 1, 2]) -> gap rows for slot[0], slots[3..5], slot[7]
 export function unoccupiedSlotLines(capacity: number, occupied: number[]): StateLine[] {
     const lines: StateLine[] = [];
     const slots = [...new Set(occupied)].sort((left, right) => left - right);
@@ -296,6 +310,7 @@ export function unoccupiedSlotLines(capacity: number, occupied: number[]): State
     return lines;
 }
 
+// AbiType -> its layout, e.g. HashMap<uint64, uint64, 8> -> { kind: "hashmap", capacity: 8 }; a scalar or plain struct -> undefined
 export function containerLayoutOf(type: AbiType): StateContainerLayout | undefined {
     switch (type.kind) {
         case AbiTypeKind.ARRAY:
@@ -340,6 +355,7 @@ export function containerLayoutOf(type: AbiType): StateContainerLayout | undefin
 }
 
 // A container reached through plain struct fields deserves its own block; one inside a container's element does not, since a block per element would bury it.
+// e.g. struct Deeper { uint64 value; HashMap map } -> true, so it prints deeper.value and a deeper.map block; struct Point { sint32 x, y } -> false
 export function holdsContainer(type: AbiType): boolean {
     if (containerLayoutOf(type)) {
         return true;
@@ -347,6 +363,7 @@ export function holdsContainer(type: AbiType): boolean {
     return type.kind === AbiTypeKind.STRUCT && type.fields.some((field) => holdsContainer(field.type));
 }
 
+// the IDL's state struct -> one StateField per top-level member, e.g. { uint64 counter; HashMap<uint64, uint64, 8> map } -> counter at 0 (8 bytes), map at 8 (152 bytes, hashmap)
 export function stateFieldsOf(idl: Pick<ContractIdl, "state">): StateField[] {
     return idl.state.fields.map((field) => ({
         name: field.name,
@@ -358,6 +375,7 @@ export function stateFieldsOf(idl: Pick<ContractIdl, "state">): StateField[] {
     }));
 }
 
+// every enum's members in one map, e.g. { "0": "Ok", "1": "Insufficient" }, the lookup that names a log's _type
 export function enumMap(idl: Pick<ContractIdl, "enums">): Record<string, string> {
     const names: Record<string, string> = {};
 

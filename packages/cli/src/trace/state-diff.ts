@@ -17,7 +17,7 @@ import type { DebugStateRegion } from "@qinit/core";
 import { holdsContainer, keyLabel, pastCapacityWarning, scalarText, type StateField, type StateLine } from "./state-format";
 import { hexToBytes } from "@qinit/core";
 
-// A diff row keeps both label forms: `label` for the default view, `detail` the full path; `internal` marks container bookkeeping hidden until the full view.
+// one row, e.g. { label: "map[11]", detail: "map._elements[4].value", text: "= 101 (new)", filled: true, internal: false, before: 0n, after: 101n, change: "new" }
 // `keyUnresolved`: entry unnamed, label fell back to the slot index. `pastCapacity`: the BitArray's declared size, on a bit the row's index lies beyond.
 export type StateDiffLine = StateLine & {
     detail: string;
@@ -30,19 +30,24 @@ export type StateDiffLine = StateLine & {
 };
 
 // Reads a slot's key from the node when no window carries it. Only a value update gets here.
+// e.g. readKey(keyOff, 8) -> the 8 bytes of 11, so the row reads m[11].last 99 → 42
 export type StateKeyReader = (off: number, size: number) => Promise<Uint8Array | undefined>;
 
 // Three stages: find what moved in each window, decode those bytes and look up the keys, then render every row once with its container entry known.
-// (the IDL's state fields, the engine's changed windows, a key reader for the node) -> one row per change, named by field, element or entry.
+// e.g. one insert window -> ["map.slot[4].key 0 → 11", "map[11] = 101 (new)", "map._occupationFlags[4] 0 → 1", "map 0 → 1 entries"]
 export async function stateDiffLines(fields: StateField[], changedWindows: DebugStateRegion[], readKey?: StateKeyReader): Promise<StateDiffLine[]> {
+    // changedWindowsOf: hex regions -> byte windows, adjacent ones merged
     const windows = changedWindowsOf(changedWindows);
+    // findChanges: what moved in each window, as raw byte images with the slot each sits in
     const changes = windows.flatMap((window) => findChanges(fields, window));
+    // decodeChanges: bytes -> text, and every slot's key looked up (windows first, then the node)
     const decoded = await decodeChanges(changes, windows, readKey);
+    // renderRows: one row per change, named by field, element or entry
     return renderRows(decoded);
 }
 
 // Two names per change, the same pair a row carries: `detail` the resolved path through the container, `label` the shorter default view.
-// They differ only where a path runs through container internals.
+// e.g. { detail: "map._elements[4].key", label: "map.slot[4].key" }; they differ only inside container internals
 type Names = { detail: string; label: string };
 
 // Extends both names one level deeper, e.g. `balances` + `._elements[3]`; the label suffix differs only inside container internals.
@@ -54,20 +59,23 @@ const descend = (names: Names, detailSuffix: string, labelSuffix = detailSuffix)
 // One changed window with its images decoded from hex, read to the shorter image when the two differ in length.
 type ChangedWindow = { start: number; end: number; before: Uint8Array; after: Uint8Array };
 type ImagePair = { before: Uint8Array; after: Uint8Array };
+// e.g. { text: "101", data: 101n }
 type Rendered = { text: string; data: unknown };
 
 // slot: the physical position core's isEmptySlot() speaks of. entry: the key -> value pair a row is named by. only hashmap and hashset have both.
-// One keyed level under a change: its slot, where its key sits, and the label from the enclosing member down to it — "" at the top, ".s" for a set in a struct value.
+// e.g. the set in Pair.s at slot 3 -> { container: <p>, slotIndex: 3, keyStart: <where its key is>, keyType: uint64, prefix: ".s" }, naming p[3].s[8]
 type SlotLevel = { container: Names; slotIndex: number; keyStart: number; keyType: AbiType; prefix: string };
 
 // The slot a change belongs to: every keyed level on the way down, outermost first, which part of the innermost it is, and the path below that member.
-// key, value and flag parts take part in naming and hiding an entry; a word only borrows the chain for its label.
+// e.g. { levels: [m slot 1, inner slot 3], part: "value", suffix: "" } names m[5][7]; a word part only borrows the chain for its label
 type SlotRef = { levels: SlotLevel[]; part: "key" | "value" | "flag" | "word"; suffix: string };
 
 // The entry's key once looked up: both images when a window holds it, or the live key read back from the node for an update.
+// e.g. { before: "11", after: "0" } on a removal, { fetched: "11" } on an update
 type EntryKey = { before: string; after: string } | { fetched: string };
 
 // What stage one finds in a window, and what stage two hands on: the same change with bytes turned into text and every level's key looked up.
+// e.g. value: { before: 00 00 …, after: 65 00 … } -> { before: { text: "0", data: 0n }, after: { text: "101", data: 101n } }
 type ChangeOf<Value, Slot> =
     | { kind: "value"; names: Names; role: MemberRole; value: Value; slot?: Slot }
     | { kind: "partial"; names: Names; role: MemberRole; offsetInValue: number; bytes: ImagePair }
@@ -92,7 +100,7 @@ const WORD_TYPES: Record<WordType, AbiType> = {
 };
 
 // A value straddling two windows can only be decoded once they are one range — core reports per dirty page, so a slot crossing a page arrives split.
-// Only exactly-adjacent runs merge; the `/ 2` is because the images are hex.
+// e.g. [{ off: 8, 4 bytes }, { off: 12, 4 bytes }] -> one window 8..16, so points[1] reads whole; the `/ 2` is because the images are hex
 function changedWindowsOf(changedWindows: DebugStateRegion[]): ChangedWindow[] {
     const joined: DebugStateRegion[] = [];
 
@@ -125,6 +133,7 @@ const overlaps = (window: ChangedWindow, start: number, size: number) => start <
 const imageSlice = (window: ChangedWindow, image: Uint8Array, start: number, end: number) => image.slice(start - window.start, end - window.start);
 
 // An absolute range from whichever window holds all of it on that side; only adjacent windows merge, so it may be a sibling of the window being read.
+// e.g. a key 264 bytes from the changed value, in its own window -> found, so the row reads m[11].last 0 → 99
 function imageAt(windows: ChangedWindow[], side: "before" | "after", start: number, size: number): Uint8Array | undefined {
     for (const window of windows) {
         const image = window[side];
@@ -145,13 +154,15 @@ const toHex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).
 type Walk = { window: ChangedWindow; changes: Change[] };
 
 // The keyed slot a walk is inside: every level so far, which member of the innermost opened it and that member's label, so every change beneath can be named.
+// e.g. { levels: [m slot 1], part: "value", member: "m.slot[1].value" }, so a change at m.slot[1].value.slot[3].key names m[5][7]
 type KeyedScope = { levels: SlotLevel[]; part: "key" | "value"; member: string };
 
 // A packed run: `slotCount` slots of `bitsPerSlot` bits from an absolute state offset.
-// `declaredCapacity` set only when the run stores more slots than the container declares, as a small BitArray's last word does.
+// e.g. BitArray<2> -> { size: 8, bitsPerSlot: 1, slotCount: 64, declaredCapacity: 2 }: the word stores 64 slots, so bits[5] 0 → 1 (past capacity 2) is reachable
 type BitRun = { start: number; size: number; bitsPerSlot: number; slotCount: number; declaredCapacity?: number };
 
 // The first and last index of a strided run that share a byte with the window — a 545 MB map's slots or flags are never walked whole.
+// e.g. a window 8..16 over a run of stride 4 from 0 -> [2, 3], however many slots the run has
 function visibleIndices(window: ChangedWindow, start: number, stride: number, count: number): [number, number] {
     const first = Math.max(0, Math.floor((window.start - start) / stride));
     const last = Math.min(count - 1, Math.floor((window.end - 1 - start) / stride));
@@ -159,6 +170,7 @@ function visibleIndices(window: ChangedWindow, start: number, stride: number, co
 }
 
 // The slot a change under `scope` belongs to; the path below the member is what the leaf's label adds to the member's.
+// e.g. leaf ab.slot[4].value.a under member ab.slot[4].value -> suffix ".a", the row ab[11].a
 const slotRefOf = (scope: KeyedScope, label: string): SlotRef => ({
     levels: scope.levels,
     part: scope.part,
@@ -166,10 +178,11 @@ const slotRefOf = (scope: KeyedScope, label: string): SlotRef => ({
 });
 
 // A bookkeeping change under an entry: the chain names it, nothing about the entry is decided by it.
+// e.g. m.slot[1].value._markRemovalCounter -> m[5]._markRemovalCounter 0 → 1, still internal
 const wordRefOf = (scope: KeyedScope, label: string): SlotRef => ({ ...slotRefOf(scope, label), part: "word" });
 
 // Windows may be minimal runs or aligned pages; a run not covering a whole value keeps its bytes.
-// (the IDL's state fields, one window) -> what moved in it, in state order.
+// e.g. a window over rec's padding at +4 -> changes for rec.b and rec.d, nothing for the pad
 function findChanges(fields: StateField[], window: ChangedWindow): Change[] {
     const walk: Walk = { window, changes: [] };
     const moved = (start: number, end: number) => !bytesEqual(imageSlice(window, window.before, start, end), imageSlice(window, window.after, start, end));
@@ -215,7 +228,6 @@ function findChanges(fields: StateField[], window: ChangedWindow): Change[] {
 
 // The parts of `type` the window touches. Indexed collections walk per element; a struct without a container that the window holds whole is one value.
 // Each container has its own walker: the four share no internal layout beyond what qpi-layout spells out, so nothing here guesses across them.
-// (names, absolute start of `type`, `type`, the keyed slot it sits in) -> changes pushed onto the walk.
 function walkType(walk: Walk, names: Names, start: number, type: AbiType, scope?: KeyedScope): void {
     const { window } = walk;
 
@@ -336,6 +348,7 @@ type SlotTypes = { key?: AbiType; value?: AbiType };
 const prefixUnder = (names: Names, outer?: KeyedScope) => (outer ? names.label.slice(outer.member.length) : "");
 
 // Where slot i's key sits, for a flag row to be named by. Only a slots region with a key member can offer one, and that member is at offset 0 in both hashmap and hashset.
+// e.g. slot 3 -> { part: "flag", keyStart: map + 3 * 16 }; when key and value both stayed zero this is what names map[0] (new)
 function keyedFlagAt(container: Names, start: number, region: SlotsRegion, keyType: AbiType, outer?: KeyedScope): (slotIndex: number) => SlotRef {
     const keyMember = region.members.find((member) => member.type === "key");
     if (!keyMember) {
@@ -397,6 +410,7 @@ function walkSlots(walk: Walk, names: Names, start: number, region: SlotsRegion,
 }
 
 // A flags region as one packed run; `slotAt` names the slot a flag belongs to when the container has a key to name it by, else the chain only labels it.
+// e.g. _occupationFlags at 2 bits per slot -> map._occupationFlags[4] 0 → 1
 function walkFlags(walk: Walk, names: Names, start: number, region: FlagsRegion, outer?: KeyedScope, slotAt?: (slotIndex: number) => SlotRef): void {
     if (!overlaps(walk.window, start + region.off, region.end - region.off)) {
         return;
@@ -409,6 +423,7 @@ function walkFlags(walk: Walk, names: Names, start: number, region: FlagsRegion,
 }
 
 // One bookkeeping word compared as the fixed type core stores it in; under an entry it is labelled through the entry's keys, nothing more.
+// e.g. _population (role count) -> map 0 → 1 entries; _headIndex -> list._headIndex 0 → 1, internal
 function walkWord(walk: Walk, names: Names, start: number, region: WordRegion, outer?: KeyedScope): void {
     if (!overlaps(walk.window, start + region.off, region.end - region.off)) {
         return;
@@ -419,6 +434,7 @@ function walkWord(walk: Walk, names: Names, start: number, region: WordRegion, o
 }
 
 // (names, the value's absolute start, its type) -> a `value` change when the window holds all of it, a `partial` one when the window cuts it, nothing when the bytes match.
+// e.g. whole: nums[3] 0 → 3195; cut by the window: nums[1]+0 0x0000 → 0x7b0c
 function compareValue(walk: Walk, names: Names, start: number, type: AbiType, role: MemberRole, slot?: SlotRef): void {
     const { window } = walk;
     const visibleStart = Math.max(start, window.start);
@@ -439,7 +455,7 @@ function compareValue(walk: Walk, names: Names, start: number, type: AbiType, ro
 }
 
 // Occupation flags and BitArrays are packed, so report the indices that moved, not the raw words.
-// (names, the packed run, the slot each index belongs to) -> one `bit` change per visible index whose value moved.
+// e.g. byte 0 = 0b0000_1000, byte 2 = 0b0000_0010 -> bits[3] 0 → 1 and bits[17] 0 → 1
 function compareBits(walk: Walk, names: Names, run: BitRun, role: MemberRole, slotAt?: (index: number) => SlotRef): void {
     const { window } = walk;
     // The whole run may start windows behind this one; only its visible slice is read.
@@ -488,9 +504,11 @@ async function renderValue(bytes: Uint8Array, type: AbiType): Promise<Rendered> 
 }
 
 // Key bytes -> the label text an entry is named by, the same text `qinit state` prints. `decodeAbiValue` keeps a one-field struct positional; `decodeAbi` would unwrap it.
+// e.g. 32 bytes of 0x07 -> "FXHSWSJB…YKSC", a struct key -> "{sub: {a: 1, b: 2}, asset: 3}"
 const keyText = async (bytes: Uint8Array, type: AbiType) => keyLabel(await decodeAbiValue(bytes, type), type);
 
 // (the changes, every window of the diff, the node's key reader) -> the same changes with values rendered and every level's key looked up.
+// e.g. an update whose two keys sit in no window -> one readKey per level, then m[5][7] 9 → 10
 async function decodeChanges(changes: Change[], windows: ChangedWindow[], readKey?: StateKeyReader): Promise<DecodedChange[]> {
     // One read per distinct key, however many rows ask for it.
     const fetched = new Map<string, Promise<Uint8Array | undefined>>();
@@ -555,6 +573,7 @@ type SlotFacts = { flag?: { to: number }; hasKeyRow: boolean; hasValueRow: boole
 const NO_FACTS: SlotFacts = { hasKeyRow: false, hasValueRow: false, namedByValue: false };
 
 // The map key tying every change of one entry together: container path + slot index, at every level; a prefix of it is the enclosing entry's.
+// e.g. [m slot 1, inner slot 3] -> "m#1/m._elements[1].value#3"; "m#1" is the outer entry's bucket
 const bucketOf = (levels: SlotLevel[]) => levels.map((level) => `${level.container.detail}#${level.slotIndex}`).join("/");
 type FactsAt = (levels: SlotLevel[]) => SlotFacts;
 
@@ -572,12 +591,14 @@ function namingKey(key: EntryKey, flag: SlotFacts["flag"]): string | undefined {
 }
 
 // The key naming one level of an entry, read the way that level's own flag says.
+// e.g. level 0 of m -> "5", level 1 -> "7", the pieces of m[5][7]
 const levelKey = (slot: DecodedSlotRef, factsAt: FactsAt, index: number) => {
     const key = slot.keys[index];
     return key && namingKey(key, factsAt(slot.levels.slice(0, index + 1)).flag);
 };
 
 // The name a flag row gives its own level: the after image on arrival, the before image on removal, and never a key read back from the node.
+// e.g. { before: "0", after: "0" } with `to` 2 -> "0", so the row is m[5][0] (removed)
 function flagKey(key: EntryKey | undefined, to: number): string | undefined {
     if (!key || "fetched" in key) {
         return undefined;
@@ -612,6 +633,7 @@ function entryLabel(
 const flagLabel = (slot: DecodedSlotRef, factsAt: FactsAt, to: number) =>
     entryLabel(slot, factsAt, (index) => (index === slot.levels.length - 1 ? flagKey(slot.keys[index], to) : levelKey(slot, factsAt, index)));
 
+// every change bucketed by its entry, e.g. a flag 0 → 1 with no key or value row -> { flag: { to: 1 }, hasKeyRow: false, hasValueRow: false }, which is what gives map[0] (new) a row
 function slotFactsOf(decoded: DecodedChange[]): Map<string, SlotFacts> {
     const facts = new Map<string, SlotFacts>();
     const factsAt: FactsAt = (levels) => {
@@ -654,6 +676,7 @@ function slotFactsOf(decoded: DecodedChange[]): Map<string, SlotFacts> {
 }
 
 // A key or value row of a slot, named by the entry's keys; `before`/`after` are the row's own images as text.
+// e.g. map.slot[4].value 0 → 101 with flag `to` 1 -> map[11] = 101 (new); the key row of the same slot turns internal
 function slotRow(physical: StateDiffLine, slot: DecodedSlotRef, before: string, after: string, factsAt: FactsAt): StateDiffLine {
     const facts = factsAt(slot.levels);
     const entry = entryLabel(slot, factsAt);
@@ -678,6 +701,7 @@ function slotRow(physical: StateDiffLine, slot: DecodedSlotRef, before: string, 
 }
 
 // A flag row stays bookkeeping unless it is all the entry left behind: a key and value that both stayed zero write no row of their own.
+// e.g. map._occupationFlags[3] 0 → 1 alone -> map[0] (new); with the slot's bytes outside the window it stays as is, internal
 function flagRow(physical: StateDiffLine, slot: DecodedSlotRef, to: number, factsAt: FactsAt): StateDiffLine {
     const facts = factsAt(slot.levels);
     const label = flagLabel(slot, factsAt, to);
@@ -705,6 +729,7 @@ function entryText(before: string, after: string, flag: SlotFacts["flag"]): stri
 }
 
 // One decoded change -> its final row; a change inside a container slot is named by its entry here and nowhere else.
+// e.g. unknown -> @216 (outside any known field), partial -> nums[1]+0 0x0000 → 0x7b0c, bit past capacity -> bits[5] 0 → 1 (past capacity 2)
 function rowOf(change: DecodedChange, facts: Map<string, SlotFacts>): StateDiffLine {
     const factsAt: FactsAt = (levels) => facts.get(bucketOf(levels)) ?? NO_FACTS;
 
@@ -775,6 +800,7 @@ function rowOf(change: DecodedChange, facts: Map<string, SlotFacts>): StateDiffL
     }
 }
 
+// facts first, then one row per change, e.g. ["bitValues[1][3] = 1 (new)", "bitValues 0 → 1 entries"]
 function renderRows(decoded: DecodedChange[]): StateDiffLine[] {
     const facts = slotFactsOf(decoded);
     return decoded.map((change) => rowOf(change, facts));

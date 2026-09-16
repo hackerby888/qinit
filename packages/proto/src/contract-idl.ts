@@ -51,6 +51,7 @@ export enum AbiContainerKind {
     LINKED_LIST = "linked_list",
 }
 
+// every AbiType carries its layout and its type-format text, e.g. uint64 is { size: 8, align: 8, format: "uint64" }
 interface AbiTypeBase {
     size: number;
     align: number;
@@ -62,6 +63,7 @@ export interface AbiScalar extends AbiTypeBase {
     scalar: AbiScalarKind;
 }
 
+// name is the C++ struct name, e.g. "Get_output"; an entry's struct carries format without braces ("uint64", not "{ uint64 }")
 export interface AbiStruct extends AbiTypeBase {
     kind: AbiTypeKind.STRUCT;
     name?: string;
@@ -74,17 +76,22 @@ export interface AbiArray extends AbiTypeBase {
     element: AbiType;
 }
 
+// bitCount is logical bits; storage is whole uint64 words, so BitArray<8> is size 8 with format "[1;uint64]"
 export interface AbiBitArray extends AbiTypeBase {
     kind: AbiTypeKind.BIT_ARRAY;
     bitCount: number;
 }
 
+// format is core's physical struct (povs, pov flags, elements, population, markRemovalCounter),
+// e.g. Collection<uint64, 4> -> "{ [4;{ id, uint64, sint64, sint64, sint64 }], [1;uint64], [4;{ uint64, sint64, sint64, sint64, sint64, sint64 }], uint64, uint64 }"
 export interface AbiCollection extends AbiTypeBase {
     kind: AbiTypeKind.COLLECTION;
     capacity: number;
     value: AbiType;
 }
 
+// format is core's physical struct (elements, occupation flags, population, markRemovalCounter),
+// e.g. HashMap<id, uint64, 2> -> "{ [2;{ id, uint64 }], [1;uint64], uint64, uint64 }"
 export interface AbiHashMap extends AbiTypeBase {
     kind: AbiTypeKind.HASH_MAP;
     capacity: number;
@@ -92,20 +99,24 @@ export interface AbiHashMap extends AbiTypeBase {
     value: AbiType;
 }
 
+// e.g. HashSet<id, 64> -> "{ [64;id], [2;uint64], uint64, uint64 }": the keys, their occupation flags, population, markRemovalCounter
 export interface AbiHashSet extends AbiTypeBase {
     kind: AbiTypeKind.HASH_SET;
     capacity: number;
     key: AbiType;
 }
 
+// e.g. LinkedList<uint64, 8> -> "{ [8;{ uint64, sint64, sint64 }], [1;uint64], sint64, sint64, sint64, uint64, uint64 }": nodes, occupied flags, head, tail, freeHead, nextUnused, population
 export interface AbiLinkedList extends AbiTypeBase {
     kind: AbiTypeKind.LINKED_LIST;
     capacity: number;
     value: AbiType;
 }
 
+// one node of a type tree, discriminated on kind, e.g. Array<uint64, 4> is { kind: "array", count: 4, element: <uint64>, size: 32, align: 8, format: "[4;uint64]" }
 export type AbiType = AbiScalar | AbiStruct | AbiArray | AbiBitArray | AbiCollection | AbiHashMap | AbiHashSet | AbiLinkedList;
 
+// e.g. { name: "counter", offset: 0, size: 8, type: <uint64> }; offset is absolute in the struct, so a union has two fields at 0
 export interface AbiField {
     name: string;
     offset: number;
@@ -113,6 +124,7 @@ export interface AbiField {
     type: AbiType;
 }
 
+// one function or procedure, e.g. { name: "Get", inputType: 1, inSize: 1, outSize: 8, input: <struct>, output: <struct> }
 export interface ContractEntry {
     name: string;
     inputType: number;
@@ -123,6 +135,7 @@ export interface ContractEntry {
     notification?: boolean; // oracle-reply callback: the node dispatches it, users never invoke it
 }
 
+// members keyed by the value as text, e.g. { name: "Status", underlying: "uint8", members: { "0": "Pending", "1": "Done" } }
 export interface ContractEnum {
     name: string;
     underlying: AbiScalarKind;
@@ -150,10 +163,12 @@ export interface ContractCheat {
     parts: ContractCheatPart[];
 }
 
+// the previous state layout a MIGRATE reads from
 export interface ContractMigration {
     oldState: AbiStruct;
 }
 
+// one parsed contract, e.g. { version: 5, name: "Counter", slot: 29, functions, procedures, state, enums, logs, cheats, dependencies }
 export interface ContractIdl {
     version: typeof QINIT_IDL_VERSION;
     name: string;
@@ -169,17 +184,20 @@ export interface ContractIdl {
     dependencies: string[];
 }
 
+// the IDL plus what the build produced: codeHash, debugWasm, linesJson
 export interface ContractIdlArtifact extends ContractIdl {
     codeHash?: string;
     debugWasm?: string;
     linesJson?: string;
 }
 
+// idl.json on disk, contracts keyed by slot as text, e.g. { version: 5, contracts: { "29": <artifact> } }
 export interface ContractIdlFile {
     version: typeof QINIT_IDL_VERSION;
     contracts: Record<string, ContractIdlArtifact>;
 }
 
+// convert an AbiType to a string representation, field names dropped, e.g. "{ uint64, uint8 }" or "[4;uint64]"
 export function formatAbiType(type: AbiType): string {
     switch (type.kind) {
         case AbiTypeKind.SCALAR:
@@ -203,6 +221,7 @@ export function formatAbiType(type: AbiType): string {
     }
 }
 
+// e.g. Array<HashMap<...>> with hash_map -> true; what refuses a container in a public interface
 export function abiTypeContainsKind(type: AbiType, kind: AbiTypeKind): boolean {
     if (type.kind === kind) {
         return true;
@@ -232,14 +251,17 @@ const FORBIDDEN_PUBLIC_TYPES: readonly (readonly [AbiTypeKind, string])[] = [
     [AbiTypeKind.LINKED_LIST, "LinkedList"],
 ];
 
+// the name a public type is refused by, e.g. a HashMap input -> "HashMap", a plain struct -> undefined
 export function forbiddenPublicType(type: AbiType): string | undefined {
     return FORBIDDEN_PUBLIC_TYPES.find(([kind]) => abiTypeContainsKind(type, kind))?.[1];
 }
 
+// raw idl json -> validated ContractIdl, e.g. throws "IDL version must be 5" or "IDL state must be a struct"
 export function parseContractIdl(value: unknown): ContractIdl {
     return parseContract(value, "IDL");
 }
 
+// raw idl.json -> ContractIdlFile, every artifact re-validated and its key checked against artifact.slot
 export function parseContractIdlFile(value: unknown): ContractIdlFile {
     const file = objectValue(value, "IDL file");
     exactVersion(file, "IDL file");
@@ -270,6 +292,7 @@ export function parseContractIdlFile(value: unknown): ContractIdlFile {
     };
 }
 
+// rebuilt field by field, so the result is a fresh object and every AbiType has its format recomputed
 function parseContract(value: unknown, label: string): ContractIdl {
     const contract = objectValue(value, label);
     exactVersion(contract, label);
@@ -301,6 +324,7 @@ function parseContract(value: unknown, label: string): ContractIdl {
     };
 }
 
+// a repeated inputType is refused, e.g. "IDL functions repeats inputType 1"
 function entryArray(value: unknown, label: string): ContractEntry[] {
     const entries = arrayValue(value, label).map((item, index) => contractEntry(item, `${label} ${index}`));
     const ids = new Set<number>();
@@ -313,6 +337,7 @@ function entryArray(value: unknown, label: string): ContractEntry[] {
     return entries;
 }
 
+// inSize/outSize are checked against the struct sizes
 function contractEntry(value: unknown, label: string): ContractEntry {
     const entry = objectValue(value, label);
     const input = entryAbiType(entry.input, `${label} input`);
@@ -338,6 +363,7 @@ function contractEntry(value: unknown, label: string): ContractEntry {
     };
 }
 
+// an entry's struct with format re-joined without braces, e.g. Get_output { uint64 value } -> "uint64", an empty input -> ""
 function entryAbiType(value: unknown, label: string): AbiType {
     const type = abiType(value, label);
 
@@ -372,6 +398,7 @@ function contractEnum(value: unknown, label: string): ContractEnum {
     };
 }
 
+// validated with allowUnpaddedTail: a log struct's size may stop at its last field
 function contractLog(value: unknown, label: string): ContractLog {
     const entry = objectValue(value, label);
     const types =
@@ -404,6 +431,7 @@ function contractMigration(value: unknown, label: string): ContractMigration {
     };
 }
 
+// like abiType but must be a struct, format without braces ("uint64, id")
 function abiStruct(value: unknown, label: string, allowUnpaddedTail = false): AbiStruct {
     const type = abiType(value, label, allowUnpaddedTail);
     if (type.kind !== AbiTypeKind.STRUCT) {
@@ -415,6 +443,7 @@ function abiStruct(value: unknown, label: string, allowUnpaddedTail = false): Ab
     };
 }
 
+// raw json -> AbiType with layout checked and format recomputed, e.g. { kind: "array", count: 4, element, size: 32, align: 8 } -> format "[4;uint64]"
 function abiType(value: unknown, label: string, allowUnpaddedTail = false): AbiType {
     const raw = objectValue(value, label);
     const kind = stringValue(raw.kind, `${label} kind`) as AbiTypeKind;
@@ -578,6 +607,7 @@ const SCALAR_LAYOUT: Record<AbiScalarKind, { size: number; align: number }> = {
     [AbiScalarKind.SINT128]: { size: 16, align: 8 },
 };
 
+// declared size/align must match the kind's geometry, e.g. HashMap<uint64, uint64, 4> must be 88/8; capacity and bitCount are powers of two
 function validateAbiType(type: AbiType, label: string, allowUnpaddedTail = false): void {
     if (!isPowerOfTwo(type.align)) {
         throw new Error(`${label} align ${type.align} must be a power of two`);
@@ -616,6 +646,7 @@ function validateAbiType(type: AbiType, label: string, allowUnpaddedTail = false
     }
 }
 
+// unique names, each offset aligned to its type, offsets non-decreasing, size = roundUp(last end, max align) unless allowUnpaddedTail
 function validateStruct(type: AbiStruct, label: string, allowUnpaddedTail: boolean): void {
     const names = new Set<string>();
     let end = 0;

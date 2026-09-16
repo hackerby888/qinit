@@ -28,6 +28,7 @@ import {
     type StateLine,
 } from "./state-format";
 
+// one block of `qinit state`, e.g. { index: 1, name: "values", kind: "array", status: "loaded", occupiedSlots: 2, totalEntries: 2, lines: [{ label: "[1]", text: "7", filled: true }] }
 export type StateContainer = {
     index: number;
     name: string;
@@ -43,11 +44,14 @@ export type StateContainer = {
     warnings?: string[];
     sourceField: StateField;
 };
+// the node's state read, e.g. stateRead(4, 136, 8) -> { hex: "0300000000000000" }, the population word of a map
 export type StateReader = {
     // Absent on older nodes; the reader then makes no check.
     stateRead(slot: number, off: number, len: number): Promise<{ hex: string; version?: number }>;
 };
+// (field, bytes so far, bytes total), e.g. ("state", 4194304, 4194312)
 export type StateReadProgress = (field: string, completedBytes: number, totalBytes: number) => void;
+// e.g. { collapseContainersAtBytes: 1, containerIndexes: new Set([2]) } loads block 2 and collapses the rest
 export type StateReadOptions = {
     collapseContainersAtBytes?: number;
     containerIndexes?: ReadonlySet<number>;
@@ -55,7 +59,9 @@ export type StateReadOptions = {
     calleeSources?: readonly CalleeSource[];
 };
 
+// one rpc read at most, so a 4194312-byte array is fetched as 4194304 + 8
 const MAX_STATE_READ = 4 * 1024 * 1024;
+// a container this big comes back status "collapsed" with no read; --container N loads it on demand
 export const LARGE_STATE_CONTAINER_BYTES = 10 * 1024 * 1024;
 
 function stateReadError(error: unknown): string {
@@ -63,6 +69,7 @@ function stateReadError(error: unknown): string {
 }
 
 // One source per field per attempt: the first read's version is what later reads must match.
+// e.g. a 524288-byte field the node answers short -> reads [524288, 262144]; a version change mid-read throws "… changed while it was being read"
 function stateByteSource(rpc: StateReader, contractIndex: number, field: StateField, onRead?: (completedBytes: number) => void): QpiByteSource {
     let seenVersion: number | undefined;
 
@@ -126,6 +133,7 @@ async function readAllBytes(source: QpiByteSource): Promise<Uint8Array> {
     return bytes;
 }
 
+// e.g. { stateLines: [{ label: "slot[1]", text: "11 = 101", filled: true }, …], occupiedSlots: 3, totalEntries: 3 }
 type FormattedContainerView = {
     stateLines: StateLine[];
     occupiedSlots: number;
@@ -133,6 +141,7 @@ type FormattedContainerView = {
     warnings?: string[];
 };
 
+// a container's bytes -> its block rows, e.g. HashMap<uint64, uint64, 8> with 3 entries -> slot[1] 11 = 101, …, slots[3..5] (unoccupied ×3; skipped); a BitArray adds past-capacity warnings
 async function formatContainerView(field: StateField, source: QpiByteSource, full: boolean): Promise<FormattedContainerView> {
     const container = field.container;
     if (!field.abi || !container) {
@@ -240,6 +249,7 @@ async function formatContainerView(field: StateField, source: QpiByteSource, ful
 }
 
 // A value already in hand, in the rows `qinit state` draws: one per scalar field, a container as its block. Anything smaller than a container reads inline.
+// e.g. a HashMap field bal with one entry -> [{ label: "bal", text: "slot[0] 11 = 101" }, { label: "", text: "slots[1..7] (unoccupied ×7; skipped)" }]; no container anywhere -> undefined
 export async function valueLines(bytes: Uint8Array, type: AbiType): Promise<StateLine[] | undefined> {
     const container = containerLayoutOf(type);
     const fields: StateField[] =
@@ -279,6 +289,7 @@ export async function valueLines(bytes: Uint8Array, type: AbiType): Promise<Stat
 /** The scalar rows and container blocks of one value, in the shape `qinit state` renders. */
 export type ValueBlocks = { fields: StateFieldValue[]; containers: StateContainer[] };
 
+// a struct -> one StateField per member; a bare container type -> one unnamed field covering it
 function fieldsOfValue(type: AbiType): StateField[] {
     const container = containerLayoutOf(type);
 
@@ -289,6 +300,7 @@ function fieldsOfValue(type: AbiType): StateField[] {
 }
 
 // How many container blocks a value contributes: a container is one, a struct sums its fields, and a container's own elements stay inline.
+// e.g. { Array nums; Inner { HashMap map; uint64 tag } inner; HashSet set } -> 3, numbered nums=1, inner.map=2, set=3
 export function countContainerBlocks(type: AbiType): number {
     if (containerLayoutOf(type)) {
         return 1;
@@ -341,6 +353,7 @@ export async function decodeValueBlocks(bytes: Uint8Array, type: AbiType, prefix
     return blocks;
 }
 
+// one block over rpc, e.g. slot 7 field values -> { index: 1, status: "loaded", occupiedSlots: 1, lines }; an inconsistency that survives the retry -> status "error"
 async function readContainerBlock(
     rpc: StateReader,
     contractIndex: number,
@@ -390,6 +403,7 @@ async function readContainerBlock(
     };
 }
 
+// the placeholder for a block not read, e.g. { status: "collapsed", occupiedSlots: 0, lines: [] }
 function collapsedContainer(index: number, field: StateField, container: StateContainerLayout): StateContainer {
     return {
         index,
@@ -405,6 +419,7 @@ function collapsedContainer(index: number, field: StateField, container: StateCo
     };
 }
 
+// a collapsed block -> the same block loaded: status "collapsed" -> "loaded" with its lines and occupiedSlots filled
 export async function loadStateContainer(
     rpc: StateReader,
     contractIndex: number,
@@ -430,10 +445,11 @@ export async function loadStateContainer(
     return loaded;
 }
 
-// `value` is the rendered text (an error message when the read failed); `data` the decoded value for --json.
+// e.g. { name: "counter", value: "7", data: 7n }, or { name: "value", value: "(read failed: short state read at 0: expected 8 bytes, got 4)", failed: true }
 // `failed` marks that message, since a decoded value's text can contain the same words, e.g. a struct member named `undecodable`.
 export type StateFieldValue = { name: string; value: string; data?: unknown; failed?: boolean };
 
+// e.g. { fields: [{ name: "counter", value: "7", data: 7n }], containers: [<block bal>], complete: true }
 export interface DecodedState {
     fields: StateFieldValue[];
     containers: StateContainer[];
@@ -441,6 +457,7 @@ export interface DecodedState {
 }
 
 // An Array field reads as its own block: one row per set element, zero runs collapsed into a skipped row.
+// e.g. two set slots of 524289 -> [0] =0 (skipped), [1] 7, [2..524287] =0 ×524286 (skipped), [524288] 9
 async function readArrayBlock(
     view: Extract<ReturnType<typeof createQpiContainerView>, { kind: AbiTypeKind.ARRAY }>,
 ): Promise<{ lines: StateLine[]; setCount: number }> {
@@ -480,6 +497,7 @@ async function readArrayBlock(
     return { lines, setCount };
 }
 
+// e.g. BitArray<2> with bits 0, 2, 4, 5, 63 set -> [0] =1, [1] =0 (skipped), [2] =1 (past capacity 2), [4..5] =1 ×2 (past capacity 2), [63] =1 (past capacity 2)
 async function readBitArrayBlock(
     view: Extract<ReturnType<typeof createQpiContainerView>, { kind: AbiTypeKind.BIT_ARRAY }>,
 ): Promise<{ lines: StateLine[]; setCount: number; pastCapacity: number[] }> {
@@ -525,6 +543,8 @@ async function readBitArrayBlock(
     return { lines, setCount, pastCapacity };
 }
 
+// the whole state of one contract, e.g. Counter at slot 7 -> { fields: [{ name: "counter", value: "7", data: 7n }], containers: [<bal block>], complete: true }
+// scalars decode from one read each, containers become blocks, a struct holding containers splits into both
 export async function readState(
     rpc: StateReader,
     contractIndex: number,
@@ -667,6 +687,7 @@ export async function readState(
     return state;
 }
 
+// false once any field failed; a collapsed container still counts as complete
 export function stateIsComplete(state: Pick<DecodedState, "fields" | "containers">): boolean {
     return !state.fields.some((field) => field.failed) && state.containers.every((container) => container.status !== "error");
 }

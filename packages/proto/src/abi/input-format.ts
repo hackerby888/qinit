@@ -5,7 +5,8 @@ import { arrayGeometry, bitWordCount } from "../qpi-layout";
 import { assertBounds } from "./decode";
 import { hasOverlappingAbiType, hasOverlappingFields, nodeOf, parseTypeFormat, SCALAR_SIZE, splitTop, type TypeNode } from "./type-format";
 
-// input encode (value-driven, aligned, async for id)
+// json -> bytes in place by AbiType, e.g. { count: 1, flag: 1 } as { uint64 count; uint8 flag } -> 01 00 00 00 00 00 00 00 01
+// each field lands at its own offset; a union (overlapping fields) takes raw bytes instead
 async function encodeAbiType(view: DataView, offset: number, type: AbiType, value: any): Promise<void> {
     assertBounds(view, offset, type.size);
 
@@ -57,6 +58,7 @@ async function encodeAbiType(view: DataView, offset: number, type: AbiType, valu
     }
 }
 
+// a union has no field to encode by, so its value is the exact bytes, e.g. [1, 0, 0, 0, 0, 0, 0, 0] for an 8-byte one
 function writeRawAbiValue(view: DataView, offset: number, type: AbiType, value: any): void {
     if (!(value instanceof Uint8Array) && !Array.isArray(value)) {
         throw new Error(`${type.kind} input needs exactly ${type.size} raw bytes`);
@@ -73,6 +75,7 @@ function writeRawAbiValue(view: DataView, offset: number, type: AbiType, value: 
     }
 }
 
+// { amount: 1 } or [1] -> [1], the fields in declaration order
 function structValues(type: AbiStruct, value: any): any[] {
     if (Array.isArray(value)) {
         if (value.length !== type.fields.length) {
@@ -91,6 +94,7 @@ function structValues(type: AbiStruct, value: any): any[] {
     });
 }
 
+// one scalar -> bytes, e.g. 1 as uint64 -> 01 00 00 00 00 00 00 00, a 60-char identity as id -> its 32 bytes, uint128 low limb first
 async function encodeAbiScalar(view: DataView, offset: number, scalar: AbiScalarKind, value: any): Promise<void> {
     if (scalar === AbiScalarKind.ID) {
         const text = String(value);
@@ -196,6 +200,7 @@ function expandReps(parts: string[]): string[] {
 }
 
 // Alignment of a value token (mirrors alignOf on the type the value carries).
+// e.g. "5uint16" -> 2, "0id" -> 8, "{1uint8, 2uint64}" -> 8
 function tokenAlign(tok: string): number {
     tok = tok.trim().replace(REPEAT_RE, "$1").trim(); // a "tok ×N" repeat aligns as the base token
 
@@ -221,6 +226,7 @@ const padTo = (out: number[], align: number) => {
 };
 
 // Encode one value token at the current (aligned) offset = out.length.
+// e.g. "5uint16" -> 05 00, "{}" -> one zero byte, "[2; 1uint64, 2uint64]" -> 16 bytes
 async function encodeToken(tok: string, out: number[]): Promise<void> {
     tok = tok.trim();
     if (!tok) return;
@@ -338,7 +344,7 @@ function scalarToken(tok: string): { numStr: string; type: string } {
     return { numStr, type };
 }
 
-// JSON -> input value-format, field-name keyed: builds encodeInputFormat's value format from named JSON fields or positional nested arrays.
+// json + type text -> value text, positional below the top level, e.g. [1, 2] as "{ uint8, uint64 }" -> "{ 1uint8, 2uint64 }", true as "bit" -> "1bit"
 function jsonValueToInputFormat(typeTok: string, value: any): string {
     typeTok = typeTok.trim();
     if (typeTok[0] === "{") {
@@ -365,6 +371,7 @@ function jsonValueToInputFormat(typeTok: string, value: any): string {
     return `${BigInt(value)}${typeTok}`; // number / bigint / numeric-string; rejects floats
 }
 
+// the schema an input is encoded against: the IDL's { name, type } list, or an AbiType when the caller has one
 type InputFields = { name: string; type: string }[] | AbiType;
 
 function rejectComplexInput(fields: InputFields): void {
@@ -416,9 +423,13 @@ export async function encodeInputJson(fields: InputFields, json: any): Promise<U
         await encodeAbiType(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), 0, fields, json);
         return bytes;
     }
+    // encodeInputFormat: eg. parse 1uint64 to raw bytes
+    // jsonToInputFormat: eg. convert { amount: 1 } to 1uint64
     return encodeInputFormat(jsonToInputFormat(fields, json));
 }
 
+// json -> value text by AbiType, e.g. [1, 2] as Array<uint32, 2> -> "[2; 1uint32, 2uint32]"
+// a BitArray is spelled as its uint64 words, e.g. bits 0 and 2 of 8 -> "[1; 5uint64]"
 function typedJsonValueToInputFormat(type: AbiType, value: any): string {
     if (type.kind === AbiTypeKind.STRUCT) {
         if (hasOverlappingFields(type)) {
@@ -449,6 +460,7 @@ function typedJsonValueToInputFormat(type: AbiType, value: any): string {
     if (type.kind === AbiTypeKind.LINKED_LIST) {
         throw new Error("LinkedList input is not supported");
     }
+
     return jsonValueToInputFormat(formatAbiType(type), value);
 }
 
@@ -509,6 +521,7 @@ export async function encodeInputFormat(inputFormat: string): Promise<Uint8Array
 }
 
 // --in against the IDL: every token checked against the field it lands in
+// e.g. "1uint8, [2; 1uint64, 2uint64]" -> a struct of { type: "uint8", text: "1" } and { kind: "array", count: 2, items }; count is null without "N;", raw keeps the spelling for errors
 export type InputFormatStruct = { kind: "struct"; items: InputFormatNode[]; raw: string };
 export type InputFormatNode =
     InputFormatStruct | 
@@ -517,12 +530,13 @@ export type InputFormatNode =
 
 const WIDE_SUFFIXES = ["m256i", "uint128", "sint128", "id"];
 
-// Value text -> token tree, e.g. "{1uint8, 2uint8}" -> a struct of two scalars, so a schema can check each spelled type before any byte is placed.
+// value text -> token tree; the root is always a struct, e.g. "1uint8, 2uint8" -> a struct of two scalars, so a schema can check each spelled type before any byte is placed.
 export function parseInputFormat(inputFormat: string): InputFormatStruct {
     const t = (inputFormat ?? "").trim();
     return { kind: "struct", items: t ? expandReps(splitTop(t)).map(parseInputToken) : [], raw: t };
 }
 
+// one token -> node, e.g. "0id" -> { kind: "scalar", type: "id", text: "0" }, "[2; 1uint64, 2uint64]" -> { kind: "array", count: 2, items }
 function parseInputToken(tok: string): InputFormatNode {
     tok = tok.trim();
     if (tok[0] === "{") {
@@ -567,6 +581,7 @@ function unwrapInputBraces(root: InputFormatStruct, type: AbiStruct): InputForma
     return type.fields.length === 1 && type.fields[0].type.kind === AbiTypeKind.STRUCT ? root : only;
 }
 
+// token tree -> bytes at the schema's offsets, failures named by path, e.g. "input.s8 is sint8, got '-2sint16'"
 async function writeInputNode(view: DataView, offset: number, type: AbiType, node: InputFormatNode, path: string): Promise<void> {
     switch (type.kind) {
         case AbiTypeKind.SCALAR: {
@@ -612,6 +627,7 @@ async function writeInputNode(view: DataView, offset: number, type: AbiType, nod
     }
 }
 
+// a BitArray or union has no per-field spelling, so its token re-encodes as raw bytes that must fill type.size, e.g. "[1; 5uint64]" for BitArray<8>
 async function writeRawInputNode(view: DataView, offset: number, type: AbiType, node: InputFormatNode, path: string): Promise<void> {
     const out: number[] = [];
     await encodeToken(node.raw, out);

@@ -1,6 +1,7 @@
 // Single source of truth for QPI container on-wire layouts (mirrors core src/qpi/qpi_containers.h).
 import { roundUp } from "@qinit/core";
 
+// bits -> whole uint64 words, e.g. 256 -> 4, 65 -> 2
 export const bitWordCount = (bitCount: number) => Math.ceil(bitCount / 64);
 
 interface Layout {
@@ -8,6 +9,7 @@ interface Layout {
     align: number;
 }
 
+// occupation flags are 2 bits per slot (32 a word) in the hash containers and collection povs, 1 bit per node (64 a word) in the linked list
 const hashMapFlagWordCount = (capacity: number) => Math.ceil(capacity / 32);
 const hashSetFlagWordCount = (capacity: number) => Math.ceil(capacity / 32);
 const collectionFlagWordCount = (capacity: number) => Math.ceil(capacity / 32);
@@ -21,6 +23,7 @@ function layoutSize(value: number): number {
 }
 
 // core static_asserts L = 2^N for every container, which is what lets `index & (L - 1)` stand in for a bounds check.
+// e.g. Array<uint64, 4> -> { stride: 8, size: 32, align: 8 }; stride is the element size padded to its own align
 export function arrayGeometry(element: Layout, count: number) {
     const stride = roundUp(element.size, element.align);
     return {
@@ -30,6 +33,7 @@ export function arrayGeometry(element: Layout, count: number) {
     };
 }
 
+// whole words, e.g. BitArray<256> -> { size: 32, align: 8 }, BitArray<65> -> size 16 with 63 unused tail bits
 export function bitArrayGeometry(bitCount: number) {
     return {
         size: layoutSize(bitWordCount(bitCount) * 8),
@@ -38,6 +42,7 @@ export function bitArrayGeometry(bitCount: number) {
 }
 
 // core: struct Element { KeyT key; ValueT value; } _elements[L]; uint64 _occupationFlags[(L * 2 + 63) / 64]; uint64 _population; uint64 _markRemovalCounter;
+// e.g. HashMap<uint64, uint64, 4> -> elementStride 16, value at 8, flags at 64, population at 72, markRemovalCounter at 80, size 88
 export function hashMapGeometry(key: Layout, value: Layout, capacity: number) {
     const elementValueOffset = roundUp(key.size, value.align);
     const align = Math.max(key.align, value.align, 8);
@@ -59,6 +64,7 @@ export function hashMapGeometry(key: Layout, value: Layout, capacity: number) {
 }
 
 // core: KeyT _keys[L]; uint64 _occupationFlags[(L * 2 + 63) / 64]; uint64 _population; uint64 _markRemovalCounter;
+// e.g. HashSet<uint64, 4> -> keyStride 8, flags at 32, population at 40, markRemovalCounter at 48, size 56
 export function hashSetGeometry(key: Layout, capacity: number) {
     const align = Math.max(key.align, 8);
     const keyStride = roundUp(key.size, key.align);
@@ -157,11 +163,13 @@ export function linkedListGeometry(value: Layout, capacity: number) {
 
 // Container regions: geometry above says where a container's bytes are, these tables what each run is called in qpi_containers.h — pinned by a drift test.
 
+// payload is what an entry holds (.key, .value, .priority), count is _population, internal the rest; the diff hides internal rows by default
 export type MemberRole = "payload" | "count" | "internal";
 // Container bookkeeping is not in the IDL, so a member names either one of the container's own IDL types or the fixed word it is stored as.
 export type WordType = "sint64" | "uint64" | "id";
 export type MemberType = WordType | "key" | "value";
 
+// one member inside a slot, e.g. a HashMap value: { off: 8, size: 8, path: ".value", short: ".value", source: "value", type: "value", role: "payload" }
 export interface ContainerMember {
     off: number;
     size: number;
@@ -214,6 +222,7 @@ export type ContainerRegion = SlotsRegion | FlagsRegion | WordRegion;
 // A displayed name is core's own with a dot in front, so the member a path pins is the path without that dot; only slot arrays pass their own name.
 const sourceOf = (path: string) => path.replace(/^\./, "");
 
+// the region constructors: end and source are derived, callers spell only offsets and names
 const member = (off: number, size: number, path: string, type: MemberType, role: MemberRole, short = path): ContainerMember => ({
     off,
     size,
@@ -267,6 +276,7 @@ export type HashMapRegions = {
     markRemovalCounter: WordRegion;
 };
 
+// e.g. HashMap<uint64, uint64, 4> -> elements 0..64 (stride 16), occupationFlags 64..72, population 72..80, markRemovalCounter 80..88
 export function hashMapRegions(key: Layout, value: Layout, capacity: number): HashMapRegions {
     const geometry = hashMapGeometry(key, value, capacity);
     return {
@@ -290,6 +300,7 @@ export type HashSetRegions = {
     markRemovalCounter: WordRegion;
 };
 
+// e.g. HashSet<uint64, 4> -> keys 0..32 (stride 8), occupationFlags 32..40, population 40..48, markRemovalCounter 48..56
 export function hashSetRegions(key: Layout, capacity: number): HashSetRegions {
     const geometry = hashSetGeometry(key, capacity);
     return {
@@ -314,6 +325,7 @@ export type CollectionRegions = {
     markRemovalCounter: WordRegion;
 };
 
+// e.g. Collection<uint64, 4> -> povs 0..256 (stride 64), povOccupationFlags 256..264, elements 264..456 (stride 48), population 456, markRemovalCounter 464
 export function collectionRegions(value: Layout, capacity: number): CollectionRegions {
     const geometry = collectionGeometry(value, capacity);
     return {
@@ -354,6 +366,7 @@ export type LinkedListRegions = {
     population: WordRegion;
 };
 
+// e.g. LinkedList<uint64, 4> -> nodes 0..96 (stride 24), occupiedFlags 96..104, head 104, tail 112, freeHead 120, nextUnused 128, population 136
 export function linkedListRegions(value: Layout, capacity: number): LinkedListRegions {
     const geometry = linkedListGeometry(value, capacity);
     return {
@@ -382,6 +395,7 @@ export const collectionElemFmt = (valFmt: string) => `${valFmt}, ${COLLECTION_EL
 export const linkedListElemFmt = (valFmt: string) => `${valFmt}, sint64, sint64`;
 
 // Full struct formats consumed by IDL formatting and ABI layout parsing.
+// e.g. hashMapFmt("id", "uint64", 2) -> "{ [2;{ id, uint64 }], [1;uint64], uint64, uint64 }"
 export const hashMapFmt = (keyFmt: string, valFmt: string, capacity: number) =>
     `{ [${capacity};{ ${hashMapElemFmt(keyFmt, valFmt)} }], [${hashMapFlagWordCount(capacity)};uint64], uint64, uint64 }`;
 export const hashSetFmt = (keyFmt: string, capacity: number) => `{ [${capacity};${keyFmt}], [${hashSetFlagWordCount(capacity)};uint64], uint64, uint64 }`;

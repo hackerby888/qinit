@@ -1,5 +1,6 @@
 import { QpiContainerConsistencyError, QpiIncompleteReadError } from "./errors";
 
+// one container's bytes with a per-read cap, e.g. { byteLength: 88, maxReadLength: 4096, read(64, 8) } for a HashMap<uint64, uint64, 4>; over rpc the cap is one state read (4 MiB)
 export interface QpiByteSource {
     readonly byteLength: number;
     readonly maxReadLength: number;
@@ -22,6 +23,7 @@ function assertSourceRange(source: Pick<QpiByteSource, "byteLength">, offset: nu
     }
 }
 
+// exactly `length` bytes stitched from reads of at most maxReadLength; a short read throws rather than returning less
 export async function readQpiBytes(source: QpiByteSource, offset: number, length: number): Promise<Uint8Array> {
     assertSourceRange(source, offset, length);
     if (!Number.isSafeInteger(source.maxReadLength) || source.maxReadLength <= 0) {
@@ -49,6 +51,7 @@ export async function readUint64(source: QpiByteSource, offset: number): Promise
     return uint64At(await readQpiBytes(source, offset, 8), 0);
 }
 
+// little-endian words out of a buffer, e.g. ff ff ff ff ff ff ff ff as sint64 -> -1n, core's NULL_INDEX
 export function uint64At(bytes: Uint8Array, offset: number): bigint {
     assertIntegerRange(bytes, offset, "uint64");
     return new DataView(bytes.buffer, bytes.byteOffset + offset, 8).getBigUint64(0, true);
@@ -76,10 +79,12 @@ function byteArraySource(bytes: Uint8Array): QpiByteSource {
     };
 }
 
+// copies the bytes, so later writes to the caller's buffer cannot change what the view reads
 export function qpiSnapshotSource(bytes: Uint8Array): QpiByteSource {
     return byteArraySource(bytes.slice());
 }
 
+// no copy: reads see later writes to the buffer
 export function qpiBorrowedSource(bytes: Uint8Array): QpiByteSource {
     return byteArraySource(bytes);
 }

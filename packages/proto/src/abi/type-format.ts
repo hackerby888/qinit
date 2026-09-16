@@ -14,6 +14,7 @@ export const SCALAR_SIZE: Record<string, number> = {
     sint64: 8,
 };
 
+// the parsed type text, e.g. "[4;uint64]" -> { kind: "array", count: 4, elem: { kind: "scalar", type: "uint64", size: 8, signed: false, big: true } }
 export type TypeNode =
     | { kind: "scalar"; type: string; size: number; signed: boolean; big: boolean }
     | { kind: "uint128" }
@@ -23,6 +24,7 @@ export type TypeNode =
     | { kind: "array"; count: number; elem: TypeNode }
     | { kind: "struct"; fields: TypeNode[] };
 
+// e.g. uint16 -> 2, id and uint128 -> 8, a struct -> its widest field, {} -> 1
 export function alignOf(n: TypeNode): number {
     switch (n.kind) {
         case "scalar":
@@ -41,6 +43,7 @@ export function alignOf(n: TypeNode): number {
     }
 }
 
+// e.g. "[4;uint64]" -> 32, "{ uint8, uint64 }" -> 16 with padding, "{}" -> 1
 export function sizeOf(n: TypeNode): number {
     switch (n.kind) {
         case "scalar":
@@ -97,6 +100,7 @@ export function layoutOf(type: string | AbiType): { size: number; align: number 
     return { size: sizeOf(n), align: alignOf(n) };
 }
 
+// AbiType -> TypeNode; struct and array recurse, the rest round-trip through their format text, so BitArray<128> becomes [2;uint64]
 export function nodeOf(type: AbiType): TypeNode {
     if (type.kind === AbiTypeKind.STRUCT) {
         return {
@@ -114,7 +118,7 @@ export function nodeOf(type: AbiType): TypeNode {
     return parseTypeFormat(formatAbiType(type));
 }
 
-// type-grammar parser (output layout / decode schema)
+// type text -> [node, end index], e.g. parseType("[4;uint64]", 0) -> [array node, 10]; a missing ',' between fields throws
 function parseType(s: string, i: number): [TypeNode, number] {
     while (i < s.length && /\s/.test(s[i])) i++;
     if (s[i] === "{") {
@@ -207,6 +211,7 @@ export function parseTypeFormat(typeFormat: string): TypeNode {
     return { kind: "struct", fields: parts.map(one) };
 }
 
+// two fields sharing bytes make a union, e.g. { uint64 wide @0, uint32 narrow @0 } -> true
 export function hasOverlappingFields(type: AbiStruct): boolean {
     for (let index = 0; index < type.fields.length; index++) {
         const field = type.fields[index];

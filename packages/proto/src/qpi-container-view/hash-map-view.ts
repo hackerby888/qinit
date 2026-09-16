@@ -4,12 +4,14 @@ import { hashMapGeometry } from "../qpi-layout";
 import { QpiContainerConsistencyError, QpiIncompleteReadError } from "./errors";
 import { occupiedRanges, occupiedSlotIndices, readQpiBytes, readUint64, type QpiByteSource } from "./source";
 
+// e.g. { elementIndex: 3, key: 5n, value: 9n }; elementIndex is the physical slot, not an insertion order
 export interface QpiHashMapEntry {
     elementIndex: number;
     key: unknown;
     value: unknown;
 }
 
+// reads _population, then _occupationFlags, then only the occupied _elements
 export class QpiHashMapView {
     readonly kind = AbiTypeKind.HASH_MAP;
     readonly capacity: number;
@@ -29,6 +31,7 @@ export class QpiHashMapView {
         assertSource(source, type.size);
     }
 
+    // e.g. occupied slots [0, 3] of HashMap<uint64, uint64, 4> -> two 16-byte reads at 0 and 48 -> [{ elementIndex: 0, key: 5n, value: 9n }, { elementIndex: 3, ... }]
     async entries(): Promise<QpiHashMapEntry[]> {
         const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
         // Flags read before the empty shortcut: population 0 over occupied slots is an inconsistency, not empty.
