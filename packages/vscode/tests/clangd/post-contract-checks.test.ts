@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { existsSync, globSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
 import { editorPrefixSource } from "../../src/clangd-config";
 import { generateWasmWrapperSource } from "@qinit/build/compile/clang";
@@ -118,7 +118,10 @@ const CONTAINERS_DEFINED_PAST_THE_CONTRACT = ["Collection", "HashMap", "HashSet"
 
 test.if(hasCore)("only these containers keep their method bodies past the editor's prefix", () => {
     const containerNames = ["Array", "BitArray", "Collection", "HashMap", "HashSet", "LinkedList", "SlowAnySizeArray"];
-    const implSources = globSync(join(CORE_SOURCE_ROOT, "qpi/impl/*.h")).map((path) => readFileSync(path, "utf8"));
+    const implDirectory = join(CORE_SOURCE_ROOT, "qpi", "impl");
+    const implSources = readdirSync(implDirectory)
+        .filter((entry) => entry.endsWith(".h"))
+        .map((entry) => readFileSync(join(implDirectory, entry), "utf8"));
 
     const definedPastTheContract = containerNames.filter((name) => implSources.some((source) => new RegExp(`\\b${name}\\s*<[^>]*>::`).test(source))).sort();
 

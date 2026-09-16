@@ -706,7 +706,7 @@ Measured on the zoo workspace, the same project from both sides:
 | `contracts/Desk.h` | `Read` · index **1** · input (empty) · output uint64 |               0 |            1 |          2 |
 | `Desk.test.cpp`    | **(no hover)**                                       |               0 |        **0** |          4 |
 
-## E24 — two providers are registered on the gtest surface and can never answer there (not fixed)
+## E24 — two providers are registered on the gtest surface and can never answer there (hover fixed)
 
 `extension.ts:481-486` registers both the IDL hover and the code actions for
 `**/*.{h,hpp,hxx,cpp,cc,cxx}` — `.cpp` included, so a gtest is in scope. Both read their data from
@@ -2682,3 +2682,44 @@ have no range to lose. Nested state structs are followed by name, to a depth of 
 Verified on the whole population, not a sample: all **32** of core's contracts analyse with **0** warnings,
 the two that migrate included, and the corpus holds no migration to test. The rule fires only on the rows
 E17 recorded, which is what a tripwire for a future migration should do.
+
+## Round 34 — E24's hover, closed
+
+Round 19 measured the gtest surface and round 19 also prescribed the fix: resolve the hover against the same
+context the completion path already uses, rather than widening `applies()`. Fifteen rounds later the premise
+still held exactly, re-measured in the real editor before anything was written:
+
+```
+contract  'Read'       -> **QPI function** `Read` · index **1** | input: (empty) | output: uint64
+gtest     'Read_input' -> (no hover)
+```
+
+Completion in that same gtest answers with four items and walks `gi.detail.` into the callee's struct, so
+the context is resolving; only the hover was reading from somewhere else.
+
+**Two halves, and the second is easy to miss.** Giving the hover the IDL is not enough: a gtest names an
+entry through its payload — `Desk::Read_input` — where a contract names it directly, and the IDL lists the
+entry as `Read`. Without stripping the suffix the hover would have had the data and still said nothing.
+
+The suffix is stripped **only** on the tested-contract path. A contract's own hovers resolve exactly as
+before, so the surface that already worked is untouched:
+
+```
+contract  'Read'       -> **QPI function** `Read` · index **1** | input: (empty) | output: uint64
+gtest     'Read_input' -> **QPI function** `Read` · index **1** | input: (empty) | output: uint64
+```
+
+The contract under test is stored beside the completion context, at the point that already resolves it, and
+its IDL is analysed once per revision of that contract — a gtest hovers the same contract repeatedly.
+`applies()` is unchanged, so the QPI policy analyzer still never runs over a `.cpp`.
+
+`test-surface.itest.js` now asserts what it used to only print: the gtest hover is non-empty, names the
+entry, and carries the index.
+
+**Code actions stay as they were.** QPI's rules are contract rules, so a gtest offering none is defensible —
+that half of E24 was always the lesser one.
+
+**A regression of my own, caught here.** Round 31's guard imported `globSync` from `node:fs`, which this
+project's TypeScript lib does not declare. `bun test` passed, so I had not noticed; `tsc -p packages/vscode`
+fails on it, and CI runs that. Replaced with `readdirSync`. The lesson is narrow and practical: a green
+`bun test` is not a green typecheck, and for this package both have to be run.

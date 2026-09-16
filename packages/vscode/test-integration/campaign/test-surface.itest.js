@@ -22,7 +22,7 @@ suite("campaign — the gtest surface", function () {
         await clangdRunning({ timeout: 90000 });
     });
 
-    test("the IDL hover answers in the contract and is asked for in the gtest", async () => {
+    test("the IDL hover answers in the contract and in the gtest that exercises it", async () => {
         const contract = await open(CONTRACT);
         const inContract = await idlHoverAt(contract, "REGISTER_USER_FUNCTION(Read, 1)", "REGISTER_USER_FUNCTION(".length);
         console.log(`    contract  'Read' -> ${inContract.replace(/\n/g, " | ") || "(no hover)"}`);
@@ -33,6 +33,12 @@ suite("campaign — the gtest surface", function () {
         console.log(`    gtest     'Read_input' -> ${inGtest.replace(/\n/g, " | ") || "(no hover)"}`);
 
         assert.notStrictEqual(inContract, "", "the contract document must hover its own registered entry");
+
+        // A gtest names an entry through its payload, and it is where a developer reads the index and the
+        // shapes to build a call from — so it answers with the same entry the contract does.
+        assert.notStrictEqual(inGtest, "", "the gtest must hover the entry of the contract it exercises");
+        assert.ok(inGtest.includes("`Read`"), `the gtest hover must name the entry, got: ${inGtest}`);
+        assert.ok(inGtest.includes("index **1**"), `the gtest hover must carry the index, got: ${inGtest}`);
     });
 
     test("what each surface reports: diagnostics, actions, completion", async () => {
