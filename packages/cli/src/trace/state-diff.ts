@@ -566,11 +566,11 @@ async function decodeChanges(changes: Change[], windows: ChangedWindow[], readKe
 
 // Stage three: rows. A slot's changes all describe one entry, so they read as one line labelled by the key the contract wrote; the slot index stays on the full path.
 
-// What the other rows of a slot say about it: the flag that opened or closed it, and which of its parts have a row that found its key.
+// What the other rows of a slot say about it: the flag that opened or closed it, which parts have a row with its key, and whether another row already prints the key.
 // `to` is the raw flag: 1 = occupied (0b01), 2 = marked for removal (0b10), the encoding HashMap and HashSet share in qpi_containers.h.
 // only a container with a key member reaches here, so a keyed container with other flags would need its own reading
-type SlotFacts = { flag?: { to: number }; hasKeyRow: boolean; hasValueRow: boolean; namedByValue: boolean };
-const NO_FACTS: SlotFacts = { hasKeyRow: false, hasValueRow: false, namedByValue: false };
+type SlotFacts = { flag?: { to: number }; hasKeyRow: boolean; hasValueRow: boolean; keyPrintedElsewhere: boolean };
+const NO_FACTS: SlotFacts = { hasKeyRow: false, hasValueRow: false, keyPrintedElsewhere: false };
 
 // The map key tying every change of one entry together: container path + slot index, at every level; a prefix of it is the enclosing entry's.
 // e.g. [m slot 1, inner slot 3] -> "m#1/m._elements[1].value#3"; "m#1" is the outer entry's bucket
@@ -664,11 +664,11 @@ function slotFactsOf(decoded: DecodedChange[]): Map<string, SlotFacts> {
             continue;
         }
         if (slot.part === "value") {
-            factsAt(slot.levels).namedByValue = true;
+            factsAt(slot.levels).keyPrintedElsewhere = true;
         }
         // an inner entry's row names every entry above it, so an outer key row is as redundant as beside a value of its own
         for (let depth = 1; depth < slot.levels.length; depth++) {
-            factsAt(slot.levels.slice(0, depth)).namedByValue = true;
+            factsAt(slot.levels.slice(0, depth)).keyPrintedElsewhere = true;
         }
     }
 
@@ -691,7 +691,7 @@ function slotRow(physical: StateDiffLine, slot: DecodedSlotRef, before: string, 
     }
 
     // The entry line already names the key, so a key row is noise — unless nothing else carries the entry, as with a value that was and stays zero.
-    if (facts.namedByValue) {
+    if (facts.keyPrintedElsewhere) {
         return { ...physical, internal: true };
     }
     if (facts.hasValueRow || !facts.flag) {
