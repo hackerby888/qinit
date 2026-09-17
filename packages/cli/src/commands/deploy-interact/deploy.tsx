@@ -11,6 +11,7 @@ import { Header, StepRow, type StepState, Panel, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
+import { parseInitialStates } from "../../contracts/state-stage";
 
 export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
     const dynCallees = parseCallees(commandArgs.getAll("callee"));
@@ -53,6 +54,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                         skipVerify: commandArgs.has("skip-verify"),
                         buildRules: !commandArgs.has("no-build-rules"),
                         allowStateCarryover: commandArgs.has("allow-state-carryover"),
+                        initialStates: parseInitialStates(commandArgs.getAll("state"), nm),
                         compiler: resolveCompilerBackend(commandArgs.get("compiler")),
                         cheats: commandArgs.has("production") ? CheatMode.OFF : CheatMode.ON,
                     },

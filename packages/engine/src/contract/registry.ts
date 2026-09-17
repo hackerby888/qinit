@@ -54,10 +54,28 @@ export class ContractRegistry {
     }
 
     // Metered deployments are pre-funded; INITIALIZE is exempt.
-    deploy(slot: number, wasm: Uint8Array, host: HostServices, extMem?: WebAssembly.Memory, extraImports?: WebAssembly.Imports, initialize = true): Contract {
+    deploy(
+        slot: number,
+        wasm: Uint8Array,
+        host: HostServices,
+        extMem?: WebAssembly.Memory,
+        extraImports?: WebAssembly.Imports,
+        initialize = true,
+        initialState?: Uint8Array,
+    ): Contract {
         const prev = this.contracts.get(slot);
-        const prevState = prev ? prev.state() : null; // snapshot old state before the new instance replaces it
+        // snapshot old state before the new instance replaces it; a seeded state stands in for it
+        const prevState = initialState ?? (prev ? prev.state() : null);
         const c = Contract.load(wasm, slot, host, extMem, extraImports);
+
+        // a seeded state must fit the new layout or its MIGRATE input; checked before the resident contract is replaced
+        if (initialState) {
+            const migrates = c.hasMigrate && c.migrateOldStateSize === initialState.length;
+            if (!migrates && initialState.length !== c.stateSize) {
+                const accepted = c.hasMigrate ? `${c.stateSize} B (or ${c.migrateOldStateSize} B for MIGRATE)` : `${c.stateSize} B`;
+                throw new Error(`initial state is ${initialState.length} B, slot ${slot} expects ${accepted}`);
+            }
+        }
         c.trace = this.recorder;
         c.metering = this.fees.metered;
         this.contracts.set(slot, c);

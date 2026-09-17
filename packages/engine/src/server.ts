@@ -379,6 +379,14 @@ export class EngineServer {
             });
         }
 
+        if (path === "/live/v1/dev/state-stage" && request.method === "POST") {
+            const slot = Number(query.get("slot"));
+            const chunk = new Uint8Array(await request.arrayBuffer());
+            const staged = engine.stageState(slot, Number(query.get("off") ?? 0), Number(query.get("total") ?? 0), chunk);
+
+            return staged.ok ? json({ ...staged, slot }) : json(staged, 400);
+        }
+
         if (path === "/live/v1/dev/undeploy" && request.method === "POST") {
             return json({
                 ok: engine.undeploy(Number(query.get("slot"))),

@@ -342,3 +342,98 @@ test("deployContract: a DEPLOY dropped for a missed tick is resent", async () =>
     expect(result.armed).toBe(true);
     expect(result.ok).toBe(true);
 }, 20000);
+
+// The protocol path has no request to carry a state, so it is staged first and the node's DEPLOY handler takes it; a failed deploy must not leave it behind.
+function protocolRpc(node: VirtualNode, stageCalls: { offset: number; total: number }[]): any {
+    let tick = 0;
+    return {
+        dynUpload: () => node.dynUpload(),
+        tickInfo: async () => ({ tick: (tick += 10), epoch: 1 }),
+        hurryToTick: async () => 0,
+        fundedSeed: async () => undefined,
+        dynRegistry: () => node.dynRegistry(),
+        directDeploy: async () => null,
+        putContractSource: (slot: number, source: string) => node.putContractSource(slot, source),
+        broadcastTx: (bytes: Uint8Array) => node.broadcastTx(bytes),
+        stageState: async (slot: number, offset: number, total: number, chunk: Uint8Array) => {
+            stageCalls.push({ offset, total });
+            return node.stageState(slot, offset, total, chunk);
+        },
+    };
+}
+
+test("deployContract: a state file seeds a protocol deploy", async () => {
+    process.env.QINIT_NO_UPDATE = "1";
+    const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
+    dirs.push(core);
+    const contractPath = join(core, "Seeded.h");
+    const initialStatePath = join(core, "seed.bin");
+    await Bun.write(contractPath, "struct Seeded {};");
+    await Bun.write(initialStatePath, new Uint8Array([41, 0, 0, 0, 0, 0, 0, 0]));
+    const slot = wasmFixtureManifest.Counter.slot;
+    const node = await VirtualNode.create({ mempool: false, fees: "off", slotBase: slot });
+    const stageCalls: { offset: number; total: number }[] = [];
+
+    const result = await deployContract(
+        {
+            contractPath,
+            name: "Seeded",
+            core,
+            rpcBaseUrl: "http://unused",
+            seed: "a".repeat(55),
+            slotOverride: slot,
+            artifact: { wasm: await wasm("Counter") },
+            backend: "core" as const,
+            initialStatePath,
+            rpc: protocolRpc(node, stageCalls),
+        },
+        () => {},
+    );
+
+    expect(result.ok).toBe(true);
+    expect(stageCalls).toEqual([{ offset: 0, total: 8 }]);
+    expect([...node.sim.contracts.get(slot)!.state()]).toEqual([41, 0, 0, 0, 0, 0, 0, 0]);
+}, 20000);
+
+test("deployContract: a state file the node cannot take fails loudly and is not left staged", async () => {
+    process.env.QINIT_NO_UPDATE = "1";
+    const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
+    dirs.push(core);
+    const contractPath = join(core, "Unseeded.h");
+    const initialStatePath = join(core, "seed.bin");
+    await Bun.write(contractPath, "struct Unseeded {};");
+    await Bun.write(initialStatePath, new Uint8Array(8));
+    const slot = wasmFixtureManifest.Counter.slot;
+    const node = await VirtualNode.create({ mempool: false, fees: "off", slotBase: slot });
+    const options = {
+        contractPath,
+        name: "Unseeded",
+        core,
+        rpcBaseUrl: "http://unused",
+        seed: "a".repeat(55),
+        slotOverride: slot,
+        artifact: { wasm: await wasm("Counter") },
+        backend: "core" as const,
+        initialStatePath,
+    };
+
+    // an older node: no staging route
+    const oldNode = { ...protocolRpc(node, []), stageState: async () => null };
+    await expect(deployContract({ ...options, rpc: oldNode }, () => {})).rejects.toThrow("node does not support --state");
+    expect(node.sim.contracts.has(slot)).toBe(false);
+
+    // the state is staged, then the deploy dies: the entry is cleared with a zero total
+    const stageCalls: { offset: number; total: number }[] = [];
+    const dyingNode = {
+        ...protocolRpc(node, stageCalls),
+        broadcastTx: async () => {
+            throw new Error("node went away");
+        },
+    };
+    const died = await deployContract({ ...options, rpc: dyingNode }, () => {}).catch((error: Error) => ({ ok: false, error: error.message }));
+    expect(died.ok).toBe(false);
+    expect(stageCalls).toEqual([
+        { offset: 0, total: 8 },
+        { offset: 0, total: 0 },
+    ]);
+}, 20000);

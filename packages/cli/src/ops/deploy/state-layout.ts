@@ -68,3 +68,19 @@ export function stateCarryoverRejection(name: string, previous: ContractIdl, nex
         "Add a MIGRATE handler, restart the node for a clean slot, or pass --allow-state-carryover to keep the bytes as they are."
     );
 }
+
+// why a state file cannot seed `next`, or null when it fits: the node takes exactly the new StateData size, or the OldStateData size a MIGRATE handler reads.
+export function initialStateRejection(name: string, fileBytes: number, next: ContractIdl): string | null {
+    const stateBytes = next.state?.size;
+    if (stateBytes === undefined || fileBytes === stateBytes) {
+        return null;
+    }
+
+    const migrateBytes = next.migration?.oldState.size;
+    if (fileBytes === migrateBytes) {
+        return null;
+    }
+
+    const accepted = migrateBytes === undefined ? `${stateBytes} B` : `${stateBytes} B, or ${migrateBytes} B for its MIGRATE handler`;
+    return `state file is ${fileBytes} B but ${name}'s StateData is ${accepted}`;
+}

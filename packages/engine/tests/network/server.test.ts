@@ -331,3 +331,110 @@ test("/live/v1/dyn-registry reports each slot's fee reserve as decimal text", as
         handle.stop();
     }
 });
+
+// A little-endian u64 state image, the shape every Counter fixture's first field has.
+function counterState(value: bigint, sizeBytes = 8): Uint8Array {
+    const bytes = new Uint8Array(sizeBytes);
+    new DataView(bytes.buffer).setBigUint64(0, value, true);
+    return bytes;
+}
+
+test("a staged state seeds the next deploy of the slot and is gone afterwards", async () => {
+    const { base, stop, engine } = await serve();
+    const rpc = new LiteRpc(base);
+    const counter = await wasm("CounterDyn0");
+    const seed = counterState(41n);
+    try {
+        // two ordered chunks, as the CLI sends a large file
+        expect(await rpc.stageState(slotBase, 0, seed.length, seed.subarray(0, 3))).toMatchObject({ ok: true, received: 3, total: 8 });
+        expect(await rpc.stageState(slotBase, 3, seed.length, seed.subarray(3))).toMatchObject({ ok: true, received: 8, total: 8 });
+
+        await rpc.directDeploy(slotBase, counter, "Seeded");
+        expect(engine.sim.contracts.get(slotBase)!.state()).toEqual(seed);
+
+        engine.sim.procedure(slotBase, 1);
+        expect(engine.sim.contracts.get(slotBase)!.state()).toEqual(counterState(42n));
+
+        // the entry was consumed: a redeploy carries the live state over instead of reseeding 41
+        await rpc.directDeploy(slotBase, counter, "Seeded");
+        expect(engine.sim.contracts.get(slotBase)!.state()).toEqual(counterState(42n));
+    } finally {
+        stop();
+    }
+});
+
+test("a staged state of the wrong size fails the deploy and leaves the resident contract alone", async () => {
+    const { base, stop, engine } = await serve();
+    const rpc = new LiteRpc(base);
+    const counter = await wasm("CounterDyn0");
+    try {
+        await rpc.directDeploy(slotBase, counter, "Resident");
+        engine.sim.procedure(slotBase, 1);
+        const residentModule = engine.sim.contracts.get(slotBase);
+        const residentDigest = engine.sim.digest(slotBase);
+
+        await rpc.stageState(slotBase, 0, 5, new Uint8Array(5));
+        await expect(rpc.directDeploy(slotBase, counter, "Resident")).rejects.toThrow("initial state is 5 B");
+        expect(engine.sim.contracts.get(slotBase)).toBe(residentModule);
+        expect(engine.sim.digest(slotBase)).toBe(residentDigest);
+        expect(await (await fetch(`${base}/live/v1/dev/fault`)).json()).toBeNull();
+
+        // the failed deploy consumed the bad entry, so the next one is an ordinary carry-over
+        await rpc.directDeploy(slotBase, counter, "Resident");
+        expect(engine.sim.digest(slotBase)).toBe(residentDigest);
+    } finally {
+        stop();
+    }
+});
+
+test("a staged state of the OldStateData size runs MIGRATE on a fresh slot", async () => {
+    const { stop, engine } = await serve();
+    try {
+        expect(engine.stageState(28, 0, 8, counterState(7n))).toMatchObject({ ok: true, received: 8 });
+        engine.deploy(28, await wasm("CounterV2"), "Counter");
+
+        const migrated = new DataView(engine.sim.contracts.get(28)!.state().buffer);
+        expect(migrated.getBigUint64(0, true)).toBe(7n);
+    } finally {
+        stop();
+    }
+});
+
+test("state-stage rejects unordered chunks, overruns and oversize totals, and a zero total clears", async () => {
+    const { base, stop, engine } = await serve();
+    const rpc = new LiteRpc(base);
+    try {
+        await rpc.stageState(slotBase, 0, 8, new Uint8Array(4));
+        await expect(rpc.stageState(slotBase, 6, 8, new Uint8Array(2))).rejects.toThrow("out of order; expected 4");
+        await expect(rpc.stageState(slotBase, 4, 8, new Uint8Array(5))).rejects.toThrow("overruns the 8 B total");
+        await expect(rpc.stageState(slotBase, 0, 2 * 1024 * 1024 * 1024, new Uint8Array(1))).rejects.toThrow("is outside 0..");
+        await expect(rpc.stageState(slotBase + slotCount, 0, 8, new Uint8Array(8))).rejects.toThrow("is outside 1..");
+
+        // a half-staged entry never seeds a deploy
+        await rpc.directDeploy(slotBase, await wasm("CounterDyn0"), "Fresh");
+        const freshState = engine.sim.contracts.get(slotBase)!.state();
+
+        await rpc.stageState(slotBase + 1, 0, 8, counterState(9n));
+        expect(await rpc.stageState(slotBase + 1, 0, 0, new Uint8Array(0))).toMatchObject({ ok: true, received: 0, total: 0 });
+        await rpc.directDeploy(slotBase + 1, await wasm("CounterDyn1"), "Cleared");
+        expect(engine.sim.contracts.get(slotBase + 1)!.state()).toEqual(freshState);
+    } finally {
+        stop();
+    }
+});
+
+test("a seeded deploy skips INITIALIZE", async () => {
+    const { stop, engine } = await serve();
+    const probe = await wasm("DigestProbeDyn0");
+    try {
+        const initialized = engine.deploy(slotBase, probe, "Probe").state();
+        expect(initialized.some((byte) => byte !== 0)).toBe(true);
+        engine.undeploy(slotBase);
+
+        engine.stageState(slotBase, 0, initialized.length, new Uint8Array(initialized.length));
+        const seeded = engine.deploy(slotBase, probe, "Probe").state();
+        expect(seeded.every((byte) => byte === 0)).toBe(true);
+    } finally {
+        stop();
+    }
+});

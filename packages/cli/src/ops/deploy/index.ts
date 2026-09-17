@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { buildContractWithClang, type ContractBuildResult, type ContractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import { LiteRpc, k12Hex, type NodeBackendIdentity } from "@qinit/core";
@@ -9,12 +9,13 @@ import { buildContractWithTypeScript } from "../typescript-build";
 import { saveContractIdl } from "../../contracts/idl-file";
 import { resolveNodeCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
+import { clearStagedState, stageContractState } from "../../contracts/state-stage";
 import { classifyConfirm, type DeploymentEvent } from "./steps";
 import { buildUploadTx, uploadContract } from "./upload";
 import { resolveFundedSigner, unfundedSignerMessage } from "../signer";
 import { describeFault, readFault } from "../fault";
 import { assertChainFastEnough, deployToSimulator, resolveSigningSeed, runPreflightChecks, waitForTickReadiness } from "./phases";
-import { deployedStateIdl, stateCarryoverRejection } from "./state-layout";
+import { deployedStateIdl, initialStateRejection, stateCarryoverRejection } from "./state-layout";
 export { resolveNodeCallees } from "../../contracts/callees";
 export { STEPS, classifyConfirm, tickFailureMessage, updateDeploymentSteps } from "./steps";
 export type { DeploymentEvent, DeploymentStepEvent, DeploymentStepState, StepKey } from "./steps";
@@ -35,6 +36,8 @@ export interface DeployOpts {
     buildRules?: boolean;
     // Redeploy over a changed StateData layout without a MIGRATE handler, keeping the old bytes as they are.
     allowStateCarryover?: boolean;
+    // raw state bytes the contract starts from instead of zero state + INITIALIZE; same format as `qinit state --dump`.
+    initialStatePath?: string;
     compiler?: CompilerBackend;
     backend?: NodeBackendIdentity["backend"];
     artifact?: {
@@ -61,9 +64,29 @@ export interface DeployResult {
     error?: string;
 }
 
+// a staged state the deploy never consumed would seed the slot's next deploy, so every failure clears it.
 export async function deployContract(options: DeployOpts, emit: (event: DeploymentEvent) => void): Promise<DeployResult> {
-    const slotOverride = options.slotOverride === undefined ? undefined : parseContractSlot(options.slotOverride);
     const rpc = options.rpc ?? new LiteRpc(options.rpcBaseUrl);
+    const staging: StagingRecord = {};
+    let deployed = false;
+
+    try {
+        const result = await runDeployment({ ...options, rpc }, rpc, staging, emit);
+        deployed = result.ok;
+        return result;
+    } finally {
+        if (!deployed && staging.slot !== undefined) {
+            await clearStagedState(rpc, staging.slot);
+        }
+    }
+}
+
+interface StagingRecord {
+    slot?: number;
+}
+
+async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: StagingRecord, emit: (event: DeploymentEvent) => void): Promise<DeployResult> {
+    const slotOverride = options.slotOverride === undefined ? undefined : parseContractSlot(options.slotOverride);
     let currentTick = 0;
 
     const readTick = async () => {
@@ -214,13 +237,25 @@ export async function deployContract(options: DeployOpts, emit: (event: Deployme
     };
 
     // A reused slot keeps its state bytes; a changed StateData that no runnable MIGRATE rewrites would read them at the wrong offsets, so the redeploy is refused.
-    if (reused && build.idl && !options.allowStateCarryover) {
+    if (reused && build.idl && !options.allowStateCarryover && !options.initialStatePath) {
         const previous = await deployedStateIdl(rpc, slot, options.core, options.idlPath);
         const rejection = previous ? stateCarryoverRejection(options.name, previous, build.idl) : null;
         if (rejection) {
             emit({ step: "upload", state: "fail", detail: "state layout would be reinterpreted" });
             return { ok: false, slot, hash, error: rejection };
         }
+    }
+
+    if (options.initialStatePath) {
+        const rejection = build.idl ? initialStateRejection(options.name, statSync(options.initialStatePath).size, build.idl) : null;
+        if (rejection) {
+            emit({ step: "upload", state: "fail", detail: "state file does not fit" });
+            return { ok: false, slot, hash, error: rejection };
+        }
+
+        staging.slot = slot;
+        const stagedBytes = await stageContractState(rpc, slot, options.initialStatePath);
+        emit({ note: `state: ${options.initialStatePath} · ${stagedBytes} B staged` });
     }
 
     const backend = options.backend ?? (await rpc.whoami()).backend;

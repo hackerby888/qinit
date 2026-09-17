@@ -190,6 +190,22 @@ export class LiteRpc implements NodeTransport {
             `/live/v1/dev/state-read?slot=${slot}&off=${off}&len=${len}`,
         );
     }
+    /** Stage one ordered chunk of an initial state (POST /live/v1/dev/state-stage): the slot's next deploy takes it, total 0 clears. Null = no such route. */
+    async stageState(slot: number, offset: number, total: number, chunk: Uint8Array): Promise<{ ok: boolean; received: number; total: number } | null> {
+        const r = await fetchWithTimeout(
+            this.base + `/live/v1/dev/state-stage?slot=${slot}&off=${offset}&total=${total}`,
+            {
+                method: "POST",
+                headers: { "content-type": "application/octet-stream" },
+                body: chunk as RequestInit["body"],
+            },
+            30000,
+        );
+        if (r.status === 404) return null;
+        const j: any = await r.json().catch(() => ({}));
+        if (!j.ok) throw new Error(`state-stage failed: ${j.message ?? r.status}`);
+        return j;
+    }
     /** K12 digest of the full effective resident state, as computed by the node. */
     contractDigest(slot: number) {
         return this.get<{ slot: number; stateSize: number; digest: string }>(`/live/v1/dev/contract-digest?slot=${slot}`);

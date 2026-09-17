@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { resolveContracts, type CalleeInput, type ContractIdl } from "@qinit/build";
 import { LiteRpc, k12Hex, type DynamicContractRegistryEntry, type NodeBackendIdentity } from "@qinit/core";
 import type { CompilerBackend } from "../config";
+import { stageContractState } from "../contracts/state-stage";
 import { systemWasm } from "../contracts/system-wasm";
 import { compileContracts, type BuiltContract, type SlottedContract } from "./project-build";
 import { assignSlots } from "@qinit/build/contracts/project-slots";
@@ -72,6 +73,8 @@ export async function deployProjectContracts(
         skipVerify?: boolean;
         buildRules?: boolean;
         allowStateCarryover?: boolean;
+        // contract name -> raw state file it starts from; a named contract is redeployed even when its code is unchanged
+        initialStates?: Readonly<Record<string, string>>;
         compiler: CompilerBackend;
         // Deploying is not submitting to Core, so cheatcodes stay on unless the caller says otherwise.
         cheats?: CheatMode;
@@ -108,6 +111,12 @@ export async function deployProjectContracts(
         state: "ok",
         detail: `${plan.filter((contract) => contract.kind === "custom").length} custom · Main slot ${main.slot}`,
     });
+
+    const initialStates = options.initialStates ?? {};
+    const strayStateName = Object.keys(initialStates).find((name) => !plan.some((contract) => contract.name === name));
+    if (strayStateName !== undefined) {
+        throw new Error(`--state names '${strayStateName}', which is not part of this deployment (${plan.map((contract) => contract.name).join(", ")})`);
+    }
 
     emit({ step: "build", state: "active", detail: "compiling project graph…" });
     const projectBuild = await compileContracts({
@@ -183,6 +192,19 @@ export async function deployProjectContracts(
     });
 
     const deployments: ProjectDeploymentRecord[] = [];
+
+    // a core node embeds its system contracts, so there is no deploy to take the state: the node applies it at its next tick
+    if (identity.backend === "core") {
+        for (const contract of plan) {
+            const systemStatePath = contract.kind === "system" ? initialStates[contract.name] : undefined;
+            if (!systemStatePath) {
+                continue;
+            }
+
+            await stageContractState(rpc, contract.slot, systemStatePath);
+            dependencyEvent(emit, `system ${contract.name} @ ${contract.slot}: state staged, applies at the next tick`);
+        }
+    }
     for (const [systemIndex, system] of systems.entries()) {
         let occupant = deployedAt(registryContracts, system.contract.slot);
         if (normalizedHash(occupant?.codeHash) === normalizedHash(system.hash)) {
@@ -192,7 +214,8 @@ export async function deployProjectContracts(
                 occupant = undefined;
             }
         }
-        if (normalizedHash(occupant?.codeHash) === normalizedHash(system.hash)) {
+        const systemStatePath = initialStates[system.contract.name];
+        if (!systemStatePath && normalizedHash(occupant?.codeHash) === normalizedHash(system.hash)) {
             deployments.push({
                 name: system.contract.name,
                 slot: system.contract.slot,
@@ -206,6 +229,9 @@ export async function deployProjectContracts(
 
         let deployed;
         try {
+            if (systemStatePath) {
+                await stageContractState(rpc, system.contract.slot, systemStatePath);
+            }
             deployed = await rpc.directDeploy(system.contract.slot, system.wasm, system.contract.name, "system");
         } catch (error: any) {
             return {
@@ -251,15 +277,17 @@ export async function deployProjectContracts(
     let mainResult: DeployResult | undefined;
     for (const [builtIndex, built] of projectBuild.contracts.entries()) {
         const isMain = built.contract.stateType === main.stateType;
+        const initialStatePath = initialStates[built.contract.name];
+        const skippable = !isMain && !initialStatePath;
         let occupant = deployedAt(registryContracts, built.contract.slot);
-        if (!isMain && occupant?.name === built.contract.name && normalizedHash(occupant.codeHash) === normalizedHash(built.hash)) {
+        if (skippable && occupant?.name === built.contract.name && normalizedHash(occupant.codeHash) === normalizedHash(built.hash)) {
             try {
                 occupant = deployedAt((await rpc.dynRegistry()).contracts ?? [], built.contract.slot);
             } catch {
                 occupant = undefined;
             }
         }
-        if (!isMain && occupant?.name === built.contract.name && normalizedHash(occupant.codeHash) === normalizedHash(built.hash)) {
+        if (skippable && occupant?.name === built.contract.name && normalizedHash(occupant.codeHash) === normalizedHash(built.hash)) {
             try {
                 await saveBuiltMetadata(rpc, built, resolve(options.projectRoot, DEFAULT_IDL_PATH));
             } catch (error: any) {
@@ -282,7 +310,7 @@ export async function deployProjectContracts(
         }
         let result: DeployResult;
         try {
-            result = await deployBuiltContract(built, options, identity.backend, rpc, isMain ? emit : () => {});
+            result = await deployBuiltContract(built, options, identity.backend, rpc, isMain ? emit : () => {}, initialStatePath);
         } catch (error: any) {
             return {
                 ok: false,
@@ -343,6 +371,7 @@ async function deployBuiltContract(
     backend: NodeBackendIdentity["backend"],
     rpc: LiteRpc,
     emit: (event: DeploymentEvent) => void,
+    initialStatePath?: string,
 ): Promise<DeployResult> {
     return deployContract(
         {
@@ -357,6 +386,7 @@ async function deployBuiltContract(
             skipVerify: options.skipVerify,
             buildRules: options.buildRules,
             allowStateCarryover: options.allowStateCarryover,
+            initialStatePath,
             compiler: options.compiler,
             backend,
             artifact: {

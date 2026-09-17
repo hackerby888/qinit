@@ -244,6 +244,9 @@ const commandMeta = {
             booleanOption("skip-verify", "skip compatibility checks (development only)"),
             booleanOption("no-build-rules", "skip the Qinit build rules for user contracts (development only)"),
             booleanOption("allow-state-carryover", "redeploy over a changed StateData layout without a MIGRATE handler, keeping the old state bytes"),
+            stringOption("state", "[<name>=]<path>", "start a contract from a raw state file instead of INITIALIZE", {
+                multiple: true,
+            }),
         ],
         examples: ["qinit deploy ./mytoken.h --contract-name Mytoken"],
     },
@@ -403,7 +406,13 @@ const commandMeta = {
         json: true,
         summary: "manage system contracts",
         usage: "[ls | add <name…> | rm <name…>]",
-        options: [stringOption("rpc", "<url>", "RPC URL"), stringOption("compiler", "<clang|typescript>", "simulator system-contract compiler")],
+        options: [
+            stringOption("rpc", "<url>", "RPC URL"),
+            stringOption("compiler", "<clang|typescript>", "simulator system-contract compiler"),
+            stringOption("state", "<name>=<path>", "start a system contract from a raw state file (with add)", {
+                multiple: true,
+            }),
+        ],
         examples: ["qinit system add QX QEARN", "qinit system ls"],
     },
     theme: {

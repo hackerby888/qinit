@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { DEFAULT_RPC_BASE, LiteRpc, k12Hex } from "@qinit/core";
 import { systemContractClosure } from "@qinit/build";
 import { loadConfig, resolveCompilerBackend, resolveCoreDir } from "../../config";
+import { parseInitialStates, stageContractState } from "../../contracts/state-stage";
 import { systemCatalog, systemWasm } from "../../contracts/system-wasm";
 import { Header, Spinner, Status } from "../../ui";
 import { nodeJsonResult } from "../node/node";
@@ -59,6 +60,8 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                     }
                     const identity = await rpc.whoami();
                     const selected = new Set(cfg.system ?? []);
+                    const initialStates = Object.entries(parseInitialStates(commandArgs.getAll("state")));
+                    const statePathOf = (contractName: string) => initialStates.find(([name]) => name.toLowerCase() === contractName.toLowerCase())?.[1];
                     const requested = o.names.flatMap((name) => {
                         const contract = catalog.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
                         if (!contract) {
@@ -67,6 +70,20 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                         }
                         return [contract];
                     });
+
+                    if (initialStates.length) {
+                        if (o.sub !== "add") {
+                            throw new Error("--state only applies to `system add`");
+                        }
+
+                        const closureNames = requested
+                            .flatMap((contract) => systemContractClosure(core, contract.name))
+                            .map((dependency) => dependency.name.toLowerCase());
+                        const strayStateName = initialStates.find(([name]) => !closureNames.includes(name.toLowerCase()))?.[0];
+                        if (strayStateName !== undefined) {
+                            throw new Error(`--state names '${strayStateName}', which is not being added`);
+                        }
+                    }
 
                     if (o.sub === "add" && identity.backend === "simulator") {
                         const dependencies = new Map(
@@ -97,17 +114,35 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
 
                         for (const item of built) {
                             const occupant = live.get(item.dependency.index);
-                            if (occupant?.codeHash.toLowerCase() === item.hash.toLowerCase()) {
+                            const statePath = statePathOf(item.dependency.name);
+                            if (!statePath && occupant?.codeHash.toLowerCase() === item.hash.toLowerCase()) {
                                 add(`${item.dependency.name} @ ${item.dependency.index} unchanged`, true);
                                 continue;
                             }
                             setBusy(`deploying ${item.dependency.name}`);
+                            if (statePath) {
+                                await stageContractState(rpc, item.dependency.index, statePath);
+                            }
                             const deployed = await rpc.directDeploy(item.wasm.index, item.wasm.wasm, item.wasm.name, "system");
                             if (!deployed) {
                                 throw new Error("simulator does not expose system deployment");
                             }
                             await rpc.putContractSource(item.wasm.index, item.dependency.source);
-                            add(`${item.dependency.name} @ ${item.dependency.index} deployed`, true);
+                            add(`${item.dependency.name} @ ${item.dependency.index} deployed${statePath ? " · state seeded" : ""}`, true);
+                        }
+                    }
+
+                    // a core node embeds its system contracts, so a state has no deploy to ride on: the node applies it at its next tick
+                    if (o.sub === "add" && identity.backend === "core") {
+                        for (const contract of requested.flatMap((requestedContract) => systemContractClosure(core, requestedContract.name))) {
+                            const statePath = statePathOf(contract.name);
+                            if (!statePath) {
+                                continue;
+                            }
+
+                            setBusy(`staging ${contract.name} state`);
+                            await stageContractState(rpc, contract.index, statePath);
+                            add(`${contract.name} @ ${contract.index}: state staged, applies at the next tick`, true);
                         }
                     }
 

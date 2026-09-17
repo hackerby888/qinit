@@ -941,7 +941,41 @@ chunked protocol encoded by [`packages/proto/src/deploy.ts`](../packages/proto/s
 The protocol path does not equate a successful HTTP broadcast with inclusion.
 It verifies upload ownership, assembly, registry presence, and the code hash.
 
-### 8.3 Metadata after success
+### 8.3 Starting from a state file
+
+`qinit deploy x.h --state <path>` starts the main contract from raw state bytes
+instead of zero state plus `INITIALIZE`; `--state Name=<path>` (repeatable) does
+the same for any contract of the deployment, a system dependency included, and
+`qinit system add QX --state QX=<path>` for a system contract alone. The file
+has no header: a `qinit state --dump` image and a core node's
+`contract????.???` file are both accepted as they are.
+
+| File size                       | Result                                          |
+| ------------------------------- | ----------------------------------------------- |
+| the new `StateData` size        | bytes become the state, `INITIALIZE` is skipped |
+| the MIGRATE `OldStateData` size | `MIGRATE` runs on the file                      |
+| anything else                   | rejected, the resident contract is untouched    |
+
+The mechanism is the same on both runtimes, so there is no state-specific code
+in either deployment branch:
+
+```text
+parseInitialStates()                     contracts/state-stage.ts
+  -> size check against the fresh IDL    ops/deploy/state-layout.ts
+  -> stageContractState()                POST /live/v1/dev/state-stage, 512 KiB chunks
+  -> the ordinary deploy (direct route or protocol)
+       node: the deploy of that slot takes the staged bytes
+  -> any failure after staging clears the entry (total=0)
+```
+
+Staged bytes are inert until a deploy of the slot takes them, and that deploy
+always consumes the entry, used or not. A core node embeds its system
+contracts, so a state staged for one of those slots has no deploy to ride on
+and is applied by the node at its next tick. A contract named by `--state` is
+never skipped as unchanged, and the state-carryover guard does not apply to it:
+the old bytes are replaced, not reinterpreted.
+
+### 8.4 Metadata after success
 
 Source upload and local IDL persistence are best-effort metadata operations. A
 failure there must not change a deployment that the node already accepted.
@@ -1660,7 +1694,8 @@ an incomplete system graph. The process intentionally waits forever and is
 later reaped by `killNode()`.
 
 Simulator deployment state is memory-only. `--keep` preserves scratch files; it
-does not make simulator contract state survive a restart.
+does not make simulator contract state survive a restart. To carry state across
+one, dump it with `qinit state --dump` and redeploy with `--state` (§8.3).
 
 ### 12.4 `node status`, `stop`, and `get`
 
@@ -1825,6 +1860,7 @@ Chain and contract routes:
 | `txStatus()`              | `GET /live/v1/tx-status/<tick>/<id>`       | procedure settlement                                    |
 | `balance()`               | `GET /live/v1/balances/<id>`               | seed selector, explorer identity view                   |
 | `directDeploy()`          | `POST /live/v1/dev/deploy`                 | simulator deployment                                    |
+| `stageState()`            | `POST /live/v1/dev/state-stage?slot=N`     | `--state`: initial state for the slot's next deploy     |
 | `undeploy()`              | `POST /live/v1/dev/undeploy?slot=N`        | simulator system removal                                |
 | `putContractSource()`     | `POST /live/v1/dev/contract-source?slot=N` | post-deployment source metadata                         |
 | `fundedSeed()`            | `GET /live/v1/dev/funded-seed`             | development signing fallback                            |
@@ -1909,6 +1945,7 @@ The smallest useful validation depends on the boundary changed.
 | Core integration                    | `contracts/core-integration.test.ts`, `commands/args.test.ts`, `commands/meta.test.ts`                   |
 | Slot planning                       | `contracts/project-slots.test.ts`, `proto/tests/protocol/call.test.ts`                                   |
 | Deployment state machine            | `contracts/deploy-ops.test.ts`, `contracts/project-deploy.test.ts`, `integration/simulator.test.ts`      |
+| `--state` staging                   | `contracts/state-stage.test.ts`, `contracts/deploy-ops.test.ts`, engine `network/server.test.ts`         |
 | Contract/IDL selection              | `contracts/contracts.test.ts`, `format/idl-file.test.ts`                                                 |
 | State and trace decoding            | `format/trace-format.test.ts`, `commands/state-digest*.test.ts`                                          |
 | Node preparation/process tracking   | `commands/node-run-core.test.ts`, `rpc/node-ops.test.ts`                                                 |

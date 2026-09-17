@@ -59,6 +59,15 @@ interface StoredRawTransaction {
 
 const MAX_WASM_MODULE_SIZE = 4 * 1024 * 1024;
 const DEPLOY_HEADER_SIZE = DeployMessage.SIZE - 32;
+// core's MAX_CONTRACT_STATE_SIZE; the staging route is unauthenticated, so the allocation is capped
+const MAX_STAGED_STATE_BYTES = 1024 * 1024 * 1024;
+
+interface StagedState {
+    bytes: Uint8Array;
+    receivedBytes: number;
+}
+
+export type StageStateResult = { ok: true; received: number; total: number } | { ok: false; message: string };
 
 export interface VirtualNodeOptions {
     slotBase?: number;
@@ -83,6 +92,7 @@ export class VirtualNode implements NodeTransport {
     private slotsByName = new Map<string, number>();
     private upload: UploadSession | null = null;
     private contractSources = new Map<number, string>();
+    private stagedStates = new Map<number, StagedState>();
     private rawTransactions = new Map<string, StoredRawTransaction>();
     private rawAliasesByTxId = new Map<string, string[]>();
     private fundedSeedPool: string[] | null = null;
@@ -168,7 +178,7 @@ export class VirtualNode implements NodeTransport {
         }
 
         const slot = this.resolveDeploymentSlot(explicitSlot, name);
-        const contract = this.sim.deploy(slot, wasm);
+        const contract = this.sim.deploy(slot, wasm, undefined, { initialState: this.takeStagedState(slot) });
         if (name !== undefined) {
             this.slotsByName.set(name, slot);
         }
@@ -186,6 +196,46 @@ export class VirtualNode implements NodeTransport {
         this.sim.mintDeployShares(slot, ticker, deployer ?? this.sim.getCommittee().arbitrator.publicKey);
 
         return contract;
+    }
+
+    // stage an initial state in ordered chunks; the next deploy of the slot takes it. a zero total clears the entry.
+    stageState(slot: number, offset: number, total: number, chunk: Uint8Array): StageStateResult {
+        const validSlot = Number.isInteger(slot) && slot >= 1 && slot < this.slotBase + this.slotCount;
+        if (!validSlot) {
+            return { ok: false, message: `slot ${slot} is outside 1..${this.slotBase + this.slotCount - 1}` };
+        }
+        if (!Number.isInteger(total) || total < 0 || total > MAX_STAGED_STATE_BYTES) {
+            return { ok: false, message: `total ${total} is outside 0..${MAX_STAGED_STATE_BYTES}` };
+        }
+        if (total === 0) {
+            this.stagedStates.delete(slot);
+            return { ok: true, received: 0, total: 0 };
+        }
+
+        if (offset === 0) {
+            this.stagedStates.set(slot, { bytes: new Uint8Array(total), receivedBytes: 0 });
+        }
+
+        const staged = this.stagedStates.get(slot);
+        if (!staged || staged.bytes.length !== total || offset !== staged.receivedBytes) {
+            return { ok: false, message: `chunk at ${offset} is out of order; expected ${staged?.receivedBytes ?? 0}` };
+        }
+        if (offset + chunk.length > total) {
+            return { ok: false, message: `chunk at ${offset} overruns the ${total} B total` };
+        }
+
+        staged.bytes.set(chunk, offset);
+        staged.receivedBytes += chunk.length;
+
+        return { ok: true, received: staged.receivedBytes, total };
+    }
+
+    // a deploy always consumes the entry, so a half-staged state never reaches a later deploy.
+    private takeStagedState(slot: number): Uint8Array | undefined {
+        const staged = this.stagedStates.get(slot);
+        this.stagedStates.delete(slot);
+
+        return staged && staged.receivedBytes === staged.bytes.length ? staged.bytes : undefined;
     }
 
     private resolveDeploymentSlot(explicitSlot: number | undefined, name: string | undefined): number {

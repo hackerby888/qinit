@@ -869,7 +869,7 @@ export class QubicSimulator {
         }
     }
 
-    deploy(slot: number, wasm: Uint8Array, externalMemory?: WebAssembly.Memory, options: { initialize?: boolean } = {}): Contract {
+    deploy(slot: number, wasm: Uint8Array, externalMemory?: WebAssembly.Memory, options: { initialize?: boolean; initialState?: Uint8Array } = {}): Contract {
         return this.runOperation(
             "deploy",
             () => {
@@ -877,12 +877,18 @@ export class QubicSimulator {
                 let contract: Contract;
 
                 try {
-                    contract = this.registry.deploy(slot, wasm, this.host, externalMemory, undefined, options.initialize ?? true);
+                    contract = this.registry.deploy(slot, wasm, this.host, externalMemory, undefined, options.initialize ?? true, options.initialState);
                 } finally {
                     this.logStore?.end();
                 }
 
                 this.emit("info", "deploy", `slot ${slot} deployed · ${(wasm.length / 1024) | 0}KB wasm`);
+                if (options.initialState) {
+                    const seededBytes = options.initialState.length;
+                    const migrated = contract.hasMigrate && contract.migrateOldStateSize === seededBytes;
+                    const outcome = migrated ? "MIGRATE ran" : "INITIALIZE skipped";
+                    this.emit("info", "deploy", `slot ${slot} state seeded · ${seededBytes} B · ${outcome}`);
+                }
                 if (contract.stateSize > K12_MAX_LEAF_BYTES) {
                     this.emit(
                         "warn",
