@@ -116,6 +116,8 @@ export class QubicSimulator {
     private computorOverride = new Map<number, Uint8Array>();
     prevSpectrumDigestOverride?: Uint8Array;
     private readonly historyTicks: number;
+    // off for a test harness: a contract error comes back to the caller instead of halting the engine, as core's own harness does
+    private readonly haltOnContractFault: boolean;
     // Drained by the transport each tick. A caller that advances the simulator directly never drains it, so the backlog is capped rather than growing.
     private prunedTransactionIds: string[] = [];
     private terminalFault: EngineFaultInfo | null = null;
@@ -133,9 +135,11 @@ export class QubicSimulator {
             logStore?: QubicLogStore;
             historyTicks?: number;
             epochLength?: number;
+            haltOnContractFault?: boolean;
         } = {},
     ) {
         this.mempoolMode = options.mempool ?? false;
+        this.haltOnContractFault = options.haltOnContractFault ?? true;
         this.epochLength = Math.max(0, Math.trunc(options.epochLength ?? DEFAULT_EPOCH_LENGTH));
         this.historyTicks = Math.max(1, Math.trunc(options.historyTicks ?? DEFAULT_TICK_HISTORY));
         this.fees = new FeeManager(options.fees ?? "off", options.defaultReserve);
@@ -358,6 +362,9 @@ export class QubicSimulator {
             const contractError = error instanceof ContractExecutionError ? error : null;
             if (context.contractErrorsOnly && !contractError) {
                 throw error;
+            }
+            if (contractError && !this.haltOnContractFault) {
+                throw contractError;
             }
 
             throw new EngineFaultedError(this.recordFault(error, phase, context.txId), error);

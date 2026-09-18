@@ -1842,6 +1842,21 @@ how the harness is compiled.
 Known memory/pointer-heavy suites automatically use shared-memory mode. User
 suites can request it with `--shared-mem`.
 
+A failed dispatch comes back the way core's harness reports it. `callFunction()`
+returns the code; a procedure or system procedure writes `contractError[index]`,
+which stays set until a new `ContractTesting` fixture clears it, so put a negative
+case last or start a fresh fixture after it. The default `expectSuccess` asserts the
+code is 0; pass `false` to test the failure itself. `checkInputSize` is still
+ignored. Every non-zero code is also echoed to stderr as `[gtest] invoke[i:t] failed
+with code 0x...`, so a failure nobody asserts on is still visible in the run.
+
+| dispatch outcome                         | code                                                     |
+| ---------------------------------------- | -------------------------------------------------------- |
+| success                                  | `0` (`NoContractError`)                                  |
+| `CC_ASSERT` or `qpi.__qpiAbort(c)`       | the abort code, e.g. `0xCC000022` (`0xCC000000 \| line`) |
+| a Wasm trap                              | `0xCC1D0000` (`WASM_TRAP_ERROR_CODE`)                    |
+| unknown function or procedure input type | `ContractErrorFuncProcUnknown` (`9`)                     |
+
 `--filter` takes comma-separated case-insensitive substrings and skips
 non-matching tests in the engine, so they are never executed. The same list can
 come from the `QINIT_GTEST_FILTER` environment variable. Skipping is not free of

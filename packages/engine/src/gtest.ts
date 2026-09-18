@@ -1,6 +1,7 @@
 // Run core-lite contract_testing.h suites in an isolated simulator.
+import { WASM_TRAP_ERROR_CODE } from "@qinit/core";
 import { QubicSimulator } from "./qubic-simulator";
-import { Contract, CONTRACT_ENTRY_KIND, dateFields, packDateAndTime } from "./contract/runtime";
+import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, dateFields, packDateAndTime } from "./contract/runtime";
 import { initK12, k12Bytes } from "./support/k12";
 import { EntityRecord, M256i } from "./protocol/wire";
 
@@ -34,6 +35,29 @@ export async function runContractTesting(
         const note = `${what} trapped: ${String((e as any)?.message ?? e).slice(0, 120)}`;
         trapNotes.push(note);
         (globalThis as any).process?.stderr?.write?.(`[gtest] ${note}\n`);
+    };
+
+    // core's harness hands a failed dispatch back as a code; the same codes core-lite's wasm host reports, so a test reads them the same way
+    const CONTRACT_ERROR_FUNC_PROC_UNKNOWN = 9;
+    const dispatchErrorCode = (e: unknown): number | undefined => {
+        if (e instanceof ContractExecutionError) {
+            return e.cause instanceof ContractAbort ? e.cause.code >>> 0 : WASM_TRAP_ERROR_CODE;
+        }
+        if (e instanceof Error && e.message.startsWith("unknown contract")) {
+            return CONTRACT_ERROR_FUNC_PROC_UNKNOWN;
+        }
+        return undefined;
+    };
+
+    // a returned code fails nothing by itself, so it still shows in the run output
+    const failed = (what: string, e: unknown): number | undefined => {
+        const code = dispatchErrorCode(e);
+        if (code === undefined) {
+            trap(what, e);
+        } else {
+            (globalThis as any).process?.stderr?.write?.(`[gtest] ${what} failed with code 0x${code.toString(16).toUpperCase()}\n`);
+        }
+        return code;
     };
 
     let sim: QubicSimulator;
@@ -91,6 +115,7 @@ export async function runContractTesting(
             mempool: false,
             fees: "off",
             liteTicking: true,
+            haltOnContractFault: false,
         });
         // Pin the corpus clock to the native harness's fixed date so it does not follow VirtualNode's wall-clock override; preservation wins on redeploy.
         sim.timeBaseMs = Date.UTC(2024, 0, 1);
@@ -187,7 +212,7 @@ export async function runContractTesting(
             /* contracts pre-deployed in deployAll */
         },
 
-        // A contract trap inside a dispatch fails the CURRENT TEST, not the whole run, as the native harness does; `trap()` records it for t_report.
+        // A contract failure inside a dispatch comes back as its code, as in the native harness; only an engine error fails the CURRENT TEST via `trap()`.
         q_invoke: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number => {
             if (env_.QINIT_GTEST_PROGRESS && ++dispatchCount % 500 === 0) {
                 (globalThis as any).process?.stderr?.write?.(
@@ -199,6 +224,7 @@ export async function runContractTesting(
             const origin = id32(originPtr);
             if (amount > 0n) sim.decreaseEnergy(sim.spectrumIndex(origin), BigInt(amount));
             let out: Uint8Array;
+            let code = 0;
             try {
                 out = traceDisp(`invoke[${idx >>> 0}:${it >>> 0}]`, () =>
                     sim.procedure(idx >>> 0, it >>> 0, input, {
@@ -208,7 +234,7 @@ export async function runContractTesting(
                     }),
                 );
             } catch (e: any) {
-                trap(`invoke[${idx >>> 0}:${it >>> 0}]`, e);
+                code = failed(`invoke[${idx >>> 0}:${it >>> 0}]`, e) ?? 0;
                 out = new Uint8Array(0);
             }
             const n = Math.min(out.length, outCap >>> 0);
@@ -243,26 +269,28 @@ export async function runContractTesting(
                     }
                 }
             }
-            return n >>> 0;
+            return code;
         },
 
         q_query: (idx: number, it: number, inPtr: number, inLen: number, outPtr: number, outCap: number): number => {
             pushShadowsToEngine();
             let out: Uint8Array;
+            let code = 0;
             try {
                 out = traceDisp(`query[${idx >>> 0}:${it >>> 0}]`, () => sim.query(idx >>> 0, it >>> 0, read(inPtr, inLen)));
             } catch (e: any) {
-                trap(`query[${idx >>> 0}:${it >>> 0}]`, e);
+                code = failed(`query[${idx >>> 0}:${it >>> 0}]`, e) ?? 0;
                 out = new Uint8Array(0);
             }
             const n = Math.min(out.length, outCap >>> 0);
             if (n) write(outPtr, out.subarray(0, n));
-            return n >>> 0;
+            return code;
         },
 
-        q_sysproc: (idx: number, sp: number) => {
+        q_sysproc: (idx: number, sp: number): number => {
             pushShadowsToEngine();
             const c = handles[idx >>> 0];
+            let code = 0;
             try {
                 if (c && c.hasSysproc(sp >>> 0))
                     traceDisp(`sysproc[${idx >>> 0}:${sp >>> 0}]`, () =>
@@ -271,12 +299,13 @@ export async function runContractTesting(
                         }),
                     );
             } catch (e: any) {
-                trap(`sysproc[${idx >>> 0}:${sp >>> 0}]`, e);
+                code = failed(`sysproc[${idx >>> 0}:${sp >>> 0}]`, e) ?? 0;
             }
             pullShadowsFromEngine();
             if (env_.QINIT_GTEST_DUMP_ASSETS) {
                 (globalThis as any).process.stderr.write(`[assets after sysproc ${sp >>> 0}] ${JSON.stringify(sim.assetUniverse())}\n`);
             }
+            return code;
         },
 
         q_fund: (idPtr: number, amount: bigint) => {

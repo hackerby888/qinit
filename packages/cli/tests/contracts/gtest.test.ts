@@ -1,7 +1,7 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 // The Wasm runner drives a separately deployed contract in an isolated simulator.
 import { test, expect } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContractWithClang, buildCorpusRunner, extractIdl, genStdGtest } from "@qinit/build";
@@ -340,5 +340,157 @@ for (const backend of ["clang", "typescript"] as const) {
             }
         },
         240_000,
+    );
+}
+
+const FAULT_ZOO = `${import.meta.dir}/../../../../fixtures/FaultZoo.h`;
+const WASM_TRAP_CODE = "0xCC1D0000u";
+
+// A dispatch failure is handed back as core's harness does: callFunction returns the code, a procedure or system procedure sets contractError.
+const FAULT_ZOO_TEST_SOURCE = `#define NO_UEFI
+#include "contract_testing.h"
+
+class ContractTestingFaultZoo : protected ContractTesting {
+public:
+    ContractTestingFaultZoo() {
+        initEmptySpectrum();
+        initEmptyUniverse();
+        INIT_CONTRACT(FaultZoo);
+    }
+    unsigned int assertFn(uint64 n, bool expectSuccess) const {
+        FaultZoo::AssertFn_input input{ n };
+        FaultZoo::AssertFn_output output{};
+        return callFunction(FaultZoo_CONTRACT_INDEX, 1, input, output, true, expectSuccess);
+    }
+    uint64 calls() const {
+        FaultZoo::Calls_input input{};
+        FaultZoo::Calls_output output{};
+        callFunction(FaultZoo_CONTRACT_INDEX, 2, input, output);
+        return output.calls;
+    }
+    bool assertProc(const id& user, uint64 n, bool expectSuccess) {
+        FaultZoo::Assert_input input{ n };
+        FaultZoo::Assert_output output{};
+        return invokeUserProcedure(FaultZoo_CONTRACT_INDEX, 1, input, output, user, 0, true, expectSuccess);
+    }
+    void overflow(const id& user, sint64 divisor) {
+        FaultZoo::Overflow_input input{ divisor };
+        FaultZoo::Overflow_output output{};
+        invokeUserProcedure(FaultZoo_CONTRACT_INDEX, 2, input, output, user, 0, true, false);
+    }
+    unsigned int unknownFunction() const {
+        FaultZoo::Calls_input input{};
+        FaultZoo::Calls_output output{};
+        return callFunction(FaultZoo_CONTRACT_INDEX, 9, input, output, true, false);
+    }
+    void endTickWithCalls(uint64 calls, bool expectSuccess) {
+        ((FaultZoo::StateData*)contractStates[FaultZoo_CONTRACT_INDEX])->calls = calls;
+        callSystemProcedure(FaultZoo_CONTRACT_INDEX, END_TICK, expectSuccess);
+    }
+};
+
+TEST(FaultZoo, FunctionAbortReturnsItsCode) {
+    ContractTestingFaultZoo t;
+    EXPECT_EQ(t.assertFn(1, true), 0u);
+    EXPECT_EQ(t.assertFn(50, false), __ASSERT_FN_CODE__);
+    EXPECT_EQ(t.calls(), 0ull);
+}
+TEST(FaultZoo, ProcedureAbortSetsContractError) {
+    ContractTestingFaultZoo t;
+    const id user = id::randomValue();
+    increaseEnergy(user, 1000);
+    EXPECT_TRUE(t.assertProc(user, 50, false));
+    EXPECT_EQ(contractError[FaultZoo_CONTRACT_INDEX], __ASSERT_CODE__);
+    EXPECT_EQ(t.calls(), 1ull);
+    EXPECT_TRUE(t.assertProc(user, 1, false));
+    EXPECT_EQ(t.calls(), 2ull);
+    EXPECT_EQ(contractError[FaultZoo_CONTRACT_INDEX], __ASSERT_CODE__);
+}
+TEST(FaultZoo, TrapReportsTheTrapCode) {
+    ContractTestingFaultZoo t;
+    const id user = id::randomValue();
+    increaseEnergy(user, 1000);
+    t.overflow(user, -1);
+    EXPECT_EQ(contractError[FaultZoo_CONTRACT_INDEX], ${WASM_TRAP_CODE});
+}
+TEST(FaultZoo, SystemProcedureAbortSetsContractError) {
+    ContractTestingFaultZoo t;
+    t.endTickWithCalls(1, true);
+    EXPECT_EQ(contractError[FaultZoo_CONTRACT_INDEX], 0u);
+    t.endTickWithCalls(50, false);
+    EXPECT_EQ(contractError[FaultZoo_CONTRACT_INDEX], __END_TICK_CODE__);
+}
+TEST(FaultZoo, UnknownEntryIsFuncProcUnknown) {
+    ContractTestingFaultZoo t;
+    EXPECT_EQ(t.unknownFunction(), (unsigned int)ContractErrorFuncProcUnknown);
+}
+TEST(FaultZoo, ExpectedSuccessFails) {
+    ContractTestingFaultZoo t;
+    t.assertFn(50, true);
+}
+TEST(FaultZoo, FreshFixtureClearsContractError) {
+    ContractTestingFaultZoo t;
+    EXPECT_EQ(contractError[FaultZoo_CONTRACT_INDEX], 0u);
+}
+`;
+
+// the abort code carries the CC_ASSERT line, so the expected values come from the fixture itself
+function assertCodes(): { assertFn: string; assert: string; endTick: string } {
+    const lines = readFileSync(FAULT_ZOO, "utf8").split("\n");
+    const at = (entry: string) => {
+        const start = lines.findIndex((line) => line.includes(entry));
+        const offset = lines.slice(start).findIndex((line) => line.includes("CC_ASSERT"));
+        return `0x${((0xcc000000 | (start + offset + 1)) >>> 0).toString(16).toUpperCase()}u`;
+    };
+    return { assertFn: at("PUBLIC_FUNCTION(AssertFn)"), assert: at("PUBLIC_PROCEDURE(Assert)"), endTick: at("END_TICK()") };
+}
+
+for (const backend of ["clang", "typescript"] as const) {
+    test.skipIf(!have)(
+        `a gtest reads contract failures as error codes with ${backend}`,
+        async () => {
+            const scratch = mkdtempSync(join(tmpdir(), `qinit-gtest-faults-${backend}-`));
+            const testPath = join(scratch, "FaultZoo.test.cpp");
+            const codes = assertCodes();
+            writeFileSync(
+                testPath,
+                FAULT_ZOO_TEST_SOURCE.replace("__ASSERT_FN_CODE__", codes.assertFn)
+                    .replaceAll("__ASSERT_CODE__", codes.assert)
+                    .replace("__END_TICK_CODE__", codes.endTick),
+            );
+
+            try {
+                const run = await runStdGtest({
+                    contractPath: FAULT_ZOO,
+                    testPath,
+                    name: "FaultZoo",
+                    stateType: "FaultZoo",
+                    slot: 100,
+                    core: CORE,
+                    backend,
+                    scratch,
+                });
+
+                expect(run.runnerOk, run.buildError).toBe(true);
+                const by = Object.fromEntries(run.results.map((result) => [result.name, result]));
+                const passing = [
+                    "FunctionAbortReturnsItsCode",
+                    "ProcedureAbortSetsContractError",
+                    "TrapReportsTheTrapCode",
+                    "SystemProcedureAbortSetsContractError",
+                    "UnknownEntryIsFuncProcUnknown",
+                    "FreshFixtureClearsContractError",
+                ];
+                for (const name of passing) {
+                    expect(by[`FaultZoo.${name}`]?.passed, `${name}: ${by[`FaultZoo.${name}`]?.message}`).toBe(true);
+                }
+                expect(by["FaultZoo.ExpectedSuccessFails"]?.passed).toBe(false);
+                expect(by["FaultZoo.ExpectedSuccessFails"]?.message).toContain("EXPECT_EQ");
+                expect(by["FaultZoo.ExpectedSuccessFails"]?.message).not.toContain("trapped");
+            } finally {
+                rmSync(scratch, { recursive: true, force: true });
+            }
+        },
+        180_000,
     );
 }

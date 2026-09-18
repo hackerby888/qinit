@@ -19,9 +19,10 @@ typedef wchar_t CHAR16;
 extern "C" {
 QBCT_IMPORT(q_reset)     void          bq_reset();
 QBCT_IMPORT(q_init)      void          bq_init(unsigned int idx);
+// the three dispatches return the contract error code, 0 on success: an abort code, WASM_TRAP_ERROR_CODE, or ContractErrorFuncProcUnknown
 QBCT_IMPORT(q_invoke)    unsigned int  bq_invoke(unsigned int idx, unsigned int it, const void* in, unsigned int inLen, long long amount, const void* origin32, void* out, unsigned int outCap);
 QBCT_IMPORT(q_query)     unsigned int  bq_query(unsigned int idx, unsigned int it, const void* in, unsigned int inLen, void* out, unsigned int outCap);
-QBCT_IMPORT(q_sysproc)   void          bq_sysproc(unsigned int idx, unsigned int sp);
+QBCT_IMPORT(q_sysproc)   unsigned int  bq_sysproc(unsigned int idx, unsigned int sp);
 QBCT_IMPORT(q_fund)      void          bq_fund(const void* id32, long long amount);
 QBCT_IMPORT(q_balance)   long long     bq_balance(const void* id32);
 QBCT_IMPORT(q_notify_pit) void         bq_notify_pit(const void* src32, const void* dst32, long long amount, unsigned int type);
@@ -92,9 +93,24 @@ enum : unsigned char {
 };
 #undef QINIT_SYSTEM_PROCEDURE_COUNT
 
-// contractError[slot]: contract execution status array from contract_exec.h (native harness asserts it).
-// In wasm mode a contract dispatch runs in the engine, so errors are engine-side; treat as always-clean
+// contractError[slot]: contract execution status array from contract_exec.h. Sticky like core's: a failed procedure
+// or system procedure sets it, only a new ContractTesting fixture clears it.
 static unsigned int contractError[MAX_NUMBER_OF_CONTRACTS];
+
+// core-lite's contract_exec.h error codes, so a corpus can spell NoContractError; a wasm run only ever yields the last one.
+enum ContractError
+{
+    NoContractError = 0,
+    ContractErrorAllocInputOutputFailed,
+    ContractErrorAllocLocalsFailed,
+    ContractErrorAllocContextOtherFunctionCallFailed,
+    ContractErrorAllocContextOtherProcedureCallFailed,
+    ContractErrorTooManyActions,
+    ContractErrorTimeout,
+    ContractErrorStoppedToResolveDeadlock,
+    ContractErrorIPOFailed,
+    ContractErrorFuncProcUnknown,
+};
 
 struct QpiContextUserFunctionCall : public QPI::QpiContextFunctionCall {
     QpiContextUserFunctionCall(unsigned int contractIndex)
@@ -103,8 +119,7 @@ struct QpiContextUserFunctionCall : public QPI::QpiContextFunctionCall {
     // Call a user FUNCTION: route through the engine's query path (read-only, no state mutation).
     unsigned int call(unsigned short inputType, const void* input, unsigned short inputSize) {
         unsigned char output[4096];
-        bq_query(_currentContractIndex, inputType, input, (unsigned int)inputSize, output, (unsigned int)sizeof(output));
-        return 0;
+        return bq_query(_currentContractIndex, inputType, input, (unsigned int)inputSize, output, (unsigned int)sizeof(output));
     }
 
     // In the native harness call() allocates a stack buffer; the caller is expected to free it.
@@ -120,8 +135,11 @@ struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall {
 
     void call(unsigned short inputType, const void* input, unsigned short inputSize) {
         unsigned char output[4096];
-        bq_invoke(_currentContractIndex, inputType, input, (unsigned int)inputSize, _invocationReward,
-                  &_originator.u64._0, output, (unsigned int)sizeof(output));
+        const unsigned int errorCode = bq_invoke(_currentContractIndex, inputType, input, (unsigned int)inputSize, _invocationReward,
+                                                 &_originator.u64._0, output, (unsigned int)sizeof(output));
+        if (errorCode) {
+            contractError[_currentContractIndex] = errorCode;
+        }
     }
 
     void freeBuffer() {}
@@ -178,6 +196,7 @@ class ContractTesting {
 public:
     ContractTesting() {
         bq_reset();
+        setMem(contractError, sizeof(contractError), 0);
     }
 
     void initEmptySpectrum() {
@@ -189,8 +208,11 @@ public:
     template <typename InputType, typename OutputType>
     unsigned int callFunction(unsigned int contractIndex, unsigned short fnInputType, const InputType& input, OutputType& output, bool checkInputSize = true, bool expectSuccess = true) const {
         setMem(&output, sizeof(output), 0);
-        bq_query(contractIndex, fnInputType, &input, sizeof(input), &output, sizeof(output));
-        return 0;
+        const unsigned int errorCode = bq_query(contractIndex, fnInputType, &input, sizeof(input), &output, sizeof(output));
+        if (expectSuccess) {
+            EXPECT_EQ(errorCode, 0u);
+        }
+        return errorCode;
     }
 
     template <typename InputType, typename OutputType>
@@ -204,12 +226,24 @@ public:
         if (amount < 0 || bq_balance(&user) < amount) {
             return false;
         }
-        bq_invoke(contractIndex, procInputType, &input, sizeof(input), (long long)amount, &user, &output, sizeof(output));
+        const unsigned int errorCode = bq_invoke(contractIndex, procInputType, &input, sizeof(input), (long long)amount, &user, &output, sizeof(output));
+        if (errorCode) {
+            contractError[contractIndex] = errorCode;
+        }
+        if (expectSuccess) {
+            EXPECT_EQ(contractError[contractIndex], 0u);
+        }
         return true;
     }
 
     void callSystemProcedure(unsigned int contractIndex, SystemProcedureID sysProcId, bool expectSuccess = true) {
-        bq_sysproc(contractIndex, (unsigned int)sysProcId);
+        const unsigned int errorCode = bq_sysproc(contractIndex, (unsigned int)sysProcId);
+        if (errorCode) {
+            contractError[contractIndex] = errorCode;
+        }
+        if (expectSuccess) {
+            EXPECT_EQ(contractError[contractIndex], 0u);
+        }
     }
 };
 

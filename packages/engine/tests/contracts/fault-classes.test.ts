@@ -98,3 +98,22 @@ test("a migration that aborts halts the engine and leaves a migrate frame", asyn
     expect(frame).toMatchObject({ ok: false });
     expect(frame?.trap).toMatch(/^abort\(/);
 });
+
+// A test harness owns the node, so it asks for the error instead of a halt; the engine must stay usable afterwards.
+test("with haltOnContractFault off a procedure abort comes back as the contract error and the engine keeps running", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ haltOnContractFault: false });
+    sim.deploy(28, await wasm("FaultZoo"));
+    sim.setDebug(true);
+
+    expect(() => sim.procedure(28, ASSERT, uint64(50n))).toThrow(ContractExecutionError);
+    expect(sim.isFaulted()).toBe(false);
+    expect(sim.faultInfo()).toBeNull();
+
+    sim.procedure(28, ASSERT, uint64(1n));
+    expect(readUint64LE(sim.query(28, CALLS))).toBe(2n);
+
+    const frames = sim.getTrace().entries.filter((entry) => entry.index === 28 && entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE && entry.entry === ASSERT);
+    expect(frames.map((frame) => frame.ok)).toEqual([false, true]);
+    expect(frames[0]?.trap).toMatch(/^abort\(/);
+});
