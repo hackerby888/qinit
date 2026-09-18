@@ -1,6 +1,5 @@
 // Fault fixture: an abort in a function, an abort in a procedure, and a genuine Wasm trap (signed
-// division overflow), so every failure class has its own entry and a passing control input. END_TICK
-// aborts once the counter reaches 50, the failing system procedure a test harness needs.
+// division overflow), so every failure class has its own entry and a passing control input.
 using namespace QPI;
 
 struct FaultZoo2
@@ -47,7 +46,8 @@ struct FaultZoo : public ContractBase
         output.calls = state.get().calls;
     }
 
-    END_TICK()
+    // the failing system procedure a test harness needs: aborts once the counter reaches 50 (an epoch hook, so a ticking node stays quiet)
+    END_EPOCH()
     {
         CC_ASSERT(state.get().calls < 50);
     }

@@ -383,9 +383,9 @@ public:
         FaultZoo::Calls_output output{};
         return callFunction(FaultZoo_CONTRACT_INDEX, 9, input, output, true, false);
     }
-    void endTickWithCalls(uint64 calls, bool expectSuccess) {
+    void endEpochWithCalls(uint64 calls, bool expectSuccess) {
         ((FaultZoo::StateData*)contractStates[FaultZoo_CONTRACT_INDEX])->calls = calls;
-        callSystemProcedure(FaultZoo_CONTRACT_INDEX, END_TICK, expectSuccess);
+        callSystemProcedure(FaultZoo_CONTRACT_INDEX, END_EPOCH, expectSuccess);
     }
 };
 
@@ -415,10 +415,10 @@ TEST(FaultZoo, TrapReportsTheTrapCode) {
 }
 TEST(FaultZoo, SystemProcedureAbortSetsContractError) {
     ContractTestingFaultZoo t;
-    t.endTickWithCalls(1, true);
+    t.endEpochWithCalls(1, true);
     EXPECT_EQ(contractError[FaultZoo_CONTRACT_INDEX], 0u);
-    t.endTickWithCalls(50, false);
-    EXPECT_EQ(contractError[FaultZoo_CONTRACT_INDEX], __END_TICK_CODE__);
+    t.endEpochWithCalls(50, false);
+    EXPECT_EQ(contractError[FaultZoo_CONTRACT_INDEX], __END_EPOCH_CODE__);
 }
 TEST(FaultZoo, UnknownEntryIsFuncProcUnknown) {
     ContractTestingFaultZoo t;
@@ -435,14 +435,14 @@ TEST(FaultZoo, FreshFixtureClearsContractError) {
 `;
 
 // the abort code carries the CC_ASSERT line, so the expected values come from the fixture itself
-function assertCodes(): { assertFn: string; assert: string; endTick: string } {
+function assertCodes(): { assertFn: string; assert: string; endEpoch: string } {
     const lines = readFileSync(FAULT_ZOO, "utf8").split("\n");
     const at = (entry: string) => {
         const start = lines.findIndex((line) => line.includes(entry));
         const offset = lines.slice(start).findIndex((line) => line.includes("CC_ASSERT"));
         return `0x${((0xcc000000 | (start + offset + 1)) >>> 0).toString(16).toUpperCase()}u`;
     };
-    return { assertFn: at("PUBLIC_FUNCTION(AssertFn)"), assert: at("PUBLIC_PROCEDURE(Assert)"), endTick: at("END_TICK()") };
+    return { assertFn: at("PUBLIC_FUNCTION(AssertFn)"), assert: at("PUBLIC_PROCEDURE(Assert)"), endEpoch: at("END_EPOCH()") };
 }
 
 for (const backend of ["clang", "typescript"] as const) {
@@ -456,7 +456,7 @@ for (const backend of ["clang", "typescript"] as const) {
                 testPath,
                 FAULT_ZOO_TEST_SOURCE.replace("__ASSERT_FN_CODE__", codes.assertFn)
                     .replaceAll("__ASSERT_CODE__", codes.assert)
-                    .replace("__END_TICK_CODE__", codes.endTick),
+                    .replace("__END_EPOCH_CODE__", codes.endEpoch),
             );
 
             try {
