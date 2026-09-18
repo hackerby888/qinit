@@ -1818,6 +1818,23 @@ an end-to-end client test workflow, not a read-only test invocation.
 Its in-process simulator is not the detached `node run` simulator. It has no
 peer port and uses the engine server's faster default tick interval.
 
+A procedure call in a spec resolves to more than the confirmation. `provider()`
+turns the client's `trace` option on, so each call reads its own dispatch back
+from the node's debug trace, matched on tick, slot, procedure, and signer:
+
+| Field           | Meaning                                                                         |
+| --------------- | ------------------------------------------------------------------------------- |
+| `output`        | the procedure's output struct, decoded and typed; absent when it trapped        |
+| `trap`          | the trap message of the procedure, or of the first callee that trapped under it |
+| `traceEntry`    | the dispatch record itself: `ok`, `outHex`, `logs`, ...                         |
+| `failedCallees` | dispatches the procedure made that trapped and recovered                        |
+| `fault`         | the node halted; returned at once with `confirmed: false`, and never resent     |
+
+Tracing snapshots the contract state on every invoke, so a spec against a very
+large contract can run with `QINIT_TRACE=0`. A client from `qinit gen` leaves
+`trace` off unless constructed with `{ trace: true }`: a public node serves no
+debug trace. `fault` needs no tracing.
+
 ### 14.2 `qinit gtest`: C++ contract tests in an isolated engine
 
 [`commands/deploy-interact/gtest.tsx`](../packages/cli/src/commands/deploy-interact/gtest.tsx) calls

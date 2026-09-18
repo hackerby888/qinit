@@ -102,6 +102,10 @@ function schemaName(entryName: string, entryKind: "function" | "procedure", dire
     return `${entryName}_${entryKind}_${direction}_schema`;
 }
 
+function outputMapperName(entryName: string): string {
+    return `${entryName}_procedure_output_map`;
+}
+
 function hasInput(type: AbiType): boolean {
     return type.kind !== AbiTypeKind.STRUCT || type.fields.length > 0;
 }
@@ -155,10 +159,23 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
     }
     for (const entry of idl.procedures) {
         lines.push(`const ${schemaName(entry.name, "procedure", "input")} = ${JSON.stringify(entry.input)} as any;`);
+        lines.push(`const ${schemaName(entry.name, "procedure", "output")} = ${JSON.stringify(entry.output)} as any;`);
     }
 
     if (idl.procedures.length) {
+        // structural copies of the node's trace and fault records: the bundled runtime exports no types.
         lines.push("");
+        lines.push(`export type QinitTraceEntry = {`);
+        lines.push(`  seq: number;`);
+        lines.push(`  tick: number;`);
+        lines.push(`  index: number;`);
+        lines.push(`  entry: number;`);
+        lines.push(`  ok: boolean;`);
+        lines.push(`  trap?: string;`);
+        lines.push(`  outHex: string;`);
+        lines.push(`  logs: { type: number; size: number; hex: string }[];`);
+        lines.push(`};`);
+        lines.push(`export type QinitFault = { message: string; phase: string; failedTick: number; slot?: number; entry?: number; txId?: string };`);
         lines.push(`type QinitProcedureResult = {`);
         lines.push(`  ok: boolean;`);
         lines.push(`  txId?: string;`);
@@ -166,7 +183,12 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         lines.push(`  confirmed?: boolean;`);
         lines.push(`  included?: boolean;`);
         lines.push(`  moneyFlew?: boolean;`);
+        lines.push(`  fault?: QinitFault;`);
+        lines.push(`  traceEntry?: QinitTraceEntry;`);
+        lines.push(`  failedCallees?: QinitTraceEntry[];`);
+        lines.push(`  output?: unknown;`);
         lines.push(`};`);
+        lines.push(`export type QinitProcedureOutcome<Output> = Omit<QinitProcedureResult, "output"> & { output?: Output; trap?: string };`);
     }
 
     lines.push("");
@@ -177,18 +199,29 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
     }
     for (const entry of idl.procedures) {
         lines.push(interfaceSource(`${entry.name}_input`, entry.input, true));
+        lines.push(interfaceSource(`${entry.name}_output`, entry.output));
+    }
+
+    for (const entry of idl.procedures) {
+        lines.push("");
+        lines.push(`function ${outputMapperName(entry.name)}(r: unknown): ${entry.name}_output {`);
+        lines.push(`  ${outputMap(entry.output)}`);
+        lines.push(`}`);
     }
 
     lines.push("");
-    lines.push(`export interface ${idl.name}Opts { rpc?: LiteRpc; rpcBaseUrl?: string; index?: number; seed?: string }`);
+    lines.push(`export interface ${idl.name}Opts { rpc?: LiteRpc; rpcBaseUrl?: string; index?: number; seed?: string; trace?: boolean }`);
     lines.push("");
     lines.push(`export class ${idl.name} {`);
     lines.push(`  rpc: LiteRpc; rpcBaseUrl: string; index: number; seed?: string;`);
+    lines.push(`  /** read each procedure's output and trap back from the node's debug trace (dev nodes only) */`);
+    lines.push(`  trace: boolean;`);
     lines.push(`  constructor(o: ${idl.name}Opts = {}) {`);
     lines.push(`    this.rpcBaseUrl = o.rpcBaseUrl ?? DEFAULT_RPC_BASE;`);
     lines.push(`    this.rpc = o.rpc ?? new LiteRpc(this.rpcBaseUrl);`);
     lines.push(`    this.index = o.index ?? ${index};`);
     lines.push(`    this.seed = o.seed;`);
+    lines.push(`    this.trace = o.trace ?? false;`);
     lines.push(`  }`);
 
     for (const entry of idl.functions) {
@@ -214,11 +247,10 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
             : `argsOrOpts: ${entry.name}_input | ${optsType} = {}, maybeOpts?: ${optsType}`;
         const value = inputRequired ? "args" : "{}";
         const inputSchema = schemaName(entry.name, "procedure", "input");
+        const outputSchema = schemaName(entry.name, "procedure", "output");
         lines.push("");
         lines.push(`  /** transaction — auto-confirms (resolves once processed) unless { confirm: false } */`);
-        lines.push(
-            `  async ${entry.name}(${parameters}): Promise<{ ok: boolean; txId?: string; tick?: number; confirmed?: boolean; included?: boolean; moneyFlew?: boolean }> {`,
-        );
+        lines.push(`  async ${entry.name}(${parameters}): Promise<QinitProcedureOutcome<${entry.name}_output>> {`);
         if (!inputRequired) {
             lines.push(`    const opts = maybeOpts ?? (argsOrOpts as ${optsType});`);
         }
@@ -228,9 +260,21 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         );
         lines.push(`    const ti = (await this.rpc.tickInfo()) as { tick?: number };`);
         lines.push(
-            `    const r = await invokeProcedure({ seed, rpcBaseUrl: this.rpcBaseUrl, contractIndex: this.index, procedureId: ${entry.inputType}, amount: opts.amount ?? 0, input: { type: ${inputSchema}, value: ${value} }, tick: (ti.tick ?? 0) + 8, confirm: opts.confirm !== false, rpc: this.rpc }) as QinitProcedureResult;`,
+            `    const r = await invokeProcedure({ seed, rpcBaseUrl: this.rpcBaseUrl, contractIndex: this.index, procedureId: ${entry.inputType}, amount: opts.amount ?? 0, input: { type: ${inputSchema}, value: ${value} }, tick: (ti.tick ?? 0) + 8, confirm: opts.confirm !== false, trace: this.trace, outputType: ${outputSchema}, rpc: this.rpc }) as QinitProcedureResult;`,
         );
-        lines.push(`    return { ok: r.ok, txId: r.txId, tick: r.tick, confirmed: r.confirmed, included: r.included, moneyFlew: r.moneyFlew };`);
+        lines.push(`    return {`);
+        lines.push(`      ok: r.ok,`);
+        lines.push(`      txId: r.txId,`);
+        lines.push(`      tick: r.tick,`);
+        lines.push(`      confirmed: r.confirmed,`);
+        lines.push(`      included: r.included,`);
+        lines.push(`      moneyFlew: r.moneyFlew,`);
+        lines.push(`      fault: r.fault,`);
+        lines.push(`      traceEntry: r.traceEntry,`);
+        lines.push(`      failedCallees: r.failedCallees,`);
+        lines.push(`      trap: r.traceEntry?.trap ?? r.failedCallees?.[0]?.trap,`);
+        lines.push(`      output: r.output === undefined ? undefined : ${outputMapperName(entry.name)}(r.output),`);
+        lines.push(`    };`);
         lines.push(`  }`);
     }
 

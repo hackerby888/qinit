@@ -229,6 +229,37 @@ test("procedure wiring: tick+8, confirm-by-default, typed return", () => {
     has("input: { type: Put_procedure_input_schema, value: args }");
 });
 
+test("a procedure's output is typed and read back from the trace, off unless the client asks", () => {
+    const source = `
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Take_input { uint64 amount; }; struct Take_output { uint64 left; uint64 taken; };
+  PUBLIC_PROCEDURE(Take) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_PROCEDURE(Take, 1);
+  }
+};`;
+    const client = generateClient(extractIdl(source, "Vault"), 28);
+
+    expect(() => {
+        new Transpiler({ loader: "ts" }).transformSync(client);
+    }).not.toThrow();
+    expect(client).toContain("const Take_procedure_output_schema = ");
+    expect(client).toContain("export interface Take_output {");
+    expect(client).toContain("function Take_procedure_output_map(r: unknown): Take_output {");
+    expect(client).toContain("const a = r as unknown[]; return { left: a[0] as bigint, taken: a[1] as bigint };");
+    expect(client).toContain(
+        "async Take(args: Take_input, opts: { seed?: string; amount?: number | bigint; confirm?: boolean } = {}): Promise<QinitProcedureOutcome<Take_output>> {",
+    );
+    expect(client).toContain("trace: this.trace, outputType: Take_procedure_output_schema,");
+    expect(client).toContain("output: r.output === undefined ? undefined : Take_procedure_output_map(r.output),");
+    expect(client).toContain("trap: r.traceEntry?.trap ?? r.failedCallees?.[0]?.trap,");
+    expect(client).toContain("fault: r.fault,");
+
+    // a dapp client talks to nodes with no dev routes, so tracing is opt-in.
+    expect(client).toContain("trace?: boolean }");
+    expect(client).toContain("this.trace = o.trace ?? false;");
+});
+
 // Signing with a well-known placeholder seed on a live network would look like a working call.
 test("a procedure without a seed refuses to sign instead of falling back", () => {
     has("const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed());");
