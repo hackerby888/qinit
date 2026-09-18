@@ -621,8 +621,11 @@ It writes:
 ```text
 <project>/
   contracts/<Name>.h
+  tests/<Name>.test.ts        bun:test spec against the generated client
   tests/<Name>.test.cpp       when IDL/gtest generation succeeds
   qinit.json
+  package.json                ESM + devDependency @types/bun
+  tsconfig.json
   .gitignore
   README.md
 ```
@@ -630,6 +633,15 @@ It writes:
 The inter-contract template also writes `contracts/Counter.h`. The shared
 dependency resolver discovers it from the caller source. Nested scaffolding is
 refused when `qinit.json` already exists in the working directory.
+
+`package.json` and `tsconfig.json` exist for the editor, not for bun: bun resolves
+`bun:test` itself, but a TypeScript language server needs `@types/bun` under the
+project's own `node_modules`, and a `tsconfig.json` so it roots the project there
+rather than at the editor's workspace folder. [`ensureSpecProject()`](../packages/cli/src/ops/spec-project.ts)
+writes both (never overwriting a developer's own tsconfig or pinned version), and
+`installSpecTypes()` runs `bun install` once when `node_modules/@types/bun` is
+missing — best effort, skipped under `QINIT_NO_UPDATE` or without bun on PATH.
+`qinit test` does the same, so an older project catches up on its next run.
 
 Gtest generation is best-effort: project creation continues if IDL extraction
 fails.
@@ -1792,8 +1804,8 @@ resolve, slot, and build the complete project graph
   -> always deploy Main last
   -> generate tests/.qinit runtime and typed client
   -> fail when tests/ holds no .test.ts (qinit new ships one written for its template)
-  -> update/create package.json
-  -> bun install when the public Qubic library is missing
+  -> update/create package.json + tsconfig.json (see 7.1)
+  -> bun install @types/bun when node_modules lacks it (QINIT_NO_UPDATE skips)
   -> spawn bun test
   -> inject QINIT_RPC, QINIT_SEED, QINIT_CONTRACT
   -> append a source backtrace on failure when possible

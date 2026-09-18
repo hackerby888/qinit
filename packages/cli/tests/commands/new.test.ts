@@ -20,6 +20,12 @@ test(
         expect(existsSync(join(workDir, "Proxy", "contracts", "Counter.h"))).toBe(true);
         const config = JSON.parse(readFileSync(join(workDir, "Proxy", "qinit.json"), "utf8"));
         expect(config.callees).toBeUndefined();
+
+        // editor typing for the spec: package.json + tsconfig.json; the install itself stays off under QINIT_NO_UPDATE
+        expect(JSON.parse(readFileSync(join(workDir, "Proxy", "package.json"), "utf8")).devDependencies).toEqual({ "@types/bun": "latest" });
+        expect(existsSync(join(workDir, "Proxy", "tsconfig.json"))).toBe(true);
+        expect(existsSync(join(workDir, "Proxy", "node_modules"))).toBe(false);
+        expect(readFileSync(join(workDir, "Proxy", ".gitignore"), "utf8")).toContain("node_modules/\n");
     },
     CLI_TEST_TIMEOUT_MS,
 );

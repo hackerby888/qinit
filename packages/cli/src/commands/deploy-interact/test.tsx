@@ -7,6 +7,7 @@ import type { DeploymentEvent } from "../../ops/deploy";
 import { deployProjectContracts } from "../../ops/project-deploy";
 import { activeNodeScratchDir, ensureNodeBinary, killNode, launchNode, scratchForRpc, waitTicking } from "../../ops/node";
 import { portFromRpc } from "../../ops/serve";
+import { ensureSpecProject, installSpecTypes } from "../../ops/spec-project";
 import { DEFAULT_FUNDED_SEED, DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
 import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { testRuntimeSource, generateClient, extractIdl } from "@qinit/build";
@@ -229,11 +230,13 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                     );
                 }
 
-                // The generated SDK bundles its own crypto, so the project needs no dependency — only ESM.
-                const pkgPath = join(root, "package.json");
-                const pkg: any = existsSync(pkgPath) ? JSON.parse(readFileSync(pkgPath, "utf8")) : { name: basename(root), private: true };
-                pkg.type ??= "module";
-                writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+                ensureSpecProject(root);
+                const types = await installSpecTypes(root);
+                if (types === "failed") {
+                    add("types", false, "@types/bun not installed — run `bun install` for editor typing");
+                } else if (types !== "skipped") {
+                    add("types", true, `@types/bun ${types}`);
+                }
 
                 const testSeed = seed || (await new LiteRpc(activeRpc).fundedSeed()) || DEFAULT_FUNDED_SEED;
                 setS({ phase: "testing", lines: [...lines] });
