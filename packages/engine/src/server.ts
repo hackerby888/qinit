@@ -159,6 +159,13 @@ export class EngineServer {
             return json(await engine.stateRead(Number(query.get("slot")), Number(query.get("off") ?? 0), Number(query.get("len") ?? 0)));
         }
 
+        // raw slice of a slot's state, for dumps: hex-in-JSON doubles the bytes and costs a decode per byte
+        if (path === "/live/v1/dev/state-bytes") {
+            const { bytes, stateSize } = engine.stateBytes(Number(query.get("slot")), Number(query.get("off") ?? 0), Number(query.get("len") ?? 0));
+
+            return new Response(bytes as RequestInit["body"], { headers: { "content-type": "application/octet-stream", "x-state-size": String(stateSize) } });
+        }
+
         if (path === "/live/v1/dev/contract-digest") {
             const slot = Number(query.get("slot"));
             const contract = engine.sim.contracts.get(slot);

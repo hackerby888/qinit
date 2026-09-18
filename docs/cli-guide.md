@@ -1376,9 +1376,11 @@ qinit state 29 --dump --out before.bin  # anything else is the file path
 ```
 
 [`dumpContractState()`](../packages/cli/src/contracts/state-dump.ts) pages
-`GET /live/v1/dev/state-read` 4 MiB at a time and streams each chunk to the file, so
-a multi-megabyte state never has to fit in memory. It prints the absolute path and the
-byte count, which equals the `stateSize` that `--digest` reports. The file is the raw
+`GET /live/v1/dev/state-bytes` 4 MiB at a time and streams each raw chunk to the file, so
+a multi-megabyte state never has to fit in memory (a 593 MB QX dump takes about 6 s from a
+core node, 1 s from the simulator). A node without that route answers 404 and the dump
+falls back to the hex `state-read` route, which is about ten times slower. It prints the
+absolute path and the byte count, which equals the `stateSize` that `--digest` reports. The file is the raw
 state image with no header, and a failed read deletes the partial file rather than
 leaving a truncated one.
 
@@ -1868,6 +1870,7 @@ Chain and contract routes:
 | `setDebug()`              | `GET /live/v1/dev/debug?on=0               | 1`                                                      | debug and call trace |
 | `debugTrace()`            | `GET /live/v1/debug-trace?since=N&limit=N` | debug and call trace                                    |
 | `stateRead()`             | `GET /live/v1/dev/state-read?...`          | decoded state and containers                            |
+| `stateBytes()`            | `GET /live/v1/dev/state-bytes?...`         | raw state slice, `--dump`                               |
 | `contractDigest()`        | `GET /live/v1/dev/contract-digest?slot=N`  | canonical state digest                                  |
 | `epochInfo()`             | `GET /live/v1/dev/epoch-info`              | tick, epoch, node status                                |
 | `advanceTick()`           | `GET /live/v1/dev/advance-tick?n=N`        | testnet tick controls                                   |

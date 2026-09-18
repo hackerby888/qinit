@@ -190,6 +190,16 @@ export class LiteRpc implements NodeTransport {
             `/live/v1/dev/state-read?slot=${slot}&off=${off}&len=${len}`,
         );
     }
+    /** Raw slice of a slot's state (GET /live/v1/dev/state-bytes), the fast path a dump pages through. Null = no such route. */
+    async stateBytes(slot: number, off: number, len: number): Promise<{ bytes: Uint8Array; stateSize: number } | null> {
+        const r = await fetchWithTimeout(this.base + `/live/v1/dev/state-bytes?slot=${slot}&off=${off}&len=${len}`, undefined, 30000);
+        if (r.status === 404) return null;
+        if (!r.ok) {
+            const j: any = await r.json().catch(() => ({}));
+            throw new Error(`state-bytes failed: ${j.message ?? r.status}`);
+        }
+        return { bytes: new Uint8Array(await r.arrayBuffer()), stateSize: Number(r.headers.get("x-state-size") ?? 0) };
+    }
     /** Stage one ordered chunk of an initial state (POST /live/v1/dev/state-stage): the slot's next deploy takes it, total 0 clears. Null = no such route. */
     async stageState(slot: number, offset: number, total: number, chunk: Uint8Array): Promise<{ ok: boolean; received: number; total: number } | null> {
         const r = await fetchWithTimeout(

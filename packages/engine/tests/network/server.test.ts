@@ -438,3 +438,22 @@ test("a seeded deploy skips INITIALIZE", async () => {
         stop();
     }
 });
+
+test("state-bytes serves the same bytes state-read spells in hex, and an unknown slot an empty body", async () => {
+    const { base, stop, engine } = await serve();
+    const rpc = new LiteRpc(base);
+    try {
+        await rpc.stageState(slotBase, 0, 8, counterState(5n));
+        await rpc.directDeploy(slotBase, await wasm("CounterDyn0"), "Seeded");
+
+        const response = await fetch(`${base}/live/v1/dev/state-bytes?slot=${slotBase}&off=2&len=4`);
+        expect(response.headers.get("content-type")).toBe("application/octet-stream");
+        expect(response.headers.get("x-state-size")).toBe("8");
+        expect(new Uint8Array(await response.arrayBuffer())).toEqual(counterState(5n).slice(2, 6));
+
+        expect(await rpc.stateBytes(slotBase, 0, 64)).toEqual({ bytes: engine.sim.contracts.get(slotBase)!.state(), stateSize: 8 });
+        expect(await rpc.stateBytes(slotBase + 1, 0, 8)).toEqual({ bytes: new Uint8Array(0), stateSize: 0 });
+    } finally {
+        stop();
+    }
+});

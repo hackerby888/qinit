@@ -812,17 +812,23 @@ export class VirtualNode implements NodeTransport {
     }
 
     async stateRead(slot: number, off: number, len: number): Promise<StateRead> {
-        const contract = this.sim.contracts.get(slot);
-        const stateSize = contract?.stateSize ?? 0;
-        const state = contract?.stateView() ?? new Uint8Array(0);
+        const { bytes, stateSize } = this.stateBytes(slot, off, len);
 
         return {
             off,
             len,
             stateSize,
-            hex: toHex(state.subarray(off, off + len)),
+            hex: toHex(bytes),
             version: this.sim.stateVersion(slot),
         };
+    }
+
+    // a copy, not a view: the response is sent after this returns, and a tick may write the slot in between
+    stateBytes(slot: number, off: number, len: number): { bytes: Uint8Array; stateSize: number } {
+        const contract = this.sim.contracts.get(slot);
+        const state = contract?.stateView() ?? new Uint8Array(0);
+
+        return { bytes: state.slice(off, off + len), stateSize: contract?.stateSize ?? 0 };
     }
 
     fundedPool(): string[] {
