@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { AbiScalarKind, AbiTypeKind, type AbiField, type AbiStruct, type AbiType } from "@qinit/proto/contract-idl";
-import { completerFor, formatContractPickerRows, zeroSample, tmplOf } from "../../src/commands/deploy-interact/call-interactive";
+import { encodeInputFormatAs } from "@qinit/proto";
+import { completerFor, formatContractPickerRows, zeroSample } from "../../src/commands/deploy-interact/call-interactive";
 
 const SIZES: Record<AbiScalarKind, number> = {
     [AbiScalarKind.BIT]: 1,
@@ -49,18 +50,23 @@ const entry = (schema?: AbiType) => ({
     input: schema,
 });
 
-test("zeroSample builds typed schema-matched values", () => {
+const array = (count: number, element: AbiType): AbiType => ({
+    kind: AbiTypeKind.ARRAY,
+    count,
+    element,
+    size: count * element.size,
+    align: element.align,
+    format: `[${count};${element.format}]`,
+});
+
+// the sample is the prompt's placeholder and what → commits, so it must be input the schema-checked encoder takes
+test("zeroSample builds typed schema-matched values", async () => {
     expect(zeroSample(entry(input(field("value", scalar(AbiScalarKind.UINT64)))))).toBe("0uint64");
 
-    const array: AbiType = {
-        kind: AbiTypeKind.ARRAY,
-        count: 64,
-        element: scalar(AbiScalarKind.UINT64),
-        size: 512,
-        align: 8,
-        format: "[64;uint64]",
-    };
-    expect(zeroSample(entry(input(field("values", array), field("owner", scalar(AbiScalarKind.ID), 512))))).toBe("[64; 0uint64 ×64], 0id");
+    const schema = input(field("values", array(64, scalar(AbiScalarKind.UINT64))), field("owner", scalar(AbiScalarKind.ID), 512));
+    const sample = zeroSample(entry(schema))!;
+    expect(sample).toBe("[64; 0uint64 ×64], 0id");
+    expect((await encodeInputFormatAs(schema, sample)).length).toBe(schema.size);
 });
 
 test("zeroSample handles empty and uint128 inputs", () => {
@@ -76,27 +82,19 @@ test("zeroSample uses one raw byte view for overlapping input", () => {
     expect(zeroSample(entry(input(field("data", union))))).toBe("[8; 0uint8 ×8]");
 });
 
-test("tmplOf shows field names and formats", () => {
-    const fields = [
-        field("reveal", {
-            kind: AbiTypeKind.ARRAY,
-            count: 64,
-            element: scalar(AbiScalarKind.UINT64),
-            size: 512,
-            align: 8,
-            format: "[64; uint64]",
-        }),
-        field("commit", scalar(AbiScalarKind.ID), 512),
-    ];
-    expect(tmplOf(fields)).toBe("<reveal>[64; uint64], <commit>id");
-    expect(tmplOf([])).toBeUndefined();
-    expect(tmplOf(undefined)).toBeUndefined();
-});
-
 test("completerFor prefers the field's scalar type", () => {
     const complete = completerFor([field("who", scalar(AbiScalarKind.ID)), field("amount", scalar(AbiScalarKind.UINT32), 32)]);
-    expect(complete("<id>id, 1u")).toBe("<id>id, 1uint32");
+    expect(complete("0id, 1u")).toBe("0id, 1uint32");
     expect(complete("1u")).toBe("1uint64");
+
+    const wide = completerFor([field("big", scalar(AbiScalarKind.UINT128))], true);
+    expect(wide("1u")).toBe("1uint128");
+    expect(wide("1", true)).toBe("1uint128");
+});
+
+test("completerFor counts fields by top-level commas only", () => {
+    const complete = completerFor([field("pair", array(2, scalar(AbiScalarKind.UINT64))), field("n", scalar(AbiScalarKind.UINT32), 16)], true);
+    expect(complete("[2; 1uint64, 2uint64], 3", true)).toBe("[2; 1uint64, 2uint64], 3uint32");
 });
 
 test("completerFor falls back to generic scalar types", () => {

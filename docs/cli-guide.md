@@ -463,7 +463,7 @@ owns the shared decoded trace and state views.
 
 `ui/` stays generic. A widget that needs contract or IDL types belongs to the
 command instead — which is why the generic `Select` and `TextPrompt` live in
-`ui/prompt.tsx` while `SchemaBox`, `completerFor`, and `tmplOf` stay in
+`ui/prompt.tsx` while `SchemaBox`, `completerFor`, and `zeroSample` stay in
 `call-interactive.tsx`.
 
 `initOutput()` mutates one shared object before rendering:
@@ -1023,8 +1023,22 @@ One-shot mode:
 5. Resolves the entry by numeric input type or case-insensitive name.
 
 `--args <json>` uses the IDL's structured ABI type. `--in` uses Qinit's raw
-format language. A numeric entry can be called without IDL if raw formats are
-provided; a named entry cannot.
+value language: one value per field, comma-separated, each spelled as its
+number plus its type. A numeric entry can be called without IDL if raw values
+are provided; a named entry cannot.
+
+| kind   | spelling                                    | example                                                    |
+| ------ | ------------------------------------------- | ---------------------------------------------------------- |
+| scalar | number then type                            | `5uint64`, `-7sint32`, `1bit`, `0uint128`                  |
+| id     | `0`, 60 A-Z chars, or 64 hex, then `id`     | `0id`                                                      |
+| m256i  | `0` or 64 hex, then `m256i`                 | `0m256i`                                                   |
+| struct | `{ … }`                                     | `{ 5uint64, 1bit }`                                        |
+| array  | `[N; …]`, `×N` repeats one value            | `[4; 1uint64, 2uint64, 3uint64, 4uint64]`, `[4; 0uint64 ×4]` |
+
+An empty `--in` is an empty input. The interactive prompt fills in the all-zero
+sample (`zeroInputFormat()`), and a failed parse prints the same sample. A value
+that starts with `-` must be passed as `--in=-5sint64`, since the option parser
+reads the bare form as a flag.
 
 For `BitArray<N>`, typed `--args` and generated clients use an exact-length JSON
 array of `0` and `1` values in logical bit order. Raw `--in` remains the physical

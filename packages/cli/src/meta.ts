@@ -254,13 +254,13 @@ const commandMeta = {
         group: "deploy & interact",
         json: true,
         summary: "call a contract function or procedure",
-        usage: '[ --fn|--proc <contract> <fn|proc> ] [--in "<fmt>"] [--out <type> ]',
+        usage: '[ --fn|--proc <contract> <fn|proc> ] [--in "<values>"] [--out <type> ]',
         options: [
             stringOption("tick", "<n>", "target tick for the transaction (default: current + 3)"),
             booleanOption("fn", "make a read-only call"),
             booleanOption("proc", "send a signed call and wait for it"),
             stringOption("args", "<json>", "JSON input"),
-            stringOption("in", '"<fmt>"', 'input, e.g. "<ID>id, 100uint64"'),
+            stringOption("in", '"<values>"', 'input values, e.g. "100uint64, 0id" (id: 0, 60 A-Z chars, or 64 hex)'),
             stringOption("out", "<type>", "output type"),
             stringOption("amount", "<n>", "transfer amount"),
             booleanOption("trace", "show state changes and contract calls"),
@@ -272,8 +272,8 @@ const commandMeta = {
         ],
         examples: [
             "qinit call # interactive mode",
-            'qinit call --proc Mytoken 1 --in "<ID>id, 100uint64"',
-            'qinit call --fn   Mytoken 1 --in "<ID>id" --out uint64',
+            'qinit call --proc Mytoken 1 --in "0id, 100uint64"',
+            'qinit call --fn   Mytoken 1 --in "0id" --out uint64',
         ],
     },
     seed: {

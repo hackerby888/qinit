@@ -48,7 +48,7 @@ type CallFacts = { contract: string; slot: number; entry: string; tick?: number;
 type Confirm = { start: number; net: number; target: number };
 type CallMode = "fn" | "proc";
 
-// Non-interactive forms (qubic-cli style): qinit call --fn <idx> <functionId> --in <fmt> --out <fmt>.
+// Non-interactive forms (qubic-cli style): qinit call --fn <idx> <functionId> --in <values> --out <type>.
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // --json: the rendered rows as data. Trace keys are absent without --trace rather than empty, so a consumer can tell nothing-changed from never-captured.

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, type DynamicContractRegistryEntry } from "@qinit/core";
-import { hasOverlappingAbiType, zeroInputFormat } from "@qinit/proto";
+import { zeroInputFormat } from "@qinit/proto";
 import { AbiTypeKind, type AbiField, type AbiType, type ContractEntry, type ContractIdl, type ContractIdlFile } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { loadConfiguredQpiHeader } from "../../config";
@@ -31,14 +31,30 @@ export function formatContractPickerRows(
     );
 }
 
-const QPI_TYPES = ["uint64", "uint32", "uint16", "uint8", "sint64", "sint32", "sint16", "sint8", "id", "bit", "m256i"];
+const QPI_TYPES = ["uint64", "uint32", "uint16", "uint8", "sint64", "sint32", "sint16", "sint8", "uint128", "sint128", "id", "bit", "m256i"];
+
+// The last top-level comma and how many precede it; commas inside [..] or {..} belong to one field's value.
+function topLevelCommas(value: string): { last: number; count: number } {
+    let depth = 0;
+    let last = -1;
+    let count = 0;
+    for (let index = 0; index < value.length; index++) {
+        const ch = value[index];
+        if (ch === "[" || ch === "{") depth++;
+        else if (ch === "]" || ch === "}") depth--;
+        else if (ch === "," && depth === 0) {
+            last = index;
+            count++;
+        }
+    }
+    return { last, count };
+}
 
 export function completerFor(fields?: AbiField[], completeBareValue = false) {
     return (value: string, idle = false): string | null => {
-        const separator = value.lastIndexOf(",");
+        const { last: separator, count: fieldIndex } = topLevelCommas(value);
         const completed = value.slice(0, separator + 1);
         const current = value.slice(separator + 1);
-        const fieldIndex = (completed.match(/,/g) || []).length;
         const expectedType = fields?.[fieldIndex]?.type.format;
         const fragment = current.match(/[a-z][a-z0-9]*$/);
         if (fragment) {
@@ -68,8 +84,6 @@ export function completerFor(fields?: AbiField[], completeBareValue = false) {
         return completed + integer[1] + number + expectedType;
     };
 }
-
-export const tmplOf = (fields?: AbiField[]) => (fields && fields.length ? fields.map((field) => `<${field.name}>${field.type.format}`).join(", ") : undefined);
 
 function SchemaBox({ kind, name, type }: { kind: "input" | "output"; name?: string; type?: AbiType }) {
     if (type === undefined) {
@@ -398,9 +412,9 @@ export function CallInteractive({ rpcBaseUrl, onRun }: { rpcBaseUrl: string; onR
             <Box flexDirection="column">
                 <SchemaBox kind="input" name={`${entryLabel(entry)}_input`} type={entry.input} />
                 <TextPrompt
-                    label={`value format, e.g. 5uint64 · [N; v…] arrays · ×N repeats${entry.kind === "fn" ? "  (empty = none)" : ""}`}
+                    label={`input values, e.g. 5uint64, 0id · [N; …] arrays · ×N repeats${entry.kind === "fn" ? "  (empty = none)" : ""}`}
                     initial={draft.input ?? ""}
-                    placeholder={structFields && !(entry.input && hasOverlappingAbiType(entry.input)) ? tmplOf(structFields) : (zeroSample(entry) ?? undefined)}
+                    placeholder={zeroSample(entry) ?? undefined}
                     complete={completerFor(structFields, true)}
                     onSubmit={(input) => afterInput({ ...wizard, draft: { ...draft, input } })}
                 />
