@@ -106,7 +106,7 @@ function outputMapperName(entryName: string): string {
     return `${entryName}_procedure_output_map`;
 }
 
-function hasInput(type: AbiType): boolean {
+function hasFields(type: AbiType): boolean {
     return type.kind !== AbiTypeKind.STRUCT || type.fields.length > 0;
 }
 
@@ -202,7 +202,7 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         lines.push(interfaceSource(`${entry.name}_output`, entry.output));
     }
 
-    for (const entry of idl.procedures) {
+    for (const entry of idl.procedures.filter((procedure) => hasFields(procedure.output))) {
         lines.push("");
         lines.push(`function ${outputMapperName(entry.name)}(r: unknown): ${entry.name}_output {`);
         lines.push(`  ${outputMap(entry.output)}`);
@@ -225,7 +225,7 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
     lines.push(`  }`);
 
     for (const entry of idl.functions) {
-        const inputRequired = hasInput(entry.input);
+        const inputRequired = hasFields(entry.input);
         const parameter = inputRequired ? `args: ${entry.name}_input` : "";
         const value = inputRequired ? "args" : "{}";
         const inputSchema = schemaName(entry.name, "function", "input");
@@ -240,7 +240,7 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
 
     const optsType = "{ seed?: string; amount?: number | bigint; confirm?: boolean }";
     for (const entry of idl.procedures) {
-        const inputRequired = hasInput(entry.input);
+        const inputRequired = hasFields(entry.input);
         // An empty-input procedure accepts both `Name(opts)` and `Name({}, opts)`: with only `(opts)`, a uniform `Name({}, { amount })` dropped the payment.
         const parameters = inputRequired
             ? `args: ${entry.name}_input, opts: ${optsType} = {}`
@@ -273,7 +273,8 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         lines.push(`      traceEntry: r.traceEntry,`);
         lines.push(`      failedCallees: r.failedCallees,`);
         lines.push(`      trap: r.traceEntry?.trap ?? r.failedCallees?.[0]?.trap,`);
-        lines.push(`      output: r.output === undefined ? undefined : ${outputMapperName(entry.name)}(r.output),`);
+        const mappedOutput = hasFields(entry.output) ? `${outputMapperName(entry.name)}(r.output)` : "{}";
+        lines.push(`      output: r.output === undefined ? undefined : ${mappedOutput},`);
         lines.push(`    };`);
         lines.push(`  }`);
     }

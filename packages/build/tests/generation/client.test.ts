@@ -255,6 +255,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     expect(client).toContain("trap: r.traceEntry?.trap ?? r.failedCallees?.[0]?.trap,");
     expect(client).toContain("fault: r.fault,");
 
+    // an empty output gets no mapper: its unused parameter fails a strict typecheck of the client.
+    expect(out).not.toContain("function Inc_procedure_output_map");
+    expect(out).toContain("output: r.output === undefined ? undefined : {},");
+
     // a dapp client talks to nodes with no dev routes, so tracing is opt-in.
     expect(client).toContain("trace?: boolean }");
     expect(client).toContain("this.trace = o.trace ?? false;");
