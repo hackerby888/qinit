@@ -24,7 +24,7 @@ test("BEGIN_TICK / END_TICK fire on every advanced tick", async () => {
     expect(counters(sim)).toEqual([0n, 0n, 0n, 0n]);
 
     for (let i = 0; i < 10; i++) {
-        sim.advance(); // 10 ticks, no epoch boundary (epochLength defaults to 3000)
+        sim.advance(); // 10 ticks, no epoch boundary (the default epoch is thousands of ticks long)
     }
 
     const [ticks, endticks, epochs, endepochs] = counters(sim);
@@ -41,26 +41,26 @@ test("crossing an epoch boundary fires END_EPOCH then BEGIN_EPOCH", async () => 
     sim.epochLength = 10; // short epoch so the test crosses a boundary quickly
     sim.deploy(28, await wasm("Hooks"));
 
-    for (let i = 0; i < 9; i++) {
-        sim.advance(); // ticks 1..9 — still inside epoch 0
-    }
-    expect(sim.currentTick).toBe(9);
-    expect(sim.currentEpoch).toBe(0);
-    expect(counters(sim)).toEqual([9n, 9n, 0n, 0n]);
-
-    sim.advance(); // tick 10 == boundary -> END_EPOCH, epoch++, BEGIN_EPOCH, then BEGIN_TICK/END_TICK
-    expect(sim.currentTick).toBe(10);
-    expect(sim.currentEpoch).toBe(1);
-    expect(counters(sim)).toEqual([10n, 10n, 1n, 1n]);
-
     for (let i = 0; i < 10; i++) {
+        sim.advance(); // ticks 1..10 — tick 10 is a full length past tick 0, and still epoch 0
+    }
+    expect(sim.currentTick).toBe(10);
+    expect(sim.currentEpoch).toBe(0);
+    expect(counters(sim)).toEqual([10n, 10n, 0n, 0n]);
+
+    sim.advance(); // tick 11 -> END_EPOCH, epoch++, BEGIN_EPOCH, then BEGIN_TICK/END_TICK
+    expect(sim.currentTick).toBe(11);
+    expect(sim.currentEpoch).toBe(1);
+    expect(counters(sim)).toEqual([11n, 11n, 1n, 1n]);
+
+    for (let i = 0; i < 11; i++) {
         sim.advance(); // a whole second epoch
     }
     expect(sim.currentEpoch).toBe(2);
     const [ticks, endticks, epochs, endepochs] = counters(sim);
-    expect(ticks).toBe(20n);
-    expect(endticks).toBe(20n);
-    expect(epochs).toBe(2n); // BEGIN_EPOCH fired at tick 10 and tick 20
+    expect(ticks).toBe(22n);
+    expect(endticks).toBe(22n);
+    expect(epochs).toBe(2n); // BEGIN_EPOCH fired at tick 11 and tick 22
     expect(endepochs).toBe(2n); // END_EPOCH likewise
 });
 
@@ -82,12 +82,56 @@ test("a node built with a short epoch rolls over at that length", async () => {
     const sim = new QubicSimulator({ epochLength: 4 });
     sim.deploy(28, await wasm("Hooks"));
 
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 10; i++) {
         sim.advance();
     }
-    expect(sim.currentTick).toBe(8);
-    expect(sim.currentEpoch).toBe(2); // boundaries at ticks 4 and 8
+    expect(sim.currentTick).toBe(10);
+    expect(sim.currentEpoch).toBe(2); // switches at ticks 5 and 10
     const [, , epochs, endepochs] = counters(sim);
     expect(epochs).toBe(2n);
     expect(endepochs).toBe(2n);
+});
+
+// core measures the epoch on the tick it just finished, then moves the tick number, runs END_EPOCH under it in the old epoch, makes that tick
+// the new epoch's first and runs BEGIN_EPOCH and BEGIN_TICK under it. Each reading is [tick, epoch, initialTick].
+test("the epoch switches after the tick a full length past its own first tick, under core's tick numbers", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ epochLength: 10 });
+    sim.bootstrapEpoch(3);
+    const firstTick = sim.initialTick;
+    sim.deploy(28, await wasm("EpochWitness"));
+
+    const seen = () => {
+        const output = sim.query(28, 1);
+        const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+        return Array.from({ length: 10 }, (_, index) => Number(view.getBigUint64(index * 8, true)));
+    };
+
+    for (let i = 0; i < 10; i++) {
+        sim.advance();
+    }
+    expect(seen()[9]).toBe(0);
+
+    sim.advance();
+    const switchTick = firstTick + 11;
+    expect(seen()).toEqual([switchTick, 3, firstTick, switchTick, 4, switchTick, switchTick, 4, switchTick, 1]);
+    expect(sim.currentTick).toBe(switchTick);
+    expect(sim.initialTick).toBe(switchTick);
+
+    // A length changed mid-epoch moves the next switch, never the epoch's first tick.
+    sim.epochLength = 4;
+    for (let i = 0; i < 5; i++) {
+        sim.advance();
+    }
+    expect(seen().slice(3, 6)).toEqual([switchTick + 5, 5, switchTick + 5]);
+});
+
+test("a node reports the epoch's stored first tick and core's last tick", async () => {
+    const node = await VirtualNode.create({ epochLength: 10 });
+    node.sim.bootstrapEpoch(2);
+    const firstTick = node.sim.initialTick;
+
+    expect(node.epochInfo()).toMatchObject({ epoch: 2, initialTick: firstTick, epochLastTick: firstTick + 9, duration: 10 });
+    expect(node.advanceEpoch()).toMatchObject({ fromEpoch: 2, toEpoch: 3, tick: firstTick + 11, initialTick: firstTick + 11, switched: true });
+    expect(node.epochInfo()).toMatchObject({ epoch: 3, initialTick: firstTick + 11, epochLastTick: firstTick + 20 });
 });

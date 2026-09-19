@@ -99,12 +99,15 @@ export class EngineFaultedError extends Error {
 const MAX_PRUNED_TRANSACTION_IDS = 100_000;
 
 // Ticks per epoch on the live network. A shorter one lets a test or the IDE reach END_EPOCH without ticking three thousand times; 0 turns rollover off.
-export const DEFAULT_EPOCH_LENGTH = 3000;
+// core's testnet epoch duration: the switch follows the tick that is this far past the epoch's first tick.
+export const DEFAULT_EPOCH_LENGTH = 2701;
 
 export class QubicSimulator {
     currentTick = 0;
     currentEpoch = 0;
     epochLength: number;
+    // The current epoch's first tick, set at boot and at every switch as core sets system.initialTick.
+    initialTick = 0;
     readonly contractCount: number;
     host: HostServices;
     onLog?: LogSink;
@@ -203,7 +206,7 @@ export class QubicSimulator {
         this.host = {
             tick: () => this.currentTick + this.cheatTickOffset,
             // Deliberately unshifted: a warp moves where the contract thinks it is within the epoch, not where the epoch began, so elapsed still reads right.
-            initialTick: () => this.initialTickOverride ?? this.currentEpoch * this.epochLength,
+            initialTick: () => this.initialTickOverride ?? this.initialTick,
             epoch: () => this.currentEpoch + this.cheatEpochOffset,
             nowMs: () => this.nowMs(),
             numberOfTickTransactions: () => this.tickTxCount,
@@ -342,6 +345,7 @@ export class QubicSimulator {
         this.currentTick = initialTick;
         this.lastFinalizedEpoch = normalizedEpoch;
         this.lastFinalizedTick = initialTick;
+        this.initialTick = initialTick;
         this.oracle.beginEpoch();
         this.pendingOracleNotifications = [];
         this.logStore?.reset(initialTick);
@@ -1090,7 +1094,7 @@ export class QubicSimulator {
         this.runOperation("begin-tick", () => this.runBeginTick());
     }
 
-    private runBeginTick(): void {
+    private enterNextTick(): void {
         this.currentTick++;
         this.tickClockMs = Date.now();
         this.tickTxCount = this.txpool.dueCount(this.currentTick);
@@ -1100,6 +1104,12 @@ export class QubicSimulator {
         try {
             this.contractProcessor(SYSTEM_PROCEDURES.BEGIN_TICK, true, true);
         } finally {
+    }
+
+    private runBeginTick(tickEntered = false): void {
+        if (!tickEntered) {
+            this.enterNextTick();
+        }
             this.logStore?.end();
         }
     }
@@ -1125,19 +1135,24 @@ export class QubicSimulator {
     }
 
     private runAdvance(): void {
-        const nextTick = this.currentTick + 1;
+        // core measures the epoch on the tick it just finished, so a switch comes once that tick is a full length past the epoch's first. Then
+        // the tick number moves, END_EPOCH runs under it in the old epoch, the epoch and its first tick change, and BEGIN_EPOCH and BEGIN_TICK
+        // run under that same tick number.
+        const switchesEpoch = this.epochLength > 0 && this.currentTick - this.initialTick >= this.epochLength;
 
-        if (this.epochLength > 0 && nextTick % this.epochLength === 0) {
+        if (switchesEpoch) {
+            this.enterNextTick();
             this.endEpoch();
-            this.logStore?.finalizeTick(nextTick);
+            this.logStore?.finalizeTick(this.currentTick);
             this.currentEpoch++;
             this.beginEpoch();
             this.emit("info", "epoch", `epoch ${this.currentEpoch - 1} → ${this.currentEpoch}`);
         }
 
-        this.beginTick();
+        this.runOperation("begin-tick", () => this.runBeginTick(switchesEpoch));
         this.drainMempool();
         this.oracle.pump();
+            this.initialTick = this.currentTick;
         this.deliverOracleNotifications();
         this.endTick();
         this.ticking.finalizeTick();

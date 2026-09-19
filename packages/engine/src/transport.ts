@@ -288,8 +288,8 @@ export class VirtualNode implements NodeTransport {
         const fault = this.sim.faultInfo();
         const tick = fault?.lastFinalizedTick ?? this.sim.currentTick;
         const epoch = fault?.lastFinalizedEpoch ?? this.sim.currentEpoch;
-        const initialTick = epochLength > 0 ? epoch * epochLength : 0;
-        const epochLastTick = epochLength > 0 ? (epoch + 1) * epochLength - 1 : tick;
+        const initialTick = this.sim.initialTick;
+        const epochLastTick = epochLength > 0 ? initialTick + epochLength - 1 : tick;
 
         return {
             epoch,
@@ -360,8 +360,8 @@ export class VirtualNode implements NodeTransport {
         const epochLength = this.sim.epochLength;
 
         if (epochLength > 0) {
-            const boundaryTick = (Math.floor(fromTick / epochLength) + 1) * epochLength;
-            this.advanceTick(boundaryTick - fromTick);
+            // A length shortened mid-epoch can leave the tick already past the switch point, where the very next tick switches.
+            this.advanceTick(Math.max(1, this.sim.initialTick + epochLength + 1 - fromTick));
         }
 
         const toEpoch = this.sim.currentEpoch;
@@ -371,7 +371,7 @@ export class VirtualNode implements NodeTransport {
             toEpoch,
             fromTick,
             tick: this.sim.currentTick,
-            initialTick: epochLength > 0 ? toEpoch * epochLength : 0,
+            initialTick: this.sim.initialTick,
             switched: toEpoch > fromEpoch,
         };
     }

@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/support/k12";
 import { VirtualNode } from "../../src/transport";
+import { DEFAULT_EPOCH_LENGTH } from "../../src/qubic-simulator";
 import { contractId } from "../support/helpers";
 import { PeerServer } from "../../src/peer-server";
 import { deriveIdentity, bytesToIdentity } from "@qinit/core";
@@ -11,7 +12,8 @@ import { deriveIdentity, bytesToIdentity } from "@qinit/core";
 const CLI = process.env.QUBIC_CLI ?? "";
 const have = CLI !== "" && existsSync(CLI);
 const it = test.skipIf(!have);
-const PRE_ADVANCED_FINALIZED_TICK = 3003;
+// Epoch 1 begins one epoch length in; the third tick after it is finalized by the time the tests run.
+const PRE_ADVANCED_FINALIZED_TICK = DEFAULT_EPOCH_LENGTH + 3;
 
 // Run the CLI against `port` and return its stdout.
 async function runCli(port: number, args: string[]): Promise<string> {
@@ -137,7 +139,7 @@ it("-gettickdata + -readtickdata verify the leader's signed TickData", async () 
         const compFile = "/tmp/qinit-cli-td-comps.bin";
         await runCli(port, ["-getcomputorlist", compFile]);
 
-        // Epoch 1 starts at tick 3000; startup finalizes ticks 3001-3005.
+        // Epoch 1 starts one epoch length in, and startup finalizes the five ticks after it.
         const got = await runCli(port, ["-gettickdata", String(PRE_ADVANCED_FINALIZED_TICK), tdFile]);
         expect(got).toContain("Found");
         expect(got).toContain("written to");

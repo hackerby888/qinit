@@ -54,11 +54,11 @@ test("metered: BEGIN_TICK / END_TICK are skipped when the reserve is depleted, r
 test("metered: BEGIN_EPOCH / END_EPOCH run even on a dormant contract (exempt from the gate)", async () => {
     await initK12();
     const sim = new QubicSimulator({ fees: "metered" });
-    sim.epochLength = 10; // cross a boundary at tick 10
+    sim.epochLength = 10; // the switch follows tick 10
     sim.deploy(28, await wasm("Hooks"));
     sim.setContractFeeReserve(28, 0n); // dormant for the whole run
 
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 11; i++) {
         sim.advance();
     }
 
