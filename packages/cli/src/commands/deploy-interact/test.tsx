@@ -8,14 +8,13 @@ import { deployProjectContracts } from "../../ops/project-deploy";
 import { activeNodeScratchDir, ensureNodeBinary, killNode, launchNode, scratchForRpc, waitTicking } from "../../ops/node";
 import { portFromRpc } from "../../ops/serve";
 import { ensureSpecProject, installSpecTypes } from "../../ops/spec-project";
-import { DEFAULT_FUNDED_SEED, DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
+import { DEFAULT_FUNDED_SEED, DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { testRuntimeSource, generateClient, extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import { EngineServer } from "@qinit/engine/server";
 import { VirtualNode } from "@qinit/engine";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
-import { DEFAULT_IDL_PATH, loadContractIdlFile } from "../../contracts/idl-file";
 import { parseCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
 import { output, type CommandArguments } from "../../args";
@@ -256,23 +255,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                 });
                 const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
                 await p.exited;
-                let output = stripAnsi((out + err).trim());
+                const output = stripAnsi((out + err).trim());
                 const ok = p.exitCode === 0;
-                if (!ok) {
-                    // append a source-mapped backtrace of the latest node trap (node.log + the slot's line map)
-                    try {
-                        const idl = loadContractIdlFile(join(root, DEFAULT_IDL_PATH));
-                        const log = join(activeNodeScratchDir(), "node.log");
-                        if (existsSync(log)) {
-                            const bt = resolveTrapBacktrace(readFileSync(log, "utf8"), {
-                                lineMapPath: idl.contracts[String(dep.slot)]?.linesJson,
-                            });
-                            if (bt?.frames.length) output += "\n\n" + formatTrapBacktrace(bt);
-                        }
-                    } catch (error: any) {
-                        output += `\n\n${String(error?.message ?? error)}`;
-                    }
-                }
                 add("tests", ok, ok ? "all passed" : "failures (see below)");
 
                 setS({

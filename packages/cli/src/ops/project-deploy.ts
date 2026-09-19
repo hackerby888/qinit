@@ -52,8 +52,6 @@ async function saveBuiltMetadata(rpc: LiteRpc, built: BuiltContract, idlPath: st
             ...built.result.idl,
             slot: built.contract.slot,
             codeHash: built.hash,
-            debugWasm: built.result.debugWasmPath ? resolve(built.result.debugWasmPath) : undefined,
-            linesJson: built.result.lineMapPath ? resolve(built.result.lineMapPath) : undefined,
         },
         idlPath,
     );

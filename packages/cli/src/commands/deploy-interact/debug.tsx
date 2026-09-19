@@ -1,14 +1,10 @@
 import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry, type DynamicContractRegistryEntry } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, type DebugEntry, type DynamicContractRegistryEntry } from "@qinit/core";
 import { describeTrace, type DecodedTrace } from "../../trace/format";
 import { entryLabel } from "../../trace/entry-label";
 import { TraceView, shownStateLines } from "../../trace/views";
-import { activeNodeScratchDir } from "../../ops/node";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
-import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { loadContractIdls, type ContractIdls } from "../../contracts/idl-lookup";
 import { siblingCalleeSources } from "../../contracts/registry";
 import type { CalleeSource } from "@qinit/build";
@@ -342,7 +338,6 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                                 name={nameOf(cur.index)}
                                 entry={entryLabel(cur.kind, cur.entry, idls.get(cur.index))}
                                 source={reg.current.find((c) => c.index === cur.index)?.source}
-                                codeHash={reg.current.find((c) => c.index === cur.index)?.codeHash}
                                 contractIdl={idls.get(cur.index)}
                                 calleeSources={siblingCalleeSources(reg.current, cur.index)}
                                 qpiHeader={qpiHeader}
@@ -365,7 +360,6 @@ function Detail({
     name,
     entry,
     source,
-    codeHash,
     contractIdl,
     calleeSources,
     qpiHeader,
@@ -377,7 +371,6 @@ function Detail({
     name: string;
     entry: string;
     source?: string;
-    codeHash?: string;
     contractIdl?: ContractIdl;
     calleeSources?: readonly CalleeSource[];
     qpiHeader?: string;
@@ -386,7 +379,6 @@ function Detail({
     bodyRows: number;
 }) {
     const [v, setV] = useState<DecodedTrace | null>(null);
-    const [bt, setBt] = useState<string>("");
     const [stateOffset, setStateOffset] = useState(0);
     useEffect(() => {
         let alive = true;
@@ -395,27 +387,10 @@ function Detail({
                 if (alive) setV(view);
             })
             .catch(() => {});
-        setBt("");
-        if (!e.ok) {
-            // trapped call: source-mapped backtrace from node.log + the slot's line map
-            try {
-                const idl = loadContractIdlFile();
-                const slotArtifact = contractIdlForSlot(idl, e.index, codeHash);
-                const log = join(activeNodeScratchDir(), "node.log");
-                if (existsSync(log)) {
-                    const b = resolveTrapBacktrace(readFileSync(log, "utf8"), {
-                        lineMapPath: slotArtifact?.linesJson,
-                    });
-                    if (b?.frames.length && alive) setBt(formatTrapBacktrace(b));
-                }
-            } catch (error: any) {
-                if (alive) setBt(String(error?.message ?? error));
-            }
-        }
         return () => {
             alive = false;
         };
-    }, [e.seq, codeHash, contractIdl]);
+    }, [e.seq, contractIdl]);
 
     useEffect(() => setStateOffset(0), [e.seq, showInternals]);
 
@@ -428,9 +403,7 @@ function Detail({
         (v?.logs.length ?? 0) +
         e.hostCalls.length +
         (e.trap ? 1 : 0);
-    // A trap backtrace takes at most half of what is left, so it can never crowd out the state diff.
-    const btLines = bt ? bt.split("\n").slice(0, Math.max(0, Math.floor((bodyRows - fixedRows) / 2))) : [];
-    const stateRows = Math.max(1, bodyRows - fixedRows - btLines.length - (btLines.length ? 1 : 0));
+    const stateRows = Math.max(1, bodyRows - fixedRows);
     const changed = v ? shownStateLines(v.stateDiff, showInternals).length : 0;
 
     useInput(
@@ -461,15 +434,6 @@ function Detail({
             ) : (
                 <Text dimColor>decoding…</Text>
             )}
-            {btLines.length ? (
-                <Box marginTop={1} flexDirection="column">
-                    {btLines.map((l, i) => (
-                        <Text key={i} color={theme.err} wrap="truncate-end">
-                            {l}
-                        </Text>
-                    ))}
-                </Box>
-            ) : null}
         </Box>
     );
 }

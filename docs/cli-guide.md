@@ -576,9 +576,7 @@ Successful deployment writes [`qinit.idl.json`](../packages/cli/src/contracts/id
 in the current project. Each slot entry may contain:
 
 - the contract IDL;
-- deployed code hash;
-- debug Wasm path;
-- source line-map path.
+- deployed code hash.
 
 Call and debug lookup reject a local artifact when both the local and deployed
 code hashes exist and differ. This prevents an upgraded slot from being decoded
@@ -800,8 +798,6 @@ Successful build artifacts normally include:
 dist/contracts/<Name>.wasm
 dist/contracts/<Name>.idl.json
 dist/contracts/<Name>.wasm.wrapper.cpp     clang path
-dist/contracts/<Name>.debug.wasm           when debug tools succeed
-dist/contracts/<Name>.lines.json            when line-map generation succeeds
 ```
 
 The built Wasm's K12 digest is shown and included in build JSON.
@@ -1097,10 +1093,6 @@ starts at `0` and still sees the first entry of a freshly enabled ring.
 
 `--trace-full` implies `--trace` and prints the state block with its container
 internals, the same view `ctrl+t` toggles in `qinit debug` (section 11).
-
-Trap enrichment reads the active Qinit node's `node.log` and the matching local
-line-map artifact. This only works when Qinit knows the launched node's scratch
-directory and still has compatible debug artifacts.
 
 ### 9.5 Interactive flow
 
@@ -1526,9 +1518,7 @@ state. `stateTruncated` therefore means bytes were genuinely dropped.
 The captured `stateDiff` belongs to that invocation. Trace rendering never reads
 live contract state; use `qinit state` to inspect current container contents.
 
-Host calls and trap text already arrive in each `DebugEntry`. For a failed call,
-the detail view also attempts a source-mapped backtrace from `node.log` and the
-local line map.
+Host calls and trap text already arrive in each `DebugEntry`, the same on both runtimes.
 
 A node records by default — core-lite's ring starts armed and `EngineServer.start()`
 enables the simulator's, so a `debug` session opened after the fact still finds the

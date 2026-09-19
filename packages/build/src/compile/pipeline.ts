@@ -126,8 +126,6 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         stderr: idlError ? `compiler IDL analysis failed: ${idlError}` : undefined,
         verify,
         warnings: warnings.length ? warnings : undefined,
-        debugWasmPath: compiled.debugWasmPath,
-        lineMapPath: compiled.lineMapPath,
     };
 }
 

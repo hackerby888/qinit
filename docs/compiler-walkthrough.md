@@ -1457,8 +1457,8 @@ so a host can report what a call changed without holding a copy of the state. Ev
 land in the contract state first saves the original bytes of the 256-byte block it overwrites. The
 journal sits in the scratch arena, claimed by rewriting the constant `io_size()` returns downward, so
 no host has to be told it exists — and a host that does not know the format simply runs the contract.
-The clang path (`packages/build/src/compile/clang.ts`) does the same after `llvm-strip`, shifting its
-debug line map through the rewriter's offset map. `QINIT_NO_STATE_JOURNAL=1` builds without one;
+The clang path (`packages/build/src/compile/clang.ts`) does the same once it links.
+`QINIT_NO_STATE_JOURNAL=1` builds without one;
 gtest shared-memory builds skip it, since several modules share one arena there.
 
 The walker is fail-closed: an opcode outside the portable profile — SIMD, atomics, `memory.init` —

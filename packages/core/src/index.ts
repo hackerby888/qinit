@@ -89,5 +89,3 @@ export type { ManagedWasiSdkStatus } from "./cache/wasi-sdk";
 export { loadConfig, loadConfigSafe, resolveCoreDir, QinitConfigError } from "./project";
 export type { QinitConfig } from "./project";
 export { debug } from "./debug/log";
-export { resolveTrapBacktrace, formatTrapBacktrace, decodeTrapCause } from "./debug/backtrace";
-export type { TrapFrame, TrapBacktrace } from "./debug/backtrace";

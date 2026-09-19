@@ -184,11 +184,9 @@ export interface ContractIdl {
     dependencies: string[];
 }
 
-// the IDL plus what the build produced: codeHash, debugWasm, linesJson
+// the IDL plus what the build produced: codeHash
 export interface ContractIdlArtifact extends ContractIdl {
     codeHash?: string;
-    debugWasm?: string;
-    linesJson?: string;
 }
 
 // idl.json on disk, contracts keyed by slot as text, e.g. { version: 5, contracts: { "29": <artifact> } }
@@ -278,11 +276,7 @@ export function parseContractIdlFile(value: unknown): ContractIdlFile {
         }
         const source = objectValue(contract, `IDL contract ${slot}`);
         optionalString(source, "codeHash");
-        optionalString(source, "debugWasm");
-        optionalString(source, "linesJson");
         artifact.codeHash = source.codeHash as string | undefined;
-        artifact.debugWasm = source.debugWasm as string | undefined;
-        artifact.linesJson = source.linesJson as string | undefined;
         parsed[slot] = artifact;
     }
 

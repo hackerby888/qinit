@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
-import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity, hexToBytes, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
-import { activeNodeScratchDir } from "../../ops/node";
+import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity, hexToBytes, type DebugEntry } from "@qinit/core";
 import {
     contractAddress,
     callFunction,
@@ -386,21 +383,6 @@ function CallOneShot({
                         return undefined;
                     }
                 };
-                // upgrade a raw trap string to a source-mapped backtrace via node.log + the slot's DWARF sidecar.
-                const enrichErr = async (raw: string): Promise<string | undefined> => {
-                    if (!raw) return undefined;
-                    try {
-                        const lineMapPath = localContractIdl?.linesJson;
-                        const log = join(activeNodeScratchDir(), "node.log");
-                        if (existsSync(log)) {
-                            const bt = resolveTrapBacktrace(readFileSync(log, "utf8"), {
-                                lineMapPath,
-                            });
-                            if (bt?.frames.length) return formatTrapBacktrace(bt);
-                        }
-                    } catch {}
-                    return raw;
-                };
                 // A slot index resolves but reads poorly as a label, so fall back to the built name the way the picker does.
                 const contractName = rc.name === String(idx) ? (localContractIdl?.name ?? rc.name) : rc.name;
                 const label = `${contractName}.${entryIdl?.name ?? (mode === "fn" ? "fn#" : "proc#") + entry}`;
@@ -429,7 +411,7 @@ function CallOneShot({
                         ok: ne ? false : true,
                         label,
                         rows: [["out", rendered], ...(info ? ([["balance", info.balance], ["address", info.address]] as [string, string][]) : [])],
-                        err: await enrichErr(ne),
+                        err: ne || undefined,
                     });
                 } else {
                     const tickInfo = await rpc.tickInfo();
@@ -542,7 +524,7 @@ function CallOneShot({
                                 ["tick", String(tick)],
                                 ...(info ? ([["balance", info.balance], ["address", info.address]] as [string, string][]) : []),
                             ],
-                            err: (await enrichErr(await nodeErr())) || (!r.ok ? r.message : undefined),
+                            err: (await nodeErr()) || (!r.ok ? r.message : undefined),
                         });
                         const after = detail === "processed" ? await feeReserve() : undefined;
                         if (after !== undefined && after <= 0n) {

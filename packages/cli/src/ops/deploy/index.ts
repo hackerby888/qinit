@@ -226,8 +226,6 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
                     ...build.idl,
                     slot,
                     codeHash: hash,
-                    debugWasm: build.debugWasmPath ? resolve(build.debugWasmPath) : undefined,
-                    linesJson: build.lineMapPath ? resolve(build.lineMapPath) : undefined,
                 },
                 options.idlPath,
             );
