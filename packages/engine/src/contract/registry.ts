@@ -62,11 +62,17 @@ export class ContractRegistry {
         extraImports?: WebAssembly.Imports,
         initialize = true,
         initialState?: Uint8Array,
+        minIoBytes?: number,
     ): Contract {
         const prev = this.contracts.get(slot);
         // snapshot old state before the new instance replaces it; a seeded state stands in for it
         const prevState = initialState ?? (prev ? prev.state() : null);
         const c = Contract.load(wasm, slot, host, extMem, extraImports);
+
+        // core refuses a module whose io region cannot hold its engine carve; a node that mirrors core names the same minimum, in core's words.
+        if (minIoBytes !== undefined && c.ioBytes < minIoBytes) {
+            throw new Error("contract io region too small for the engine carve (rebuild the contract)");
+        }
 
         // a seeded state must fit the new layout or its MIGRATE input; checked before the resident contract is replaced
         if (initialState) {

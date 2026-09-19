@@ -449,6 +449,11 @@ export class Contract {
         this.readRegistry();
     }
 
+    /** What `io_size()` reports: the three dispatch buffers and the scratch arena behind them. */
+    get ioBytes(): number {
+        return this.arenaEnd - this.ioBase;
+    }
+
     static load(bytes: Uint8Array, slot: number, host: HostServices, externalMemory?: WebAssembly.Memory, extraImports?: WebAssembly.Imports): Contract {
         validateContractIndexSignature(bytes);
         const wasmModule = new WebAssembly.Module(bytes as BufferSource);

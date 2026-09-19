@@ -8,6 +8,7 @@ import { VirtualNode } from "@qinit/engine";
 import { EngineServer } from "@qinit/engine/server";
 import { buildUploadTx, uploadContract } from "@qinit/cli/ops/deploy/upload";
 import { encodeDeploy, LITE_TX, TX_TICK_OFFSET } from "@qinit/proto";
+import { CORE_IO_CAPACITY_BYTES } from "@qinit/core/wasm/sizing";
 
 const core = process.env.QINIT_CORE;
 if (!core) throw new Error("QINIT_CORE is required");
@@ -29,13 +30,13 @@ if (freeSlots.length < 2) {
 }
 const [slot, otherSlot] = freeSlots;
 
-async function compileCounter(targetSlot: number): Promise<Uint8Array> {
+async function compileCounter(targetSlot: number, arenaSizeBytes = DEFAULT_COMPILE_ARENA_SIZE_BYTES): Promise<Uint8Array> {
     const compiled = await compileContractWithTypeScript({
         source: readFileSync(resolve("fixtures/Counter.h"), "utf8"),
         contractName: "Counter",
         slot: targetSlot,
         qpiHeader: loadQpiHeader(core!),
-        arenaSizeBytes: DEFAULT_COMPILE_ARENA_SIZE_BYTES,
+        arenaSizeBytes,
     });
     if (compiled.diagnostics.some((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR) || !compiled.wasm.length) {
         fail("Counter did not compile");
@@ -45,6 +46,7 @@ async function compileCounter(targetSlot: number): Promise<Uint8Array> {
 
 const counter = await compileCounter(slot);
 const counterForOtherSlot = await compileCounter(otherSlot);
+const counterWithSmallArena = await compileCounter(slot, 1024 * 1024);
 const junk = Uint8Array.from({ length: 64 }, (_, index) => (index * 37 + 11) & 0xff);
 
 interface RefusalCase {
@@ -60,6 +62,7 @@ const cases: RefusalCase[] = [
     { name: "a digest the upload never announced", module: counter, deploy: { finalHashHex: "ff".repeat(32) }, code: "hash-mismatch" },
     { name: "bytes that are not a wasm module", module: junk, deploy: {}, code: "not-wasm" },
     { name: "a module built for another slot", module: counterForOtherSlot, deploy: {}, code: "load-failed" },
+    { name: "a module whose io region is smaller than core's carve", module: counterWithSmallArena, deploy: {}, code: "load-failed" },
     { name: "a module the node can arm", module: counter, deploy: {}, code: "ok" },
 ];
 
@@ -109,7 +112,7 @@ async function runCases(name: string, rpc: LiteRpc): Promise<DeployOutcome[]> {
     return outcomes;
 }
 
-const simulatorServer = new EngineServer(new VirtualNode({ slotBase: registry.slotBase, slotCount: registry.slotCount }));
+const simulatorServer = new EngineServer(new VirtualNode({ slotBase: registry.slotBase, slotCount: registry.slotCount, minIoBytes: CORE_IO_CAPACITY_BYTES }));
 const simulator = await simulatorServer.start(0, 25);
 
 try {

@@ -14,6 +14,7 @@ import {
     createUploadSessionId,
     LITE_TX,
 } from "@qinit/proto";
+import { CORE_IO_CAPACITY_BYTES } from "@qinit/core/wasm/sizing";
 import { VirtualNode } from "../../src/transport";
 
 const SEED = "a".repeat(55);
@@ -304,6 +305,29 @@ test("a processed DEPLOY records what the node did with it", async () => {
     chunks.forEach((bytes, seq) => handle(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: 21n, seq, bytes })));
     expect(() => deploy(21n, "ff".repeat(32))).toThrow("deploy names a different module digest");
     expect((await lastDeploy())?.code).toBe("hash-mismatch");
+});
+
+// The fixtures carry a 1 MiB arena, which a core node refuses: a node asked to hold core's minimum refuses it the same way, on both deploy paths.
+test("a node holding core's io minimum refuses a small-arena module in core's words", async () => {
+    const module = await wasm("DigestProbeDyn0");
+    const strict = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false, minIoBytes: CORE_IO_CAPACITY_BYTES });
+    const tooSmall = "contract io region too small for the engine carve (rebuild the contract)";
+
+    expect(() => strict.deploy(DYN, module, "DigestProbe")).toThrow(tooSmall);
+    expect((await strict.dynRegistry()).contracts.find((contract) => contract.index === DYN)?.armed).toBeFalsy();
+
+    const handle = (inputType: number, payload: Uint8Array) => (strict as any).handleDeployTx(inputType, payload);
+    const finalHashHex = await k12Hex(module);
+    const chunks = splitUploadChunks(module);
+    handle(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId: 41n, totalSize: module.length, chunkCount: chunks.length, finalHashHex }));
+    chunks.forEach((bytes, seq) => handle(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: 41n, seq, bytes })));
+    expect(() => handle(LITE_TX.DEPLOY, encodeDeploy({ sessionId: 41n, targetSlot: DYN, finalHashHex }))).toThrow(tooSmall);
+    expect((await strict.dynUpload()).lastDeploy).toMatchObject({ sessionId: "41", ok: false, code: "load-failed", message: tooSmall });
+
+    // Without a minimum the same module arms, as every embedder and test of the engine relies on.
+    const lenient = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false });
+    lenient.deploy(DYN, module, "DigestProbe");
+    expect((await lenient.dynRegistry()).contracts.find((contract) => contract.index === DYN)?.armed).toBe(true);
 });
 
 test("a DEPLOY that arms keeps its verdict against a late resend, and a module that cannot load says why", async () => {

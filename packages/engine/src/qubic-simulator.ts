@@ -925,7 +925,12 @@ export class QubicSimulator {
         }
     }
 
-    deploy(slot: number, wasm: Uint8Array, externalMemory?: WebAssembly.Memory, options: { initialize?: boolean; initialState?: Uint8Array } = {}): Contract {
+    deploy(
+        slot: number,
+        wasm: Uint8Array,
+        externalMemory?: WebAssembly.Memory,
+        options: { initialize?: boolean; initialState?: Uint8Array; minIoBytes?: number } = {},
+    ): Contract {
         return this.runOperation(
             "deploy",
             () => {
@@ -933,7 +938,16 @@ export class QubicSimulator {
                 let contract: Contract;
 
                 try {
-                    contract = this.registry.deploy(slot, wasm, this.host, externalMemory, undefined, options.initialize ?? true, options.initialState);
+                    contract = this.registry.deploy(
+                        slot,
+                        wasm,
+                        this.host,
+                        externalMemory,
+                        undefined,
+                        options.initialize ?? true,
+                        options.initialState,
+                        options.minIoBytes,
+                    );
                 } finally {
                     this.logStore?.end();
                 }

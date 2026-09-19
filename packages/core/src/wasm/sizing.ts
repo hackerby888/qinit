@@ -16,6 +16,9 @@ export const IO_BUFFER_BYTES = INPUT_BUFFER_BYTES + OUTPUT_BUFFER_BYTES + LOCALS
 /** Scratch arena a contract gets when the build does not ask for a different size. */
 export const DEFAULT_ARENA_BYTES = 1024 * 1024 * 1024;
 
+/** The `io_size()` a core node requires before it arms a module: the three buffers plus the full default arena. */
+export const CORE_IO_CAPACITY_BYTES = IO_BUFFER_BYTES + DEFAULT_ARENA_BYTES;
+
 /** Arena for gtest builds, where several modules are packed into one address space. */
 export const DEFAULT_GTEST_ARENA_BYTES = 16 * 1024 * 1024;
 
