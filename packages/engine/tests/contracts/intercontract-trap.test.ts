@@ -75,6 +75,27 @@ test("a trapped nested function returns zero output and remains callable", async
     expect(sim.isFaulted()).toBe(false);
 });
 
+test("a warp spans one root call tree and a prank reaches callees, issuance and callbacks", async () => {
+    await initK12();
+
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("QpiDualCallee"));
+    sim.deploy(29, await wasm("QpiDual"));
+    // the self-transfer under the prank needs a balance to move.
+    sim.fund(sim.contractId(29), 10n);
+
+    const bob = new Uint8Array(32).fill(0xbb);
+    const input = new Uint8Array(8);
+    new DataView(input.buffer).setBigUint64(0, BigInt(sim.currentTick), true);
+
+    // each flag is one check inside Cheat; see the fixture for which.
+    expect(words(sim.procedure(29, 3, input, { invocator: bob }))).toEqual([0x1ffn]);
+    expect(sim.isFaulted()).toBe(false);
+
+    const observed = words(sim.query(28, 3));
+    expect(observed.slice(0, 2)).toEqual([BigInt(sim.currentTick), BigInt(sim.currentEpoch)]);
+});
+
 test("a nested abort halts the engine and the fault names the callee", async () => {
     await initK12();
 

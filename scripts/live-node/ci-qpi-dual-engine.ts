@@ -240,6 +240,26 @@ async function recover(base: string, rpc: LiteRpc, slot: number, seed: string): 
     }
 }
 
+// the driver checks the tick it runs in, so the transaction carries the tick it is scheduled for.
+async function cheat(base: string, rpc: LiteRpc, slot: number, seed: string): Promise<void> {
+    const tick = (await rpc.tickInfo()).tick + 6;
+    const result = await invokeProcedure({
+        seed,
+        rpcBaseUrl: base,
+        rpc,
+        contractIndex: slot,
+        procedureId: 3,
+        amount: 0,
+        inputFormat: `${tick}uint64`,
+        tick,
+        confirm: true,
+        confirmTimeoutMs: 60_000,
+    });
+    if (!result.ok || !result.confirmed || !result.included) {
+        fail(`${base} slot ${slot} Cheat was not included: ${JSON.stringify(result)}`);
+    }
+}
+
 async function soakRecoveries(base: string, rpc: LiteRpc, artifacts: Artifact[], compiler: CompilerBackendLabel, seed: string): Promise<void> {
     const driver = artifacts.find((item) => item.compiler === compiler && item.role === "driver")!;
     const callee = artifacts.find((item) => item.compiler === compiler && item.role === "callee")!;
@@ -355,6 +375,16 @@ async function execute(base: string, rpc: LiteRpc, artifacts: Artifact[], compil
         }
     }
 
+    // each bit of the flags is one warp or prank scope check in the driver's Cheat procedure.
+    const cheatTraceStart = recoveryTrace.entries.reduce((latest, entry) => Math.max(latest, entry.seq), recoveryTraceStart);
+    await cheat(base, rpc, driver.slot, seed);
+    const cheatTrace = await rpc.debugTrace(cheatTraceStart, 32);
+    const cheatDriver = cheatTrace.entries.find((entry) => entry.index === driver.slot && entry.entry === 3 && entry.kind === 1 && entry.ok);
+    const cheatFlags = cheatDriver ? uint64(hexToBytes(cheatDriver.outHex), 0) : undefined;
+    if (cheatFlags !== 0x1ffn) {
+        fail(`${base} ${compiler} cheat scope flags: ${cheatFlags === undefined ? "no trace" : `0x${cheatFlags.toString(16)}`} != 0x1ff`);
+    }
+
     await plainTransfer(base, rpc, driver.slot, seed);
     await plainTransfer(base, rpc, driver.slot, seed);
 
@@ -386,7 +416,7 @@ async function execute(base: string, rpc: LiteRpc, artifacts: Artifact[], compil
 
 function assertExpected(result: Result, label: string): void {
     const driver = new DataView(result.driverOutput.buffer, result.driverOutput.byteOffset, result.driverOutput.byteLength);
-    const expected = [63n, 4n, 16n, 16n, 16n, 11n, 57n, 2n, 0n, 65n, 4n, 1n, 2n, 0x51494e4954574153n];
+    const expected = [63n, 5n, 16n, 16n, 16n, 11n, 57n, 2n, 0n, 65n, 4n, 1n, 2n, 0x51494e4954574153n];
     expected.forEach((value, index) => {
         const actual = driver.getBigUint64((index + 1) * 8, true);
         if (actual !== value) {

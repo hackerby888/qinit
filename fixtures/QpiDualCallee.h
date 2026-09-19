@@ -29,6 +29,16 @@ struct QpiDualCallee : public ContractBase
     };
     struct FailRead_input { sint64 divisor; };
     struct FailRead_output { sint64 quotient; };
+    struct Observe_input {};
+    struct Observe_output
+    {
+        uint64 tick;
+        uint64 epoch;
+        id originator;
+        id invocator;
+    };
+    struct Warp_input { uint64 ticks; };
+    struct Warp_output {};
 
     INITIALIZE()
     {
@@ -62,11 +72,27 @@ struct QpiDualCallee : public ContractBase
         output.quotient = div<sint64>(INT64_MIN, input.divisor);
     }
 
+    PUBLIC_FUNCTION(Observe)
+    {
+        output.tick = qpi.tick();
+        output.epoch = qpi.epoch();
+        output.originator = qpi.originator();
+        output.invocator = qpi.invocator();
+    }
+
+    // leaves value and calls alone, so the matrix's expected callee words hold.
+    PUBLIC_PROCEDURE(Warp)
+    {
+        CC_WARP_TICK(input.ticks);
+    }
+
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
     {
         REGISTER_USER_PROCEDURE(Add, 1);
         REGISTER_USER_PROCEDURE(FailAfterWrite, 2);
         REGISTER_USER_FUNCTION(Read, 1);
         REGISTER_USER_FUNCTION(FailRead, 2);
+        REGISTER_USER_PROCEDURE(Warp, 3);
+        REGISTER_USER_FUNCTION(Observe, 3);
     }
 };

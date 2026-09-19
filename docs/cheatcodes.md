@@ -57,6 +57,24 @@ Consensus is not at risk: `CMakeLists.txt:72` makes `LITE_WASM_SC` a fatal error
 the wasm contract engine only exists in testnet builds. The `#if defined(TESTNET)` guards inside the
 handler are a second layer, not the first.
 
+### Warp and prank scope
+
+Both runtimes follow Foundry's split. A warp works like `vm.warp`: it applies to the whole call tree. A
+prank works like `vm.prank(who, who)`: `msg.sender` changes for one hop, `tx.origin` changes for the whole
+subtree.
+
+| Cheat         | Scope                                                                                                                                                                                                                                                                              |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CC_WARP_*`   | Lasts for one root dispatch. Every transaction, query and system procedure starts unwarped; nested calls see the caller's warp, and a callee's warp stays visible to its caller.                                                                                                   |
+| `CC_PRANK`    | The frame reads `invocator = originator = who` and the given reward. Every call, callback and incoming transfer it causes sees `originator = who`, with the calling contract as invocator, and `issueAsset` accepts `who` as the issuer. The reward that moves stays the real one. |
+| `CC_UNPRANK`  | Restores the frame's own dispatched caller and reward. A prank never outlives its frame, so an unpaired `CC_PRANK` cannot reach a later call.                                                                                                                                      |
+| every mutator | Refused (`-3`) in any function frame, including a function another contract calls. Allowed in procedures, system procedures, `INITIALIZE` and `MIGRATE`.                                                                                                                           |
+
+`runContractTesting` makes every call a root dispatch. `runCompiledGtest` runs a test's steps inside the
+runner's own procedure, so a warp made in one step is still in effect in the next steps of that test.
+`fixtures/QpiDual.h` `Cheat` checks every row above, and `ci-qpi-dual-engine.ts` runs it on both compilers and
+both runtimes.
+
 ## 3. Strings cost nothing
 
 The TypeScript backend has no string codegen at all, and QPI bans string literals. Both problems go away

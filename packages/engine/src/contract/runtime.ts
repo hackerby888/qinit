@@ -180,12 +180,14 @@ export interface HostServices {
     cheatPrint(slot: number, id: number, part: number, value: bigint, bytes: Uint8Array): void;
     cheatDeal(id: Id, amount: bigint): bigint;
     cheatWarp(ticks: number, epochs: number): bigint;
-    // core zeroes the warp offsets in createCallContext (dispatch.h:82 -> qpi_services.h:459), so a
-    // CC_WARP_* lasts exactly one dispatch frame. optional: a host with no cheats need not implement it.
-    clearCheatWarp?(): void;
+    // bracket every dispatch frame, so a CC_WARP_* lasts one root dispatch and its nested frames share it, as in core.
+    // optional: a host with no cheats need not implement them.
+    enterFrame?(): void;
+    exitFrame?(): void;
     pauseLog(): void;
     resumeLog(): void;
-    transfer(slot: number, dest: Id, amount: bigint, transferType: number): bigint;
+    // originator is the calling frame's, which a contract's incoming-transfer callback observes; absent for a transfer no contract made.
+    transfer(slot: number, dest: Id, amount: bigint, transferType: number, originator?: Id): bigint;
     burn(slot: number, amount: bigint, burnedFor: number): bigint;
     getEntity(id: Id): Entity | null;
     isContractId(id: Id): number;
@@ -260,7 +262,7 @@ export interface HostServices {
     ): number;
     getOracleQuery(queryId: bigint): Uint8Array | null;
     getOracleReply(queryId: bigint): Uint8Array | null;
-    distributeDividends(slot: number, amountPerShare: bigint): number;
+    distributeDividends(slot: number, amountPerShare: bigint, originator?: Id): number;
     callFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Id): { error: number; output: Uint8Array };
     invokeProcedure(
         callerSlot: number,
@@ -360,7 +362,7 @@ export class Contract {
     private journalOverflowed = false;
     private dispatchDepth = 0;
     private executionKinds: number[] = [];
-    // What CC_PRANK displaced, so CC_UNPRANK restores the real caller rather than guessing.
+    // what CC_PRANK displaced in the running frame, so CC_UNPRANK restores that frame's real caller; each frame starts with none.
     private prankSaved: { originator: Id; invocator: Id; invocationReward: bigint } | null = null;
     cost = 0n;
     lastCost = 0n;
@@ -652,9 +654,6 @@ export class Contract {
     }
 
     invoke(kind: number, inputType: number, input: Uint8Array = new Uint8Array(0), context: ContractCallContext = {}): Uint8Array {
-        // every dispatch frame begins here — registry.fire, read-only queries and inter-contract FUNCTION
-        // calls alike — so the per-frame warp reset belongs here rather than in fire().
-        this.host.clearCheatWarp?.();
         // Any non-function may write; conservative, a no-op procedure still bumps.
         if (kind !== CONTRACT_ENTRY_KIND.FUNCTION) {
             this.host.bumpStateVersion(this.slot);
@@ -738,6 +737,10 @@ export class Contract {
             : null;
         const startedAt = recorder ? performance.now() : 0;
 
+        // every dispatch frame passes here: registry.fire, read-only queries and inter-contract calls alike.
+        const outerPrank = this.prankSaved;
+        this.prankSaved = null;
+        this.host.enterFrame?.();
         this.dispatchDepth++;
         this.executionKinds.push(kind);
         try {
@@ -771,6 +774,8 @@ export class Contract {
         } finally {
             this.executionKinds.pop();
             this.dispatchDepth--;
+            this.host.exitFrame?.();
+            this.prankSaved = outerPrank;
 
             if (nested) {
                 const currentMemory = this.u8();
@@ -846,6 +851,9 @@ export class Contract {
             : null;
         const startedAt = recorder ? performance.now() : 0;
 
+        const outerPrank = this.prankSaved;
+        this.prankSaved = null;
+        this.host.enterFrame?.();
         this.executionKinds.push(CONTRACT_ENTRY_KIND.MIGRATE);
         try {
             this.ex.dispatch(CONTRACT_ENTRY_KIND.MIGRATE >>> 0, 0, oldStateOffset >>> 0, 0, localsOffset >>> 0);
@@ -864,6 +872,8 @@ export class Contract {
             throw error instanceof ContractExecutionError ? error : new ContractExecutionError(this.slot, CONTRACT_ENTRY_KIND.MIGRATE, 0, error);
         } finally {
             this.executionKinds.pop();
+            this.host.exitFrame?.();
+            this.prankSaved = outerPrank;
         }
 
         if (recorder) {
@@ -1008,7 +1018,7 @@ export class Contract {
         }
     }
 
-    // Rewrites the guest's context view only: the engine's caller attribution is untouched, so a prank changes what the contract reads, not the accounting.
+    // nested calls, callbacks and issueAsset read the caller from this context, so a prank reaches them; the reward moved stays the real one.
     private cheatPrank(caller: Id | null, invocationReward: bigint, len: number): bigint {
         if (caller && len !== 32) {
             return CHEAT_ERR.unknownOp;
@@ -1090,19 +1100,19 @@ export class Contract {
         };
     }
 
-    // lhost: value transfer and balance reads, delegated to Layer 2.
-    private ledgerImports(u8: () => Uint8Array): Record<string, Function> {
+    // lhost: value transfer and balance reads, delegated to Layer 2. the originator is a copy, since a self-transfer re-enters and rewrites the context.
+    private ledgerImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
         return {
             // value / ledger (delegated to Layer 2; return the contract's new balance per qpi_spectrum_impl.h)
             transfer: (destOff: number, amount: bigint) => {
                 const dest = u8().slice(destOff, destOff + 32);
-                const r = this.host.transfer(this.slot, dest, amount, 2 /*qpiTransfer*/);
+                const r = this.host.transfer(this.slot, dest, amount, 2 /*qpiTransfer*/, contextView().originator.slice() as Id);
                 this.recHost("transfer", () => `→ ${shortId(dest)} ${amount}${r < 0n ? " ✗" : ""}`);
                 return r;
             },
             transferTyped: (destOff: number, amount: bigint, type: number) => {
                 const dest = u8().slice(destOff, destOff + 32);
-                const r = this.host.transfer(this.slot, dest, amount, type & 0xff);
+                const r = this.host.transfer(this.slot, dest, amount, type & 0xff, contextView().originator.slice() as Id);
                 this.recHost("transfer", () => `→ ${shortId(dest)} ${amount} (type ${type & 0xff})${r < 0n ? " ✗" : ""}`);
                 return r;
             },
@@ -1278,7 +1288,7 @@ export class Contract {
     }
 
     // lhost: oracle query, subscribe, and reply reads over opaque sized buffers.
-    private oracleImports(u8: () => Uint8Array): Record<string, Function> {
+    private oracleImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
         return {
             // oracle query/subscribe/read — the query/reply are opaque sized buffers (the contract owns the typing)
             queryOracle: (ifaceIdx: number, queryOff: number, querySize: number, replySize: number, procId: number, timeout: number, fee: bigint) =>
@@ -1322,7 +1332,7 @@ export class Contract {
                 return 1;
             },
             distributeDividends: (amountPerShare: bigint) => {
-                const r = this.host.distributeDividends(this.slot, amountPerShare);
+                const r = this.host.distributeDividends(this.slot, amountPerShare, contextView().originator.slice() as Id);
                 this.recHost("distributeDividends", () => `${amountPerShare}/share`);
                 return r;
             },
@@ -1376,11 +1386,11 @@ export class Contract {
             ...this.coreImports(u8),
             ...this.timeImports(),
             ...this.identityImports(u8),
-            ...this.ledgerImports(u8),
+            ...this.ledgerImports(u8, contextView),
             ...this.assetImports(u8, contextView),
             ...this.shareRightsImports(u8, contextView),
             ...this.platformImports(u8),
-            ...this.oracleImports(u8),
+            ...this.oracleImports(u8, contextView),
             ...this.nestedCallImports(u8, contextView),
         };
 

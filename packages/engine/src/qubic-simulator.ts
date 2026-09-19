@@ -196,13 +196,20 @@ export class QubicSimulator {
                 this.cheatEpochOffset += epochs;
                 return BigInt(ticks ? this.cheatTickOffset : this.cheatEpochOffset);
             },
-            clearCheatWarp: () => {
-                this.cheatTickOffset = 0;
-                this.cheatEpochOffset = 0;
+            enterFrame: () => {
+                this.openFrames++;
+            },
+            exitFrame: () => {
+                this.openFrames--;
+
+                if (this.openFrames === 0) {
+                    this.cheatTickOffset = 0;
+                    this.cheatEpochOffset = 0;
+                }
             },
             pauseLog: () => this.logStore?.pause(),
             resumeLog: () => this.logStore?.resume(),
-            transfer: (slot, dest, amount, type) => this.transfer(slot, dest, amount, type),
+            transfer: (slot, dest, amount, type, originator) => this.transfer(slot, dest, amount, type, originator),
             burn: (slot, amount, burnedFor) => this.burn(slot, amount, burnedFor),
             getEntity: (id) => this.getEntity(id),
             queryFeeReserve: (callerSlot, contractIndex) => this.fees.queryFeeReserve(callerSlot, contractIndex),
@@ -256,7 +263,7 @@ export class QubicSimulator {
             getPrevSpectrumDigest: () => this.prevSpectrumDigestOverride ?? this.ticking.getPrevSpectrumDigest(),
             getPrevUniverseDigest: () => this.ticking.getPrevUniverseDigest(),
             getPrevComputerDigest: () => this.ticking.getPrevComputerDigest(),
-            distributeDividends: (slot, amountPerShare) => this.distributeDividends(slot, amountPerShare),
+            distributeDividends: (slot, amountPerShare, originator) => this.distributeDividends(slot, amountPerShare, originator),
             callFunction: (callerSlot, calleeIndex, inputType, input, originator) => this.callFunction(callerSlot, calleeIndex, inputType, input, originator),
             invokeProcedure: (callerSlot, calleeIndex, inputType, input, reward, originator) =>
                 this.invokeProcedure(callerSlot, calleeIndex, inputType, input, reward, originator),
@@ -424,6 +431,8 @@ export class QubicSimulator {
     // Core has no id-keyed energy read — it resolves a spectrum index first; kept as a convenience. Warp offsets shift only what a contract observes.
     private cheatTickOffset = 0;
     private cheatEpochOffset = 0;
+    // contract frames open across every instance; the warp is dropped when the root one closes, so its trace entry keeps the real tick.
+    private openFrames = 0;
 
     /** Sets a balance outright rather than transferring, which is the point of a deal. */
     private cheatDeal(id: Id, amount: bigint): bigint {
@@ -534,7 +543,7 @@ export class QubicSimulator {
         return contractId.lane1 === 0n && contractId.lane2 === 0n && contractId.lane3 === 0n && contractId.lane0 < BigInt(MAX_NUMBER_OF_CONTRACTS);
     }
 
-    private transfer(slot: number, destination: Id, amount: bigint, type: number): bigint {
+    private transfer(slot: number, destination: Id, amount: bigint, type: number, originator?: Id): bigint {
         if (this.pitDepth > 0 && this.contractSlotOf(destination) >= 0) {
             return INVALID_AMOUNT;
         }
@@ -554,7 +563,7 @@ export class QubicSimulator {
 
         this.decreaseEnergy(sourceIndex, amount);
         this.increaseEnergy(destination, amount);
-        this.notifyContractOfIncomingTransfer(destination, source, amount, type);
+        this.notifyContractOfIncomingTransfer(destination, source, amount, type, originator);
         this.logQuTransfer(source, destination, amount);
 
         return remaining;
@@ -697,7 +706,7 @@ export class QubicSimulator {
         }
 
         if (callback.fee > 0n) {
-            const feeResult = this.transfer(callerSlot, this.contractId(counterpartyOwnershipManager), callback.fee, TRANSFER_TYPE_QPI_TRANSFER);
+            const feeResult = this.transfer(callerSlot, this.contractId(counterpartyOwnershipManager), callback.fee, TRANSFER_TYPE_QPI_TRANSFER, originator);
             if (feeResult < 0n) {
                 return -callback.fee;
             }
@@ -783,7 +792,7 @@ export class QubicSimulator {
         });
     }
 
-    private distributeDividends(slot: number, amountPerShare: bigint): number {
+    private distributeDividends(slot: number, amountPerShare: bigint, originator?: Id): number {
         if (this.pitDepth > 0) {
             return 0;
         }
@@ -814,7 +823,7 @@ export class QubicSimulator {
 
             const dividend = amountPerShare * possession.shares;
             this.increaseEnergy(possession.possessor, dividend);
-            this.notifyContractOfIncomingTransfer(possession.possessor, contractId, dividend, TRANSFER_TYPE_QPI_DISTRIBUTE_DIVIDENDS);
+            this.notifyContractOfIncomingTransfer(possession.possessor, contractId, dividend, TRANSFER_TYPE_QPI_DISTRIBUTE_DIVIDENDS, originator);
             this.logQuTransfer(contractId, possession.possessor, dividend);
         }
 
@@ -845,7 +854,8 @@ export class QubicSimulator {
         return this.assets.assetUniverse();
     }
 
-    private notifyContractOfIncomingTransfer(destination: Id, source: Id, amount: bigint, type: number): void {
+    // a contract's transfer passes its frame's originator, and core then shows the callback that originator with the source contract as invocator.
+    private notifyContractOfIncomingTransfer(destination: Id, source: Id, amount: bigint, type: number, originator?: Id): void {
         if (amount <= 0n) {
             return;
         }
@@ -869,6 +879,7 @@ export class QubicSimulator {
         this.pitDepth++;
         try {
             this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.POST_INCOMING_TRANSFER, input, {
+                ...(originator ? { invocator: source, originator } : {}),
                 entryPoint: SYSTEM_PROCEDURES.POST_INCOMING_TRANSFER,
             });
         } finally {
@@ -1211,7 +1222,7 @@ export class QubicSimulator {
             return { error: CALL_ERROR_ALLOCATION_FAILED, output: EMPTY };
         }
 
-        const transferredReward = this.transferInvocationReward(callerSlot, calleeIndex, reward);
+        const transferredReward = this.transferInvocationReward(callerSlot, calleeIndex, reward, originator);
 
         this.callDepth++;
 
@@ -1245,7 +1256,7 @@ export class QubicSimulator {
         };
     }
 
-    private transferInvocationReward(callerSlot: number, calleeIndex: number, reward: bigint): bigint {
+    private transferInvocationReward(callerSlot: number, calleeIndex: number, reward: bigint, originator: Id): bigint {
         const callerId = this.contractId(callerSlot);
         if (this.pitDepth > 0 || reward < 0n || reward > MAX_AMOUNT || !this.decreaseEnergy(this.spectrumIndex(callerId), reward)) {
             return 0n;
@@ -1253,7 +1264,7 @@ export class QubicSimulator {
 
         const calleeId = this.contractId(calleeIndex);
         this.increaseEnergy(calleeId, reward);
-        this.notifyContractOfIncomingTransfer(calleeId, callerId, reward, TRANSFER_TYPE_PROCEDURE_INVOCATION_BY_OTHER_CONTRACT);
+        this.notifyContractOfIncomingTransfer(calleeId, callerId, reward, TRANSFER_TYPE_PROCEDURE_INVOCATION_BY_OTHER_CONTRACT, originator);
         this.logQuTransfer(callerId, calleeId, reward);
         return reward;
     }
@@ -1272,7 +1283,7 @@ export class QubicSimulator {
             return INVALID_PROPOSAL_INDEX;
         }
 
-        const invocationReward = this.transferInvocationReward(callerSlot, calleeIndex, reward);
+        const invocationReward = this.transferInvocationReward(callerSlot, calleeIndex, reward, originator);
 
         this.callDepth++;
 
@@ -1304,7 +1315,7 @@ export class QubicSimulator {
             return 0;
         }
 
-        const invocationReward = this.transferInvocationReward(callerSlot, calleeIndex, reward);
+        const invocationReward = this.transferInvocationReward(callerSlot, calleeIndex, reward, originator);
 
         this.callDepth++;
 
