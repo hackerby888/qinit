@@ -32,18 +32,35 @@ test("invocationReward credits the contract + fires POST_INCOMING_TRANSFER (proc
     await initK12();
     const sim = new QubicSimulator();
     sim.deploy(28, await wasm("Vault"));
+    sim.fund(USER, 100n);
     sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n }); // Deposit, 100 Qu
     const g = get(sim, 28);
     expect(g.totalReceived).toBe(100n); // Deposit read qpi.invocationReward()
     expect(g.incomingCount).toBe(1n); // PIT fired before the procedure
     expect(g.lastIncoming).toBe(100n);
     expect(sim.balanceOf(28)).toBe(100n); // contract credited
+    expect(sim.balance(USER)).toBe(0n); // and the invocator debited
+});
+
+// core's harness debits the invocator first and returns without running the procedure when that fails
+test("a reward the invocator cannot pay skips the procedure and mints nothing", async () => {
+    await initK12();
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("Vault"));
+    sim.fund(USER, 99n);
+    expect(sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n }).length).toBe(0);
+    const g = get(sim, 28);
+    expect(g.totalReceived).toBe(0n);
+    expect(g.incomingCount).toBe(0n); // no PIT either
+    expect(sim.balanceOf(28)).toBe(0n);
+    expect(sim.balance(USER)).toBe(99n);
 });
 
 test("transfer to a user moves balance, no PIT; insufficient transfer is a no-op", async () => {
     await initK12();
     const sim = new QubicSimulator();
     sim.deploy(28, await wasm("Vault"));
+    sim.fund(USER, 100n);
     sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n });
     expect(send(sim, 28, USER, 30n)).toBe(70n); // returns remaining balance
     expect(sim.balanceOf(28)).toBe(70n);
@@ -58,6 +75,7 @@ test("transfer at the balance boundary neither overdraws nor mints", async () =>
     await initK12();
     const sim = new QubicSimulator();
     sim.deploy(28, await wasm("Vault"));
+    sim.fund(USER, 100n);
     sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n });
     const supply = sim.spectrumInfo().totalAmount;
 
@@ -76,6 +94,7 @@ test("transfer host events show eight chars from both ends of a Qubic identity",
     await initK12();
     const sim = new QubicSimulator();
     sim.deploy(28, await wasm("Vault"));
+    sim.fund(USER, 100n);
     sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n });
     sim.setDebug(true);
 
@@ -94,6 +113,7 @@ test("contract-to-contract transfer notifies only for positive amounts", async (
     const sim = new QubicSimulator();
     sim.deploy(28, await wasm("Vault"));
     sim.deploy(29, await wasm("Vault29"));
+    sim.fund(USER, 100n);
     sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n });
     expect(send(sim, 28, contractId(29), 0n)).toBe(100n);
     expect(get(sim, 29).incomingCount).toBe(0n);

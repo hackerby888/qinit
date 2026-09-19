@@ -222,7 +222,6 @@ export async function runContractTesting(
             pushShadowsToEngine();
             const input = read(inPtr, inLen);
             const origin = id32(originPtr);
-            if (amount > 0n) sim.decreaseEnergy(sim.spectrumIndex(origin), BigInt(amount));
             let out: Uint8Array;
             let code = 0;
             try {

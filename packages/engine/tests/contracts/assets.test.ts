@@ -83,7 +83,9 @@ test("Dividend: distributeDividends debits balance + guards on insufficient fund
         return b;
     };
 
-    sim.procedure(28, 1, new Uint8Array(0), { reward: 1000000n }); // Fund -> balance 1,000,000
+    const funder = new Uint8Array(32).fill(0xab);
+    sim.fund(funder, 1000000n);
+    sim.procedure(28, 1, new Uint8Array(0), { invocator: funder, reward: 1000000n }); // Fund -> balance 1,000,000
     expect(sim.balanceOf(28)).toBe(1000000n);
 
     expect(readUint64LE(sim.procedure(28, 2, distIn(1n)))).toBe(1n); // 1 * 676 IPO shares = 676 <= 1,000,000

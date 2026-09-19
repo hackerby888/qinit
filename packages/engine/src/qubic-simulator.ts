@@ -1341,8 +1341,11 @@ export class QubicSimulator {
         return this.runOperation(
             "contract-procedure",
             () => {
+                // like core's test harness: the reward comes out of the invocator, and a caller who cannot pay does not get the procedure run
                 if (reward > 0n) {
-                    this.increaseEnergy(this.contractId(slot), reward);
+                    if (!this.transferBalance(invocator, this.contractId(slot), reward)) {
+                        return EMPTY;
+                    }
                     this.notifyContractOfIncomingTransfer(this.contractId(slot), invocator, reward, TRANSFER_TYPE_PROCEDURE_TRANSACTION);
                 }
 
