@@ -287,3 +287,80 @@ test("metered: contract-to-contract function call fails when the callee has no r
     expect(ok.error).toBe(0);
     expect(readUint64LE(ok.output)).toBe(0n); // reads Counter == 0
 });
+
+// HookFault Seen output: begin ticks, end ticks, begin epochs, end epochs, incoming transfers, deposits.
+function hookFaultSeen(sim: QubicSimulator): bigint[] {
+    const output = sim.query(29, 1);
+    const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+    return Array.from({ length: 6 }, (_, index) => view.getBigUint64(index * 8, true));
+}
+
+// core runs no tick or epoch phase for a contract in an error state, and refunds what is sent to it.
+test("an errored contract gets no hooks and refunds its transactions, while its neighbour runs on", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ haltOnContractFault: false, epochLength: 4 });
+    const user = new Uint8Array(32).fill(0x61);
+    sim.deploy(28, await wasm("Hooks"));
+    sim.deploy(29, await wasm("HookFault"));
+    sim.fund(user, 1000n);
+
+    sim.advance();
+    expect(hookFaultSeen(sim).slice(0, 2)).toEqual([1n, 1n]);
+
+    // A function failure is only that query's error and leaves the contract in service.
+    expect(() => sim.query(29, 2)).toThrow();
+    expect(sim.contractErrorOf(29)).toBe(0);
+    sim.advance();
+    expect(hookFaultSeen(sim).slice(0, 2)).toEqual([2n, 2n]);
+
+    expect(() => sim.procedure(29, 1)).toThrow(/abort/);
+    expect(sim.contractErrorOf(29)).not.toBe(0);
+
+    const neighbourBefore = readUint64LE(sim.query(28, 1));
+    for (let i = 0; i < 6; i++) {
+        sim.advance();
+    }
+    expect(hookFaultSeen(sim)).toEqual([2n, 2n, 0n, 0n, 0n, 0n]);
+    expect(readUint64LE(sim.query(28, 1))).toBe(neighbourBefore + 6n);
+
+    expect(sim.processTickTransaction(user, contractId(29), 40n, 2, new Uint8Array(0), "to-errored")).toEqual({ moneyFlew: false });
+    expect(sim.balanceOf(29)).toBe(0n);
+    expect(hookFaultSeen(sim).slice(4)).toEqual([0n, 0n]);
+});
+
+test("a contract outside its epochs gets no hooks and keeps what is sent to it, then resumes inside them", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ epochLength: 4 });
+    const user = new Uint8Array(32).fill(0x62);
+    sim.deploy(29, await wasm("HookFault"));
+    sim.setContractLifetime(29, 1, 2);
+    sim.fund(user, 1000n);
+
+    sim.advance();
+    sim.advance();
+    expect(hookFaultSeen(sim)).toEqual([0n, 0n, 0n, 0n, 0n, 0n]);
+    expect(sim.processTickTransaction(user, contractId(29), 40n, 2, new Uint8Array(0), "too-early")).toEqual({ moneyFlew: true });
+    expect(sim.balanceOf(29)).toBe(40n);
+    expect(hookFaultSeen(sim).slice(4)).toEqual([0n, 0n]);
+
+    // Tick 5 switches to epoch 1: BEGIN_EPOCH runs for it there, END_EPOCH of epoch 0 did not.
+    sim.advance();
+    sim.advance();
+    sim.advance();
+    expect(sim.currentEpoch).toBe(1);
+    expect(hookFaultSeen(sim).slice(0, 4)).toEqual([1n, 1n, 1n, 0n]);
+    expect(sim.processTickTransaction(user, contractId(29), 5n, 2, new Uint8Array(0), "in-window")).toEqual({ moneyFlew: true });
+    expect(hookFaultSeen(sim).slice(4)).toEqual([1n, 1n]);
+});
+
+test("a failed ipo takes a contract's epoch hooks away too", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ epochLength: 2 });
+    sim.deploy(29, await wasm("HookFault"));
+    sim.ipo(29, 0n);
+
+    for (let i = 0; i < 4; i++) {
+        sim.advance();
+    }
+    expect(hookFaultSeen(sim).slice(0, 4)).toEqual([0n, 0n, 0n, 0n]);
+});

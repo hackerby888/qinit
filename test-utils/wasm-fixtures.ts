@@ -10,6 +10,7 @@ import DIGEST_PROBE_SOURCE from "../fixtures/DigestProbe.h" with { type: "text" 
 import DIVIDEND_SOURCE from "../fixtures/Dividend.h" with { type: "text" };
 import EPOCH_WITNESS_SOURCE from "../fixtures/EpochWitness.h" with { type: "text" };
 import FAULT_ZOO_SOURCE from "../fixtures/FaultZoo.h" with { type: "text" };
+import HOOK_FAULT_SOURCE from "../fixtures/HookFault.h" with { type: "text" };
 import HOOKS_SOURCE from "../fixtures/Hooks.h" with { type: "text" };
 import HOST_WRITE_SOURCE from "../fixtures/HostWrite.h" with { type: "text" };
 import INCOMING_LOGGER_SOURCE from "../fixtures/IncomingLogger.h" with { type: "text" };
@@ -88,8 +89,9 @@ export const wasmFixtureManifest = {
     DigestProbe: fixture("DigestProbe.h", DIGEST_PROBE_SOURCE, "DigestProbe", 29),
     DigestProbeDyn0: fixture("DigestProbe.h", DIGEST_PROBE_SOURCE, "DigestProbe", TEST_SLOT_LAYOUT.slotBase),
     Dividend: fixture("Dividend.h", DIVIDEND_SOURCE, "Dividend", 28),
-    FaultZoo: fixture("FaultZoo.h", FAULT_ZOO_SOURCE, "FaultZoo", 28),
     EpochWitness: fixture("EpochWitness.h", EPOCH_WITNESS_SOURCE, "EpochWitness", 28),
+    FaultZoo: fixture("FaultZoo.h", FAULT_ZOO_SOURCE, "FaultZoo", 28),
+    HookFault: fixture("HookFault.h", HOOK_FAULT_SOURCE, "HookFault", 29),
     Hooks: fixture("Hooks.h", HOOKS_SOURCE, "Hooks", 28),
     HostWrite: fixture("HostWrite.h", HOST_WRITE_SOURCE, "HostWrite", 28),
     IncomingLogger: fixture("IncomingLogger.h", INCOMING_LOGGER_SOURCE, "IncomingLogger", 29),

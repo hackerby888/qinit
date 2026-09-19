@@ -1,4 +1,4 @@
-import { CHEAT_ERR, CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURES, type DebugTrace, type EngineFaultInfo } from "@qinit/core";
+import { CHEAT_ERR, CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURES, WASM_TRAP_ERROR_CODE, type DebugTrace, type EngineFaultInfo } from "@qinit/core";
 import {
     CUSTOM_MESSAGE_OP,
     encodeBurningLog,
@@ -116,6 +116,8 @@ export class QubicSimulator {
     private oracle: OracleManager;
     private pitDepth = 0;
     private callbacksRunning = 0;
+    // core's contractError: the code a failed procedure, system procedure or migration left behind. A function failure leaves none.
+    private contractErrors = new Map<number, number>();
     private contractLifetimes = new Map<number, { constructionEpoch: number; destructionEpoch: number }>();
     private assets = new AssetLedger({
         contractId: (slot) => this.contractId(slot),
@@ -343,9 +345,9 @@ export class QubicSimulator {
         const initialTick = normalizedEpoch * this.epochLength;
         this.currentEpoch = normalizedEpoch;
         this.currentTick = initialTick;
+        this.initialTick = initialTick;
         this.lastFinalizedEpoch = normalizedEpoch;
         this.lastFinalizedTick = initialTick;
-        this.initialTick = initialTick;
         this.oracle.beginEpoch();
         this.pendingOracleNotifications = [];
         this.logStore?.reset(initialTick);
@@ -400,6 +402,7 @@ export class QubicSimulator {
                 throw error;
             }
             if (contractError && !this.haltOnContractFault) {
+                this.noteContractError(contractError);
                 throw contractError;
             }
 
@@ -1050,6 +1053,10 @@ export class QubicSimulator {
             if (!contract.hasSysproc(sysproc)) {
                 continue;
             }
+            // core runs no phase for a contract in an error state or outside its construction and destruction epochs.
+            if (this.contractErrorOf(slot) !== 0 || !this.isActiveThisEpoch(slot)) {
+                continue;
+            }
             if (requireFeeReserve && !this.fees.reserveOk(slot)) {
                 continue;
             }
@@ -1097,6 +1104,12 @@ export class QubicSimulator {
     private enterNextTick(): void {
         this.currentTick++;
         this.tickClockMs = Date.now();
+    }
+
+    private runBeginTick(tickEntered = false): void {
+        if (!tickEntered) {
+            this.enterNextTick();
+        }
         this.tickTxCount = this.txpool.dueCount(this.currentTick);
         this.emit("debug", "tick", `tick ${this.currentTick} begin · ${this.tickTxCount} tx`);
 
@@ -1104,12 +1117,6 @@ export class QubicSimulator {
         try {
             this.contractProcessor(SYSTEM_PROCEDURES.BEGIN_TICK, true, true);
         } finally {
-    }
-
-    private runBeginTick(tickEntered = false): void {
-        if (!tickEntered) {
-            this.enterNextTick();
-        }
             this.logStore?.end();
         }
     }
@@ -1145,6 +1152,7 @@ export class QubicSimulator {
             this.endEpoch();
             this.logStore?.finalizeTick(this.currentTick);
             this.currentEpoch++;
+            this.initialTick = this.currentTick;
             this.beginEpoch();
             this.emit("info", "epoch", `epoch ${this.currentEpoch - 1} → ${this.currentEpoch}`);
         }
@@ -1152,7 +1160,6 @@ export class QubicSimulator {
         this.runOperation("begin-tick", () => this.runBeginTick(switchesEpoch));
         this.drainMempool();
         this.oracle.pump();
-            this.initialTick = this.currentTick;
         this.deliverOracleNotifications();
         this.endTick();
         this.ticking.finalizeTick();
@@ -1328,7 +1335,23 @@ export class QubicSimulator {
 
     // The error that takes a contract out of service, 0 while it is healthy.
     contractErrorOf(slot: number): number {
-        return this.fees.isFailed(slot) ? CONTRACT_ERROR_IPO_FAILED : 0;
+        return this.contractErrors.get(slot) ?? (this.fees.isFailed(slot) ? CONTRACT_ERROR_IPO_FAILED : 0);
+    }
+
+    // Only a node that keeps running after a contract fault has use for the error: a halting one serves nothing past it.
+    private noteContractError(error: ContractExecutionError): void {
+        let rootCause: unknown = error;
+        while (rootCause instanceof ContractExecutionError) {
+            rootCause = rootCause.cause;
+        }
+        const code = rootCause instanceof ContractAbort ? rootCause.code : WASM_TRAP_ERROR_CODE;
+
+        // An abort climbs frame by frame to the root, so every procedure frame it passed through is left errored.
+        for (let failure: unknown = error; failure instanceof ContractExecutionError; failure = failure.cause) {
+            if (failure.kind !== CONTRACT_ENTRY_KIND.FUNCTION && !this.contractErrors.has(failure.slot)) {
+                this.contractErrors.set(failure.slot, code);
+            }
+        }
     }
 
     // core's __qpiCallSystemProc: a callback another contract runs for the caller. It skips the fee gate, and a callee that is errored or
@@ -1506,14 +1529,18 @@ export class QubicSimulator {
                             const contract = this.contracts.get(slot)!;
                             const isProcedure = contract.entries.some((entry) => entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE && entry.inputType === inputType);
 
-                            // A dormant contract takes no transaction at all — the amount goes back and neither the procedure nor the callback runs.
-                            if (!this.fees.reserveOk(slot)) {
+                            // Outside its epochs a contract runs nothing and the amount stays where it landed, as on core.
+                            if (!this.isActiveThisEpoch(slot)) {
+                                this.emit("warn", "tx", `slot ${slot} is outside its epochs — tx it=${inputType} skipped`);
+                            } else if (!this.fees.reserveOk(slot) || this.contractErrorOf(slot) !== 0) {
+                                // A dormant or errored contract takes no transaction at all — the amount goes back and neither the procedure nor the callback runs.
                                 if (amount > 0n) {
                                     this.transferBalance(destination, source, amount);
                                 }
                                 moneyFlew = false;
 
-                                this.emit("warn", "fee", `slot ${slot} dormant — tx it=${inputType} skipped${amount > 0n ? `, refunded ${amount}` : ""}`);
+                                const reason = this.fees.reserveOk(slot) ? `in error state ${this.contractErrorOf(slot)}` : "dormant";
+                                this.emit("warn", "fee", `slot ${slot} ${reason} — tx it=${inputType} skipped${amount > 0n ? `, refunded ${amount}` : ""}`);
                             } else if (isProcedure) {
                                 if (amount > 0n) {
                                     this.notifyContractOfIncomingTransfer(destination, source, amount, TRANSFER_TYPE_PROCEDURE_TRANSACTION);
