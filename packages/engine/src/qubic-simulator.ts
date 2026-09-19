@@ -110,6 +110,8 @@ export class QubicSimulator {
     // "tick": a deterministic clock the gtest corpus needs (it freezes tickDuration and sets the date
     // directly). "real": Date.now(), the wall clock a live node has to serve.
     clockMode: "tick" | "real" = "tick";
+    // The wall clock read once per tick, as core stamps its etalon tick: every time call inside the tick sees one instant.
+    private tickClockMs: number | undefined;
     private mempoolMode: boolean;
     private fees: FeeManager;
     private logStore?: QubicLogStore;
@@ -1063,6 +1065,7 @@ export class QubicSimulator {
 
     private runBeginTick(): void {
         this.currentTick++;
+        this.tickClockMs = Date.now();
         this.tickTxCount = this.txpool.dueCount(this.currentTick);
         this.emit("debug", "tick", `tick ${this.currentTick} begin · ${this.tickTxCount} tx`);
 
@@ -1547,7 +1550,11 @@ export class QubicSimulator {
     }
 
     nowMs(): number {
-        return this.clockMode === "real" ? Date.now() : this.timeBaseMs + this.currentTick * this.tickDuration;
+        if (this.clockMode === "real") {
+            return (this.tickClockMs ??= Date.now());
+        }
+
+        return this.timeBaseMs + this.currentTick * this.tickDuration;
     }
 
     numberOfEntities(): number {
