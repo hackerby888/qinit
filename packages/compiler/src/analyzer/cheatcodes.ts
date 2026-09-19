@@ -2,7 +2,7 @@
 import { codeUnits } from "../shared/code-units";
 import { DiagnosticSeverity } from "../shared/enums";
 import { Lexer, TokenKind, type Token } from "../frontend/lexer";
-import { matchingToken } from "./rules/tokens";
+import { findEntryFunctions, matchingToken } from "./rules/tokens";
 import type { SourceAnalysisDiagnostic } from "./index";
 
 /** Every cheat the shim defines. Anything else on the `CC_` prefix is a typo, and rule 1 says so. */
@@ -107,17 +107,14 @@ export function analyzeCheatcodes(source: string): SourceAnalysisDiagnostic[] {
     const tokens = new Lexer(source).tokenize();
     const diagnostics: SourceAnalysisDiagnostic[] = [];
     const perLine = new Map<number, number>();
-    let entry = "";
+    // entry bodies, not every *_FUNCTION name: CALL_OTHER_CONTRACT_FUNCTION inside a procedure does not make it a function.
+    const entries = findEntryFunctions(tokens);
 
     for (let index = 0; index < tokens.length; index++) {
         const token = tokens[index];
 
         if (token.kind !== TokenKind.IDENTIFIER) {
             continue;
-        }
-
-        if (token.text.endsWith("_FUNCTION") || token.text.endsWith("_PROCEDURE") || token.text.endsWith("_WITH_LOCALS")) {
-            entry = token.text;
         }
 
         if (!CHEAT_PREFIX.test(token.text)) {
@@ -154,7 +151,9 @@ export function analyzeCheatcodes(source: string): SourceAnalysisDiagnostic[] {
             );
         }
 
-        if (MUTATING_CHEATS.has(token.text) && isFunctionEntry(entry)) {
+        const enclosing = entries.find((candidate) => candidate.bodyOpen < index && index < candidate.bodyClose);
+
+        if (MUTATING_CHEATS.has(token.text) && enclosing && isFunctionEntry(enclosing.macro)) {
             diagnostics.push(diagnostic("cheat/mutator-in-function", `${token.text} changes state, so it cannot run inside a function.`, token));
         }
 
