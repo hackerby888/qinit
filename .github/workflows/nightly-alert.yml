@@ -1,0 +1,38 @@
+# the nightly runs gates no push runs, so its result is kept as one open issue instead of a notification nobody reads.
+name: nightly alert
+
+on:
+  workflow_run:
+    workflows: [test]
+    types: [completed]
+
+permissions:
+  issues: write
+
+jobs:
+  alert:
+    if: github.event.workflow_run.event == 'schedule'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Open, update or close the nightly issue
+        run: |
+          title="nightly test run failing"
+          open=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ "$CONCLUSION" = "success" ]; then
+            if [ -n "$open" ]; then
+              gh issue close "$open" --comment "green again: $RUN_URL"
+            fi
+            exit 0
+          fi
+          body="$CONCLUSION on ${SHA:0:8}: $RUN_URL"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
