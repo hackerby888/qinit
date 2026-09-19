@@ -31,6 +31,29 @@ export function unsignedScalar(type: TypeSpec | null | undefined): boolean {
     if (type.kind !== AstKind.NAME) return false;
     return /^(uint|unsigned\b|size_t$|bool$|bit$)/.test(type.name) || type.name === "uint128" || type.name === "uint128_t";
 }
+// The declared return type of `object.method(...)`, resolved through the owner's bases and template bindings.
+export function memberCallReturnType(context: FunctionEmissionContext, expression: Expression): TypeSpec | null {
+    if (expression.kind !== AstKind.CALL || expression.callee.kind !== AstKind.MEMBER_ACCESS) return null;
+    const calleeObjectType = context.lowering.resolveExpressionAddress(context, expression.callee.object)?.type;
+    const separator = calleeObjectType?.kind === AstKind.NAME ? calleeObjectType.name.lastIndexOf("::") : -1;
+    const owner =
+        calleeObjectType?.kind === AstKind.NAME
+            ? separator >= 0
+                ? calleeObjectType.name.slice(separator + 2)
+                : calleeObjectType.name
+            : calleeObjectType?.kind === AstKind.TEMPLATE_INSTANCE
+              ? calleeObjectType.name
+              : null;
+    if (!owner) return null;
+    const resolvedMethod = context.programAnalysis.resolveSourceMethodDefinition(
+        owner,
+        calleeObjectType?.kind === AstKind.TEMPLATE_INSTANCE ? calleeObjectType.callArguments : [],
+        expression.callee.member,
+        expression.callArguments.length,
+    );
+    if (!resolvedMethod) return null;
+    return context.programAnalysis.substInBindings(context.programAnalysis.derefType(resolvedMethod.definition.returnType), resolvedMethod.ownerBindings);
+}
 // Best-effort signedness is unsigned when unsigned lvalue/params, casts, or suffixed literals are present.
 export function isUnsignedExpr(context: FunctionEmissionContext, expression: Expression): boolean {
     switch (expression.kind) {
@@ -67,28 +90,8 @@ export function isUnsignedExpr(context: FunctionEmissionContext, expression: Exp
             ) {
                 return false;
             }
-            const calleeObjectType = context.lowering.resolveExpressionAddress(context, expression.callee.object)?.type;
-            const separator = calleeObjectType?.kind === AstKind.NAME ? calleeObjectType.name.lastIndexOf("::") : -1;
-            const owner =
-                calleeObjectType?.kind === AstKind.NAME
-                    ? separator >= 0
-                        ? calleeObjectType.name.slice(separator + 2)
-                        : calleeObjectType.name
-                    : calleeObjectType?.kind === AstKind.TEMPLATE_INSTANCE
-                      ? calleeObjectType.name
-                      : null;
-            if (!owner) return false;
-            const resolvedMethod = context.programAnalysis.resolveSourceMethodDefinition(
-                owner,
-                calleeObjectType?.kind === AstKind.TEMPLATE_INSTANCE ? calleeObjectType.callArguments : [],
-                expression.callee.member,
-                expression.callArguments.length,
-            );
-            if (!resolvedMethod) return false;
-            const result = context.programAnalysis.substInBindings(
-                context.programAnalysis.derefType(resolvedMethod.definition.returnType),
-                resolvedMethod.ownerBindings,
-            );
+            const result = memberCallReturnType(context, expression);
+            if (!result) return false;
             return context.programAnalysis.isAggregateType(result) || unsignedScalar(context.programAnalysis.scalarStorageType(result));
         }
         case AstKind.BINARY_OP:
