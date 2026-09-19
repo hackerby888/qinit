@@ -80,12 +80,13 @@ export class FeeManager {
         }
     }
 
-    // qpi.queryFeeReserve(contractIndex): off => the legacy constant; metered => the live reserve, with an out-of-range index resolving to the caller's own.
+    // qpi.queryFeeReserve(contractIndex): the live reserve, with an out-of-range index resolving to the caller's own. off mode answers a
+    // reserve nobody set with the legacy constant, and one a test set with that value, as core's harness does.
     queryFeeReserve(callerSlot: number, ci: number): bigint {
-        if (this.mode === "off") {
-            return OFF_MODE_RESERVE;
-        }
         const idx = ci < 1 || ci >= MAX_NUMBER_OF_CONTRACTS ? callerSlot : ci;
+        if (this.mode === "off") {
+            return this.reserve.get(idx) ?? OFF_MODE_RESERVE;
+        }
         return this.getContractFeeReserve(idx);
     }
 }

@@ -131,6 +131,15 @@ struct Registrar {
     }
 };
 
+// the SCOPED_TRACEs a failure happens inside, innermost first, so a failure in a loop names its iteration.
+struct Trace {
+    const char*  file;
+    int          line;
+    const char*  text;
+    const Trace* outer;
+};
+static const Trace* g_trace = nullptr;
+
 inline void failAt(const char* file, int line, const char* what) {
     g_ctx.failed = true;
     appendStr("\n  ");
@@ -139,6 +148,14 @@ inline void failAt(const char* file, int line, const char* what) {
     appendI64(line);
     appendStr(": ");
     appendStr(what);
+    for (const Trace* trace = g_trace; trace; trace = trace->outer) {
+        appendStr("\n    trace ");
+        appendStr(trace->file);
+        appendStr(":");
+        appendI64(trace->line);
+        appendStr(": ");
+        appendStr(trace->text);
+    }
 }
 
 } // namespace qinit_gtest
@@ -155,7 +172,73 @@ static inline Environment* AddGlobalTestEnvironment(Environment* e) {
     e->SetUp();
     return e;
 }
+
+// the text a SCOPED_TRACE carries. the corpora stream only strings and integers into it.
+class Message {
+public:
+    char         text[160] = {};
+    unsigned int len = 0;
+
+    Message& operator<<(const char* s) {
+        while (*s) {
+            put(*s++);
+        }
+        return *this;
+    }
+
+    Message& operator<<(const Message& other) {
+        return *this << other.text;
+    }
+
+    template <typename T>
+    Message& operator<<(const T& v) {
+        if constexpr (std::is_same_v<T, bool>) {
+            return *this << (v ? "true" : "false");
+        } else if constexpr (std::is_integral_v<T> || std::is_enum_v<T>) {
+            unsigned long long u = (unsigned long long)v;
+            if (std::is_signed_v<T> && (long long)v < 0) {
+                put('-');
+                u = 0ull - u;
+            }
+            char digits[24];
+            int  n = 0;
+            do {
+                digits[n++] = (char)('0' + (int)(u % 10));
+                u /= 10;
+            } while (u);
+            while (n > 0) {
+                put(digits[--n]);
+            }
+            return *this;
+        } else {
+            return *this << "(value)";
+        }
+    }
+
+private:
+    void put(char c) {
+        if (len < sizeof(text) - 1) {
+            text[len++] = c;
+        }
+    }
+};
 } // namespace testing
+
+namespace qinit_gtest {
+// keeps its own copy of the text, since the Message it was built from is a temporary.
+struct ScopedTrace {
+    ::testing::Message message;
+    Trace              trace;
+
+    ScopedTrace(const char* file, int line, const ::testing::Message& m) : message(m), trace{file, line, message.text, g_trace} {
+        g_trace = &trace;
+    }
+
+    ~ScopedTrace() {
+        g_trace = trace.outer;
+    }
+};
+} // namespace qinit_gtest
 
 // ---- googletest-compatible macros ----
 #define TEST(suite, name)                                                                       \
@@ -186,6 +269,12 @@ static inline Environment* AddGlobalTestEnvironment(Environment* e) {
             if (fatal) return;                                                                  \
         }                                                                                       \
     } while (0)
+
+#define QINIT_GTEST_JOIN2(a, b) a##b
+#define QINIT_GTEST_JOIN(a, b)  QINIT_GTEST_JOIN2(a, b)
+#define SCOPED_TRACE(message)                                                                   \
+    ::qinit_gtest::ScopedTrace QINIT_GTEST_JOIN(qinit_gtest_trace_, __LINE__)(__FILE__, __LINE__, \
+                                                                          ::testing::Message() << (message))
 
 #define EXPECT_TRUE(x)  QINIT_GTEST_BOOL((x), "EXPECT_TRUE(" #x ")", false)
 #define EXPECT_FALSE(x) QINIT_GTEST_BOOL(!(x), "EXPECT_FALSE(" #x ")", false)

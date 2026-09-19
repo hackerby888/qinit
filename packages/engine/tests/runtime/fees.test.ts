@@ -10,6 +10,16 @@ test("off mode: inert — reserveOk always true, queryFeeReserve a positive cons
     expect(f.queryFeeReserve(5, 5)).toBe(1000000n); // the legacy constant
 });
 
+test("off mode: a reserve a test set is what the contract reads, and nothing is charged", () => {
+    const f = new FeeManager("off");
+    f.setContractFeeReserve(5, 8000000n);
+
+    expect(f.queryFeeReserve(5, 5)).toBe(8000000n);
+    expect(f.queryFeeReserve(5, 0)).toBe(8000000n);
+    expect(f.queryFeeReserve(5, 6)).toBe(1000000n);
+    expect(f.reserveOk(6)).toBe(true);
+});
+
 test("metered: reserveOk gates on a positive reserve", () => {
     const f = new FeeManager("metered");
     expect(f.metered).toBe(true);

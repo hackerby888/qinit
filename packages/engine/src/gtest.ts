@@ -111,6 +111,7 @@ export async function runContractTesting(
         const previousTick = sim?.currentTick;
         const previousTimeBase = sim?.timeBaseMs;
         const previousDigest = sim?.prevSpectrumDigestOverride;
+        const previousInitialTick = sim?.initialTickOverride;
         sim = new QubicSimulator({
             mempool: false,
             fees: "off",
@@ -132,6 +133,7 @@ export async function runContractTesting(
         if (previousTimeBase !== undefined) {
             sim.timeBaseMs = previousTimeBase;
         }
+        sim.initialTickOverride = previousInitialTick;
         handles = {};
         spectrumIds = [];
         spectrumBytes = [];
@@ -462,6 +464,16 @@ export async function runContractTesting(
         q_get_tick: (): number => sim.currentTick >>> 0,
         q_set_prev_spectrum_digest: (ptr: number) => {
             sim.prevSpectrumDigestOverride = read(ptr, 32);
+        },
+        q_number_of_shares: (assetPtr: number, ownershipPtr: number, possessionPtr: number): bigint =>
+            sim.host.numberOfShares(read(assetPtr, 40), read(ownershipPtr, 40), read(possessionPtr, 40)),
+        q_set_initial_tick: (t: number) => {
+            sim.initialTickOverride = t >>> 0;
+        },
+        q_get_initial_tick: (): number => sim.host.initialTick() >>> 0,
+        q_get_fee_reserve: (i: number): bigint => sim.getContractFeeReserve(i >>> 0),
+        q_set_fee_reserve: (i: number, amount: bigint) => {
+            sim.setContractFeeReserve(i >>> 0, amount);
         },
         // updateQpiTime() pushes its utcTime fields here; set the chain clock so the qpi date accessors return them, with timeBaseMs chosen to match.
         q_set_datetime: (y: number, mo: number, d: number, h: number, mi: number, s: number) => {

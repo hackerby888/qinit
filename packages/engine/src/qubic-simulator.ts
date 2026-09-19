@@ -115,6 +115,8 @@ export class QubicSimulator {
     private logStore?: QubicLogStore;
     private computorOverride = new Map<number, Uint8Array>();
     prevSpectrumDigestOverride?: Uint8Array;
+    // a gtest sets system.initialTick itself, as core's harness does, rather than deriving it from the epoch.
+    initialTickOverride?: number;
     private readonly historyTicks: number;
     // off for a test harness: a contract error comes back to the caller instead of halting the engine, as core's own harness does
     private readonly haltOnContractFault: boolean;
@@ -178,7 +180,7 @@ export class QubicSimulator {
         this.host = {
             tick: () => this.currentTick + this.cheatTickOffset,
             // Deliberately unshifted: a warp moves where the contract thinks it is within the epoch, not where the epoch began, so elapsed still reads right.
-            initialTick: () => this.currentEpoch * this.epochLength,
+            initialTick: () => this.initialTickOverride ?? this.currentEpoch * this.epochLength,
             epoch: () => this.currentEpoch + this.cheatEpochOffset,
             nowMs: () => this.nowMs(),
             numberOfTickTransactions: () => this.tickTxCount,

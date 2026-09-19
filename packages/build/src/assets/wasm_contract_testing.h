@@ -29,6 +29,7 @@ QBCT_IMPORT(q_notify_pit) void         bq_notify_pit(const void* src32, const vo
 QBCT_IMPORT(q_issue_asset) long long   bq_issue_asset(const void* issuer32, unsigned long long name, int decimals, long long shares, unsigned long long unit, unsigned int slot);
 QBCT_IMPORT(q_shares)    long long     bq_shares(const void* issuer32, unsigned long long assetName);
 QBCT_IMPORT(q_possessed) long long     bq_possessed(unsigned long long name, const void* issuer32, const void* owner32, const void* possessor32, unsigned int om, unsigned int pm);
+QBCT_IMPORT(q_number_of_shares) long long bq_number_of_shares(const void* asset, const void* ownershipSelect, const void* possessionSelect);
 QBCT_IMPORT(q_mint_contract_shares) void bq_mint_contract_shares(unsigned long long name, long long shares, unsigned int qxSlot);
 QBCT_IMPORT(q_transfer_shares) long long bq_transfer_shares(unsigned long long name, const void* src32, const void* dst32, long long shares, unsigned int qxSlot);
 QBCT_IMPORT(q_transfer_holding) long long bq_transfer_holding(unsigned long long name, const void* issuer32, const void* owner32, const void* newOwner32, long long shares, unsigned int mgmt);
@@ -44,6 +45,10 @@ QBCT_IMPORT(q_get_tick)   unsigned int bq_get_tick();
 QBCT_IMPORT(q_set_datetime) void       bq_set_datetime(unsigned int y, unsigned int mo, unsigned int d, unsigned int h, unsigned int mi, unsigned int s);
 QBCT_IMPORT(q_set_computor) void       bq_set_computor(unsigned int i, const void* id32);
 QBCT_IMPORT(q_set_prev_spectrum_digest) void bq_set_prev_spectrum_digest(const void* digest32);
+QBCT_IMPORT(q_set_initial_tick) void    bq_set_initial_tick(unsigned int t);
+QBCT_IMPORT(q_get_initial_tick) unsigned int bq_get_initial_tick();
+QBCT_IMPORT(q_get_fee_reserve) long long bq_get_fee_reserve(unsigned int idx);
+QBCT_IMPORT(q_set_fee_reserve) void      bq_set_fee_reserve(unsigned int idx, long long amount);
 }
 
 #undef QBCT_IMPORT
@@ -315,9 +320,21 @@ struct QbTickProxy {
     }
 };
 
+// contracts read it through qpi.initialTick(), so a write goes to the engine rather than staying in the shim.
+struct QbInitialTickProxy {
+    operator unsigned int() const {
+        return bq_get_initial_tick();
+    }
+
+    void operator=(unsigned int t) {
+        bq_set_initial_tick(t);
+    }
+};
+
 struct QbSystemStruct {
     QbEpochProxy epoch;
     QbTickProxy tick;
+    QbInitialTickProxy initialTick;
 };
 
 // ---- utcTime / etalonTick / updateTime / updateQpiTime: corpus time control ----
@@ -431,6 +448,30 @@ static inline unsigned int mod(const QbTickProxy& a, unsigned int b) {
 
 // Matches core-lite's `#define system qubicSystemStruct`
 #define system qubicSystemStruct
+
+// core's test_util.h helper. the engine keeps whole seconds only, so a sub-second step reaches contracts late.
+static void advanceTimeAndTick(unsigned long long milliseconds) {
+    QPI::DateAndTime now(etalonTick.backing[0] + 2000, etalonTick.backing[1], etalonTick.backing[2], etalonTick.backing[3],
+                         etalonTick.backing[4], etalonTick.backing[5], etalonTick.backing[6]);
+    now.addMillisec(milliseconds);
+    etalonTick.year = now.getYear() - 2000;
+    etalonTick.month = now.getMonth();
+    etalonTick.day = now.getDay();
+    etalonTick.hour = now.getHour();
+    etalonTick.minute = now.getMinute();
+    etalonTick.second = now.getSecond();
+    etalonTick.millisecond = now.getMillisec();
+    ++system.tick;
+}
+
+// core's accessors for a contract's execution-fee reserve, which the engine keeps.
+static long long getContractFeeReserve(unsigned int contractIndex) {
+    return bq_get_fee_reserve(contractIndex);
+}
+
+static void setContractFeeReserve(unsigned int contractIndex, long long newValue) {
+    bq_set_fee_reserve(contractIndex, newValue);
+}
 
 // ---- static constants from contract_def.h / assets.h needed by corpora (QTRY/Nostromo) ----
 
@@ -581,11 +622,11 @@ static inline bool decreaseEnergy(int idx, QPI::sint64 amount) {
 static inline QPI::sint64 numberOfShares(const QPI::Asset& a,
     const QPI::AssetOwnershipSelect& own = QPI::AssetOwnershipSelect::any(),
     const QPI::AssetPossessionSelect& pos = QPI::AssetPossessionSelect::any()) {
-    // No owner/possessor filter → total issued shares. Otherwise route to the filtered possession query
-    // (the host applies the owner/possessor + managing-contract selects).
+    // No owner/possessor filter → total issued shares. Otherwise the selects go whole to the query contracts use, so an
+    // "any managing contract" flag is honoured rather than read as contract 0.
     if (own.anyOwner && own.anyManagingContract && pos.anyPossessor && pos.anyManagingContract)
         return bq_shares(&a.issuer, a.assetName);
-    return bq_possessed(a.assetName, &a.issuer, &own.owner, &pos.possessor, own.managingContract, pos.managingContract);
+    return bq_number_of_shares(&a, &own, &pos);
 }
 
 // Issue a contract's shares (NULL_ID issuer convention, managed by QX) and transfer them to the initial owners.
@@ -755,4 +796,9 @@ static inline long long save(const CHAR16*, unsigned long long, const void*, con
 
 // ---- INIT_CONTRACT macro ----
 
-#define INIT_CONTRACT(name) bq_init(name##_CONTRACT_INDEX)
+// core's harness seeds the execution-fee reserve here too, so a contract reading its own reserve sees the same value.
+#define INIT_CONTRACT(name)                                         \
+    {                                                               \
+        bq_init(name##_CONTRACT_INDEX);                             \
+        setContractFeeReserve(name##_CONTRACT_INDEX, 10000000);     \
+    }
