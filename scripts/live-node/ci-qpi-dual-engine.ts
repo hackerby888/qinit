@@ -25,11 +25,16 @@ const driverPath = resolve("fixtures/QpiDual.h");
 const calleePath = resolve("fixtures/QpiDualCallee.h");
 const driverSource = readFileSync(driverPath, "utf8");
 const calleeSource = readFileSync(calleePath, "utf8");
+// the shareholder pair has no compile-time link: the proposer takes the receiver's slot as input.
+const SHARE_CONTRACTS = {
+    receiver: { name: "ShareReceiver", path: resolve("fixtures/ShareReceiver.h") },
+    proposer: { name: "ShareProposer", path: resolve("fixtures/ShareProposer.h") },
+} as const;
 const scratch = mkdtempSync(join(tmpdir(), "qinit-qpi-matrix-"));
 process.once("exit", () => rmSync(scratch, { recursive: true, force: true }));
 
 type CompilerBackendLabel = "TS" | "Clang";
-type Role = "driver" | "callee";
+type Role = "driver" | "callee" | "receiver" | "proposer";
 interface Registration {
     functions: number;
     procedures: number;
@@ -51,6 +56,10 @@ interface Result {
     calleeOutput: Uint8Array;
     driverDigest: string;
     calleeDigest: string;
+    receiverOutput: Uint8Array;
+    proposerOutput: Uint8Array;
+    receiverDigest: string;
+    proposerDigest: string;
 }
 
 function fail(message: string): never {
@@ -126,6 +135,53 @@ async function compileTsPair(calleeSlot: number, driverSlot: number, qpiHeader: 
     ];
 }
 
+async function compileSharePair(compiler: CompilerBackendLabel, receiverSlot: number, proposerSlot: number, qpiHeader: string): Promise<Artifact[]> {
+    const artifacts: Artifact[] = [];
+    for (const [role, slot] of [
+        ["receiver", receiverSlot],
+        ["proposer", proposerSlot],
+    ] as const) {
+        const contract = SHARE_CONTRACTS[role];
+        if (compiler === "TS") {
+            const compiled = await compileContractWithTypeScript({
+                source: readFileSync(contract.path, "utf8"),
+                contractName: contract.name,
+                slot,
+                qpiHeader,
+                arenaSizeBytes: ARENA_SIZE,
+            });
+            const errors = compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR);
+            if (errors.length || !compiled.wasm.length || !compiled.idl) {
+                fail(`TS ${role} compile: ${errors.map((item) => item.message).join("; ") || "no artifact"}`);
+            }
+            artifacts.push(
+                await artifact("TS", role, slot, compiled.wasm, { functions: compiled.idl.functions.length, procedures: compiled.idl.procedures.length }),
+            );
+            continue;
+        }
+        // the verify tool's parser rejects the shareholder callbacks, as the build corpus notes.
+        const built = await buildContractWithClang({
+            contractPath: contract.path,
+            contractName: contract.name,
+            slot,
+            corePath: core!,
+            outDir: join(scratch, `clang-${role}`),
+            arenaSizeBytes: ARENA_SIZE,
+            skipVerify: true,
+        });
+        if (!built.ok || !built.wasmPath || !built.idl) {
+            fail(`Clang ${role} compile: ${built.stderr ?? "no artifact"}`);
+        }
+        artifacts.push(
+            await artifact("Clang", role, slot, new Uint8Array(readFileSync(built.wasmPath)), {
+                functions: built.idl.functions.length,
+                procedures: built.idl.procedures.length,
+            }),
+        );
+    }
+    return artifacts;
+}
+
 async function compileClangPair(calleeSlot: number, driverSlot: number): Promise<Artifact[]> {
     const callee = await buildContractWithClang({
         contractPath: calleePath,
@@ -165,10 +221,11 @@ async function compileClangPair(calleeSlot: number, driverSlot: number): Promise
 async function deployAll(base: string, rpc: LiteRpc, artifacts: Artifact[], seed: string): Promise<void> {
     for (const item of artifacts) {
         const pairCallee = artifacts.find((candidate) => candidate.compiler === item.compiler && candidate.role === "callee")!;
+        const contractPath = item.role === "driver" ? driverPath : item.role === "callee" ? calleePath : SHARE_CONTRACTS[item.role].path;
         const deployed = await deployContract(
             {
-                contractPath: item.role === "driver" ? driverPath : calleePath,
-                name: `Qpi${item.compiler}${item.role === "driver" ? "Driver" : "Callee"}`,
+                contractPath,
+                name: `Qpi${item.compiler}${item.role[0].toUpperCase()}${item.role.slice(1)}`,
                 core: core!,
                 rpcBaseUrl: base,
                 rpc,
@@ -287,6 +344,25 @@ async function burn(base: string, rpc: LiteRpc, slot: number, burnedFor: number,
     const output = new DataView(hexToBytes(entry.outHex).buffer);
 
     return { words: [0, 8, 16].map((offset) => output.getBigInt64(offset, true)), seq: entry.seq };
+}
+
+// the proposer's two procedures take the receiver's slot: 1 sets a shareholder proposal there, 2 casts shareholder votes.
+async function shareholderCall(base: string, rpc: LiteRpc, proposerSlot: number, procedureId: number, receiverSlot: number, seed: string): Promise<void> {
+    const result = await invokeProcedure({
+        seed,
+        rpcBaseUrl: base,
+        rpc,
+        contractIndex: proposerSlot,
+        procedureId,
+        amount: 0,
+        inputFormat: `${receiverSlot}uint16`,
+        tick: (await rpc.tickInfo()).tick + 6,
+        confirm: true,
+        confirmTimeoutMs: 60_000,
+    });
+    if (!result.ok || !result.confirmed || !result.included) {
+        fail(`${base} slot ${proposerSlot} shareholder procedure ${procedureId} was not included: ${JSON.stringify(result)}`);
+    }
 }
 
 async function soakRecoveries(base: string, rpc: LiteRpc, artifacts: Artifact[], compiler: CompilerBackendLabel, seed: string): Promise<void> {
@@ -449,7 +525,18 @@ async function execute(base: string, rpc: LiteRpc, artifacts: Artifact[], compil
     if (calleeRead.stateSize !== calleeDigest.stateSize || calleeState.byteLength !== calleeDigest.stateSize) {
         fail(`${base} ${compiler} callee state read is incomplete`);
     }
+    const receiver = artifacts.find((item) => item.compiler === compiler && item.role === "receiver")!;
+    const proposer = artifacts.find((item) => item.compiler === compiler && item.role === "proposer")!;
+    await shareholderCall(base, rpc, proposer.slot, 1, receiver.slot, seed);
+    await shareholderCall(base, rpc, proposer.slot, 2, receiver.slot, seed);
+    const receiverOutput = await rpc.querySmartContract(receiver.slot, 1, new Uint8Array(0));
+    const proposerOutput = await rpc.querySmartContract(proposer.slot, 1, new Uint8Array(0));
+
     return {
+        receiverOutput,
+        proposerOutput,
+        receiverDigest: (await rpc.contractDigest(receiver.slot)).digest.toLowerCase(),
+        proposerDigest: (await rpc.contractDigest(proposer.slot)).digest.toLowerCase(),
         driverStateSize: driverDigest.stateSize,
         calleeStateSize: calleeDigest.stateSize,
         driverState,
@@ -470,6 +557,18 @@ function assertExpected(result: Result, label: string): void {
             fail(`${label} driver output word ${index + 1}: ${actual} != ${value}`);
         }
     });
+    // receiver: proposal byte, proposals, votes, the vote's proposal index, and its refused call back into the proposer (INVALID_PROPOSAL_INDEX).
+    const shareRows: [string, Uint8Array, bigint[]][] = [
+        ["receiver", result.receiverOutput, [222n, 1n, 1n, 7n, 0xffffn]],
+        ["proposer", result.proposerOutput, [7n, 1n]],
+    ];
+    for (const [role, output, words] of shareRows) {
+        words.forEach((value, index) => {
+            if (uint64(output, index) !== value) {
+                fail(`${label} ${role} output word ${index}: ${uint64(output, index)} != ${value}`);
+            }
+        });
+    }
     const callee = new DataView(result.calleeOutput.buffer, result.calleeOutput.byteOffset, result.calleeOutput.byteLength);
     const calleeExpected = [65n, 4n, 0x43414c4c45455741n];
     calleeExpected.forEach((value, index) => {
@@ -487,14 +586,19 @@ const registry = await coreRpc.dynRegistry();
 if (registry.contracts.some((contract) => contract.armed)) {
     fail("core node must start with empty dynamic slots");
 }
-if (registry.slotCount < 4) {
-    fail(`need four dynamic slots, node exposes ${registry.slotCount}`);
+if (registry.slotCount < 8) {
+    fail(`need eight dynamic slots, node exposes ${registry.slotCount}`);
 }
-const slots = [0, 1, 2, 3].map((offset) => registry.slotBase + offset);
+const slots = [0, 1, 2, 3, 4, 5, 6, 7].map((offset) => registry.slotBase + offset);
 
 const qpiHeader = loadQpiHeader(core);
 assertPinnedQpiHeader(qpiHeader);
-const artifacts = [...(await compileTsPair(slots[0], slots[1], qpiHeader)), ...(await compileClangPair(slots[2], slots[3]))];
+const artifacts = [
+    ...(await compileTsPair(slots[0], slots[1], qpiHeader)),
+    ...(await compileClangPair(slots[2], slots[3])),
+    ...(await compileSharePair("TS", slots[4], slots[5], qpiHeader)),
+    ...(await compileSharePair("Clang", slots[6], slots[7], qpiHeader)),
+];
 for (const item of artifacts) {
     console.log(`${item.compiler.padEnd(5)} ${item.role.padEnd(6)} slot ${item.slot}: ${item.wasm.length}B · ${item.hash}`);
 }
@@ -538,6 +642,9 @@ try {
         }
         if (result.calleeDigest !== canonical.calleeDigest) {
             fail(`${name} callee digest ${result.calleeDigest} != ${canonical.calleeDigest}`);
+        }
+        if (result.receiverDigest !== canonical.receiverDigest || result.proposerDigest !== canonical.proposerDigest) {
+            fail(`${name} shareholder digests ${result.receiverDigest} ${result.proposerDigest} != ${canonical.receiverDigest} ${canonical.proposerDigest}`);
         }
     }
     if (nestedRecoveryRuns > 1) {

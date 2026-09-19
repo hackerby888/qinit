@@ -54,6 +54,11 @@ const CALL_ERROR_ALLOCATION_FAILED = 3;
 const CALL_ERROR_CONTRACT_INACTIVE = 4;
 
 const INVALID_PROPOSAL_INDEX = 0xffff;
+// core's contractCallbacksRunning bits; a contract calling back into the same family from inside its callback is refused.
+const CALLBACK_SHAREHOLDER_PROPOSAL_AND_VOTING = 4;
+// core's ContractErrorAllocContextOtherProcedureCallFailed, the abort code for a callee outside its epoch window.
+const CONTRACT_ERROR_CALLEE_INACTIVE = 4;
+const CONTRACT_ERROR_IPO_FAILED = 8;
 
 export interface ProcedureCallOptions {
     invocator?: Id;
@@ -97,6 +102,8 @@ export class QubicSimulator {
     private spectrum = new SpectrumLedger({ tick: () => this.currentTick });
     private oracle: OracleManager;
     private pitDepth = 0;
+    private callbacksRunning = 0;
+    private contractLifetimes = new Map<number, { constructionEpoch: number; destructionEpoch: number }>();
     private assets = new AssetLedger({
         contractId: (slot) => this.contractId(slot),
         logAssetMutation: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
@@ -1278,68 +1285,114 @@ export class QubicSimulator {
         return reward;
     }
 
-    setShareholderProposal(callerSlot: number, calleeIndex: number, proposal: Uint8Array, reward: bigint, originator: Id): number {
-        this.assertOperational();
-        if (calleeIndex === callerSlot || calleeIndex === 0 || !this.contracts.has(calleeIndex) || reward < 0n) {
-            return INVALID_PROPOSAL_INDEX;
-        }
-        if (this.callDepth >= NUMBER_OF_CONTRACT_EXECUTION_BUFFERS) {
-            return INVALID_PROPOSAL_INDEX;
+    // The epochs a contract exists in, core's constructionEpoch <= epoch < destructionEpoch. A slot nobody described is always active.
+    setContractLifetime(slot: number, constructionEpoch: number, destructionEpoch: number): void {
+        this.contractLifetimes.set(slot, { constructionEpoch, destructionEpoch });
+    }
+
+    isActiveThisEpoch(slot: number): boolean {
+        const lifetime = this.contractLifetimes.get(slot);
+        return !lifetime || (this.currentEpoch >= lifetime.constructionEpoch && this.currentEpoch < lifetime.destructionEpoch);
+    }
+
+    // The error that takes a contract out of service, 0 while it is healthy.
+    contractErrorOf(slot: number): number {
+        return this.fees.isFailed(slot) ? CONTRACT_ERROR_IPO_FAILED : 0;
+    }
+
+    // core's __qpiCallSystemProc: a callback another contract runs for the caller. It skips the fee gate, and a callee that is errored or
+    // outside its epochs aborts the caller instead of answering. Null means the callee does not define the procedure.
+    private runSystemCallback(
+        callbackFlag: number,
+        callerSlot: number,
+        calleeIndex: number,
+        systemProcedure: number,
+        input: Uint8Array,
+        reward: bigint,
+        originator: Id,
+    ): Uint8Array | null {
+        const callee = this.contracts.get(calleeIndex);
+        if (!callee || !callee.hasSysproc(systemProcedure)) {
+            return null;
         }
 
-        const callee = this.contracts.get(calleeIndex)!;
-        if (!callee.hasSysproc(SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL) || !this.fees.reserveOk(calleeIndex)) {
-            return INVALID_PROPOSAL_INDEX;
-        }
-
-        const invocationReward = this.transferInvocationReward(callerSlot, calleeIndex, reward, originator);
-
+        const callbacksRunningBefore = this.callbacksRunning;
+        this.callbacksRunning |= callbackFlag;
         this.callDepth++;
 
         try {
-            const output = this.registry.fire(callee, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL, proposal, {
+            const calleeError = this.contractErrorOf(calleeIndex);
+            if (calleeError !== 0) {
+                throw new ContractAbort(calleeError);
+            }
+            if (!this.isActiveThisEpoch(calleeIndex)) {
+                throw new ContractAbort(CONTRACT_ERROR_CALLEE_INACTIVE);
+            }
+
+            const invocationReward = this.transferInvocationReward(callerSlot, calleeIndex, reward, originator);
+
+            return this.registry.fire(callee, CONTRACT_ENTRY_KIND.SYSPROC, systemProcedure, input, {
                 invocator: this.contractId(callerSlot),
                 originator,
                 invocationReward,
-                entryPoint: SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL,
+                entryPoint: systemProcedure,
             });
-
-            return output.length >= 2 ? new DataView(output.buffer, output.byteOffset, output.byteLength).getUint16(0, true) : 0;
         } finally {
             this.callDepth--;
+            this.callbacksRunning = callbacksRunningBefore;
         }
+    }
+
+    private shareholderCallbackRefused(callerSlot: number, calleeIndex: number, reward: bigint): boolean {
+        return (
+            (this.callbacksRunning & CALLBACK_SHAREHOLDER_PROPOSAL_AND_VOTING) !== 0 ||
+            calleeIndex === callerSlot ||
+            calleeIndex === 0 ||
+            calleeIndex >= this.contractCount ||
+            reward < 0n ||
+            this.callDepth >= NUMBER_OF_CONTRACT_EXECUTION_BUFFERS
+        );
+    }
+
+    setShareholderProposal(callerSlot: number, calleeIndex: number, proposal: Uint8Array, reward: bigint, originator: Id): number {
+        this.assertOperational();
+        if (this.shareholderCallbackRefused(callerSlot, calleeIndex, reward)) {
+            return INVALID_PROPOSAL_INDEX;
+        }
+
+        const output = this.runSystemCallback(
+            CALLBACK_SHAREHOLDER_PROPOSAL_AND_VOTING,
+            callerSlot,
+            calleeIndex,
+            SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL,
+            proposal,
+            reward,
+            originator,
+        );
+        if (!output) {
+            return INVALID_PROPOSAL_INDEX;
+        }
+
+        return output.length >= 2 ? new DataView(output.buffer, output.byteOffset, output.byteLength).getUint16(0, true) : 0;
     }
 
     setShareholderVotes(callerSlot: number, calleeIndex: number, vote: Uint8Array, reward: bigint, originator: Id): number {
         this.assertOperational();
-        if (calleeIndex === callerSlot || calleeIndex === 0 || !this.contracts.has(calleeIndex) || reward < 0n) {
-            return 0;
-        }
-        if (this.callDepth >= NUMBER_OF_CONTRACT_EXECUTION_BUFFERS) {
+        if (this.shareholderCallbackRefused(callerSlot, calleeIndex, reward)) {
             return 0;
         }
 
-        const callee = this.contracts.get(calleeIndex)!;
-        if (!callee.hasSysproc(SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES) || !this.fees.reserveOk(calleeIndex)) {
-            return 0;
-        }
+        const output = this.runSystemCallback(
+            CALLBACK_SHAREHOLDER_PROPOSAL_AND_VOTING,
+            callerSlot,
+            calleeIndex,
+            SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES,
+            vote,
+            reward,
+            originator,
+        );
 
-        const invocationReward = this.transferInvocationReward(callerSlot, calleeIndex, reward, originator);
-
-        this.callDepth++;
-
-        try {
-            const output = this.registry.fire(callee, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES, vote, {
-                invocator: this.contractId(callerSlot),
-                originator,
-                invocationReward,
-                entryPoint: SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES,
-            });
-
-            return output.length >= 1 ? output[0] : 0;
-        } finally {
-            this.callDepth--;
-        }
+        return output && output.length >= 1 ? output[0] : 0;
     }
 
     procedure(slot: number, inputType: number, input?: Uint8Array, options: ProcedureCallOptions = {}): Uint8Array {
