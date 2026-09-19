@@ -908,6 +908,7 @@ preflight active upload
   +-- simulator direct route
   |     -> POST /live/v1/dev/deploy
   |     -> store source metadata
+  |     -> wait one tick for the slot to report constructed
   |     -> save local IDL
   |     -> ready
   |
@@ -920,6 +921,7 @@ preflight active upload
         -> query dyn-upload and resend missing chunks
         -> sign and send DEPLOY
         -> poll dyn-registry for expected slot and code hash
+        -> read dyn-upload's lastDeploy each round; a final refusal ends the deploy with the node's reason
         -> verify armed/constructed/registration state
         -> store source metadata
         -> save local IDL
@@ -1904,7 +1906,7 @@ Chain and contract routes:
 | `whoami()`                | `GET /live/v1/whoami`                      | explicit core/simulator orchestration                   |
 | `raw()`                   | any GET path                               | escape hatch for routes with no method                  |
 | `dynRegistry()`           | `GET /live/v1/dyn-registry`                | deploy/slot planning, call, state, debug, list          |
-| `dynUpload()`             | `GET /live/v1/dyn-upload`                  | upload ownership and assembly                           |
+| `dynUpload()`             | `GET /live/v1/dyn-upload`                  | upload assembly and the last DEPLOY's outcome           |
 | `querySmartContract()`    | `POST /live/v1/querySmartContract`         | function calls                                          |
 | `broadcastTx()`           | `POST /live/v1/broadcast-transaction`      | procedures and deployment protocol                      |
 | `txStatus()`              | `GET /live/v1/tx-status/<tick>/<id>`       | procedure settlement                                    |
