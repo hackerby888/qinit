@@ -28,9 +28,10 @@ function renderLines(wrap: "wrap" | "truncate-end"): string[] {
     );
     instance.unmount();
 
-    return stripVTControlCharacters(frames[frames.length - 1] ?? "")
-        .split("\n")
-        .filter((line) => line.length > 0);
+    // under CI ink closes with a bare newline on unmount, so the frame is the last write that drew anything.
+    const drawn = frames.map((frame) => stripVTControlCharacters(frame)).filter((frame) => frame.trim().length > 0);
+
+    return (drawn[drawn.length - 1] ?? "").split("\n").filter((line) => line.length > 0);
 }
 
 describe("trace label rows", () => {
