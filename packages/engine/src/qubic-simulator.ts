@@ -55,6 +55,7 @@ const CALL_ERROR_CONTRACT_INACTIVE = 4;
 
 const INVALID_PROPOSAL_INDEX = 0xffff;
 // core's contractCallbacksRunning bits; a contract calling back into the same family from inside its callback is refused.
+const CALLBACK_MANAGEMENT_RIGHTS_TRANSFER = 1;
 const CALLBACK_SHAREHOLDER_PROPOSAL_AND_VOTING = 4;
 // core's ContractErrorAllocContextOtherProcedureCallFailed, the abort code for a callee outside its epoch window.
 const CONTRACT_ERROR_CALLEE_INACTIVE = 4;
@@ -630,11 +631,6 @@ export class QubicSimulator {
         otherSlot: number,
         originator: Id,
     ): { allow: boolean; fee: bigint } {
-        const contract = this.contracts.get(targetSlot);
-        if (!contract || !contract.hasSysproc(spId)) {
-            return { allow: false, fee: 0n };
-        }
-
         const request = PreManagementRightsTransferInput.alloc();
         request.asset.issuer = issuer;
         request.asset.assetName = name;
@@ -645,12 +641,10 @@ export class QubicSimulator {
         request.otherContractIndex = otherSlot;
 
         // Core runs these callbacks in the caller's context: invocator = the contract moving the rights, originator = the tx signer.
-        const output = this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, spId, request.bytes, {
-            invocator: this.contractId(otherSlot),
-            originator,
-            invocationReward: 0n,
-            entryPoint: spId,
-        });
+        const output = this.runSystemCallback(CALLBACK_MANAGEMENT_RIGHTS_TRANSFER, otherSlot, targetSlot, spId, request.bytes, 0n, originator);
+        if (!output) {
+            return { allow: false, fee: 0n };
+        }
         const reply = PreManagementRightsTransferOutput.wrap(output);
         const allow = output.length >= 1 && reply.allowTransfer !== 0;
         const requestedFee = output.length >= 16 ? reply.requestedFee : 0n;
@@ -679,6 +673,11 @@ export class QubicSimulator {
         const { counterpartyOwnershipManager, counterpartyPossessionManager, heldByCaller } = request;
 
         this.assertOperational();
+        // A PRE or POST callback moving rights itself would nest the transfer it is answering.
+        if ((this.callbacksRunning & CALLBACK_MANAGEMENT_RIGHTS_TRANSFER) !== 0) {
+            return INVALID_AMOUNT;
+        }
+
         if (!first32BytesEqual(owner, possessor) || counterpartyOwnershipManager !== counterpartyPossessionManager) {
             return INVALID_AMOUNT;
         }
@@ -686,9 +685,11 @@ export class QubicSimulator {
         if (
             counterpartyPossessionManager === callerSlot ||
             counterpartyPossessionManager < 1 ||
-            counterpartyPossessionManager >= MAX_NUMBER_OF_CONTRACTS ||
+            counterpartyPossessionManager >= this.contractCount ||
+            !this.isActiveThisEpoch(counterpartyPossessionManager) ||
             shares <= 0n ||
-            offeredFee < 0n
+            offeredFee < 0n ||
+            callerSlot >= this.contractCount
         ) {
             return INVALID_AMOUNT;
         }
@@ -723,7 +724,7 @@ export class QubicSimulator {
         if (callback.fee > 0n) {
             const feeResult = this.transfer(callerSlot, this.contractId(counterpartyOwnershipManager), callback.fee, TRANSFER_TYPE_QPI_TRANSFER, originator);
             if (feeResult < 0n) {
-                return -callback.fee;
+                return callback.fee ? -callback.fee : INVALID_AMOUNT;
             }
         }
 

@@ -41,6 +41,9 @@ struct QpiDual : public ContractBase
         sint64 burnSelfDelta;
         sint64 burnTargetDelta;
         uint64 burns;
+        sint64 rightsReleaseFee;
+        sint64 rightsAcquireFee;
+        sint64 rightsManagedAfter;
     };
 
     struct CalleeRead_input {};
@@ -684,6 +687,40 @@ struct QpiDual : public ContractBase
         state.mut().burns++;
     }
 
+    struct Rights_input { uint64 calleeIndex; };
+    struct Rights_output
+    {
+        sint64 issued;
+        sint64 releaseFee;
+        sint64 managedByCallee;
+        sint64 acquireFee;
+        sint64 managedBySelf;
+    };
+    struct Rights_locals { Asset asset; };
+
+    // approves a release back to this contract, so the callee's nested release is stopped by the guard and by nothing else.
+    PRE_ACQUIRE_SHARES()
+    {
+        output.allowTransfer = true;
+    }
+
+    // "RIGHTS": released to the callee for a fee of 5, acquired back for 7, both under an offer of 10.
+    PUBLIC_PROCEDURE_WITH_LOCALS(Rights)
+    {
+        locals.asset.issuer = SELF;
+        locals.asset.assetName = 0x535448474952ull;
+        output.issued = qpi.issueAsset(locals.asset.assetName, SELF, 0, 100, 0);
+        output.releaseFee = qpi.releaseShares(locals.asset, SELF, SELF, 40, (uint16)input.calleeIndex, (uint16)input.calleeIndex, 10);
+        output.managedByCallee =
+            qpi.numberOfPossessedShares(locals.asset.assetName, SELF, SELF, SELF, (uint16)input.calleeIndex, (uint16)input.calleeIndex);
+        output.acquireFee = qpi.acquireShares(locals.asset, SELF, SELF, 40, (uint16)input.calleeIndex, (uint16)input.calleeIndex, 10);
+        output.managedBySelf = qpi.numberOfPossessedShares(locals.asset.assetName, SELF, SELF, SELF, SELF_INDEX, SELF_INDEX);
+
+        state.mut().rightsReleaseFee = output.releaseFee;
+        state.mut().rightsAcquireFee = output.acquireFee;
+        state.mut().rightsManagedAfter = output.managedBySelf;
+    }
+
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
     {
         REGISTER_USER_PROCEDURE(Run, 1);
@@ -691,5 +728,6 @@ struct QpiDual : public ContractBase
         REGISTER_USER_PROCEDURE(Cheat, 3);
         REGISTER_USER_FUNCTION(Read, 1);
         REGISTER_USER_PROCEDURE(Burn, 4);
+        REGISTER_USER_PROCEDURE(Rights, 5);
     }
 };

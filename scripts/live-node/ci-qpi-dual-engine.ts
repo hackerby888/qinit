@@ -21,6 +21,8 @@ const ARENA_SIZE = DEFAULT_COMPILE_ARENA_SIZE_BYTES;
 const FALLBACK_SEED = "a".repeat(55);
 const BURN_AMOUNT = 100n;
 const BURN_FUNDING = 150;
+const RIGHTS_FUNDING = 50;
+const INVALID_AMOUNT = -(1n << 63n);
 const driverPath = resolve("fixtures/QpiDual.h");
 const calleePath = resolve("fixtures/QpiDualCallee.h");
 const driverSource = readFileSync(driverPath, "utf8");
@@ -77,8 +79,12 @@ function same(left: Uint8Array, right: Uint8Array, label: string): void {
     fail(`${label} differs at byte ${first} (${left.byteLength}B vs ${right.byteLength}B)`);
 }
 
+function viewOf(bytes: Uint8Array): DataView {
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
 function uint64(bytes: Uint8Array, index: number): bigint {
-    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(index * 8, true);
+    return viewOf(bytes).getBigUint64(index * 8, true);
 }
 
 async function artifact(compiler: CompilerBackendLabel, role: Role, slot: number, wasm: Uint8Array, registration: Registration): Promise<Artifact> {
@@ -506,6 +512,40 @@ async function execute(base: string, rpc: LiteRpc, artifacts: Artifact[], compil
                 `${base} ${compiler} burn for ${label}: remaining ${remaining}, self ${actualSelfDelta} != ${selfDelta}, target ${actualTargetDelta} != ${targetDelta}`,
             );
         }
+    }
+
+    // a release to the callee and an acquire back, each under its own non-zero fee; the callee also tries a release from inside its callback.
+    const rightsTick = (await rpc.tickInfo()).tick + 6;
+    const rights = await invokeProcedure({
+        seed,
+        rpcBaseUrl: base,
+        rpc,
+        contractIndex: driver.slot,
+        procedureId: 5,
+        amount: RIGHTS_FUNDING,
+        inputFormat: `${callee.slot}uint64`,
+        tick: rightsTick,
+        confirm: true,
+        confirmTimeoutMs: 60_000,
+    });
+    if (!rights.ok || !rights.confirmed || !rights.included) {
+        fail(`${base} ${compiler} Rights was not included: ${JSON.stringify(rights)}`);
+    }
+    const rightsEntry = (await rpc.debugTrace(burnTraceStart, 64)).entries.find(
+        (entry) => entry.index === driver.slot && entry.entry === 5 && entry.kind === 1 && entry.ok,
+    );
+    const rightsWords = rightsEntry ? new DataView(hexToBytes(rightsEntry.outHex).buffer) : undefined;
+    const rightsExpected = [100n, 5n, 40n, 7n, 100n];
+    rightsExpected.forEach((value, index) => {
+        if (rightsWords?.getBigInt64(index * 8, true) !== value) {
+            fail(`${base} ${compiler} rights output word ${index}: ${rightsWords?.getBigInt64(index * 8, true)} != ${value}`);
+        }
+    });
+    const calleeRights = viewOf(await rpc.querySmartContract(callee.slot, 4, new Uint8Array(0)));
+    if (calleeRights.getBigUint64(0, true) !== 4n || calleeRights.getBigInt64(8, true) !== 12n || calleeRights.getBigInt64(16, true) !== INVALID_AMOUNT) {
+        fail(
+            `${base} ${compiler} callee rights: ${calleeRights.getBigUint64(0, true)} callbacks, ${calleeRights.getBigInt64(8, true)} fees, nested ${calleeRights.getBigInt64(16, true)}`,
+        );
     }
 
     await plainTransfer(base, rpc, driver.slot, seed);

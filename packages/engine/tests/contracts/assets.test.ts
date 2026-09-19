@@ -391,3 +391,52 @@ test("a release gated on originator == owner passes for the owner and fails for 
     expect(seen(sim)).toMatchObject({ allowed: 0, postReleaseCalls: 1 });
     expect(sharesByMgmt(sim, 29)).toBe(100n);
 });
+
+// core refuses a transfer whose counterparty is out of range or outside its epochs, and aborts the caller when it is errored.
+test("management rights transfers carry core's gates on the counterparty", async () => {
+    await initK12();
+    const A = contractId(28);
+
+    const bounded = new QubicSimulator({ contractCount: 28 });
+    bounded.deploy(28, await wasm("ShareApprover"));
+    bounded.deploy(29, await wasm("ShareManager"));
+    bounded.procedure(28, 1, issueIn(TOKEN, 1000n));
+    expect(bounded.acquireShares(29, TOKEN, A, A, A, 400n, 28, 28, 0n)).toBe(INVALID_AMOUNT);
+
+    const inactive = new QubicSimulator();
+    inactive.deploy(28, await wasm("ShareApprover"));
+    inactive.deploy(29, await wasm("ShareManager"));
+    inactive.procedure(28, 1, issueIn(TOKEN, 1000n));
+    inactive.setContractLifetime(28, 5, 10);
+    expect(inactive.acquireShares(29, TOKEN, A, A, A, 400n, 28, 28, 0n)).toBe(INVALID_AMOUNT);
+    inactive.currentEpoch = 5;
+    expect(inactive.acquireShares(29, TOKEN, A, A, A, 400n, 28, 28, 0n)).toBe(0n);
+
+    const errored = new QubicSimulator({ haltOnContractFault: false });
+    errored.deploy(28, await wasm("ShareApprover"));
+    errored.deploy(29, await wasm("ShareManager"));
+    errored.procedure(28, 1, issueIn(TOKEN, 1000n));
+    errored.ipo(28, 0n);
+    expect(() => errored.procedure(29, 2, mgmtIn(TOKEN, A, A, 400n, 28, 0n))).toThrow(/abort\(8\)/);
+    expect(sharesByMgmt(errored, 28)).toBe(1000n);
+});
+
+// The dual-engine driver's Rights procedure: a release and an acquire with different non-zero fees, and a release nested inside the callback.
+test("a rights round trip pays each leg's fee, and a transfer nested in its callback is refused", async () => {
+    await initK12();
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("QpiDualCallee"));
+    sim.deploy(29, await wasm("QpiDual"));
+    sim.fund(contractId(29), 50n);
+
+    const input = new Uint8Array(8);
+    new DataView(input.buffer).setBigUint64(0, 28n, true);
+    const output = new DataView(sim.procedure(29, 5, input).buffer);
+
+    // issued, release fee, managed by the callee after the release, acquire fee, managed by the driver after the acquire.
+    expect([0, 8, 16, 24, 32].map((offset) => output.getBigInt64(offset, true))).toEqual([100n, 5n, 40n, 7n, 100n]);
+    expect(sim.balanceOf(28)).toBe(12n);
+
+    const callee = new DataView(sim.query(28, 4).buffer);
+    expect([callee.getBigUint64(0, true), callee.getBigInt64(8, true), callee.getBigInt64(16, true)]).toEqual([4n, 12n, INVALID_AMOUNT]);
+});

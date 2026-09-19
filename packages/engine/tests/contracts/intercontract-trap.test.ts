@@ -12,6 +12,9 @@ function words(bytes: Uint8Array): bigint[] {
     return values;
 }
 
+// The callee's three management-rights words sit in the same diff chunk and stay zero here.
+const UNTOUCHED_RIGHTS_FIELDS = "00".repeat(24);
+
 test("a trapped nested callee keeps its write and the caller recovers", async () => {
     await initK12();
 
@@ -38,8 +41,8 @@ test("a trapped nested callee keeps its write and the caller recovers", async ()
     expect(trapped?.stateDiff).toEqual([
         {
             off: 0,
-            before: "07000000000000000000000000000000415745454c4c4143",
-            after: "0c000000000000000100000000000000415745454c4c4143",
+            before: "07000000000000000000000000000000415745454c4c4143" + UNTOUCHED_RIGHTS_FIELDS,
+            after: "0c000000000000000100000000000000415745454c4c4143" + UNTOUCHED_RIGHTS_FIELDS,
         },
     ]);
 
