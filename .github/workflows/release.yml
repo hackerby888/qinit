@@ -18,7 +18,12 @@ env:
   BUN_VERSION: "1.3.14"
 
 jobs:
+  # a tag must never publish a commit that fails the test workflow.
+  ci:
+    uses: ./.github/workflows/test.yml
+
   release:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

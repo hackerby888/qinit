@@ -22,6 +22,17 @@ on:
         description: "temporary core-lite branch, tag, or commit"
         required: false
         default: ""
+  # the cli release runs this whole workflow on the tagged commit before it publishes.
+  workflow_call:
+    inputs:
+      core_repository:
+        type: string
+        required: false
+        default: ""
+      core_ref:
+        type: string
+        required: false
+        default: ""
 
 env:
   BUN_VERSION: "1.3.14"
