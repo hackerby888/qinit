@@ -3,7 +3,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEFAULT_RPC_BASE, initK12, k12Hex, LiteRpc } from "@qinit/core";
 import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, inspectWasmModule, loadQpiHeader } from "@qinit/compiler";
-import { QubicSimulator } from "@qinit/engine";
+import { QubicSimulator, VirtualNode } from "@qinit/engine";
+import { EngineServer } from "@qinit/engine/server";
+import { identityToBytes } from "@qinit/core/crypto/qubic";
+import { QUBIC_LOG_TYPE, TXS_PER_TICK } from "@qinit/proto";
+import { packAssetName } from "@qinit/engine/ledger/assets";
+import { readTickLogs, type TickLogRecord } from "./peer-log-reader";
 import { deployContract } from "@qinit/cli/ops/deploy";
 import { invokeProcedure, resolveDeploymentSlot } from "@qinit/proto";
 
@@ -109,3 +114,160 @@ for (let i = 0; i < 10 && !nodeLogs.length; i++) {
 }
 expectSameLogs(nodeLogs, simLogs, "LOG_* trace bytes");
 console.log(`LOGGING DUAL OK — exact ${compiled.wasm.length}B artifact emitted ${nodeLogs.length} identical logs in QubicSimulator and WAMR at slot ${slot}`);
+
+// Native records — transfers, markers, management changes — never reach the debug trace, so both nodes are read over the peer log protocol.
+const NATIVE_FIXTURES = ["Dividend", "ShareApprover", "ShareManager"] as const;
+const DIVIDEND_PER_SHARE = 3n;
+// the simulator debits a payout at the mainnet share count whatever its holders are; a testnet core at its own computor count.
+const SIMULATOR_SHARE_COUNT = 676n;
+const peerHost = new URL(rpcBaseUrl).hostname;
+const peerPort = Number(process.env.QINIT_PEER_PORT ?? "31841");
+
+const registry = await rpc.dynRegistry();
+const freeSlots = registry.contracts.filter((contract) => !contract.armed && contract.index !== slot).map((contract) => contract.index);
+if (freeSlots.length < NATIVE_FIXTURES.length) {
+    throw new Error(`native log parity needs ${NATIVE_FIXTURES.length} free dynamic slots, node has ${freeSlots.length}`);
+}
+const nativeSlots = Object.fromEntries(NATIVE_FIXTURES.map((name, index) => [name, freeSlots[index]])) as Record<(typeof NATIVE_FIXTURES)[number], number>;
+
+const simulatorServer = new EngineServer(new VirtualNode({ slotBase: registry.slotBase, slotCount: registry.slotCount }));
+const simulator = await simulatorServer.start(0, 25, 0);
+const simulatorRpc = new LiteRpc(simulator.rpcBaseUrl);
+const simulatorSeed = (await simulatorRpc.fundedSeed()) ?? seed;
+
+try {
+    // core's testnet hands one share of every contract's asset to each computor, in list order; the simulator's ledger is given the same holders.
+    const explorer = (await (await fetch(`${rpcBaseUrl}/explorer/data`)).json()) as { computors: { index: number; publicKey: string }[] };
+    const computors = explorer.computors.sort((left, right) => left.index - right.index).map((computor) => identityToBytes(computor.publicKey));
+    if (!computors.length) {
+        throw new Error("core lists no computors");
+    }
+
+    const runtimes = [
+        { name: "simulator", base: simulator.rpcBaseUrl, client: simulatorRpc, signer: simulatorSeed, host: "127.0.0.1", port: simulator.peerPort! },
+        { name: "core", base: rpcBaseUrl, client: rpc, signer: seed, host: peerHost, port: peerPort },
+    ];
+    const streams = new Map<string, Record<string, TickLogRecord[]>>();
+
+    for (const runtime of runtimes) {
+        for (const name of NATIVE_FIXTURES) {
+            const fixturePath = resolve(`fixtures/${name}.h`);
+            const built = await compileContractWithTypeScript({
+                source: readFileSync(fixturePath, "utf8"),
+                contractName: name,
+                slot: nativeSlots[name],
+                qpiHeader: loadQpiHeader(core),
+                arenaSizeBytes: DEFAULT_COMPILE_ARENA_SIZE_BYTES,
+            });
+            if (built.diagnostics.some((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR) || !built.idl) {
+                throw new Error(`${name} compile failed`);
+            }
+            const result = await deployContract(
+                {
+                    contractPath: fixturePath,
+                    name: `Native${name}`,
+                    core,
+                    rpcBaseUrl: runtime.base,
+                    rpc: runtime.client,
+                    seed: runtime.signer,
+                    slotOverride: nativeSlots[name],
+                    artifact: {
+                        wasm: built.wasm,
+                        hash: await k12Hex(built.wasm),
+                        registration: { functions: built.idl.functions.length, procedures: built.idl.procedures.length },
+                    },
+                },
+                () => {},
+            );
+            if (!result.ok || !result.armed || !result.constructed) {
+                throw new Error(`${runtime.name} ${name} deploy failed: ${JSON.stringify(result)}`);
+            }
+        }
+
+        if (runtime.name === "simulator") {
+            const ledger = simulatorServer.engine.sim;
+            const assetName = `LDYN${nativeSlots.Dividend - registry.slotBase}`;
+            ledger.mintDeployShares(nativeSlots.Dividend, assetName, computors[0], BigInt(computors.length));
+            for (const computor of computors.slice(1)) {
+                ledger.host.transferShareOwnershipAndPossession(1, packAssetName(assetName), new Uint8Array(32), computors[0], computors[0], 1n, computor);
+            }
+        }
+
+        const send = async (contractIndex: number, procedureId: number, amount: bigint, input: Uint8Array): Promise<number> => {
+            const sent = await invokeProcedure({
+                seed: runtime.signer,
+                rpcBaseUrl: runtime.base,
+                rpc: runtime.client,
+                contractIndex,
+                procedureId,
+                amount,
+                input,
+                tick: (await runtime.client.tickInfo()).tick + 6,
+                confirm: true,
+                confirmTimeoutMs: 60_000,
+            });
+            if (!sent.ok || !sent.confirmed || !sent.included || sent.tick === undefined) {
+                throw new Error(`${runtime.name} slot ${contractIndex} procedure ${procedureId} was not included: ${JSON.stringify(sent)}`);
+            }
+            return sent.tick;
+        };
+        // a core tick also carries the computors' own protocol transactions, so only the range opened by the transfer into the contract is compared.
+        const transactionRecords = async (tick: number, contractIndex: number) => {
+            const records = (await readTickLogs(runtime.host, runtime.port, tick)).filter((record) => record.txIndex < TXS_PER_TICK);
+            const opening = records.find(
+                (record) => record.type === QUBIC_LOG_TYPE.QU_TRANSFER && new DataView(record.message.buffer).getBigUint64(32, true) === BigInt(contractIndex),
+            );
+            return records.filter((record) => record.txIndex === opening?.txIndex);
+        };
+
+        // funded in its own transaction, since the two nodes debit different totals and the payout tick is compared byte for byte.
+        const shareCount = runtime.name === "simulator" ? SIMULATOR_SHARE_COUNT : BigInt(computors.length);
+        await send(nativeSlots.Dividend, 1, DIVIDEND_PER_SHARE * shareCount, new Uint8Array(0));
+        const amountPerShare = new Uint8Array(8);
+        new DataView(amountPerShare.buffer).setBigInt64(0, DIVIDEND_PER_SHARE, true);
+        const payoutTick = await send(nativeSlots.Dividend, 2, 0n, amountPerShare);
+
+        // ShareApprover.Issue { name, shares }, then ShareManager.Acquire { name, issuer, holder, shares, source manager, offered fee 0 }.
+        const tokenName = 0x4e454b4f54n;
+        const issue = new Uint8Array(16);
+        new DataView(issue.buffer).setBigUint64(0, tokenName, true);
+        new DataView(issue.buffer).setBigInt64(8, 1000n, true);
+        await send(nativeSlots.ShareApprover, 1, 0n, issue);
+
+        const approverId = new Uint8Array(32);
+        new DataView(approverId.buffer).setBigUint64(0, BigInt(nativeSlots.ShareApprover), true);
+        const acquire = new Uint8Array(96);
+        const acquireView = new DataView(acquire.buffer);
+        acquireView.setBigUint64(0, tokenName, true);
+        acquire.set(approverId, 8);
+        acquire.set(approverId, 40);
+        acquireView.setBigInt64(72, 400n, true);
+        acquireView.setUint16(80, nativeSlots.ShareApprover, true);
+        // one qu rides along so the acquiring contract has a spectrum entry to send its zero-amount transfers from.
+        const releaseTick = await send(nativeSlots.ShareManager, 2, 1n, acquire);
+
+        streams.set(runtime.name, {
+            payout: await transactionRecords(payoutTick, nativeSlots.Dividend),
+            release: await transactionRecords(releaseTick, nativeSlots.ShareManager),
+        });
+    }
+
+    const shape = (records: TickLogRecord[]) => records.map((record) => `${record.type}:${Buffer.from(record.message).toString("hex")}`);
+    for (const scenario of ["payout", "release"]) {
+        const simulated = shape(streams.get("simulator")![scenario]);
+        const native = shape(streams.get("core")![scenario]);
+        if (!simulated.length || JSON.stringify(simulated) !== JSON.stringify(native)) {
+            const length = Math.max(simulated.length, native.length);
+            const firstDifference = Array.from({ length }, (_, index) => index).find((index) => simulated[index] !== native[index]);
+            throw new Error(
+                `${scenario} log records differ at ${firstDifference} (simulator ${simulated.length}, core ${native.length}): ` +
+                    `${simulated[firstDifference!] ?? "nothing"} != ${native[firstDifference!] ?? "nothing"}`,
+            );
+        }
+    }
+    console.log(
+        `NATIVE LOG DUAL OK — ${streams.get("core")!.payout.length} payout and ${streams.get("core")!.release.length} zero-fee release records byte-identical`,
+    );
+} finally {
+    simulator.stop();
+}

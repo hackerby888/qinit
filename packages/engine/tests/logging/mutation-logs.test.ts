@@ -1,5 +1,5 @@
 import { beforeAll, expect, test } from "bun:test";
-import { QUBIC_LOG_TYPE } from "@qinit/proto";
+import { CUSTOM_MESSAGE_OP, QUBIC_LOG_TYPE } from "@qinit/proto";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { concatBytes } from "../../src/support/bytes";
 import { initK12, k12Bytes } from "../../src/support/k12";
@@ -46,6 +46,13 @@ function quTransferMessage(source: Uint8Array, destination: Uint8Array, amount: 
     message.set(source, 0);
     message.set(destination, 32);
     new DataView(message.buffer).setBigInt64(64, amount, true);
+    return message;
+}
+
+// core's DummyCustomMessage: the marker and nothing else.
+function markerMessage(marker: bigint): Uint8Array {
+    const message = new Uint8Array(8);
+    new DataView(message.buffer).setBigUint64(0, marker, true);
     return message;
 }
 
@@ -197,19 +204,92 @@ test("QPI transfers and burns use the Core payload layouts", () => {
         burningMessage(source, 10n, 29),
         quTransferMessage(source, destination, 0n),
         burningMessage(source, 0n, 29),
+        markerMessage(CUSTOM_MESSAGE_OP.START_DISTRIBUTE_DIVIDENDS),
         quTransferMessage(source, shareholder, 0n),
+        markerMessage(CUSTOM_MESSAGE_OP.END_DISTRIBUTE_DIVIDENDS),
     ];
-    const logs = parseLogs(logger, 5);
+    const logs = parseLogs(logger, 7);
     expect(logs.map((log) => log.type)).toEqual([
         QUBIC_LOG_TYPE.QU_TRANSFER,
         QUBIC_LOG_TYPE.BURNING,
         QUBIC_LOG_TYPE.QU_TRANSFER,
         QUBIC_LOG_TYPE.BURNING,
+        QUBIC_LOG_TYPE.CUSTOM_MESSAGE,
         QUBIC_LOG_TYPE.QU_TRANSFER,
+        QUBIC_LOG_TYPE.CUSTOM_MESSAGE,
     ]);
     expect(logs.map((log) => log.message)).toEqual(expectedMessages);
     expect(sim.getEntity(shareholder)?.numberOfIncomingTransfers).toBe(1);
-    expect(logger.digest(1)).toEqual(k12Bytes(concatBytes([ZERO32, ...expectedMessages])));
+    // Custom messages stay out of the tick digest, as on core.
+    const digested = expectedMessages.filter((_, index) => logs[index].type !== QUBIC_LOG_TYPE.CUSTOM_MESSAGE);
+    expect(logger.digest(1)).toEqual(k12Bytes(concatBytes([ZERO32, ...digested])));
+});
+
+test("a dividend payout is bracketed by its two markers, holders or not", () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ logStore: logger });
+    const paying = contractId(28);
+    const first = new Uint8Array(32).fill(0x46);
+    const second = new Uint8Array(32).fill(0x47);
+
+    sim.mintDeployShares(28, "DIV", first);
+    // Contract shares are minted under contract 1's management.
+    sim.host.transferShareOwnershipAndPossession(1, packAssetName("DIV"), new Uint8Array(32), first, first, 76n, second);
+    sim.fund(paying, 676n * 3n);
+    sim.fund(contractId(29), 676n);
+
+    logger.begin(1, 0);
+    expect(sim.host.distributeDividends(28, 3n)).toBe(1);
+    // No asset was ever minted for this contract: the debit and both markers still happen, as on core.
+    expect(sim.host.distributeDividends(29, 1n)).toBe(1);
+    // An unaffordable payout stops before the first marker.
+    expect(sim.host.distributeDividends(29, 1n)).toBe(0);
+    logger.end();
+    logger.finalizeTick(1);
+
+    const messages = parseLogs(logger, 6).map((log) => log.message);
+    // Which holder is paid first is the ledger's iteration order, pinned against a core node by the logging dual-engine run and not here.
+    const payouts = messages.slice(1, 3).sort((left, right) => left[32] - right[32]);
+    expect([messages[0], ...payouts, ...messages.slice(3)]).toEqual([
+        markerMessage(CUSTOM_MESSAGE_OP.START_DISTRIBUTE_DIVIDENDS),
+        quTransferMessage(paying, first, 600n * 3n),
+        quTransferMessage(paying, second, 76n * 3n),
+        markerMessage(CUSTOM_MESSAGE_OP.END_DISTRIBUTE_DIVIDENDS),
+        markerMessage(CUSTOM_MESSAGE_OP.START_DISTRIBUTE_DIVIDENDS),
+        markerMessage(CUSTOM_MESSAGE_OP.END_DISTRIBUTE_DIVIDENDS),
+    ]);
+    expect(sim.balanceOf(29)).toBe(0n);
+});
+
+// core transfers the requested fee unconditionally and runs each callback through a reward transfer, so a free transfer logs zero-amount records.
+test("a zero-fee rights transfer still logs its fee and callback transfers", async () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ logStore: logger });
+    const approver = contractId(28);
+    const acquirer = contractId(29);
+    const name = packAssetName("TOKEN");
+
+    sim.deploy(28, await wasm("ShareApprover"));
+    sim.deploy(29, await wasm("ShareManager"));
+    sim.host.issueAsset(28, name, approver, 0, 1000n, 0n, approver);
+    // A contract that never held anything has no spectrum entry, and core logs nothing for a transfer out of one.
+    sim.fund(acquirer, 1n);
+
+    logger.begin(1, 0);
+    expect(sim.acquireShares(29, name, approver, approver, approver, 400n, 28, 28, 0n)).toBe(0n);
+    logger.end();
+    logger.finalizeTick(1);
+
+    const logs = parseLogs(logger, Number(logger.range(1, 0).length));
+    expect(logs.map((log) => log.type)).toEqual([
+        QUBIC_LOG_TYPE.QU_TRANSFER,
+        QUBIC_LOG_TYPE.QU_TRANSFER,
+        QUBIC_LOG_TYPE.ASSET_OWNERSHIP_MANAGING_CONTRACT_CHANGE,
+        QUBIC_LOG_TYPE.ASSET_POSSESSION_MANAGING_CONTRACT_CHANGE,
+    ]);
+    // The PRE_RELEASE_SHARES callback's reward transfer, then the fee itself; the approver defines no POST callback, so nothing follows the rights.
+    expect(logs[0].message).toEqual(quTransferMessage(acquirer, approver, 0n));
+    expect(logs[1].message).toEqual(quTransferMessage(acquirer, approver, 0n));
 });
 
 test("QPI transfer logs follow the destination callback logs", async () => {

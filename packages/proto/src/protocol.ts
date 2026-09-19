@@ -25,6 +25,14 @@ export const QUBIC_LOG_TYPE = {
     CUSTOM_MESSAGE: 255,
 } as const;
 
+// logging.h CUSTOM_MESSAGE_OP_*: eight ASCII bytes read as a little-endian uint64, the whole payload of a marker record.
+export const CUSTOM_MESSAGE_OP = {
+    START_DISTRIBUTE_DIVIDENDS: 6217575821008262227n,
+    END_DISTRIBUTE_DIVIDENDS: 6217575821008457285n,
+    START_EPOCH: 4850183582582395987n,
+    END_EPOCH: 4850183582582591045n,
+} as const;
+
 export const LOG_SEVERITY: Record<number, string> = {
     [QUBIC_LOG_TYPE.CONTRACT_ERROR_MESSAGE]: "ERROR",
     [QUBIC_LOG_TYPE.CONTRACT_WARNING_MESSAGE]: "WARN",

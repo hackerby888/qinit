@@ -155,6 +155,13 @@ export function encodeAssetPossessionManagingContractChangeLog(
     return message.bytes.subarray(0, AssetPossessionManagingContractChange.OFFSETS._terminator);
 }
 
+// core's DummyCustomMessage: the marker alone, everything before its terminator.
+export function encodeCustomMessageLog(marker: bigint): Uint8Array {
+    const message = new Uint8Array(8);
+    new DataView(message.buffer).setBigUint64(0, marker, true);
+    return message;
+}
+
 export function encodeBurningLog(sourcePublicKey: Uint8Array, amount: bigint, contractIndexBurnedFor: number): Uint8Array {
     const message = Burning.alloc();
     message.sourcePublicKey = sourcePublicKey;

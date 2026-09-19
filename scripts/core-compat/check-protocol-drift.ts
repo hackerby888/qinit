@@ -17,6 +17,7 @@ import {
     MAINNET_COMPUTOR_COUNT,
     MAX_INPUT_SIZE,
     MAX_NUMBER_OF_CONTRACTS,
+    CUSTOM_MESSAGE_OP,
     MAX_ORACLE_QUERY_SIZE,
     MAX_ORACLE_REPLY_SIZE,
     ORACLE_STATUS,
@@ -159,6 +160,14 @@ expectEqual("DEPLOY_MESSAGE_SIZE", readStructSize(DEPLOYMENT_PROTOCOL, "DeployMe
 
 for (const [symbol, code] of Object.entries(QUBIC_LOG_TYPE)) {
     expectEqual(symbol, readDefine(LOG, symbol), code);
+}
+
+// the markers are past 2^53, so they are compared as decimal text.
+for (const [symbol, marker] of Object.entries(CUSTOM_MESSAGE_OP)) {
+    const declared = readFileSync(join(core, LOG), "utf8").match(new RegExp(`#define\\s+CUSTOM_MESSAGE_OP_${symbol}\\s+(\\d+)`))?.[1];
+    if (declared !== String(marker)) {
+        failures.push(`CUSTOM_MESSAGE_OP_${symbol}: core=${declared} qinit=${marker}`);
+    }
 }
 
 for (const [code, name] of [

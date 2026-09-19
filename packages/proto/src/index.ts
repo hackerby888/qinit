@@ -39,6 +39,7 @@ export * from "./qpi-layout"; // QPI container layout: single source of truth (i
 export * from "./qpi-container-view";
 export {
     QUBIC_LOG_TYPE,
+    CUSTOM_MESSAGE_OP,
     LOG_SEVERITY,
     MAX_INPUT_SIZE,
     MAX_NUMBER_OF_CONTRACTS,

@@ -1,5 +1,14 @@
 import { CHEAT_ERR, CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURES, type DebugTrace, type EngineFaultInfo } from "@qinit/core";
-import { encodeBurningLog, encodeQuTransferLog, MAINNET_COMPUTOR_COUNT, MAX_INPUT_SIZE, QUBIC_LOG_TYPE, TXS_PER_TICK } from "@qinit/proto";
+import {
+    CUSTOM_MESSAGE_OP,
+    encodeBurningLog,
+    encodeCustomMessageLog,
+    encodeQuTransferLog,
+    MAINNET_COMPUTOR_COUNT,
+    MAX_INPUT_SIZE,
+    QUBIC_LOG_TYPE,
+    TXS_PER_TICK,
+} from "@qinit/proto";
 import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, Entity, HostServices } from "./contract/runtime";
 import { toHex, verifySync } from "./support/k12";
 import { TraceRecorder } from "./logging/trace";
@@ -499,6 +508,10 @@ export class QubicSimulator {
         this.logStore?.logMessage(QUBIC_LOG_TYPE.QU_TRANSFER, encodeQuTransferLog(source, destination, amount), this.currentEpoch);
     }
 
+    private logCustomMessage(marker: bigint): void {
+        this.logStore?.logMessage(QUBIC_LOG_TYPE.CUSTOM_MESSAGE, encodeCustomMessageLog(marker), this.currentEpoch);
+    }
+
     private transferBalance(source: Id, destination: Id, amount: bigint): boolean {
         if (!this.decreaseEnergy(this.spectrumIndex(source), amount)) {
             return false;
@@ -721,11 +734,10 @@ export class QubicSimulator {
             return -callback.fee;
         }
 
-        if (callback.fee > 0n) {
-            const feeResult = this.transfer(callerSlot, this.contractId(counterpartyOwnershipManager), callback.fee, TRANSFER_TYPE_QPI_TRANSFER, originator);
-            if (feeResult < 0n) {
-                return callback.fee ? -callback.fee : INVALID_AMOUNT;
-            }
+        // core transfers the fee unconditionally, so a free transfer still leaves a zero-amount record in the log.
+        const feeResult = this.transfer(callerSlot, this.contractId(counterpartyOwnershipManager), callback.fee, TRANSFER_TYPE_QPI_TRANSFER, originator);
+        if (feeResult < 0n) {
+            return callback.fee ? -callback.fee : INVALID_AMOUNT;
         }
 
         const from = heldByCaller ? callerSlot : counterpartyPossessionManager;
@@ -823,16 +835,17 @@ export class QubicSimulator {
         }
 
         const contractId = this.contractId(slot);
-        if (!this.decreaseEnergy(this.spectrumIndex(contractId), total)) {
+        const sourceIndex = this.spectrumIndex(contractId);
+        if (sourceIndex < 0 || this.energy(sourceIndex) < total) {
             return 0;
         }
 
-        const name = this.contractAssetNames.get(slot);
-        if (name === undefined) {
-            return 1;
-        }
+        // The payout is one debit against many credits, so core brackets it with two marker records for whoever reads the log.
+        this.logCustomMessage(CUSTOM_MESSAGE_OP.START_DISTRIBUTE_DIVIDENDS);
+        this.decreaseEnergy(sourceIndex, total);
 
-        for (const possession of this.assets.possessionsOf(ZERO32, name)) {
+        const name = this.contractAssetNames.get(slot);
+        for (const possession of name === undefined ? [] : this.assets.possessionsOf(ZERO32, name)) {
             if (possession.shares === 0n) {
                 continue;
             }
@@ -842,6 +855,7 @@ export class QubicSimulator {
             this.notifyContractOfIncomingTransfer(possession.possessor, contractId, dividend, TRANSFER_TYPE_QPI_DISTRIBUTE_DIVIDENDS, originator);
             this.logQuTransfer(contractId, possession.possessor, dividend);
         }
+        this.logCustomMessage(CUSTOM_MESSAGE_OP.END_DISTRIBUTE_DIVIDENDS);
 
         return 1;
     }
@@ -853,7 +867,8 @@ export class QubicSimulator {
         this.contractAssetNames.set(slot, typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn);
     }
 
-    mintDeployShares(slot: number, name: bigint | string, holder: Id): void {
+    // A testnet core issues one share per computor of its own, smaller list, so a caller mirroring one names the count.
+    mintDeployShares(slot: number, name: bigint | string, holder: Id, shares: bigint = BigInt(IPO_SHARE_COUNT)): void {
         this.assertOperational();
         const packedName = typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn;
         this.setContractAssetName(slot, packedName);
@@ -862,8 +877,8 @@ export class QubicSimulator {
             return;
         }
 
-        this.assets.mintContractShares(1, packedName, BigInt(IPO_SHARE_COUNT));
-        this.assets.transferShareOwnershipAndPossession(1, packedName, ZERO32, ZERO32, ZERO32, BigInt(IPO_SHARE_COUNT), holder);
+        this.assets.mintContractShares(1, packedName, shares);
+        this.assets.transferShareOwnershipAndPossession(1, packedName, ZERO32, ZERO32, ZERO32, shares, holder);
     }
 
     assetUniverse(): AssetSnapshot[] {
