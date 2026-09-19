@@ -590,7 +590,8 @@ async function execute(base: string, rpc: LiteRpc, artifacts: Artifact[], compil
 
 function assertExpected(result: Result, label: string): void {
     const driver = new DataView(result.driverOutput.buffer, result.driverOutput.byteOffset, result.driverOutput.byteLength);
-    const expected = [63n, 5n, 16n, 16n, 16n, 11n, 57n, 2n, 0n, 65n, 4n, 1n, 2n, 0x51494e4954574153n];
+    // the second word counts incoming transfers: the two runs, the cheat's self transfer, two plain transfers, three burns and the rights call.
+    const expected = [63n, 9n, 16n, 16n, 16n, 11n, 57n, 2n, 0n, 65n, 4n, 1n, 2n, 0x51494e4954574153n];
     expected.forEach((value, index) => {
         const actual = driver.getBigUint64((index + 1) * 8, true);
         if (actual !== value) {
