@@ -19,6 +19,8 @@ if (!core) {
 
 const ARENA_SIZE = DEFAULT_COMPILE_ARENA_SIZE_BYTES;
 const FALLBACK_SEED = "a".repeat(55);
+const BURN_AMOUNT = 100n;
+const BURN_FUNDING = 150;
 const driverPath = resolve("fixtures/QpiDual.h");
 const calleePath = resolve("fixtures/QpiDualCallee.h");
 const driverSource = readFileSync(driverPath, "utf8");
@@ -260,6 +262,33 @@ async function cheat(base: string, rpc: LiteRpc, slot: number, seed: string): Pr
     }
 }
 
+// returns the procedure's three output words: remaining balance, own reserve delta, target reserve delta.
+async function burn(base: string, rpc: LiteRpc, slot: number, burnedFor: number, seed: string, traceStart: number): Promise<{ words: bigint[]; seq: number }> {
+    const result = await invokeProcedure({
+        seed,
+        rpcBaseUrl: base,
+        rpc,
+        contractIndex: slot,
+        procedureId: 4,
+        amount: BURN_FUNDING,
+        inputFormat: `${BURN_AMOUNT}sint64, ${burnedFor}uint64`,
+        tick: (await rpc.tickInfo()).tick + 6,
+        confirm: true,
+        confirmTimeoutMs: 60_000,
+    });
+    if (!result.ok || !result.confirmed || !result.included) {
+        fail(`${base} slot ${slot} Burn was not included: ${JSON.stringify(result)}`);
+    }
+    const trace = await rpc.debugTrace(traceStart, 32);
+    const entry = trace.entries.find((candidate) => candidate.index === slot && candidate.entry === 4 && candidate.kind === 1 && candidate.ok);
+    if (!entry) {
+        fail(`${base} slot ${slot} Burn left no trace entry`);
+    }
+    const output = new DataView(hexToBytes(entry.outHex).buffer);
+
+    return { words: [0, 8, 16].map((offset) => output.getBigInt64(offset, true)), seq: entry.seq };
+}
+
 async function soakRecoveries(base: string, rpc: LiteRpc, artifacts: Artifact[], compiler: CompilerBackendLabel, seed: string): Promise<void> {
     const driver = artifacts.find((item) => item.compiler === compiler && item.role === "driver")!;
     const callee = artifacts.find((item) => item.compiler === compiler && item.role === "callee")!;
@@ -383,6 +412,24 @@ async function execute(base: string, rpc: LiteRpc, artifacts: Artifact[], compil
     const cheatFlags = cheatDriver ? uint64(hexToBytes(cheatDriver.outHex), 0) : undefined;
     if (cheatFlags !== 0x1ffn) {
         fail(`${base} ${compiler} cheat scope flags: ${cheatFlags === undefined ? "no trace" : `0x${cheatFlags.toString(16)}`} != 0x1ff`);
+    }
+
+    // a burn credits the reserve it names; an index at or past the node's contract count names the burning contract itself.
+    const burnRows: [string, number, bigint, bigint][] = [
+        ["self", driver.slot, BURN_AMOUNT, BURN_AMOUNT],
+        ["callee", callee.slot, 0n, BURN_AMOUNT],
+        ["past the contract count", 1023, BURN_AMOUNT, BURN_AMOUNT],
+    ];
+    let burnTraceStart = cheatTrace.entries.reduce((latest, entry) => Math.max(latest, entry.seq), cheatTraceStart);
+    for (const [label, burnedFor, selfDelta, targetDelta] of burnRows) {
+        const burned = await burn(base, rpc, driver.slot, burnedFor, seed, burnTraceStart);
+        const [remaining, actualSelfDelta, actualTargetDelta] = burned.words;
+        burnTraceStart = burned.seq;
+        if (remaining < 0n || actualSelfDelta !== selfDelta || actualTargetDelta !== targetDelta) {
+            fail(
+                `${base} ${compiler} burn for ${label}: remaining ${remaining}, self ${actualSelfDelta} != ${selfDelta}, target ${actualTargetDelta} != ${targetDelta}`,
+            );
+        }
     }
 
     await plainTransfer(base, rpc, driver.slot, seed);

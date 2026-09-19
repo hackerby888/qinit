@@ -188,6 +188,74 @@ test("metered: IPO seeds the reserve; a failed IPO (finalPrice 0) can never be r
     expect(sim.balanceOf(28)).toBe(1000n); // balance untouched
 });
 
+// core bounds the burn target by its contract count, not by the 1024-entry reserve table, and credits the reserve whatever the fee mode.
+test("burn resolves its target and credits the reserve the way core does", async () => {
+    await initK12();
+
+    for (const fees of ["off", "metered"] as const) {
+        const sim = new QubicSimulator({ fees, contractCount: 40 });
+        sim.deploy(28, await wasm("Counter"));
+        sim.setContractFeeReserve(28, 0n);
+        sim.setContractFeeReserve(29, 0n);
+        sim.fund(contractId(28), 1000n);
+
+        // Past the contract count but inside the reserve table: the caller, as for index 0.
+        expect(sim.host.burn(28, 100n, 40)).toBe(900n);
+        expect(sim.host.burn(28, 100n, 1023)).toBe(800n);
+        expect(sim.getContractFeeReserve(28)).toBe(200n);
+        expect(sim.getContractFeeReserve(40)).toBe(0n);
+
+        expect(sim.host.burn(28, 100n, 39)).toBe(700n);
+        expect(sim.getContractFeeReserve(39)).toBe(fees === "off" ? 1000100n : 100n);
+
+        // More than the balance: the shortfall comes back negative and nothing moves.
+        expect(sim.host.burn(28, 701n, 29)).toBe(-1n);
+        expect(sim.getContractFeeReserve(29)).toBe(0n);
+
+        sim.ipo(29, 0n);
+        expect(sim.host.burn(28, 100n, 29)).toBe(-100n);
+        expect(sim.balanceOf(28)).toBe(700n);
+    }
+});
+
+// The dual-engine driver's Burn procedure, run here so its three rows are known-good before they meet a core node.
+test("a contract burning for itself, a callee and an out-of-range index reads the deltas core reports", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ fees: "metered" });
+    sim.deploy(28, await wasm("QpiDualCallee"));
+    sim.deploy(29, await wasm("QpiDual"));
+    sim.fund(contractId(29), 1000n);
+
+    const burn = (burnedFor: bigint) => {
+        const input = new Uint8Array(16);
+        const view = new DataView(input.buffer);
+        view.setBigInt64(0, 100n, true);
+        view.setBigUint64(8, burnedFor, true);
+        const output = new DataView(sim.procedure(29, 4, input).buffer);
+
+        return [output.getBigInt64(0, true), output.getBigInt64(8, true), output.getBigInt64(16, true)];
+    };
+
+    expect(burn(29n)).toEqual([900n, 100n, 100n]);
+    expect(burn(28n)).toEqual([800n, 0n, 100n]);
+    expect(burn(1023n)).toEqual([700n, 100n, 100n]);
+});
+
+test("a burn moves the reserve a contract reads by exactly the amount, and saturates at the sint64 maximum", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ fees: "off" });
+    sim.deploy(28, await wasm("Counter"));
+    sim.fund(contractId(28), 1000n);
+
+    const before = sim.host.queryFeeReserve(28, 28);
+    sim.host.burn(28, 250n, 28);
+    expect(sim.host.queryFeeReserve(28, 28) - before).toBe(250n);
+
+    sim.setContractFeeReserve(28, (1n << 63n) - 10n);
+    sim.host.burn(28, 250n, 28);
+    expect(sim.getContractFeeReserve(28)).toBe((1n << 63n) - 1n);
+});
+
 test("metered: contract-to-contract procedure call fails when the callee has no reserve", async () => {
     await initK12();
     const sim = new QubicSimulator({ fees: "metered" });

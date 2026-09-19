@@ -37,6 +37,10 @@ struct QpiDual : public ContractBase
         uint64 initialized;
         uint64 cheatFlags;
         id selfPitOriginator;
+        sint64 burnRemaining;
+        sint64 burnSelfDelta;
+        sint64 burnTargetDelta;
+        uint64 burns;
     };
 
     struct CalleeRead_input {};
@@ -648,11 +652,44 @@ struct QpiDual : public ContractBase
         state.mut().cheatFlags = output.flags;
     }
 
+    struct Burn_input
+    {
+        sint64 amount;
+        uint64 burnedFor;
+    };
+    struct Burn_output
+    {
+        sint64 remaining;
+        sint64 selfDelta;
+        sint64 targetDelta;
+    };
+    struct Burn_locals
+    {
+        sint64 selfBefore;
+        sint64 targetBefore;
+    };
+
+    // both reserve reads sit inside one invocation, so no execution fee lands between them.
+    PUBLIC_PROCEDURE_WITH_LOCALS(Burn)
+    {
+        locals.selfBefore = qpi.queryFeeReserve(SELF_INDEX);
+        locals.targetBefore = qpi.queryFeeReserve((uint32)input.burnedFor);
+        output.remaining = qpi.burn(input.amount, (uint32)input.burnedFor);
+        output.selfDelta = qpi.queryFeeReserve(SELF_INDEX) - locals.selfBefore;
+        output.targetDelta = qpi.queryFeeReserve((uint32)input.burnedFor) - locals.targetBefore;
+
+        state.mut().burnRemaining = output.remaining;
+        state.mut().burnSelfDelta += output.selfDelta;
+        state.mut().burnTargetDelta += output.targetDelta;
+        state.mut().burns++;
+    }
+
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
     {
         REGISTER_USER_PROCEDURE(Run, 1);
         REGISTER_USER_PROCEDURE(Recover, 2);
         REGISTER_USER_PROCEDURE(Cheat, 3);
         REGISTER_USER_FUNCTION(Read, 1);
+        REGISTER_USER_PROCEDURE(Burn, 4);
     }
 };

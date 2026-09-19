@@ -4,7 +4,7 @@ import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, E
 import { toHex, verifySync } from "./support/k12";
 import { TraceRecorder } from "./logging/trace";
 import { Committee, MAX_NUMBER_OF_CONTRACTS, type CommitteeOpts } from "./chain/consensus";
-import { FeeManager, type FeeMode } from "./contract/fees";
+import { DEFAULT_CONTRACT_COUNT, FeeManager, type FeeMode } from "./contract/fees";
 import { SpectrumLedger } from "./ledger/spectrum";
 import { OracleManager } from "./chain/oracle";
 import {
@@ -90,6 +90,7 @@ export class QubicSimulator {
     currentTick = 0;
     currentEpoch = 0;
     epochLength: number;
+    readonly contractCount: number;
     host: HostServices;
     onLog?: LogSink;
     private registry: ContractRegistry;
@@ -140,13 +141,16 @@ export class QubicSimulator {
             historyTicks?: number;
             epochLength?: number;
             haltOnContractFault?: boolean;
+            // core's contractCount; an index at or past it names the caller in burn, queryFeeReserve and the share calls.
+            contractCount?: number;
         } = {},
     ) {
         this.mempoolMode = options.mempool ?? false;
         this.haltOnContractFault = options.haltOnContractFault ?? true;
         this.epochLength = Math.max(0, Math.trunc(options.epochLength ?? DEFAULT_EPOCH_LENGTH));
         this.historyTicks = Math.max(1, Math.trunc(options.historyTicks ?? DEFAULT_TICK_HISTORY));
-        this.fees = new FeeManager(options.fees ?? "off", options.defaultReserve);
+        this.contractCount = options.contractCount ?? DEFAULT_CONTRACT_COUNT;
+        this.fees = new FeeManager(options.fees ?? "off", options.defaultReserve, this.contractCount);
         this.logStore = options.logStore;
         this.registry = new ContractRegistry(this.fees, this.recorder);
         this.ticking = new TickConsensus(
@@ -578,25 +582,25 @@ export class QubicSimulator {
             return -(MAX_AMOUNT + 1n);
         }
 
-        const target = burnedFor < 1 || burnedFor >= MAX_NUMBER_OF_CONTRACTS ? slot : burnedFor;
-        if (this.fees.metered && this.fees.isFailed(target)) {
-            return -amount;
-        }
-
         const source = this.contractId(slot);
         const sourceIndex = this.spectrumIndex(source);
         if (sourceIndex < 0) {
             return -amount;
         }
+
+        // A contract whose IPO failed can never be refilled, whatever the fee mode.
+        const target = this.fees.resolveIndex(slot, burnedFor);
+        if (this.fees.isFailed(target)) {
+            return -amount;
+        }
+
         const remaining = this.energy(sourceIndex) - amount;
         if (remaining < 0n) {
             return remaining;
         }
 
         this.decreaseEnergy(sourceIndex, amount);
-        if (this.fees.metered) {
-            this.fees.addToContractFeeReserve(target, amount);
-        }
+        this.fees.addToContractFeeReserve(target, amount);
         this.logStore?.logMessage(QUBIC_LOG_TYPE.BURNING, encodeBurningLog(source, amount, target), this.currentEpoch);
 
         return remaining;
