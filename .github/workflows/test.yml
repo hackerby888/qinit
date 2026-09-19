@@ -118,7 +118,24 @@ jobs:
         run: bunx tsc --noEmit -p tsconfig.json
       - name: Typecheck VS Code extension
         run: bun run --cwd packages/vscode typecheck
+      # the TS-vs-clang differential suites skip without a wasm clang, and one host is enough to run them.
+      - name: Cache wasi-sdk
+        if: runner.os == 'Linux'
+        id: wasisdk
+        uses: actions/cache@v4
+        with:
+          path: wasi-sdk
+          key: wasi-sdk-${{ env.WASI_SDK_ASSET_VERSION }}-x86_64-linux
+      - name: Fetch ${{ env.WASI_SDK_RELEASE_TAG }}
+        if: runner.os == 'Linux' && steps.wasisdk.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o wasi-sdk.tar.gz \
+            https://github.com/${{ env.WASI_SDK_REPOSITORY }}/releases/download/${{ env.WASI_SDK_RELEASE_TAG }}/wasi-sdk-${{ env.WASI_SDK_ASSET_VERSION }}-x86_64-linux.tar.gz
+          mkdir -p wasi-sdk && tar -xzf wasi-sdk.tar.gz -C wasi-sdk --strip-components=1
       - name: Unit tests
+        env:
+          WASM_CLANG: ${{ runner.os == 'Linux' && format('{0}/wasi-sdk/bin/clang++', github.workspace) || '' }}
+          WASI_SYSROOT: ${{ runner.os == 'Linux' && format('{0}/wasi-sdk/share/wasi-sysroot', github.workspace) || '' }}
         run: bun test
 
   # Build package distributions and verify their Node and browser entrypoints.
@@ -288,14 +305,6 @@ jobs:
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: bun run scripts/core-compat/ci-qpi-shared-memory.ts
-
-      # lint-test skips these for want of the SDK, so this is the only job that runs them.
-      - name: Wasm integrations
-        env:
-          QINIT_CORE: ${{ github.workspace }}/core
-          WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
-          WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
-        run: bun test packages/cli/tests/integration/wasm-shim-e2e.test.ts packages/cli/tests/contracts/gtest.test.ts packages/build/tests/pipeline/backend-options-parity.test.ts
 
   # The Solidity-port differential sweep: every generated corpus contract compiled by both backends and
   # executed step by step, compared on state digests. clang is the oracle. The corpus is generated here
