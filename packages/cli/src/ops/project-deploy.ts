@@ -6,6 +6,7 @@ import type { CompilerBackend } from "../config";
 import { stageContractState } from "../contracts/state-stage";
 import { systemWasm } from "../contracts/system-wasm";
 import { compileContracts, type BuiltContract, type SlottedContract } from "./project-build";
+import { abiAdviceText, checkHeadersAbi } from "./abi-advice";
 import { assignSlots } from "@qinit/build/contracts/project-slots";
 import { deployContract, type DeployResult } from "./deploy";
 import type { DeploymentEvent } from "./deploy/steps";
@@ -114,6 +115,12 @@ export async function deployProjectContracts(
     const strayStateName = Object.keys(initialStates).find((name) => !plan.some((contract) => contract.name === name));
     if (strayStateName !== undefined) {
         throw new Error(`--state names '${strayStateName}', which is not part of this deployment (${plan.map((contract) => contract.name).join(", ")})`);
+    }
+
+    // An artifact built against another ABI links on no node this CLI can deploy to, so it is refused before the compile.
+    const abiMismatch = await checkHeadersAbi(options.core);
+    if (abiMismatch) {
+        throw new Error(abiAdviceText(abiMismatch));
     }
 
     emit({ step: "build", state: "active", detail: "compiling project graph…" });

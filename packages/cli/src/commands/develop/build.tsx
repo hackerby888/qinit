@@ -12,6 +12,7 @@ import { parseCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
 import { compileContracts } from "../../ops/project-build";
 import { assignSlots } from "@qinit/build/contracts/project-slots";
+import { abiAdviceText, checkHeadersAbi } from "../../ops/abi-advice";
 
 type State = { phase: "run" } | { phase: "done"; r: ContractBuildResult };
 
@@ -25,7 +26,7 @@ export function buildJsonResult(r: ContractBuildResult, compiler: string) {
         idl: r.idl ?? null,
         idlError: r.idlError ?? null,
         // `stderr` stays for the compiler's own output.
-        error: r.ok ? null : (r.stderr || r.idlError || "build failed"),
+        error: r.ok ? null : r.stderr || r.idlError || "build failed",
         // whether the verifier ran at all: a contract it never saw must not read as one that passed.
         protocolRules: r.verify ? (r.verify.available ? "checked" : "skipped") : "skipped",
         warnings: r.warnings ?? [],
@@ -74,6 +75,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                 if (compiler === "clang" || compiler === "typescript") {
                     await autoUpdateVerifyTool();
                 }
+                const abiMismatch = await checkHeadersAbi(core);
                 const project = await compileContracts({
                     plan,
                     core,
@@ -94,7 +96,8 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                     try {
                         writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2));
                     } catch {}
-                setS({ phase: "done", r });
+                // The build still runs: the artifact is valid for a node on the headers' ABI, only not for this CLI's simulator or deploy.
+                setS({ phase: "done", r: abiMismatch ? { ...r, warnings: [abiAdviceText(abiMismatch), ...(r.warnings ?? [])] } : r });
             } catch (e: any) {
                 setS({ phase: "done", r: { ok: false, stderr: String(e?.message ?? e) } });
             }
@@ -164,8 +167,8 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
             {r.strippedCheats?.length ? (
                 <Box marginTop={1}>
                     <Text color={theme.warn} wrap="wrap">
-                        ⚠ --production removed {r.strippedCheats.length} cheat guard{r.strippedCheats.length === 1 ? "" : "s"}: {r.strippedCheats.join(", ")} — what
-                        ships no longer refuses what they refused under test.
+                        ⚠ --production removed {r.strippedCheats.length} cheat guard{r.strippedCheats.length === 1 ? "" : "s"}: {r.strippedCheats.join(", ")} —
+                        what ships no longer refuses what they refused under test.
                     </Text>
                 </Box>
             ) : null}

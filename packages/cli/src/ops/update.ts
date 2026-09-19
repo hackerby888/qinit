@@ -101,12 +101,17 @@ function replaceExecutable(executablePath: string, binary: Uint8Array, deps: Sel
     }
 }
 
-export async function runSelfUpdate(options: SelfUpdateOptions = {}, injected: Partial<SelfUpdateDeps> = {}): Promise<SelfUpdateResult> {
-    const deps = { ...defaultDeps, ...injected };
-    const executableName = basename(deps.executablePath)
+// A CLI started through a JavaScript runtime is a source checkout, which has no release binary to replace.
+export function runsFromSource(executablePath: string): boolean {
+    const executableName = basename(executablePath)
         .replace(/\.exe$/i, "")
         .toLowerCase();
-    if (executableName === "bun" || executableName === "node") {
+    return executableName === "bun" || executableName === "node";
+}
+
+export async function runSelfUpdate(options: SelfUpdateOptions = {}, injected: Partial<SelfUpdateDeps> = {}): Promise<SelfUpdateResult> {
+    const deps = { ...defaultDeps, ...injected };
+    if (runsFromSource(deps.executablePath)) {
         return { phase: "development" };
     }
 
