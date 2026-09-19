@@ -947,7 +947,7 @@ export class Contract {
     }
 
     // lhost: frame markers, dirty tracking, logging control, and the scratch arena.
-    private coreImports(u8: () => Uint8Array): Record<string, Function> {
+    private coreImports(u8: () => Uint8Array) {
         return {
             beginFn: (_id: number) => {},
             endFn: (_id: number) => {},
@@ -1043,7 +1043,7 @@ export class Contract {
     }
 
     // lhost: tick, epoch, and calendar reads, plus the previous tick's committed digests.
-    private timeImports(): Record<string, Function> {
+    private timeImports() {
         return {
             // time / tick (read-only)
             epoch: () => this.host.epoch() & 0xffff,
@@ -1070,7 +1070,7 @@ export class Contract {
     }
 
     // lhost: identity derivation and spectrum lookups.
-    private identityImports(u8: () => Uint8Array): Record<string, Function> {
+    private identityImports(u8: () => Uint8Array) {
         return {
             // identity / spectrum
             getEntity: (idOff: number, entityOff: number) => {
@@ -1101,7 +1101,7 @@ export class Contract {
     }
 
     // lhost: value transfer and balance reads, delegated to Layer 2. the originator is a copy, since a self-transfer re-enters and rewrites the context.
-    private ledgerImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
+    private ledgerImports(u8: () => Uint8Array, contextView: () => QpiContext) {
         return {
             // value / ledger (delegated to Layer 2; return the contract's new balance per qpi_spectrum_impl.h)
             transfer: (destOff: number, amount: bigint) => {
@@ -1125,7 +1125,7 @@ export class Contract {
     }
 
     // lhost: asset issuance, ownership, possession, and record enumeration.
-    private assetImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
+    private assetImports(u8: () => Uint8Array, contextView: () => QpiContext) {
         return {
             // assets / shares
             isAssetIssued: (issOff: number, name: bigint) => this.host.isAssetIssued(u8().slice(issOff, issOff + 32), name),
@@ -1206,7 +1206,7 @@ export class Contract {
     }
 
     // lhost: share management rights — qpi acquireShares / releaseShares.
-    private shareRightsImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
+    private shareRightsImports(u8: () => Uint8Array, contextView: () => QpiContext) {
         return {
             // Share management rights — qpi acquireShares / releaseShares. The lhost imports are provided here; a wasm contract reaches them via the binding.
             acquireShares: (
@@ -1263,7 +1263,7 @@ export class Contract {
     }
 
     // lhost: date, signature, IPO, mining, and oracle status.
-    private platformImports(u8: () => Uint8Array): Record<string, Function> {
+    private platformImports(u8: () => Uint8Array) {
         return {
             // date / signature / IPO / mining / oracle-status — see HostServices (the dev engine stubs IPO/mining/oracle)
             dayOfWeek: (year: number, month: number, day: number) => this.host.dayOfWeek(year & 0xff, month & 0xff, day & 0xff),
@@ -1288,7 +1288,7 @@ export class Contract {
     }
 
     // lhost: oracle query, subscribe, and reply reads over opaque sized buffers.
-    private oracleImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
+    private oracleImports(u8: () => Uint8Array, contextView: () => QpiContext) {
         return {
             // oracle query/subscribe/read — the query/reply are opaque sized buffers (the contract owns the typing)
             queryOracle: (ifaceIdx: number, queryOff: number, querySize: number, replySize: number, procId: number, timeout: number, fee: bigint) =>
@@ -1340,7 +1340,7 @@ export class Contract {
     }
 
     // lhost: nested contract calls, which keep the original originator.
-    private nestedCallImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
+    private nestedCallImports(u8: () => Uint8Array, contextView: () => QpiContext) {
         return {
             // Nested calls keep the original originator.
             liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number) => {
@@ -1379,10 +1379,9 @@ export class Contract {
         };
     }
 
-    private imports(wasmModule?: WebAssembly.Module): WebAssembly.Imports {
-        const u8 = () => this.u8();
-        const contextView = () => QpiContext.wrap(u8(), this.ctxAddr);
-        const lhost: Record<string, Function> = {
+    // A missing import fails the return type and an extra one the guard, so table drift is a typecheck error before it is a load error.
+    private buildLhost(u8: () => Uint8Array, contextView: () => QpiContext): Record<LhostImportName, Function> {
+        const built = {
             ...this.coreImports(u8),
             ...this.timeImports(),
             ...this.identityImports(u8),
@@ -1393,6 +1392,25 @@ export class Contract {
             ...this.oracleImports(u8, contextView),
             ...this.nestedCallImports(u8, contextView),
         };
+        const withoutExtras: Exclude<keyof typeof built, LhostImportName> extends never ? typeof built : never = built;
+
+        return withoutExtras;
+    }
+
+    private imports(wasmModule?: WebAssembly.Module): WebAssembly.Imports {
+        const u8 = () => this.u8();
+        const contextView = () => QpiContext.wrap(u8(), this.ctxAddr);
+        const lhost: Record<string, Function> = this.buildLhost(u8, contextView);
+        const missingLhost = Object.keys(LHOST_ABI).filter((name) => !(name in lhost));
+        const extraLhost = Object.keys(lhost).filter((name) => !(name in LHOST_ABI));
+        if (missingLhost.length || extraLhost.length) {
+            throw new Error(`simulator lhost table drift (missing: ${missingLhost.join(", ") || "none"}; extra: ${extraLhost.join(", ") || "none"})`);
+        }
+        // Checked ahead of the wrappers below, which are variadic and hide each function's declared arity.
+        const wrongArity = Object.entries(LHOST_ABI).filter(([name, signature]) => lhost[name].length !== signature.params.length);
+        if (wrongArity.length) {
+            throw new Error(`simulator lhost arity drift (${wrongArity.map(([name]) => name).join(", ")})`);
+        }
 
         for (const name of MUTATING_LHOST_IMPORTS) {
             const hostFunction = lhost[name];
@@ -1403,11 +1421,6 @@ export class Contract {
 
                 return hostFunction(...args);
             };
-        }
-        const missingLhost = Object.keys(LHOST_ABI).filter((name) => !(name in lhost));
-        const extraLhost = Object.keys(lhost).filter((name) => !(name in LHOST_ABI));
-        if (missingLhost.length || extraLhost.length) {
-            throw new Error(`simulator lhost table drift (missing: ${missingLhost.join(", ") || "none"}; extra: ${extraLhost.join(", ") || "none"})`);
         }
         this.meterLhost(lhost);
         // Wasm i32 parameters arrive signed in JS; coerce offsets to unsigned above 2 GiB.
