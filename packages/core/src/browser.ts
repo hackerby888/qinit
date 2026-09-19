@@ -35,6 +35,8 @@ export type {
     DynamicContractRegistryEntry,
     DynamicContractEntry,
     DynamicContractUploadStatus,
+    DeployOutcome,
+    DeployOutcomeCode,
     DebugTrace,
     DebugCheat,
     DebugEntry,

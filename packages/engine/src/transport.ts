@@ -7,6 +7,8 @@ import type {
     DynamicContractRegistryEntry,
     DynamicContractEntry,
     DynamicContractUploadStatus,
+    DeployOutcome,
+    DeployOutcomeCode,
     DebugTrace,
     EngineFaultInfo,
     BroadcastResult,
@@ -94,6 +96,7 @@ export class VirtualNode implements NodeTransport {
     private contractSources = new Map<number, string>();
     private stagedStates = new Map<number, StagedState>();
     private rawTransactions = new Map<string, StoredRawTransaction>();
+    private lastDeploy: DeployOutcome | null = null;
     private rawAliasesByTxId = new Map<string, string[]>();
     private fundedSeedPool: string[] | null = null;
     private static readonly FUNDED_POOL_SIZE = 16;
@@ -500,6 +503,7 @@ export class VirtualNode implements NodeTransport {
         }
 
         const missing: number[] = [];
+                lastDeploy: this.lastDeploy,
 
         for (let index = 0; index < upload.chunkCount; index++) {
             if (!upload.received.has(index)) {
@@ -525,6 +529,7 @@ export class VirtualNode implements NodeTransport {
     }
 
     async txStatus(tick: number, txId: string): Promise<TxStatus> {
+            lastDeploy: this.lastDeploy,
         const transaction = this.sim.txByHash(txId);
         const currentTick = this.sim.isFaulted() ? this.sim.finalizedTick() : this.sim.currentTick;
         const processed = currentTick > tick;
@@ -741,51 +746,73 @@ export class VirtualNode implements NodeTransport {
         }
 
         if (inputType === LITE_TX.DEPLOY) {
-            const upload = this.upload;
-            if (!upload) {
-                throw new Error("deploy without an active session");
-            }
             if (payload.length < DEPLOY_HEADER_SIZE) {
                 throw new Error("deploy payload is too short");
             }
 
             const message = DeployMessage.wrap(payload);
-            if (message.sessionId !== upload.sessionId) {
-                throw new Error("deploy references a different upload session");
-            }
-            if (message.abiVersion !== WASM_ABI_VERSION) {
-                throw new Error(`unsupported Wasm ABI version ${message.abiVersion}; expected ${WASM_ABI_VERSION}`);
-            }
+            const refuse = (code: DeployOutcomeCode, reason: string): never => {
+                this.recordDeployOutcome(message.sessionId, message.targetSlot, code, reason);
+                throw new Error(reason);
+            };
+            const upload = this.upload;
+
             if (message.targetSlot < this.slotBase || message.targetSlot >= this.slotBase + this.slotCount) {
-                throw new Error(`target slot ${message.targetSlot} is outside ${this.slotBase}..${this.slotBase + this.slotCount - 1}`);
+                return refuse("bad-slot", `slot ${message.targetSlot} is not a dynamic contract slot`);
+            }
+            // The checks run in core's order and carry core's wording, so a client reads one reason whichever node refused.
+            if (message.abiVersion !== WASM_ABI_VERSION) {
+                return refuse("abi-mismatch", `unsupported Wasm ABI version ${message.abiVersion}; expected ${WASM_ABI_VERSION}`);
+            }
+            if (!upload || message.sessionId !== upload.sessionId) {
+                return refuse("session-mismatch", `session ${message.sessionId} is not the upload session on this node`);
             }
             if (upload.received.size !== upload.chunkCount) {
-                throw new Error(`upload is incomplete (${upload.received.size}/${upload.chunkCount} chunks)`);
+                return refuse("incomplete", `upload incomplete (${upload.received.size}/${upload.chunkCount} chunks)`);
+            }
+            if (!bytesEqual(k12Bytes(upload.buf), hexToBytes(upload.finalHash))) {
+                return refuse("hash-mismatch", "uploaded bytes do not hash to the digest the upload announced");
             }
             if (!bytesEqual(message.finalHash, hexToBytes(upload.finalHash))) {
-                throw new Error("deploy hash does not match the upload session");
-            }
-            if (!bytesEqual(k12Bytes(upload.buf), message.finalHash)) {
-                throw new Error("uploaded module hash verification failed");
+                return refuse("hash-mismatch", "deploy names a different module digest than the upload");
             }
             if (upload.buf.length < 4 || upload.buf[0] !== 0x00 || upload.buf[1] !== 0x61 || upload.buf[2] !== 0x73 || upload.buf[3] !== 0x6d) {
-                throw new Error("uploaded artifact is not a Wasm module");
+                return refuse("not-wasm", "upload is not a wasm module ('\\0asm' expected)");
             }
 
             const rawName = payload.length >= DeployMessage.SIZE ? new TextDecoder().decode(message.name) : "";
             const name = rawName.replace(/[^\x20-\x7e].*$/, "") || "Contract";
 
-            this.deploy(message.targetSlot, upload.buf, name, source);
+            try {
+                this.deploy(message.targetSlot, upload.buf, name, source);
+            } catch (error) {
+                if (!(error instanceof EngineFaultedError)) {
+                    this.recordDeployOutcome(message.sessionId, message.targetSlot, "load-failed", error instanceof Error ? error.message : String(error));
+                }
+                throw error;
+            }
             this.upload = null;
 
             return;
         }
 
+            this.recordDeployOutcome(message.sessionId, message.targetSlot, "ok", "slot armed");
         throw new Error("unknown deploy-range inputType " + inputType);
     }
 
     async debugTrace(since = 0, limit = 64): Promise<DebugTrace> {
         return this.sim.getTrace(since, limit);
+    }
+
+    // A client resends DEPLOY until the slot arms, so a session's verdict stands once given: only an upload that was still missing chunks can
+    // end differently.
+    private recordDeployOutcome(sessionId: bigint, slot: number, code: DeployOutcomeCode, message: string): void {
+        const stored = this.lastDeploy;
+        if (stored && stored.sessionId === sessionId.toString() && stored.code !== "incomplete") {
+            return;
+        }
+
+        this.lastDeploy = { sessionId: sessionId.toString(), slot, tick: this.sim.currentTick, ok: code === "ok", code, message };
     }
 
     assetUniverse(): AssetSnapshot[] {

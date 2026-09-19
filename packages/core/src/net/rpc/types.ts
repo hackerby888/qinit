@@ -50,6 +50,18 @@ export interface DynamicContractRegistry {
     slotCount: number;
 }
 
+// What a node did with the last DEPLOY it processed. Only "incomplete" can still change: every other refusal is final for that session.
+export const DEPLOY_OUTCOME_CODES = ["ok", "bad-slot", "abi-mismatch", "session-mismatch", "incomplete", "hash-mismatch", "not-wasm", "load-failed"] as const;
+export type DeployOutcomeCode = (typeof DEPLOY_OUTCOME_CODES)[number];
+export interface DeployOutcome {
+    sessionId: string;
+    slot: number;
+    tick: number;
+    ok: boolean;
+    code: DeployOutcomeCode;
+    message: string;
+}
+
 export interface DynamicContractUploadStatus {
     active: boolean;
     sessionId: string;
@@ -65,6 +77,8 @@ export interface DynamicContractUploadStatus {
     idleTicks?: number;
     staleAfterTicks?: number;
     lastProgressTick?: number;
+    /** Null until the node has processed a DEPLOY; older nodes omit it. */
+    lastDeploy?: DeployOutcome | null;
 }
 
 // `ord` is the record's place in the node's emission order, shared by every frame of one call, so a callee's prints read back in order. Older nodes omit it.

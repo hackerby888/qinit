@@ -7,6 +7,7 @@ import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm/slot-layout";
 import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { LITE_DEPLOY_ADDRESS } from "@qinit/core/crypto/tx";
 import { DEFAULT_FEE_RESERVE } from "@qinit/engine";
+import { DEPLOY_OUTCOME_CODES } from "@qinit/core/net/rpc/types";
 import { DeployMessage, UploadBegin, UploadChunkHeader } from "@qinit/proto/deploy";
 import {
     ASSETS_DEPTH,
@@ -160,6 +161,20 @@ expectEqual("DEPLOY_MESSAGE_SIZE", readStructSize(DEPLOYMENT_PROTOCOL, "DeployMe
 
 for (const [symbol, code] of Object.entries(QUBIC_LOG_TYPE)) {
     expectEqual(symbol, readDefine(LOG, symbol), code);
+}
+
+// a client decides whether a refused DEPLOY is final from its code, so core has to spell every code the same way.
+const contractSlots = readFileSync(join(core, "src", "extensions/wasm/runtime/contract_slots.h"), "utf8");
+for (const code of DEPLOY_OUTCOME_CODES) {
+    if (!contractSlots.includes(`"${code}"`)) {
+        failures.push(`deploy outcome code "${code}" is not declared in core's contract_slots.h`);
+    }
+}
+const coreOutcomeCodes = [...contractSlots.matchAll(/DEPLOY_CODE_\w+ = "([^"]+)"/g)].map((match) => match[1]);
+for (const code of coreOutcomeCodes) {
+    if (!(DEPLOY_OUTCOME_CODES as readonly string[]).includes(code)) {
+        failures.push(`core declares deploy outcome code "${code}" that qinit does not know`);
+    }
 }
 
 // the markers are past 2^53, so they are compared as decimal text.

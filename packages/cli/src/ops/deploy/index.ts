@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { readFileSync, statSync } from "node:fs";
 import { buildContractWithClang, type ContractBuildResult, type ContractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
-import { LiteRpc, k12Hex, type NodeBackendIdentity } from "@qinit/core";
+import { LiteRpc, k12Hex, type DeployOutcome, type NodeBackendIdentity } from "@qinit/core";
 import { encodeDeploy, LITE_TX, resolveDeploymentSlot, TX_TICK_OFFSET } from "@qinit/proto";
 import { savedCompilerBackend, type CompilerBackend } from "../../config";
 import { buildContractWithTypeScript } from "../typescript-build";
@@ -305,7 +305,6 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
         // The last tick from the readiness probe remains usable.
     }
 
-
     const slowChain = await assertChainFastEnough(rpc, currentTick, readTick, emit);
     if (slowChain) {
         return { ok: false, slot, hash, error: slowChain.error };
@@ -344,14 +343,14 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
                 tick,
             ),
         );
-        return { ok: result.ok, code: result.code, transactionId: result.transactionId, tick };
+        return { ok: result.ok, code: result.code, message: result.message, transactionId: result.transactionId, tick };
     };
 
     let deployResult = await broadcastDeploy();
     let deployTick = deployResult.tick;
 
     if (!deployResult.ok) {
-        emit({ step: "deploy", state: "fail", detail: `code ${deployResult.code}` });
+        emit({ step: "deploy", state: "fail", detail: deployResult.message ?? `code ${deployResult.code}` });
         emit({ step: "confirm", state: "fail", detail: "nothing landed" });
         return {
             ok: false,
@@ -382,6 +381,8 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
     let onNode = "";
     let lastTick = currentTick;
     let registryRead = false;
+    // What the node said it did with this session's DEPLOY, when it says.
+    let refusal: DeployOutcome | undefined;
     let registrationMismatch = false;
     let halted: string | undefined;
 
@@ -435,6 +436,17 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
                         detail: `armed · constructing… tick ${lastTick}`,
                     });
                     continue;
+                }
+            }
+
+            // Every refusal but a still-incomplete upload is final for the session: a resend would be refused earlier and for a vaguer reason.
+            if (lastTick > deployTick) {
+                const outcome = (await rpc.dynUpload().catch(() => null))?.lastDeploy;
+                if (outcome && outcome.sessionId === String(session) && !outcome.ok) {
+                    refusal = outcome;
+                    if (outcome.code !== "incomplete") {
+                        break;
+                    }
                 }
             }
 
@@ -504,6 +516,7 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
             regOk: registryRead,
             onNode,
             want: expectedHash,
+            refusal,
         });
         reason = classification.reason;
         failureDetail = classification.detail;
