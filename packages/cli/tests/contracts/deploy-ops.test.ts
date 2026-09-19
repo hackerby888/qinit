@@ -214,6 +214,12 @@ test("deployContract rejects an invalid slot before node work", async () => {
     expect(nodeCalls).toBe(0);
 });
 
+// A node ticks between a client's reads; a slot armed by a DEPLOY is constructed at the head of the node's next tick.
+function tickingNode(node: VirtualNode, tick: number): { tick: number; epoch: number } {
+    node.sim.advance();
+    return { tick, epoch: 1 };
+}
+
 test("deployContract: racing deployments preserve the winner's occupied slot", async () => {
     process.env.QINIT_NO_UPDATE = "1";
     const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
@@ -246,7 +252,7 @@ test("deployContract: racing deployments preserve the winner's occupied slot", a
                 if (state.active && stats.sessionId !== null && state.sessionId !== String(stats.sessionId)) releaseWinner();
                 return state;
             },
-            tickInfo: async () => ({ tick: (tick += 10), epoch: 1 }),
+            tickInfo: async () => tickingNode(node, (tick += 10)),
             hurryToTick: async () => 0, // no dev route: deploy waits the chain out, as it does on mainnet
             fundedSeed: async () => undefined,
             dynRegistry: () => node.dynRegistry(),
@@ -315,7 +321,7 @@ test("deployContract: a DEPLOY dropped for a missed tick is resent", async () =>
     let deployBroadcasts = 0;
     const rpc: any = {
         dynUpload: () => node.dynUpload(),
-        tickInfo: async () => ({ tick: (tick += 10), epoch: 1 }),
+        tickInfo: async () => tickingNode(node, (tick += 10)),
         hurryToTick: async () => 0,
         fundedSeed: async () => undefined,
         dynRegistry: () => node.dynRegistry(),
@@ -375,7 +381,7 @@ test("deployContract: a DEPLOY the node refused fails at once with the node's re
     let deployBroadcasts = 0;
     const rpc: any = {
         dynUpload: () => node.dynUpload(),
-        tickInfo: async () => ({ tick: (tick += 10), epoch: 1 }),
+        tickInfo: async () => tickingNode(node, (tick += 10)),
         hurryToTick: async () => 0,
         fundedSeed: async () => undefined,
         dynRegistry: () => node.dynRegistry(),
@@ -420,7 +426,7 @@ function protocolRpc(node: VirtualNode, stageCalls: { offset: number; total: num
     let tick = 0;
     return {
         dynUpload: () => node.dynUpload(),
-        tickInfo: async () => ({ tick: (tick += 10), epoch: 1 }),
+        tickInfo: async () => tickingNode(node, (tick += 10)),
         hurryToTick: async () => 0,
         fundedSeed: async () => undefined,
         dynRegistry: () => node.dynRegistry(),

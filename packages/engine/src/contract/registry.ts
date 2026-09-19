@@ -24,6 +24,8 @@ export class ContractRegistry {
     // Never cleared; a reader compares it across the reads of one view.
     // Outside the state bytes, so digests are unaffected.
     private readonly versions = new Map<number, number>();
+    // Slots armed by a deferred deploy, with the old state a pending MIGRATE reads.
+    private readonly pendingConstruction = new Map<number, { oldState: Uint8Array | null; initialize: boolean }>();
     private readonly fees: FeeManager;
     private readonly recorder: TraceRecorder;
 
@@ -63,10 +65,16 @@ export class ContractRegistry {
         initialize = true,
         initialState?: Uint8Array,
         minIoBytes?: number,
+        deferConstruction = false,
     ): Contract {
         const prev = this.contracts.get(slot);
-        // snapshot old state before the new instance replaces it; a seeded state stands in for it
-        const prevState = initialState ?? (prev ? prev.state() : null);
+        const stillPending = this.pendingConstruction.get(slot);
+        // snapshot old state before the new instance replaces it; a seeded state stands in for it, and a resident still waiting to migrate
+        // hands on the old state it was waiting with.
+        const residentState = stillPending?.oldState ?? (prev ? prev.state() : null);
+        const prevState = initialState ?? residentState;
+        // core keeps a redeployed slot's bytes and still owes it the INITIALIZE its first deploy never reached.
+        const owedInitialize = !initialState && stillPending !== undefined && stillPending.oldState === null;
         const c = Contract.load(wasm, slot, host, extMem, extraImports);
 
         // core refuses a module whose io region cannot hold its engine carve; a node that mirrors core names the same minimum, in core's words.
@@ -84,32 +92,67 @@ export class ContractRegistry {
         }
         c.trace = this.recorder;
         c.metering = this.fees.metered;
+        this.pendingConstruction.delete(slot);
         this.contracts.set(slot, c);
         this.fees.seedOnDeploy(slot);
+
+        const migrates = prevState !== null && c.hasMigrate && c.migrateOldStateSize === prevState.length;
+        if (deferConstruction && (!prevState || migrates)) {
+            // core arms a slot in the deploy's tick and runs INITIALIZE or MIGRATE at the head of the next one; until then the state is blank.
+            c.zeroState();
+            this.pendingConstruction.set(slot, { oldState: migrates ? prevState : null, initialize });
+            return c;
+        }
 
         if (!prevState) {
             // first deploy: zero state + run INITIALIZE, unless a gtest fixture runs it itself as native INIT_CONTRACT expects
             c.zeroState();
-            if (initialize && c.hasSysproc(SYSTEM_PROCEDURES.INITIALIZE)) {
-                this.fire(c, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.INITIALIZE, new Uint8Array(0), {
-                    entryPoint: SYSTEM_PROCEDURES.INITIALIZE,
-                });
-            }
-            c.everInitialized = true;
-        } else if (c.hasMigrate && c.migrateOldStateSize === prevState.length) {
-            c.migrate(prevState); // upgrade: __migrate transforms old -> new layout (parity w/ core)
-            c.everInitialized = true;
+            this.construct(c, null, initialize);
+        } else if (migrates) {
+            this.construct(c, prevState, initialize);
         } else {
             // upgrade without migrate: preserve the overlap, never re-INITIALIZE
             c.zeroState();
             c.writeState(prevState);
-            c.everInitialized = true;
+            if (!owedInitialize) {
+                c.everInitialized = true;
+            } else if (deferConstruction) {
+                this.pendingConstruction.set(slot, { oldState: null, initialize });
+            } else {
+                this.construct(c, null, initialize);
+            }
         }
         return c;
     }
 
+    private construct(c: Contract, oldState: Uint8Array | null, initialize: boolean): void {
+        if (oldState) {
+            c.migrate(oldState); // upgrade: __migrate transforms old -> new layout (parity w/ core)
+        } else if (initialize && c.hasSysproc(SYSTEM_PROCEDURES.INITIALIZE)) {
+            this.fire(c, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.INITIALIZE, new Uint8Array(0), {
+                entryPoint: SYSTEM_PROCEDURES.INITIALIZE,
+            });
+        }
+        c.everInitialized = true;
+    }
+
+    pendingConstructionSlots(): number[] {
+        return [...this.pendingConstruction.keys()];
+    }
+
+    /** Runs the INITIALIZE or MIGRATE a deferred deploy left for the next tick. */
+    constructPending(slot: number): void {
+        const pending = this.pendingConstruction.get(slot);
+        const contract = this.contracts.get(slot);
+        this.pendingConstruction.delete(slot);
+        if (pending && contract) {
+            this.construct(contract, pending.oldState, pending.initialize);
+        }
+    }
+
     // Remove a deployed contract (`qinit system rm`). Single-authority engine, so no consensus implication — the slot simply goes empty.
     undeploy(slot: number): boolean {
+        this.pendingConstruction.delete(slot);
         return this.contracts.delete(slot);
     }
 

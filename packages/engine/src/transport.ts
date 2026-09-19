@@ -154,11 +154,11 @@ export class VirtualNode implements NodeTransport {
         this.sim.ipo(slot, finalPrice);
     }
 
-    deploy(wasm: Uint8Array, options?: { name?: string; slot?: number; deployer?: Uint8Array }): Contract;
+    deploy(wasm: Uint8Array, options?: { name?: string; slot?: number; deployer?: Uint8Array; deferActivation?: boolean }): Contract;
     deploy(slot: number, wasm: Uint8Array, name?: string, deployer?: Uint8Array): Contract;
     deploy(
         slotOrWasm: number | Uint8Array,
-        wasmOrOptions?: Uint8Array | { name?: string; slot?: number; deployer?: Uint8Array },
+        wasmOrOptions?: Uint8Array | { name?: string; slot?: number; deployer?: Uint8Array; deferActivation?: boolean },
         contractName?: string,
         contractDeployer?: Uint8Array,
     ): Contract {
@@ -166,6 +166,8 @@ export class VirtualNode implements NodeTransport {
         let name: string | undefined;
         let explicitSlot: number | undefined;
         let deployer: Uint8Array | undefined;
+        // Only a deploy that arrives over the network waits for the next tick, as a core node makes it; an embedder's own call constructs at once.
+        let deferActivation = false;
 
         if (typeof slotOrWasm === "number") {
             explicitSlot = slotOrWasm;
@@ -179,14 +181,20 @@ export class VirtualNode implements NodeTransport {
                     name?: string;
                     slot?: number;
                     deployer?: Uint8Array;
+                    deferActivation?: boolean;
                 }) ?? {};
             name = options.name;
             explicitSlot = options.slot;
             deployer = options.deployer;
+            deferActivation = options.deferActivation ?? false;
         }
 
         const slot = this.resolveDeploymentSlot(explicitSlot, name);
-        const contract = this.sim.deploy(slot, wasm, undefined, { initialState: this.takeStagedState(slot), minIoBytes: this.minIoBytes });
+        const contract = this.sim.deploy(slot, wasm, undefined, {
+            initialState: this.takeStagedState(slot),
+            minIoBytes: this.minIoBytes,
+            deferActivation,
+        });
         if (name !== undefined) {
             this.slotsByName.set(name, slot);
         }
@@ -412,7 +420,7 @@ export class VirtualNode implements NodeTransport {
             return {
                 index: slot,
                 armed: true,
-                constructed: true,
+                constructed: !this.sim.isActivationPending(slot),
                 version: metadata.version,
                 name: metadata.name,
                 codeHash: metadata.codeHash,
@@ -788,7 +796,7 @@ export class VirtualNode implements NodeTransport {
             const name = rawName.replace(/[^\x20-\x7e].*$/, "") || "Contract";
 
             try {
-                this.deploy(message.targetSlot, upload.buf, name, source);
+                this.deploy(upload.buf, { slot: message.targetSlot, name, deployer: source, deferActivation: true });
             } catch (error) {
                 if (!(error instanceof EngineFaultedError)) {
                     this.recordDeployOutcome(message.sessionId, message.targetSlot, "load-failed", error instanceof Error ? error.message : String(error));

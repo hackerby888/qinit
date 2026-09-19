@@ -14,6 +14,7 @@ import HOOK_FAULT_SOURCE from "../fixtures/HookFault.h" with { type: "text" };
 import HOOKS_SOURCE from "../fixtures/Hooks.h" with { type: "text" };
 import HOST_WRITE_SOURCE from "../fixtures/HostWrite.h" with { type: "text" };
 import INCOMING_LOGGER_SOURCE from "../fixtures/IncomingLogger.h" with { type: "text" };
+import INIT_WITNESS_SOURCE from "../fixtures/InitWitness.h" with { type: "text" };
 import MIGRATE_TRAP_SOURCE from "../fixtures/MigrateTrap.h" with { type: "text" };
 import MIGRATE_TRAP_V1_SOURCE from "../fixtures/MigrateTrapV1.h" with { type: "text" };
 import CHEATS_SOURCE from "../fixtures/Cheats.h" with { type: "text" };
@@ -95,6 +96,7 @@ export const wasmFixtureManifest = {
     Hooks: fixture("Hooks.h", HOOKS_SOURCE, "Hooks", 28),
     HostWrite: fixture("HostWrite.h", HOST_WRITE_SOURCE, "HostWrite", 28),
     IncomingLogger: fixture("IncomingLogger.h", INCOMING_LOGGER_SOURCE, "IncomingLogger", 29),
+    InitWitness: fixture("InitWitness.h", INIT_WITNESS_SOURCE, "InitWitness", 28),
     MigrateTrap: fixture("MigrateTrap.h", MIGRATE_TRAP_SOURCE, "MigrateTrap", 28),
     MigrateTrapV1: fixture("MigrateTrapV1.h", MIGRATE_TRAP_V1_SOURCE, "MigrateTrap", 28),
     OracleProbe: fixture("OracleProbe.h", ORACLE_PROBE_SOURCE, "OracleProbe", 29),

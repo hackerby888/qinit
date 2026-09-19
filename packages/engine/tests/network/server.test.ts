@@ -4,6 +4,7 @@ import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { TEST_SLOT_LAYOUT } from "../../../../test-utils/slot-layout";
 import { initK12 } from "../../src/support/k12";
 import { VirtualNode } from "../../src/transport";
+import { LOG_SC_INITIALIZE } from "../../src/logging/qubic-log-store";
 import { EngineServer } from "../../src/server";
 import { deriveIdentity, LiteRpc, TESTNET_FUNDED_SEEDS } from "@qinit/core";
 
@@ -455,5 +456,61 @@ test("state-bytes serves the same bytes state-read spells in hex, and an unknown
         expect(await rpc.stateBytes(slotBase + 1, 0, 8)).toEqual({ bytes: new Uint8Array(0), stateSize: 0 });
     } finally {
         stop();
+    }
+});
+
+// A core node arms a slot in the DEPLOY's tick and runs INITIALIZE or MIGRATE at the head of the next one; a deploy that arrives over a route does the same.
+test("a routed deploy is armed at once and constructed at the next tick, in the INITIALIZE log range", async () => {
+    const engine = new VirtualNode({ slotBase: 28, slotCount: 4 });
+    // An interval the test never reaches, so every tick here is one the test takes itself.
+    const handle = await new EngineServer(engine).start(0, 3_600_000);
+    const rpc = new LiteRpc(handle.rpcBaseUrl);
+    const seen = () => {
+        const output = engine.sim.query(28, 1);
+        const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+        return [view.getBigUint64(0, true), view.getBigUint64(8, true)];
+    };
+    try {
+        const deployTick = engine.sim.currentTick;
+        await rpc.directDeploy(28, await wasm("InitWitness"), "InitWitness", "dynamic");
+
+        expect((await rpc.dynRegistry()).contracts.find((contract) => contract.index === 28)).toMatchObject({ armed: true, constructed: false });
+        // A call in the deploy's own tick runs, against state INITIALIZE has not touched yet.
+        expect(seen()).toEqual([0n, 0n]);
+
+        engine.sim.advance();
+        expect((await rpc.dynRegistry()).contracts.find((contract) => contract.index === 28)?.constructed).toBe(true);
+        expect(seen()).toEqual([0x494e495445444e45n, BigInt(deployTick + 1)]);
+        expect(engine.logger.range(deployTick + 1, LOG_SC_INITIALIZE).length).toBe(1n);
+
+        engine.sim.advance();
+        expect(seen()[1]).toBe(BigInt(deployTick + 1));
+    } finally {
+        handle.stop();
+    }
+});
+
+test("a routed upgrade defers its MIGRATE the same way, and an embedder's own deploy still constructs at once", async () => {
+    const engine = new VirtualNode({ slotBase: 28, slotCount: 4 });
+    // An interval the test never reaches, so every tick here is one the test takes itself.
+    const handle = await new EngineServer(engine).start(0, 3_600_000);
+    const rpc = new LiteRpc(handle.rpcBaseUrl);
+    const counter = () => new DataView(engine.sim.contracts.get(28)!.state().buffer).getBigUint64(0, true);
+    try {
+        engine.deploy(28, await wasm("Counter"), "Counter");
+        expect((await rpc.dynRegistry()).contracts.find((contract) => contract.index === 28)?.constructed).toBe(true);
+        engine.sim.procedure(28, 1);
+        engine.sim.procedure(28, 1);
+        expect(counter()).toBe(2n);
+
+        await rpc.directDeploy(28, await wasm("CounterV2"), "Counter", "dynamic");
+        expect((await rpc.dynRegistry()).contracts.find((contract) => contract.index === 28)?.constructed).toBe(false);
+        expect(counter()).toBe(0n);
+
+        engine.sim.advance();
+        expect((await rpc.dynRegistry()).contracts.find((contract) => contract.index === 28)?.constructed).toBe(true);
+        expect(counter()).toBe(2n);
+    } finally {
+        handle.stop();
     }
 });

@@ -377,7 +377,7 @@ export class EngineServer {
 
             const wasm = Uint8Array.from(Buffer.from(body.wasm ?? "", "base64"));
 
-            engine.deploy(slot, wasm, name);
+            engine.deploy(wasm, { slot, name, deferActivation: true });
 
             return json({
                 ok: true,

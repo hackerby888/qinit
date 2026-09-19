@@ -91,9 +91,10 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
     expect((await eng.dynUpload()).complete).toBe(true);
 
     await eng.broadcastTx(wrapTx(LITE_TX.DEPLOY, encodeDeploy({ sessionId, targetSlot: DYN, finalHashHex, name: "DigestProbe" })));
-    const reg = await eng.dynRegistry();
-    expect(reg.contracts.find((x) => x.index === DYN)?.constructed).toBe(true);
-    expect(reg.contracts.find((x) => x.index === DYN)?.name).toBe("DigestProbe");
+    // A DEPLOY arms the slot in its own tick; INITIALIZE runs at the head of the next one, as on a core node.
+    expect((await eng.dynRegistry()).contracts.find((x) => x.index === DYN)).toMatchObject({ armed: true, constructed: false, name: "DigestProbe" });
+    eng.sim.advance();
+    expect((await eng.dynRegistry()).contracts.find((x) => x.index === DYN)?.constructed).toBe(true);
 
     // Exercise the wire-deployed contract + reproduce the cross-platform digest oracle through the seam.
     expect(await decodeAbi(await eng.querySmartContract(DYN, 1, await encodeInputFormat("")), "uint64")).toBe(0n);

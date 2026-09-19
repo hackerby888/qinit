@@ -30,23 +30,25 @@ if (freeSlots.length < 2) {
 }
 const [slot, otherSlot] = freeSlots;
 
-async function compileCounter(targetSlot: number, arenaSizeBytes = DEFAULT_COMPILE_ARENA_SIZE_BYTES): Promise<Uint8Array> {
+async function compileFixture(contractName: string, targetSlot: number, arenaSizeBytes = DEFAULT_COMPILE_ARENA_SIZE_BYTES): Promise<Uint8Array> {
     const compiled = await compileContractWithTypeScript({
-        source: readFileSync(resolve("fixtures/Counter.h"), "utf8"),
-        contractName: "Counter",
+        source: readFileSync(resolve(`fixtures/${contractName}.h`), "utf8"),
+        contractName,
         slot: targetSlot,
         qpiHeader: loadQpiHeader(core!),
         arenaSizeBytes,
     });
     if (compiled.diagnostics.some((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR) || !compiled.wasm.length) {
-        fail("Counter did not compile");
+        fail(`${contractName} did not compile`);
     }
     return compiled.wasm;
 }
 
-const counter = await compileCounter(slot);
-const counterForOtherSlot = await compileCounter(otherSlot);
-const counterWithSmallArena = await compileCounter(slot, 1024 * 1024);
+const counter = await compileFixture("Counter", slot);
+const counterForOtherSlot = await compileFixture("Counter", otherSlot);
+const counterWithSmallArena = await compileFixture("Counter", slot, 1024 * 1024);
+// the one module that arms records the tick its INITIALIZE ran in, which dates the slot's construction against the DEPLOY.
+const initWitness = await compileFixture("InitWitness", slot);
 const junk = Uint8Array.from({ length: 64 }, (_, index) => (index * 37 + 11) & 0xff);
 
 interface RefusalCase {
@@ -63,7 +65,7 @@ const cases: RefusalCase[] = [
     { name: "bytes that are not a wasm module", module: junk, deploy: {}, code: "not-wasm" },
     { name: "a module built for another slot", module: counterForOtherSlot, deploy: {}, code: "load-failed" },
     { name: "a module whose io region is smaller than core's carve", module: counterWithSmallArena, deploy: {}, code: "load-failed" },
-    { name: "a module the node can arm", module: counter, deploy: {}, code: "ok" },
+    { name: "a module the node can arm", module: initWitness, deploy: {}, code: "ok" },
 ];
 
 async function runCases(name: string, rpc: LiteRpc): Promise<DeployOutcome[]> {
@@ -107,6 +109,15 @@ async function runCases(name: string, rpc: LiteRpc): Promise<DeployOutcome[]> {
             fail(`${name} answered ${refusal.name} with ${JSON.stringify(outcome)}, expected ${refusal.code}`);
         }
         outcomes.push(outcome);
+    }
+
+    // a DEPLOY only arms the slot; INITIALIZE runs at the head of the very next tick, on a core node and so on the simulator.
+    const armedTick = outcomes[outcomes.length - 1].tick;
+    await waitForTick(armedTick + 2);
+    const seen = await rpc.querySmartContract(slot, 1, new Uint8Array(0));
+    const initializeTick = Number(new DataView(seen.buffer, seen.byteOffset, seen.byteLength).getBigUint64(8, true));
+    if (initializeTick !== armedTick + 1) {
+        fail(`${name} armed the slot at tick ${armedTick} and ran INITIALIZE at tick ${initializeTick}, expected ${armedTick + 1}`);
     }
 
     return outcomes;

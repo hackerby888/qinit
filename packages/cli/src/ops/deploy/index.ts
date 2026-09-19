@@ -281,7 +281,7 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
             return { ok: false, slot, hash, error: direct.error };
         }
 
-        return { ok: true, slot, reused, hash, armed: true, constructed: true, idl: build.idl };
+        return { ok: true, slot, reused, hash, armed: true, constructed: direct.constructed ?? true, idl: build.idl };
     }
 
     // Only this path signs anything — the direct route deploys without a transaction, so a node reporting no balance cannot fail a simulator deploy.

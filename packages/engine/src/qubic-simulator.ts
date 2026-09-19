@@ -929,7 +929,7 @@ export class QubicSimulator {
         slot: number,
         wasm: Uint8Array,
         externalMemory?: WebAssembly.Memory,
-        options: { initialize?: boolean; initialState?: Uint8Array; minIoBytes?: number } = {},
+        options: { initialize?: boolean; initialState?: Uint8Array; minIoBytes?: number; deferActivation?: boolean } = {},
     ): Contract {
         return this.runOperation(
             "deploy",
@@ -947,6 +947,7 @@ export class QubicSimulator {
                         options.initialize ?? true,
                         options.initialState,
                         options.minIoBytes,
+                        options.deferActivation,
                     );
                 } finally {
                     this.logStore?.end();
@@ -1120,10 +1121,34 @@ export class QubicSimulator {
         this.tickClockMs = Date.now();
     }
 
+    /** True from a deferred deploy until the tick that runs its INITIALIZE or MIGRATE. */
+    isActivationPending(slot: number): boolean {
+        return this.registry.pendingConstructionSlots().includes(slot);
+    }
+
+    // core constructs a deployed slot at the head of the tick after its DEPLOY: past BEGIN_EPOCH, ahead of BEGIN_TICK, in the INITIALIZE log range.
+    private activatePendingContracts(): void {
+        const slots = this.registry.pendingConstructionSlots();
+        if (!slots.length) {
+            return;
+        }
+
+        this.logStore?.begin(this.currentTick, LOG_SC_INITIALIZE);
+        try {
+            for (const slot of slots) {
+                this.registry.constructPending(slot);
+                this.emit("info", "deploy", `slot ${slot} constructed`);
+            }
+        } finally {
+            this.logStore?.end();
+        }
+    }
+
     private runBeginTick(tickEntered = false): void {
         if (!tickEntered) {
             this.enterNextTick();
         }
+        this.activatePendingContracts();
         this.tickTxCount = this.txpool.dueCount(this.currentTick);
         this.emit("debug", "tick", `tick ${this.currentTick} begin · ${this.tickTxCount} tx`);
 
