@@ -61,7 +61,8 @@ function emitCheatPrintCall(context: FunctionEmissionContext, expression: CallEx
         emitted++;
 
         const tag = watIr.i64Constant((BigInt(line) << 8n) | BigInt(part));
-        const resolved = resolveExpressionAddress(context, argument);
+        // A value cast is a temporary: its operand's address would ship the operand's bytes reinterpreted at the cast's width.
+        const resolved = isValueCast(argument) ? null : resolveExpressionAddress(context, argument);
 
         // Anything with an address ships its bytes, an empty layout included: its zero-length record still carries the ordinal, and the reader uses the type.
         if (resolved?.addr) {
@@ -77,6 +78,16 @@ function emitCheatPrintCall(context: FunctionEmissionContext, expression: CallEx
     if (!emitted) {
         emitCheat(context, CHEAT_OP.print, watIr.i64Constant(BigInt(line) << 8n), watIr.i64Constant(0n), watIr.i32Constant(0), watIr.i32Constant(0));
     }
+}
+
+function isValueCast(expression: Expression): boolean {
+    if (expression.kind === AstKind.PAREN) {
+        return isValueCast(expression.expression);
+    }
+
+    const isCast = expression.kind === AstKind.C_CAST || expression.kind === AstKind.STATIC_CAST;
+
+    return isCast && expression.type.kind !== AstKind.REFERENCE && expression.type.kind !== AstKind.POINTER;
 }
 
 // Abort codes for a refused mutation, one per opcode, shared with the clang shim.

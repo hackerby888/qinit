@@ -9,6 +9,7 @@ import type { PreparedContractModule } from "../module/module-analysis";
 import type { AbiTypeBuilder } from "./abi-type-builder";
 import { collectPayloadRoots, visitStatement, type PayloadRoots } from "../module/log-call-validation";
 import { stripPtrRefConst } from "../memory/address-resolution";
+import { scalarStorageInfo, valueTypeName, type ScalarLeaves } from "../expressions/conversions";
 
 export const CHEAT_PRINT_INTRINSIC = "__qinit_cheat_print";
 
@@ -22,6 +23,8 @@ interface CheatScope {
     builder: AbiTypeBuilder;
     roots: PayloadRoots;
     declaration: FunctionDecl;
+    // Names the entry declares itself, which hide a namespace-scope constant of the same spelling.
+    declaredNames: Set<string>;
 }
 
 export function collectContractCheats(prepared: PreparedContractModule, builder: AbiTypeBuilder): ContractCheat[] {
@@ -44,7 +47,15 @@ export function collectContractCheats(prepared: PreparedContractModule, builder:
             continue;
         }
 
-        const scope: CheatScope = { programAnalysis: prepared.programAnalysis, builder, roots: entryRoots, declaration };
+        const declaredNames = new Set(declaration.params.map((parameter) => parameter.name));
+
+        visitStatement(declaration.body, (statement: Statement) => {
+            if (statement.kind === AstKind.DECLARATION && "name" in statement.declaration && statement.declaration.name) {
+                declaredNames.add(statement.declaration.name);
+            }
+        });
+
+        const scope: CheatScope = { programAnalysis: prepared.programAnalysis, builder, roots: entryRoots, declaration, declaredNames };
 
         visitStatement(declaration.body, (statement: Statement) => {
             const call = cheatPrintCall(statement);
@@ -106,7 +117,29 @@ function partType(scope: CheatScope, argument: Expression): AbiType | undefined 
 
     const resolved = argumentType(scope, argument);
 
-    return resolved && resolved.kind !== AstKind.VOID ? scope.builder.type(resolved) : undefined;
+    if (resolved) {
+        return resolved.kind !== AstKind.VOID ? scope.builder.type(resolved) : undefined;
+    }
+
+    // An rvalue travels by register, sign-extended; its C++ type says how many of those bytes are the value and whether they are signed.
+    const scalarName = valueTypeName(argument, scalarLeaves(scope));
+
+    return scalarName ? scope.builder.type({ kind: AstKind.NAME, name: scalarName } as TypeSpec) : undefined;
+}
+
+// An operand this table cannot type leaves the whole expression untyped, and the part falls back to the raw register.
+function scalarLeaves(scope: CheatScope): ScalarLeaves {
+    const typed = (expression: Expression) => {
+        const constant =
+            expression.kind === AstKind.IDENTIFIER && !scope.declaredNames.has(expression.name)
+                ? scope.programAnalysis.typeOfConstant(expression.name)
+                : undefined;
+        const type = argumentType(scope, expression) ?? constant;
+
+        return type ? scalarStorageInfo(scope.programAnalysis, type) : null;
+    };
+
+    return { programAnalysis: scope.programAnalysis, leafInfo: typed, callInfo: typed, untypedOperand: () => null };
 }
 
 function argumentType(scope: CheatScope, expression: Expression): TypeSpec | undefined {
