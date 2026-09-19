@@ -61,7 +61,7 @@ function emitCheatPrintCall(context: FunctionEmissionContext, expression: CallEx
         emitted++;
 
         const tag = watIr.i64Constant((BigInt(line) << 8n) | BigInt(part));
-        // A value cast is a temporary: its operand's address would ship the operand's bytes reinterpreted at the cast's width.
+        // a value cast is a temporary: its operand's address would ship the operand's bytes reinterpreted at the cast's width.
         const resolved = isValueCast(argument) ? null : resolveExpressionAddress(context, argument);
 
         // Anything with an address ships its bytes, an empty layout included: its zero-length record still carries the ordinal, and the reader uses the type.

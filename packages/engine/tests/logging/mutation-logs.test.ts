@@ -220,7 +220,7 @@ test("QPI transfers and burns use the Core payload layouts", () => {
     ]);
     expect(logs.map((log) => log.message)).toEqual(expectedMessages);
     expect(sim.getEntity(shareholder)?.numberOfIncomingTransfers).toBe(1);
-    // Custom messages stay out of the tick digest, as on core.
+    // custom messages stay out of the tick digest, as on core.
     const digested = expectedMessages.filter((_, index) => logs[index].type !== QUBIC_LOG_TYPE.CUSTOM_MESSAGE);
     expect(logger.digest(1)).toEqual(k12Bytes(concatBytes([ZERO32, ...digested])));
 });
@@ -233,22 +233,22 @@ test("a dividend payout is bracketed by its two markers, holders or not", () => 
     const second = new Uint8Array(32).fill(0x47);
 
     sim.mintDeployShares(28, "DIV", first);
-    // Contract shares are minted under contract 1's management.
+    // contract shares are minted under contract 1's management.
     sim.host.transferShareOwnershipAndPossession(1, packAssetName("DIV"), new Uint8Array(32), first, first, 76n, second);
     sim.fund(paying, 676n * 3n);
     sim.fund(contractId(29), 676n);
 
     logger.begin(1, 0);
     expect(sim.host.distributeDividends(28, 3n)).toBe(1);
-    // No asset was ever minted for this contract: the debit and both markers still happen, as on core.
+    // no asset was ever minted for this contract: the debit and both markers still happen, as on core.
     expect(sim.host.distributeDividends(29, 1n)).toBe(1);
-    // An unaffordable payout stops before the first marker.
+    // an unaffordable payout stops before the first marker.
     expect(sim.host.distributeDividends(29, 1n)).toBe(0);
     logger.end();
     logger.finalizeTick(1);
 
     const messages = parseLogs(logger, 6).map((log) => log.message);
-    // Which holder is paid first is the ledger's iteration order, pinned against a core node by the logging dual-engine run and not here.
+    // which holder is paid first is the ledger's iteration order, pinned against a core node by the logging dual-engine run and not here.
     const payouts = messages.slice(1, 3).sort((left, right) => left[32] - right[32]);
     expect([messages[0], ...payouts, ...messages.slice(3)]).toEqual([
         markerMessage(CUSTOM_MESSAGE_OP.START_DISTRIBUTE_DIVIDENDS),
@@ -272,7 +272,7 @@ test("a zero-fee rights transfer still logs its fee and callback transfers", asy
     sim.deploy(28, await wasm("ShareApprover"));
     sim.deploy(29, await wasm("ShareManager"));
     sim.host.issueAsset(28, name, approver, 0, 1000n, 0n, approver);
-    // A contract that never held anything has no spectrum entry, and core logs nothing for a transfer out of one.
+    // a contract that never held anything has no spectrum entry, and core logs nothing for a transfer out of one.
     sim.fund(acquirer, 1n);
 
     logger.begin(1, 0);
@@ -287,7 +287,7 @@ test("a zero-fee rights transfer still logs its fee and callback transfers", asy
         QUBIC_LOG_TYPE.ASSET_OWNERSHIP_MANAGING_CONTRACT_CHANGE,
         QUBIC_LOG_TYPE.ASSET_POSSESSION_MANAGING_CONTRACT_CHANGE,
     ]);
-    // The PRE_RELEASE_SHARES callback's reward transfer, then the fee itself; the approver defines no POST callback, so nothing follows the rights.
+    // the PRE_RELEASE_SHARES callback's reward transfer, then the fee itself; the approver defines no POST callback, so nothing follows the rights.
     expect(logs[0].message).toEqual(quTransferMessage(acquirer, approver, 0n));
     expect(logs[1].message).toEqual(quTransferMessage(acquirer, approver, 0n));
 });
@@ -363,7 +363,7 @@ test("asset mutations emit exact native records only after success", () => {
     expect(logger.digest(1)).toEqual(k12Bytes(concatBytes([ZERO32, ...expectedMessages])));
 });
 
-// Every record of one tick, each with the tick-local range it was written under.
+// every record of one tick, each with the tick-local range it was written under.
 function tickRecords(logger: QubicLogStore, tick: number): { range: number; type: number; message: Uint8Array }[] {
     const records: { range: number; type: number; message: Uint8Array; logId: bigint }[] = [];
 
@@ -385,7 +385,7 @@ function tickRecords(logger: QubicLogStore, tick: number): { range: number; type
     return records.sort((left, right) => Number(left.logId - right.logId)).map(({ range, type, message }) => ({ range, type, message }));
 }
 
-// An epoch's log opens with one marker in the INITIALIZE range of its first tick and closes with the other as the last END_EPOCH record.
+// an epoch's log opens with one marker in the INITIALIZE range of its first tick and closes with the other as the last END_EPOCH record.
 test("an epoch's log opens and closes with core's markers", () => {
     const logger = new QubicLogStore();
     const sim = new QubicSimulator({ logStore: logger, epochLength: 3 });
@@ -396,7 +396,7 @@ test("an epoch's log opens and closes with core's markers", () => {
         { range: LOG_SC_INITIALIZE, type: QUBIC_LOG_TYPE.CUSTOM_MESSAGE, message: markerMessage(CUSTOM_MESSAGE_OP.START_EPOCH) },
     ]);
 
-    // The switch wipes the old epoch's log, so its closing marker is read between the two halves of one.
+    // the switch wipes the old epoch's log, so its closing marker is read between the two halves of one.
     sim.advance();
     sim.endEpoch();
     logger.finalizeTick(sim.currentTick + 1);
@@ -468,7 +468,7 @@ test("oracle queries and subscribers leave core's status and subscriber records"
     const queryId = new DataView(sim.procedure(29, 2, priceInput).buffer).getBigInt64(0, true);
     logger.end();
     logger.finalizeTick(1);
-    // A contract's own query is keyed by the contract, and starts pending.
+    // a contract's own query is keyed by the contract, and starts pending.
     expect(ofType(1, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE)).toEqual([
         { range: 0, type: QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE, message: statusChange(29n, queryId, 0, 1) },
     ]);
@@ -477,10 +477,10 @@ test("oracle queries and subscribers leave core's status and subscriber records"
     new DataView(reply.buffer).setBigInt64(0, 42n, true);
     new DataView(reply.buffer).setBigInt64(8, 1n, true);
     sim.setOracleProvider(() => reply);
-    // Tick 1 was written by hand above, so the node's own ticks continue after it.
+    // tick 1 was written by hand above, so the node's own ticks continue after it.
     sim.currentTick = 1;
     sim.advance();
-    // The reply lands between the tick's hooks, so its record sits in the range of the notification it causes.
+    // the reply lands between the tick's hooks, so its record sits in the range of the notification it causes.
     expect(ofType(sim.currentTick, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE)).toEqual([
         { range: LOG_SC_NOTIFICATION, type: QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE, message: statusChange(29n, queryId, 0, 3) },
     ]);
@@ -505,6 +505,6 @@ test("oracle queries and subscribers leave core's status and subscriber records"
     ]);
     expect(subscriberRecords[0].getBigUint64(16, true)).toBeGreaterThan(0n);
     expect(subscriberRecords[1].getBigUint64(16, true)).toBe(0n);
-    // The subscription's first query is keyed by the subscription, not by the contract.
+    // the subscription's first query is keyed by the subscription, not by the contract.
     expect(ofType(subscribeTick, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE).map((record) => [record.message[44], record.message[45]])).toEqual([[1, 1]]);
 });

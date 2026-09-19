@@ -88,7 +88,7 @@ export function collectFunctionLocals(statement: Statement, context: FunctionEmi
                     }
                     if (dType.kind === AstKind.NAME && dType.name === "auto") {
                         dType = initializerType(context, variableDeclaration.initializer) ?? dType;
-                        // Left as `auto` the local is a plain 64-bit slot that never wraps at its C++ width.
+                        // left as `auto` the local is a plain 64-bit slot that never wraps at its C++ width.
                         if (isAutoType(dType)) {
                             reportUnsupported(context.programAnalysis, UnsupportedFeature.AUTO_DEDUCTION, statement.span.line, variableDeclaration.name);
                         }

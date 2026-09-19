@@ -12,7 +12,7 @@ import { deriveIdentity, bytesToIdentity } from "@qinit/core";
 const CLI = process.env.QUBIC_CLI ?? "";
 const have = CLI !== "" && existsSync(CLI);
 const it = test.skipIf(!have);
-// Epoch 1 begins one epoch length in; the third tick after it is finalized by the time the tests run.
+// epoch 1 begins one epoch length in; the third tick after it is finalized by the time the tests run.
 const PRE_ADVANCED_FINALIZED_TICK = DEFAULT_EPOCH_LENGTH + 3;
 
 // Run the CLI against `port` and return its stdout.
@@ -139,7 +139,7 @@ it("-gettickdata + -readtickdata verify the leader's signed TickData", async () 
         const compFile = "/tmp/qinit-cli-td-comps.bin";
         await runCli(port, ["-getcomputorlist", compFile]);
 
-        // Epoch 1 starts one epoch length in, and startup finalizes the five ticks after it.
+        // epoch 1 starts one epoch length in, and startup finalizes the five ticks after it.
         const got = await runCli(port, ["-gettickdata", String(PRE_ADVANCED_FINALIZED_TICK), tdFile]);
         expect(got).toContain("Found");
         expect(got).toContain("written to");

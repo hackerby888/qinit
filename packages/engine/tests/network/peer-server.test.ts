@@ -121,7 +121,7 @@ test("native logging messages expose core-lite records and tick ranges", async (
         const rangeFrames = await exchange(port, codec.frame(MSG.REQUEST_ALL_LOG_ID_RANGES_FROM_TX, allReq, 90));
         const ranges = rangeFrames.find((f) => f.type === MSG.RESPOND_ALL_LOG_ID_RANGES_FROM_TX)!;
         expect(ranges).toBeDefined();
-        // Log id 0 is the marker that opened the epoch when the node booted.
+        // log id 0 is the marker that opened the epoch when the node booted.
         expect(dv(ranges.payload).getBigInt64(2 * 8, true)).toBe(1n);
         expect(dv(ranges.payload).getBigInt64((4102 + 2) * 8, true)).toBe(1n);
 

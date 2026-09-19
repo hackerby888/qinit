@@ -118,7 +118,7 @@ test("the epoch switches after the tick a full length past its own first tick, u
     expect(sim.currentTick).toBe(switchTick);
     expect(sim.initialTick).toBe(switchTick);
 
-    // A length changed mid-epoch moves the next switch, never the epoch's first tick.
+    // a length changed mid-epoch moves the next switch, never the epoch's first tick.
     sim.epochLength = 4;
     for (let i = 0; i < 5; i++) {
         sim.advance();

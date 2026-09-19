@@ -459,10 +459,10 @@ test("state-bytes serves the same bytes state-read spells in hex, and an unknown
     }
 });
 
-// A core node arms a slot in the DEPLOY's tick and runs INITIALIZE or MIGRATE at the head of the next one; a deploy that arrives over a route does the same.
+// a core node arms a slot in the DEPLOY's tick and runs INITIALIZE or MIGRATE at the head of the next one; a deploy that arrives over a route does the same.
 test("a routed deploy is armed at once and constructed at the next tick, in the INITIALIZE log range", async () => {
     const engine = new VirtualNode({ slotBase: 28, slotCount: 4 });
-    // An interval the test never reaches, so every tick here is one the test takes itself.
+    // an interval the test never reaches, so every tick here is one the test takes itself.
     const handle = await new EngineServer(engine).start(0, 3_600_000);
     const rpc = new LiteRpc(handle.rpcBaseUrl);
     const seen = () => {
@@ -475,7 +475,7 @@ test("a routed deploy is armed at once and constructed at the next tick, in the 
         await rpc.directDeploy(28, await wasm("InitWitness"), "InitWitness", "dynamic");
 
         expect((await rpc.dynRegistry()).contracts.find((contract) => contract.index === 28)).toMatchObject({ armed: true, constructed: false });
-        // A call in the deploy's own tick runs, against state INITIALIZE has not touched yet.
+        // a call in the deploy's own tick runs, against state INITIALIZE has not touched yet.
         expect(seen()).toEqual([0n, 0n]);
 
         engine.sim.advance();
@@ -493,7 +493,7 @@ test("a routed deploy is armed at once and constructed at the next tick, in the 
 
 test("a routed upgrade defers its MIGRATE the same way, and an embedder's own deploy still constructs at once", async () => {
     const engine = new VirtualNode({ slotBase: 28, slotCount: 4 });
-    // An interval the test never reaches, so every tick here is one the test takes itself.
+    // an interval the test never reaches, so every tick here is one the test takes itself.
     const handle = await new EngineServer(engine).start(0, 3_600_000);
     const rpc = new LiteRpc(handle.rpcBaseUrl);
     const counter = () => new DataView(engine.sim.contracts.get(28)!.state().buffer).getBigUint64(0, true);

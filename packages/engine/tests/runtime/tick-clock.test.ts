@@ -1,4 +1,4 @@
-// A live node gives a tick one timestamp, so two time reads inside the same tick can never straddle a second or a day.
+// a live node gives a tick one timestamp, so two time reads inside the same tick can never straddle a second or a day.
 import { afterEach, expect, test } from "bun:test";
 import { QubicSimulator } from "../../src/qubic-simulator";
 
@@ -10,7 +10,7 @@ afterEach(() => {
 
 test("the wall clock is read once per tick", () => {
     let wallClockMs = Date.UTC(2026, 0, 1, 23, 59, 59, 500);
-    // Every read moves the wall clock across a second boundary.
+    // every read moves the wall clock across a second boundary.
     Date.now = () => (wallClockMs += 600);
 
     const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });

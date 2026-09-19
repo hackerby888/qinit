@@ -1,11 +1,11 @@
-// Test-only client for a node's log protocol: a tick's log id ranges, then the raw records they name. The simulator's peer server and a
+// test-only client for a node's log protocol: a tick's log id ranges, then the raw records they name. The simulator's peer server and a
 // core node answer the same two requests, so one reader gives both streams byte for byte.
 import { connect } from "node:net";
 import { HEADER_SIZE, MSG, frame, readHeader } from "@qinit/engine/protocol/peer-codec";
 import { LOG_HEADER_SIZE } from "@qinit/engine/logging/qubic-log-store";
 
 export interface TickLogRecord {
-    // The tick-local range the record sits in: a transaction's index, or one of the system-procedure slots past them.
+    // the tick-local range the record sits in: a transaction's index, or one of the system-procedure slots past them.
     txIndex: number;
     type: number;
     message: Uint8Array;
@@ -14,7 +14,7 @@ export interface TickLogRecord {
 const PASSCODE_BYTES = 32;
 const RESPONSE_TIMEOUT_MS = 15_000;
 
-// One request per connection; the node's opening peer exchange and any other traffic is skipped by type and dejavu.
+// one request per connection; the node's opening peer exchange and any other traffic is skipped by type and dejavu.
 function request(host: string, port: number, type: number, payload: Uint8Array, responseType: number): Promise<Uint8Array | null> {
     const dejavu = 1 + Math.floor(Math.random() * 0x7ffffffe);
 
@@ -67,7 +67,7 @@ function passcodePayload(size: number): { payload: Uint8Array; view: DataView } 
     return { payload, view: new DataView(payload.buffer) };
 }
 
-/** Every log record of one tick, in log-id order, each tagged with the tick-local range it was written under. */
+/** every log record of one tick, in log-id order, each tagged with the tick-local range it was written under. */
 export async function readTickLogs(host: string, port: number, tick: number): Promise<TickLogRecord[]> {
     const ranges = passcodePayload(PASSCODE_BYTES + 8);
     ranges.view.setUint32(PASSCODE_BYTES, tick, true);
@@ -76,7 +76,7 @@ export async function readTickLogs(host: string, port: number, tick: number): Pr
         return [];
     }
 
-    // The table is every range's first log id, then every range's length.
+    // the table is every range's first log id, then every range's length.
     const rangeCount = rangeTable.length / 16;
     const table = new DataView(rangeTable.buffer, rangeTable.byteOffset, rangeTable.byteLength);
     const records: (TickLogRecord & { logId: bigint })[] = [];

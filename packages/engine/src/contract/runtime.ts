@@ -449,7 +449,7 @@ export class Contract {
         this.readRegistry();
     }
 
-    /** What `io_size()` reports: the three dispatch buffers and the scratch arena behind them. */
+    /** what `io_size()` reports: the three dispatch buffers and the scratch arena behind them. */
     get ioBytes(): number {
         return this.arenaEnd - this.ioBase;
     }
@@ -1384,7 +1384,7 @@ export class Contract {
         };
     }
 
-    // A missing import fails the return type and an extra one the guard, so table drift is a typecheck error before it is a load error.
+    // a missing import fails the return type and an extra one the guard, so table drift is a typecheck error before it is a load error.
     private buildLhost(u8: () => Uint8Array, contextView: () => QpiContext): Record<LhostImportName, Function> {
         const built = {
             ...this.coreImports(u8),
@@ -1411,7 +1411,7 @@ export class Contract {
         if (missingLhost.length || extraLhost.length) {
             throw new Error(`simulator lhost table drift (missing: ${missingLhost.join(", ") || "none"}; extra: ${extraLhost.join(", ") || "none"})`);
         }
-        // Checked ahead of the wrappers below, which are variadic and hide each function's declared arity.
+        // checked ahead of the wrappers below, which are variadic and hide each function's declared arity.
         const wrongArity = Object.entries(LHOST_ABI).filter(([name, signature]) => lhost[name].length !== signature.params.length);
         if (wrongArity.length) {
             throw new Error(`simulator lhost arity drift (${wrongArity.map(([name]) => name).join(", ")})`);

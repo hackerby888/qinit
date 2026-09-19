@@ -66,7 +66,7 @@ export const Burning = defineStruct("Burning", {
     _terminator: u8,
 });
 
-// Logged whole, padding included: core takes this record by sizeof, not up to a terminator.
+// logged whole, padding included: core takes this record by sizeof, not up to a terminator.
 export const ContractReserveDeduction = defineStruct("ContractReserveDeduction", {
     deductedAmount: u64,
     remainingAmount: i64,
@@ -221,7 +221,7 @@ export function encodeOracleQueryStatusChangeLog(
     return message.bytes.subarray(0, OracleQueryStatusChange.OFFSETS._terminator);
 }
 
-// A period of zero is an unsubscribe.
+// a period of zero is an unsubscribe.
 export function encodeOracleSubscriberLog(
     subscriptionId: number,
     interfaceIndex: number,

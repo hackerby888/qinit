@@ -1,4 +1,4 @@
-// Records what a contract reads of the chain clock inside END_EPOCH and BEGIN_EPOCH, and at the first BEGIN_TICK after a switch.
+// records what a contract reads of the chain clock inside END_EPOCH and BEGIN_EPOCH, and at the first BEGIN_TICK after a switch.
 using namespace QPI;
 
 struct EpochWitness2

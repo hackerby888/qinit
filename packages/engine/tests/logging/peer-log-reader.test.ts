@@ -1,4 +1,4 @@
-// The dual-engine scripts read native log records through this client; here it reads the simulator's own peer server, where the expected bytes are known.
+// the dual-engine scripts read native log records through this client; here it reads the simulator's own peer server, where the expected bytes are known.
 import { expect, test } from "bun:test";
 import { CUSTOM_MESSAGE_OP, QUBIC_LOG_TYPE } from "@qinit/proto";
 import { readTickLogs } from "../../../../scripts/live-node/peer-log-reader";

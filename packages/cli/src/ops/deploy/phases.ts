@@ -211,7 +211,7 @@ export async function deployToSimulator(request: SimulatorDeployRequest): Promis
         // Source metadata is optional for a successful deployment.
     }
 
-    // The simulator constructs a routed deploy at the head of its next tick, as a core node does, so ready means constructed and not only armed.
+    // the simulator constructs a routed deploy at the head of its next tick, as a core node does, so ready means constructed and not only armed.
     let constructed = false;
     for (let attempt = 0; attempt < SIMULATOR_CONSTRUCT_POLLS && !constructed; attempt++) {
         const fault = await readFault(rpc).catch(() => null);

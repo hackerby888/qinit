@@ -115,7 +115,7 @@ for (let i = 0; i < 10 && !nodeLogs.length; i++) {
 expectSameLogs(nodeLogs, simLogs, "LOG_* trace bytes");
 console.log(`LOGGING DUAL OK — exact ${compiled.wasm.length}B artifact emitted ${nodeLogs.length} identical logs in QubicSimulator and WAMR at slot ${slot}`);
 
-// Native records — transfers, markers, management changes — never reach the debug trace, so both nodes are read over the peer log protocol.
+// native records — transfers, markers, management changes — never reach the debug trace, so both nodes are read over the peer log protocol.
 const NATIVE_FIXTURES = ["Dividend", "ShareApprover", "ShareManager"] as const;
 const DIVIDEND_PER_SHARE = 3n;
 // the simulator debits a payout at the mainnet share count whatever its holders are; a testnet core at its own computor count.

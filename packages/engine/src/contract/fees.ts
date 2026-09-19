@@ -59,7 +59,7 @@ export class FeeManager {
         return this.mode === "off" || this.getContractFeeReserve(slot) > 0n;
     }
 
-    // The credit lands on the value queryFeeReserve reports, so a contract reading before and after sees exactly the amount.
+    // the credit lands on the value queryFeeReserve reports, so a contract reading before and after sees exactly the amount.
     addToContractFeeReserve(slot: number, amount: bigint): void {
         if (amount <= 0n) {
             return;
@@ -88,7 +88,7 @@ export class FeeManager {
         }
     }
 
-    // An index outside core's [1, contractCount) names the calling contract itself.
+    // an index outside core's [1, contractCount) names the calling contract itself.
     resolveIndex(callerSlot: number, contractIndex: number): number {
         return contractIndex < 1 || contractIndex >= this.contractCount ? callerSlot : contractIndex;
     }

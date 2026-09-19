@@ -31,7 +31,7 @@ export function unsignedScalar(type: TypeSpec | null | undefined): boolean {
     if (type.kind !== AstKind.NAME) return false;
     return /^(uint|unsigned\b|size_t$|bool$|bit$)/.test(type.name) || type.name === "uint128" || type.name === "uint128_t";
 }
-// The declared return type of `object.method(...)`, resolved through the owner's bases and template bindings.
+// the declared return type of `object.method(...)`, resolved through the owner's bases and template bindings.
 export function memberCallReturnType(context: FunctionEmissionContext, expression: Expression): TypeSpec | null {
     if (expression.kind !== AstKind.CALL || expression.callee.kind !== AstKind.MEMBER_ACCESS) return null;
     const calleeObjectType = context.lowering.resolveExpressionAddress(context, expression.callee.object)?.type;
@@ -128,7 +128,7 @@ export interface ScalarInfo {
     width: number;
     unsigned: boolean;
 }
-// What the C++ typing rules cannot decide from the expression alone. A null from `untypedOperand` makes the enclosing expression untyped.
+// what the C++ typing rules cannot decide from the expression alone. A null from `untypedOperand` makes the enclosing expression untyped.
 export interface ScalarLeaves {
     programAnalysis: ProgramAnalysis;
     leafInfo(expression: Expression): ScalarInfo | null;
@@ -251,7 +251,7 @@ const SCALAR_NAME_BY_WIDTH: Record<number, [signed: string, unsigned: string]> =
     8: ["sint64", "uint64"],
 };
 type ValueInfo = ScalarInfo & { bool?: boolean };
-// The outermost expression is not promoted: a comparison stays bool and a ternary over two arms of one type keeps that type.
+// the outermost expression is not promoted: a comparison stays bool and a ternary over two arms of one type keeps that type.
 function valueInfoOf(expression: Expression, leaves: ScalarLeaves): ValueInfo | null {
     switch (expression.kind) {
         case AstKind.PAREN:
@@ -275,7 +275,7 @@ function valueInfoOf(expression: Expression, leaves: ScalarLeaves): ValueInfo | 
             return scalarInfoOf(expression, leaves);
     }
 }
-// The scalar type name a declaration or a by-value print gives the expression, or null when any part of it is untyped.
+// the scalar type name a declaration or a by-value print gives the expression, or null when any part of it is untyped.
 export function valueTypeName(expression: Expression, leaves: ScalarLeaves): string | null {
     const info = valueInfoOf(expression, leaves);
     if (!info) return null;
@@ -283,7 +283,7 @@ export function valueTypeName(expression: Expression, leaves: ScalarLeaves): str
     return SCALAR_NAME_BY_WIDTH[info.width]?.[info.unsigned ? 1 : 0] ?? null;
 }
 const contextLeavesCache = new WeakMap<FunctionEmissionContext, ScalarLeaves>();
-// Emission types every operand: one it cannot resolve keeps the legacy 64-bit model.
+// emission types every operand: one it cannot resolve keeps the legacy 64-bit model.
 export function contextLeaves(context: FunctionEmissionContext): ScalarLeaves {
     let leaves = contextLeavesCache.get(context);
     if (!leaves) {
@@ -321,7 +321,7 @@ export function scalarStorageInfo(programAnalysis: ProgramAnalysis, type: TypeSp
     const byteWidth = resolvedType.kind === AstKind.NAME ? SCALAR_SIZE[resolvedType.name] : undefined;
     return byteWidth ? { width: byteWidth, unsigned: unsignedScalar(resolvedType) } : null;
 }
-// A member helper's declared return type gives the call its width and signedness.
+// a member helper's declared return type gives the call its width and signedness.
 function contextCallInfo(context: FunctionEmissionContext, expression: Expression): ScalarInfo | null {
     if ((expression.kind !== AstKind.CALL && expression.kind !== AstKind.TEMPLATE_CALL) || expression.callee?.kind !== AstKind.IDENTIFIER) return null;
     const nm = expression.callee.name;

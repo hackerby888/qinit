@@ -24,9 +24,9 @@ export class ContractRegistry {
     // Never cleared; a reader compares it across the reads of one view.
     // Outside the state bytes, so digests are unaffected.
     private readonly versions = new Map<number, number>();
-    // Told of every execution fee taken from a reserve, so a node with a log stream can record it.
+    // told of every execution fee taken from a reserve, so a node with a log stream can record it.
     onReserveDeduction?: (slot: number, deducted: bigint, remaining: bigint) => void;
-    // Slots armed by a deferred deploy, with the old state a pending MIGRATE reads.
+    // slots armed by a deferred deploy, with the old state a pending MIGRATE reads.
     private readonly pendingConstruction = new Map<number, { oldState: Uint8Array | null; initialize: boolean }>();
     private readonly fees: FeeManager;
     private readonly recorder: TraceRecorder;
@@ -142,7 +142,7 @@ export class ContractRegistry {
         return [...this.pendingConstruction.keys()];
     }
 
-    /** Runs the INITIALIZE or MIGRATE a deferred deploy left for the next tick. */
+    /** runs the INITIALIZE or MIGRATE a deferred deploy left for the next tick. */
     constructPending(slot: number): void {
         const pending = this.pendingConstruction.get(slot);
         const contract = this.contracts.get(slot);

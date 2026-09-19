@@ -1,4 +1,4 @@
-// Which side to update on an ABI mismatch: every release-freshness pair in both ABI directions, then the lookup policy around it.
+// which side to update on an ABI mismatch: every release-freshness pair in both ABI directions, then the lookup policy around it.
 import { describe, expect, test } from "bun:test";
 import { abiAdvice, checkHeadersAbi, type AbiAdviceInput, type AbiCheckDeps, type AbiSide, type Freshness } from "../../src/ops/abi-advice";
 

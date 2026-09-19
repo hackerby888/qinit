@@ -90,7 +90,7 @@ struct Acc : public ContractBase {
     ]);
 });
 
-// An rvalue rides the register sign-extended, so its C++ type decides how many of those bytes are the value and whether they are signed.
+// an rvalue rides the register sign-extended, so its C++ type decides how many of those bytes are the value and whether they are signed.
 test("an arithmetic temporary prints as its C++ type", async () => {
     const source = `using namespace QPI;
 constexpr sint32 ARITH_LIMIT = 9;
@@ -128,7 +128,7 @@ struct Arith : public ContractBase {
         ["sint64", 8],
         ["uint8", 1],
         ["uint8", 1],
-        // A local named like a namespace-scope constant hides it, and a call this table cannot type leaves the register untyped.
+        // a local named like a namespace-scope constant hides it, and a call this table cannot type leaves the register untyped.
         ["uint64", 8],
         ["uint64", 8],
         ["sint32", 4],

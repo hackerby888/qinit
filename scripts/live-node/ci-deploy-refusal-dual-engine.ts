@@ -1,4 +1,4 @@
-// Every way a node refuses a DEPLOY, sent to the simulator and to a core node: both must record the same outcome on /live/v1/dyn-upload, so a
+// every way a node refuses a DEPLOY, sent to the simulator and to a core node: both must record the same outcome on /live/v1/dyn-upload, so a
 // client reads one reason whichever node it talks to.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

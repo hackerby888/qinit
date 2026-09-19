@@ -96,7 +96,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                     try {
                         writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2));
                     } catch {}
-                // The build still runs: the artifact is valid for a node on the headers' ABI, only not for this CLI's simulator or deploy.
+                // the build still runs: the artifact is valid for a node on the headers' ABI, only not for this CLI's simulator or deploy.
                 setS({ phase: "done", r: abiMismatch ? { ...r, warnings: [abiAdviceText(abiMismatch), ...(r.warnings ?? [])] } : r });
             } catch (e: any) {
                 setS({ phase: "done", r: { ok: false, stderr: String(e?.message ?? e) } });

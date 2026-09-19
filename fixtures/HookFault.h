@@ -1,4 +1,4 @@
-// Counts every tick and epoch hook and every incoming transfer, and fails on request: what a node still runs for a contract that errored.
+// counts every tick and epoch hook and every incoming transfer, and fails on request: what a node still runs for a contract that errored.
 using namespace QPI;
 
 struct HookFault2

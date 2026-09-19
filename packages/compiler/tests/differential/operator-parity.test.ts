@@ -139,7 +139,7 @@ const CASES: ParityCase[] = [
         ),
         expected: 1n,
     },
-    // An `auto` local has its initializer's C++ type, so it wraps at that width; every row would differ under a 64-bit local.
+    // an `auto` local has its initializer's C++ type, so it wraps at that width; every row would differ under a 64-bit local.
     {
         name: "AutoFromNarrowMember",
         source: wrap(
@@ -209,7 +209,7 @@ const CASES: ParityCase[] = [
        auto sum = locals.left + locals.right;
        state.mut().result = sum;`,
         ),
-        // Two uint8 operands promote to int, so the sum does not wrap at 256.
+        // two uint8 operands promote to int, so the sum does not wrap at 256.
         expected: 300n,
     },
     {
@@ -293,7 +293,7 @@ describe.skipIf(!HAS_CORE)("operator lowering matches Clang on the same source",
     }
 });
 
-// An initializer whose type cannot be named would leave a 64-bit local that never wraps, so a strict build refuses it.
+// an initializer whose type cannot be named would leave a 64-bit local that never wraps, so a strict build refuses it.
 describe.skipIf(!HAS_CORE)("an auto local with no deducible type", () => {
     test("is refused by name", async () => {
         const compiled = await compileContractWithTypeScript({

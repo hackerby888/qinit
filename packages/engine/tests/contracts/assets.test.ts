@@ -421,7 +421,7 @@ test("management rights transfers carry core's gates on the counterparty", async
     expect(sharesByMgmt(errored, 28)).toBe(1000n);
 });
 
-// The dual-engine driver's Rights procedure: a release and an acquire with different non-zero fees, and a release nested inside the callback.
+// the dual-engine driver's Rights procedure: a release and an acquire with different non-zero fees, and a release nested inside the callback.
 test("a rights round trip pays each leg's fee, and a transfer nested in its callback is refused", async () => {
     await initK12();
     const sim = new QubicSimulator();

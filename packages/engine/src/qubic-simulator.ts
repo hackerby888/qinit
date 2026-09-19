@@ -107,7 +107,7 @@ export class QubicSimulator {
     currentTick = 0;
     currentEpoch = 0;
     epochLength: number;
-    // The current epoch's first tick, set at boot and at every switch as core sets system.initialTick.
+    // the current epoch's first tick, set at boot and at every switch as core sets system.initialTick.
     initialTick = 0;
     readonly contractCount: number;
     host: HostServices;
@@ -134,7 +134,7 @@ export class QubicSimulator {
     // "tick": a deterministic clock the gtest corpus needs (it freezes tickDuration and sets the date
     // directly). "real": Date.now(), the wall clock a live node has to serve.
     clockMode: "tick" | "real" = "tick";
-    // The wall clock read once per tick, as core stamps its etalon tick: every time call inside the tick sees one instant.
+    // the wall clock read once per tick, as core stamps its etalon tick: every time call inside the tick sees one instant.
     private tickClockMs: number | undefined;
     private mempoolMode: boolean;
     private fees: FeeManager;
@@ -359,7 +359,7 @@ export class QubicSimulator {
         this.oracle.beginEpoch();
         this.pendingOracleNotifications = [];
         this.logStore?.reset(initialTick);
-        // A node boots on an epoch's first tick, which opens that epoch's log like any other.
+        // a node boots on an epoch's first tick, which opens that epoch's log like any other.
         this.logStartOfEpoch(initialTick);
         this.logStore?.finalizeTick(initialTick);
     }
@@ -627,7 +627,7 @@ export class QubicSimulator {
             return -amount;
         }
 
-        // A contract whose IPO failed can never be refilled, whatever the fee mode.
+        // a contract whose IPO failed can never be refilled, whatever the fee mode.
         const target = this.fees.resolveIndex(slot, burnedFor);
         if (this.fees.isFailed(target)) {
             return -amount;
@@ -704,7 +704,7 @@ export class QubicSimulator {
         const { counterpartyOwnershipManager, counterpartyPossessionManager, heldByCaller } = request;
 
         this.assertOperational();
-        // A PRE or POST callback moving rights itself would nest the transfer it is answering.
+        // a PRE or POST callback moving rights itself would nest the transfer it is answering.
         if ((this.callbacksRunning & CALLBACK_MANAGEMENT_RIGHTS_TRANSFER) !== 0) {
             return INVALID_AMOUNT;
         }
@@ -858,7 +858,7 @@ export class QubicSimulator {
             return 0;
         }
 
-        // The payout is one debit against many credits, so core brackets it with two marker records for whoever reads the log.
+        // the payout is one debit against many credits, so core brackets it with two marker records for whoever reads the log.
         this.logCustomMessage(CUSTOM_MESSAGE_OP.START_DISTRIBUTE_DIVIDENDS);
         this.decreaseEnergy(sourceIndex, total);
 
@@ -885,7 +885,7 @@ export class QubicSimulator {
         this.contractAssetNames.set(slot, typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn);
     }
 
-    // A testnet core issues one share per computor of its own, smaller list, so a caller mirroring one names the count.
+    // a testnet core issues one share per computor of its own, smaller list, so a caller mirroring one names the count.
     mintDeployShares(slot: number, name: bigint | string, holder: Id, shares: bigint = BigInt(IPO_SHARE_COUNT)): void {
         this.assertOperational();
         const packedName = typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn;
@@ -1142,7 +1142,7 @@ export class QubicSimulator {
         this.tickClockMs = Date.now();
     }
 
-    /** True from a deferred deploy until the tick that runs its INITIALIZE or MIGRATE. */
+    /** true from a deferred deploy until the tick that runs its INITIALIZE or MIGRATE. */
     isActivationPending(slot: number): boolean {
         return this.registry.pendingConstructionSlots().includes(slot);
     }
@@ -1219,7 +1219,7 @@ export class QubicSimulator {
 
         this.runOperation("begin-tick", () => this.runBeginTick(switchesEpoch));
         this.drainMempool();
-        // A reply or a timeout changes a query's status here, outside any transaction; its record goes where the notification it causes goes.
+        // a reply or a timeout changes a query's status here, outside any transaction; its record goes where the notification it causes goes.
         this.logStore?.begin(this.currentTick, LOG_SC_NOTIFICATION);
         try {
             this.oracle.pump();
@@ -1389,7 +1389,7 @@ export class QubicSimulator {
         return reward;
     }
 
-    // The epochs a contract exists in, core's constructionEpoch <= epoch < destructionEpoch. A slot nobody described is always active.
+    // the epochs a contract exists in, core's constructionEpoch <= epoch < destructionEpoch. A slot nobody described is always active.
     setContractLifetime(slot: number, constructionEpoch: number, destructionEpoch: number): void {
         this.contractLifetimes.set(slot, { constructionEpoch, destructionEpoch });
     }
@@ -1399,12 +1399,12 @@ export class QubicSimulator {
         return !lifetime || (this.currentEpoch >= lifetime.constructionEpoch && this.currentEpoch < lifetime.destructionEpoch);
     }
 
-    // The error that takes a contract out of service, 0 while it is healthy.
+    // the error that takes a contract out of service, 0 while it is healthy.
     contractErrorOf(slot: number): number {
         return this.contractErrors.get(slot) ?? (this.fees.isFailed(slot) ? CONTRACT_ERROR_IPO_FAILED : 0);
     }
 
-    // Only a node that keeps running after a contract fault has use for the error: a halting one serves nothing past it.
+    // only a node that keeps running after a contract fault has use for the error: a halting one serves nothing past it.
     private noteContractError(error: ContractExecutionError): void {
         let rootCause: unknown = error;
         while (rootCause instanceof ContractExecutionError) {
@@ -1412,7 +1412,7 @@ export class QubicSimulator {
         }
         const code = rootCause instanceof ContractAbort ? rootCause.code : WASM_TRAP_ERROR_CODE;
 
-        // An abort climbs frame by frame to the root, so every procedure frame it passed through is left errored.
+        // an abort climbs frame by frame to the root, so every procedure frame it passed through is left errored.
         for (let failure: unknown = error; failure instanceof ContractExecutionError; failure = failure.cause) {
             if (failure.kind !== CONTRACT_ENTRY_KIND.FUNCTION && !this.contractErrors.has(failure.slot)) {
                 this.contractErrors.set(failure.slot, code);
@@ -1595,11 +1595,11 @@ export class QubicSimulator {
                             const contract = this.contracts.get(slot)!;
                             const isProcedure = contract.entries.some((entry) => entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE && entry.inputType === inputType);
 
-                            // Outside its epochs a contract runs nothing and the amount stays where it landed, as on core.
+                            // outside its epochs a contract runs nothing and the amount stays where it landed, as on core.
                             if (!this.isActiveThisEpoch(slot)) {
                                 this.emit("warn", "tx", `slot ${slot} is outside its epochs — tx it=${inputType} skipped`);
                             } else if (!this.fees.reserveOk(slot) || this.contractErrorOf(slot) !== 0) {
-                                // A dormant or errored contract takes no transaction at all — the amount goes back and neither the procedure nor the callback runs.
+                                // a dormant or errored contract takes no transaction at all — the amount goes back and neither the procedure nor the callback runs.
                                 if (amount > 0n) {
                                     this.transferBalance(destination, source, amount);
                                 }

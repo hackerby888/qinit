@@ -84,14 +84,14 @@ const words = (bytes: Uint8Array): bigint[] => {
     return Array.from({ length: bytes.length >> 3 }, (_, index) => view.getBigUint64(index * 8, true));
 };
 
-// The callback path is core's __qpiCallSystemProc: no fee gate, a re-entry guard, and an abort for a callee that is out of service.
+// the callback path is core's __qpiCallSystemProc: no fee gate, a re-entry guard, and an abort for a callee that is out of service.
 test("governance: proposal and votes reach the callee and return its answer", async () => {
     await initK12();
 
     const sim = new QubicSimulator({ fees: "metered" });
     sim.deploy(28, await wasm("ShareReceiver"));
     sim.deploy(29, await wasm("ShareProposer"));
-    // A system callback skips the fee check, so a callee with nothing in reserve still answers.
+    // a system callback skips the fee check, so a callee with nothing in reserve still answers.
     sim.setContractFeeReserve(28, 0n);
 
     sim.procedure(29, 1, proposeInput(28));
@@ -123,7 +123,7 @@ test("governance guards: every refused input returns the default", async () => {
     expect(sim.setShareholderVotes(29, 27, vote, 0n, originator)).toBe(0);
     expect(words(sim.query(28, 1))[1]).toBe(0n);
 
-    // A callee at or past core's contract count is refused even though it defines the callback.
+    // a callee at or past core's contract count is refused even though it defines the callback.
     const bounded = new QubicSimulator({ contractCount: 28 });
     bounded.deploy(28, await wasm("ShareReceiver"));
     bounded.deploy(29, await wasm("ShareProposer"));

@@ -1,4 +1,4 @@
-// Records the tick its INITIALIZE ran in and logs from inside it, so a test can see when a deployed slot is constructed and under which log range.
+// records the tick its INITIALIZE ran in and logs from inside it, so a test can see when a deployed slot is constructed and under which log range.
 using namespace QPI;
 
 struct InitWitness2

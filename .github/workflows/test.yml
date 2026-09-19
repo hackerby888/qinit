@@ -567,7 +567,7 @@ jobs:
           stop_node
           echo "=== run-dual/node.log tail ==="; tail -25 run-dual/node.log
 
-          # Every refused DEPLOY leaves its outcome on the node, and the simulator has to record the same one.
+          # every refused DEPLOY leaves its outcome on the node, and the simulator has to record the same one.
           start_node run-refusal
           set +e
           bun run scripts/live-node/ci-deploy-refusal-dual-engine.ts; c7=$?
@@ -575,7 +575,7 @@ jobs:
           stop_node
           echo "=== run-refusal/node.log tail ==="; tail -25 run-refusal/node.log
 
-          # One epoch switch, and the log records around it, compared between the simulator and the node.
+          # one epoch switch, and the log records around it, compared between the simulator and the node.
           c8=0
           if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             start_node run-epoch

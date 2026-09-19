@@ -83,7 +83,7 @@ export interface VirtualNodeOptions {
     historyTicks?: number;
     maxLogBytes?: number;
     epochLength?: number;
-    // The smallest io region a deployed module may report. A node standing in for core passes core's capacity, so it refuses what core refuses.
+    // the smallest io region a deployed module may report. A node standing in for core passes core's capacity, so it refuses what core refuses.
     minIoBytes?: number;
 }
 
@@ -166,7 +166,7 @@ export class VirtualNode implements NodeTransport {
         let name: string | undefined;
         let explicitSlot: number | undefined;
         let deployer: Uint8Array | undefined;
-        // Only a deploy that arrives over the network waits for the next tick, as a core node makes it; an embedder's own call constructs at once.
+        // only a deploy that arrives over the network waits for the next tick, as a core node makes it; an embedder's own call constructs at once.
         let deferActivation = false;
 
         if (typeof slotOrWasm === "number") {
@@ -375,7 +375,7 @@ export class VirtualNode implements NodeTransport {
         const epochLength = this.sim.epochLength;
 
         if (epochLength > 0) {
-            // A length shortened mid-epoch can leave the tick already past the switch point, where the very next tick switches.
+            // a length shortened mid-epoch can leave the tick already past the switch point, where the very next tick switches.
             this.advanceTick(Math.max(1, this.sim.initialTick + epochLength + 1 - fromTick));
         }
 
@@ -762,7 +762,7 @@ export class VirtualNode implements NodeTransport {
                 throw new Error("deploy payload is too short");
             }
 
-            // The checks run in core's order and carry core's wording, so a client reads one reason whichever node refused.
+            // the checks run in core's order and carry core's wording, so a client reads one reason whichever node refused.
             const message = DeployMessage.wrap(payload);
             const refuse = (code: DeployOutcomeCode, reason: string): never => {
                 this.recordDeployOutcome(message.sessionId, message.targetSlot, code, reason);
@@ -812,7 +812,7 @@ export class VirtualNode implements NodeTransport {
         throw new Error("unknown deploy-range inputType " + inputType);
     }
 
-    // A client resends DEPLOY until the slot arms, so a session's verdict stands once given: only an upload that was still missing chunks can
+    // a client resends DEPLOY until the slot arms, so a session's verdict stands once given: only an upload that was still missing chunks can
     // end differently.
     private recordDeployOutcome(sessionId: bigint, slot: number, code: DeployOutcomeCode, message: string): void {
         const stored = this.lastDeploy;

@@ -1,4 +1,4 @@
-// One epoch switch on the simulator and on a core node, seen from inside a contract. A core node boots at an arbitrary tick, so every
+// one epoch switch on the simulator and on a core node, seen from inside a contract. A core node boots at an arbitrary tick, so every
 // number is compared as an offset from the epoch's own first tick.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

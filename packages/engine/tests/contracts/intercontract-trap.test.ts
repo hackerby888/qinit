@@ -12,7 +12,7 @@ function words(bytes: Uint8Array): bigint[] {
     return values;
 }
 
-// The callee's three management-rights words sit in the same diff chunk and stay zero here.
+// the callee's three management-rights words sit in the same diff chunk and stay zero here.
 const UNTOUCHED_RIGHTS_FIELDS = "00".repeat(24);
 
 test("a trapped nested callee keeps its write and the caller recovers", async () => {

@@ -101,7 +101,7 @@ function replaceExecutable(executablePath: string, binary: Uint8Array, deps: Sel
     }
 }
 
-// A CLI started through a JavaScript runtime is a source checkout, which has no release binary to replace.
+// a CLI started through a JavaScript runtime is a source checkout, which has no release binary to replace.
 export function runsFromSource(executablePath: string): boolean {
     const executableName = basename(executablePath)
         .replace(/\.exe$/i, "")

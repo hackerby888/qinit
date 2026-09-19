@@ -199,7 +199,7 @@ test("burn resolves its target and credits the reserve the way core does", async
         sim.setContractFeeReserve(29, 0n);
         sim.fund(contractId(28), 1000n);
 
-        // Past the contract count but inside the reserve table: the caller, as for index 0.
+        // past the contract count but inside the reserve table: the caller, as for index 0.
         expect(sim.host.burn(28, 100n, 40)).toBe(900n);
         expect(sim.host.burn(28, 100n, 1023)).toBe(800n);
         expect(sim.getContractFeeReserve(28)).toBe(200n);
@@ -208,7 +208,7 @@ test("burn resolves its target and credits the reserve the way core does", async
         expect(sim.host.burn(28, 100n, 39)).toBe(700n);
         expect(sim.getContractFeeReserve(39)).toBe(fees === "off" ? 1000100n : 100n);
 
-        // More than the balance: the shortfall comes back negative and nothing moves.
+        // more than the balance: the shortfall comes back negative and nothing moves.
         expect(sim.host.burn(28, 701n, 29)).toBe(-1n);
         expect(sim.getContractFeeReserve(29)).toBe(0n);
 
@@ -218,7 +218,7 @@ test("burn resolves its target and credits the reserve the way core does", async
     }
 });
 
-// The dual-engine driver's Burn procedure, run here so its three rows are known-good before they meet a core node.
+// the dual-engine driver's Burn procedure, run here so its three rows are known-good before they meet a core node.
 test("a contract burning for itself, a callee and an out-of-range index reads the deltas core reports", async () => {
     await initK12();
     const sim = new QubicSimulator({ fees: "metered" });
@@ -307,7 +307,7 @@ test("an errored contract gets no hooks and refunds its transactions, while its 
     sim.advance();
     expect(hookFaultSeen(sim).slice(0, 2)).toEqual([1n, 1n]);
 
-    // A function failure is only that query's error and leaves the contract in service.
+    // a function failure is only that query's error and leaves the contract in service.
     expect(() => sim.query(29, 2)).toThrow();
     expect(sim.contractErrorOf(29)).toBe(0);
     sim.advance();
@@ -343,7 +343,7 @@ test("a contract outside its epochs gets no hooks and keeps what is sent to it, 
     expect(sim.balanceOf(29)).toBe(40n);
     expect(hookFaultSeen(sim).slice(4)).toEqual([0n, 0n]);
 
-    // Tick 5 switches to epoch 1: BEGIN_EPOCH runs for it there, END_EPOCH of epoch 0 did not.
+    // tick 5 switches to epoch 1: BEGIN_EPOCH runs for it there, END_EPOCH of epoch 0 did not.
     sim.advance();
     sim.advance();
     sim.advance();

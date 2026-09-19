@@ -91,7 +91,7 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
     expect((await eng.dynUpload()).complete).toBe(true);
 
     await eng.broadcastTx(wrapTx(LITE_TX.DEPLOY, encodeDeploy({ sessionId, targetSlot: DYN, finalHashHex, name: "DigestProbe" })));
-    // A DEPLOY arms the slot in its own tick; INITIALIZE runs at the head of the next one, as on a core node.
+    // a DEPLOY arms the slot in its own tick; INITIALIZE runs at the head of the next one, as on a core node.
     expect((await eng.dynRegistry()).contracts.find((x) => x.index === DYN)).toMatchObject({ armed: true, constructed: false, name: "DigestProbe" });
     eng.sim.advance();
     expect((await eng.dynRegistry()).contracts.find((x) => x.index === DYN)?.constructed).toBe(true);
@@ -266,7 +266,7 @@ test("deployment sessions reject oversized modules, malformed chunks, and mismat
     ).toThrow("deploy names a different module digest than the upload");
 });
 
-// Every DEPLOY the node processes leaves its outcome on /dyn-upload, so a client reads the reason instead of inferring it from an empty slot.
+// every DEPLOY the node processes leaves its outcome on /dyn-upload, so a client reads the reason instead of inferring it from an empty slot.
 test("a processed DEPLOY records what the node did with it", async () => {
     const engine = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false });
     const handle = (inputType: number, payload: Uint8Array) => (engine as any).handleDeployTx(inputType, payload);
@@ -291,7 +291,7 @@ test("a processed DEPLOY records what the node did with it", async () => {
     expect(() => deploy(21n, counterHash, { targetSlot: DYN - 1 })).toThrow("is not a dynamic contract slot");
     expect(await lastDeploy()).toMatchObject({ sessionId: "21", slot: DYN - 1, ok: false, code: "bad-slot" });
 
-    // A new session replaces the record; within one, only an incomplete upload may still end differently.
+    // a new session replaces the record; within one, only an incomplete upload may still end differently.
     expect(() => deploy(22n, counterHash, { abiVersion: 6 })).toThrow("unsupported Wasm ABI version 6; expected 7");
     expect(await lastDeploy()).toMatchObject({ sessionId: "22", code: "abi-mismatch", message: "unsupported Wasm ABI version 6; expected 7" });
     expect(() => deploy(22n, counterHash)).toThrow("is not the upload session");
@@ -308,7 +308,7 @@ test("a processed DEPLOY records what the node did with it", async () => {
     expect((await lastDeploy())?.code).toBe("hash-mismatch");
 });
 
-// The fixtures carry a 1 MiB arena, which a core node refuses: a node asked to hold core's minimum refuses it the same way, on both deploy paths.
+// the fixtures carry a 1 MiB arena, which a core node refuses: a node asked to hold core's minimum refuses it the same way, on both deploy paths.
 test("a node holding core's io minimum refuses a small-arena module in core's words", async () => {
     const module = await wasm("DigestProbeDyn0");
     const strict = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false, minIoBytes: CORE_IO_CAPACITY_BYTES });
@@ -325,7 +325,7 @@ test("a node holding core's io minimum refuses a small-arena module in core's wo
     expect(() => handle(LITE_TX.DEPLOY, encodeDeploy({ sessionId: 41n, targetSlot: DYN, finalHashHex }))).toThrow(tooSmall);
     expect((await strict.dynUpload()).lastDeploy).toMatchObject({ sessionId: "41", ok: false, code: "load-failed", message: tooSmall });
 
-    // Without a minimum the same module arms, as every embedder and test of the engine relies on.
+    // without a minimum the same module arms, as every embedder and test of the engine relies on.
     const lenient = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false });
     lenient.deploy(DYN, module, "DigestProbe");
     expect((await lenient.dynRegistry()).contracts.find((contract) => contract.index === DYN)?.armed).toBe(true);
@@ -348,7 +348,7 @@ test("a DEPLOY that arms keeps its verdict against a late resend, and a module t
     expect((await engine.dynUpload()).lastDeploy).toMatchObject({ sessionId: "31", code: "not-wasm" });
     (engine as any).upload = null;
 
-    // A module built for another slot passes every wire check and is refused by the loader, in core's words.
+    // a module built for another slot passes every wire check and is refused by the loader, in core's words.
     const misplaced = await wasm("Counter");
     const misplacedHash = await upload(32n, misplaced);
     expect(() => handle(LITE_TX.DEPLOY, encodeDeploy({ sessionId: 32n, targetSlot: DYN, finalHashHex: misplacedHash }))).toThrow("artifact slot mismatch");

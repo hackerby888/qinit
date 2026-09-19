@@ -54,7 +54,7 @@ export interface OracleHost {
     decreaseEnergyOf(slot: number, amount: bigint): void;
     notify(slot: number, procId: number, input: Uint8Array): void;
     nowMs(): number;
-    // A node with a log stream records every status change and every subscriber that comes or goes, as core does.
+    // a node with a log stream records every status change and every subscriber that comes or goes, as core does.
     log?(type: number, message: Uint8Array): void;
 }
 

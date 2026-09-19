@@ -13,7 +13,7 @@ type TraceRow = { label: string; node: React.ReactNode } | { blocks: ValueBlocks
 
 const execµs = (ns: number) => (ns < 1_000_000 ? `${(ns / 1000) | 0}µs` : `${(ns / 1e6).toFixed(1)}ms`);
 
-// The value sits in its own box, so a wrapped line continues under the value and never under the label column.
+// the value sits in its own box, so a wrapped line continues under the value and never under the label column.
 export function LabelRow({
     label,
     labelWidth,

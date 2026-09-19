@@ -23,7 +23,7 @@ interface CheatScope {
     builder: AbiTypeBuilder;
     roots: PayloadRoots;
     declaration: FunctionDecl;
-    // Names the entry declares itself, which hide a namespace-scope constant of the same spelling.
+    // names the entry declares itself, which hide a namespace-scope constant of the same spelling.
     declaredNames: Set<string>;
 }
 
@@ -121,13 +121,13 @@ function partType(scope: CheatScope, argument: Expression): AbiType | undefined 
         return resolved.kind !== AstKind.VOID ? scope.builder.type(resolved) : undefined;
     }
 
-    // An rvalue travels by register, sign-extended; its C++ type says how many of those bytes are the value and whether they are signed.
+    // an rvalue travels by register, sign-extended; its C++ type says how many of those bytes are the value and whether they are signed.
     const scalarName = valueTypeName(argument, scalarLeaves(scope));
 
     return scalarName ? scope.builder.type({ kind: AstKind.NAME, name: scalarName } as TypeSpec) : undefined;
 }
 
-// An operand this table cannot type leaves the whole expression untyped, and the part falls back to the raw register.
+// an operand this table cannot type leaves the whole expression untyped, and the part falls back to the raw register.
 function scalarLeaves(scope: CheatScope): ScalarLeaves {
     const typed = (expression: Expression) => {
         const constant =

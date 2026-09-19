@@ -44,7 +44,7 @@ test("classifyConfirm: registry-unreadable vs slot-empty vs wrong-code", () => {
     // the key fix: a registry that never read back is NOT reported as "slot empty"
     expect(classifyConfirm({ present: false, regOk: false, onNode: "", want: "x" }).detail).not.toContain("slot empty");
 
-    // The node's own account wins over what the slot looks like, and an upload short of chunks is named as that.
+    // the node's own account wins over what the slot looks like, and an upload short of chunks is named as that.
     const refused = classifyConfirm({
         present: false,
         regOk: true,
@@ -214,7 +214,7 @@ test("deployContract rejects an invalid slot before node work", async () => {
     expect(nodeCalls).toBe(0);
 });
 
-// A node ticks between a client's reads; a slot armed by a DEPLOY is constructed at the head of the node's next tick.
+// a node ticks between a client's reads; a slot armed by a DEPLOY is constructed at the head of the node's next tick.
 function tickingNode(node: VirtualNode, tick: number): { tick: number; epoch: number } {
     node.sim.advance();
     return { tick, epoch: 1 };
@@ -364,7 +364,7 @@ test("deployContract: a DEPLOY dropped for a missed tick is resent", async () =>
     expect(result.ok).toBe(true);
 }, 20000);
 
-// A core node accepts a DEPLOY on the wire and refuses it inside the tick, so the broadcast result says nothing; the recorded outcome does.
+// a core node accepts a DEPLOY on the wire and refuses it inside the tick, so the broadcast result says nothing; the recorded outcome does.
 test("deployContract: a DEPLOY the node refused fails at once with the node's reason, and is not resent", async () => {
     process.env.QINIT_NO_UPDATE = "1";
     const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
@@ -399,7 +399,7 @@ test("deployContract: a DEPLOY the node refused fails at once with the node's re
         },
     };
 
-    // Built for the first slot and sent to the second: every wire check passes and the loader refuses it.
+    // built for the first slot and sent to the second: every wire check passes and the loader refuses it.
     const result = await deployContract(
         {
             contractPath,

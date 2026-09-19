@@ -14,7 +14,7 @@ import { loadWasmFixture, loadWasmFixtureIdl, wasmFixtureManifest } from "../../
 import { contractIdlForSlot, loadContractIdlFile, saveContractIdl } from "../../src/contracts/idl-file";
 import { describeTrace } from "../../src/trace/format";
 
-// Every rvalue shape the typer names: the text is what the dev reads, so it has to be the same value whichever backend built the contract.
+// every rvalue shape the typer names: the text is what the dev reads, so it has to be the same value whichever backend built the contract.
 const ARITHMETIC = `
 using namespace QPI;
 constexpr sint32 Arith_LIMIT = 9;
@@ -192,7 +192,7 @@ test("every argument shape reads back as its value", async () => {
     expect(texts[3]).toBe("state.get().balances");
     expect(blocks[3]).toEqual([""]);
     expect(rows[3]).toEqual([["slots[0..3] (unoccupied ×4; skipped)"]]);
-    // An rvalue travels in the register, and reads back at the width and sign of its C++ type.
+    // an rvalue travels in the register, and reads back at the width and sign of its C++ type.
     expect(texts[4]).toBe("neg plus one -2");
     expect(texts[5]).toBe("flag set");
     expect(texts).toHaveLength(6);

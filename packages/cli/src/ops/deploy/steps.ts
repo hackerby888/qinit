@@ -56,7 +56,7 @@ export function classifyConfirm(state: { present: boolean; regOk: boolean; onNod
     detail: string;
     note: string;
 } {
-    // The node's own account of the DEPLOY beats anything inferred from the slot.
+    // the node's own account of the DEPLOY beats anything inferred from the slot.
     if (state.refusal) {
         return {
             reason: "deploy-refused",

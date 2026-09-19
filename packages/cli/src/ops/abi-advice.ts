@@ -1,4 +1,4 @@
-// The CLI compiles, runs and stamps a deploy with its own wasm ABI, while a contract's imports follow the core headers. When the two
+// the CLI compiles, runs and stamps a deploy with its own wasm ABI, while a contract's imports follow the core headers. When the two
 // disagree, this says which side is the one to move.
 import { loadManifest, readCurrent, WASM_ABI_VERSION } from "@qinit/core";
 import { loadWasmAbiSource } from "@qinit/core/wasm/abi-node";
@@ -13,7 +13,7 @@ export interface AbiAdviceInput {
     headersAbi: number;
     cli: Freshness;
     headers: Freshness;
-    // A CLI run from source has no release to update to, and headers outside the managed cache are a checkout the user owns.
+    // a CLI run from source has no release to update to, and headers outside the managed cache are a checkout the user owns.
     cliFromSource: boolean;
     headersPath: string;
     headersManaged: boolean;
@@ -35,14 +35,14 @@ function sideToMove(input: AbiAdviceInput): AbiSide {
     if (input.cli === "stale" && input.headers === "stale") {
         return "both";
     }
-    // A side already at its newest release cannot move, so the other one has to.
+    // a side already at its newest release cannot move, so the other one has to.
     if (input.cli === "latest") {
         return "headers";
     }
     if (input.headers === "latest") {
         return "cli";
     }
-    // Nothing certain is known about either release, so the lower ABI is taken to be the side left behind.
+    // nothing certain is known about either release, so the lower ABI is taken to be the side left behind.
     return input.headersAbi < input.cliAbi ? "headers" : "cli";
 }
 
@@ -85,7 +85,7 @@ export interface AbiCheckDeps {
 
 const defaultDeps: AbiCheckDeps = {
     cliAbi: WASM_ABI_VERSION,
-    // Headers without ABI metadata give no verdict: an empty or partial core directory is somebody else's error to report.
+    // headers without ABI metadata give no verdict: an empty or partial core directory is somebody else's error to report.
     readHeadersAbi: (coreDir) => {
         try {
             return loadWasmAbiSource(coreDir).abiVersion;
@@ -107,7 +107,7 @@ const defaultDeps: AbiCheckDeps = {
     lookupTimeoutMs: 3000,
 };
 
-// A slow or failed lookup must not hold up a build, so it degrades to "unknown" and the ABI numbers decide alone.
+// a slow or failed lookup must not hold up a build, so it degrades to "unknown" and the ABI numbers decide alone.
 async function within<T>(lookup: Promise<T>, timeoutMs: number): Promise<T | undefined> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<undefined>((resolveTimeout) => {
@@ -121,7 +121,7 @@ async function within<T>(lookup: Promise<T>, timeoutMs: number): Promise<T | und
     }
 }
 
-/** Null when the CLI and the headers agree, or the headers carry no ABI to compare. The network is touched only on a mismatch. */
+/** null when the CLI and the headers agree, or the headers carry no ABI to compare. The network is touched only on a mismatch. */
 export async function checkHeadersAbi(coreDir: string, injected: Partial<AbiCheckDeps> = {}): Promise<AbiAdvice | null> {
     const deps = { ...defaultDeps, ...injected };
     const headersAbi = deps.readHeadersAbi(coreDir);

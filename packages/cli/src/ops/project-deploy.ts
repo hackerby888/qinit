@@ -117,7 +117,7 @@ export async function deployProjectContracts(
         throw new Error(`--state names '${strayStateName}', which is not part of this deployment (${plan.map((contract) => contract.name).join(", ")})`);
     }
 
-    // An artifact built against another ABI links on no node this CLI can deploy to, so it is refused before the compile.
+    // an artifact built against another ABI links on no node this CLI can deploy to, so it is refused before the compile.
     const abiMismatch = await checkHeadersAbi(options.core);
     if (abiMismatch) {
         throw new Error(abiAdviceText(abiMismatch));

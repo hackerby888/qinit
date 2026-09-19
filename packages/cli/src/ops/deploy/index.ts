@@ -381,7 +381,7 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
     let onNode = "";
     let lastTick = currentTick;
     let registryRead = false;
-    // What the node said it did with this session's DEPLOY, when it says.
+    // what the node said it did with this session's DEPLOY, when it says.
     let refusal: DeployOutcome | undefined;
     let registrationMismatch = false;
     let halted: string | undefined;
@@ -439,7 +439,7 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
                 }
             }
 
-            // Every refusal but a still-incomplete upload is final for the session: a resend would be refused earlier and for a vaguer reason.
+            // every refusal but a still-incomplete upload is final for the session: a resend would be refused earlier and for a vaguer reason.
             if (lastTick > deployTick) {
                 const outcome = (await rpc.dynUpload().catch(() => null))?.lastDeploy;
                 if (outcome && outcome.sessionId === String(session) && !outcome.ok) {
