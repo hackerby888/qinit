@@ -1,4 +1,4 @@
-import { blob, defineStruct, i64, u8, u32, u56 } from "@qinit/core";
+import { blob, defineStruct, i32, i64, u8, u32, u56, u64 } from "@qinit/core";
 
 const M256I = {
     ...blob(32),
@@ -63,6 +63,32 @@ export const Burning = defineStruct("Burning", {
     sourcePublicKey: M256I,
     amount: i64,
     contractIndexBurnedFor: u32,
+    _terminator: u8,
+});
+
+// Logged whole, padding included: core takes this record by sizeof, not up to a terminator.
+export const ContractReserveDeduction = defineStruct("ContractReserveDeduction", {
+    deductedAmount: u64,
+    remainingAmount: i64,
+    contractIndex: u32,
+    _padding: u32,
+});
+
+export const OracleQueryStatusChange = defineStruct("OracleQueryStatusChange", {
+    queryingEntity: M256I,
+    queryId: i64,
+    interfaceIndex: u32,
+    type: u8,
+    status: u8,
+    _terminator: u8,
+});
+
+export const OracleSubscriberLogMessage = defineStruct("OracleSubscriberLogMessage", {
+    subscriptionId: i32,
+    interfaceIndex: u32,
+    contractIndex: u32,
+    periodInMilliseconds: u32,
+    firstQueryDateAndTime: u64,
     _terminator: u8,
 });
 
@@ -168,4 +194,46 @@ export function encodeBurningLog(sourcePublicKey: Uint8Array, amount: bigint, co
     message.amount = amount;
     message.contractIndexBurnedFor = contractIndexBurnedFor;
     return message.bytes.subarray(0, Burning.OFFSETS._terminator);
+}
+
+export function encodeContractReserveDeductionLog(deductedAmount: bigint, remainingAmount: bigint, contractIndex: number): Uint8Array {
+    const message = ContractReserveDeduction.alloc();
+    message.deductedAmount = deductedAmount;
+    message.remainingAmount = remainingAmount;
+    message.contractIndex = contractIndex;
+    return message.bytes;
+}
+
+// queryingEntity is the contract index, the subscription id or a user's key, by query type, in the low lane of an otherwise zero id.
+export function encodeOracleQueryStatusChangeLog(
+    queryingEntity: Uint8Array,
+    queryId: bigint,
+    interfaceIndex: number,
+    type: number,
+    status: number,
+): Uint8Array {
+    const message = OracleQueryStatusChange.alloc();
+    message.queryingEntity = queryingEntity;
+    message.queryId = queryId;
+    message.interfaceIndex = interfaceIndex;
+    message.type = type;
+    message.status = status;
+    return message.bytes.subarray(0, OracleQueryStatusChange.OFFSETS._terminator);
+}
+
+// A period of zero is an unsubscribe.
+export function encodeOracleSubscriberLog(
+    subscriptionId: number,
+    interfaceIndex: number,
+    contractIndex: number,
+    periodInMilliseconds: number,
+    firstQueryDateAndTime: bigint,
+): Uint8Array {
+    const message = OracleSubscriberLogMessage.alloc();
+    message.subscriptionId = subscriptionId;
+    message.interfaceIndex = interfaceIndex;
+    message.contractIndex = contractIndex;
+    message.periodInMilliseconds = periodInMilliseconds;
+    message.firstQueryDateAndTime = firstQueryDateAndTime;
+    return message.bytes.subarray(0, OracleSubscriberLogMessage.OFFSETS._terminator);
 }

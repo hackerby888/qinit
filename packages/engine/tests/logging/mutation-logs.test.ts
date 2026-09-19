@@ -5,7 +5,7 @@ import { concatBytes } from "../../src/support/bytes";
 import { initK12, k12Bytes } from "../../src/support/k12";
 import { packAssetName } from "../../src/ledger/assets";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import { LOG_HEADER_SIZE, QubicLogStore } from "../../src/logging/qubic-log-store";
+import { LOG_HEADER_SIZE, LOG_SC_END_EPOCH, LOG_SC_INITIALIZE, LOG_SC_NOTIFICATION, QubicLogStore } from "../../src/logging/qubic-log-store";
 import { contractId } from "../support/helpers";
 
 const ZERO32 = new Uint8Array(32);
@@ -361,4 +361,150 @@ test("asset mutations emit exact native records only after success", () => {
     ]);
     expect(logs.map((log) => log.message)).toEqual(expectedMessages);
     expect(logger.digest(1)).toEqual(k12Bytes(concatBytes([ZERO32, ...expectedMessages])));
+});
+
+// Every record of one tick, each with the tick-local range it was written under.
+function tickRecords(logger: QubicLogStore, tick: number): { range: number; type: number; message: Uint8Array }[] {
+    const records: { range: number; type: number; message: Uint8Array; logId: bigint }[] = [];
+
+    logger.tickRanges(tick).forEach(({ fromLogId, length }, range) => {
+        if (fromLogId < 0n || length <= 0n) {
+            return;
+        }
+        const bytes = logger.recordsBetween(fromLogId, fromLogId + length - 1n)!;
+        let offset = 0;
+        let logId = fromLogId;
+        while (offset < bytes.length) {
+            const sizeAndType = new DataView(bytes.buffer, bytes.byteOffset + offset).getUint32(6, true);
+            const size = sizeAndType & 0xffffff;
+            records.push({ range, type: sizeAndType >>> 24, message: bytes.slice(offset + LOG_HEADER_SIZE, offset + LOG_HEADER_SIZE + size), logId: logId++ });
+            offset += LOG_HEADER_SIZE + size;
+        }
+    });
+
+    return records.sort((left, right) => Number(left.logId - right.logId)).map(({ range, type, message }) => ({ range, type, message }));
+}
+
+// An epoch's log opens with one marker in the INITIALIZE range of its first tick and closes with the other as the last END_EPOCH record.
+test("an epoch's log opens and closes with core's markers", () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ logStore: logger, epochLength: 3 });
+    sim.bootstrapEpoch(2);
+    const firstTick = sim.initialTick;
+
+    expect(tickRecords(logger, firstTick)).toEqual([
+        { range: LOG_SC_INITIALIZE, type: QUBIC_LOG_TYPE.CUSTOM_MESSAGE, message: markerMessage(CUSTOM_MESSAGE_OP.START_EPOCH) },
+    ]);
+
+    // The switch wipes the old epoch's log, so its closing marker is read between the two halves of one.
+    sim.advance();
+    sim.endEpoch();
+    logger.finalizeTick(sim.currentTick + 1);
+    expect(tickRecords(logger, sim.currentTick + 1)).toEqual([
+        { range: LOG_SC_END_EPOCH, type: QUBIC_LOG_TYPE.CUSTOM_MESSAGE, message: markerMessage(CUSTOM_MESSAGE_OP.END_EPOCH) },
+    ]);
+
+    const switching = new QubicLogStore();
+    const switched = new QubicSimulator({ logStore: switching, epochLength: 1 });
+    switched.advance();
+    switched.advance();
+    expect(switched.currentEpoch).toBe(1);
+    expect(tickRecords(switching, switched.initialTick)).toEqual([
+        { range: LOG_SC_INITIALIZE, type: QUBIC_LOG_TYPE.CUSTOM_MESSAGE, message: markerMessage(CUSTOM_MESSAGE_OP.START_EPOCH) },
+    ]);
+});
+
+test("a metered procedure logs the execution fee taken from its reserve", async () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ fees: "metered", logStore: logger });
+    sim.deploy(28, await wasm("Counter"));
+    const before = sim.getContractFeeReserve(28);
+
+    logger.begin(1, 0);
+    sim.procedure(28, 1);
+    logger.end();
+    logger.finalizeTick(1);
+
+    const deducted = before - sim.getContractFeeReserve(28);
+    expect(deducted).toBeGreaterThan(0n);
+
+    // { deductedAmount, remainingAmount, contractIndex, padding }: logged whole, as core takes it by sizeof.
+    const expected = new Uint8Array(24);
+    const view = new DataView(expected.buffer);
+    view.setBigUint64(0, deducted, true);
+    view.setBigInt64(8, before - deducted, true);
+    view.setUint32(16, 28, true);
+    expect(tickRecords(logger, 1)).toEqual([{ range: 0, type: QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION, message: expected }]);
+});
+
+// OracleProbe: procedure 2 queries a price, 3 subscribes, 4 unsubscribes. Price is oracle interface 0.
+test("oracle queries and subscribers leave core's status and subscriber records", async () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ logStore: logger });
+    sim.tickDuration = 60_000;
+    sim.deploy(29, await wasm("OracleProbe"));
+    sim.fund(contractId(29), 1_000_000n);
+
+    const priceInput = new Uint8Array(112);
+    priceInput.set(new TextEncoder().encode("mock"), 0);
+    priceInput.set(new TextEncoder().encode("BTC"), 40);
+    priceInput.set(new TextEncoder().encode("USD"), 72);
+    new DataView(priceInput.buffer).setUint32(104, 60_000, true);
+
+    // { queryingEntity, queryId, interfaceIndex, type, status }
+    const statusChange = (entity: bigint, queryId: bigint, type: number, status: number) => {
+        const message = new Uint8Array(46);
+        const view = new DataView(message.buffer);
+        view.setBigUint64(0, entity, true);
+        view.setBigInt64(32, queryId, true);
+        view.setUint32(40, 0, true);
+        message[44] = type;
+        message[45] = status;
+        return message;
+    };
+    const ofType = (tick: number, type: number) => tickRecords(logger, tick).filter((record) => record.type === type);
+
+    logger.begin(1, 0);
+    const queryId = new DataView(sim.procedure(29, 2, priceInput).buffer).getBigInt64(0, true);
+    logger.end();
+    logger.finalizeTick(1);
+    // A contract's own query is keyed by the contract, and starts pending.
+    expect(ofType(1, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE)).toEqual([
+        { range: 0, type: QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE, message: statusChange(29n, queryId, 0, 1) },
+    ]);
+
+    const reply = new Uint8Array(16);
+    new DataView(reply.buffer).setBigInt64(0, 42n, true);
+    new DataView(reply.buffer).setBigInt64(8, 1n, true);
+    sim.setOracleProvider(() => reply);
+    // Tick 1 was written by hand above, so the node's own ticks continue after it.
+    sim.currentTick = 1;
+    sim.advance();
+    // The reply lands between the tick's hooks, so its record sits in the range of the notification it causes.
+    expect(ofType(sim.currentTick, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE)).toEqual([
+        { range: LOG_SC_NOTIFICATION, type: QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE, message: statusChange(29n, queryId, 0, 3) },
+    ]);
+
+    sim.setOracleProvider(null);
+    const subscribeTick = sim.currentTick + 1;
+    logger.begin(subscribeTick, 0);
+    const subscriptionId = new DataView(sim.procedure(29, 3, priceInput).buffer).getInt32(0, true);
+    const unsubscribeInput = new Uint8Array(4);
+    new DataView(unsubscribeInput.buffer).setInt32(0, subscriptionId, true);
+    sim.procedure(29, 4, unsubscribeInput);
+    logger.end();
+    logger.finalizeTick(subscribeTick);
+
+    const subscriberRecords = ofType(subscribeTick, QUBIC_LOG_TYPE.ORACLE_SUBSCRIBER_MESSAGE).map((record) => new DataView(record.message.buffer));
+    // { subscriptionId, interfaceIndex, contractIndex, period, first query time }: a period of zero is the unsubscribe.
+    expect(
+        subscriberRecords.map((view) => [view.byteLength, view.getInt32(0, true), view.getUint32(4, true), view.getUint32(8, true), view.getUint32(12, true)]),
+    ).toEqual([
+        [24, subscriptionId, 0, 29, 60_000],
+        [24, subscriptionId, 0, 29, 0],
+    ]);
+    expect(subscriberRecords[0].getBigUint64(16, true)).toBeGreaterThan(0n);
+    expect(subscriberRecords[1].getBigUint64(16, true)).toBe(0n);
+    // The subscription's first query is keyed by the subscription, not by the contract.
+    expect(ofType(subscribeTick, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE).map((record) => [record.message[44], record.message[45]])).toEqual([[1, 1]]);
 });

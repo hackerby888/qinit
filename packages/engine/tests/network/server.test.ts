@@ -481,7 +481,8 @@ test("a routed deploy is armed at once and constructed at the next tick, in the 
         engine.sim.advance();
         expect((await rpc.dynRegistry()).contracts.find((contract) => contract.index === 28)?.constructed).toBe(true);
         expect(seen()).toEqual([0x494e495445444e45n, BigInt(deployTick + 1)]);
-        expect(engine.logger.range(deployTick + 1, LOG_SC_INITIALIZE).length).toBe(1n);
+        // INITIALIZE's own log record, then the execution fee it cost the slot's reserve.
+        expect(engine.logger.range(deployTick + 1, LOG_SC_INITIALIZE).length).toBe(2n);
 
         engine.sim.advance();
         expect(seen()[1]).toBe(BigInt(deployTick + 1));

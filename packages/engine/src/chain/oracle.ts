@@ -1,6 +1,6 @@
 import { packDateAndTime } from "../contract/runtime";
 import { ORACLE_INTERFACES } from "../oracle-interfaces/registry";
-import { MAX_ORACLE_REPLY_SIZE, ORACLE_STATUS } from "@qinit/proto";
+import { encodeOracleQueryStatusChangeLog, encodeOracleSubscriberLog, MAX_ORACLE_REPLY_SIZE, ORACLE_STATUS, QUBIC_LOG_TYPE } from "@qinit/proto";
 
 export { ORACLE_STATUS };
 
@@ -11,6 +11,9 @@ const MIN_QUERY_FEE = 10n;
 const MIN_SUBSCRIPTION_FEE = 100n;
 const MIN_SUBSCRIPTION_PERIOD_MS = 60_000;
 const MAX_SUBSCRIPTION_PERIOD_MS = 24 * 60 * 60_000;
+// core's ORACLE_QUERY_TYPE_*: who a query's status records are keyed by.
+const QUERY_TYPE_CONTRACT_QUERY = 0;
+const QUERY_TYPE_CONTRACT_SUBSCRIPTION = 1;
 
 interface OracleRecipient {
     slot: number;
@@ -51,6 +54,8 @@ export interface OracleHost {
     decreaseEnergyOf(slot: number, amount: bigint): void;
     notify(slot: number, procId: number, input: Uint8Array): void;
     nowMs(): number;
+    // A node with a log stream records every status change and every subscriber that comes or goes, as core does.
+    log?(type: number, message: Uint8Array): void;
 }
 
 const gcd = (left: number, right: number): number => {
@@ -163,6 +168,10 @@ export class OracleManager {
             periodMs: periodMillisec,
             nextQueryMs,
         });
+        this.host.log?.(
+            QUBIC_LOG_TYPE.ORACLE_SUBSCRIBER_MESSAGE,
+            encodeOracleSubscriberLog(channel.id, interfaceIndex, slot, periodMillisec, packDateAndTime(nextQueryMs)),
+        );
 
         if (notifyPrevious && channel.lastQueryId !== null && channel.lastReply) {
             this.fire(slot, notificationProcId, channel.lastQueryId, channel.id, ORACLE_STATUS.SUCCESS, replySize, channel.lastReply);
@@ -174,7 +183,12 @@ export class OracleManager {
 
     stopContractSubscription(slot: number, subscriptionId: number): number {
         const channel = this.channels.get(subscriptionId);
-        return channel?.subscribers.delete(slot) ? 1 : 0;
+        if (!channel?.subscribers.delete(slot)) {
+            return 0;
+        }
+
+        this.host.log?.(QUBIC_LOG_TYPE.ORACLE_SUBSCRIBER_MESSAGE, encodeOracleSubscriberLog(subscriptionId, channel.interfaceIndex, slot, 0, 0n));
+        return 1;
     }
 
     beginEpoch(): void {
@@ -223,7 +237,29 @@ export class OracleManager {
             deadlineMs: baseTimeMs + timeoutMillisec,
             recipients: recipients.map((recipient) => ({ ...recipient })),
         });
+        this.logStatusChange(this.queries.get(id)!);
         return id;
+    }
+
+    // core keys the record by the querying contract's index, or by the subscription id for a subscription's query, in an otherwise zero id.
+    private logStatusChange(query: OracleQueryRec): void {
+        if (!this.host.log) {
+            return;
+        }
+
+        const subscribed = query.subscriptionId >= 0;
+        const queryingEntity = new Uint8Array(32);
+        new DataView(queryingEntity.buffer).setBigUint64(0, BigInt(subscribed ? query.subscriptionId : (query.recipients[0]?.slot ?? 0)), true);
+        this.host.log(
+            QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE,
+            encodeOracleQueryStatusChangeLog(
+                queryingEntity,
+                query.id,
+                query.interfaceIndex,
+                subscribed ? QUERY_TYPE_CONTRACT_SUBSCRIPTION : QUERY_TYPE_CONTRACT_QUERY,
+                query.status,
+            ),
+        );
     }
 
     private chargeFee(slot: number, fee: bigint): boolean {
@@ -255,6 +291,7 @@ export class OracleManager {
 
         if (status === ORACLE_STATUS.COMMITTED) {
             query.status = status;
+            this.logStatusChange(query);
             return true;
         }
         if (status !== ORACLE_STATUS.SUCCESS && status !== ORACLE_STATUS.TIMEOUT && status !== ORACLE_STATUS.UNRESOLVABLE) return false;
@@ -262,6 +299,7 @@ export class OracleManager {
 
         query.status = status;
         query.reply = status === ORACLE_STATUS.SUCCESS ? reply.slice() : null;
+        this.logStatusChange(query);
         if (status === ORACLE_STATUS.SUCCESS && query.subscriptionId >= 0) {
             const channel = this.channels.get(query.subscriptionId);
             if (channel) {

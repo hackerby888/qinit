@@ -2,6 +2,7 @@ import { CHEAT_ERR, CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURES, WASM_TRAP_ERROR_CO
 import {
     CUSTOM_MESSAGE_OP,
     encodeBurningLog,
+    encodeContractReserveDeductionLog,
     encodeCustomMessageLog,
     encodeQuTransferLog,
     MAINNET_COMPUTOR_COUNT,
@@ -175,6 +176,12 @@ export class QubicSimulator {
         this.fees = new FeeManager(options.fees ?? "off", options.defaultReserve, this.contractCount);
         this.logStore = options.logStore;
         this.registry = new ContractRegistry(this.fees, this.recorder);
+        this.registry.onReserveDeduction = (slot, deducted, remaining) =>
+            this.logStore?.logMessage(
+                QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION,
+                encodeContractReserveDeductionLog(deducted, remaining, slot),
+                this.currentEpoch,
+            );
         this.ticking = new TickConsensus(
             {
                 getSpectrumDigest: () => this.getSpectrumDigest(),
@@ -197,6 +204,7 @@ export class QubicSimulator {
                 this.decreaseEnergy(this.spectrumIndex(source), amount);
                 this.logQuTransfer(source, ZERO32, amount);
             },
+            log: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
             notify: (slot, procedureId, input) =>
                 this.pendingOracleNotifications.push({
                     slot,
@@ -351,6 +359,9 @@ export class QubicSimulator {
         this.oracle.beginEpoch();
         this.pendingOracleNotifications = [];
         this.logStore?.reset(initialTick);
+        // A node boots on an epoch's first tick, which opens that epoch's log like any other.
+        this.logStartOfEpoch(initialTick);
+        this.logStore?.finalizeTick(initialTick);
     }
 
     assertOperational(): void {
@@ -1084,11 +1095,19 @@ export class QubicSimulator {
         this.runOperation("begin-epoch", () => this.runBeginEpoch());
     }
 
+    // core opens an epoch's log with this marker, in the INITIALIZE range of the epoch's first tick.
+    private logStartOfEpoch(tick: number): void {
+        this.logStore?.begin(tick, LOG_SC_INITIALIZE);
+        this.logCustomMessage(CUSTOM_MESSAGE_OP.START_EPOCH);
+        this.logStore?.end();
+    }
+
     private runBeginEpoch(): void {
         this.oracle.beginEpoch();
         this.pendingOracleNotifications = [];
         const logTick = this.nextLogTick();
         this.logStore?.reset(logTick);
+        this.logStartOfEpoch(logTick);
         this.logStore?.begin(logTick, LOG_SC_BEGIN_EPOCH);
 
         try {
@@ -1107,6 +1126,8 @@ export class QubicSimulator {
 
         try {
             this.contractProcessor(SYSTEM_PROCEDURES.END_EPOCH, false, false);
+            // the last record an epoch writes, as on core.
+            this.logCustomMessage(CUSTOM_MESSAGE_OP.END_EPOCH);
         } finally {
             this.logStore?.end();
         }
@@ -1198,7 +1219,13 @@ export class QubicSimulator {
 
         this.runOperation("begin-tick", () => this.runBeginTick(switchesEpoch));
         this.drainMempool();
-        this.oracle.pump();
+        // A reply or a timeout changes a query's status here, outside any transaction; its record goes where the notification it causes goes.
+        this.logStore?.begin(this.currentTick, LOG_SC_NOTIFICATION);
+        try {
+            this.oracle.pump();
+        } finally {
+            this.logStore?.end();
+        }
         this.deliverOracleNotifications();
         this.endTick();
         this.ticking.finalizeTick();

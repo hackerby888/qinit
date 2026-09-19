@@ -217,7 +217,8 @@ try {
             const opening = records.find(
                 (record) => record.type === QUBIC_LOG_TYPE.QU_TRANSFER && new DataView(record.message.buffer).getBigUint64(32, true) === BigInt(contractIndex),
             );
-            return records.filter((record) => record.txIndex === opening?.txIndex);
+            // the simulator books an execution fee the moment it is charged; core books one deduction per computor round, outside any transaction.
+            return records.filter((record) => record.txIndex === opening?.txIndex && record.type !== QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION);
         };
 
         // funded in its own transaction, since the two nodes debit different totals and the payout tick is compared byte for byte.

@@ -24,6 +24,8 @@ export class ContractRegistry {
     // Never cleared; a reader compares it across the reads of one view.
     // Outside the state bytes, so digests are unaffected.
     private readonly versions = new Map<number, number>();
+    // Told of every execution fee taken from a reserve, so a node with a log stream can record it.
+    onReserveDeduction?: (slot: number, deducted: bigint, remaining: bigint) => void;
     // Slots armed by a deferred deploy, with the old state a pending MIGRATE reads.
     private readonly pendingConstruction = new Map<number, { oldState: Uint8Array | null; initialize: boolean }>();
     private readonly fees: FeeManager;
@@ -159,8 +161,9 @@ export class ContractRegistry {
     // Run a mutating entry and charge its measured cost against the fee reserve when metering is on; read-only queries bypass this path.
     fire(c: Contract, kind: number, it: number, input: Uint8Array, ctx: FireContext): Uint8Array {
         const out = c.invoke(kind, it, input, ctx);
-        if (this.fees.metered) {
+        if (this.fees.metered && c.lastCost > 0n) {
             this.fees.subtractFromContractFeeReserve(c.slot, c.lastCost);
+            this.onReserveDeduction?.(c.slot, c.lastCost, this.fees.getContractFeeReserve(c.slot));
         }
         return out;
     }

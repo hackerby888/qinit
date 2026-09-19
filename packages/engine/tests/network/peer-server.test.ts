@@ -121,18 +121,19 @@ test("native logging messages expose core-lite records and tick ranges", async (
         const rangeFrames = await exchange(port, codec.frame(MSG.REQUEST_ALL_LOG_ID_RANGES_FROM_TX, allReq, 90));
         const ranges = rangeFrames.find((f) => f.type === MSG.RESPOND_ALL_LOG_ID_RANGES_FROM_TX)!;
         expect(ranges).toBeDefined();
-        expect(dv(ranges.payload).getBigInt64(2 * 8, true)).toBe(0n);
+        // Log id 0 is the marker that opened the epoch when the node booted.
+        expect(dv(ranges.payload).getBigInt64(2 * 8, true)).toBe(1n);
         expect(dv(ranges.payload).getBigInt64((4102 + 2) * 8, true)).toBe(1n);
 
         const logReq = new Uint8Array(48);
-        dv(logReq).setBigUint64(32, 0n, true);
-        dv(logReq).setBigUint64(40, 0n, true);
+        dv(logReq).setBigUint64(32, 1n, true);
+        dv(logReq).setBigUint64(40, 1n, true);
         const logFrames = await exchange(port, codec.frame(MSG.REQUEST_LOG, logReq, 91));
         const record = logFrames.find((f) => f.type === MSG.RESPOND_LOG)!;
         expect(record).toBeDefined();
         expect(dv(record.payload).getUint32(2, true)).toBe(tick);
         expect(dv(record.payload).getUint32(6, true) >>> 24).toBe(6);
-        expect(dv(record.payload).getBigUint64(10, true)).toBe(0n);
+        expect(dv(record.payload).getBigUint64(10, true)).toBe(1n);
         expect(dv(record.payload).getUint32(26, true)).toBe(28);
 
         const digestReq = new Uint8Array(36);
