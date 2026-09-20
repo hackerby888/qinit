@@ -120,18 +120,25 @@ test("metered: a plain transfer to a dormant contract is refunded and fires no P
     expect(sim.balanceOf(28)).toBe(500n);
 });
 
-test("metered: running a procedure debits the contract's reserve by a sane metered cost", async () => {
+test("metered: a procedure accrues a sane cost, and the phase boundary charges exactly that", async () => {
     await initK12();
     const sim = new QubicSimulator({ fees: "metered" });
     sim.deploy(28, await wasm("Counter")); // seeded with the default reserve
 
     const before = sim.getContractFeeReserve(28);
     sim.procedure(28, INC); // mutates the 8-byte state -> base cost + digest recompute
-    const after = sim.getContractFeeReserve(28);
 
-    const charged = before - after;
-    expect(charged).toBeGreaterThanOrEqual(18n); // BASE_CALL_COST(10) + 8 state bytes, at minimum
-    expect(charged).toBeLessThan(60n); // no runaway: Inc makes no priced host calls
+    const accrued = sim.executionFee(28);
+    expect(accrued).toBeGreaterThanOrEqual(18n); // BASE_CALL_COST(10) + 8 state bytes, at minimum
+    expect(accrued).toBeLessThan(60n); // no runaway: Inc makes no priced host calls
+    expect(sim.getContractFeeReserve(28)).toBe(before); // nothing charged yet — core only deducts at the boundary
+
+    // one full phase of ticks, so the accumulation is reported and charged once.
+    for (let i = 0; i < 9; i++) {
+        sim.advance();
+    }
+    expect(sim.getContractFeeReserve(28)).toBe(before - accrued);
+    expect(sim.executionFee(28)).toBe(0n);
 });
 
 test("metered: fee accounting does not change contract state (digest matches an unmetered run)", async () => {

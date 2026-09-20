@@ -431,6 +431,8 @@ export class VirtualNode implements NodeTransport {
                 procedures: entries(CONTRACT_ENTRY_KIND.PROCEDURE),
                 source: this.contractSources.get(slot),
                 feeReserve: this.sim.getContractFeeReserve(slot).toString(),
+                // what this phase has run up but not charged yet; feeReserve only moves at the boundary.
+                executionFee: this.sim.executionFee(slot).toString(),
             };
         };
 

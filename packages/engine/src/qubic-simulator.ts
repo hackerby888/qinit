@@ -178,12 +178,6 @@ export class QubicSimulator {
         this.fees = new FeeManager(options.fees ?? "off", options.defaultReserve, this.contractCount);
         this.logStore = options.logStore;
         this.registry = new ContractRegistry(this.fees, this.recorder);
-        this.registry.onReserveDeduction = (slot, deducted, remaining) =>
-            this.logStore?.logMessage(
-                QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION,
-                encodeContractReserveDeductionLog(deducted, remaining, slot),
-                this.currentEpoch,
-            );
         this.ticking = new TickConsensus(
             {
                 getSpectrumDigest: () => this.getSpectrumDigest(),
@@ -198,6 +192,8 @@ export class QubicSimulator {
             options.liteTicking ?? true,
             this.historyTicks,
         );
+        // a fee phase is one pass over the committee, so it follows whatever computor count this engine ticks with.
+        this.fees.numberOfComputors = this.ticking.committeeSize();
 
         this.oracle = new OracleManager({
             energyOf: (slot) => this.balanceOf(slot),
@@ -442,6 +438,11 @@ export class QubicSimulator {
 
     getContractFeeReserve(slot: number): bigint {
         return this.fees.getContractFeeReserve(slot);
+    }
+
+    // What this phase has accumulated for a contract but not yet charged; the reserve only moves at the phase boundary.
+    executionFee(slot: number): bigint {
+        return this.fees.executionFee(slot);
     }
 
     setContractFeeReserve(slot: number, amount: bigint): void {
@@ -1162,6 +1163,27 @@ export class QubicSimulator {
         this.tickClockMs = Date.now();
     }
 
+    // Charge the phase that just ended. Core's deduction belongs to no transaction, so it goes in the tick's BEGIN_TICK range.
+    private processExecutionFeeReports(): void {
+        const settlements = this.fees.processReportsOnNewPhase(this.currentTick);
+        if (!settlements.length) {
+            return;
+        }
+
+        this.logStore?.begin(this.currentTick, LOG_SC_BEGIN_TICK);
+        try {
+            for (const settlement of settlements) {
+                this.logStore?.logMessage(
+                    QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION,
+                    encodeContractReserveDeductionLog(settlement.deductedAmount, settlement.remainingAmount, settlement.contractIndex),
+                    this.currentEpoch,
+                );
+            }
+        } finally {
+            this.logStore?.end();
+        }
+    }
+
     /** true from a deferred deploy until the tick that runs its INITIALIZE or MIGRATE. */
     isActivationPending(slot: number): boolean {
         return this.registry.pendingConstructionSlots().includes(slot);
@@ -1189,6 +1211,8 @@ export class QubicSimulator {
         if (!tickEntered) {
             this.enterNextTick();
         }
+        // ahead of any entry this tick could run, so an INITIALIZE below is measured against the new phase.
+        this.processExecutionFeeReports();
         this.activatePendingContracts();
         this.tickTxCount = this.txpool.dueCount(this.currentTick);
         this.emit("debug", "tick", `tick ${this.currentTick} begin · ${this.tickTxCount} tx`);
@@ -1330,6 +1354,8 @@ export class QubicSimulator {
 
         try {
             const invocator = this.contractId(callerSlot);
+            // straight to invoke(), not fire(): core never measures a function, so the callee accrues nothing and only the
+            // caller's liteCallFunction weight stands in for the call's own overhead.
             const output = callee.invoke(CONTRACT_ENTRY_KIND.FUNCTION, inputType, input, {
                 invocator,
                 originator,
@@ -1371,6 +1397,7 @@ export class QubicSimulator {
         try {
             const invocator = this.contractId(callerSlot);
             // transferInvocationReward already fired the callee's POST_INCOMING_TRANSFER for the reward.
+            // both sides pay, like core's enclosing __rdtsc span: the caller its liteInvokeProcedure weight, the callee its own time.
             const output = this.processTickTransactionContractProcedure(calleeIndex, inputType, input, invocator, originator, transferredReward);
             return { error: NO_CALL_ERROR, output };
         } catch (error) {

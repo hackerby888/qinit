@@ -77,6 +77,58 @@ test("seedOnDeploy: a metered deploy is seeded with the default reserve unless a
     expect(off.getContractFeeReserve(1)).toBe(0n);
 });
 
+test("addTime accumulates without touching the reserve; the phase boundary charges the total once", () => {
+    const f = new FeeManager("metered");
+    f.setContractFeeReserve(5, 1000n);
+    f.processReportsOnNewPhase(0); // adopt phase 0, nothing accumulated yet
+
+    f.addTime(5, 30n);
+    f.addTime(5, 12n);
+    expect(f.executionFee(5)).toBe(42n);
+    expect(f.getContractFeeReserve(5)).toBe(1000n); // untouched inside the phase
+
+    for (let tick = 1; tick < f.numberOfComputors; tick++) {
+        expect(f.processReportsOnNewPhase(tick)).toEqual([]); // still the same phase
+    }
+    expect(f.getContractFeeReserve(5)).toBe(1000n);
+
+    expect(f.processReportsOnNewPhase(f.numberOfComputors)).toEqual([{ contractIndex: 5, deductedAmount: 42n, remainingAmount: 958n }]);
+    expect(f.getContractFeeReserve(5)).toBe(958n);
+    expect(f.executionFee(5)).toBe(0n); // the accumulation is reset, like core's startNewAccumulation
+    expect(f.processReportsOnNewPhase(f.numberOfComputors)).toEqual([]); // settled once per phase
+});
+
+test("a contract that outspends its reserve keeps running to the boundary, then goes dormant", () => {
+    const f = new FeeManager("metered");
+    f.setContractFeeReserve(5, 50n);
+    f.processReportsOnNewPhase(0);
+
+    f.addTime(5, 80n);
+    expect(f.reserveOk(5)).toBe(true); // still funded as far as the gate can see
+
+    expect(f.processReportsOnNewPhase(f.numberOfComputors)).toEqual([{ contractIndex: 5, deductedAmount: 80n, remainingAmount: -30n }]);
+    expect(f.reserveOk(5)).toBe(false);
+});
+
+test("off mode accumulates nothing, and the multiplier scales what a phase charges", () => {
+    const off = new FeeManager("off");
+    off.setContractFeeReserve(5, 100n);
+    off.addTime(5, 40n);
+    expect(off.executionFee(5)).toBe(0n);
+    expect(off.processReportsOnNewPhase(off.numberOfComputors)).toEqual([]);
+
+    const f = new FeeManager("metered");
+    f.setContractFeeReserve(5, 1000n);
+    f.multiplierNumerator = 2n;
+    f.addTime(5, 40n);
+    expect(f.executionFee(5)).toBe(80n);
+
+    f.multiplierNumerator = 0n; // core reports nothing when either side of the multiplier is zero
+    expect(f.executionFee(5)).toBe(0n);
+    expect(f.processReportsOnNewPhase(f.numberOfComputors)).toEqual([]);
+    expect(f.getContractFeeReserve(5)).toBe(1000n);
+});
+
 test("queryFeeReserve: out-of-range contract index resolves to the caller's own contract", () => {
     const f = new FeeManager("metered");
     f.setContractFeeReserve(9, 321n);

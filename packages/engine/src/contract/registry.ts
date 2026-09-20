@@ -24,8 +24,6 @@ export class ContractRegistry {
     // Never cleared; a reader compares it across the reads of one view.
     // Outside the state bytes, so digests are unaffected.
     private readonly versions = new Map<number, number>();
-    // told of every execution fee taken from a reserve, so a node with a log stream can record it.
-    onReserveDeduction?: (slot: number, deducted: bigint, remaining: bigint) => void;
     // slots armed by a deferred deploy, with the old state a pending MIGRATE reads.
     private readonly pendingConstruction = new Map<number, { oldState: Uint8Array | null; initialize: boolean }>();
     private readonly fees: FeeManager;
@@ -130,6 +128,7 @@ export class ContractRegistry {
     private construct(c: Contract, oldState: Uint8Array | null, initialize: boolean): void {
         if (oldState) {
             c.migrate(oldState); // upgrade: __migrate transforms old -> new layout (parity w/ core)
+            this.fees.addTime(c.slot, c.lastCost); // migrate() runs outside fire(), but core charges it like any entry
         } else if (initialize && c.hasSysproc(SYSTEM_PROCEDURES.INITIALIZE)) {
             this.fire(c, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.INITIALIZE, new Uint8Array(0), {
                 entryPoint: SYSTEM_PROCEDURES.INITIALIZE,
@@ -158,13 +157,11 @@ export class ContractRegistry {
         return this.contracts.delete(slot);
     }
 
-    // Run a mutating entry and charge its measured cost against the fee reserve when metering is on; read-only queries bypass this path.
+    // Run a mutating entry and accumulate its measured cost for this phase; the reserve only moves at the phase boundary,
+    // like core's ExecutionTimeAccumulator. Read-only queries bypass this path and are never measured.
     fire(c: Contract, kind: number, it: number, input: Uint8Array, ctx: FireContext): Uint8Array {
         const out = c.invoke(kind, it, input, ctx);
-        if (this.fees.metered && c.lastCost > 0n) {
-            this.fees.subtractFromContractFeeReserve(c.slot, c.lastCost);
-            this.onReserveDeduction?.(c.slot, c.lastCost, this.fees.getContractFeeReserve(c.slot));
-        }
+        this.fees.addTime(c.slot, c.lastCost);
         return out;
     }
 

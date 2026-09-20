@@ -856,6 +856,11 @@ export class Contract {
             : null;
         const startedAt = recorder ? performance.now() : 0;
 
+        // core measures MIGRATE like any other charged entry (contract_exec.h), and it always rewrites the whole state.
+        const metering = this.metering;
+        const savedCost = this.cost;
+        this.cost = 0n;
+
         const outerPrank = this.prankSaved;
         this.prankSaved = null;
         this.host.enterFrame?.();
@@ -879,6 +884,7 @@ export class Contract {
             this.executionKinds.pop();
             this.host.exitFrame?.();
             this.prankSaved = outerPrank;
+            this.finishMeter(metering, savedCost, true);
         }
 
         if (recorder) {

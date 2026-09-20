@@ -139,6 +139,17 @@ export function resolveCompilerBackend(requested?: string): CompilerBackend {
     return invalidArgs("--compiler must be clang or typescript");
 }
 
+// A simulator node meters fees like a real one unless a run opts out.
+export function resolveFeeMode(requested?: string): "metered" | "off" | undefined {
+    if (requested === undefined) {
+        return undefined;
+    }
+    if (requested === "metered" || requested === "off") {
+        return requested;
+    }
+    return invalidArgs("--fees must be metered or off");
+}
+
 export async function resolveSeed(rpc: { fundedSeed(): Promise<string | undefined> }, explicit?: string): Promise<string> {
     if (explicit) {
         assertSeed(explicit);

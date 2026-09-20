@@ -304,6 +304,7 @@ export function launchSimulatorNode(options: {
     slotBase?: number;
     slotCount?: number;
     compiler?: "clang" | "typescript";
+    fees?: "metered" | "off";
     coreDirectory?: string;
 }): { pid: number; scratch: string; log: string } {
     const scratch = resolve(options.scratchDirectory || defaultNodeScratchDir());
@@ -331,6 +332,7 @@ export function launchSimulatorNode(options: {
         ...(options.liteTicking === false ? ["--full-tick"] : []),
         ...(options.system?.length ? ["--system", options.system.join(",")] : []),
         ...(options.compiler ? ["--compiler", options.compiler] : []),
+        ...(options.fees ? ["--fees", options.fees] : []),
     ];
 
     // A compiled binary can self-exec; Bun needs the source entry point again.

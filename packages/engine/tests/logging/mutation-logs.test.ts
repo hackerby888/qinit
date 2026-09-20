@@ -5,7 +5,7 @@ import { concatBytes } from "../../src/support/bytes";
 import { initK12, k12Bytes } from "../../src/support/k12";
 import { packAssetName } from "../../src/ledger/assets";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import { LOG_HEADER_SIZE, LOG_SC_END_EPOCH, LOG_SC_INITIALIZE, LOG_SC_NOTIFICATION, QubicLogStore } from "../../src/logging/qubic-log-store";
+import { LOG_HEADER_SIZE, LOG_SC_BEGIN_TICK, LOG_SC_END_EPOCH, LOG_SC_INITIALIZE, LOG_SC_NOTIFICATION, QubicLogStore } from "../../src/logging/qubic-log-store";
 import { contractId } from "../support/helpers";
 
 const ZERO32 = new Uint8Array(32);
@@ -414,27 +414,35 @@ test("an epoch's log opens and closes with core's markers", () => {
     ]);
 });
 
-test("a metered procedure logs the execution fee taken from its reserve", async () => {
+test("a metered procedure logs the execution fee its phase accumulated, at the phase boundary", async () => {
     const logger = new QubicLogStore();
     const sim = new QubicSimulator({ fees: "metered", logStore: logger });
     sim.deploy(28, await wasm("Counter"));
     const before = sim.getContractFeeReserve(28);
 
-    logger.begin(1, 0);
     sim.procedure(28, 1);
-    logger.end();
-    logger.finalizeTick(1);
+    const accrued = sim.executionFee(28);
+    expect(accrued).toBeGreaterThan(0n);
+    expect(sim.getContractFeeReserve(28)).toBe(before); // the transaction itself takes nothing
 
-    const deducted = before - sim.getContractFeeReserve(28);
-    expect(deducted).toBeGreaterThan(0n);
+    // one full phase of ticks, so the boundary reports the accumulation exactly once.
+    let settleTick = 0;
+    for (let i = 0; i < 9 && settleTick === 0; i++) {
+        sim.advance();
+        if (sim.getContractFeeReserve(28) !== before) {
+            settleTick = sim.currentTick;
+        }
+    }
+    expect(before - sim.getContractFeeReserve(28)).toBe(accrued);
 
     // { deductedAmount, remainingAmount, contractIndex, padding }: logged whole, as core takes it by sizeof.
     const expected = new Uint8Array(24);
     const view = new DataView(expected.buffer);
-    view.setBigUint64(0, deducted, true);
-    view.setBigInt64(8, before - deducted, true);
+    view.setBigUint64(0, accrued, true);
+    view.setBigInt64(8, before - accrued, true);
     view.setUint32(16, 28, true);
-    expect(tickRecords(logger, 1)).toEqual([{ range: 0, type: QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION, message: expected }]);
+    const deductions = tickRecords(logger, settleTick).filter((record) => record.type === QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION);
+    expect(deductions).toEqual([{ range: LOG_SC_BEGIN_TICK, type: QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION, message: expected }]);
 });
 
 // OracleProbe: procedure 2 queries a price, 3 subscribes, 4 unsubscribes. Price is oracle interface 0.

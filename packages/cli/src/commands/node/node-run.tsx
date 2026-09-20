@@ -25,7 +25,7 @@ import {
     launchSimulatorNode,
     waitTicking,
 } from "../../ops/node";
-import { loadConfig, resolveCompilerBackend, resolveRuntime } from "../../config";
+import { loadConfig, resolveCompilerBackend, resolveFeeMode, resolveRuntime } from "../../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../../ui";
 import { jsonEnvelope, output, type CommandArguments } from "../../args";
 import { prepareNodeRunCore } from "../../ops/node-core";
@@ -56,6 +56,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
     const useSimulator = resolveRuntime(commandArgs.get("runtime")) === "simulator";
     const coreDirectory = commandArgs.get("core-dir") ?? (useSimulator && !requestedRef ? projectConfig.coreDir : undefined);
     const compiler = resolveCompilerBackend(commandArgs.get("compiler"));
+    const fees = resolveFeeMode(commandArgs.get("fees"));
     const [steps, setSteps] = useState<Phase[]>([
         { key: "headers", label: "core headers", state: "pending" },
         { key: "node", label: "node binary", state: "pending" },
@@ -188,6 +189,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                               liteTicking: commandArgs.has("full-tick") ? false : undefined,
                               system: projectConfig.system,
                               compiler,
+                              fees,
                               coreDirectory: currentHeaders,
                               slotBase: slotLayout!.slotBase,
                               slotCount: slotLayout!.slotCount,

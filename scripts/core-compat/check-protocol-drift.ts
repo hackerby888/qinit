@@ -6,7 +6,7 @@ import { CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURE_COUNT } from "@qinit/core/wasm/
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm/slot-layout";
 import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { LITE_DEPLOY_ADDRESS } from "@qinit/core/crypto/tx";
-import { DEFAULT_FEE_RESERVE } from "@qinit/engine";
+import { DEFAULT_FEE_RESERVE, DEFAULT_NUMBER_OF_COMPUTORS } from "@qinit/engine";
 import { DEPLOY_OUTCOME_CODES } from "@qinit/core/net/rpc/types";
 import { DeployMessage, UploadBegin, UploadChunkHeader } from "@qinit/proto/deploy";
 import {
@@ -213,6 +213,8 @@ expectEqual("MAX_INPUT_SIZE", readDefine(NET, "MAX_INPUT_SIZE"), MAX_INPUT_SIZE)
 expectEqual("MAX_NUMBER_OF_CONTRACTS", readDefine(NET, "MAX_NUMBER_OF_CONTRACTS"), MAX_NUMBER_OF_CONTRACTS);
 expectEqual("NUMBER_OF_TRANSACTIONS_PER_TICK", readDefine(NET, "NUMBER_OF_TRANSACTIONS_PER_TICK", "last"), TXS_PER_TICK);
 expectEqual("NUMBER_OF_COMPUTORS (mainnet)", readDefine(NET, "NUMBER_OF_COMPUTORS", "last"), MAINNET_COMPUTOR_COUNT);
+// an execution-fee phase is one pass over the committee, so the engine's default must stay core's testnet count.
+expectEqual("NUMBER_OF_COMPUTORS (testnet)", readDefine(NET, "NUMBER_OF_COMPUTORS"), DEFAULT_NUMBER_OF_COMPUTORS);
 expectEqual("SPECTRUM_DEPTH (mainnet)", readDefine(NET, "SPECTRUM_DEPTH", "last"), SPECTRUM_DEPTH);
 expectEqual("ASSETS_DEPTH (mainnet)", readDefine(NET, "ASSETS_DEPTH", "last"), ASSETS_DEPTH);
 if (CHUNK_DATA_MAX > MAX_INPUT_SIZE - UploadChunkHeader.SIZE) {

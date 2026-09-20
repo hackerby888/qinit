@@ -100,6 +100,7 @@ const commandMeta = {
                     stringOption("peers", "<addr>", "Core peer address"),
                     stringOption("runtime", "<core|simulator>", "runtime for this run"),
                     stringOption("compiler", "<clang|typescript>", "simulator system-contract compiler"),
+                    stringOption("fees", "<metered|off>", "simulator execution fees (default: metered)"),
                     booleanOption("restart", "restart even if the node is running"),
                     booleanOption("offline", "use cached files without network access"),
                     booleanOption("keep", "preserve existing node data"),
