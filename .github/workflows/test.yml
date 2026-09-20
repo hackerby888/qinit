@@ -567,6 +567,14 @@ jobs:
           stop_node
           echo "=== run-dual/node.log tail ==="; tail -25 run-dual/node.log
 
+          # an answered oracle query and an oc invocation have to reach the same statuses, reply and fees on both engines.
+          start_node run-oracle
+          set +e
+          bun run scripts/live-node/ci-oracle-dual-engine.ts; c9=$?
+          set -e
+          stop_node
+          echo "=== run-oracle/node.log tail ==="; tail -25 run-oracle/node.log
+
           # every refused DEPLOY leaves its outcome on the node, and the simulator has to record the same one.
           start_node run-refusal
           set +e
@@ -599,7 +607,7 @@ jobs:
               if [ $rc -ne 0 ]; then c6=1; echo "=== $fault_dir/node.log tail ==="; tail -25 "$fault_dir/node.log"; fi
             done
           done
-          [ $c1 -eq 0 ] && [ $c2 -eq 0 ] && [ $c3 -eq 0 ] && [ $c4 -eq 0 ] && [ $c5 -eq 0 ] && [ $c6 -eq 0 ] && [ $c7 -eq 0 ] && [ $c8 -eq 0 ]
+          [ $c1 -eq 0 ] && [ $c2 -eq 0 ] && [ $c3 -eq 0 ] && [ $c4 -eq 0 ] && [ $c5 -eq 0 ] && [ $c6 -eq 0 ] && [ $c7 -eq 0 ] && [ $c8 -eq 0 ] && [ $c9 -eq 0 ]
 
   # QPI VS Code extension checks that need clangd or a real editor.
   vscode-clangd-check:

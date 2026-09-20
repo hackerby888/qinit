@@ -297,6 +297,11 @@ export class OracleManager {
         if (status !== ORACLE_STATUS.SUCCESS && status !== ORACLE_STATUS.TIMEOUT && status !== ORACLE_STATUS.UNRESOLVABLE) return false;
         if (status === ORACLE_STATUS.SUCCESS && reply.length !== query.replySize) return false;
 
+        // unresolvable is what the quorum decides when it disagrees; one oracle machine can only report that it has no value, and the query then ends at its deadline.
+        if (status === ORACLE_STATUS.UNRESOLVABLE) {
+            return true;
+        }
+
         // a reply the quorum has committed to is only revealed in a later tick, so success and the notification wait for the next tick as they do on a node.
         if (status === ORACLE_STATUS.SUCCESS) {
             query.status = ORACLE_STATUS.COMMITTED;
