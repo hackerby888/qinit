@@ -793,7 +793,9 @@ export class VirtualNode implements NodeTransport {
             if (!bytesEqual(message.finalHash, hexToBytes(upload.finalHash))) {
                 return refuse("hash-mismatch", "deploy names a different module digest than the upload");
             }
+            // from here core has committed to loading, and it frees the session whichever way that goes, so a refused module never holds the node's one upload slot.
             if (upload.buf.length < 4 || upload.buf[0] !== 0x00 || upload.buf[1] !== 0x61 || upload.buf[2] !== 0x73 || upload.buf[3] !== 0x6d) {
+                this.upload = null;
                 return refuse("not-wasm", "upload is not a wasm module ('\\0asm' expected)");
             }
 
@@ -807,8 +809,9 @@ export class VirtualNode implements NodeTransport {
                     this.recordDeployOutcome(message.sessionId, message.targetSlot, "load-failed", error instanceof Error ? error.message : String(error));
                 }
                 throw error;
+            } finally {
+                this.upload = null;
             }
-            this.upload = null;
             this.recordDeployOutcome(message.sessionId, message.targetSlot, "ok", "slot armed");
 
             return;

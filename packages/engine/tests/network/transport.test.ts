@@ -140,6 +140,63 @@ test("an upload session idle past the stale limit gives way to a new one", async
     expect(replaced.idleTicks).toBe(0);
 });
 
+test("a refused deploy frees the upload session, so the next one needs no stale wait", async () => {
+    const eng = await VirtualNode.create({ ...TEST_SLOT_LAYOUT, mempool: false, verifySigs: false });
+    const junk = new Uint8Array(64).fill(0x7f); // no '\0asm' magic -> the load path refuses it
+    const finalHashHex = await k12Hex(junk);
+    const chunks = splitUploadChunks(junk);
+    const begin = (sessionId: bigint) =>
+        eng.broadcastTx(wrapTx(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId, totalSize: junk.length, chunkCount: chunks.length, finalHashHex })));
+
+    expect((await begin(11n)).ok).toBe(true);
+    await eng.broadcastTx(wrapTx(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: 11n, seq: 0, bytes: chunks[0] })));
+    const refused = await eng.broadcastTx(wrapTx(LITE_TX.DEPLOY, encodeDeploy({ sessionId: 11n, targetSlot: DYN, finalHashHex, name: "Junk" })));
+    expect(refused.ok).toBe(false);
+
+    // core drops the session once it has tried to load, so a second upload starts in the same tick — no advanceTick here.
+    const afterRefusal = await eng.dynUpload();
+    expect(afterRefusal.lastDeploy?.code).toBe("not-wasm");
+    expect(afterRefusal.active).toBe(false);
+    expect((await begin(22n)).ok).toBe(true);
+    expect((await eng.dynUpload()).sessionId).toBe("22");
+
+    // the other load-path refusal: a real module compiled for a different slot, which only fails once the loader reads it.
+    const wrongSlot = await wasm("Counter");
+    const wrongSlotHashHex = await k12Hex(wrongSlot);
+    const wrongSlotChunks = splitUploadChunks(wrongSlot);
+    eng.advanceTick(33); // retire session 22 so this one can start
+    await eng.broadcastTx(
+        wrapTx(
+            LITE_TX.UPLOAD_BEGIN,
+            encodeUploadBegin({ sessionId: 33n, totalSize: wrongSlot.length, chunkCount: wrongSlotChunks.length, finalHashHex: wrongSlotHashHex }),
+            LITE_DEPLOY_ADDRESS,
+            eng.sim.currentTick + 1,
+        ),
+    );
+    for (let i = 0; i < wrongSlotChunks.length; i++) {
+        await eng.broadcastTx(
+            wrapTx(
+                LITE_TX.UPLOAD_CHUNK,
+                encodeUploadChunk({ sessionId: 33n, seq: i, bytes: wrongSlotChunks[i] }),
+                LITE_DEPLOY_ADDRESS,
+                eng.sim.currentTick + 1,
+            ),
+        );
+    }
+    const loadFailed = await eng.broadcastTx(
+        wrapTx(
+            LITE_TX.DEPLOY,
+            encodeDeploy({ sessionId: 33n, targetSlot: DYN, finalHashHex: wrongSlotHashHex, name: "Counter" }),
+            LITE_DEPLOY_ADDRESS,
+            eng.sim.currentTick + 1,
+        ),
+    );
+    expect(loadFailed.ok).toBe(false);
+    const afterLoadFailure = await eng.dynUpload();
+    expect(afterLoadFailure.lastDeploy?.code).toBe("load-failed");
+    expect(afterLoadFailure.active).toBe(false);
+});
+
 test("deployment routing requires the exact reserved address", async () => {
     const eng = await VirtualNode.create({
         mempool: false,
