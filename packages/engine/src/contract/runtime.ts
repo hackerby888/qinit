@@ -1,7 +1,7 @@
 import { ASSET_ENUMERATION_RECORD, CHEAT_ERR, CHEAT_OP, LHOST_ABI, type DebugStateRegion, type LhostImportName } from "@qinit/core";
 import { k12Bytes, toHex } from "../support/k12";
 import { bytesEqual, rangesEqual, type Id } from "../support/bytes";
-import { noteHostWrite, readJournalHeader, resetJournal, type JournalHeader } from "@qinit/core/wasm/journal";
+import { JOURNAL_BLOCK_BYTES, noteHostWrite, readJournalHeader, resetJournal, type JournalHeader } from "@qinit/core/wasm/journal";
 // Layout shared with core-lite's module_storage.h; sizing.ts is the one definition both backends use.
 import { INPUT_BUFFER_BYTES, LOCALS_BUFFER_BYTES, OUTPUT_BUFFER_BYTES } from "@qinit/core/wasm/sizing";
 import { diffRegions, journalRegions, type TraceRecorder } from "../logging/trace";
@@ -364,7 +364,7 @@ export class Contract {
     // The contract's own write journal, when the artifact carries one: it reports what changed without a state copy, so no shadow is allocated for it.
     private journalBase = 0;
     private journal: JournalHeader | null = null;
-    // Set once the journal overflows: from the next call this contract falls back to the shadow. The overflowing call itself can only report truncation.
+    // Set when the journal overflows: this contract falls back to the shadow until a call fits the journal again. The overflowing call itself can only report truncation.
     private journalOverflowed = false;
     private dispatchDepth = 0;
     private executionKinds: number[] = [];
@@ -631,19 +631,32 @@ export class Contract {
         return this.shadow;
     }
 
-    // Catches the shadow up to the state a dispatch left behind, copying only the blocks that moved.
-    private syncShadow(live: Uint8Array): void {
+    // Catches the shadow up to the state a dispatch left behind, copying only the blocks that moved, and reports how many journal blocks that was.
+    private syncShadow(live: Uint8Array): number {
         const shadow = this.shadow;
         if (!shadow) {
-            return;
+            return 0;
         }
+
+        // only a contract waiting to hand back to its journal needs the count, and only until it no longer fits.
+        const countLimit = this.journalOverflowed && this.journal ? this.journal.capacityBlocks : -1;
+        let changedJournalBlocks = 0;
 
         for (let block = 0; block < live.length; block += SHADOW_BLOCK) {
             const end = Math.min(block + SHADOW_BLOCK, live.length);
-            if (!rangesEqual(shadow, block, live, block, end - block)) {
-                shadow.set(live.subarray(block, end), block);
+            if (rangesEqual(shadow, block, live, block, end - block)) {
+                continue;
             }
+
+            for (let at = block; at < end && changedJournalBlocks <= countLimit; at += JOURNAL_BLOCK_BYTES) {
+                if (!rangesEqual(shadow, at, live, at, Math.min(JOURNAL_BLOCK_BYTES, end - at))) {
+                    changedJournalBlocks++;
+                }
+            }
+            shadow.set(live.subarray(block, end), block);
         }
+
+        return changedJournalBlocks;
     }
 
     private writeCtx(context: ContractCallContext) {
@@ -820,8 +833,11 @@ export class Contract {
             this.verifyJournal(verifyBefore, outcome, kind, inputType);
         }
         // After the recorder has read the before-image, not before.
-        if (useShadow && stateChanged) {
-            this.syncShadow(stateAfter);
+        const changedJournalBlocks = useShadow && stateChanged ? this.syncShadow(stateAfter) : 0;
+        // a call that fits the journal hands back to it; alternating wide and narrow calls re-allocate the shadow each flip, a streak counter would damp that.
+        if (useShadow && this.journalOverflowed && changedJournalBlocks <= this.journal!.capacityBlocks) {
+            this.journalOverflowed = false;
+            this.shadow = null;
         }
         // Journal mode leaves the shadow untouched, so marking it stale keeps the fallback correct if the journal later overflows and hands back over.
         if (useJournal && stateChanged) {
