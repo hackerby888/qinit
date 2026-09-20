@@ -27,6 +27,7 @@ export {
     decodeAbi,
     decodeAbiValue,
     parseTypeFormat,
+    abiTypeFromFormat,
     structFieldOffsets,
     layoutOf,
 } from "./abi";

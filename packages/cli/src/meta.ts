@@ -118,6 +118,20 @@ const commandMeta = {
         usage: "[show | advance <n> | advance-to-last [gap] | rate <ms>]",
         options: [stringOption("rpc", "<url>", "RPC URL")],
     },
+    oracle: {
+        group: "node",
+        json: true,
+        summary: "answer oracle queries while developing",
+        usage: "[pending | resolve <queryId> | serve]",
+        options: [
+            stringOption("rpc", "<url>", "RPC URL"),
+            stringOption("reply", "<value text>", "reply value, e.g. '123456sint64, 1000sint64'"),
+            stringOption("reply-hex", "<hex>", "reply bytes for a layout too large to type"),
+            stringOption("status", "<success|unavailable>", "answer with a value, or report none"),
+            stringOption("rules", "<path>", "serve: interface name to reply text"),
+        ],
+        examples: ["qinit oracle pending", "qinit oracle resolve 172596578652000256 --reply '123456sint64, 1000sint64'", "qinit oracle serve --rules oracle.json"],
+    },
     epoch: {
         group: "node",
         json: true,

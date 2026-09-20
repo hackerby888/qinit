@@ -3,6 +3,9 @@ import { array, defineStruct, u8, u64 } from "@qinit/core";
 export const ORACLE_INTERFACE_INDEX = 4;
 export const QUERY_FEE = 100n;
 
+// the reply layout as type-format text, so a dev tool can encode a reply from what the user typed
+export const REPLY_FORMAT = "uint64, uint64, uint64, uint64, [256;uint8]";
+
 export const OracleQuery = defineStruct("QubicLogReadOracleQuery", {
     tick: u64,
     txHash: array(u8, 32),

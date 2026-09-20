@@ -25,6 +25,7 @@ import { Clean } from "./commands/setup/clean";
 import { Cheat } from "./commands/misc/cheat";
 import { Seed } from "./commands/deploy-interact/seed";
 import { Sign } from "./commands/deploy-interact/sign";
+import { Oracle } from "./commands/node/oracle";
 import { Tick } from "./commands/node/tick";
 import { Epoch } from "./commands/node/epoch";
 import { ThemeCmd } from "./commands/misc/theme";
@@ -144,6 +145,7 @@ const HANDLERS = {
     node: ({ commandArgs, subcommand }) =>
         subcommand === "run" ? <NodeRun commandArgs={commandArgs} /> : <Node commandArgs={commandArgs} subcommand={subcommand} />,
     tick: ({ commandArgs }) => <Tick commandArgs={commandArgs} />,
+    oracle: ({ commandArgs }) => <Oracle commandArgs={commandArgs} />,
     epoch: ({ commandArgs }) => <Epoch commandArgs={commandArgs} />,
     clean: ({ commandArgs }) => <Clean commandArgs={commandArgs} />,
     update: ({ commandArgs }) => <Update commandArgs={commandArgs} />,

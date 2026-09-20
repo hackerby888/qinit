@@ -216,6 +216,29 @@ export class LiteRpc implements NodeTransport {
         if (!j.ok) throw new Error(`state-stage failed: ${j.message ?? r.status}`);
         return j;
     }
+    /** Queries waiting for an oracle machine reply (GET /live/v1/dev/oracle-pending), on the simulator and on a testnet node alike. */
+    async oraclePending(): Promise<{ queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[]> {
+        const { queries } = await this.get<{ queries: { queryId: string; slot: number; interfaceIndex: number; query: string }[] }>(
+            "/live/v1/dev/oracle-pending",
+        );
+        return (queries ?? []).map((entry) => ({
+            queryId: BigInt(entry.queryId),
+            slot: entry.slot,
+            interfaceIndex: entry.interfaceIndex,
+            query: Uint8Array.from(Buffer.from(entry.query, "base64")),
+        }));
+    }
+
+    /** Answer a pending query as an oracle machine would (POST /live/v1/dev/oracle-resolve). A node still runs its commit, quorum and reveal steps. */
+    async oracleResolve(queryId: bigint, reply: Uint8Array, status?: number): Promise<{ ok: boolean; message?: string }> {
+        const { json } = await this.post<{ ok: boolean; message?: string }>("/live/v1/dev/oracle-resolve", {
+            queryId: queryId.toString(),
+            reply: Buffer.from(reply).toString("base64"),
+            status,
+        });
+        return json;
+    }
+
     /** K12 digest of the full effective resident state, as computed by the node. */
     contractDigest(slot: number) {
         return this.get<{ slot: number; stateSize: number; digest: string }>(`/live/v1/dev/contract-digest?slot=${slot}`);

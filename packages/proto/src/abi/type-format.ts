@@ -1,6 +1,6 @@
 // The ABI type grammar (qubic-cli compatible): uint8/16/32/64, sint8/16/32/64, id, bit; struct { t, t }; array [N; elem].
 import { roundUp } from "@qinit/core";
-import { AbiTypeKind, formatAbiType, type AbiStruct, type AbiType } from "../contract-idl";
+import { AbiScalarKind, AbiTypeKind, formatAbiType, type AbiField, type AbiStruct, type AbiType } from "../contract-idl";
 
 export const SCALAR_SIZE: Record<string, number> = {
     uint8: 1,
@@ -209,6 +209,57 @@ export function parseTypeFormat(typeFormat: string): TypeNode {
     };
     if (parts.length === 1) return one(parts[0]);
     return { kind: "struct", fields: parts.map(one) };
+}
+
+// Type text -> AbiType, the inverse of nodeOf, so a layout that only exists as text can be encoded against like one read from an IDL.
+// Fields are named by position, because the grammar carries types and not names.
+export function abiTypeFromFormat(typeFormat: string): AbiType {
+    return abiTypeOfNode(parseTypeFormat(typeFormat));
+}
+
+function abiTypeOfNode(node: TypeNode): AbiType {
+    const size = sizeOf(node);
+    const align = alignOf(node);
+    const format = formatTypeNode(node);
+
+    if (node.kind === "struct") {
+        const fields: AbiField[] = [];
+        let offset = 0;
+        for (const [index, field] of node.fields.entries()) {
+            offset = roundUp(offset, alignOf(field));
+            fields.push({ name: `field${index}`, offset, size: sizeOf(field), type: abiTypeOfNode(field) });
+            offset += sizeOf(field);
+        }
+        return { kind: AbiTypeKind.STRUCT, fields, size, align, format };
+    }
+    if (node.kind === "array") {
+        return { kind: AbiTypeKind.ARRAY, count: node.count, element: abiTypeOfNode(node.elem), size, align, format };
+    }
+    if (node.kind === "bytes") {
+        if (node.size !== 32) throw new Error(`no abi type for a ${node.size}-byte field`);
+        return { kind: AbiTypeKind.SCALAR, scalar: AbiScalarKind.M256I, size, align, format };
+    }
+
+    const scalar = node.kind === "scalar" ? node.type : node.kind;
+    return { kind: AbiTypeKind.SCALAR, scalar: scalar as AbiScalarKind, size, align, format };
+}
+
+// the format text of a parsed node, e.g. a struct -> "sint64, sint64" without braces, matching how an entry's struct spells its own format
+function formatTypeNode(node: TypeNode): string {
+    switch (node.kind) {
+        case "scalar":
+            return node.type;
+        case "uint128":
+        case "sint128":
+        case "id":
+            return node.kind;
+        case "bytes":
+            return "m256i";
+        case "array":
+            return `[${node.count};${formatTypeNode(node.elem)}]`;
+        case "struct":
+            return node.fields.map(formatTypeNode).join(", ");
+    }
 }
 
 // two fields sharing bytes make a union, e.g. { uint64 wide @0, uint32 narrow @0 } -> true
