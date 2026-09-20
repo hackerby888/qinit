@@ -80,8 +80,14 @@ export const CONTRACT_ENTRY_KIND = {
 // Block size for catching the shadow up to a changed state: one memcmp per block, copy only what moved.
 const SHADOW_BLOCK = 64 * 1024;
 
-const BASE_CALL_COST = 10n;
-const DIGEST_BYTE_COST = 1n;
+// Execution time in microseconds, the unit core charges. Measured against a core-lite TESTNET node (2026-09-20):
+// a trivial 8-byte-state procedure cost 79 us/call, the same procedure on a 64 MiB state 157 us/call — so entering a
+// contract dominates and state size barely registers, because core never hashes the state for the fee.
+const BASE_EXECUTION_TIME = 80n;
+// 1 us per megabyte, the slope between those two measurements. Not K12 throughput (1300 bytes/us here): core's digest
+// charge is still parked (qubic.cpp, "enable this after adding proper tracking of contract state writes").
+const STATE_BYTES_PER_MICROSECOND = 1000000n;
+// Core has no per-host-call price; these stand in for the work an entry does inside its span, in the same microseconds.
 const HOST_WEIGHT: Record<string, bigint> = {
     k12: 5n,
     getEntity: 1n,
@@ -902,9 +908,9 @@ export class Contract {
 
     private finishMeter(metering: boolean, savedCost: bigint, stateChanged: boolean): void {
         if (metering) {
-            let cost = BASE_CALL_COST + this.cost;
+            let cost = BASE_EXECUTION_TIME + this.cost;
             if (stateChanged) {
-                cost += DIGEST_BYTE_COST * BigInt(this.stateSize);
+                cost += BigInt(this.stateSize) / STATE_BYTES_PER_MICROSECOND;
             }
             this.lastCost = cost;
         } else {

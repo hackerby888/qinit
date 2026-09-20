@@ -217,8 +217,28 @@ try {
             const opening = records.find(
                 (record) => record.type === QUBIC_LOG_TYPE.QU_TRANSFER && new DataView(record.message.buffer).getBigUint64(32, true) === BigInt(contractIndex),
             );
-            // the simulator books an execution fee the moment it is charged; core books one deduction per computor round, outside any transaction.
+            // both engines book an execution fee once per phase, outside any transaction, so it never belongs to the compared range.
             return records.filter((record) => record.txIndex === opening?.txIndex && record.type !== QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION);
+        };
+
+        // the amount is measured time on core and a formula here, so only the record's shape can be compared.
+        const deductions = async (ticks: number[]) => {
+            const found: { tick: number; contractIndex: number; deductedAmount: bigint; remainingAmount: bigint }[] = [];
+            for (const tick of ticks) {
+                for (const record of await readTickLogs(runtime.host, runtime.port, tick)) {
+                    if (record.type !== QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION) {
+                        continue;
+                    }
+                    const view = new DataView(record.message.buffer, record.message.byteOffset, record.message.byteLength);
+                    found.push({
+                        tick,
+                        deductedAmount: view.getBigUint64(0, true),
+                        remainingAmount: view.getBigInt64(8, true),
+                        contractIndex: view.getUint32(16, true),
+                    });
+                }
+            }
+            return found;
         };
 
         // funded in its own transaction, since the two nodes debit different totals and the payout tick is compared byte for byte.
@@ -251,6 +271,44 @@ try {
             payout: await transactionRecords(payoutTick, nativeSlots.Dividend),
             release: await transactionRecords(releaseTick, nativeSlots.ShareManager),
         });
+
+        // a phase is one pass over the committee, so the run above spans several and every contract that ran must have been charged.
+        const window = Array.from({ length: releaseTick - payoutTick + 1 }, (_, offset) => payoutTick + offset);
+        const charged = await deductions(window);
+        if (!charged.length) {
+            throw new Error(`${runtime.name} charged no execution fees across ticks ${payoutTick}..${releaseTick}`);
+        }
+        for (const row of charged) {
+            if (row.deductedAmount <= 0n) {
+                throw new Error(`${runtime.name} logged a ${row.deductedAmount} deduction for contract ${row.contractIndex}`);
+            }
+            const phaseOf = (tick: number) => Math.floor(tick / computors.length);
+            const perPhase = charged.filter((other) => other.contractIndex === row.contractIndex && phaseOf(other.tick) === phaseOf(row.tick));
+            if (perPhase.length > 1) {
+                throw new Error(`${runtime.name} charged contract ${row.contractIndex} ${perPhase.length} times in phase ${phaseOf(row.tick)}`);
+            }
+        }
+        // the records must describe the reserve they moved: each one lands exactly its own amount below the previous, and the
+        // live reserve is at or below the last of them (nothing but a burn can raise it, and these fixtures do not burn).
+        const reported = await runtime.client.dynRegistry();
+        for (const contractIndex of new Set(charged.map((row) => row.contractIndex))) {
+            const rows = charged.filter((row) => row.contractIndex === contractIndex);
+            for (let index = 1; index < rows.length; index++) {
+                const expected = rows[index - 1].remainingAmount - rows[index].deductedAmount;
+                if (rows[index].remainingAmount !== expected) {
+                    throw new Error(
+                        `${runtime.name} contract ${contractIndex} left ${rows[index].remainingAmount} after taking ${rows[index].deductedAmount}, expected ${expected}`,
+                    );
+                }
+            }
+            const live = reported.contracts.find((contract) => contract.index === contractIndex)?.feeReserve;
+            if (live !== undefined && BigInt(live) > rows.at(-1)!.remainingAmount) {
+                throw new Error(
+                    `${runtime.name} contract ${contractIndex} reports reserve ${live}, above the ${rows.at(-1)!.remainingAmount} its last deduction left`,
+                );
+            }
+        }
+        console.log(`${runtime.name}: ${charged.length} execution-fee deductions over ${window.length} ticks, at most one per contract per phase`);
     }
 
     const shape = (records: TickLogRecord[]) => records.map((record) => `${record.type}:${Buffer.from(record.message).toString("hex")}`);

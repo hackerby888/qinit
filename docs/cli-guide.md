@@ -1791,6 +1791,34 @@ added to a fee reserve, and the record is dropped at the epoch boundary, after w
 id reads `UNKNOWN` (0). `TIMEOUT` (3) needs authorization to fail to reach quorum, which
 does not happen on a healthy node, so it is unreachable on both engines.
 
+### 12.7 Execution fees and the phase boundary
+
+A contract pays for the CPU time its entries use out of an execution-fee reserve, and a
+contract whose reserve is at or below zero is *dormant*: its procedures are skipped and
+their transfers refunded, while its functions still answer. A metered deploy is seeded
+with 100 000 000 000 qu (core's `LITE_DEV_FEE_RESERVE`), and `qpi.burn` is the only refill
+a contract can perform on itself.
+
+The charge does not land on the call that caused it. Like core, the engine accumulates
+microseconds per contract across a **phase** of `NUMBER_OF_COMPUTORS` ticks — 8 on the
+testnet committee both engines use — and deducts the phase's total once, at the first tick
+of the next phase, as a `ContractReserveDeduction` log record belonging to no transaction.
+Two consequences worth knowing while developing:
+
+- A contract can outspend its reserve inside a phase and keep running until the boundary.
+  Dormancy begins at the deduction, not mid-tick.
+- `qpi.queryFeeReserve` and `feeReserve` on `/live/v1/dyn-registry` report the *settled*
+  reserve, so neither moves during a call. The open phase's running total is `executionFee`
+  on the same route; poll it to watch a phase fill, since a one-shot read after a call has
+  usually already crossed the boundary.
+
+Costs are microseconds: entering a contract is 80, each priced host call adds its own
+weight, and a state change adds one per megabyte of state. Those figures are calibrated
+against a core node rather than copied from it — core measures real `__rdtsc` time, which
+differs per run, while the engine needs a deterministic number so two machines reach
+byte-identical state. `qinit node run --fees off` turns metering off entirely, leaving
+every contract running regardless of reserve.
+
 ## 13. System contracts, setup, and maintenance commands
 
 ### 13.1 System contracts

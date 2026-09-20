@@ -129,8 +129,8 @@ test("metered: a procedure accrues a sane cost, and the phase boundary charges e
     sim.procedure(28, INC); // mutates the 8-byte state -> base cost + digest recompute
 
     const accrued = sim.executionFee(28);
-    expect(accrued).toBeGreaterThanOrEqual(18n); // BASE_CALL_COST(10) + 8 state bytes, at minimum
-    expect(accrued).toBeLessThan(60n); // no runaway: Inc makes no priced host calls
+    // a core node measured 79 us/call for this exact shape, so the base entry time alone should account for it.
+    expect(accrued).toBe(80n); // BASE_EXECUTION_TIME; an 8-byte state rounds to no digest time, and Inc prices no host calls
     expect(sim.getContractFeeReserve(28)).toBe(before); // nothing charged yet — core only deducts at the boundary
 
     // one full phase of ticks, so the accumulation is reported and charged once.

@@ -21,8 +21,8 @@ const SWITCH_TIMEOUT_MS = Number(process.env.QINIT_EPOCH_SWITCH_TIMEOUT_MS ?? 90
 const TICKS_BEFORE_SWITCH = 3;
 const peerHost = new URL(rpcBaseUrl).hostname;
 const peerPort = Number(process.env.QINIT_PEER_PORT ?? "31841");
-// what a core node writes and the simulator does not model, dropped by name so nothing else can hide behind it: dust burns, spectrum
-// statistics, the fee deductions core books once per computor round, and every custom message but the two epoch markers.
+// what the simulator does not reproduce byte for byte, dropped by name so nothing else can hide behind it: dust burns, spectrum
+// statistics, the phase fee deduction (measured time on core, a formula here), and every custom message but the two epoch markers.
 const CORE_ONLY_LOG_TYPES: readonly number[] = [QUBIC_LOG_TYPE.DUST_BURNING, QUBIC_LOG_TYPE.SPECTRUM_STATS, QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION];
 const EPOCH_MARKERS: readonly bigint[] = [CUSTOM_MESSAGE_OP.START_EPOCH, CUSTOM_MESSAGE_OP.END_EPOCH];
 
