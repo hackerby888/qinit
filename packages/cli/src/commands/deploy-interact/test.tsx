@@ -81,12 +81,6 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
 
         (async () => {
             try {
-                // bun is required to run the test files. (Bun.which is cross-platform — no `sh` on Windows.)
-                if (!Bun.which("bun")) {
-                    add("bun", false, "not found — qinit test needs bun (https://bun.sh)");
-                    setS({ phase: "done", lines, ok: false, output: "", rows: [] });
-                    return;
-                }
                 const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
                 if (!existsSync(contractPath)) {
                     add("contract", false, contractPath + " not found");
@@ -218,7 +212,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
                 const clientNames = [contractName, ...calleeClients.map((deployment) => deployment.name)];
                 const exportLines = clientNames.map((name) => `export { ${name} } from "./${name}";`);
-                writeFileSync(join(sdkDir, "index.ts"), `export * from "./runtime";\n${exportLines.join("\n")}\n`);
+                // BUN_BE_BUN is inherited, so a qinit the spec spawns comes up as bun; this clears it for a spawn given `env: process.env`, all a bun process can reach.
+                writeFileSync(join(sdkDir, "index.ts"), `delete process.env.BUN_BE_BUN;\nexport * from "./runtime";\n${exportLines.join("\n")}\n`);
                 const testsDir = join(root, "tests");
                 const calleeNote = calleeClients.length ? ` · ${calleeClients.map((deployment) => deployment.name).join(", ")}` : "";
                 add("sdk", true, `tests/.qinit/ (${idl.functions.length} fn / ${idl.procedures.length} proc${calleeNote})`);
@@ -244,10 +239,12 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                     QINIT_RPC: activeRpc,
                     QINIT_SEED: testSeed,
                     QINIT_CONTRACT: String(dep.slot),
+                    // the release binary is bun underneath, and this makes it act as one; from a checkout the executable is bun already.
+                    BUN_BE_BUN: "1",
                 };
                 // generous per-test timeout — procedures wait ~tick offset (settle), well past bun's 5s default.
                 const bunArgs = ["test", existsSync(testsDir) ? "tests" : ".", "--timeout", timeout, ...(filter ? ["-t", filter] : [])];
-                const p = Bun.spawn(["bun", ...bunArgs], {
+                const p = Bun.spawn([process.execPath, ...bunArgs], {
                     cwd: root,
                     env,
                     stdout: "pipe",

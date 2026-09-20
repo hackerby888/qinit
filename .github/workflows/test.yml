@@ -148,6 +148,21 @@ jobs:
           WASM_CLANG: ${{ runner.os == 'Linux' && format('{0}/wasi-sdk/bin/clang++', github.workspace) || '' }}
           WASI_SYSROOT: ${{ runner.os == 'Linux' && format('{0}/wasi-sdk/share/wasi-sysroot', github.workspace) || '' }}
         run: bun test
+      # the shipped binary has to run specs on its own, so bun is dropped from PATH wherever the shell allows it.
+      - name: qinit test through the built binary
+        shell: bash
+        env:
+          QINIT_NO_UPDATE: "1"
+        run: |
+          binary="$(bun run scripts/release/build-host.ts | tail -n 1)"
+          mkdir -p "$RUNNER_TEMP/binary-spec" && cd "$RUNNER_TEMP/binary-spec"
+          "$binary" new probe
+          cd probe
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            "$binary" test --runtime simulator --compiler typescript --json
+          else
+            env PATH=/usr/bin:/bin "$binary" test --runtime simulator --compiler typescript --json
+          fi
 
   # Build package distributions and verify their Node and browser entrypoints.
   node-dist:

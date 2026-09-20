@@ -1901,7 +1901,7 @@ resolve, slot, and build the complete project graph
   -> fail when tests/ holds no .test.ts (qinit new ships one written for its template)
   -> update/create package.json + tsconfig.json (see 7.1)
   -> bun install @types/bun when node_modules lacks it (QINIT_NO_UPDATE skips)
-  -> spawn bun test
+  -> spawn bun test through the running executable (BUN_BE_BUN=1), so no separate Bun is needed
   -> inject QINIT_RPC, QINIT_SEED, QINIT_CONTRACT
   -> append a source backtrace on failure when possible
   -> stop a node that this command owns, unless --keep-node
@@ -1909,6 +1909,10 @@ resolve, slot, and build the complete project graph
 
 This command intentionally mutates the project and may access the network. It is
 an end-to-end client test workflow, not a read-only test invocation.
+
+The release binary embeds Bun, and `BUN_BE_BUN=1` is what makes it run the specs. Child processes inherit
+that variable: a spec that spawns `qinit` must pass `env: process.env` (the generated `tests/.qinit` entry
+deletes it there), or the child starts as Bun and answers `Script not found`.
 
 Its in-process simulator is not the detached `node run` simulator. It has no
 peer port and uses the engine server's faster default tick interval.
