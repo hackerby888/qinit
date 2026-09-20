@@ -2,7 +2,6 @@
 import { EngineServer } from "@qinit/engine/server";
 import { VirtualNode } from "@qinit/engine";
 import { DEFAULT_PEER_PORT, DEFAULT_RPC_PORT, LOOPBACK_HOST, type WasmSlotLayout } from "@qinit/core";
-import { CORE_IO_CAPACITY_BYTES } from "@qinit/core/wasm/sizing";
 import { systemContractClosure } from "@qinit/build";
 import type { SystemContract, SystemContractCompiler } from "@qinit/build";
 import { resolveCoreDir } from "../config";
@@ -45,7 +44,7 @@ export async function serveEngine(
     liteTicking?: boolean,
 ): Promise<never> {
     const ms = Number.isFinite(tickMs) ? Math.max(0, tickMs as number) : DEFAULT_TICK_MS;
-    const srv = new EngineServer(new VirtualNode({ ...slotLayout, historyTicks, liteTicking, minIoBytes: CORE_IO_CAPACITY_BYTES }));
+    const srv = new EngineServer(new VirtualNode({ ...slotLayout, historyTicks, liteTicking }));
     await srv.start(portFromRpc(rpcBaseUrl), ms, peerPort);
     process.stdout.write(`qinit simulator: rpc ${rpcBaseUrl} · peer ${LOOPBACK_HOST}:${peerPort}\n`);
     await seedSystemContracts(srv, system, compiler);

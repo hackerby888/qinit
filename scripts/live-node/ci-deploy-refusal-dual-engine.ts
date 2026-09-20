@@ -8,7 +8,6 @@ import { VirtualNode } from "@qinit/engine";
 import { EngineServer } from "@qinit/engine/server";
 import { buildUploadTx, uploadContract } from "@qinit/cli/ops/deploy/upload";
 import { encodeDeploy, LITE_TX, TX_TICK_OFFSET } from "@qinit/proto";
-import { CORE_IO_CAPACITY_BYTES } from "@qinit/core/wasm/sizing";
 
 const core = process.env.QINIT_CORE;
 if (!core) throw new Error("QINIT_CORE is required");
@@ -123,7 +122,7 @@ async function runCases(name: string, rpc: LiteRpc): Promise<DeployOutcome[]> {
     return outcomes;
 }
 
-const simulatorServer = new EngineServer(new VirtualNode({ slotBase: registry.slotBase, slotCount: registry.slotCount, minIoBytes: CORE_IO_CAPACITY_BYTES }));
+const simulatorServer = new EngineServer(new VirtualNode({ slotBase: registry.slotBase, slotCount: registry.slotCount }));
 const simulator = await simulatorServer.start(0, 25);
 
 try {

@@ -1,7 +1,8 @@
 // Exercises NodeTransport through real codecs, signed transactions, and deploy wire data.
 import { test, expect } from "bun:test";
 import { buildSignedTx, k12Hex, deriveIdentity, identityToBytes, LITE_DEPLOY_ADDRESS } from "@qinit/core";
-import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
+import { compileContractWithTypeScript } from "@qinit/compiler/browser";
+import { loadWasmFixture as wasm, wasmFixtureManifest } from "../../../../test-utils/wasm-fixtures";
 import { TEST_SLOT_LAYOUT } from "../../../../test-utils/slot-layout";
 import {
     encodeInputFormat,
@@ -308,9 +309,15 @@ test("a processed DEPLOY records what the node did with it", async () => {
     expect((await lastDeploy())?.code).toBe("hash-mismatch");
 });
 
-// the fixtures carry a 1 MiB arena, which a core node refuses: a node asked to hold core's minimum refuses it the same way, on both deploy paths.
+// a core node refuses a module built with a small arena, and a node holding core's minimum refuses it the same way, on both deploy paths.
 test("a node holding core's io minimum refuses a small-arena module in core's words", async () => {
-    const module = await wasm("DigestProbeDyn0");
+    const built = await compileContractWithTypeScript({
+        source: wasmFixtureManifest.DigestProbeDyn0.source,
+        contractName: wasmFixtureManifest.DigestProbeDyn0.contractName,
+        slot: DYN,
+        arenaSizeBytes: 1024 * 1024,
+    });
+    const module = built.wasm;
     const strict = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false, minIoBytes: CORE_IO_CAPACITY_BYTES });
     const tooSmall = "contract io region too small for the engine carve (rebuild the contract)";
 
@@ -325,8 +332,8 @@ test("a node holding core's io minimum refuses a small-arena module in core's wo
     expect(() => handle(LITE_TX.DEPLOY, encodeDeploy({ sessionId: 41n, targetSlot: DYN, finalHashHex }))).toThrow(tooSmall);
     expect((await strict.dynUpload()).lastDeploy).toMatchObject({ sessionId: "41", ok: false, code: "load-failed", message: tooSmall });
 
-    // without a minimum the same module arms, as every embedder and test of the engine relies on.
-    const lenient = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false });
+    // a node told to hold no minimum arms the same module.
+    const lenient = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false, minIoBytes: 0 });
     lenient.deploy(DYN, module, "DigestProbe");
     expect((await lenient.dynRegistry()).contracts.find((contract) => contract.index === DYN)?.armed).toBe(true);
 });

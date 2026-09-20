@@ -4,3 +4,4 @@ exact = true
 
 [test]
 coverage = false
+preload = ["./test-utils/small-arena-fixtures.ts"]

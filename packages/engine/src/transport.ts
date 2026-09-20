@@ -24,6 +24,7 @@ import {
     WASM_ABI_VERSION,
     hexToBytes,
 } from "@qinit/core";
+import { CORE_IO_CAPACITY_BYTES } from "@qinit/core/wasm/sizing";
 import { LITE_TX, CHUNK_DATA_MAX, MAX_INPUT_SIZE, UploadBegin, UploadChunkHeader, DeployMessage } from "@qinit/proto";
 import { QubicSimulator, EngineFaultedError, type AssetSnapshot, type FeeMode, type ProcedureCallOptions } from "./qubic-simulator";
 import type { LogSink } from "./logging/log";
@@ -83,7 +84,7 @@ export interface VirtualNodeOptions {
     historyTicks?: number;
     maxLogBytes?: number;
     epochLength?: number;
-    // the smallest io region a deployed module may report. A node standing in for core passes core's capacity, so it refuses what core refuses.
+    // the smallest io region a deployed module may report. It defaults to core's capacity, so a node refuses what core refuses; 0 accepts any.
     minIoBytes?: number;
 }
 
@@ -92,7 +93,9 @@ export class VirtualNode implements NodeTransport {
     readonly logger: QubicLogStore;
     readonly slotBase: number;
     readonly slotCount: number;
-    private readonly minIoBytes?: number;
+    private readonly minIoBytes: number;
+    // what a node holds when its options name no minimum. The test suite lowers it, since its fixtures carry a small arena.
+    static defaultMinIoBytes = CORE_IO_CAPACITY_BYTES;
     private slotMeta = new Map<number, DeployedContractMetadata>();
     private slotsByName = new Map<string, number>();
     private upload: UploadSession | null = null;
@@ -139,7 +142,7 @@ export class VirtualNode implements NodeTransport {
         this.sim.timeBaseMs = Date.now();
         this.sim.clockMode = "real";
         this.verifySignatures = options.verifySigs ?? true;
-        this.minIoBytes = options.minIoBytes;
+        this.minIoBytes = options.minIoBytes ?? VirtualNode.defaultMinIoBytes;
     }
 
     feeReserve(slot: number): bigint {
