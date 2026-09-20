@@ -16,6 +16,7 @@ import { TraceRecorder } from "./logging/trace";
 import { Committee, MAX_NUMBER_OF_CONTRACTS, type CommitteeOpts } from "./chain/consensus";
 import { DEFAULT_CONTRACT_COUNT, FeeManager, type FeeMode } from "./contract/fees";
 import { SpectrumLedger } from "./ledger/spectrum";
+import { OcManager } from "./chain/oc";
 import { OracleManager } from "./chain/oracle";
 import {
     AssetLedger,
@@ -115,6 +116,7 @@ export class QubicSimulator {
     private registry: ContractRegistry;
     private spectrum = new SpectrumLedger({ tick: () => this.currentTick });
     private oracle: OracleManager;
+    private oc: OcManager;
     private pitDepth = 0;
     private callbacksRunning = 0;
     // core's contractError: the code a failed procedure, system procedure or migration left behind. A function failure leaves none.
@@ -213,6 +215,22 @@ export class QubicSimulator {
                 }),
             nowMs: () => this.nowMs(),
         });
+
+        this.oc = new OcManager({
+            energyOf: (slot) => this.balanceOf(slot),
+            decreaseEnergyOf: (slot, amount) => {
+                const source = this.contractId(slot);
+                this.decreaseEnergy(this.spectrumIndex(source), amount);
+                this.logQuTransfer(source, ZERO32, amount);
+            },
+            refundEnergyOf: (slot, amount) => {
+                const target = this.contractId(slot);
+                this.increaseEnergy(target, amount);
+                this.logQuTransfer(ZERO32, target, amount);
+            },
+            currentTick: () => this.currentTick,
+            log: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
+        });
         this.host = {
             tick: () => this.currentTick + this.cheatTickOffset,
             // Deliberately unshifted: a warp moves where the contract thinks it is within the epoch, not where the epoch began, so elapsed still reads right.
@@ -275,8 +293,8 @@ export class QubicSimulator {
             computeMiningFunction: () => ZERO32,
             initMiningSeed: () => {},
             getOracleQueryStatus: (queryId) => this.oracle.getOracleQueryStatus(queryId),
-            getOcInvocationStatus: () => 0,
-            invokeOc: () => -1n,
+            getOcInvocationStatus: (invocationId) => this.oc.getOcInvocationStatus(invocationId),
+            invokeOc: (slot, interfaceIndex, request) => this.oc.startContractInvocation(slot, interfaceIndex, request),
             unsubscribeOracle: (slot, subscriptionId) => this.oracle.stopContractSubscription(slot, subscriptionId),
             queryOracle: (slot, interfaceIndex, query, replySize, procedureId, timeout, fee) => {
                 if (!this.isValidOracleCallback(slot, procedureId, replySize)) {
@@ -357,6 +375,7 @@ export class QubicSimulator {
         this.lastFinalizedEpoch = normalizedEpoch;
         this.lastFinalizedTick = initialTick;
         this.oracle.beginEpoch();
+        this.oc.beginEpoch();
         this.pendingOracleNotifications = [];
         this.logStore?.reset(initialTick);
         // a node boots on an epoch's first tick, which opens that epoch's log like any other.
@@ -1104,6 +1123,7 @@ export class QubicSimulator {
 
     private runBeginEpoch(): void {
         this.oracle.beginEpoch();
+        this.oc.beginEpoch();
         this.pendingOracleNotifications = [];
         const logTick = this.nextLogTick();
         this.logStore?.reset(logTick);
@@ -1223,6 +1243,8 @@ export class QubicSimulator {
         this.logStore?.begin(this.currentTick, LOG_SC_NOTIFICATION);
         try {
             this.oracle.pump();
+            // an oc authorization, timeout or delivery also lands between transactions, like core's per-tick engine pass.
+            this.oc.pump();
         } finally {
             this.logStore?.end();
         }

@@ -83,6 +83,14 @@ export const OracleQueryStatusChange = defineStruct("OracleQueryStatusChange", {
     _terminator: u8,
 });
 
+export const OcInvocationStatusChange = defineStruct("OcInvocationStatusChange", {
+    invocationId: i64,
+    contractIndex: u32,
+    interfaceIndex: u32,
+    status: u8,
+    _terminator: u8,
+});
+
 export const OracleSubscriberLogMessage = defineStruct("OracleSubscriberLogMessage", {
     subscriptionId: i32,
     interfaceIndex: u32,
@@ -219,6 +227,15 @@ export function encodeOracleQueryStatusChangeLog(
     message.type = type;
     message.status = status;
     return message.bytes.subarray(0, OracleQueryStatusChange.OFFSETS._terminator);
+}
+
+export function encodeOcInvocationStatusChangeLog(invocationId: bigint, contractIndex: number, interfaceIndex: number, status: number): Uint8Array {
+    const message = OcInvocationStatusChange.alloc();
+    message.invocationId = invocationId;
+    message.contractIndex = contractIndex;
+    message.interfaceIndex = interfaceIndex;
+    message.status = status;
+    return message.bytes.subarray(0, OcInvocationStatusChange.OFFSETS._terminator);
 }
 
 // a period of zero is an unsubscribe.

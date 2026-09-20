@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { LHOST_ABI } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
+import { OC_INVOCATION_STATUS } from "@qinit/proto";
 import { compileContractWithTypeScript, inspectWasmModule, loadQpiHeader } from "../../src";
 import { ProgramAnalysis } from "../../src/semantics/program-analysis";
 import { registerLibraryMetadata } from "../../src/backend/wasm/module/library-index";
@@ -147,10 +148,18 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
         const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         sim.deploy(27, result.wasm);
-        const output = sim.procedure(27, 1);
-        const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
-        expect(view.getBigInt64(0, true)).toBe(-1n);
-        expect(view.getUint8(8)).toBe(0);
+
+        // an unfunded contract cannot pay the invocation fee, so the id is -1 and no record exists to read a status from.
+        const refused = new DataView(sim.procedure(27, 1).buffer);
+        expect(refused.getBigInt64(0, true)).toBe(-1n);
+        expect(refused.getUint8(8)).toBe(OC_INVOCATION_STATUS.UNKNOWN);
+
+        const contractId = new Uint8Array(32);
+        new DataView(contractId.buffer).setBigUint64(0, 27n, true);
+        sim.fund(contractId, 1_000n);
+        const accepted = new DataView(sim.procedure(27, 1).buffer);
+        expect(accepted.getBigInt64(0, true)).toBeGreaterThan(0n);
+        expect(accepted.getUint8(8)).toBe(OC_INVOCATION_STATUS.PENDING_AUTH);
     });
 
     test("context violations and unknown bindings fail closed even with strict false", async () => {

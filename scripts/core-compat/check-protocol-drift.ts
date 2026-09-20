@@ -22,6 +22,13 @@ import {
     MAX_ORACLE_QUERY_SIZE,
     MAX_ORACLE_REPLY_SIZE,
     ORACLE_STATUS,
+    OC_INVOCATION_STATUS,
+    MIN_OC_INVOCATION_FEE,
+    MAX_OC_REQUEST_SIZE,
+    OC_INVOCATION_TIMEOUT_DEFAULT_TICKS,
+    MAX_OC_IN_FLIGHT_INVOCATIONS,
+    MAX_OC_INVOCATIONS_PER_EPOCH,
+    OC_AUTH_SIGNATURE_PUBLICATION_OFFSET,
     SPECTRUM_DEPTH,
     TXS_PER_TICK,
 } from "@qinit/proto/protocol";
@@ -59,7 +66,7 @@ const readDefine = (file: string, name: string, occurrence: "first" | "last" = "
     }
 };
 
-// Read `constexpr <type> NAME = <int>;` declarations from a core header.
+// Read `constexpr <type> NAME = <expr>;` declarations from a core header, e.g. 10, (1 << 21) or MAX_INPUT_SIZE - 16.
 const readConstexpr = (file: string, name: string, symbols: Readonly<Record<string, number>> = {}): number | null => {
     try {
         const expression = readFileSync(join(core, file), "utf8")
@@ -68,11 +75,14 @@ const readConstexpr = (file: string, name: string, symbols: Readonly<Record<stri
         if (!expression) return null;
         if (/^\d+$/.test(expression)) return Number(expression);
 
+        let arithmetic = expression;
         for (const [symbol, value] of Object.entries(symbols)) {
-            const offset = expression.match(new RegExp(`^${symbol}\\s*-\\s*(\\d+)$`))?.[1];
-            if (offset) return value - Number(offset);
+            arithmetic = arithmetic.replaceAll(symbol, String(value));
         }
-        return null;
+        // drop c integer suffixes, then evaluate only if nothing but arithmetic is left, so an unknown symbol reads as a miss rather than a wrong number.
+        arithmetic = arithmetic.replace(/\b(\d+)(?:ULL|UL|LL|[uUlL])\b/g, "$1");
+        if (!/^[\d\s()+\-*<>]+$/.test(arithmetic)) return null;
+        return Number(new Function(`return (${arithmetic});`)());
     } catch {
         return null;
     }
@@ -130,6 +140,8 @@ const DEPLOYMENT_PROTOCOL = join("src", CORE_WASM_HEADERS.runtime.deploymentProt
 const LOG = "src/logging/logging.h";
 const NET = "src/network_messages/common_def.h";
 const CONTRACT_DEF = "src/contract_core/contract_def.h";
+const OC_ENGINE = "src/oc_core/oc_engine.h";
+const QUBIC_CPP = "src/qubic.cpp";
 
 expectEqual("contractSystemProcedureCount", readSystemProcedureCount(CONTRACT_DEF), SYSTEM_PROCEDURE_COUNT);
 for (const [name, expected] of [
@@ -222,8 +234,25 @@ for (const [name, value] of [
     expectEqual(name, readConstexpr(NET, name), value);
 }
 
+// An oc invocation has no reply, so the simulator mirrors the authorization statuses and the engine's admission caps.
+for (const [name, value] of [
+    ["OC_INVOCATION_STATUS_UNKNOWN", OC_INVOCATION_STATUS.UNKNOWN],
+    ["OC_INVOCATION_STATUS_PENDING_AUTH", OC_INVOCATION_STATUS.PENDING_AUTH],
+    ["OC_INVOCATION_STATUS_AUTHORIZED", OC_INVOCATION_STATUS.AUTHORIZED],
+    ["OC_INVOCATION_STATUS_TIMEOUT", OC_INVOCATION_STATUS.TIMEOUT],
+] as const) {
+    expectEqual(name, readConstexpr(NET, name), value);
+}
+
+expectEqual("MIN_OC_INVOCATION_FEE", readConstexpr(OC_ENGINE, "MIN_OC_INVOCATION_FEE"), Number(MIN_OC_INVOCATION_FEE));
+expectEqual("MAX_OC_REQUEST_SIZE", readConstexpr(OC_ENGINE, "MAX_OC_REQUEST_SIZE", { MAX_INPUT_SIZE }), MAX_OC_REQUEST_SIZE);
+expectEqual("OC_INVOCATION_TIMEOUT_DEFAULT_TICKS", readConstexpr(OC_ENGINE, "OC_INVOCATION_TIMEOUT_DEFAULT_TICKS"), OC_INVOCATION_TIMEOUT_DEFAULT_TICKS);
+expectEqual("MAX_OC_IN_FLIGHT_INVOCATIONS", readConstexpr(OC_ENGINE, "MAX_OC_IN_FLIGHT_INVOCATIONS"), MAX_OC_IN_FLIGHT_INVOCATIONS);
+expectEqual("MAX_OC_INVOCATIONS_PER_EPOCH", readConstexpr(OC_ENGINE, "MAX_OC_INVOCATIONS_PER_EPOCH"), MAX_OC_INVOCATIONS_PER_EPOCH);
+expectEqual("OC_AUTH_SIGNATURE_PUBLICATION_OFFSET", readDefine(QUBIC_CPP, "OC_AUTH_SIGNATURE_PUBLICATION_OFFSET"), OC_AUTH_SIGNATURE_PUBLICATION_OFFSET);
+
 if (failures.length) {
     console.error("PROTOCOL DRIFT vs core-lite:\n  " + failures.join("\n  "));
     process.exit(1);
 }
-console.log("protocol-drift OK — ABI, deployment, logging, network limits, and oracle constants match core");
+console.log("protocol-drift OK — ABI, deployment, logging, network limits, and oracle/oc constants match core");

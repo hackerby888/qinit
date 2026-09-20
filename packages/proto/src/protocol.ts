@@ -58,6 +58,24 @@ export const ORACLE_STATUS = {
     UNRESOLVABLE: 5,
 } as const;
 
+// an OC invocation has no reply: the status only tracks whether the computors authorized the bundle.
+export const OC_INVOCATION_STATUS = {
+    UNKNOWN: 0,
+    PENDING_AUTH: 1,
+    AUTHORIZED: 2,
+    TIMEOUT: 3,
+} as const;
+
+// src/oc_core/oc_engine.h
+export const MIN_OC_INVOCATION_FEE = 10n;
+export const MAX_OC_REQUEST_SIZE = MAX_INPUT_SIZE - 16;
+export const OC_INVOCATION_TIMEOUT_DEFAULT_TICKS = 12;
+export const MAX_OC_IN_FLIGHT_INVOCATIONS = 1024;
+export const MAX_OC_INVOCATIONS_PER_EPOCH = 1 << 21;
+export const OC_REQUEST_STORAGE_SIZE = 256 * MAX_OC_INVOCATIONS_PER_EPOCH;
+// src/qubic.cpp: the tick offset the authorization signatures are scheduled at, so AUTHORIZED lands this many ticks after the call.
+export const OC_AUTH_SIGNATURE_PUBLICATION_OFFSET = 3;
+
 export const CHUNK_HEADER_SIZE = 14; // UploadChunk: sessionId(8) + seq(4) + len(2)
 // Upload chunks keep their proven size; this is independent of the oracle payload limit.
 export const CHUNK_DATA_MAX = 1008;
