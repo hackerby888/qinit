@@ -121,7 +121,8 @@ export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickS
     v.epoch = epoch;
     v.tick = tick;
 
-    // tx-body u32 digests stay zero — not modeled in the dev sim.
+    // saltedResourceTestingDigest, saltedTransactionBodyDigest and expectedNextTickTransactionDigest stay zero: these votes model the round for
+    // local tools and are not quorum input for a core node, whose next-tick digest needs that tick's data a tick early.
     const t = dateFields(timeMs);
     v.millisecond = t.milli;
     v.second = t.second;
