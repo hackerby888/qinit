@@ -297,21 +297,38 @@ export class OracleManager {
         if (status !== ORACLE_STATUS.SUCCESS && status !== ORACLE_STATUS.TIMEOUT && status !== ORACLE_STATUS.UNRESOLVABLE) return false;
         if (status === ORACLE_STATUS.SUCCESS && reply.length !== query.replySize) return false;
 
+        // a reply the quorum has committed to is only revealed in a later tick, so success and the notification wait for the next tick as they do on a node.
+        if (status === ORACLE_STATUS.SUCCESS) {
+            query.status = ORACLE_STATUS.COMMITTED;
+            query.reply = reply.slice();
+            this.logStatusChange(query);
+            return true;
+        }
+
         query.status = status;
-        query.reply = status === ORACLE_STATUS.SUCCESS ? reply.slice() : null;
+        query.reply = null;
         this.logStatusChange(query);
-        if (status === ORACLE_STATUS.SUCCESS && query.subscriptionId >= 0) {
+        this.notifyRecipients(query);
+        return true;
+    }
+
+    private reveal(query: OracleQueryRec): void {
+        query.status = ORACLE_STATUS.SUCCESS;
+        this.logStatusChange(query);
+        if (query.subscriptionId >= 0) {
             const channel = this.channels.get(query.subscriptionId);
             if (channel) {
                 channel.lastQueryId = query.id;
                 channel.lastReply = query.reply!;
             }
         }
+        this.notifyRecipients(query);
+    }
 
+    private notifyRecipients(query: OracleQueryRec): void {
         for (const recipient of query.recipients) {
-            this.fire(recipient.slot, recipient.notificationProcId, query.id, query.subscriptionId, status, query.replySize, query.reply ?? undefined);
+            this.fire(recipient.slot, recipient.notificationProcId, query.id, query.subscriptionId, query.status, query.replySize, query.reply ?? undefined);
         }
-        return true;
     }
 
     setProvider(fn: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null): void {
@@ -338,6 +355,11 @@ export class OracleManager {
     }
 
     pump(): void {
+        // a committed reply is revealed first, so a reply that arrived before this tick cannot be overtaken by the deadline below.
+        for (const query of [...this.queries.values()]) {
+            if (query.status === ORACLE_STATUS.COMMITTED && query.reply) this.reveal(query);
+        }
+
         if (this.provider) {
             for (const query of [...this.queries.values()]) {
                 if (query.status !== ORACLE_STATUS.PENDING) continue;
@@ -349,6 +371,7 @@ export class OracleManager {
         const now = this.host.nowMs();
         for (const channel of this.channels.values()) this.emitDueChannel(channel, now);
         for (const query of [...this.queries.values()]) {
+            if (query.reply) continue;
             if ((query.status === ORACLE_STATUS.PENDING || query.status === ORACLE_STATUS.COMMITTED) && query.deadlineMs <= now)
                 this.resolve(query.id, new Uint8Array(0), ORACLE_STATUS.TIMEOUT);
         }

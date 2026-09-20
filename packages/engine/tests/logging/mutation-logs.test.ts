@@ -482,6 +482,12 @@ test("oracle queries and subscribers leave core's status and subscriber records"
     sim.advance();
     // the reply lands between the tick's hooks, so its record sits in the range of the notification it causes.
     expect(ofType(sim.currentTick, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE)).toEqual([
+        { range: LOG_SC_NOTIFICATION, type: QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE, message: statusChange(29n, queryId, 0, 2) },
+    ]);
+
+    // the reveal is a tick later, and it is the record that carries success.
+    sim.advance();
+    expect(ofType(sim.currentTick, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE)).toEqual([
         { range: LOG_SC_NOTIFICATION, type: QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE, message: statusChange(29n, queryId, 0, 3) },
     ]);
 

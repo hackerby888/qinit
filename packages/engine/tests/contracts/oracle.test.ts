@@ -12,6 +12,7 @@ const LAST = 1;
 const STATUS = 2;
 const OQ_UNKNOWN = 0n;
 const OQ_PENDING = 1n;
+const OQ_COMMITTED = 2n;
 const OQ_SUCCESS = 3n;
 
 function priceInput(milliseconds: number, notifyPrevious = false): Uint8Array {
@@ -73,10 +74,12 @@ test("Price query resolves through its notification procedure", async () => {
     expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_PENDING);
     expect(sim.balance(contractId(SLOT))).toBe(999_990n);
     expect(sim.resolveOracle(queryId, priceReply(42n, 1n))).toBe(true);
-    expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_SUCCESS);
+    // the reply is committed on arrival and revealed on the next tick, as a node's reveal transaction does it.
+    expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_COMMITTED);
     expect(last(sim).status).toBe(Number(OQ_UNKNOWN));
 
     sim.advance();
+    expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_SUCCESS);
     expect(last(sim)).toEqual({
         numerator: 42n,
         denominator: 1n,
@@ -91,6 +94,9 @@ test("Price provider resolves pending queries on advance", async () => {
     sim.setOracleProvider((interfaceIndex) => (interfaceIndex === 0 ? priceReply(100n, 3n) : null));
     const queryId = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(60_000)));
 
+    // one tick to answer the query, the next to reveal the reply and notify the contract.
+    sim.advance();
+    expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_COMMITTED);
     sim.advance();
     expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_SUCCESS);
     expect(last(sim).numerator).toBe(100n);

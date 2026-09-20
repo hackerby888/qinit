@@ -50,6 +50,12 @@ test("one-time query charges once and delivers the typed reply", () => {
     expect(oracle.getOracleQueryStatus(queryId)).toBe(ORACLE_STATUS.PENDING);
     expect(oracle.resolve(queryId, new Uint8Array(PriceOracleReply.SIZE).fill(9))).toBe(true);
 
+    // a reply is committed when it arrives and revealed on the next tick, so nothing is notified yet.
+    expect(oracle.getOracleQueryStatus(queryId)).toBe(ORACLE_STATUS.COMMITTED);
+    expect(host.notifications).toEqual([]);
+    oracle.pump();
+    expect(oracle.getOracleQueryStatus(queryId)).toBe(ORACLE_STATUS.SUCCESS);
+
     const notification = host.notifications[0];
     const view = new DataView(notification.input.buffer, notification.input.byteOffset, notification.input.byteLength);
     expect(notification.slot).toBe(7);
@@ -128,6 +134,8 @@ test("subscribers share a channel, can receive its previous reply, and expire at
 
     const first = oracle.startContractSubscription(5, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 11, 60_000, false, 100n);
     expect(oracle.resolve(1n, new Uint8Array(PriceOracleReply.SIZE).fill(7))).toBe(true);
+    // the channel remembers a reply once it is revealed, which is the tick after it was committed.
+    oracle.pump();
     const second = oracle.startContractSubscription(6, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 12, 120_000, true, 100n);
 
     expect(second).toBe(first);

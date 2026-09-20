@@ -217,6 +217,8 @@ test("raw oracle imports derive query fees and require exact read sizes", async 
     expect(sim.balance(sim.contractId(28))).toBe(80n);
 
     expect(sim.resolveOracle(underpaid, new Uint8Array(16))).toBe(true);
+    // core hands out a reply only once the query has succeeded, which is the tick after the reply was committed.
+    sim.advance();
     const readFlags = (size: number) => {
         const output = sim.query(28, 3, readInput(underpaid, size));
         const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
