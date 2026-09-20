@@ -43,6 +43,9 @@ type Observed = {
     ocSequence: number[];
     ocInvocations: bigint;
     ocBalanceSpent: bigint;
+    inlineNotifications: bigint;
+    inlineSeenInsideCall: bigint;
+    inlineQueryId: bigint;
 };
 
 async function compile(name: string, slot: number, qpiHeader: string): Promise<Artifact> {
@@ -171,7 +174,7 @@ async function pendingQuery(rpc: LiteRpc, slot: number, budgetMs: number) {
     }
 }
 
-async function observe(base: string, rpc: LiteRpc, seed: string, oracleSlot: number, ocSlot: number): Promise<Observed> {
+async function observe(base: string, rpc: LiteRpc, seed: string, oracleSlot: number, ocSlot: number, inlineSlot: number): Promise<Observed> {
     const priceReply = await encodeInputFormatAs(abiTypeFromFormat(ORACLE_INTERFACES[0].replyFormat), REPLY_TEXT);
     const contractBalance = async (slot: number) => BigInt((await rpc.balance(await contractIdentity(slot))).balance);
 
@@ -219,6 +222,10 @@ async function observe(base: string, rpc: LiteRpc, seed: string, oracleSlot: num
     const ocObserved = distinct(ocSequence);
     const afterInvoke = await contractBalance(ocSlot);
 
+    // a query the contract cannot pay for: the notification about it runs before QUERY_ORACLE returns, so the procedure sees it in its own state
+    await send(base, rpc, seed, inlineSlot, 2, 0, priceInput(QUERY_TIMEOUT_MS));
+    const inline = await call(rpc, inlineSlot, 1, new Uint8Array(0));
+
     return {
         querySequence,
         notifiedStatus: last.getUint8(28),
@@ -231,6 +238,9 @@ async function observe(base: string, rpc: LiteRpc, seed: string, oracleSlot: num
         ocSequence: ocObserved,
         ocInvocations: invoked.getBigUint64(8, true),
         ocBalanceSpent: beforeInvoke + 1_000n - afterInvoke,
+        inlineNotifications: inline.getBigUint64(0, true),
+        inlineSeenInsideCall: inline.getBigUint64(8, true),
+        inlineQueryId: inline.getBigInt64(16, true),
     };
 }
 
@@ -253,9 +263,14 @@ const coreRpc = new LiteRpc(rpcBaseUrl);
 const registry = await coreRpc.dynRegistry();
 const oracleSlot = registry.slotBase;
 const ocSlot = registry.slotBase + 1;
-const artifacts = [await compile("OracleProbe", oracleSlot, qpiHeader), await compile("OcProbe", ocSlot, qpiHeader)];
+const inlineSlot = registry.slotBase + 2;
+const artifacts = [
+    await compile("OracleProbe", oracleSlot, qpiHeader),
+    await compile("OcProbe", ocSlot, qpiHeader),
+    await compile("OracleInline", inlineSlot, qpiHeader),
+];
 for (const artifact of artifacts) {
-    console.log(`${artifact.name.padEnd(11)} slot ${artifact.slot}: ${artifact.wasm.length}B · ${artifact.hash}`);
+    console.log(`${artifact.name.padEnd(12)} slot ${artifact.slot}: ${artifact.wasm.length}B · ${artifact.hash}`);
 }
 
 const simulatorServer = new EngineServer(new VirtualNode({ slotBase: registry.slotBase, slotCount: registry.slotCount }));
@@ -268,8 +283,8 @@ try {
     await deployAll(rpcBaseUrl, coreRpc, artifacts, coreSeed);
 
     const observed = new Map<string, Observed>();
-    observed.set("simulator", await observe(simulator.rpcBaseUrl, simulatorRpc, simulatorSeed, oracleSlot, ocSlot));
-    observed.set("core", await observe(rpcBaseUrl, coreRpc, coreSeed, oracleSlot, ocSlot));
+    observed.set("simulator", await observe(simulator.rpcBaseUrl, simulatorRpc, simulatorSeed, oracleSlot, ocSlot, inlineSlot));
+    observed.set("core", await observe(rpcBaseUrl, coreRpc, coreSeed, oracleSlot, ocSlot, inlineSlot));
 
     const expected = {
         // pending, then the quorum's commit, then the revealed value
@@ -284,6 +299,9 @@ try {
         ocSequence: [OC_INVOCATION_STATUS.PENDING_AUTH, OC_INVOCATION_STATUS.AUTHORIZED],
         ocInvocations: 1n,
         ocBalanceSpent: 10n,
+        inlineNotifications: 1n,
+        inlineSeenInsideCall: 1n,
+        inlineQueryId: -1n,
     };
     for (const [name, result] of observed) {
         const actual = JSON.stringify(result, (_key, value) => (typeof value === "bigint" ? value.toString() : value));

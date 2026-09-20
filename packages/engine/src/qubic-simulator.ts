@@ -10,7 +10,7 @@ import {
     QUBIC_LOG_TYPE,
     TXS_PER_TICK,
 } from "@qinit/proto";
-import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, Entity, HostServices } from "./contract/runtime";
+import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, Entity, HostServices, type ContractCallContext } from "./contract/runtime";
 import { toHex, verifySync } from "./support/k12";
 import { TraceRecorder } from "./logging/trace";
 import { Committee, MAX_NUMBER_OF_CONTRACTS, type CommitteeOpts } from "./chain/consensus";
@@ -154,6 +154,8 @@ export class QubicSimulator {
     private lastFinalizedTick = 0;
     private lastFinalizedEpoch = 0;
     private pendingOracleNotifications: PendingOracleNotification[] = [];
+    // set while a contract's own query or subscribe call is on the stack: core runs a notification raised in there before the call returns.
+    private oracleCallerFrame: ContractCallContext | null = null;
 
     constructor(
         options: {
@@ -203,12 +205,19 @@ export class QubicSimulator {
                 this.logQuTransfer(source, ZERO32, amount);
             },
             log: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
-            notify: (slot, procedureId, input) =>
+            notify: (slot, procedureId, input) => {
+                const contract = this.oracleCallerFrame ? this.contracts.get(slot) : undefined;
+                if (contract) {
+                    this.registry.fire(contract, CONTRACT_ENTRY_KIND.PROCEDURE, procedureId, input, this.oracleCallerFrame!);
+                    return;
+                }
+
                 this.pendingOracleNotifications.push({
                     slot,
                     procedureId,
                     input: input.slice(),
-                }),
+                });
+            },
             nowMs: () => this.nowMs(),
         });
 
@@ -292,19 +301,41 @@ export class QubicSimulator {
             getOcInvocationStatus: (invocationId) => this.oc.getOcInvocationStatus(invocationId),
             invokeOc: (slot, interfaceIndex, request) => this.oc.startContractInvocation(slot, interfaceIndex, request),
             unsubscribeOracle: (slot, subscriptionId) => this.oracle.stopContractSubscription(slot, subscriptionId),
-            queryOracle: (slot, interfaceIndex, query, replySize, procedureId, timeout, fee) => {
+            queryOracle: (slot, interfaceIndex, query, replySize, procedureId, timeout, fee, callerFrame) => {
                 if (!this.isValidOracleCallback(slot, procedureId, replySize)) {
                     return -1n;
                 }
 
-                return this.oracle.startContractQuery(slot, interfaceIndex, query, replySize, procedureId, timeout, fee);
+                const outerFrame = this.oracleCallerFrame;
+                this.oracleCallerFrame = callerFrame ?? null;
+                try {
+                    return this.oracle.startContractQuery(slot, interfaceIndex, query, replySize, procedureId, timeout, fee);
+                } finally {
+                    this.oracleCallerFrame = outerFrame;
+                }
             },
-            subscribeOracle: (slot, interfaceIndex, query, replySize, timestampOffset, procedureId, period, notifyPrevious, fee) => {
+            subscribeOracle: (slot, interfaceIndex, query, replySize, timestampOffset, procedureId, period, notifyPrevious, fee, callerFrame) => {
                 if (!this.isValidOracleCallback(slot, procedureId, replySize)) {
                     return -1;
                 }
 
-                return this.oracle.startContractSubscription(slot, interfaceIndex, query, replySize, timestampOffset, procedureId, period, notifyPrevious, fee);
+                const outerFrame = this.oracleCallerFrame;
+                this.oracleCallerFrame = callerFrame ?? null;
+                try {
+                    return this.oracle.startContractSubscription(
+                        slot,
+                        interfaceIndex,
+                        query,
+                        replySize,
+                        timestampOffset,
+                        procedureId,
+                        period,
+                        notifyPrevious,
+                        fee,
+                    );
+                } finally {
+                    this.oracleCallerFrame = outerFrame;
+                }
             },
             getOracleQuery: (queryId) => this.oracle.getOracleQuery(queryId),
             getOracleReply: (queryId) => this.oracle.getOracleReply(queryId),

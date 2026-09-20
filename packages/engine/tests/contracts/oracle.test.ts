@@ -153,3 +153,76 @@ test("unknown query ids stay UNKNOWN", async () => {
     expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(424242n)))).toBe(OQ_UNKNOWN);
     expect(sim.resolveOracle(424242n, priceReply(1n, 1n))).toBe(false);
 });
+
+const INLINE_QUERY = 2;
+const INLINE_LAST = 1;
+
+function inlineLast(sim: QubicSimulator) {
+    const bytes = sim.query(SLOT, INLINE_LAST);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return {
+        notifications: view.getBigUint64(0, true),
+        seenInsideCall: view.getBigUint64(8, true),
+        queryId: view.getBigInt64(16, true),
+        subscriptionId: view.getInt32(24, true),
+    };
+}
+
+function inlineQuery(sim: QubicSimulator) {
+    const output = sim.procedure(SLOT, INLINE_QUERY, priceInput(60_000));
+    const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+    return { queryId: view.getBigInt64(0, true), notificationsAfter: view.getBigUint64(8, true), seenInsideCall: view.getBigUint64(16, true) };
+}
+
+// core notifies about a query it could not start before QUERY_ORACLE returns, so the contract sees its own notification inside the call.
+for (const fees of ["off", "metered"] as const) {
+    test(`a query the contract cannot pay for notifies inside the call (fees ${fees})`, async () => {
+        await initK12();
+        const sim = new QubicSimulator({ fees });
+        sim.deploy(SLOT, await wasm("OracleInline"));
+
+        expect(inlineQuery(sim)).toEqual({ queryId: -1n, notificationsAfter: 1n, seenInsideCall: 1n });
+        expect(inlineLast(sim)).toEqual({ notifications: 1n, seenInsideCall: 1n, queryId: -1n, subscriptionId: -1 });
+
+        // nothing was left queued for the next tick.
+        sim.advance();
+        expect(inlineLast(sim).notifications).toBe(1n);
+    });
+}
+
+test("the inline notification agrees with a whole-state diff of the call that raised it", async () => {
+    await initK12();
+    const saved = process.env.QINIT_STATE_DIFF;
+    process.env.QINIT_STATE_DIFF = "verify";
+    try {
+        const sim = new QubicSimulator();
+        sim.deploy(SLOT, await wasm("OracleInline"));
+        sim.setDebug(true);
+
+        expect(inlineQuery(sim).seenInsideCall).toBe(1n);
+    } finally {
+        if (saved === undefined) {
+            delete process.env.QINIT_STATE_DIFF;
+        } else {
+            process.env.QINIT_STATE_DIFF = saved;
+        }
+    }
+});
+
+test("a reply still arrives a tick after it is committed, never inside the call", async () => {
+    await initK12();
+    const sim = new QubicSimulator();
+    sim.tickDuration = 60_000;
+    sim.deploy(SLOT, await wasm("OracleInline"));
+    sim.fund(contractId(SLOT), 1_000_000n);
+
+    const started = inlineQuery(sim);
+    expect(started.queryId).toBeGreaterThan(0n);
+    expect(started).toMatchObject({ notificationsAfter: 0n, seenInsideCall: 0n });
+
+    expect(sim.resolveOracle(started.queryId, priceReply(42n, 1n))).toBe(true);
+    expect(inlineLast(sim).notifications).toBe(0n);
+
+    sim.advance();
+    expect(inlineLast(sim)).toEqual({ notifications: 1n, seenInsideCall: 0n, queryId: started.queryId, subscriptionId: -1 });
+});

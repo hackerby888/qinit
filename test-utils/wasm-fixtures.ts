@@ -21,6 +21,7 @@ import CHEATS_SOURCE from "../fixtures/Cheats.h" with { type: "text" };
 import CHEAT_OPS_SOURCE from "../fixtures/CheatOps.h" with { type: "text" };
 import CHEAT_SHAPES_SOURCE from "../fixtures/CheatShapes.h" with { type: "text" };
 import OC_PROBE_SOURCE from "../fixtures/OcProbe.h" with { type: "text" };
+import ORACLE_INLINE_SOURCE from "../fixtures/OracleInline.h" with { type: "text" };
 import ORACLE_PROBE_SOURCE from "../fixtures/OracleProbe.h" with { type: "text" };
 import PROXY_SOURCE from "../fixtures/Proxy.h" with { type: "text" };
 import QPI_DUAL_SOURCE from "../fixtures/QpiDual.h" with { type: "text" };
@@ -101,6 +102,7 @@ export const wasmFixtureManifest = {
     MigrateTrap: fixture("MigrateTrap.h", MIGRATE_TRAP_SOURCE, "MigrateTrap", 28),
     MigrateTrapV1: fixture("MigrateTrapV1.h", MIGRATE_TRAP_V1_SOURCE, "MigrateTrap", 28),
     OcProbe: fixture("OcProbe.h", OC_PROBE_SOURCE, "OcProbe", 28),
+    OracleInline: fixture("OracleInline.h", ORACLE_INLINE_SOURCE, "OracleInline", 29),
     OracleProbe: fixture("OracleProbe.h", ORACLE_PROBE_SOURCE, "OracleProbe", 29),
     Proxy: fixture("Proxy.h", PROXY_SOURCE, "Proxy", 29, ["Counter"]),
     QpiDualCallee: fixture("QpiDualCallee.h", QPI_DUAL_CALLEE_SOURCE, "QpiDualCallee", 28),

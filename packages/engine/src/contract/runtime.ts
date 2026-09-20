@@ -254,6 +254,7 @@ export interface HostServices {
         notificationProcId: number,
         timeoutMillisec: number,
         fee: bigint,
+        callerFrame?: ContractCallContext,
     ): bigint;
     subscribeOracle(
         slot: number,
@@ -265,6 +266,7 @@ export interface HostServices {
         periodMillisec: number,
         notifyPrev: boolean,
         fee: bigint,
+        callerFrame?: ContractCallContext,
     ): number;
     getOracleQuery(queryId: bigint): Uint8Array | null;
     getOracleReply(queryId: bigint): Uint8Array | null;
@@ -1322,10 +1324,30 @@ export class Contract {
 
     // lhost: oracle query, subscribe, and reply reads over opaque sized buffers.
     private oracleImports(u8: () => Uint8Array, contextView: () => QpiContext) {
+        // core runs a notification raised inside the call under the caller's own context; copied, since a nested frame rewrites the context bytes.
+        const callerFrame = (): ContractCallContext => {
+            const view = contextView();
+            return {
+                invocator: view.invocator.slice() as Id,
+                originator: view.originator.slice() as Id,
+                invocationReward: view.invocationReward,
+                entryPoint: view.entryPoint,
+            };
+        };
+
         return {
             // oracle query/subscribe/read — the query/reply are opaque sized buffers (the contract owns the typing)
             queryOracle: (ifaceIdx: number, queryOff: number, querySize: number, replySize: number, procId: number, timeout: number, fee: bigint) =>
-                this.host.queryOracle(this.slot, ifaceIdx >>> 0, u8().slice(queryOff, queryOff + querySize), replySize >>> 0, procId >>> 0, timeout >>> 0, fee),
+                this.host.queryOracle(
+                    this.slot,
+                    ifaceIdx >>> 0,
+                    u8().slice(queryOff, queryOff + querySize),
+                    replySize >>> 0,
+                    procId >>> 0,
+                    timeout >>> 0,
+                    fee,
+                    callerFrame(),
+                ),
             subscribeOracle: (
                 ifaceIdx: number,
                 queryOff: number,
@@ -1347,6 +1369,7 @@ export class Contract {
                     period >>> 0,
                     notifyPrev !== 0,
                     fee,
+                    callerFrame(),
                 ),
             getOracleQuery: (queryId: bigint, outOff: number, size: number) => {
                 const q = this.host.getOracleQuery(queryId);
