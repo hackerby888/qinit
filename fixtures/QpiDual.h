@@ -695,6 +695,7 @@ struct QpiDual : public ContractBase
         sint64 managedByCallee;
         sint64 acquireFee;
         sint64 managedBySelf;
+        sint64 transferRemaining;
     };
     struct Rights_locals { Asset asset; };
 
@@ -715,6 +716,8 @@ struct QpiDual : public ContractBase
             qpi.numberOfPossessedShares(locals.asset.assetName, SELF, SELF, SELF, (uint16)input.calleeIndex, (uint16)input.calleeIndex);
         output.acquireFee = qpi.acquireShares(locals.asset, SELF, SELF, 40, (uint16)input.calleeIndex, (uint16)input.calleeIndex, 10);
         output.managedBySelf = qpi.numberOfPossessedShares(locals.asset.assetName, SELF, SELF, SELF, SELF_INDEX, SELF_INDEX);
+        // what the source still holds after 30 of the 100 leave it.
+        output.transferRemaining = qpi.transferShareOwnershipAndPossession(locals.asset.assetName, SELF, SELF, SELF, 30, id(SELF_INDEX, 0x5348415245, 0, 0));
 
         state.mut().rightsReleaseFee = output.releaseFee;
         state.mut().rightsAcquireFee = output.acquireFee;

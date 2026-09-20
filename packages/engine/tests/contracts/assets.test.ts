@@ -433,8 +433,8 @@ test("a rights round trip pays each leg's fee, and a transfer nested in its call
     new DataView(input.buffer).setBigUint64(0, 28n, true);
     const output = new DataView(sim.procedure(29, 5, input).buffer);
 
-    // issued, release fee, managed by the callee after the release, acquire fee, managed by the driver after the acquire.
-    expect([0, 8, 16, 24, 32].map((offset) => output.getBigInt64(offset, true))).toEqual([100n, 5n, 40n, 7n, 100n]);
+    // issued, release fee, managed by the callee after the release, acquire fee, managed by the driver after the acquire, left after a transfer of 30.
+    expect([0, 8, 16, 24, 32, 40].map((offset) => output.getBigInt64(offset, true))).toEqual([100n, 5n, 40n, 7n, 100n, 70n]);
     expect(sim.balanceOf(28)).toBe(12n);
 
     const callee = new DataView(sim.query(28, 4).buffer);

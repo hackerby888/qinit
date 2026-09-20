@@ -856,7 +856,7 @@ export class AssetLedger {
                     return INVALID_AMOUNT;
                 }
 
-                return possession.shares;
+                return this.record(possessionIndex)!.shares;
             }
 
             possessionIndex = (possessionIndex + 1) & ASSET_INDEX_MASK;

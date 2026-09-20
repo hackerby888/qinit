@@ -535,7 +535,8 @@ async function execute(base: string, rpc: LiteRpc, artifacts: Artifact[], compil
         (entry) => entry.index === driver.slot && entry.entry === 5 && entry.kind === 1 && entry.ok,
     );
     const rightsWords = rightsEntry ? new DataView(hexToBytes(rightsEntry.outHex).buffer) : undefined;
-    const rightsExpected = [100n, 5n, 40n, 7n, 100n];
+    // the last word is what a share transfer returns: the source's holding after it, which both engines read back from the ledger.
+    const rightsExpected = [100n, 5n, 40n, 7n, 100n, 70n];
     rightsExpected.forEach((value, index) => {
         if (rightsWords?.getBigInt64(index * 8, true) !== value) {
             fail(`${base} ${compiler} rights output word ${index}: ${rightsWords?.getBigInt64(index * 8, true)} != ${value}`);
