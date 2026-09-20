@@ -124,7 +124,18 @@ async function call(rpc: LiteRpc, slot: number, functionId: number, input: Uint8
 
 async function send(base: string, rpc: LiteRpc, seed: string, slot: number, procedureId: number, amount: number, input: Uint8Array): Promise<void> {
     const tick = (await rpc.tickInfo()).tick + 6;
-    const invoked = await invokeProcedure({ seed, rpcBaseUrl: base, rpc, contractIndex: slot, procedureId, amount, input, tick, confirm: true, confirmTimeoutMs: 60_000 });
+    const invoked = await invokeProcedure({
+        seed,
+        rpcBaseUrl: base,
+        rpc,
+        contractIndex: slot,
+        procedureId,
+        amount,
+        input,
+        tick,
+        confirm: true,
+        confirmTimeoutMs: 60_000,
+    });
     if (!invoked.ok || !invoked.included) fail(`procedure ${procedureId} on slot ${slot} was not included: ${JSON.stringify(invoked)}`);
 }
 
@@ -172,7 +183,10 @@ async function observe(base: string, rpc: LiteRpc, seed: string, oracleSlot: num
     const beforeReply = Number((await call(rpc, oracleSlot, 2, i64Input(answered.queryId))).getBigUint64(0, true));
     const resolved = await rpc.oracleResolve(answered.queryId, priceReply, ORACLE_STATUS.SUCCESS);
     if (!resolved.ok) fail(`the reply was refused: ${JSON.stringify(resolved)}`);
-    const querySequence = distinct([beforeReply, ...(await watchStatus(rpc, oracleSlot, 2, answered.queryId, (status) => status === ORACLE_STATUS.SUCCESS, REVEAL_BUDGET_MS))]);
+    const querySequence = distinct([
+        beforeReply,
+        ...(await watchStatus(rpc, oracleSlot, 2, answered.queryId, (status) => status === ORACLE_STATUS.SUCCESS, REVEAL_BUDGET_MS)),
+    ]);
     const last = await waitNotified(rpc, oracleSlot, ORACLE_STATUS.SUCCESS);
 
     // a query the oracle cannot answer: the machine reports it has no value, and the query ends at its own timeout

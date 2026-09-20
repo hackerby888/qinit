@@ -130,7 +130,11 @@ const commandMeta = {
             stringOption("status", "<success|unavailable>", "answer with a value, or report none"),
             stringOption("rules", "<path>", "serve: interface name to reply text"),
         ],
-        examples: ["qinit oracle pending", "qinit oracle resolve 172596578652000256 --reply '123456sint64, 1000sint64'", "qinit oracle serve --rules oracle.json"],
+        examples: [
+            "qinit oracle pending",
+            "qinit oracle resolve 172596578652000256 --reply '123456sint64, 1000sint64'",
+            "qinit oracle serve --rules oracle.json",
+        ],
     },
     epoch: {
         group: "node",
@@ -302,7 +306,10 @@ const commandMeta = {
         json: true,
         summary: "sign a digest for a contract's signatureValidity check",
         usage: "<hex-digest>",
-        options: [stringOption("digest", "<hex>", "32-byte digest to sign, as the contract computed it"), stringOption("seed", "<seed>", "signer seed (default: the saved seed)")],
+        options: [
+            stringOption("digest", "<hex>", "32-byte digest to sign, as the contract computed it"),
+            stringOption("seed", "<seed>", "signer seed (default: the saved seed)"),
+        ],
         examples: ["qinit sign 3f2a…  # 64 hex chars", "qinit sign --digest 3f2a… --seed <55 letters> --json"],
     },
     ls: {

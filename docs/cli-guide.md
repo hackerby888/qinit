@@ -1730,6 +1730,67 @@ subcommands:
 `nodeStatus()` samples twice about 1.2 seconds apart. A slow but healthy node may
 therefore appear up but not ticking.
 
+### 12.5 `qinit oracle`: answering a query while developing
+
+A query reaches a value only when an oracle machine answers it. Those are run by
+computors, so neither the simulator nor a node you start has one, and a contract's
+query would end at its timeout. [`commands/node/oracle.tsx`](../packages/cli/src/commands/node/oracle.tsx)
+supplies the answer yourself, over two dev routes both engines serve
+(`/live/v1/dev/oracle-pending` and `/live/v1/dev/oracle-resolve`, wrapped by
+`LiteRpc.oraclePending()` / `oracleResolve()`):
+
+```
+$ qinit oracle pending
+#172596578652000256  Price  slot 30  query 6d6f636b0000000000000000… (104 B)
+
+$ qinit oracle resolve 172596578652000256 --reply "123456sint64, 1000sint64"
+query      172596578652000256
+interface  Price
+reply      40e2010000000000e803000000000000
+accepted   yes — the contract is notified once the reply is revealed
+```
+
+The reply is written in the same value-text grammar as `call --in`, and it is checked
+against the interface's own reply layout, so a wrong member or width is refused before
+any byte is sent:
+
+```
+$ qinit oracle resolve 172596578652000256 --reply "1000uint64, 10uint64"
+ERROR: input.numerator is sint64, got '1000uint64'
+  Price reply looks like: 0sint64, 0sint64
+```
+
+`--reply-hex <hex>` takes raw bytes instead, for the layouts that are impractical to
+type (`EvmLogRead` is 440 bytes, `QubicLogRead` 288). `qinit oracle serve --rules <file>`
+answers every query as it appears, from a file mapping an interface name to reply text:
+
+```json
+{ "Price": "123456sint64, 1000sint64" }
+```
+
+On a node, the reply enters through the same path an oracle machine's message uses, so
+the commit, quorum and reveal rounds still run and the contract is notified a few ticks
+later. The simulator commits on arrival and reveals on the next tick. Either way the
+contract observes `PENDING → COMMITTED → SUCCESS`; only the number of ticks differs,
+which is why `scripts/live-node/ci-oracle-dual-engine.ts` compares the sequence and not
+the timing.
+
+`--status unavailable` reports that the oracle has no value. That is not the same as
+`UNRESOLVABLE`, which is what the quorum records when computors disagree and no single
+machine can force: the query stays pending and ends at its own timeout on both engines.
+
+### 12.6 Outsourced computation has no reply
+
+`INVOKE_OC` is one-way. There is no result on chain, no notification procedure, and no
+`qinit oc` command, because there is nothing to feed: a contract polls
+`qpi.getOcInvocationStatus(id)` and sees `PENDING_AUTH` (1) until the computors'
+signatures reach quorum, then `AUTHORIZED` (2). A node authorizes its own invocations,
+so this works without any OC machine configured; the machine only receives the signed
+bundle afterwards. The invocation fee (10 QU for `OCI::Mock`) is destroyed rather than
+added to a fee reserve, and the record is dropped at the epoch boundary, after which the
+id reads `UNKNOWN` (0). `TIMEOUT` (3) needs authorization to fail to reach quorum, which
+does not happen on a healthy node, so it is unreachable on both engines.
+
 ## 13. System contracts, setup, and maintenance commands
 
 ### 13.1 System contracts
@@ -1922,6 +1983,8 @@ Chain and contract routes:
 | `stateRead()`             | `GET /live/v1/dev/state-read?...`          | decoded state and containers                            |
 | `stateBytes()`            | `GET /live/v1/dev/state-bytes?...`         | raw state slice, `--dump`                               |
 | `contractDigest()`        | `GET /live/v1/dev/contract-digest?slot=N`  | canonical state digest                                  |
+| `oraclePending()`         | `GET /live/v1/dev/oracle-pending`          | `oracle pending`, `oracle serve`                        |
+| `oracleResolve()`         | `POST /live/v1/dev/oracle-resolve`         | `oracle resolve`, `oracle serve`                        |
 | `epochInfo()`             | `GET /live/v1/dev/epoch-info`              | tick, epoch, node status                                |
 | `advanceTick()`           | `GET /live/v1/dev/advance-tick?n=N`        | testnet tick controls                                   |
 | `advanceToLast()`         | `GET /live/v1/dev/advance-to-last?gap=N`   | jump to the end of an epoch                             |
@@ -1959,6 +2022,7 @@ Paths below are relative to `packages/cli/src/`.
 | `node run`             | `commands/node/node-run.tsx`          | `ops/node-core.ts`, `ops/node.ts`, engine                   |
 | `node status/stop/get` | `commands/node/node.tsx`              | `ops/node.ts`, `LiteRpc`                                    |
 | `tick`                 | `commands/node/tick.tsx`              | `LiteRpc` testnet controls                                  |
+| `oracle`               | `commands/node/oracle.tsx`            | `LiteRpc` oracle dev routes, `@qinit/proto` input format    |
 | `epoch`                | `commands/node/epoch.tsx`             | `LiteRpc` testnet controls                                  |
 | `new`                  | `commands/develop/new.tsx`            | `contracts/templates.ts`, IDL/gtest generators              |
 | `integrate`            | `commands/develop/integrate.tsx`      | `ops/core-integration.ts`, Git, Core Visual Studio projects |
