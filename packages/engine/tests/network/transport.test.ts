@@ -248,17 +248,7 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
                 bytes: new Uint8Array(1008).fill(2),
             }),
         ),
-    ).toThrow("upload chunk 0 is out of order; expected 1");
-    expect(() =>
-        (eng as any).handleDeployTx(
-            LITE_TX.UPLOAD_CHUNK,
-            encodeUploadChunk({
-                sessionId: first,
-                seq: 2,
-                bytes: new Uint8Array(1).fill(3),
-            }),
-        ),
-    ).toThrow("upload chunk 2 is out of order; expected 1");
+    ).toThrow("upload chunk 0 was already received");
 
     expect(() => begin(first, 4, 1, "22".repeat(32))).not.toThrow();
     expect((eng as any).upload).toBe(active);
@@ -275,6 +265,29 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
     expect((eng as any).upload).toBe(active);
     expect([...(eng as any).upload.buf]).toEqual(buffer);
     expect((await eng.dynUpload()).receivedCount).toBe(1);
+});
+
+// every chunk of a module is signed for one tick, and nothing promises the node meets them in the order they were sent.
+test("upload chunks land in any order", async () => {
+    const eng = await VirtualNode.create({ mempool: false });
+    const session = 12n;
+    const chunk = (seq: number, bytes: Uint8Array) => (eng as any).handleDeployTx(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: session, seq, bytes }));
+
+    (eng as any).handleDeployTx(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId: session, totalSize: 2017, chunkCount: 3, finalHashHex: "11".repeat(32) }));
+
+    chunk(2, new Uint8Array(1).fill(3));
+    expect((await eng.dynUpload()).missing).toEqual([0, 1]);
+
+    chunk(0, new Uint8Array(1008).fill(1));
+    expect((await eng.dynUpload()).missing).toEqual([1]);
+
+    chunk(1, new Uint8Array(1008).fill(2));
+    expect(await eng.dynUpload()).toMatchObject({ receivedCount: 3, complete: true, missing: [] });
+
+    const assembled: Uint8Array = (eng as any).upload.buf;
+    expect([assembled[0], assembled[1007], assembled[1008], assembled[2015], assembled[2016]]).toEqual([1, 1, 2, 2, 3]);
+
+    expect(() => chunk(3, new Uint8Array(1))).toThrow("upload chunk 3 is outside 0..2");
 });
 
 test("deployment sessions reject oversized modules, malformed chunks, and mismatched hashes", async () => {

@@ -745,8 +745,9 @@ export class VirtualNode implements NodeTransport {
             if (message.seq >= upload.chunkCount) {
                 throw new Error(`upload chunk ${message.seq} is outside 0..${upload.chunkCount - 1}`);
             }
-            if (message.seq !== upload.received.size) {
-                throw new Error(`upload chunk ${message.seq} is out of order; expected ${upload.received.size}`);
+            // a chunk names its own offset, so arrival order is free; a repeat must not rewrite bytes already taken.
+            if (upload.received.has(message.seq)) {
+                throw new Error(`upload chunk ${message.seq} was already received`);
             }
 
             const offset = message.seq * CHUNK_DATA_MAX;
