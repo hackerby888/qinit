@@ -30,6 +30,7 @@ export interface TypeScriptBuildOptions {
     skipVerify?: boolean; // skip the protocol verifier; the same gate clang runs
     contractKind?: ContractKind; // "system" for core's own contracts, which skip the user-scope build rules (default "user")
     buildRules?: boolean; // false skips the user-scope build rules (`--no-build-rules`); the protocol rules always run
+    arenaSizeBytes?: number; // scratch arena (WASM_ARENA_SIZE on clang), default 1 GiB like core
 }
 
 interface DynamicCalleeSource {
@@ -145,6 +146,7 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         calleeSources: calleeSources.length ? calleeSources : undefined,
         strict: rejectsLogHeader,
         cheats: o.cheats,
+        arenaSizeBytes: o.arenaSizeBytes,
     });
     const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
     if (errors.length) {
