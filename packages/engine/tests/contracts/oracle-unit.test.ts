@@ -17,17 +17,31 @@ interface Notification {
 function fakeHost(): OracleHost & {
     balances: Map<number, bigint>;
     notifications: Notification[];
+    // every balance move and notification in the order it happened, e.g. ["decrease 10", "refund 10", "notify"].
+    calls: string[];
     clock: number;
 } {
     const balances = new Map<number, bigint>();
     const notifications: Notification[] = [];
+    const calls: string[] = [];
     const host = {
         balances,
         notifications,
+        calls,
         clock: Date.UTC(2026, 0, 1),
         energyOf: (slot: number) => balances.get(slot) ?? 0n,
-        decreaseEnergyOf: (slot: number, amount: bigint) => balances.set(slot, (balances.get(slot) ?? 0n) - amount),
-        notify: (slot: number, procId: number, input: Uint8Array) => notifications.push({ slot, procId, input: input.slice() }),
+        decreaseEnergyOf: (slot: number, amount: bigint) => {
+            calls.push(`decrease ${amount}`);
+            balances.set(slot, (balances.get(slot) ?? 0n) - amount);
+        },
+        refundEnergyOf: (slot: number, amount: bigint) => {
+            calls.push(`refund ${amount}`);
+            balances.set(slot, (balances.get(slot) ?? 0n) + amount);
+        },
+        notify: (slot: number, procId: number, input: Uint8Array) => {
+            calls.push("notify");
+            notifications.push({ slot, procId, input: input.slice() });
+        },
         nowMs: () => host.clock,
     };
     return host;
@@ -81,6 +95,45 @@ test("query validates Core interface metadata before charging", () => {
         2n,
     );
     expect(host.balances.get(7)).toBe(990n);
+});
+
+// core's engine sees the timeout, the period and a repeated subscription only once the fee is gone, so those refusals burn and refund it.
+test("a request the engine refuses is charged, refunded, then notified", () => {
+    const host = fakeHost();
+    host.balances.set(5, 50_000n);
+    const oracle = new OracleManager(host);
+    const query = priceQuery();
+    const subscribe = (period: number) =>
+        oracle.startContractSubscription(5, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 7, period, false, 10_000n);
+
+    expect(oracle.startContractQuery(5, 0, query, PriceOracleReply.SIZE, 7, 3_600_001, 0n)).toBe(-1n);
+    expect(host.calls).toEqual(["decrease 10", "refund 10", "notify"]);
+
+    for (const period of [59_000, 60_001, 24 * 60 * 60_000 + 60_000]) {
+        host.calls.length = 0;
+        expect(subscribe(period)).toBe(-1);
+        expect(host.calls).toEqual(["decrease 10000", "refund 10000", "notify"]);
+    }
+
+    expect(subscribe(60_000)).toBe(0);
+    host.calls.length = 0;
+    expect(subscribe(60_000)).toBe(-1);
+    expect(host.calls).toEqual(["decrease 10000", "refund 10000", "notify"]);
+    expect(host.balances.get(5)).toBe(40_000n);
+});
+
+test("a request that never reaches the engine moves no balance", () => {
+    const host = fakeHost();
+    host.balances.set(5, 9n);
+    const oracle = new OracleManager(host);
+    const query = priceQuery();
+
+    // cannot pay the 10 QU query fee, cannot pay the subscription fee, and an interface that does not exist.
+    expect(oracle.startContractQuery(5, 0, query, PriceOracleReply.SIZE, 7, 1_000, 0n)).toBe(-1n);
+    expect(oracle.startContractSubscription(5, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 7, 59_000, false, 10_000n)).toBe(-1);
+    expect(oracle.startContractQuery(5, 3, query, PriceOracleReply.SIZE, 7, 3_600_001, 0n)).toBe(-1n);
+    expect(host.calls).toEqual(["notify", "notify", "notify"]);
+    expect(host.balances.get(5)).toBe(9n);
 });
 
 test("subscription requires whole minutes and charges only the SUBSCRIBE call", () => {

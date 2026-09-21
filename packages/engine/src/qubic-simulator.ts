@@ -197,13 +197,23 @@ export class QubicSimulator {
         // a fee phase is one pass over the committee, so it follows whatever computor count this engine ticks with.
         this.fees.numberOfComputors = this.ticking.committeeSize();
 
-        this.oracle = new OracleManager({
-            energyOf: (slot) => this.balanceOf(slot),
-            decreaseEnergyOf: (slot, amount) => {
+        // an oracle or oc fee is destroyed, and handed back when the engine refuses the request it paid for; both moves are logged as core logs them.
+        const contractEnergy = {
+            energyOf: (slot: number) => this.balanceOf(slot),
+            decreaseEnergyOf: (slot: number, amount: bigint) => {
                 const source = this.contractId(slot);
                 this.decreaseEnergy(this.spectrumIndex(source), amount);
                 this.logQuTransfer(source, ZERO32, amount);
             },
+            refundEnergyOf: (slot: number, amount: bigint) => {
+                const target = this.contractId(slot);
+                this.increaseEnergy(target, amount);
+                this.logQuTransfer(ZERO32, target, amount);
+            },
+        };
+
+        this.oracle = new OracleManager({
+            ...contractEnergy,
             log: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
             notify: (slot, procedureId, input) => {
                 const contract = this.oracleCallerFrame ? this.contracts.get(slot) : undefined;
@@ -222,17 +232,7 @@ export class QubicSimulator {
         });
 
         this.oc = new OcManager({
-            energyOf: (slot) => this.balanceOf(slot),
-            decreaseEnergyOf: (slot, amount) => {
-                const source = this.contractId(slot);
-                this.decreaseEnergy(this.spectrumIndex(source), amount);
-                this.logQuTransfer(source, ZERO32, amount);
-            },
-            refundEnergyOf: (slot, amount) => {
-                const target = this.contractId(slot);
-                this.increaseEnergy(target, amount);
-                this.logQuTransfer(ZERO32, target, amount);
-            },
+            ...contractEnergy,
             currentTick: () => this.currentTick,
             log: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
         });

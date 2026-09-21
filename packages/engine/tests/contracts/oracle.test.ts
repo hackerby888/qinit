@@ -123,7 +123,7 @@ test("Price subscription uses whole-minute periods and charges once", async () =
     expect(last(sim).numerator).toBe(7n);
 });
 
-test("invalid Price subscription periods fail without charging", async () => {
+test("invalid Price subscription periods are refused with the fee handed back", async () => {
     const sim = await deployProbe();
 
     expect(readInt32LE(sim.procedure(SLOT, SUBSCRIBE, priceInput(59_000)))).toBe(-1);

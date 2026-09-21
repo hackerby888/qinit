@@ -6,9 +6,20 @@ import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, Diagno
 import { VirtualNode } from "@qinit/engine";
 import { EngineServer } from "@qinit/engine/server";
 import { deployContract } from "@qinit/cli/ops/deploy";
-import { abiTypeFromFormat, encodeInputFormatAs, invokeProcedure, OC_INVOCATION_STATUS, ORACLE_STATUS } from "@qinit/proto";
+import {
+    abiTypeFromFormat,
+    contractAddress,
+    encodeInputFormatAs,
+    encodeQuTransferLog,
+    invokeProcedure,
+    OC_INVOCATION_STATUS,
+    ORACLE_STATUS,
+    QUBIC_LOG_TYPE,
+    TXS_PER_TICK,
+} from "@qinit/proto";
 import { ORACLE_INTERFACES } from "@qinit/engine/oracle-interfaces/registry";
 import { assertCoreBuildProfile, assertPinnedQpiHeader } from "./core-proof";
+import { readTickLogs } from "./peer-log-reader";
 
 const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const core = process.env.QINIT_CORE;
@@ -17,6 +28,11 @@ if (!core) throw new Error("QINIT_CORE not set");
 const FALLBACK_SEED = "a".repeat(55);
 const QUERY_TIMEOUT_MS = 3_600_000;
 const SHORT_TIMEOUT_MS = 4_000;
+// what core's engine refuses only once the fee is taken: a timeout past its hour, and a period that is not a whole minute.
+const REFUSED_TIMEOUT_MS = QUERY_TIMEOUT_MS + 1;
+const REFUSED_PERIOD_MS = 59_000;
+const PRICE_QUERY_FEE = 10n;
+const PRICE_MINUTE_SUBSCRIPTION_FEE = 10_000n;
 const REPLY_TEXT = "123456sint64, 1000sint64";
 // a reply needs the commit, quorum and reveal rounds on a node; the simulator reveals on the next tick.
 const REVEAL_BUDGET_MS = 60_000;
@@ -46,7 +62,11 @@ type Observed = {
     inlineNotifications: bigint;
     inlineSeenInsideCall: bigint;
     inlineQueryId: bigint;
+    refusedSubscriptionLog: string[];
+    refusedQueryLog: string[];
 };
+
+type PeerAddress = { host: string; port: number };
 
 async function compile(name: string, slot: number, qpiHeader: string): Promise<Artifact> {
     const path = resolve(`fixtures/${name}.h`);
@@ -125,7 +145,7 @@ async function call(rpc: LiteRpc, slot: number, functionId: number, input: Uint8
     return new DataView(output.buffer, output.byteOffset, output.byteLength);
 }
 
-async function send(base: string, rpc: LiteRpc, seed: string, slot: number, procedureId: number, amount: number, input: Uint8Array): Promise<void> {
+async function send(base: string, rpc: LiteRpc, seed: string, slot: number, procedureId: number, amount: number, input: Uint8Array): Promise<number> {
     const tick = (await rpc.tickInfo()).tick + 6;
     const invoked = await invokeProcedure({
         seed,
@@ -140,6 +160,20 @@ async function send(base: string, rpc: LiteRpc, seed: string, slot: number, proc
         confirmTimeoutMs: 60_000,
     });
     if (!invoked.ok || !invoked.included) fail(`procedure ${procedureId} on slot ${slot} was not included: ${JSON.stringify(invoked)}`);
+
+    return tick;
+}
+
+// what one call wrote after the transfer that carried it in, as "type:payload"; a core tick also holds the computors' own transactions.
+async function callRecords(peer: PeerAddress, tick: number, slot: number): Promise<string[]> {
+    const records = (await readTickLogs(peer.host, peer.port, tick)).filter((record) => record.txIndex < TXS_PER_TICK);
+    const opening = records.find(
+        (record) => record.type === QUBIC_LOG_TYPE.QU_TRANSFER && new DataView(record.message.buffer).getBigUint64(32, true) === BigInt(slot),
+    );
+
+    return records
+        .filter((record) => record.txIndex === opening?.txIndex && record !== opening && record.type !== QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION)
+        .map((record) => `${record.type}:${Buffer.from(record.message).toString("hex")}`);
 }
 
 // poll a status function and keep every distinct value, so the sequence a contract could observe is compared and not one snapshot of it.
@@ -174,7 +208,7 @@ async function pendingQuery(rpc: LiteRpc, slot: number, budgetMs: number) {
     }
 }
 
-async function observe(base: string, rpc: LiteRpc, seed: string, oracleSlot: number, ocSlot: number, inlineSlot: number): Promise<Observed> {
+async function observe(base: string, rpc: LiteRpc, seed: string, peer: PeerAddress, oracleSlot: number, ocSlot: number, inlineSlot: number): Promise<Observed> {
     const priceReply = await encodeInputFormatAs(abiTypeFromFormat(ORACLE_INTERFACES[0].replyFormat), REPLY_TEXT);
     const contractBalance = async (slot: number) => BigInt((await rpc.balance(await contractIdentity(slot))).balance);
 
@@ -226,6 +260,12 @@ async function observe(base: string, rpc: LiteRpc, seed: string, oracleSlot: num
     await send(base, rpc, seed, inlineSlot, 2, 0, priceInput(QUERY_TIMEOUT_MS));
     const inline = await call(rpc, inlineSlot, 1, new Uint8Array(0));
 
+    // requests the engine refuses after the fee is gone: the fee has to show in the log going out and coming back, on both engines
+    const refusedSubscriptionTick = await send(base, rpc, seed, oracleSlot, 3, 20_000, priceInput(REFUSED_PERIOD_MS));
+    const refusedSubscriptionLog = await callRecords(peer, refusedSubscriptionTick, oracleSlot);
+    const refusedQueryTick = await send(base, rpc, seed, oracleSlot, 2, 1_000, priceInput(REFUSED_TIMEOUT_MS));
+    const refusedQueryLog = await callRecords(peer, refusedQueryTick, oracleSlot);
+
     return {
         querySequence,
         notifiedStatus: last.getUint8(28),
@@ -241,6 +281,8 @@ async function observe(base: string, rpc: LiteRpc, seed: string, oracleSlot: num
         inlineNotifications: inline.getBigUint64(0, true),
         inlineSeenInsideCall: inline.getBigUint64(8, true),
         inlineQueryId: inline.getBigInt64(16, true),
+        refusedSubscriptionLog,
+        refusedQueryLog,
     };
 }
 
@@ -274,7 +316,7 @@ for (const artifact of artifacts) {
 }
 
 const simulatorServer = new EngineServer(new VirtualNode({ slotBase: registry.slotBase, slotCount: registry.slotCount }));
-const simulator = await simulatorServer.start(0, 1000);
+const simulator = await simulatorServer.start(0, 1000, 0);
 try {
     const simulatorRpc = new LiteRpc(simulator.rpcBaseUrl);
     const simulatorSeed = (await simulatorRpc.fundedSeed()) ?? FALLBACK_SEED;
@@ -283,8 +325,17 @@ try {
     await deployAll(rpcBaseUrl, coreRpc, artifacts, coreSeed);
 
     const observed = new Map<string, Observed>();
-    observed.set("simulator", await observe(simulator.rpcBaseUrl, simulatorRpc, simulatorSeed, oracleSlot, ocSlot, inlineSlot));
-    observed.set("core", await observe(rpcBaseUrl, coreRpc, coreSeed, oracleSlot, ocSlot, inlineSlot));
+    const simulatorPeer = { host: "127.0.0.1", port: simulator.peerPort! };
+    const corePeer = { host: new URL(rpcBaseUrl).hostname, port: Number(process.env.QINIT_PEER_PORT ?? "31841") };
+    observed.set("simulator", await observe(simulator.rpcBaseUrl, simulatorRpc, simulatorSeed, simulatorPeer, oracleSlot, ocSlot, inlineSlot));
+    observed.set("core", await observe(rpcBaseUrl, coreRpc, coreSeed, corePeer, oracleSlot, ocSlot, inlineSlot));
+
+    const probe = contractAddress(oracleSlot);
+    const nobody = new Uint8Array(32);
+    const burnThenRefund = (fee: bigint) =>
+        [encodeQuTransferLog(probe, nobody, fee), encodeQuTransferLog(nobody, probe, fee)].map(
+            (message) => `${QUBIC_LOG_TYPE.QU_TRANSFER}:${Buffer.from(message).toString("hex")}`,
+        );
 
     const expected = {
         // pending, then the quorum's commit, then the revealed value
@@ -302,6 +353,8 @@ try {
         inlineNotifications: 1n,
         inlineSeenInsideCall: 1n,
         inlineQueryId: -1n,
+        refusedSubscriptionLog: burnThenRefund(PRICE_MINUTE_SUBSCRIPTION_FEE),
+        refusedQueryLog: burnThenRefund(PRICE_QUERY_FEE),
     };
     for (const [name, result] of observed) {
         const actual = JSON.stringify(result, (_key, value) => (typeof value === "bigint" ? value.toString() : value));
@@ -311,7 +364,8 @@ try {
 
     console.log(
         `ORACLE DUAL OK — simulator and core agree: query ${expected.querySequence.join("→")} with ${expected.numerator}/${expected.denominator}, ` +
-            `an unanswered query ends ${expected.unavailableSequence.join("→")}, oc ${expected.ocSequence.join("→")}, both fees 10 QU`,
+            `an unanswered query ends ${expected.unavailableSequence.join("→")}, oc ${expected.ocSequence.join("→")}, both fees 10 QU, ` +
+            `a refused request logs its fee out and back`,
     );
 } finally {
     simulator.stop();

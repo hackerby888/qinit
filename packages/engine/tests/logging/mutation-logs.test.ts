@@ -176,6 +176,39 @@ test("transactions log refunds and successful zero transfers", async () => {
     expect(logger.digest(1)).toEqual(k12Bytes(concatBytes([ZERO32, ...expectedMessages])));
 });
 
+// core takes an oracle fee before its engine can refuse the request, so a refused request leaves a burn and a refund behind, not nothing.
+test("an oracle request the engine refuses logs the fee going out and coming back", async () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ logStore: logger });
+    const probe = contractId(29);
+    sim.deploy(29, await wasm("OracleProbe"));
+    sim.fund(probe, 50_000n);
+
+    const priceInput = (milliseconds: number): Uint8Array => {
+        const input = new Uint8Array(112);
+        input.set(new TextEncoder().encode("mock"), 0);
+        new DataView(input.buffer).setUint32(104, milliseconds, true);
+        return input;
+    };
+
+    logger.begin(5, 0);
+    // a subscription period that is not a whole minute, then a query timeout past the hour core allows.
+    sim.procedure(29, 3, priceInput(59_000));
+    sim.procedure(29, 2, priceInput(3_600_001));
+    logger.end();
+    logger.finalizeTick(5);
+
+    const logs = parseLogs(logger, 4);
+    expect(logs.map((log) => log.type)).toEqual(new Array(4).fill(QUBIC_LOG_TYPE.QU_TRANSFER));
+    expect(logs.map((log) => log.message)).toEqual([
+        quTransferMessage(probe, ZERO32, 10_000n),
+        quTransferMessage(ZERO32, probe, 10_000n),
+        quTransferMessage(probe, ZERO32, 10n),
+        quTransferMessage(ZERO32, probe, 10n),
+    ]);
+    expect(sim.balance(probe)).toBe(50_000n);
+});
+
 test("QPI transfers and burns use the Core payload layouts", () => {
     const logger = new QubicLogStore();
     const sim = new QubicSimulator({ logStore: logger });

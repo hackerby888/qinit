@@ -52,6 +52,7 @@ interface OracleChannel {
 export interface OracleHost {
     energyOf(slot: number): bigint;
     decreaseEnergyOf(slot: number, amount: bigint): void;
+    refundEnergyOf(slot: number, amount: bigint): void;
     notify(slot: number, procId: number, input: Uint8Array): void;
     nowMs(): number;
     // a node with a log stream records every status change and every subscriber that comes or goes, as core does.
@@ -94,19 +95,20 @@ export class OracleManager {
         _wasmFee: bigint,
     ): bigint {
         const oracleInterface = ORACLE_INTERFACES[interfaceIndex];
-        if (
-            !oracleInterface ||
-            query.length !== oracleInterface.query.SIZE ||
-            replySize !== oracleInterface.reply.SIZE ||
-            timeoutMillisec < 0 ||
-            timeoutMillisec > MAX_QUERY_TIMEOUT_MS
-        ) {
+        if (!oracleInterface || query.length !== oracleInterface.query.SIZE || replySize !== oracleInterface.reply.SIZE) {
             this.fire(slot, notificationProcId, -1n, -1, ORACLE_STATUS.UNKNOWN, replySize);
             return -1n;
         }
 
         const queryFee = oracleInterface.getQueryFee(query);
         if (queryFee < MIN_QUERY_FEE || !this.chargeFee(slot, queryFee)) {
+            this.fire(slot, notificationProcId, -1n, -1, ORACLE_STATUS.UNKNOWN, replySize);
+            return -1n;
+        }
+
+        // core takes the fee before its engine looks at the timeout, and hands it back when the engine refuses, so both transfers reach the log.
+        if (timeoutMillisec < 0 || timeoutMillisec > MAX_QUERY_TIMEOUT_MS) {
+            this.host.refundEnergyOf(slot, queryFee);
             this.fire(slot, notificationProcId, -1n, -1, ORACLE_STATUS.UNKNOWN, replySize);
             return -1n;
         }
@@ -132,15 +134,22 @@ export class OracleManager {
             replySize === oracleInterface.reply.SIZE &&
             timestampOffset >= 0 &&
             timestampOffset + 8 <= query.length &&
-            periodMillisec >= MIN_SUBSCRIPTION_PERIOD_MS &&
-            periodMillisec <= MAX_SUBSCRIPTION_PERIOD_MS &&
-            periodMillisec % MIN_SUBSCRIPTION_PERIOD_MS === 0 &&
             fee >= MIN_SUBSCRIPTION_FEE;
-        const key = valid ? channelKey(interfaceIndex, query, timestampOffset) : "";
-        const existingId = valid ? this.channelIds.get(key) : undefined;
+
+        if (!valid || !this.chargeFee(slot, fee)) {
+            this.fire(slot, notificationProcId, -1n, -1, ORACLE_STATUS.UNKNOWN, replySize);
+            return -1;
+        }
+
+        const periodValid =
+            periodMillisec >= MIN_SUBSCRIPTION_PERIOD_MS && periodMillisec <= MAX_SUBSCRIPTION_PERIOD_MS && periodMillisec % MIN_SUBSCRIPTION_PERIOD_MS === 0;
+        const key = channelKey(interfaceIndex, query, timestampOffset);
+        const existingId = this.channelIds.get(key);
         const existing = existingId === undefined ? undefined : this.channels.get(existingId);
 
-        if (!valid || existing?.subscribers.has(slot) || !this.chargeFee(slot, fee)) {
+        // the period and a repeated subscription are the engine's to refuse, which core asks only once the fee is taken; the fee comes back.
+        if (!periodValid || existing?.subscribers.has(slot)) {
+            this.host.refundEnergyOf(slot, fee);
             this.fire(slot, notificationProcId, -1n, -1, ORACLE_STATUS.UNKNOWN, replySize);
             return -1;
         }
