@@ -46,7 +46,7 @@ const runState = (wasm: Uint8Array, inputs: bigint[][]): string => {
         sim.procedure(27, 1, encodeInput(row), { invocator: user });
     }
     const st = sim.contracts.get(27)!.state();
-    return Buffer.from(st.slice(0, 64)).toString("hex");
+    return Buffer.from(st).toString("hex");
 };
 
 const wasiOk = (() => {

@@ -57,7 +57,7 @@ const runState = (wasm: Uint8Array): string => {
     INPUT.forEach((v, i) => dv.setBigUint64(i * 8, v, true));
     sim.procedure(27, 1, buf, { invocator: user });
     const st = sim.contracts.get(27)!.state();
-    return Buffer.from(st.slice(0, 64)).toString("hex");
+    return Buffer.from(st).toString("hex");
 };
 
 const wasiOk = wasiToolchain().available;
