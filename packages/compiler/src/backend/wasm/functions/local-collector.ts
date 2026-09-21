@@ -94,7 +94,7 @@ export function collectFunctionLocals(statement: Statement, context: FunctionEmi
                         }
                     }
                 }
-                // Reject unresolved local types before a zero-size scalar fallback.
+                // Reported here, on the declaration's own line, ahead of the sizer's refusal of the same name.
                 if (
                     dType.kind === AstKind.NAME &&
                     !isAutoType(dType) &&

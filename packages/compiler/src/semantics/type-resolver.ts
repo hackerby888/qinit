@@ -2,14 +2,13 @@ import { AstKind } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { followScopedTypedef, lookupScoped, scopedLookupKeys } from "./declaration-index";
 import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
-import type { TypeSpec, VariableDecl } from "../ast";
+import type { Span, TypeSpec, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
 
 export function sizeOfType(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {
     // Guard against recursive/self-referential types (a struct reachable from its own field).
     if (programAnalysis.sizeDepth > 80) {
-        programAnalysis.warn("type nesting too deep / recursive — sized as 0", 0);
-        return 0;
+        throw new Error("type nesting too deep or recursive");
     }
     programAnalysis.sizeDepth++;
     try {
@@ -17,6 +16,20 @@ export function sizeOfType(programAnalysis: ProgramAnalysis, type: TypeSpec, tem
     } finally {
         programAnalysis.sizeDepth--;
     }
+}
+
+// a guessed size is a wrong offset, so an unknown name stops the compile. The one exception is a type owned by a contract whose source the
+// analyzer was not given: the editor cannot know it, and must not call that an error.
+function sizeOfUnknownType(programAnalysis: ProgramAnalysis, type: TypeSpec & { kind: AstKind.NAME }): number {
+    const ownerEnd = type.name.lastIndexOf("::");
+    const ownerIsUnresolved = ownerEnd > 0 && !programAnalysis.namesAType(type.name.slice(0, ownerEnd));
+    if (ownerIsUnresolved && programAnalysis.toleratesUnresolvedCalleeTypes) {
+        return 0;
+    }
+
+    const unknown = new Error(`unknown type '${type.name}'`);
+    if (type.span) (unknown as Error & { span?: Span }).span = type.span;
+    throw unknown;
 }
 
 export function sizeOfTypeInner(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings): number {
@@ -47,9 +60,9 @@ export function sizeOfTypeInner(programAnalysis: ProgramAnalysis, type: TypeSpec
         // an enum type: sized by its declared underlying type (enum class X : uint8 → 1), default int
         const es = lookupScoped(programAnalysis.enumSize, type.name);
         if (es !== undefined) return es;
-        const num = parseInt(type.name);
-        if (!isNaN(num)) return num; // shouldn't happen for a type, defensive
-        return 4; // assume enum-sized
+        // an enum declared without a scalar underlying type is an int.
+        if (scopedLookupKeys(type.name).some((key) => programAnalysis.enumNames.has(key))) return 4;
+        return sizeOfUnknownType(programAnalysis, type);
     }
     if (type.kind === AstKind.TEMPLATE_INSTANCE) {
         return programAnalysis.layoutOfTemplate(type.name, type.callArguments, templateBindings).size;

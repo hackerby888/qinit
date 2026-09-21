@@ -89,6 +89,7 @@ export class ProgramAnalysis {
     contractStateLayout: StructLayout = { size: 0, align: 1, fields: new Map() }; // the contract's StateData (a ContractState& param in any function resolves through it)
     slot = 0; // contract slot; oracle notification ids embed it ((slot << 22) | defLine)
     gtestMode = false; // test-runner module: enable qtest host intrinsics
+    toleratesUnresolvedCalleeTypes = false; // analyzer only: a callee's source may be absent there, so its types size as 0 instead of failing
     memberFnLine: Map<string, number> = new Map(); // contract member function name → raw-source definition line (__id_<proc> resolution)
     procedureDeclLines: Map<string, number> = new Map(); // procedure name → raw-source line of its PUBLIC/PRIVATE_PROCEDURE macro
     warnings: CodeGenerationWarning[] = [];
