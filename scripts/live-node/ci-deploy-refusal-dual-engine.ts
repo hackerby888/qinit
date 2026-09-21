@@ -7,7 +7,7 @@ import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, Diagno
 import { VirtualNode } from "@qinit/engine";
 import { EngineServer } from "@qinit/engine/server";
 import { buildUploadTx, uploadContract } from "@qinit/cli/ops/deploy/upload";
-import { encodeDeploy, LITE_TX, TX_TICK_OFFSET } from "@qinit/proto";
+import { createUploadSessionId, encodeDeploy, encodeUploadBegin, encodeUploadChunk, LITE_TX, splitUploadChunks, TX_TICK_OFFSET } from "@qinit/proto";
 
 const core = process.env.QINIT_CORE;
 if (!core) throw new Error("QINIT_CORE is required");
@@ -15,6 +15,8 @@ const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 // a refused upload session stays open until it goes stale, and the next case needs the node's one upload slot.
 const TICKS_TO_STALE_UPLOAD = 40;
 const OUTCOME_TIMEOUT_MS = 90_000;
+// a transaction names its tick, so one that missed it is sent again; this many times before the node is called wrong.
+const UPLOAD_ROUNDS = 6;
 
 function fail(message: string): never {
     throw new Error(`DEPLOY REFUSAL DUAL FAIL: ${message}`);
@@ -55,6 +57,8 @@ interface RefusalCase {
     module: Uint8Array;
     deploy: { targetSlot?: number; abiVersion?: number; finalHashHex?: string };
     code: DeployOutcome["code"];
+    // a client signs every chunk for one tick and nothing promises the node meets them in order, so one module arrives deliberately scrambled.
+    backHalfFirst?: boolean;
 }
 
 const cases: RefusalCase[] = [
@@ -64,8 +68,61 @@ const cases: RefusalCase[] = [
     { name: "bytes that are not a wasm module", module: junk, deploy: {}, code: "not-wasm" },
     { name: "a module built for another slot", module: counterForOtherSlot, deploy: {}, code: "load-failed" },
     { name: "a module whose io region is smaller than core's carve", module: counterWithSmallArena, deploy: {}, code: "load-failed" },
-    { name: "a module the node can arm", module: initWitness, deploy: {}, code: "ok" },
+    { name: "a module the node can arm, its back half uploaded first", module: initWitness, deploy: {}, code: "ok", backHalfFirst: true },
 ];
+
+type TickWaits = { readTick: () => Promise<number>; waitForTick: (target: number) => Promise<number> };
+
+// the back half of the chunks goes out while the node still lacks chunk 0, and the rest only once it holds some of them.
+async function uploadBackHalfFirst(name: string, rpc: LiteRpc, seed: string, wasm: Uint8Array, hash: string, waits: TickWaits): Promise<bigint> {
+    const session = createUploadSessionId();
+    const chunks = splitUploadChunks(wasm);
+    if (chunks.length < 2) {
+        fail(`${name}: the module is a single chunk, so there is no order to break`);
+    }
+    const backHalf = chunks.map((_, seq) => seq).filter((seq) => seq >= Math.ceil(chunks.length / 2));
+
+    const send = async (inputType: number, payloads: Uint8Array[]): Promise<void> => {
+        const tick = (await waits.readTick()) + TX_TICK_OFFSET;
+        for (const payload of payloads) {
+            await rpc.broadcastTx(await buildUploadTx(seed, inputType, payload, tick)).catch(() => undefined);
+        }
+        await waits.waitForTick(tick + 1);
+    };
+    const chunkPayloads = (sequences: number[]) => sequences.map((seq) => encodeUploadChunk({ sessionId: session, seq, bytes: chunks[seq] }));
+    const ownSession = async () => {
+        const upload = await rpc.dynUpload();
+        return upload.active && upload.sessionId === String(session) ? upload : null;
+    };
+
+    for (let round = 0; round < UPLOAD_ROUNDS && !(await ownSession()); round++) {
+        await send(LITE_TX.UPLOAD_BEGIN, [encodeUploadBegin({ sessionId: session, totalSize: wasm.length, chunkCount: chunks.length, finalHashHex: hash })]);
+    }
+    if (!(await ownSession())) {
+        fail(`${name} never opened the upload session`);
+    }
+
+    for (let round = 0; round < UPLOAD_ROUNDS && (await ownSession())?.receivedCount === 0; round++) {
+        await send(LITE_TX.UPLOAD_CHUNK, chunkPayloads(backHalf));
+    }
+    const afterBackHalf = await ownSession();
+    if (!afterBackHalf || afterBackHalf.receivedCount === 0 || !afterBackHalf.missing?.includes(0)) {
+        fail(`${name} took no chunk ahead of chunk 0: ${JSON.stringify(afterBackHalf)}`);
+    }
+
+    for (let round = 0; round < UPLOAD_ROUNDS; round++) {
+        const upload = await ownSession();
+        if (!upload) {
+            fail(`${name} dropped the upload session before it was complete`);
+        }
+        if (upload.complete) {
+            return session;
+        }
+        await send(LITE_TX.UPLOAD_CHUNK, chunkPayloads(upload.missing ?? []));
+    }
+
+    return fail(`${name} never completed the upload`);
+}
 
 async function runCases(name: string, rpc: LiteRpc): Promise<DeployOutcome[]> {
     const seed = (await rpc.fundedSeed()) ?? "a".repeat(55);
@@ -85,20 +142,26 @@ async function runCases(name: string, rpc: LiteRpc): Promise<DeployOutcome[]> {
     for (const refusal of cases) {
         await rpc.advanceTick(TICKS_TO_STALE_UPLOAD).catch(() => undefined);
         const hash = await k12Hex(refusal.module);
-        const upload = await uploadContract({ rpc, seed, wasm: refusal.module, hash, emit: () => {}, readTick, waitForTick });
-        if (!upload.ok) {
-            fail(`${name} upload for ${refusal.name}: ${upload.error}`);
+        let session: bigint;
+        if (refusal.backHalfFirst) {
+            session = await uploadBackHalfFirst(name, rpc, seed, refusal.module, hash, { readTick, waitForTick });
+        } else {
+            const upload = await uploadContract({ rpc, seed, wasm: refusal.module, hash, emit: () => {}, readTick, waitForTick });
+            if (!upload.ok) {
+                fail(`${name} upload for ${refusal.name}: ${upload.error}`);
+            }
+            session = upload.session;
         }
 
         const deadline = Date.now() + OUTCOME_TIMEOUT_MS;
         let outcome: DeployOutcome | null | undefined;
-        while (outcome?.sessionId !== String(upload.session)) {
+        while (outcome?.sessionId !== String(session)) {
             if (Date.now() > deadline) {
                 fail(`${name} recorded no outcome for ${refusal.name} (last: ${JSON.stringify(outcome)})`);
             }
             // a DEPLOY names its tick, so one that missed it is simply sent again until the node has processed one.
             const tick = (await readTick()) + TX_TICK_OFFSET;
-            const payload = encodeDeploy({ sessionId: upload.session, targetSlot: slot, finalHashHex: hash, name: "Counter", ...refusal.deploy });
+            const payload = encodeDeploy({ sessionId: session, targetSlot: slot, finalHashHex: hash, name: "Counter", ...refusal.deploy });
             await rpc.broadcastTx(await buildUploadTx(seed, LITE_TX.DEPLOY, payload, tick)).catch(() => undefined);
             await waitForTick(tick + 1);
             outcome = (await rpc.dynUpload()).lastDeploy;
