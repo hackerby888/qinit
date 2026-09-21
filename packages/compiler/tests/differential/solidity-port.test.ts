@@ -238,8 +238,8 @@ describe.skipIf(!HAS_CORE)("solidity-port live slice", () => {
                     expectedVerdict: variant.archetype.expectedVerdict,
                     divergenceNote: variant.archetype.divergenceNote,
                 });
-                // both-rejected is agreement: neither backend built it, so they agree it is invalid.
-                if (result.verdict !== "match" && result.verdict !== "both-rejected" && !isKnownDivergence(result.archetype)) {
+                // same rule as the sweep gate: an intended refusal sets expectReject and arrives as "match"
+                if (result.verdict !== "match" && !isKnownDivergence(result.archetype)) {
                     failures.push(`${result.id}: ${result.verdict} ${result.firstDifference ?? ""}`);
                 }
             }
