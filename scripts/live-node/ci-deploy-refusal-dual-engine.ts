@@ -186,7 +186,8 @@ async function runCases(name: string, rpc: LiteRpc): Promise<DeployOutcome[]> {
 }
 
 const simulatorServer = new EngineServer(new VirtualNode({ slotBase: registry.slotBase, slotCount: registry.slotCount }));
-const simulator = await simulatorServer.start(0, 25);
+// a transaction names a tick three ahead, so a 25 ms tick leaves a loaded runner 75 ms to sign and send every chunk; the script drives ticks itself.
+const simulator = await simulatorServer.start(0, 1000);
 
 try {
     const simulated = await runCases("simulator", new LiteRpc(simulator.rpcBaseUrl));
