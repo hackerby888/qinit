@@ -5,12 +5,12 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContractWithClang } from "@qinit/build";
-import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { wasiToolchain } from "../support/container-toolchains";
+import { runState } from "../support/parity-runner";
 
 const CORE = CORE_PATH;
 const HEADERS = () => loadQpiHeader(CORE);
@@ -71,16 +71,6 @@ const TRAPS: Record<string, string> = {
     "signed 32-bit division overflow traps on both backends": `sint32 x = -2147483647 - 1; sint32 y = -1; state.mut().a = (uint64)(sint64)QPI::div(x, y);`,
 };
 
-const runState = (wasm: Uint8Array): bigint => {
-    const simulator = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(7);
-    simulator.fund(user, 1_000_000n);
-    simulator.deploy(27, wasm);
-    simulator.procedure(27, 1, undefined, { invocator: user });
-    const state = simulator.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset).getBigUint64(0, true);
-};
-
 const trapped = (wasm: Uint8Array): boolean => {
     try {
         runState(wasm);
@@ -129,8 +119,14 @@ describe.skipIf(!HAS_CORE)("differential — constant folding and division parit
             name,
             async () => {
                 const source = wrap(testCase.body);
-                expect(runState(await compileOurs(source))).toBe(testCase.expect);
-                if (wasiOk) expect(runState(await compileClang(source))).toBe(testCase.expect);
+                const oursState = runState(await compileOurs(source));
+                expect(oursState.resultWord).toBe(testCase.expect);
+
+                if (wasiOk) {
+                    const clangState = runState(await compileClang(source));
+                    expect(clangState.stateHex).toBe(oursState.stateHex);
+                    expect(clangState.resultWord).toBe(testCase.expect);
+                }
             },
             180000,
         );
