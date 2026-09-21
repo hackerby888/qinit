@@ -1,6 +1,7 @@
 import { AstKind } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { followScopedTypedef, lookupScoped, scopedLookupKeys } from "./declaration-index";
+import { unevaluable } from "./constant-evaluator";
 import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { Span, TypeSpec, VariableDecl } from "../ast";
 import type { ProgramAnalysis } from "./program-analysis";
@@ -100,7 +101,24 @@ export function resolveDependentMember(
     return null;
 }
 
+// `typename Selector<Flag>::type` means something only where `Flag` is bound, so it is settled here, before it travels into another
+// template's bindings as an argument. Still dependent on something unbound: carried as written, to be settled at that instantiation.
+function settleDependentMember(
+    programAnalysis: ProgramAnalysis,
+    type: Extract<TypeSpec, { kind: AstKind.DEPENDENT_MEMBER }>,
+    templateBindings: TemplateBindings,
+    depth: number,
+): TypeSpec {
+    try {
+        const member = programAnalysis.resolveDependentMember(type, templateBindings);
+        return member ? programAnalysis.resolveType(programAnalysis.substInBindings(member.type, member.bindings), member.bindings, depth + 1) : type;
+    } catch {
+        return type;
+    }
+}
+
 export function resolveType(programAnalysis: ProgramAnalysis, type: TypeSpec, templateBindings: TemplateBindings, depth = 0): TypeSpec {
+    if (depth <= 24 && type.kind === AstKind.DEPENDENT_MEMBER) return settleDependentMember(programAnalysis, type, templateBindings, depth);
     if (depth > 24 || type.kind !== AstKind.NAME) return type;
     const bound = templateBindings.types.get(type.name);
     if (bound && !(bound.kind === AstKind.NAME && bound.name === type.name)) {
@@ -239,8 +257,9 @@ export function evalConstFromType(programAnalysis: ProgramAnalysis, type: TypeSp
         // a named constant template arg (e.g. Array<RoundInfo, QEARN_MAX_EPOCHS>)
         const resolvedConstant = programAnalysis.resolveConst(type.name, templateBindings);
         if (resolvedConstant !== null) return resolvedConstant;
+        return unevaluable(type, `'${type.name}'`);
     }
-    return 0n;
+    return unevaluable(type, "this template argument");
 }
 
 export function typeKey(programAnalysis: ProgramAnalysis, type: TypeSpec): string {

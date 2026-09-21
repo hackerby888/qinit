@@ -109,6 +109,57 @@ describe.skipIf(!HAS_CORE)("names the contract never declares", () => {
         expect(analyzed.idl).toBeDefined();
     });
 
+    // each of these used to evaluate to 0, which made the array empty and compiled.
+    for (const [what, declaration, field] of [
+        ["an undeclared name", "", "Array<uint64, UNDECLARED> values;"],
+        ["an expression over an undeclared name", "", "Array<uint64, UNDECLARED + 1> values;"],
+        ["a call the evaluator does not know", "constexpr uint64 COUNT = unknownHelper(4);", "Array<uint64, COUNT> values;"],
+    ] as const) {
+        test(`an array dimension that is ${what} is refused`, async () => {
+            const compiled = await compile(`using namespace QPI;
+${declaration}
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { ${field} uint64 a; };
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {}
+};`);
+
+            expect(compiled.wasm.length).toBe(0);
+            expect(compiled.errors.join("\n")).toMatch(/cannot evaluate .* as a constant/);
+        });
+    }
+
+    test("a constant the evaluator does know still sizes the array", async () => {
+        const compiled = await compile(`using namespace QPI;
+constexpr uint64 COUNT = div(64ULL, 4ULL);
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { Array<uint64, COUNT> values; uint64 a; };
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {}
+};`);
+
+        expect(compiled.errors).toEqual([]);
+        const deployed = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true }).deploy(SLOT, compiled.wasm);
+        expect(deployed.ex.state_size()).toBe(16 * 8 + 8);
+    });
+
+    // `Flag` is bound in Box, not in Array: read there it was unresolved, became 0, and picked the primary template whatever Box was given.
+    test("a dependent member passed on as a template argument keeps the value it was written under", async () => {
+        const compiled = await compile(`using namespace QPI;
+template <bool Flag> struct Selector { typedef uint8 type; };
+template <> struct Selector<true> { typedef uint64 type; };
+template <bool Flag> struct Box { typedef typename Selector<Flag>::type Value; Array<Value, 2> values; };
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { Box<true> wide; Box<false> narrow; };
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {}
+};`);
+
+        expect(compiled.errors).toEqual([]);
+        const deployed = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true }).deploy(SLOT, compiled.wasm);
+        expect(deployed.ex.state_size()).toBe(16 + 8);
+    });
+
     test("a contract with no system procedure and no migration still compiles", async () => {
         const compiled = await compile(contract(""));
         expect(compiled.errors).toEqual([]);

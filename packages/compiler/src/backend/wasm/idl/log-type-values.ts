@@ -1,5 +1,6 @@
 import { AssignOp, AstKind } from "../../../shared/enums";
 import type { Expression, FunctionDecl } from "../../../ast";
+import { parseIntLiteral } from "../../../frontend/lexer";
 import type { ProgramAnalysis } from "../../../semantics/program-analysis";
 import type { PreparedContractModule } from "../module/module-analysis";
 import { collectPayloadRoots, resolvePayload, visitStatement } from "../module/log-call-validation";
@@ -73,7 +74,7 @@ export function collectLogTypeValues(prepared: PreparedContractModule): Map<stri
 function foldedConstant(programAnalysis: ProgramAnalysis, expression: Expression): bigint | null {
     switch (expression.kind) {
         case AstKind.INT_LITERAL:
-            return programAnalysis.tryParseIntLiteral(expression.value);
+            return parseIntLiteral(expression.value);
         case AstKind.IDENTIFIER:
             return programAnalysis.resolveConst(expression.name);
         case AstKind.QUALIFIED_NAME:

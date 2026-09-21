@@ -343,10 +343,6 @@ export class ProgramAnalysis {
     evalConst(expression: Expression, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {
         return constantEvaluator.evalConst(this, expression, templateBindings);
     }
-    // Parse an integer literal token (hex/bin/octal/dec, with optional u/l/ull suffixes) to a bigint.
-    tryParseIntLiteral(value: string): bigint {
-        return constantEvaluator.tryParseIntLiteral(value);
-    }
     evalConstBig(expression: Expression, templateBindings: TemplateBindings): bigint {
         return constantEvaluator.evalConstBig(this, expression, templateBindings);
     }
