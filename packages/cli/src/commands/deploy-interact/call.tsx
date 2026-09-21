@@ -41,7 +41,17 @@ type Result = {
 };
 type Trace = { e: DebugEntry; name: string; entry: string; view: DecodedTrace };
 // What --json reports beyond the result itself: `out` is the rendered row, `outJson` the same value as data.
-type CallFacts = { contract: string; slot: number; entry: string; tick?: number; tx?: string; out?: string; outJson?: unknown; address?: string; balance?: string };
+type CallFacts = {
+    contract: string;
+    slot: number;
+    entry: string;
+    tick?: number;
+    tx?: string;
+    out?: string;
+    outJson?: unknown;
+    address?: string;
+    balance?: string;
+};
 type Confirm = { start: number; net: number; target: number };
 type CallMode = "fn" | "proc";
 
@@ -374,7 +384,7 @@ function CallOneShot({
                     const reported = (await registryEntry())?.feeReserve;
                     return reported === undefined ? undefined : BigInt(reported);
                 };
-                // F72: the contract's identity + qu balance, so a call that should have moved money shows it landed.
+                // the contract's identity + qu balance, so a call that should have moved money shows it landed.
                 const contractInfo = async (): Promise<{ address: string; balance: string } | undefined> => {
                     try {
                         const address = await bytesToIdentity(contractAddress(idx));
@@ -410,7 +420,15 @@ function CallOneShot({
                     setResult({
                         ok: ne ? false : true,
                         label,
-                        rows: [["out", rendered], ...(info ? ([["balance", info.balance], ["address", info.address]] as [string, string][]) : [])],
+                        rows: [
+                            ["out", rendered],
+                            ...(info
+                                ? ([
+                                      ["balance", info.balance],
+                                      ["address", info.address],
+                                  ] as [string, string][])
+                                : []),
+                        ],
                         err: ne || undefined,
                     });
                 } else {
@@ -514,7 +532,15 @@ function CallOneShot({
                         const ok = !r.ok ? false : r.confirmed && !r.included ? false : true;
                         // Only a processed tx has a settled balance; a pre-inclusion read would be the silent-wrong value.
                         const info = detail === "processed" ? await contractInfo() : undefined;
-                        setFacts({ contract: rc.name, slot: idx, entry: entryLabelName, tick, tx: r.txId || undefined, address: info?.address, balance: info?.balance });
+                        setFacts({
+                            contract: rc.name,
+                            slot: idx,
+                            entry: entryLabelName,
+                            tick,
+                            tx: r.txId || undefined,
+                            address: info?.address,
+                            balance: info?.balance,
+                        });
                         setResult({
                             ok,
                             label,
@@ -522,13 +548,19 @@ function CallOneShot({
                             rows: [
                                 ["tx", txs],
                                 ["tick", String(tick)],
-                                ...(info ? ([["balance", info.balance], ["address", info.address]] as [string, string][]) : []),
+                                ...(info
+                                    ? ([
+                                          ["balance", info.balance],
+                                          ["address", info.address],
+                                      ] as [string, string][])
+                                    : []),
                             ],
                             err: (await nodeErr()) || (!r.ok ? r.message : undefined),
                         });
                         const after = detail === "processed" ? await feeReserve() : undefined;
                         if (after !== undefined && after <= 0n) {
-                            addNote("⚠ fee reserve exhausted by this call — the next procedure is skipped until the contract is refilled");
+                            // execution fees are charged per phase, so the exhausted reserve is never attributable to this one call.
+                            addNote("⚠ fee reserve exhausted — the next procedure is skipped until the contract is refilled");
                         }
                     }
                 }
