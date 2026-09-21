@@ -1,6 +1,6 @@
 import { packDateAndTime } from "../contract/runtime";
 import { ORACLE_INTERFACES } from "../oracle-interfaces/registry";
-import { encodeOracleQueryStatusChangeLog, encodeOracleSubscriberLog, MAX_ORACLE_REPLY_SIZE, ORACLE_STATUS, QUBIC_LOG_TYPE } from "@qinit/proto";
+import { encodeOracleQueryStatusChangeLog, encodeOracleSubscriberLog, MAX_ORACLE_REPLY_SIZE, ORACLE_STATUS, QUBIC_LOG_TYPE, TXS_PER_TICK } from "@qinit/proto";
 
 export { ORACLE_STATUS };
 
@@ -55,6 +55,7 @@ export interface OracleHost {
     refundEnergyOf(slot: number, amount: bigint): void;
     notify(slot: number, procId: number, input: Uint8Array): void;
     nowMs(): number;
+    currentTick(): number;
     // a node with a log stream records every status change and every subscriber that comes or goes, as core does.
     log?(type: number, message: Uint8Array): void;
 }
@@ -77,7 +78,8 @@ export class OracleManager {
     private queries = new Map<bigint, OracleQueryRec>();
     private channels = new Map<number, OracleChannel>();
     private channelIds = new Map<string, number>();
-    private nextQueryId = 1n;
+    private idTick = -1;
+    private indexInTick = TXS_PER_TICK;
     private nextSubscriptionId = 0;
     private provider: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null = null;
 
@@ -204,7 +206,6 @@ export class OracleManager {
         this.queries.clear();
         this.channels.clear();
         this.channelIds.clear();
-        this.nextQueryId = 1n;
         this.nextSubscriptionId = 0;
     }
 
@@ -234,7 +235,11 @@ export class OracleManager {
         recipients: OracleRecipient[],
         baseTimeMs: number = this.host.nowMs(),
     ): bigint {
-        const id = this.nextQueryId++;
+        const id = this.newQueryId();
+        if (id < 0n) {
+            return -1n;
+        }
+
         this.queries.set(id, {
             id,
             interfaceIndex,
@@ -248,6 +253,20 @@ export class OracleManager {
         });
         this.logStatusChange(this.queries.get(id)!);
         return id;
+    }
+
+    // core's id is the tick in the high bits and a per-tick counter that starts past the tick's transactions in the low bits, so an id is
+    // never handed out twice and a stale one a contract kept can never name a later query.
+    private newQueryId(): bigint {
+        const tick = this.host.currentTick();
+        if (this.idTick < tick) {
+            this.idTick = tick;
+            this.indexInTick = TXS_PER_TICK;
+        } else {
+            if (this.indexInTick >= 0x7fffffff) return -1n;
+            this.indexInTick++;
+        }
+        return (BigInt(tick) << 31n) | BigInt(this.indexInTick);
     }
 
     // core keys the record by the querying contract's index, or by the subscription id for a subscription's query, in an otherwise zero id.

@@ -229,6 +229,7 @@ export class QubicSimulator {
                 });
             },
             nowMs: () => this.nowMs(),
+            currentTick: () => this.currentTick,
         });
 
         this.oc = new OcManager({

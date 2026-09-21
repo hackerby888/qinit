@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import wabtInit from "../../../compiler/node_modules/wabt";
 import { SYSTEM_PROCEDURES } from "@qinit/core";
+import { TXS_PER_TICK } from "@qinit/proto";
 import { CONTRACT_ENTRY_KIND, ContractExecutionError } from "../../src/contract/runtime";
 import { QubicSimulator } from "../../src/qubic-simulator";
 
@@ -213,7 +214,9 @@ test("raw oracle imports derive query fees and require exact read sizes", async 
     const overpaidOutput = sim.procedure(28, 1, feeInput(1_000n));
     const underpaid = new DataView(underpaidOutput.buffer).getBigInt64(0, true);
     const overpaid = new DataView(overpaidOutput.buffer).getBigInt64(0, true);
-    expect([underpaid, overpaid]).toEqual([1n, 2n]);
+    // core packs the tick into a query id and numbers a tick's contract queries past its transaction slots.
+    const queryIdAt = (indexInTick: number) => (BigInt(sim.currentTick) << 31n) | BigInt(indexInTick);
+    expect([underpaid, overpaid]).toEqual([queryIdAt(TXS_PER_TICK), queryIdAt(TXS_PER_TICK + 1)]);
     expect(sim.balance(sim.contractId(28))).toBe(80n);
 
     expect(sim.resolveOracle(underpaid, new Uint8Array(16))).toBe(true);

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { TXS_PER_TICK } from "@qinit/proto";
 import { OracleManager, ORACLE_STATUS, type OracleHost } from "../../src/chain/oracle";
 import { packDateAndTime } from "../../src/contract/runtime";
 import {
@@ -20,6 +21,7 @@ function fakeHost(): OracleHost & {
     // every balance move and notification in the order it happened, e.g. ["decrease 10", "refund 10", "notify"].
     calls: string[];
     clock: number;
+    tick: number;
 } {
     const balances = new Map<number, bigint>();
     const notifications: Notification[] = [];
@@ -29,6 +31,7 @@ function fakeHost(): OracleHost & {
         notifications,
         calls,
         clock: Date.UTC(2026, 0, 1),
+        tick: 100,
         energyOf: (slot: number) => balances.get(slot) ?? 0n,
         decreaseEnergyOf: (slot: number, amount: bigint) => {
             calls.push(`decrease ${amount}`);
@@ -43,8 +46,14 @@ function fakeHost(): OracleHost & {
             notifications.push({ slot, procId, input: input.slice() });
         },
         nowMs: () => host.clock,
+        currentTick: () => host.tick,
     };
     return host;
+}
+
+// core packs the tick into a query id, and a tick's contract queries are numbered past its transaction slots.
+function queryIdAt(tick: number, indexInTick = TXS_PER_TICK): bigint {
+    return (BigInt(tick) << 31n) | BigInt(indexInTick);
 }
 
 function priceQuery(tag = 1): Uint8Array {
@@ -59,7 +68,7 @@ test("one-time query charges once and delivers the typed reply", () => {
     const oracle = new OracleManager(host);
 
     const queryId = oracle.startContractQuery(7, 0, priceQuery(), PriceOracleReply.SIZE, 99, 1_000, 0n);
-    expect(queryId).toBe(1n);
+    expect(queryId).toBe(queryIdAt(host.tick));
     expect(host.balances.get(7)).toBe(90n);
     expect(oracle.getOracleQueryStatus(queryId)).toBe(ORACLE_STATUS.PENDING);
     expect(oracle.resolve(queryId, new Uint8Array(PriceOracleReply.SIZE).fill(9))).toBe(true);
@@ -90,9 +99,9 @@ test("query validates Core interface metadata before charging", () => {
     expect(oracle.startContractQuery(7, 0, priceQuery(), PriceOracleReply.SIZE - 1, 1, 1_000, 10n)).toBe(-1n);
     expect(host.balances.get(7)).toBe(2_000n);
 
-    expect(oracle.startContractQuery(7, 1, new Uint8Array(MockOracleQuery.SIZE), MockOracleReply.SIZE, 1, 1_000, 0n)).toBe(1n);
+    expect(oracle.startContractQuery(7, 1, new Uint8Array(MockOracleQuery.SIZE), MockOracleReply.SIZE, 1, 1_000, 0n)).toBe(queryIdAt(host.tick));
     expect(oracle.startContractQuery(7, 2, new Uint8Array(DogeShareValidationOracleQuery.SIZE), DogeShareValidationOracleReply.SIZE, 1, 1_000, 99_999n)).toBe(
-        2n,
+        queryIdAt(host.tick, TXS_PER_TICK + 1),
     );
     expect(host.balances.get(7)).toBe(990n);
 });
@@ -186,7 +195,7 @@ test("subscribers share a channel, can receive its previous reply, and expire at
     const query = priceQuery(3);
 
     const first = oracle.startContractSubscription(5, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 11, 60_000, false, 100n);
-    expect(oracle.resolve(1n, new Uint8Array(PriceOracleReply.SIZE).fill(7))).toBe(true);
+    expect(oracle.resolve(queryIdAt(host.tick), new Uint8Array(PriceOracleReply.SIZE).fill(7))).toBe(true);
     // the channel remembers a reply once it is revealed, which is the tick after it was committed.
     oracle.pump();
     const second = oracle.startContractSubscription(6, 0, query, PriceOracleReply.SIZE, PriceOracleQuery.OFFSETS.timestamp, 12, 120_000, true, 100n);
@@ -202,7 +211,7 @@ test("subscribers share a channel, can receive its previous reply, and expire at
     expect(host.balances.get(6)).toBe(900n);
 
     oracle.beginEpoch();
-    expect(oracle.getOracleQueryStatus(1n)).toBe(ORACLE_STATUS.UNKNOWN);
+    expect(oracle.getOracleQueryStatus(queryIdAt(host.tick))).toBe(ORACLE_STATUS.UNKNOWN);
     expect(oracle.stopContractSubscription(5, first)).toBe(0);
 });
 
@@ -216,4 +225,27 @@ test("expired queries notify TIMEOUT", () => {
     oracle.pump();
     expect(oracle.getOracleQueryStatus(queryId)).toBe(ORACLE_STATUS.TIMEOUT);
     expect(host.notifications[0].input[12]).toBe(ORACLE_STATUS.TIMEOUT);
+});
+
+// a contract keeps a query id in its state, so an id handed out twice would make a stale one report a later query.
+test("a query id carries its tick and is never reused after an epoch change", () => {
+    const host = fakeHost();
+    host.balances.set(4, 1_000n);
+    const oracle = new OracleManager(host);
+
+    const first = oracle.startContractQuery(4, 0, priceQuery(), PriceOracleReply.SIZE, 5, 60_000, 0n);
+    expect(first).toBe(queryIdAt(host.tick));
+    expect(first >> 31n).toBe(BigInt(host.tick));
+    const sameTick = oracle.startContractQuery(4, 0, priceQuery(2), PriceOracleReply.SIZE, 5, 60_000, 0n);
+    expect(sameTick).toBe(queryIdAt(host.tick, TXS_PER_TICK + 1));
+
+    host.tick += 1;
+    expect(oracle.startContractQuery(4, 0, priceQuery(3), PriceOracleReply.SIZE, 5, 60_000, 0n)).toBe(queryIdAt(host.tick));
+
+    // after an epoch the records are gone, and the stale id must stay unknown rather than name whatever comes next.
+    oracle.beginEpoch();
+    host.tick += 1;
+    const afterEpoch = oracle.startContractQuery(4, 0, priceQuery(), PriceOracleReply.SIZE, 5, 60_000, 0n);
+    expect(afterEpoch).not.toBe(first);
+    expect(oracle.getOracleQueryStatus(first)).toBe(ORACLE_STATUS.UNKNOWN);
 });
