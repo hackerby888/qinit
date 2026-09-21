@@ -285,8 +285,8 @@ describe.skipIf(!HAS_CORE)("operator lowering matches Clang on the same source",
                 const theirs = await clangState(parityCase.name, parityCase.source, "operator-parity");
 
                 // Parity is the claim; the pinned value says which answer both are expected to reach.
-                expect(ours).toBe(theirs);
-                expect(ours).toBe(parityCase.expected);
+                expect(ours.stateHex).toBe(theirs.stateHex);
+                expect(ours.resultWord).toBe(parityCase.expected);
             },
             180000,
         );

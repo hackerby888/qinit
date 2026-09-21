@@ -28,8 +28,8 @@ describe.skipIf(!HAS_CORE)("inheritance matches Clang on the same source", () =>
             const theirs = await clangState(inheritanceCase.name, inheritanceCase.source, "inheritance-parity");
 
             // Parity is the claim; the pinned value says which answer both are expected to reach.
-            expect(ours).toBe(theirs);
-            expect(ours).toBe(inheritanceCase.expected);
+            expect(ours.stateHex).toBe(theirs.stateHex);
+            expect(ours.resultWord).toBe(inheritanceCase.expected);
         });
     }
 });
