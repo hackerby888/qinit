@@ -449,8 +449,9 @@ Typical contents are:
   run/
 ```
 
-`qinit clean` removes this cache. It does not remove the user configuration
-directory or saved seed.
+`qinit clean --yes` removes this cache (plain `qinit clean` only previews it, and a
+root that holds none of these entries is refused). It does not remove the user
+configuration directory or saved seed.
 
 ## 5. Ink, plain output, JSON, and exit status
 

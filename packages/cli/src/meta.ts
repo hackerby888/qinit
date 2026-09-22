@@ -61,12 +61,12 @@ const commandMeta = {
         group: "setup",
         json: true,
         summary: "remove cached node, headers, SDK, and tools",
-        options: [booleanOption("dry-run", "preview what would be removed")],
+        options: [booleanOption("yes", "skip confirmation"), booleanOption("dry-run", "preview what would be removed")],
     },
     update: {
         group: "setup",
         summary: "update the Qinit CLI",
-        options: [booleanOption("force", "update even if already latest"), booleanOption("dry-run", "preview the update")],
+        options: [booleanOption("force", "install even if already latest or older"), booleanOption("dry-run", "preview the update")],
     },
     uninstall: {
         group: "setup",
