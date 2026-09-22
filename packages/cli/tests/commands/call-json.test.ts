@@ -108,6 +108,53 @@ test("call JSON marks a state row written past a BitArray's capacity", () => {
     ]);
 });
 
+const CALLEE = {
+    e: { seq: 3, tick: 4738, index: 28, kind: 1, entry: 1, ok: true, execNs: 1200, hostCalls: [] },
+    name: "Counter",
+    entry: "proc#1 (Inc)",
+    view: {
+        caller: "PROXYID",
+        inDecoded: "{}",
+        outDecoded: "{}",
+        stateDiff: [{ label: "counter", detail: "counter", text: "0 → 1", filled: true, internal: false, before: 0n, after: 1n }],
+        logs: [],
+    },
+} as any;
+
+test("call JSON lists each callee frame with the state rows of its own slot", () => {
+    const facts = { contract: "Proxy", slot: 29, entry: "BumpCounter", tick: 4738, tx: "abc" };
+    const trace = { ...TRACE, name: "Proxy", entry: "proc#1 (BumpCounter)", view: { ...TRACE.view, stateDiff: [], logs: [] }, callees: [CALLEE] };
+    const result = callJsonResult("proc", "Proxy", "BumpCounter", { ok: true, label: "Proxy.BumpCounter" }, facts, trace);
+
+    // the caller's own rows stay its own; the callee's write shows under the callee.
+    expect(result.state).toEqual([]);
+    expect(result.callees).toEqual([
+        {
+            contract: "Counter",
+            slot: 28,
+            entry: "proc#1 (Inc)",
+            kind: "procedure",
+            ok: true,
+            execNs: 1200,
+            caller: "PROXYID",
+            in: "{}",
+            state: [{ label: "counter", detail: "counter", text: "0 → 1", internal: false, before: 0n, after: 1n }],
+            logs: [],
+        },
+    ]);
+    expect(Object.keys(callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, facts, TRACE))).not.toContain("callees");
+});
+
+test("call JSON names the trap of a callee that failed inside the call", () => {
+    const facts = { contract: "Proxy", slot: 29, entry: "BumpCounter", tick: 4738, tx: "abc" };
+    const trapped = { ...CALLEE, e: { ...CALLEE.e, ok: false, trap: "abort(3422552174)" } };
+    const result = callJsonResult("proc", "Proxy", "BumpCounter", { ok: true, label: "Proxy.BumpCounter" }, facts, { ...TRACE, callees: [trapped] });
+
+    expect(result.callees?.[0]).toMatchObject({ contract: "Counter", ok: false, trap: "abort(3422552174)" });
+    // a nested trap recovers in the caller, so the call itself still passes.
+    expect(result.ok).toBe(true);
+});
+
 test("call JSON carries warnings only when there are some", () => {
     const facts = { contract: "Counter", slot: 29, entry: "Inc", tick: 1, tx: "abc" };
     const warned = callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, facts, null, ["⚠ signer X has no balance on this node"]);
