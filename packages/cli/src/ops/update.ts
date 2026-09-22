@@ -19,7 +19,26 @@ export type SelfUpdateResult =
           version: string;
       }
     | { phase: "up-to-date"; version: string }
+    | { phase: "downgrade-refused"; version: string; currentVersion: string }
     | { phase: "updated"; previousVersion: string; version: string };
+
+// the stamped format on both sides: release.yml writes MAJOR.MINOR.PATCH into version.ts, and the tag drops to the same shape.
+const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
+
+export function parseVersion(text: string): [number, number, number] {
+    const match = RELEASE_VERSION.exec(text);
+    if (!match) {
+        throw new Error(`not a qinit release version: ${text}`);
+    }
+    return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+/** negative when `left` is older than `right`, zero when equal. */
+export function compareVersions(left: string, right: string): number {
+    const a = parseVersion(left);
+    const b = parseVersion(right);
+    return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
 
 export interface SelfUpdateDeps {
     executablePath: string;
@@ -131,8 +150,13 @@ export async function runSelfUpdate(options: SelfUpdateOptions = {}, injected: P
             version,
         };
     }
-    if (version === deps.currentVersion && !options.force) {
+    const order = compareVersions(version, deps.currentVersion);
+    if (order === 0 && !options.force) {
         return { phase: "up-to-date", version };
+    }
+    // latest.txt is a pointer anyone with repo write can move back; an older release never installs itself.
+    if (order < 0 && !options.force) {
+        return { phase: "downgrade-refused", version, currentVersion: deps.currentVersion };
     }
 
     const sha256 = await deps.fetchCliSha(sums, name);

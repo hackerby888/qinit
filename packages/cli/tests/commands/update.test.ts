@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { runSelfUpdate, type SelfUpdateDeps } from "../../src/ops/update";
+import { compareVersions, runSelfUpdate, type SelfUpdateDeps } from "../../src/ops/update";
 
 const tag = "qinit-cli-v1.2.3";
 const release = {
@@ -97,6 +97,46 @@ test("self-update skips the current version unless forced", async () => {
         version: "1.2.3",
     });
     expect(downloads).toBe(1);
+});
+
+// latest.txt is a pointer anyone with repo write can move back, so a lower version is a refusal, not an update.
+test("self-update refuses an older release unless forced", async () => {
+    let downloads = 0;
+    const deps = selfUpdateDeps({
+        currentVersion: "1.3.0",
+        downloadVerifiedAsset: async () => {
+            downloads++;
+            return new Uint8Array([1]);
+        },
+    });
+
+    expect(await runSelfUpdate({}, deps)).toEqual({ phase: "downgrade-refused", version: "1.2.3", currentVersion: "1.3.0" });
+    expect(downloads).toBe(0);
+
+    expect(await runSelfUpdate({ force: true }, deps)).toEqual({ phase: "updated", previousVersion: "1.3.0", version: "1.2.3" });
+    expect(downloads).toBe(1);
+});
+
+test("a build stamped outside the release format cannot compare, so it does not install", async () => {
+    let downloads = 0;
+    const deps = selfUpdateDeps({
+        currentVersion: "dev",
+        downloadVerifiedAsset: async () => {
+            downloads++;
+            return new Uint8Array([1]);
+        },
+    });
+
+    await expect(runSelfUpdate({}, deps)).rejects.toThrow("not a qinit release version: dev");
+    expect(downloads).toBe(0);
+});
+
+test("versions order numerically in the MAJOR.MINOR.PATCH shape release.yml stamps", () => {
+    expect(compareVersions("1.2.3", "1.2.3")).toBe(0);
+    expect(compareVersions("1.10.0", "1.9.9")).toBeGreaterThan(0);
+    expect(compareVersions("0.0.0", "0.0.1")).toBeLessThan(0);
+    expect(() => compareVersions("1.2", "1.2.0")).toThrow("not a qinit release version: 1.2");
+    expect(() => compareVersions("v1.2.3", "1.2.3")).toThrow("not a qinit release version: v1.2.3");
 });
 
 test("self-update verifies and atomically replaces a Unix executable", async () => {

@@ -60,6 +60,17 @@ export function Update({ commandArgs }: { commandArgs: CommandArguments }) {
                 </Box>
             )}
             {state.phase === "up-to-date" && <Status ok={true} label={`already on the latest (v${state.version})`} />}
+            {state.phase === "downgrade-refused" && (
+                <Box flexDirection="column">
+                    <Status ok={null} label={`installed v${state.currentVersion} is newer than the published v${state.version}`} />
+                    <Box marginTop={1}>
+                        <Text dimColor>to install it anyway: </Text>
+                        <Text bold color={theme.accent}>
+                            qinit update --force
+                        </Text>
+                    </Box>
+                </Box>
+            )}
             {state.phase === "updated" && (
                 <Box flexDirection="column">
                     <Status ok={true} label={`updated v${state.previousVersion} → v${state.version}`} />
