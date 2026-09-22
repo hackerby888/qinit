@@ -78,6 +78,52 @@ inline void appendU64(unsigned long long u) {
     }
 }
 
+// fixed point with up to six decimals, trailing zeros dropped; a magnitude past 1e18 goes scientific since its integer part outgrows u64.
+inline void appendF64(double v) {
+    if (v != v) {
+        appendStr("nan");
+        return;
+    }
+    if (v < 0) {
+        appendStr("-");
+        v = -v;
+    }
+    if (v > 1.7976931348623157e308) {
+        appendStr("inf");
+        return;
+    }
+    int exponent = 0;
+    if (v >= 1e18) {
+        while (v >= 10) {
+            v /= 10;
+            exponent++;
+        }
+    }
+    unsigned long long whole = (unsigned long long)v;
+    unsigned long long micros = (unsigned long long)((v - (double)whole) * 1e6 + 0.5);
+    if (micros == 1000000) {
+        whole++;
+        micros = 0;
+    }
+    appendU64(whole);
+    if (micros) {
+        char digits[7] = {'.', 0, 0, 0, 0, 0, 0};
+        for (int i = 6; i >= 1; i--) {
+            digits[i] = (char)('0' + micros % 10);
+            micros /= 10;
+        }
+        int end = 7;
+        while (digits[end - 1] == '0') {
+            end--;
+        }
+        appendBytes(digits, (unsigned int)end);
+    }
+    if (exponent) {
+        appendStr("e+");
+        appendU64((unsigned long long)exponent);
+    }
+}
+
 inline void appendHex(const void* p, unsigned int n) {
     const unsigned char* b = (const unsigned char*)p;
     for (unsigned int i = 0; i < n; ++i) {
@@ -87,8 +133,8 @@ inline void appendHex(const void* p, unsigned int n) {
     }
 }
 
-// Render a compared value into the failure message: bool -> true/false, integral -> decimal, any 32-byte
-// value -> hex (that is QPI::id, which the corpora compare constantly), else -> "(value)".
+// Render a compared value into the failure message: bool -> true/false, integral -> decimal, floating -> decimal,
+// any 32-byte value -> hex (that is QPI::id, which the corpora compare constantly), else -> "(value)".
 template <typename T>
 inline void appendVal(const T& v) {
     if constexpr (std::is_same_v<T, bool>) {
@@ -99,6 +145,8 @@ inline void appendVal(const T& v) {
         } else {
             appendU64((unsigned long long)v);
         }
+    } else if constexpr (std::is_floating_point_v<T>) {
+        appendF64((double)v);
     } else if constexpr (sizeof(T) == 32) {
         appendHex(&v, 32);
     } else {
