@@ -1,6 +1,6 @@
 import { openSync, closeSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import {
     DEFAULT_PEER_PORT,
     DEFAULT_RPC_BASE,
@@ -113,10 +113,70 @@ function pidAlive(pid: number): boolean {
     }
 }
 
+// the two nodes qinit launches: core's Qubic binary, or this CLI (compiled, or bun in a checkout) serving the simulator.
+export function isNodeCommand(argv: readonly string[]): boolean {
+    // a windows path read on any host splits on either separator; `basename` alone only knows the host's
+    const executable = (argv[0] ?? "")
+        .split(/[\\/]/)
+        .pop()!
+        .replace(/\.exe$/i, "")
+        .toLowerCase();
+    return executable === "qubic" || argv.includes("__serve");
+}
+
+const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
+// what a pid is running, as argv; undefined when the platform cannot say.
+function commandOf(pid: number): string[] | undefined {
+    try {
+        if (process.platform === "linux") {
+            // cmdline is empty between fork and exec (and for a zombie), so a fresh child gets a few reads before it counts as unknown.
+            for (let attempt = 0; attempt < 5; attempt++) {
+                const argv = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
+                if (argv.length) {
+                    return argv;
+                }
+                Bun.sleepSync(10);
+            }
+            return undefined;
+        }
+        if (isWindows) {
+            // one line each: the image path, then the full command line
+            const script = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}'; $p.ExecutablePath; $p.CommandLine`;
+            const [path, command] = decode(Bun.spawnSync(["powershell", "-NoProfile", "-Command", script]).stdout).split(/\r?\n/);
+            return path ? [path, ...(command ?? "").split(/\s+/)] : undefined;
+        }
+        // `comm` is the executable alone, so a path with a space survives; `args` is split for the marker only.
+        const executable = decode(Bun.spawnSync(["ps", "-o", "comm=", "-p", String(pid)]).stdout).trim();
+        const args = decode(Bun.spawnSync(["ps", "-o", "args=", "-p", String(pid)]).stdout).trim();
+        return executable ? [executable, ...args.split(/\s+/).slice(1)] : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+// a pid that is alive but running something else is a reused pid behind a stale pidfile: forget it rather than signal it.
+// an unreadable command proves nothing (exec in flight, a zombie, no ps), so that pid stays trusted the way it always was.
+function trackedNodePid(scratch: string): number | undefined {
+    const pid = trackedPid(scratch);
+    if (pid === undefined || !pidAlive(pid)) {
+        return pid;
+    }
+
+    const argv = commandOf(pid);
+    if (argv === undefined || isNodeCommand(argv)) {
+        return pid;
+    }
+    rmSync(pidFile(scratch), { force: true });
+    forgetActiveScratch(scratch);
+    forgetNodeScratch(scratch);
+    return undefined;
+}
+
 // Never kill by image name: a developer may be running other Qubic nodes. True once the tracked pid is dead, false when nothing is tracked or it outlived.
 export async function killNode(scratch = activeNodeScratchDir()): Promise<boolean> {
     const resolvedScratch = resolve(scratch);
-    const pid = trackedPid(resolvedScratch);
+    const pid = trackedNodePid(resolvedScratch);
     if (pid === undefined) {
         return false;
     }
@@ -148,7 +208,7 @@ export async function killNode(scratch = activeNodeScratchDir()): Promise<boolea
 }
 
 export function nodeAlive(scratch = activeNodeScratchDir()): boolean {
-    const pid = trackedPid(resolve(scratch));
+    const pid = trackedNodePid(resolve(scratch));
     if (pid !== undefined) {
         return pidAlive(pid);
     }
