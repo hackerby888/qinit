@@ -294,6 +294,26 @@ struct ScopedTrace {
 #define ASSERT_GT(a, b) QINIT_GTEST_CMP(a, b, >,  "ASSERT_GT", true)
 #define ASSERT_GE(a, b) QINIT_GTEST_CMP(a, b, >=, "ASSERT_GE", true)
 
+// |a - b| <= error, spelled without fabs so the harness stays free of <cmath>.
+#define QINIT_GTEST_NEAR(a, b, error, label, fatal)                                                \
+    do {                                                                                        \
+        auto qinit_gtest_va = (a);                                                                 \
+        auto qinit_gtest_vb = (b);                                                                 \
+        auto qinit_gtest_err = (error);                                                            \
+        if (!(qinit_gtest_va <= qinit_gtest_vb + qinit_gtest_err && qinit_gtest_vb <= qinit_gtest_va + qinit_gtest_err)) { \
+            ::qinit_gtest::failAt(__FILE__, __LINE__, label "(" #a ", " #b ", " #error ")");       \
+            ::qinit_gtest::appendStr(" (");                                                        \
+            ::qinit_gtest::appendVal(qinit_gtest_va);                                                 \
+            ::qinit_gtest::appendStr(" vs ");                                                      \
+            ::qinit_gtest::appendVal(qinit_gtest_vb);                                                 \
+            ::qinit_gtest::appendStr(")");                                                         \
+            if (fatal) return;                                                                  \
+        }                                                                                       \
+    } while (0)
+
+#define EXPECT_NEAR(a, b, error) QINIT_GTEST_NEAR(a, b, error, "EXPECT_NEAR", false)
+#define ASSERT_NEAR(a, b, error) QINIT_GTEST_NEAR(a, b, error, "ASSERT_NEAR", true)
+
 // ---- runner exports the engine calls to enumerate + run tests ----
 extern "C" {
 __attribute__((export_name("test_count")))

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <map>
+#include <ostream>
 #include <set>
 #include <vector>
 #if __has_include("platform/common_types.h")
@@ -783,6 +784,28 @@ static inline bool getPublicKeyFromIdentity(const unsigned char* identity, unsig
         }
     }
     return true;
+}
+
+// core's test_util.h streams an id as its 60-char identity; the checksum is the host's k12 of the key, as four_q.h getIdentity computes it.
+static std::ostream& operator<<(std::ostream& s, const m256i& v) {
+    char identity[61];
+    for (int i = 0; i < 4; i++) {
+        unsigned long long fragment;
+        copyMem(&fragment, &v.m256i_u8[i << 3], 8);
+        for (int j = 0; j < 14; j++) {
+            identity[i * 14 + j] = (char)('A' + fragment % 26);
+            fragment /= 26;
+        }
+    }
+    unsigned char digest[32];
+    lh_k12(v.m256i_u8, 32, digest);
+    unsigned int checksum = ((unsigned int)digest[0] | ((unsigned int)digest[1] << 8) | ((unsigned int)digest[2] << 16)) & 0x3FFFF;
+    for (int i = 0; i < 4; i++) {
+        identity[56 + i] = (char)('A' + checksum % 26);
+        checksum /= 26;
+    }
+    identity[60] = 0;
+    return s << identity;
 }
 
 // Stub disk I/O for corpora that define but never invoke persistence helpers.
