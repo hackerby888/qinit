@@ -1,5 +1,4 @@
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename } from "node:path";
 import { cliReleaseUrls, downloadVerifiedAsset, fetchCliSha, resolveCliTag } from "@qinit/core";
 import { VERSION } from "../version";
 
@@ -122,9 +121,8 @@ function replaceExecutable(executablePath: string, binary: Uint8Array, deps: Sel
 
 // a CLI started through a JavaScript runtime is a source checkout, which has no release binary to replace.
 export function runsFromSource(executablePath: string): boolean {
-    const executableName = basename(executablePath)
-        .replace(/\.exe$/i, "")
-        .toLowerCase();
+    // either separator, so a Windows path reads the same on any host
+    const executableName = (executablePath.split(/[\\/]/).pop() ?? "").replace(/\.exe$/i, "").toLowerCase();
     return executableName === "bun" || executableName === "node";
 }
 
