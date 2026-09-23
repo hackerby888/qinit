@@ -11,6 +11,7 @@ import {
     busyPorts,
     ensureNodeBinary,
     fetchNodeBinary,
+    identifiedPidCount,
     isNodeCommand,
     killNode,
     launchNode,
@@ -109,6 +110,27 @@ test("a node is core's Qubic binary by exact name, or this CLI serving the simul
     }
     for (const argv of [["QubicBackendServer"], ["/opt/Qubic.exe.bak"], ["qubic-cli"], ["bun", "-e", "x"], []]) {
         expect(isNodeCommand(argv), argv.join(" ")).toBe(false);
+    }
+});
+
+// waitTicking polls nodeAlive every second, and on Windows each identity probe is a PowerShell start.
+test("polling a tracked node identifies its pid once", async () => {
+    const dir = scratch();
+    const mine = sleeper();
+    try {
+        writeFileSync(pidFile(dir), String(mine));
+        // let the child finish exec, since an unreadable command line is deliberately not cached
+        await sleep(300);
+        const before = identifiedPidCount();
+        for (let poll = 0; poll < 5; poll++) {
+            expect(nodeAlive(dir)).toBe(true);
+        }
+        expect(identifiedPidCount()).toBe(before + 1);
+    } finally {
+        try {
+            process.kill(mine, "SIGKILL");
+        } catch {}
+        rmSync(dir, { recursive: true, force: true });
     }
 });
 

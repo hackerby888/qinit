@@ -155,6 +155,12 @@ function commandOf(pid: number): string[] | undefined {
     }
 }
 
+// the answer for a pid cannot change while it lives, and on Windows each probe is a PowerShell start; waitTicking polls every second.
+const identifiedPids = new Map<number, boolean>();
+
+/** @internal how many pids this process has identified; lets a test see that polling does not re-probe. */
+export const identifiedPidCount = () => identifiedPids.size;
+
 // a pid that is alive but running something else is a reused pid behind a stale pidfile: forget it rather than signal it.
 // an unreadable command proves nothing (exec in flight, a zombie, no ps), so that pid stays trusted the way it always was.
 function trackedNodePid(scratch: string): number | undefined {
@@ -163,8 +169,16 @@ function trackedNodePid(scratch: string): number | undefined {
         return pid;
     }
 
-    const argv = commandOf(pid);
-    if (argv === undefined || isNodeCommand(argv)) {
+    let isNode = identifiedPids.get(pid);
+    if (isNode === undefined) {
+        const argv = commandOf(pid);
+        isNode = argv === undefined || isNodeCommand(argv);
+        // an unreadable command is not cached: exec may still be in flight, and the next poll can read it
+        if (argv !== undefined) {
+            identifiedPids.set(pid, isNode);
+        }
+    }
+    if (isNode) {
         return pid;
     }
     rmSync(pidFile(scratch), { force: true });
