@@ -93,12 +93,8 @@ export function cacheInfo(): CacheInfo {
 export async function wipeCache(): Promise<CacheInfo & { killed: boolean }> {
     const info = cacheInfo();
     assertWipeableCacheRoot(info.root);
-    let killed = false;
-
-    if (nodeAlive()) {
-        await killNode();
-        killed = true;
-    }
+    // nodeAlive also sees an untracked Qubic by image name, which killNode never touches; report what was actually stopped.
+    const killed = nodeAlive() ? await killNode() : false;
 
     if (info.exists) {
         rmSync(info.root, { recursive: true, force: true });

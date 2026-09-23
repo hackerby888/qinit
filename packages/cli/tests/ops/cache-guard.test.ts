@@ -1,6 +1,7 @@
 // `QINIT_CACHE=. qinit clean` once emptied a project directory: the wipe has to prove the root is a qinit cache first.
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { join, parse, resolve } from "node:path";
 import { assertWipeableCacheRoot, wipeCache } from "../../src/ops/cache";
@@ -75,5 +76,31 @@ test("wipeCache leaves a stray directory alone and removes a real cache", async 
     } finally {
         rmSync(stray, { recursive: true, force: true });
         rmSync(cache, { recursive: true, force: true });
+    }
+});
+
+// F80: nodeAlive falls back to an image-name scan, so an untracked Qubic made clean claim a kill that never happened.
+test.skipIf(process.platform !== "linux")("wipeCache reports no kill for a Qubic it does not track", async () => {
+    const dir = scratch();
+    const cache = join(dir, "cache");
+    mkdirSync(cache);
+    writeFileSync(join(cache, "current.json"), "{}");
+    // a process whose name really is Qubic, so the pgrep fallback sees it
+    const qubic = join(dir, "Qubic");
+    copyFileSync("/bin/sleep", qubic);
+    const stranger = spawn(qubic, ["30"], { detached: true, stdio: "ignore" });
+    stranger.unref();
+    try {
+        await new Promise((resolveWait) => setTimeout(resolveWait, 200));
+        const wiped = await withCacheEnv(cache, () => wipeCache());
+
+        expect(wiped.killed).toBe(false);
+        expect(() => process.kill(stranger.pid!, 0)).not.toThrow();
+        expect(existsSync(cache)).toBe(false);
+    } finally {
+        try {
+            process.kill(stranger.pid!, "SIGKILL");
+        } catch {}
+        rmSync(dir, { recursive: true, force: true });
     }
 });
