@@ -5,7 +5,7 @@ import { writeFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { resolveContracts, type ContractBuildResult } from "@qinit/build";
 import { DEFAULT_RPC_BASE, autoUpdateVerifyTool, LiteRpc, loadCoreWasmSlotLayout } from "@qinit/core";
-import { loadConfig, resolveCoreDir, resolveCompilerBackend } from "../../config";
+import { loadConfig, projectContractPath, resolveCoreDir, resolveCompilerBackend } from "../../config";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
@@ -47,7 +47,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
             try {
                 const cfg = loadConfig();
                 const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
-                const contractPath = resolve(commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract ?? "fixtures/Counter.h");
+                const contractPath = projectContractPath("build", commandArgs.get("contract") ?? commandArgs.positionals[0], cfg);
                 const name = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
                 const outDir = resolve(commandArgs.get("out") ?? "dist/contracts");
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;

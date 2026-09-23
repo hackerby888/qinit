@@ -1,10 +1,10 @@
 import { CheatMode } from "@qinit/compiler";
 import { useEffect, useState } from "react";
-import { resolve, basename } from "node:path";
+import { basename } from "node:path";
 import { Box, Text, useApp } from "ink";
 import { contractAddress } from "@qinit/proto";
 import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity } from "@qinit/core";
-import { loadConfig, resolveCoreDir, resolveCompilerBackend } from "../../config";
+import { loadConfig, projectContractPath, resolveCoreDir, resolveCompilerBackend } from "../../config";
 import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentStepState } from "../../ops/deploy";
 import { deployProjectContracts, type ProjectDeployResult } from "../../ops/project-deploy";
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../../ui";
@@ -27,9 +27,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
         (async () => {
             try {
                 const cfg = loadConfig();
-                const cpath = commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract;
-                if (!cpath) throw new Error("no contract: pass `qinit deploy <file.h>` (or --contract <file.h>, or set contract in qinit.json)");
-                const contractPath = resolve(cpath);
+                const contractPath = projectContractPath("deploy", commandArgs.get("contract") ?? commandArgs.positionals[0], cfg);
                 const nm = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
                 setName(nm);
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;

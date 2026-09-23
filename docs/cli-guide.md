@@ -379,8 +379,9 @@ validated. Typical command precedence is:
 CLI option -> positional where supported -> qinit.json -> built-in default
 ```
 
-Exact details remain command-owned. For example, build's contract default is
-`fixtures/Counter.h`, while deploy requires a path from CLI or config.
+Every contract command resolves its file through `projectContractPath()`: the
+argument, then `qinit.json` `contract`, else an error saying whether there is no
+project or the project names no file. A contract name never implies its file.
 
 Core headers resolve through `resolveCoreDir()` in this order:
 
@@ -733,7 +734,7 @@ It resolves:
 
 | Value    | Resolution                                                            |
 | -------- | --------------------------------------------------------------------- |
-| Contract | `--contract` -> first positional -> config -> `fixtures/Counter.h`    |
+| Contract | `--contract` -> first positional -> config -> error                  |
 | Name     | `--contract-name` -> config -> filename without extension             |
 | Output   | `--out` -> `dist/contracts`                                           |
 | Slot     | `--slot` -> config -> live registry plan -> offline hypothetical plan |

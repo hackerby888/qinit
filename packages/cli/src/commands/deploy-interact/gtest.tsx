@@ -4,7 +4,7 @@ import { Box, Text, Static, useApp } from "ink";
 import { resolve, join, basename } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { loadConfig, resolveCompilerBackend, resolveCoreDir } from "../../config";
+import { loadConfig, projectContractPath, resolveCompilerBackend, resolveCoreDir } from "../../config";
 import { genStdGtest, extractIdl, resolveContracts } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import type { TestResult } from "@qinit/engine";
@@ -136,7 +136,13 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
 
                 // One accepted source format: core-lite contract_testing.h / ContractTesting.
-                const contractPath = resolve(commandArgs.get("contract") ?? cfg.contract ?? "contracts/" + (cfg.contractName ?? "") + ".h");
+                let contractPath: string;
+                try {
+                    contractPath = projectContractPath("gtest", commandArgs.get("contract"), cfg);
+                } catch (e: any) {
+                    add("contract", false, String(e?.message ?? e));
+                    return done(false, []);
+                }
                 if (!existsSync(contractPath)) {
                     add("contract", false, contractPath + " not found");
                     return done(false, []);
@@ -244,10 +250,13 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
             if (output.json) {
                 const tests = items.filter((item): item is Extract<Item, { kind: "test" }> => item.kind === "test").map((item) => item.t);
                 const failed = tests.filter((t) => !t.passed);
+                // a run that stopped before any test ran failed on a step; "0 of 0 tests failed" would hide which one.
+                const failedStep = items.find((item): item is Extract<Item, { kind: "line" }> => item.kind === "line" && item.line.ok === false)?.line;
+                const testsFailed = `${failed.length} of ${tests.length} test${tests.length === 1 ? "" : "s"} failed`;
                 process.stdout.write(
                     JSON.stringify({
                         ok: s.ok,
-                        error: s.ok ? null : `${failed.length} of ${tests.length} test${tests.length === 1 ? "" : "s"} failed`,
+                        error: s.ok ? null : failedStep && !tests.length ? `${failedStep.label}: ${failedStep.detail ?? "failed"}` : testsFailed,
                         summary: Object.fromEntries(s.rows),
                         tests: tests.map((t) => ({ name: t.name, ok: t.passed, ms: t.ms ?? null, message: t.message || null })),
                         notes: items.filter((item): item is Extract<Item, { kind: "note" }> => item.kind === "note").map((item) => item.text),

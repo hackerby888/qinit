@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { extractIdl, generateClient, resolveContracts, testRuntimeSource, type CalleeSource } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
-import { loadConfig, resolveCoreDir } from "../../config";
+import { loadConfig, projectContractPath, resolveCoreDir } from "../../config";
 import { Header, Panel, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { parseContractSlot } from "../../contracts/registry";
@@ -47,7 +47,7 @@ export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
         try {
             const cfg = loadConfig();
             const requestedContractPath = commandArgs.get("contract") ?? commandArgs.positionals[0];
-            const contractPath = resolve(requestedContractPath ?? cfg.contract ?? "fixtures/Counter.h");
+            const contractPath = projectContractPath("gen", requestedContractPath, cfg);
             // A header named on the command line is the contract to generate for, whatever the project's main one is.
             const headerName = basename(contractPath).replace(/\.[^.]+$/, "");
             const name = commandArgs.get("contract-name") ?? (requestedContractPath ? headerName : (cfg.contractName ?? headerName));

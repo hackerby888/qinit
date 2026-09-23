@@ -1,12 +1,27 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
-import { DEFAULT_FUNDED_SEED, assertSeed, loadConfig, resolveCoreDir } from "@qinit/core";
+import { DEFAULT_FUNDED_SEED, assertSeed, loadConfig, resolveCoreDir, type QinitConfig } from "@qinit/core";
 import { loadQpiHeader } from "@qinit/compiler";
 import { invalidArgs } from "./args";
 
 export { loadConfig, resolveCoreDir };
 export type { QinitConfig } from "@qinit/core";
+
+// the contract file a command acts on: its argument, then qinit.json. never guessed from a name: the contract name, file and state struct can all differ.
+export function projectContractPath(command: string, requested: string | undefined, config: QinitConfig, cwd = process.cwd()): string {
+    const path = requested ?? config.contract;
+    if (path) {
+        return resolve(cwd, path);
+    }
+
+    const fix = `pass \`qinit ${command} <file.h>\``;
+    throw new Error(
+        existsSync(join(cwd, "qinit.json"))
+            ? `qinit.json names no contract file — set "contract" there, or ${fix}`
+            : `not in a qinit project (no qinit.json in ${cwd}) — cd into one, or ${fix}`,
+    );
+}
 
 // Keep these re-exports free of Ink/React so the VS Code extension can use them.
 export function loadConfiguredQpiHeader(explicitCoreDir?: string): string {

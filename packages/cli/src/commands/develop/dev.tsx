@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { resolve, basename } from "node:path";
 import { readdirSync, statSync } from "node:fs";
-import { loadConfig, resolveCoreDir, resolveCompilerBackend } from "../../config";
+import { loadConfig, projectContractPath, resolveCoreDir, resolveCompilerBackend } from "../../config";
 import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentStepState } from "../../ops/deploy";
 import { deployProjectContracts, type ProjectDeployResult } from "../../ops/project-deploy";
 import { nodeContracts } from "../../ops/node";
@@ -16,7 +16,14 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
     const cfg = loadConfig();
     const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
-    const contractPath = resolve(commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract ?? "fixtures/Counter.h");
+    // resolved at render like the core dir, so a missing contract is a panel rather than a crash.
+    let contractPath = "",
+        contractErr = "";
+    try {
+        contractPath = projectContractPath("dev", commandArgs.get("contract") ?? commandArgs.positionals[0], cfg);
+    } catch (e: any) {
+        contractErr = String(e?.message ?? e);
+    }
     const contractName = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
     const dynCallees = parseCallees(commandArgs.getAll("callee"));
     const seed = commandArgs.get("seed");
@@ -31,6 +38,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     } catch (e: any) {
         coreErr = String(e?.message ?? e);
     }
+    const startErr = coreErr || contractErr;
 
     const [steps, setSteps] = useState<Record<string, DeploymentStepState>>({});
     const [notes, setNotes] = useState<string[]>([]);
@@ -95,7 +103,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     };
 
     useEffect(() => {
-        if (coreErr) return;
+        if (startErr) return;
         redeploy();
         // Poll mtimes (fs.watch doesn't fire in the --compile binary; a timer does).
         const contractHeaders = (directory: string): string[] => {
@@ -161,21 +169,21 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
         },
         { isActive: !!process.stdin.isTTY },
     );
-    // A missing core checkout is fatal, so the watch session reports failure when it ends.
+    // A missing core checkout or contract is fatal, so the watch session reports failure when it ends.
     useEffect(() => {
-        if (coreErr) process.exitCode = 1;
-    }, [coreErr]);
+        if (startErr) process.exitCode = 1;
+    }, [startErr]);
     // The session reports its last redeploy. `result` is null only mid-rebuild, which holds the previous outcome rather than flickering to success.
     useEffect(() => {
         if (result) process.exitCode = result.ok ? 0 : 1;
     }, [result]);
 
-    if (coreErr)
+    if (startErr)
         return (
             <Box flexDirection="column">
                 <Header cmd="dev" />
-                <Panel title="no core headers" color={theme.err}>
-                    <Text>{coreErr}</Text>
+                <Panel title={coreErr ? "no core headers" : "no contract"} color={theme.err}>
+                    <Text>{startErr}</Text>
                 </Panel>
             </Box>
         );
