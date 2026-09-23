@@ -227,16 +227,26 @@ async function ensureWasmPch(clang: string, pchFlags: string[]): Promise<string 
     return pchInflight;
 }
 
-// clang must target wasm32-wasi (the bundled clang.wasm multitool or a native wasi-sdk clang++); wasmSysroot is the wasi-sysroot with libc++ headers.
+// clang must target wasm32-wasi (a wasi-sdk clang++); wasmSysroot is the wasi-sysroot with libc++ headers.
 export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: string; wasmSysroot?: string }): Promise<WasmCompileResult> {
     const src = join(o.corePath, "src");
-    await mkdir(o.outDir, { recursive: true });
     const wrapper = join(o.outDir, `${o.contractName}.wasm.wrapper.cpp`);
-    await writeFile(wrapper, generateWasmWrapperSource(o));
     const wasm = join(o.outDir, `${o.contractName}.wasm`);
     const sdk = wasiSdkPaths();
-    const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang ?? "clang++";
+    const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang;
     const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT ?? sdk?.sysroot;
+    // a host clang++ has no wasm32-wasi sysroot, so trying it only trades this message for a cryptic compiler error.
+    if (!clang) {
+        return {
+            ok: false,
+            wasm,
+            wrapper,
+            exitCode: null,
+            stderr: "no WASI SDK: run `qinit setup` to fetch it, or set WASM_CLANG and WASI_SYSROOT",
+        };
+    }
+    await mkdir(o.outDir, { recursive: true });
+    await writeFile(wrapper, generateWasmWrapperSource(o));
     const shim = join(src, CORE_WASM_HEADERS.sdk.platformIntrinsics);
     // Build a reactor library and leave lhost imports unresolved for the runtime.
     const compileFlags = [
