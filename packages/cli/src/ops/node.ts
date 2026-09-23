@@ -1,6 +1,6 @@
 import { openSync, closeSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import {
     DEFAULT_PEER_PORT,
     DEFAULT_RPC_BASE,
