@@ -272,6 +272,59 @@ test("setup reports a failed update check on the headers step", async () => {
     });
 });
 
+const offline = async (): Promise<Manifest> => {
+    throw new Error("request timed out after 15000ms: https://github.com/x/qinit-manifest.json");
+};
+const installed = {
+    headersVersion: "qinit-v1",
+    coreHeaders: "/cache/headers",
+    nodeVersion: "qinit-v1",
+    node: "/cache/Qubic",
+    verify: "/cache/tools/contractverify",
+};
+
+// with every asset installed, a release that cannot be reached only costs the update check.
+test("setup offline succeeds from a complete cache without touching the network again", async () => {
+    const events: SetupEvent[] = [];
+    let downloads = 0;
+    const refuse = async (): Promise<never> => {
+        downloads++;
+        throw new Error("must not download");
+    };
+
+    await runSetup(
+        (event) => events.push(event),
+        setupDeps({
+            loadManifest: offline,
+            readCurrent: () => installed,
+            existsSync: () => true,
+            prepareNodeRunCore: refuse,
+            fetchNodeBinary: refuse,
+            ensureNodeBinary: refuse,
+            fetchWasiSdk: refuse,
+            autoUpdateVerifyTool: refuse,
+        }),
+    );
+
+    expect(downloads).toBe(0);
+    const finished = events.filter((event) => event.state === "ok");
+    expect(finished.map((event) => event.step)).toEqual(["headers", "node", "wasi", "verifier"]);
+    expect(finished[0].detail).toContain("cached qinit-v1 · offline, update check skipped (request timed out");
+    expect(events.some((event) => event.state === "fail")).toBe(false);
+});
+
+test("setup offline with any asset missing still fails on the network error", async () => {
+    for (const missing of ["/cache/headers", "/cache/Qubic", "/cache/tools/contractverify"]) {
+        await expect(
+            runSetup(() => {}, setupDeps({ loadManifest: offline, readCurrent: () => installed, existsSync: (path) => path !== missing })),
+            missing,
+        ).rejects.toThrow("request timed out");
+    }
+    await expect(
+        runSetup(() => {}, setupDeps({ loadManifest: offline, readCurrent: () => installed, existsSync: () => true, wasiSdkPaths: () => null })),
+    ).rejects.toThrow("request timed out");
+});
+
 test("setup treats verifier download failure as fatal unless updates are disabled", async () => {
     await expect(
         runSetup(
