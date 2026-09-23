@@ -8,6 +8,7 @@ import { basename, join } from "node:path";
 import { releasePlatformKey } from "@qinit/core";
 import {
     activeNodeScratchDir,
+    busyPorts,
     ensureNodeBinary,
     fetchNodeBinary,
     isNodeCommand,
@@ -108,6 +109,23 @@ test("a node is core's Qubic binary by exact name, or this CLI serving the simul
     }
     for (const argv of [["QubicBackendServer"], ["/opt/Qubic.exe.bak"], ["qubic-cli"], ["bun", "-e", "x"], []]) {
         expect(isNodeCommand(argv), argv.join(" ")).toBe(false);
+    }
+});
+
+// node run probes the ports a node will bind, so a taken port is named before launch instead of in node.log after.
+test("busyPorts reports a port held on either host and forgets it once released", () => {
+    for (const hostname of ["127.0.0.1", "0.0.0.0"]) {
+        const held = Bun.listen({ hostname, port: 0, socket: { data() {} } });
+        const port = held.port;
+        const free = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+        const freePort = free.port;
+        free.stop(true);
+        try {
+            expect(busyPorts([port, freePort]), hostname).toEqual([port]);
+        } finally {
+            held.stop(true);
+        }
+        expect(busyPorts([port]), hostname).toEqual([]);
     }
 });
 

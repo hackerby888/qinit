@@ -173,6 +173,23 @@ function trackedNodePid(scratch: string): number | undefined {
     return undefined;
 }
 
+// a node dying on a taken port only says so in its own log; probing first names the port and the flag that moves it.
+export function busyPorts(ports: readonly number[]): number[] {
+    const busy: number[] = [];
+    for (const port of ports) {
+        // both hosts: the rpc listener binds every interface and the peer socket loopback, and some platforms let one bind while the other is held.
+        for (const hostname of ["0.0.0.0", LOOPBACK_HOST]) {
+            try {
+                Bun.listen({ hostname, port, socket: { data() {} } }).stop(true);
+            } catch {
+                busy.push(port);
+                break;
+            }
+        }
+    }
+    return busy;
+}
+
 // Never kill by image name: a developer may be running other Qubic nodes. True once the tracked pid is dead, false when nothing is tracked or it outlived.
 export async function killNode(scratch = activeNodeScratchDir()): Promise<boolean> {
     const resolvedScratch = resolve(scratch);

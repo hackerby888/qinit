@@ -13,6 +13,7 @@ import {
     updateCurrent,
 } from "@qinit/core";
 import {
+    busyPorts,
     cachedReleaseRef,
     cachedNode,
     ensureNodeBinary,
@@ -178,6 +179,21 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                     if (runningBackend && runningBackend !== requestedBackend && (await nodeStatus(rpcBaseUrl)).up) {
                         throw new Error(`${rpcBaseUrl} is served by an untracked ${runningBackend} node; stop it or choose another --rpc`);
                     }
+                    const rpcPort = useSimulator ? portFromRpc(rpcBaseUrl) : resolveHttpPort(commandArgs.get("http-port"), rpcBaseUrl);
+                    // core's peer port is compiled in (31841 on testnet), the simulator's follows --peer-port
+                    const nodePeerPort = useSimulator ? peerPort : DEFAULT_PEER_PORT;
+                    const busy = busyPorts([rpcPort, nodePeerPort]);
+                    if (busy.length) {
+                        throw new Error(
+                            busy
+                                .map((port) =>
+                                    port === rpcPort
+                                        ? `port ${port} (rpc) is already in use — stop the process holding it, or choose another with ${useSimulator ? "--rpc" : "--rpc / --http-port"}`
+                                        : `port ${port} (peer) is already in use — stop the process holding it${useSimulator ? ", or choose another with --peer-port" : ""}`,
+                                )
+                                .join("\n"),
+                        );
+                    }
                     const launched = useSimulator
                         ? launchSimulatorNode({
                               scratchDirectory: commandArgs.get("scratch-dir"),
@@ -274,7 +290,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
             {done && (
                 <Box marginTop={1}>
                     <Panel title={done.title} color={done.color}>
-                        <KV rows={done.rows} />
+                        <KV rows={done.rows} full={!done.ok} />
                     </Panel>
                 </Box>
             )}
