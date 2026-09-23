@@ -8,6 +8,7 @@ import { DEFAULT_RPC_BASE } from "@qinit/core";
 import { ensureSpecProject, installSpecTypes } from "../../ops/spec-project";
 import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateGtest, templateSource, templateTest, type TemplateKind } from "@qinit/build/generate/templates";
 import type { CommandArguments } from "../../args";
+import { MAX_CONTRACT_NAME } from "../../config";
 
 // Sanitize a project name into a valid C++ struct identifier (PascalCase-ish).
 function toIdent(name: string): string {
@@ -61,6 +62,10 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
                 // also refuse a built-in system-contract name (best-effort: needs the snapshot; deploy re-checks authoritatively)
                 if (loadSystem().some((c) => c.name.toLowerCase() === name.toLowerCase())) {
                     fail(`✗ '${name}' is a system contract name — pick another`);
+                    return;
+                }
+                if (name.length > MAX_CONTRACT_NAME) {
+                    fail(`✗ '${name}' is ${name.length} characters — a deployed contract's name is at most ${MAX_CONTRACT_NAME}`);
                     return;
                 }
                 const coreDir = requestedCoreDir ?? process.env.QINIT_CORE;

@@ -29,3 +29,17 @@ test(
     },
     CLI_TEST_TIMEOUT_MS,
 );
+
+// the struct is the deploy name, so a project named past the wire limit could never build.
+test(
+    "a project name too long to deploy is refused before anything is written",
+    async () => {
+        const name = "A".repeat(32);
+        const result = await runCli(["new", name, "--core-dir", core, "--plain"], { cwd: workDir });
+
+        expect(result.code).toBe(1);
+        expect(result.stdout + result.stderr).toContain("is 32 characters");
+        expect(existsSync(join(workDir, name))).toBe(false);
+    },
+    CLI_TEST_TIMEOUT_MS,
+);

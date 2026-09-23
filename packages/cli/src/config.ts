@@ -25,7 +25,7 @@ export function projectContractPath(command: string, requested: string | undefin
 }
 
 // the deploy message carries the name in char[32]: core keeps 31 bytes, the simulator keeps them all, and reuse-by-name would disagree.
-const MAX_CONTRACT_NAME = 31;
+export const MAX_CONTRACT_NAME = 31;
 
 // a user contract's name is the struct it declares; a name given by flag or qinit.json must agree with it, never replace it.
 export function projectContractName(
