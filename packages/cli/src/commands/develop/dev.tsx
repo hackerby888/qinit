@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { resolve, basename } from "node:path";
 import { readdirSync, statSync } from "node:fs";
-import { loadConfig, projectContractPath, resolveCoreDir, resolveCompilerBackend } from "../../config";
+import { loadConfig, projectContractName, projectContractPath, resolveCoreDir, resolveCompilerBackend } from "../../config";
 import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentStepState } from "../../ops/deploy";
 import { deployProjectContracts, type ProjectDeployResult } from "../../ops/project-deploy";
 import { nodeContracts } from "../../ops/node";
@@ -18,13 +18,15 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
     // resolved at render like the core dir, so a missing contract is a panel rather than a crash.
     let contractPath = "",
+        contractName = "",
         contractErr = "";
     try {
-        contractPath = projectContractPath("dev", commandArgs.get("contract") ?? commandArgs.positionals[0], cfg);
+        const requested = commandArgs.get("contract") ?? commandArgs.positionals[0];
+        contractPath = projectContractPath("dev", requested, cfg);
+        contractName = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
     } catch (e: any) {
         contractErr = String(e?.message ?? e);
     }
-    const contractName = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
     const dynCallees = parseCallees(commandArgs.getAll("callee"));
     const seed = commandArgs.get("seed");
     const skipVerify = commandArgs.has("skip-verify");

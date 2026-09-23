@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { basename, join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { DEFAULT_FUNDED_SEED, assertSeed, loadConfig, resolveCoreDir, type QinitConfig } from "@qinit/core";
 import { loadQpiHeader } from "@qinit/compiler";
+import { detectContractName } from "@qinit/compiler/analyzer";
 import { invalidArgs } from "./args";
 
 export { loadConfig, resolveCoreDir };
@@ -21,6 +22,40 @@ export function projectContractPath(command: string, requested: string | undefin
             ? `qinit.json names no contract file — set "contract" there, or ${fix}`
             : `not in a qinit project (no qinit.json in ${cwd}) — cd into one, or ${fix}`,
     );
+}
+
+// the deploy message carries the name in char[32]: core keeps 31 bytes, the simulator keeps them all, and reuse-by-name would disagree.
+const MAX_CONTRACT_NAME = 31;
+
+// a user contract's name is the struct it declares; a name given by flag or qinit.json must agree with it, never replace it.
+export function projectContractName(
+    contractPath: string,
+    flags: { contractName?: string; stateType?: string },
+    config: QinitConfig,
+    fromConfig: boolean,
+): string {
+    if (!existsSync(contractPath)) {
+        throw new Error(`${contractPath} not found`);
+    }
+    const declared = detectContractName(readFileSync(contractPath, "utf8"));
+    if (!declared) {
+        throw new Error(`no contract struct in ${contractPath} — a contract declares \`struct Name : public ContractBase\``);
+    }
+    if (declared.length > MAX_CONTRACT_NAME) {
+        throw new Error(`contract ${declared} is ${declared.length} characters — a deployed contract's name is at most ${MAX_CONTRACT_NAME}`);
+    }
+    // qinit.json's name speaks only for qinit.json's file; a header named on the command line is its own contract.
+    const claims = [
+        ["--contract-name", flags.contractName],
+        ["--state-type", flags.stateType],
+        ["qinit.json contractName", fromConfig ? config.contractName : undefined],
+    ] as const;
+    for (const [source, claimed] of claims) {
+        if (claimed !== undefined && claimed !== declared) {
+            throw new Error(`${source} "${claimed}" ≠ struct ${declared} in ${basename(contractPath)} — a contract's name is its struct: rename one of them`);
+        }
+    }
+    return declared;
 }
 
 // Keep these re-exports free of Ink/React so the VS Code extension can use them.

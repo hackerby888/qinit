@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { Box, Text, useApp, useInput } from "ink";
 import { output, type CommandArguments } from "../../args";
-import { loadConfig } from "../../config";
+import { loadConfig, projectContractName } from "../../config";
 import { Header, Spinner, StepRow, TextPrompt, theme, type StepState } from "../../ui";
 import {
     CoreIntegrationMetadataRequiredError,
@@ -190,7 +190,12 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
 
                 const contractPath = resolve(projectRoot, selectedContract);
-                const contractName = commandArgs.get("contract-name") ?? config.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
+                const contractName = projectContractName(
+                    contractPath,
+                    { contractName: commandArgs.get("contract-name") },
+                    config,
+                    !(commandArgs.get("contract") ?? commandArgs.positionals[0]),
+                );
                 const outputPath = resolve(projectRoot, commandArgs.get("out") ?? `../${contractName}-core`);
                 const context: CoreIntegrationContext = {
                     projectRoot,

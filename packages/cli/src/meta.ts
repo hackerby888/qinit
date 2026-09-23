@@ -158,7 +158,7 @@ const commandMeta = {
         usage: "[<file.h>] [--asset <symbol> --construction-epoch <n>]",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("out", "<dir>", "Qubic Core checkout"),
             stringOption("asset", "<symbol>", "asset symbol"),
             stringOption("construction-epoch", "<n>", "first active epoch"),
@@ -173,7 +173,7 @@ const commandMeta = {
         usage: "[<file.h>]",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("slot", "<n>", "deployment slot"),
             stringOption("core-dir", "<path>", "Core checkout"),
             stringOption("rpc", "<url>", "RPC URL"),
@@ -193,7 +193,7 @@ const commandMeta = {
         options: [
             booleanOption("production", "build without cheatcodes, as Core will"),
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("out", "<dir>", "output directory"),
             stringOption("slot", "<n>", "contract slot"),
             stringOption("core-dir", "<path>", "Core checkout"),
@@ -213,7 +213,7 @@ const commandMeta = {
         usage: "<file.h>",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("out", "<dir>", "output directory"),
             stringOption("slot", "<n>", "contract slot"),
             stringOption("core-dir", "<path>", "Core checkout"),
@@ -234,7 +234,7 @@ const commandMeta = {
         usage: "<file.h>",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("core-dir", "<path>", "Core checkout"),
             stringOption("callee", "<n>=<hdr>[@<i>]", "callee header and optional slot", {
                 multiple: true,
@@ -250,7 +250,7 @@ const commandMeta = {
         usage: "<file.h> [--contract-name <name>] [--slot <n>]",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name (default: file basename)"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("slot", "<n>", "deployment slot"),
             stringOption("core-dir", "<path>", "Core checkout"),
             stringOption("rpc", "<url>", "RPC URL"),
@@ -355,7 +355,7 @@ const commandMeta = {
         usage: "[<file.h>]",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("slot", "<n>", "deployment slot"),
             stringOption("core-dir", "<path>", "Core checkout"),
             stringOption("callee", "<n>=<hdr>[@<i>]", "callee header and optional slot", {
@@ -383,8 +383,8 @@ const commandMeta = {
         usage: "[<test.cpp>]",
         options: [
             stringOption("contract", "<file.h>", "contract under test (default: qinit.json)"),
-            stringOption("contract-name", "<name>", "contract name"),
-            stringOption("state-type", "<T>", "contract struct type"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
+            stringOption("state-type", "<T>", "contract struct type (must match the header's struct)"),
             stringOption("slot", "<n>", "contract slot (default: automatic)"),
             stringOption("callee", "<Name>=<header>[@<index>]", "callee header and optional slot", {
                 multiple: true,

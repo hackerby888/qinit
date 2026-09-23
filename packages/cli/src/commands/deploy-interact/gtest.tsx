@@ -1,10 +1,10 @@
 // `qinit gtest` runs core-lite contract_testing.h tests against an isolated simulator.
 import { useEffect, useState } from "react";
 import { Box, Text, Static, useApp } from "ink";
-import { resolve, join, basename } from "node:path";
+import { resolve, join } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { loadConfig, projectContractPath, resolveCompilerBackend, resolveCoreDir } from "../../config";
+import { loadConfig, projectContractName, projectContractPath, resolveCompilerBackend, resolveCoreDir } from "../../config";
 import { genStdGtest, extractIdl, resolveContracts } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import type { TestResult } from "@qinit/engine";
@@ -136,19 +136,15 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
 
                 // One accepted source format: core-lite contract_testing.h / ContractTesting.
-                let contractPath: string;
+                let contractPath: string, name: string;
                 try {
                     contractPath = projectContractPath("gtest", commandArgs.get("contract"), cfg);
+                    const flags = { contractName: commandArgs.get("contract-name"), stateType: commandArgs.get("state-type") };
+                    name = projectContractName(contractPath, flags, cfg, !commandArgs.get("contract"));
                 } catch (e: any) {
                     add("contract", false, String(e?.message ?? e));
                     return done(false, []);
                 }
-                if (!existsSync(contractPath)) {
-                    add("contract", false, contractPath + " not found");
-                    return done(false, []);
-                }
-                const name = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
-                const stateType = commandArgs.get("state-type") ?? name;
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
                 const contractSrc = readFileSync(contractPath, "utf8");
                 const testPath = resolve(firstPositional ?? join("tests", `${name}.test.cpp`));
@@ -157,7 +153,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 const dependencyGraph = resolveContracts({
                     projectRoot: process.cwd(),
                     corePath: core,
-                    contractName: stateType,
+                    contractName: name,
                     contractPath,
                     slot: requestedSlot === undefined ? undefined : resolveGtestSlot(core, requestedSlot),
                     explicitCallees,
@@ -196,10 +192,10 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     const idl = extractIdl(contractSrc, name, {
                         slot,
                         qpiHeader: loadQpiHeader(core),
-                        stateType,
+                        stateType: name,
                     });
                     mkdirSync(join(testPath, ".."), { recursive: true });
-                    writeFileSync(testPath, genStdGtest(idl, name, stateType));
+                    writeFileSync(testPath, genStdGtest(idl, name, name));
                     add("scaffold", true, `${testPath.replace(process.cwd() + "/", "")} (core-lite)`);
                 }
 
@@ -208,7 +204,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     contractPath,
                     testPath,
                     name,
-                    stateType,
+                    stateType: name,
                     slot,
                     core,
                     backend,

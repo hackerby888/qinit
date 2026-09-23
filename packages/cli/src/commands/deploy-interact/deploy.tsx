@@ -1,10 +1,9 @@
 import { CheatMode } from "@qinit/compiler";
 import { useEffect, useState } from "react";
-import { basename } from "node:path";
 import { Box, Text, useApp } from "ink";
 import { contractAddress } from "@qinit/proto";
 import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity } from "@qinit/core";
-import { loadConfig, projectContractPath, resolveCoreDir, resolveCompilerBackend } from "../../config";
+import { loadConfig, projectContractName, projectContractPath, resolveCoreDir, resolveCompilerBackend } from "../../config";
 import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentStepState } from "../../ops/deploy";
 import { deployProjectContracts, type ProjectDeployResult } from "../../ops/project-deploy";
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../../ui";
@@ -27,11 +26,12 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
         (async () => {
             try {
                 const cfg = loadConfig();
-                const contractPath = projectContractPath("deploy", commandArgs.get("contract") ?? commandArgs.positionals[0], cfg);
-                const nm = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
-                setName(nm);
+                const requested = commandArgs.get("contract") ?? commandArgs.positionals[0];
+                const contractPath = projectContractPath("deploy", requested, cfg);
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
                 const slotOverride = requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot);
+                const nm = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
+                setName(nm);
                 const emit = (e: DeploymentEvent) => {
                     if ("note" in e) {
                         setNotes((n) => [...n, e.note]);
