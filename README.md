@@ -1,7 +1,8 @@
 # Qinit
 
-Qinit is a Bun/TypeScript toolkit for Qubic Smart Contract: scaffold, compile,
-deploy, test, inspect, and generate typed clients from one standalone CLI.
+Build, test and deploy Qubic smart contracts. Qinit scaffolds a project, compiles
+it, runs it on a local chain, tests it, inspects its state, and generates typed
+clients, all from one standalone CLI.
 
 [`docs/`](./docs/README.md) holds the deep dives: the
 [CLI guide](./docs/cli-guide.md), the
