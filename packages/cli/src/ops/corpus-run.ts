@@ -370,6 +370,7 @@ export async function runStdGtest(opts: {
     const results = await runContractTesting(runnerBytes, contracts, {
         mainSlot: main.slot,
         assetNames,
+        profile,
         excludeTests: opts.excludeTests,
         filterTests: opts.filterTests,
         onResult: opts.onResult,

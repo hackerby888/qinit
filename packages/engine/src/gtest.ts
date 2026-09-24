@@ -1,5 +1,6 @@
 // Run core-lite contract_testing.h suites in an isolated simulator.
-import { WASM_TRAP_ERROR_CODE } from "@qinit/core";
+import { WASM_TRAP_ERROR_CODE, type BuildProfile } from "@qinit/core";
+import { MAINNET_COMPUTOR_COUNT } from "@qinit/proto";
 import { QubicSimulator } from "./qubic-simulator";
 import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, dateFields, packDateAndTime } from "./contract/runtime";
 import { initK12, k12Bytes } from "./support/k12";
@@ -22,6 +23,8 @@ export async function runContractTesting(
         assetNames?: Record<number, string | bigint>;
         excludeTests?: readonly string[];
         filterTests?: readonly string[]; // run only tests whose name contains one of these (case-insensitive)
+        // core's own corpora are compiled for its default committee, so the host that pays their dividends and ipo shares has to be that size too.
+        profile?: BuildProfile;
     } = {},
 ): Promise<TestResult[]> {
     await initK12();
@@ -117,6 +120,7 @@ export async function runContractTesting(
             fees: "off",
             liteTicking: true,
             haltOnContractFault: false,
+            ...(opts.profile === "core-gtest" ? { consensus: { numberOfComputors: MAINNET_COMPUTOR_COUNT } } : {}),
         });
         // Pin the corpus clock to the native harness's fixed date so it does not follow VirtualNode's wall-clock override; preservation wins on redeploy.
         sim.timeBaseMs = Date.UTC(2024, 0, 1);

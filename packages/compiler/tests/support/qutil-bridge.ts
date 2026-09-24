@@ -137,5 +137,5 @@ export async function buildContractsWithClang(core: string): Promise<Record<numb
 }
 
 export async function runUpstream(runnerWasm: Uint8Array, contracts: Record<number, Uint8Array>): Promise<TR[]> {
-    return runContractTesting(runnerWasm, contracts);
+    return runContractTesting(runnerWasm, contracts, { profile: "core-gtest" });
 }

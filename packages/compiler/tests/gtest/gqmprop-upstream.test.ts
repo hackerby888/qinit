@@ -60,7 +60,7 @@ describe.skipIf(!HAS_CORE)("upstream gtest — contract_gqmprop.cpp against depl
             });
             expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
-            const results: TestResult[] = await runContractTesting(runner, { [GQMPROP_IDX]: mine.wasm });
+            const results: TestResult[] = await runContractTesting(runner, { [GQMPROP_IDX]: mine.wasm }, { profile: "core-gtest" });
             const passed = results.filter((r) => r.passed).length;
             console.log(`\n  contract_gqmprop.cpp: ${passed} PASS · ${results.length - passed} FAIL (of ${results.length})`);
             for (const r of results.filter((r) => !r.passed).slice(0, 12)) {

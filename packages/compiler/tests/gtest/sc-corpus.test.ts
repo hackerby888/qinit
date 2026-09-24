@@ -330,7 +330,7 @@ async function runSingleCell(): Promise<void> {
         appendFileSync(outPath, "RUNNER ok\n");
 
         const contracts = compilerBackend === "typescript" ? await buildWithTypeScript(spec) : await buildWithClang(spec, dir);
-        const results = await runContractTesting(runner, contracts);
+        const results = await runContractTesting(runner, contracts, { profile: "core-gtest" });
         const passed = results.filter((r) => r.passed).length;
         appendFileSync(outPath, `SCORE ${passed}/${results.length}\n`);
         for (const result of results.filter((item) => !item.passed)) {
@@ -424,8 +424,8 @@ describe.skipIf(!HAS_CORE)("sc-corpus — dual-backend EASY-tier sweep", () => {
                 const clang = await buildWithClang(spec, dir);
                 const typescript = await buildWithTypeScript(spec);
 
-                const clangResults = await runContractTesting(runner, clang);
-                const typescriptResults = await runContractTesting(runner, typescript);
+                const clangResults = await runContractTesting(runner, clang, { profile: "core-gtest" });
+                const typescriptResults = await runContractTesting(runner, typescript, { profile: "core-gtest" });
 
                 const clangPassed = clangResults.filter((r) => r.passed).length;
                 const typescriptPassed = typescriptResults.filter((r) => r.passed).length;
