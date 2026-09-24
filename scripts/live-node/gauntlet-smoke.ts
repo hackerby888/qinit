@@ -159,6 +159,11 @@ console.log("native QX call…");
         qxCall?.hostCalls.some((hostCall) => hostCall.name === "callFunction" && hostCall.detail.includes("-> 1/1")) === true,
         "Wasm call reaches native QX",
     );
+    // a native callee has no dispatch of its own, so the node records a frame for it and names it in the caller's children.
+    const qxFrame = trace.entries.find((entry) => entry.index === 1 && entry.kind === 0 && entry.entry === 1 && entry.ok);
+    expectTrue(qxFrame !== undefined, "native QX Fees leaves a trace frame");
+    expectTrue(qxCall?.children?.includes(qxFrame?.seq ?? -1) === true, "the QX frame is a child of the Wasm caller");
+    expectEqual(qxFrame?.outSize ?? 0, 12, "the QX frame carries Fees_output");
     await rpc.setDebug(false);
 
     expectEqual(assetIssuanceFee, nativeFees[0], "QX asset issuance fee");
