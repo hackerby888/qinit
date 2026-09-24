@@ -281,7 +281,8 @@ try {
             await new Promise((resolve) => setTimeout(resolve, 1000));
         }
         // the deduction lands on the boundary tick; reading every tick since the payout would be hundreds of peer requests for nothing.
-        const charged = await deductions([boundary - 1, boundary, boundary + 1]);
+        const boundaryTicks = [boundary - 1, boundary, boundary + 1];
+        const charged = await deductions(boundaryTicks);
         if (!charged.length) {
             throw new Error(`${runtime.name} charged no execution fees across ticks ${payoutTick}..${releaseTick}`);
         }
@@ -315,7 +316,7 @@ try {
                 );
             }
         }
-        console.log(`${runtime.name}: ${charged.length} execution-fee deductions over ${window.length} ticks, at most one per contract per phase`);
+        console.log(`${runtime.name}: ${charged.length} execution-fee deductions over ticks ${boundaryTicks[0]}..${boundaryTicks[2]}, at most one per contract per phase`);
     }
 
     const shape = (records: TickLogRecord[]) => records.map((record) => `${record.type}:${Buffer.from(record.message).toString("hex")}`);
