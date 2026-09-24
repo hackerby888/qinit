@@ -1,88 +1,47 @@
 # Qinit
 
-Build, test and deploy Qubic smart contracts. Qinit scaffolds a project, compiles
-it, runs it on a local chain, tests it, inspects its state, and generates typed
-clients, all from one standalone CLI.
+Build, test and deploy Qubic smart contracts. Qinit scaffolds a project, compiles it, runs it on a local chain, tests it,
+inspects its state, and generates typed clients, all from one standalone CLI.
 
-[`docs/`](./docs/README.md) holds the deep dives: the
-[CLI guide](./docs/cli-guide.md), the
-[compiler walkthrough](./docs/compiler-walkthrough.md) for the
-TypeScript-to-Wasm pipeline, and
-[browser packaging](./docs/browser-packaging.md).
+## Platforms
+
+| OS      | Architecture         |
+| ------- | -------------------- |
+| Linux   | x64, arm64           |
+| macOS   | Apple Silicon, Intel |
+| Windows | x64                  |
 
 ## Install
 
-Prebuilt binary (no Bun needed):
+Linux and macOS:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hackerby888/qinit/main/install.sh | sh
 ```
 
-On Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/hackerby888/qinit/main/install.ps1 | iex
 ```
 
-The installer puts `qinit` in `~/.local/bin` on Linux/macOS and
-`%LOCALAPPDATA%\qinit\bin` on Windows (override with `QINIT_BIN`). It then runs
-`qinit setup` to cache the core headers, node binary, WASI SDK, and contract
-verifier. Unavailable platform assets are reported without removing the CLI.
+The installer puts `qinit` in `~/.local/bin` on Linux and macOS, or `%LOCALAPPDATA%\qinit\bin` on Windows. It then runs
+`qinit setup`, which fetches the local node, the Qubic Core headers and the Wasm compiler. `qinit doctor` checks the setup.
 
-Release assets:
-
-| OS      | Architecture  | Asset                   |
-| ------- | ------------- | ----------------------- |
-| Linux   | x64           | `qinit-linux-x64`       |
-| Linux   | arm64         | `qinit-linux-arm64`     |
-| macOS   | Apple Silicon | `qinit-darwin-arm64`    |
-| macOS   | Intel         | `qinit-darwin-x64`      |
-| Windows | x64           | `qinit-windows-x64.exe` |
-
-After a manual download, run `qinit setup` and `qinit doctor`.
-
-## Develop
-
-Use Bun 1.3.14, matching CI:
+## Quick start
 
 ```bash
-bun install
-bun run dev help
-bun run typecheck
-bun test
+qinit new Counter                  # contracts/Counter.h, tests/Counter.test.ts, tests/Counter.test.cpp
+cd Counter
+qinit build                        # compile contracts/Counter.h
+qinit test                         # run tests/Counter.test.ts on a fresh local chain
+qinit gtest                        # run tests/Counter.test.cpp, Core's C++ test style
+qinit node run                     # start a local Qubic chain
+qinit deploy                       # deploy Counter to it
+qinit call --proc Counter Inc      # send a transaction to the Inc procedure
+qinit call --fn Counter Get        # read the counter back: 1
+qinit node stop
 ```
 
-Build and check the standalone CLI:
-
-```bash
-bun run build:bin
-./dist/qinit smoke
-```
-
-Live core-lite checks need a checkout supplied through `QINIT_CORE`:
-
-```bash
-QINIT_CORE=/path/to/core-lite bun run test:sc:light
-```
-
-Run node binaries from a temporary working directory because they create
-runtime data relative to the current directory.
-
-## Integrate with Qubic Core
-
-`qinit integrate` copies one Qinit contract into the latest `qubic/core` main
-branch and wires its optional GTest into the Visual Studio projects:
-
-```bash
-qinit integrate contracts/Counter.h
-```
-
-For a new integration, Qinit clones Core into `../Counter-core`, creates
-`qinit/counter`, and prompts for the asset name, construction epoch, and
-destruction epoch (default `10000`). Non-interactive use supplies the required
-metadata explicitly:
-
-```bash
-qinit integrate --contract contracts/Counter.h --contract-name Counter \
-  --out ../Counter-core --asset COUNTER --construction-epoch 250
-```
+`qinit <command> --help` lists every option, and `qinit call` with no arguments picks the contract and entry point
+interactively.
