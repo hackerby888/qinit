@@ -803,7 +803,9 @@ CLI compatibility export remains in `ops/typescript-build.ts`.
 Both paths compile under the profile the shipped node is built with — `TESTNET`,
 `TESTNET_LITE_RAM`, `LITE_WASM_SC` (`CORE_BUILD_PROFILE` in
 [`packages/core/src/wasm/slot-layout-source.ts`](../packages/core/src/wasm/slot-layout-source.ts)).
-Under it `NUMBER_OF_COMPUTORS` is 8 and `QUORUM` is 6, so a state field sized by either
+Core seats the same 676 computors in every build since it dropped its 8-seat lite committee,
+so `NUMBER_OF_COMPUTORS` and `QUORUM` no longer differ between profiles; the profile still
+decides the `TESTNET_LITE_RAM` constants, and a state field sized by either
 (every `ProposalVoting<…ByComputors<NUMBER_OF_COMPUTORS>>` in the system contracts) has the
 layout the node reports. The system-contract wasm cache carries the profile in its path
 (`system-wasm/testnet-lite/<compiler>`), so a CLI built before the profile applied never
@@ -1837,8 +1839,8 @@ with 100 000 000 000 qu (core's `LITE_DEV_FEE_RESERVE`), and `qpi.burn` is the o
 a contract can perform on itself.
 
 The charge does not land on the call that caused it. Like core, the engine accumulates
-microseconds per contract across a **phase** of `NUMBER_OF_COMPUTORS` ticks — 8 on the
-testnet committee both engines use — and deducts the phase's total once, at the first tick
+microseconds per contract across a **phase** of `NUMBER_OF_COMPUTORS` ticks — 676 on the
+committee both engines seat — and deducts the phase's total once, at the first tick
 of the next phase, as a `ContractReserveDeduction` log record belonging to no transaction.
 Two consequences worth knowing while developing:
 

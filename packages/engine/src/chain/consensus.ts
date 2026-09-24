@@ -8,7 +8,7 @@ import type { Id } from "../support/bytes";
 
 export { MAX_NUMBER_OF_CONTRACTS, TXS_PER_TICK, TICKDATA_SIZE };
 export const DEFAULT_ARBITRATOR_SEED = "a".repeat(55);
-export const DEFAULT_NUMBER_OF_COMPUTORS = 8; // core-lite LITE testnet committee (common_def.h)
+export const DEFAULT_NUMBER_OF_COMPUTORS = 676; // the committee every core build seats (qpi_types.h)
 export const TICK_SIZE = Tick.SIZE; // network_messages/tick.h (352), including the 64-byte signature
 const TICK_TYPE = 3; // BROADCAST_TICK — XORed into computorIndex for vote-signature domain separation (qubic.cpp)
 const SEED_ALPHABET = "abcdefghijklmnopqrstuvwxyz";

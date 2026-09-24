@@ -48,7 +48,7 @@ test("the reserve rises and falls, and may be driven non-positive", () => {
 test("ipo: success funds finalPrice*computors and clears failed; failure marks failed with a zero reserve", () => {
     const f = new FeeManager("metered");
     f.ipo(2, 1000000n);
-    expect(f.getContractFeeReserve(2)).toBe(1000000n * 8n);
+    expect(f.getContractFeeReserve(2)).toBe(1000000n * 676n);
     expect(f.isFailed(2)).toBe(false);
 
     f.ipo(3, 0n);

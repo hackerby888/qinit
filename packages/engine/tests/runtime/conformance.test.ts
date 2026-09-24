@@ -202,7 +202,7 @@ test("metered: IPO seeds the reserve; a failed IPO (finalPrice 0) can never be r
     sim.deploy(28, await wasm("Counter"));
 
     sim.ipo(28, 1000n);
-    expect(sim.getContractFeeReserve(28)).toBe(8_000n); // finalPrice * NUMBER_OF_COMPUTORS(8)
+    expect(sim.getContractFeeReserve(28)).toBe(676_000n); // finalPrice * NUMBER_OF_COMPUTORS(676)
 
     // A failed IPO marks the contract unusable — burning to it does nothing and reports failure.
     sim.ipo(29, 0n);

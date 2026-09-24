@@ -64,7 +64,7 @@ test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)
     expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
 
     expect(await decodeAbi(await eng.querySmartContract(28, 1, await encodeInputFormat("")), "uint64")).toBe(1n);
-});
+}, 30_000);
 
 test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe -> oracle)", async () => {
     const eng = await VirtualNode.create({

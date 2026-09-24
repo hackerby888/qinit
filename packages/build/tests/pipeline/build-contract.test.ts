@@ -224,7 +224,7 @@ struct Committee : public ContractBase {
             });
 
         try {
-            writeFileSync(contractPath, source(8, 6));
+            writeFileSync(contractPath, source(676, 451));
             const node = await build("node");
             expect(node.ok, node.stderr).toBe(true);
 

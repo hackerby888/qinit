@@ -267,9 +267,9 @@ test("a dividend payout is bracketed by its two markers, holders or not", () => 
 
     sim.mintDeployShares(28, "DIV", first);
     // contract shares are minted under contract 1's management.
-    sim.host.transferShareOwnershipAndPossession(1, packAssetName("DIV"), new Uint8Array(32), first, first, 3n, second);
-    sim.fund(paying, 8n * 3n);
-    sim.fund(contractId(29), 8n);
+    sim.host.transferShareOwnershipAndPossession(1, packAssetName("DIV"), new Uint8Array(32), first, first, 76n, second);
+    sim.fund(paying, 676n * 3n);
+    sim.fund(contractId(29), 676n);
 
     logger.begin(1, 0);
     expect(sim.host.distributeDividends(28, 3n)).toBe(1);
@@ -285,8 +285,8 @@ test("a dividend payout is bracketed by its two markers, holders or not", () => 
     const payouts = messages.slice(1, 3).sort((left, right) => left[32] - right[32]);
     expect([messages[0], ...payouts, ...messages.slice(3)]).toEqual([
         markerMessage(CUSTOM_MESSAGE_OP.START_DISTRIBUTE_DIVIDENDS),
-        quTransferMessage(paying, first, 5n * 3n),
-        quTransferMessage(paying, second, 3n * 3n),
+        quTransferMessage(paying, first, 600n * 3n),
+        quTransferMessage(paying, second, 76n * 3n),
         markerMessage(CUSTOM_MESSAGE_OP.END_DISTRIBUTE_DIVIDENDS),
         markerMessage(CUSTOM_MESSAGE_OP.START_DISTRIBUTE_DIVIDENDS),
         markerMessage(CUSTOM_MESSAGE_OP.END_DISTRIBUTE_DIVIDENDS),

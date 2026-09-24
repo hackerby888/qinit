@@ -30,7 +30,16 @@ async function exchange(port: number, request: Uint8Array): Promise<Frame[]> {
         },
     });
 
-    await new Promise((r) => setTimeout(r, 150));
+    // a 676-vote stream is a quarter megabyte: read until the server has been quiet for a moment.
+    let seen = 0;
+    for (let waited = 0; waited < 3000; waited += 100) {
+        await new Promise((r) => setTimeout(r, 100));
+        const received = chunks.reduce((sum, c) => sum + c.length, 0);
+        if (received === seen && received > 0) {
+            break;
+        }
+        seen = received;
+    }
     sock.end();
 
     let total = 0;
@@ -95,7 +104,7 @@ test("handshake + current-tick-info returns the live tick with aligned votes", a
         expect(tickFrame).toBeDefined();
         const d = dv(tickFrame.payload);
         expect(d.getUint32(4, true)).toBeGreaterThanOrEqual(3); // tick advanced
-        expect(d.getUint16(8, true)).toBe(8); // numberOfAlignedVotes == default committee size
+        expect(d.getUint16(8, true)).toBe(engine.sim.getCommittee().computors.length); // numberOfAlignedVotes == committee size
         expect(d.getUint16(2, true)).toBe(1);
         expect(d.getUint32(12, true)).toBe(engine.sim.epochLength);
     } finally {
@@ -244,7 +253,7 @@ test("owned-assets request serves a merkle proof that recomputes the universe ro
     } finally {
         stop();
     }
-});
+}, 30_000);
 
 test("contract-function request runs a Counter query through the engine", async () => {
     await initK12();
@@ -304,9 +313,10 @@ test("tick-data request returns the signed TickData and its leader signature ver
         expect(f).toBeDefined();
         expect(f.payload.length).toBe(TICKDATA_SIZE); // 139376
 
+        const committee = engine.sim.getCommittee();
         const leaderIndex = dv(f.payload).getUint16(0, true);
-        expect(leaderIndex).toBe(tick % 8); // default committee size
-        const leader = engine.sim.getCommittee().computors[leaderIndex];
+        expect(leaderIndex).toBe(tick % committee.computors.length);
+        const leader = committee.computors[leaderIndex];
         expect(verifySync(leader.publicKey, tickDataMessage(f.payload), tickDataSignature(f.payload))).toBe(true);
     } finally {
         stop();
@@ -347,11 +357,11 @@ test("quorum-tick request honors vote flags and streams verifiable votes", async
 
         const frames = await exchange(port, codec.frame(MSG.REQUEST_QUORUM_TICK, req, 8));
         const votes = frames.filter((x) => x.type === MSG.BROADCAST_TICK);
-        expect(votes.length).toBe(7);
+        const committee = engine.sim.getCommittee();
+        expect(votes.length).toBe(committee.computors.length - 1);
         expect(frames.some((x) => x.type === MSG.END_RESPONSE)).toBe(true);
         expect(votes.some((vote) => dv(vote.payload).getUint16(0, true) === 2)).toBe(false);
 
-        const committee = engine.sim.getCommittee();
         for (const v of votes) {
             expect(v.payload.length).toBe(TICK_SIZE); // 352
             const idx = dv(v.payload).getUint16(0, true);
@@ -527,7 +537,7 @@ test("a contract fault stops peer ticking and leaves finalized diagnostics avail
 
         const tickRequest = quorumTickRequest(fault.lastFinalizedTick);
         const quorumFrames = await exchange(port, codec.frame(MSG.REQUEST_QUORUM_TICK, tickRequest, 72));
-        expect(quorumFrames.filter((frame) => frame.type === MSG.BROADCAST_TICK)).toHaveLength(8);
+        expect(quorumFrames.filter((frame) => frame.type === MSG.BROADCAST_TICK)).toHaveLength(engine.sim.getCommittee().computors.length);
     } finally {
         stop();
     }
