@@ -777,7 +777,7 @@ export class VirtualNode implements NodeTransport {
             const upload = this.upload;
 
             if (message.targetSlot < this.slotBase || message.targetSlot >= this.slotBase + this.slotCount) {
-                return refuse("bad-slot", `slot ${message.targetSlot} is not a dynamic contract slot`);
+                return refuse("bad-slot", `slot ${message.targetSlot} is not a deployable smart contract slot`);
             }
             if (message.abiVersion !== WASM_ABI_VERSION) {
                 return refuse("abi-mismatch", `unsupported Wasm ABI version ${message.abiVersion}; expected ${WASM_ABI_VERSION}`);

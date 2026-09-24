@@ -53,7 +53,7 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                     const rows: [string, string][] = [
                         ["tick", String(st.tick)],
                         ["epoch", String(st.epoch)],
-                        ["dyn slots", `${st.armed} armed / ${st.slotCount}`],
+                        ["contract slots", `${st.armed} armed / ${st.slotCount}`],
                     ];
                     let epochLastTick: number | null = null;
                     let ticksLeft: number | null = null;

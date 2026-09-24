@@ -359,7 +359,7 @@ test("a processed DEPLOY records what the node did with it", async () => {
     const counterHash = await k12Hex(counter);
     const chunks = await begin(21n, counter);
 
-    expect(() => deploy(21n, counterHash, { targetSlot: DYN - 1 })).toThrow("is not a dynamic contract slot");
+    expect(() => deploy(21n, counterHash, { targetSlot: DYN - 1 })).toThrow("is not a deployable smart contract slot");
     expect(await lastDeploy()).toMatchObject({ sessionId: "21", slot: DYN - 1, ok: false, code: "bad-slot" });
 
     // a new session replaces the record; within one, only an incomplete upload may still end differently.

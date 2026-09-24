@@ -236,7 +236,7 @@ Oracle: the core cell of the same spec (rights actually move and come back). The
 own `Holdings` function read the 500 000 shares at `managingContract:30` correctly in the settle test, so the
 `numberOfPossessedShares` availability check is not the gap; the remaining candidate is the `PRE_RELEASE_SHARES`
 callback path — either `qpi.originator()` is not the invoking user during a callback the simulator runs nested inside
-`acquireShares`, or the possession-manager bookkeeping for a dynamic-contract-issued asset differs from core.
+`acquireShares`, or the possession-manager bookkeeping for a smart-contract-issued asset differs from core.
 Root-causing the exact field is left for a follow-up; the divergence itself is the finding (ground rule 2). Fix nothing.
 
 ### F70 — a plain signed transfer (inputType 0) broadcast to the core dev node is silently not included (`found:false, moneyFlew:false, processed:true`); the same transfer lands on the simulator
