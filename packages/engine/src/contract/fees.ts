@@ -1,5 +1,4 @@
 // Execution-fee reserves mirror core-lite Contract-0 accounting and Qinit's simulation policy.
-import { MAINNET_COMPUTOR_COUNT } from "@qinit/proto";
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core";
 import { DEFAULT_NUMBER_OF_COMPUTORS } from "../chain/consensus";
 
@@ -13,7 +12,6 @@ export interface FeeSettlement {
     remainingAmount: bigint;
 }
 
-const IPO_COMPUTORS = BigInt(MAINNET_COMPUTOR_COUNT);
 // The dev reserve a metered deploy is seeded with (a faked successful IPO); the node seeds the same, about a hundred procedures on a near-1 GiB state.
 export const DEFAULT_FEE_RESERVE = 100000000000n;
 const OFF_MODE_RESERVE = 1000000n; // queryFeeReserve's constant return when fees are off
@@ -65,7 +63,7 @@ export class FeeManager {
     // Model the IPO outcome: a 0 finalPrice is a failed IPO that burns can never refill.
     ipo(slot: number, finalPrice: bigint): void {
         if (finalPrice > 0n) {
-            this.reserve.set(slot, finalPrice * IPO_COMPUTORS);
+            this.reserve.set(slot, finalPrice * BigInt(this.numberOfComputors));
             this.failed.delete(slot);
         } else {
             this.reserve.set(slot, 0n);

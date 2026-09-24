@@ -118,8 +118,6 @@ console.log(`LOGGING DUAL OK — exact ${compiled.wasm.length}B artifact emitted
 // native records — transfers, markers, management changes — never reach the debug trace, so both nodes are read over the peer log protocol.
 const NATIVE_FIXTURES = ["Dividend", "ShareApprover", "ShareManager"] as const;
 const DIVIDEND_PER_SHARE = 3n;
-// the simulator debits a payout at the mainnet share count whatever its holders are; a testnet core at its own computor count.
-const SIMULATOR_SHARE_COUNT = 676n;
 const peerHost = new URL(rpcBaseUrl).hostname;
 const peerPort = Number(process.env.QINIT_PEER_PORT ?? "31841");
 
@@ -241,9 +239,8 @@ try {
             return found;
         };
 
-        // funded in its own transaction, since the two nodes debit different totals and the payout tick is compared byte for byte.
-        const shareCount = runtime.name === "simulator" ? SIMULATOR_SHARE_COUNT : BigInt(computors.length);
-        await send(nativeSlots.Dividend, 1, DIVIDEND_PER_SHARE * shareCount, new Uint8Array(0));
+        // funded in its own transaction, since the payout tick is compared byte for byte; both nodes debit one share per committee seat.
+        await send(nativeSlots.Dividend, 1, DIVIDEND_PER_SHARE * BigInt(computors.length), new Uint8Array(0));
         const amountPerShare = new Uint8Array(8);
         new DataView(amountPerShare.buffer).setBigInt64(0, DIVIDEND_PER_SHARE, true);
         const payoutTick = await send(nativeSlots.Dividend, 2, 0n, amountPerShare);

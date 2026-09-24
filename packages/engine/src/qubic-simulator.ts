@@ -5,7 +5,6 @@ import {
     encodeContractReserveDeductionLog,
     encodeCustomMessageLog,
     encodeQuTransferLog,
-    MAINNET_COMPUTOR_COUNT,
     MAX_INPUT_SIZE,
     QUBIC_LOG_TYPE,
     TXS_PER_TICK,
@@ -46,7 +45,6 @@ export type { TxRecord } from "./chain/txs";
 const EP_USER_PROCEDURE = CONTRACT_ENTRY_POINTS.userProcedure;
 const EP_USER_PROCEDURE_NOTIFICATION = CONTRACT_ENTRY_POINTS.userProcedureNotification;
 const ZERO32 = new Uint8Array(32);
-const IPO_SHARE_COUNT = MAINNET_COMPUTOR_COUNT;
 const IPO_SHARE_PRICE = 1000000n; // default IPO price per share (Qu)
 
 const TRANSFER_TYPE_STANDARD_TRANSACTION = 0;
@@ -293,9 +291,10 @@ export class QubicSimulator {
             dayOfWeek: (year, month, day) => (new Date(Date.UTC(2000 + year, month - 1, day)).getUTCDay() + 4) % 7,
             signatureValidity: (entity, digest, signature) => (verifySync(entity, digest, signature) ? 1 : 0),
             bidInIPO: () => -1n,
+            // one ipo share per committee seat, as the node's own computor count sizes it.
             ipoBidId: (_contractIndex, index) =>
-                index >= 0 && index < IPO_SHARE_COUNT ? this.ticking.getCommittee().computors[index % this.ticking.committeeSize()].publicKey : ZERO32,
-            ipoBidPrice: (_contractIndex, index) => (index >= 0 && index < IPO_SHARE_COUNT ? IPO_SHARE_PRICE : -3n),
+                index >= 0 && index < this.ticking.committeeSize() ? this.ticking.getCommittee().computors[index].publicKey : ZERO32,
+            ipoBidPrice: (_contractIndex, index) => (index >= 0 && index < this.ticking.committeeSize() ? IPO_SHARE_PRICE : -3n),
             computeMiningFunction: () => ZERO32,
             initMiningSeed: () => {},
             getOracleQueryStatus: (queryId) => this.oracle.getOracleQueryStatus(queryId),
@@ -899,7 +898,7 @@ export class QubicSimulator {
             return 0;
         }
 
-        const total = amountPerShare * BigInt(IPO_SHARE_COUNT);
+        const total = amountPerShare * BigInt(this.ticking.committeeSize());
         if (total > MAX_AMOUNT) {
             return 0;
         }
@@ -937,8 +936,8 @@ export class QubicSimulator {
         this.contractAssetNames.set(slot, typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn);
     }
 
-    // a testnet core issues one share per computor of its own, smaller list, so a caller mirroring one names the count.
-    mintDeployShares(slot: number, name: bigint | string, holder: Id, shares: bigint = BigInt(IPO_SHARE_COUNT)): void {
+    // one share per committee seat, as the node issues them; a caller mirroring another node names its count.
+    mintDeployShares(slot: number, name: bigint | string, holder: Id, shares: bigint = BigInt(this.ticking.committeeSize())): void {
         this.assertOperational();
         const packedName = typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn;
         this.setContractAssetName(slot, packedName);

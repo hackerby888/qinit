@@ -88,11 +88,11 @@ test("Dividend: distributeDividends debits balance + guards on insufficient fund
     sim.procedure(28, 1, new Uint8Array(0), { invocator: funder, reward: 1000000n }); // Fund -> balance 1,000,000
     expect(sim.balanceOf(28)).toBe(1000000n);
 
-    expect(readUint64LE(sim.procedure(28, 2, distIn(1n)))).toBe(1n); // 1 * 676 IPO shares = 676 <= 1,000,000
-    expect(sim.balanceOf(28)).toBe(1000000n - 676n);
+    expect(readUint64LE(sim.procedure(28, 2, distIn(1n)))).toBe(1n); // 1 * 8 IPO shares = 8 <= 1,000,000
+    expect(sim.balanceOf(28)).toBe(1000000n - 8n);
 
-    expect(readUint64LE(sim.procedure(28, 2, distIn(10000n)))).toBe(0n); // 10000 * 676 > remaining -> false, no debit
-    expect(sim.balanceOf(28)).toBe(1000000n - 676n);
+    expect(readUint64LE(sim.procedure(28, 2, distIn(1000000n)))).toBe(0n); // 1000000 * 8 > remaining -> false, no debit
+    expect(sim.balanceOf(28)).toBe(1000000n - 8n);
 });
 
 const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
@@ -304,10 +304,10 @@ test("qpi host wiring: isContractId, arbitrator/computor, prevDigests, IPO bid q
     expect(toHex(sim.host.getPrevSpectrumDigest())).toBe(toHex(sim.getSpectrumDigest()));
     expect(toHex(sim.host.getPrevComputerDigest())).toBe(toHex(sim.getComputerDigest()));
 
-    // IPO default: 676 shares, owned by the computors, 1,000,000 each
+    // IPO default: one share per committee seat, owned by the computors, 1,000,000 each
     expect(sim.host.ipoBidPrice(28, 0)).toBe(1000000n);
-    expect(sim.host.ipoBidPrice(28, 675)).toBe(1000000n);
-    expect(sim.host.ipoBidPrice(28, 676)).toBe(-3n); // out of range
+    expect(sim.host.ipoBidPrice(28, 7)).toBe(1000000n);
+    expect(sim.host.ipoBidPrice(28, 8)).toBe(-3n); // out of range
     expect(toHex(sim.host.ipoBidId(28, 0))).toBe(toHex(committee.computors[0].publicKey));
 });
 

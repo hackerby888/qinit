@@ -177,13 +177,32 @@ test("metered: qpi.burn refills a contract's reserve from its balance", async ()
     expect(sim.balanceOf(28)).toBe(500n);
 });
 
+// every committee-sized amount follows the configured committee, as the node's NUMBER_OF_COMPUTORS sizes its own.
+test("ipo shares, reserve and dividends scale with the committee", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ fees: "metered", consensus: { numberOfComputors: 3 } });
+    const holder = new Uint8Array(32).fill(0x33);
+
+    sim.ipo(28, 1000n);
+    expect(sim.getContractFeeReserve(28)).toBe(3_000n);
+    expect(sim.host.ipoBidPrice(28, 2)).toBe(1000000n);
+    expect(sim.host.ipoBidPrice(28, 3)).toBe(-3n);
+
+    sim.mintDeployShares(28, "DIV", holder);
+    sim.fund(contractId(28), 15n);
+    expect(sim.host.distributeDividends(28, 6n)).toBe(0); // 6 * 3 seats > 15
+    expect(sim.host.distributeDividends(28, 5n)).toBe(1);
+    expect(sim.balanceOf(28)).toBe(0n);
+    expect(sim.balance(holder)).toBe(15n);
+});
+
 test("metered: IPO seeds the reserve; a failed IPO (finalPrice 0) can never be refilled", async () => {
     await initK12();
     const sim = new QubicSimulator({ fees: "metered" });
     sim.deploy(28, await wasm("Counter"));
 
     sim.ipo(28, 1000n);
-    expect(sim.getContractFeeReserve(28)).toBe(676_000n); // finalPrice * NUMBER_OF_COMPUTORS(676)
+    expect(sim.getContractFeeReserve(28)).toBe(8_000n); // finalPrice * NUMBER_OF_COMPUTORS(8)
 
     // A failed IPO marks the contract unusable — burning to it does nothing and reports failure.
     sim.ipo(29, 0n);
