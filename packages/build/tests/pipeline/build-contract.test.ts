@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContractWithClang, buildContractWithTypeScript } from "../../src";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
+import { wasiSdkPaths } from "@qinit/core/project";
 
 const FORBIDDEN_PUBLIC_TYPES = [
     ["LinkedList", "LinkedList<uint64, 8>"],
@@ -192,3 +193,47 @@ test.skipIf(!HAS_CORE)("the TypeScript backend rejects a bare div with the same 
         rmSync(directory, { recursive: true, force: true });
     }
 });
+
+// the node is built with the testnet profile, and clang's static_assert is the oracle: the wrong committee does not compile.
+test.skipIf(!HAS_CORE || wasiSdkPaths() === null)(
+    "clang compiles a contract under the node's build profile, and core's own under core's",
+    async () => {
+        const directory = mkdtempSync(join(tmpdir(), "qinit-build-profile-"));
+        const contractPath = join(directory, "Committee.h");
+        const source = (computors: number, quorum: number) => `
+using namespace QPI;
+struct Committee2 {};
+struct Committee : public ContractBase {
+  struct StateData { uint64 quorum; };
+  struct Size_input {};
+  struct Size_output { uint64 seats; };
+  PUBLIC_FUNCTION(Size) { static_assert(NUMBER_OF_COMPUTORS == ${computors} && QUORUM == ${quorum}, "committee"); output.seats = NUMBER_OF_COMPUTORS; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(Size, 1);
+  }
+};`;
+        const build = (profile: "node" | "core-gtest") =>
+            buildContractWithClang({
+                contractPath,
+                contractName: "Committee",
+                slot: 28,
+                corePath: CORE_PATH,
+                outDir: join(directory, profile),
+                skipVerify: true,
+                profile,
+            });
+
+        try {
+            writeFileSync(contractPath, source(8, 6));
+            const node = await build("node");
+            expect(node.ok, node.stderr).toBe(true);
+
+            writeFileSync(contractPath, source(676, 451));
+            const coreGtest = await build("core-gtest");
+            expect(coreGtest.ok, coreGtest.stderr).toBe(true);
+        } finally {
+            rmSync(directory, { recursive: true, force: true });
+        }
+    },
+    120_000,
+);

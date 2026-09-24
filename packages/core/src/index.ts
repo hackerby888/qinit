@@ -21,7 +21,8 @@ export type { WasmAbiSource, WasmAbiValueType } from "./wasm/abi-source";
 export { DEFAULT_WASM_SLOT_LAYOUT } from "./wasm/slot-layout";
 export type { WasmSlotLayout } from "./wasm/slot-layout";
 export { loadCoreWasmSlotLayout } from "./wasm/slot-layout-node";
-export { parseWasmSlotLayoutSource } from "./wasm/slot-layout-source";
+export { CORE_BUILD_PROFILE, parseWasmSlotLayoutSource } from "./wasm/slot-layout-source";
+export type { BuildProfile } from "./wasm/slot-layout-source";
 export {
     deriveIdentity,
     cryptoSmoke,

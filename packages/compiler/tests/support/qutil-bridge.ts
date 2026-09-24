@@ -42,6 +42,7 @@ export async function buildRunner(core: string): Promise<Uint8Array> {
             corpusPath: `${core}/test/contract_qutil.cpp`,
             contractPath: `${core}/src/contracts/QUtil.h`,
             contractKind: "system",
+            profile: "core-gtest",
             contractName: "QUTIL",
             stateType: "QUTIL",
             slot: QUTIL_IDX,
@@ -59,7 +60,7 @@ export async function buildRunner(core: string): Promise<Uint8Array> {
 }
 
 export async function buildContractsWithTypeScript(core: string): Promise<Record<number, Uint8Array>> {
-    const headers = loadQpiHeader(core);
+    const headers = loadQpiHeader(core, "core-gtest");
     const qutilSrc = readFileSync(`${core}/src/contracts/QUtil.h`, "utf8");
     const qxSrc = readFileSync(`${core}/src/contracts/Qx.h`, "utf8");
 
@@ -98,6 +99,7 @@ export async function buildContractsWithClang(core: string): Promise<Record<numb
         const qx = await buildContractWithClang({
             contractPath: `${core}/src/contracts/Qx.h`,
             contractKind: "system",
+            profile: "core-gtest",
             contractName: "QX",
             stateType: "QX",
             slot: QX_IDX,
@@ -113,6 +115,7 @@ export async function buildContractsWithClang(core: string): Promise<Record<numb
         const qutil = await buildContractWithClang({
             contractPath: `${core}/src/contracts/QUtil.h`,
             contractKind: "system",
+            profile: "core-gtest",
             contractName: "QUTIL",
             stateType: "QUTIL",
             slot: QUTIL_IDX,

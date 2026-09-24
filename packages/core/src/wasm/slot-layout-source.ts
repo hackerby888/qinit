@@ -3,11 +3,15 @@ export interface WasmSlotLayout {
     slotCount: number;
 }
 
-const STANDARD_PROFILE = new Map<string, string>([
+// the profile the shipped node is built with; a contract compiles under it too, so NUMBER_OF_COMPUTORS and QUORUM match the node's layouts.
+export const CORE_BUILD_PROFILE = new Map<string, string>([
     ["TESTNET", "1"],
     ["TESTNET_LITE_RAM", "1"],
     ["LITE_WASM_SC", "1"],
 ]);
+
+// `node` is what a deployed contract runs under; `core-gtest` is core's default constants, which core compiles its own contract gtests with.
+export type BuildProfile = "node" | "core-gtest";
 
 interface ConditionalFrame {
     parentActive: boolean;
@@ -166,7 +170,7 @@ function evaluateCondition(expression: string, macros: ReadonlyMap<string, strin
 
 /** Derive the dynamic Wasm slot window from core's standard lite-Wasm profile. */
 export function parseWasmSlotLayoutSource(source: string): WasmSlotLayout {
-    const macros = new Map(STANDARD_PROFILE);
+    const macros = new Map(CORE_BUILD_PROFILE);
     const values = new Map<string, string>(macros);
     const conditionals: ConditionalFrame[] = [];
     const dynamicSlots = new Map<number, number>();

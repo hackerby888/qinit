@@ -191,6 +191,7 @@ async function buildRunnerFor(spec: Spec, outDir: string): Promise<Uint8Array> {
         corpusPath: `${CORE}/test/${spec.corpus}`,
         contractPath: `${CORE}/src/contracts/${spec.header}`,
         contractKind: "system",
+        profile: "core-gtest",
         contractName: spec.name,
         stateType: spec.stateType,
         slot: spec.slot,
@@ -208,7 +209,7 @@ async function buildRunnerFor(spec: Spec, outDir: string): Promise<Uint8Array> {
 }
 
 async function buildWithTypeScript(spec: Spec): Promise<Record<number, Uint8Array>> {
-    const headers = loadQpiHeader(CORE);
+    const headers = loadQpiHeader(CORE, "core-gtest");
     const out: Record<number, Uint8Array> = {};
     const calleeResults: CompileResult[] = [];
 
@@ -270,6 +271,7 @@ async function buildWithClang(spec: Spec, outDir: string): Promise<Record<number
         const r = await buildContractWithClang({
             contractPath: `${CORE}/src/contracts/${callee.header}`,
             contractKind: "system",
+            profile: "core-gtest",
             contractName: callee.name,
             stateType: callee.stateType,
             slot: callee.slot,
@@ -287,6 +289,7 @@ async function buildWithClang(spec: Spec, outDir: string): Promise<Record<number
     const mainR = await buildContractWithClang({
         contractPath: `${CORE}/src/contracts/${spec.header}`,
         contractKind: "system",
+        profile: "core-gtest",
         contractName: spec.name,
         stateType: spec.stateType,
         slot: spec.slot,

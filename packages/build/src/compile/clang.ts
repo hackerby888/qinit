@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { wasiSdkPaths } from "@qinit/core/project";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
+import { CORE_BUILD_PROFILE, type BuildProfile } from "@qinit/core/wasm/slot-layout-source";
 import { instrumentStateJournal } from "@qinit/core/wasm/instrument";
 import type { ContractKind } from "./build-rules";
 import WASM_GTEST_H from "../assets/wasm_gtest.h" with { type: "text" };
@@ -52,7 +53,14 @@ export function generateWasmContractTestingHeader(descriptions: readonly WasmCon
 export const WASM_CONTRACT_TESTING_HEADER = generateWasmContractTestingHeader();
 export const WASM_TEST_UTIL_HEADER = TEST_UTIL_H;
 
-export const WASM_CONTRACT_CLANG_FLAGS = ["--target=wasm32-wasi", "-std=c++20", "-fno-rtti", "-fno-exceptions", "-DLITEDYN_CONTRACT_TU"] as const;
+export const WASM_CONTRACT_CLANG_FLAGS = [
+    "--target=wasm32-wasi",
+    "-std=c++20",
+    "-fno-rtti",
+    "-fno-exceptions",
+    "-DLITEDYN_CONTRACT_TU",
+    ...[...CORE_BUILD_PROFILE].map(([name, value]) => `-D${name}=${value}`),
+] as const;
 
 export interface ClangBuildOptions {
     contractPath?: string; // absolute path to the contract .h; supply this or `source`
@@ -65,6 +73,7 @@ export interface ClangBuildOptions {
     calleePrelude?: string; // inter-contract: callee type headers + inputType consts (from intercontract.ts)
     cheats?: CheatMode; // development cheatcodes; OFF is what Core sees
     dynCallees?: Record<string, { header: string; slot: number }>; // dynamic (Qinit-deployed) callees
+    profile?: BuildProfile; // node profile unless a system contract's own corpus asks for core's default constants
     wasmClang?: string; // clang targeting wasm32-wasi; default env WASM_CLANG / the auto-fetched wasi-sdk
     wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
     skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some Wasm macros)
@@ -251,6 +260,8 @@ export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: s
     // Build a reactor library and leave lhost imports unresolved for the runtime.
     const compileFlags = [
         ...WASM_CONTRACT_CLANG_FLAGS,
+        // core compiles its own contract gtests without the node profile, so their corpus builds undefine it again.
+        ...(o.profile === "core-gtest" ? [...CORE_BUILD_PROFILE.keys()].map((name) => `-U${name}`) : []),
         "-O0",
         "-DNDEBUG",
         // Explicit undefined check, not truthiness: the TypeScript backend rejects a 0 arena, so this must not swap it for the header's 1 GiB default.

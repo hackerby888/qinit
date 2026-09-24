@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { systemContracts } from "@qinit/build";
+import { CORE_BUILD_PROFILE } from "@qinit/core";
 import { AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import {
     AssetIssuance,
@@ -294,7 +295,19 @@ try {
     const source = join(scratch, "probe.cpp");
     writeFileSync(source, lines.join("\n"));
     const result = Bun.spawnSync(
-        [nativeClang, "-std=c++20", "-fno-access-control", "-fshort-wchar", "-w", "-DNO_UEFI", `-I${core}`, `-I${join(core, "src")}`, "-fsyntax-only", source],
+        [
+            nativeClang,
+            "-std=c++20",
+            "-fno-access-control",
+            "-fshort-wchar",
+            "-w",
+            "-DNO_UEFI",
+            ...[...CORE_BUILD_PROFILE].map(([name, value]) => `-D${name}=${value}`),
+            `-I${core}`,
+            `-I${join(core, "src")}`,
+            "-fsyntax-only",
+            source,
+        ],
         {
             cwd: scratch,
             stdout: "pipe",

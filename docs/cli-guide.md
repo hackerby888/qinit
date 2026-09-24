@@ -794,6 +794,21 @@ The shared implementation is
 [`packages/build/src/compile/typescript.ts`](../packages/build/src/compile/typescript.ts); the
 CLI compatibility export remains in `ops/typescript-build.ts`.
 
+#### Build profile
+
+Both paths compile under the profile the shipped node is built with — `TESTNET`,
+`TESTNET_LITE_RAM`, `LITE_WASM_SC` (`CORE_BUILD_PROFILE` in
+[`packages/core/src/wasm/slot-layout-source.ts`](../packages/core/src/wasm/slot-layout-source.ts)).
+Under it `NUMBER_OF_COMPUTORS` is 8 and `QUORUM` is 6, so a state field sized by either
+(every `ProposalVoting<…ByComputors<NUMBER_OF_COMPUTORS>>` in the system contracts) has the
+layout the node reports. The system-contract wasm cache carries the profile in its path
+(`system-wasm/testnet-lite/<compiler>`), so a CLI built before the profile applied never
+seeds stale layouts. A contract deployed by an older CLI keeps its old layout until it is
+redeployed; `qinit system add` redeploys a system contract whose code hash changed.
+The one exception is a system contract's own corpus (`qinit gtest --system`, `test:sc:light`):
+core compiles its contract gtests with its default constants, so the runner and the contracts
+under test drop the profile again (`profile: "core-gtest"`, `loadQpiHeader(core, "core-gtest")`).
+
 Successful build artifacts normally include:
 
 ```text

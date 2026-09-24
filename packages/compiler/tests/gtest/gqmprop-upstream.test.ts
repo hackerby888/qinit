@@ -35,6 +35,7 @@ describe.skipIf(!HAS_CORE)("upstream gtest — contract_gqmprop.cpp against depl
                     corpusPath: `${CORE}/test/contract_gqmprop.cpp`,
                     contractPath: `${CORE}/src/contracts/GeneralQuorumProposal.h`,
                     contractKind: "system",
+                    profile: "core-gtest",
                     contractName: "GQMPROP",
                     stateType: "GQMPROP",
                     slot: GQMPROP_IDX,
@@ -54,7 +55,7 @@ describe.skipIf(!HAS_CORE)("upstream gtest — contract_gqmprop.cpp against depl
                 source,
                 contractName: "GQMPROP",
                 slot: GQMPROP_IDX,
-                qpiHeader: loadQpiHeader(CORE),
+                qpiHeader: loadQpiHeader(CORE, "core-gtest"),
                 arenaSizeBytes: 8 * 1024 * 1024,
             });
             expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

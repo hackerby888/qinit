@@ -1,5 +1,6 @@
 // Assembles the exact header text consumed by compiler pipeline.
 import { QPI_LANGUAGE_PRELUDE, assembleQpiProtocolPrelude } from "./prelude";
+import { CORE_BUILD_PROFILE } from "@qinit/core/wasm/slot-layout-source";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { parseWasmAbiSource } from "@qinit/core/wasm/abi-source";
 import { Lexer } from "../../frontend/lexer";
@@ -317,6 +318,9 @@ export function snapshotInputFiles(corePath: string): string[] {
     return files;
 }
 
+// the node's build profile, spelled as the defines a translation unit would set before including qpi.h; NUMBER_OF_COMPUTORS follows it.
+export const QPI_BUILD_PROFILE_BLOCK = `// ---- build profile: the shipped node's ----\n${[...CORE_BUILD_PROFILE].map(([name, value]) => `#define ${name} ${value}\n`).join("")}`;
+
 export function assembleQpiHeader(corePath: string): string {
     const fileSystem = loadNodeFileSystem();
     const sourceDirectory = requireCoreSourceDirectory(corePath, fileSystem);
@@ -332,7 +336,7 @@ export function assembleQpiHeader(corePath: string): string {
     const hostWrapperChunk = assembleHostWrapperChunk(lhostImports.source, lhostImports.path, qpiForwarders.source, wasmAbi);
 
     return [
-        `${QPI_LANGUAGE_PRELUDE}\n${protocolPrelude}\n`,
+        `${QPI_LANGUAGE_PRELUDE}\n${QPI_BUILD_PROFILE_BLOCK}${protocolPrelude}\n`,
         serializeWasmAbi(wasmAbi),
         contractIndexDefinitions,
         headerDeclarations,

@@ -15,7 +15,7 @@ import { buildContractWithTypeScript } from "./typescript";
 import { buildCalleePrelude } from "../contracts/intercontract";
 import type { DynCallees } from "../contracts/intercontract";
 import { generateWasmContractTestingHeaderForCore, KNOWN_LOG_HEADER_VIOLATIONS, systemContractClosure, systemContracts } from "../contracts/system-contracts";
-import { k12Hex } from "@qinit/core";
+import { k12Hex, type BuildProfile } from "@qinit/core";
 import { analyzeContract } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
 import { buildGateRejection, buildGateViolations, buildGateWarnings, type ContractKind } from "./build-rules";
@@ -33,7 +33,7 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
     let qpiHeader: string | undefined;
     let qpiHeaderError: string | undefined;
     try {
-        qpiHeader = o.corePath ? loadQpiHeader(o.corePath) : undefined;
+        qpiHeader = o.corePath ? loadQpiHeader(o.corePath, o.profile) : undefined;
     } catch (error: any) {
         qpiHeader = undefined;
         qpiHeaderError = String(error?.message ?? error);
@@ -142,6 +142,7 @@ export async function buildCorpusRunner(o: {
     dynCallees?: DynCallees;
     contractDescriptions?: readonly { index: number; name: string }[];
     contractKind?: ContractKind;
+    profile?: BuildProfile;
     buildRules?: boolean;
 }): Promise<ContractBuildResult> {
     const raw = (await readFile(o.corpusPath, "utf8")).replace(/^﻿/, "");
@@ -196,6 +197,7 @@ export async function buildCorpusRunner(o: {
         calleePrelude,
         dynCallees: o.dynCallees,
         contractKind: o.contractKind,
+        profile: o.profile,
         buildRules: o.buildRules,
     });
 }

@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { buildContractWithClang, buildCorpusRunner, KNOWN_LOG_HEADER_VIOLATIONS, systemContracts, type ContractKind, type DynCallees } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
-import { initK12 } from "@qinit/core";
+import { initK12, type BuildProfile } from "@qinit/core";
 import type { CompilerBackend } from "../config";
 
 // Suites needing the shared-memory harness: PULSE/QTF retain state pointers, NOST has a ~1 GiB state, QTRY exhausts the unshared arena, QEARN is 33x slower.
@@ -137,6 +137,7 @@ async function clangWasms(
     deps: readonly StdGtestContractSpec[],
     dynCallees: DynCallees,
     shared: boolean,
+    profile: BuildProfile,
 ): Promise<Record<number, Uint8Array>> {
     const out: Record<number, Uint8Array> = {};
     let nextBase = SHARED_START;
@@ -150,6 +151,7 @@ async function clangWasms(
             skipVerify: true,
             contractKind: (s.kind === "system" ? "system" : "user") as ContractKind,
             dynCallees,
+            profile,
         };
         const p1 = await buildContractWithClang({
             ...common,
@@ -323,6 +325,8 @@ export async function runStdGtest(opts: {
     };
     const shared = !!opts.shared;
     const dynCallees = opts.dynCallees ?? {};
+    // core compiles its own contract gtests with its default constants; a user's gtest runs against the node it will deploy on.
+    const profile: BuildProfile = opts.contractKind === "system" ? "core-gtest" : "node";
     const ret = { name: opts.name, slot: opts.slot, heavy: shared, backend: opts.backend };
 
     // contract_testing.h requires clang even when the contract uses the TypeScript compiler.
@@ -338,6 +342,7 @@ export async function runStdGtest(opts: {
         arenaSizeBytes: ARENA,
         dynCallees,
         contractKind: opts.contractKind,
+        profile,
         contractDescriptions: deps
             .filter((dependency) => dynCallees[dependency.stateType])
             .map((dependency) => ({
@@ -354,11 +359,11 @@ export async function runStdGtest(opts: {
     let contracts: Record<number, Uint8Array>;
     let timings: Record<string, number> | undefined;
     if (opts.backend === "typescript") {
-        const o = await typescriptWasms(loadQpiHeader(opts.core), main, deps, shared, opts.onPhase);
+        const o = await typescriptWasms(loadQpiHeader(opts.core, profile), main, deps, shared, opts.onPhase);
         contracts = o.wasms;
         timings = o.timings;
     } else {
-        contracts = await clangWasms(opts.core, opts.scratch, main, deps, dynCallees, shared);
+        contracts = await clangWasms(opts.core, opts.scratch, main, deps, dynCallees, shared, profile);
     }
 
     const assetNames = Object.fromEntries([main, ...deps].map((contract) => [contract.slot, contract.name]));
