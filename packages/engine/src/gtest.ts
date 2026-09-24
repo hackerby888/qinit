@@ -326,6 +326,18 @@ export async function runContractTesting(
             sim.notifyIncomingTransfer(id32(srcPtr), id32(dstPtr), BigInt(amount), type >>> 0);
             pullShadowsFromEngine();
         },
+        // fire only the POST_INCOMING_TRANSFER callback: core's QpiContextSystemProcedureCall leaves moving the qu to its caller.
+        q_fire_pit: (srcPtr: number, dstPtr: number, amount: bigint, type: number): number => {
+            pushShadowsToEngine();
+            let code = 0;
+            try {
+                sim.notifyContractOfIncomingTransfer(id32(dstPtr), id32(srcPtr), BigInt(amount), type >>> 0);
+            } catch (e: any) {
+                code = failed("post incoming transfer", e) ?? 0;
+            }
+            pullShadowsFromEngine();
+            return code;
+        },
         // issueAsset(issuer, name, decimals, unit, shares, mgmt): mint an asset (issuer == invocator path). Returns shares.
         q_issue_asset: (issuerPtr: number, name: bigint, decimals: number, shares: bigint, unit: bigint, slot: number): bigint => {
             const issuer = id32(issuerPtr);

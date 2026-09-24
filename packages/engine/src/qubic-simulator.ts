@@ -955,7 +955,7 @@ export class QubicSimulator {
     }
 
     // a contract's transfer passes its frame's originator, and core then shows the callback that originator with the source contract as invocator.
-    private notifyContractOfIncomingTransfer(destination: Id, source: Id, amount: bigint, type: number, originator?: Id): void {
+    notifyContractOfIncomingTransfer(destination: Id, source: Id, amount: bigint, type: number, originator?: Id): void {
         if (amount <= 0n) {
             return;
         }

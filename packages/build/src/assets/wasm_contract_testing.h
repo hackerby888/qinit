@@ -27,6 +27,7 @@ QBCT_IMPORT(q_sysproc)   unsigned int  bq_sysproc(unsigned int idx, unsigned int
 QBCT_IMPORT(q_fund)      void          bq_fund(const void* id32, long long amount);
 QBCT_IMPORT(q_balance)   long long     bq_balance(const void* id32);
 QBCT_IMPORT(q_notify_pit) void         bq_notify_pit(const void* src32, const void* dst32, long long amount, unsigned int type);
+QBCT_IMPORT(q_fire_pit)  unsigned int  bq_fire_pit(const void* src32, const void* dst32, long long amount, unsigned int type);
 QBCT_IMPORT(q_issue_asset) long long   bq_issue_asset(const void* issuer32, unsigned long long name, int decimals, long long shares, unsigned long long unit, unsigned int slot);
 QBCT_IMPORT(q_shares)    long long     bq_shares(const void* issuer32, unsigned long long assetName);
 QBCT_IMPORT(q_possessed) long long     bq_possessed(unsigned long long name, const void* issuer32, const void* owner32, const void* possessor32, unsigned int om, unsigned int pm);
@@ -166,6 +167,29 @@ struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall {
         (void)possessor;
         return bq_transfer_holding(assetName, &issuer, &owner, &newOwnerAndPossessor, numberOfShares,
                                    _currentContractIndex);
+    }
+};
+
+// Mirror of contract_exec.h's QpiContextSystemProcedureCall, which core's own tests construct directly. Like core's,
+// the POST_INCOMING_TRANSFER call runs only the callback: the caller has already moved the qu.
+struct QpiContextSystemProcedureCall : public QPI::QpiContextProcedureCall {
+    QpiContextSystemProcedureCall(unsigned int contractIndex, SystemProcedureID systemProcId)
+        : QPI::QpiContextProcedureCall(contractIndex, QPI::id::zero(), 0, systemProcId) {}
+
+    void call() {
+        record(bq_sysproc(_currentContractIndex, _entryPoint));
+    }
+
+    void call(QPI::PostIncomingTransfer_input& input) {
+        const QPI::id contract(_currentContractIndex, 0, 0, 0);
+        record(bq_fire_pit(&input.sourceId, &contract, input.amount, input.type));
+    }
+
+private:
+    void record(unsigned int errorCode) {
+        if (errorCode) {
+            contractError[_currentContractIndex] = errorCode;
+        }
     }
 };
 
