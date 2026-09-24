@@ -1985,7 +1985,9 @@ from the node's debug trace, matched on tick, slot, procedure, and signer:
 Tracing snapshots the contract state on every invoke, so a spec against a very
 large contract can run with `QINIT_TRACE=0`. A client from `qinit gen` leaves
 `trace` off unless constructed with `{ trace: true }`: a public node serves no
-debug trace. `fault` needs no tracing.
+debug trace. `fault` needs no tracing. The in-process simulator's engine log is
+routed through `testRunLogSink`: its tick chatter is dropped, and a warning or
+error shows as a `node` step beside the spec's own steps.
 
 ### 14.2 `qinit gtest`: C++ contract tests in an isolated engine
 
@@ -2010,6 +2012,11 @@ how the harness is compiled.
 `--corpus NAME` finds a real system-contract corpus in the core checkout.
 Known memory/pointer-heavy suites automatically use shared-memory mode. User
 suites can request it with `--shared-mem`.
+
+When the test wasm itself fails to build, the panel shows the first clang error
+with the lines that explain it (`clangErrorExcerpt`, 25 lines: notes, carets,
+the include chain), and `--json` carries the same text as `buildError`; the
+old one-row summary cut the cause off after a few dozen characters.
 
 A failed dispatch comes back the way core's harness reports it. `callFunction()`
 returns the code; a procedure or system procedure writes `contractError[index]`,

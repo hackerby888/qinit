@@ -103,6 +103,16 @@ function stateSizeOf(wasm: Uint8Array): number {
     return ex.state_size() >>> 0;
 }
 
+// the first clang error with the lines that explain it: notes, carets and the include chain, which one line never showed.
+export function clangErrorExcerpt(stderr: string, lines = 25): string {
+    const all = stderr.split("\n");
+    const first = all.findIndex((line) => /error:/.test(line));
+    return all
+        .slice(Math.max(0, first), Math.max(0, first) + lines)
+        .join("\n")
+        .trim();
+}
+
 // Sibling SYSTEM contracts referenced by the test or the contract source — built + deployed alongside the main.
 function depSpecs(catalog: any[], mainName: string, testSrc: string, contractSrc: string, core: string): StdGtestContractSpec[] {
     const deps: StdGtestContractSpec[] = [];
@@ -159,7 +169,7 @@ async function clangWasms(
             ...(useShared ? { arenaSizeBytes } : {}),
         });
         if (!p1.wasmPath) {
-            if (isMain) throw new Error("clang build: " + (p1.stderr ?? "").split("\n").filter((l: string) => /error:/.test(l))[0]);
+            if (isMain) throw new Error("clang build: " + clangErrorExcerpt(p1.stderr ?? ""));
             return null;
         }
         if (!useShared) return new Uint8Array(readFileSync(p1.wasmPath));
@@ -351,8 +361,7 @@ export async function runStdGtest(opts: {
             })),
     });
     if (!runner.ok || !runner.wasmPath) {
-        const err = (runner.stderr ?? "").split("\n").filter((l) => /error:/.test(l))[0] ?? runner.stderr ?? "test-wasm build failed";
-        return { ...ret, runnerOk: false, buildError: err, results: [] };
+        return { ...ret, runnerOk: false, buildError: clangErrorExcerpt(runner.stderr ?? "") || "test-wasm build failed", results: [] };
     }
     const runnerBytes = new Uint8Array(readFileSync(runner.wasmPath));
 

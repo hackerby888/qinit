@@ -55,7 +55,7 @@ interface Line {
 }
 // Keep completed output in Static items; reserve the live tail for the spinner or summary.
 type Item = { kind: "header" } | { kind: "line"; line: Line } | { kind: "test"; t: TestResult } | { kind: "note"; text: string };
-type Tail = { phase: "work"; spin: string } | { phase: "done"; ok: boolean; rows: [string, string][] };
+type Tail = { phase: "work"; spin: string } | { phase: "done"; ok: boolean; rows: [string, string][]; buildError?: string };
 
 // every planned callee, system ones included: a state field typed by QX needs QX's declarations in the test build and in the scaffold's IDL.
 export function gtestCallees(dependencies: readonly { stateType: string; sourcePath: string; slot: number }[]): {
@@ -86,7 +86,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
         const add = (label: string, ok?: boolean | null, detail?: string) => setItems((it) => [...it, { kind: "line", line: { label, ok, detail } }]);
         const note = (text: string) => setItems((it) => [...it, { kind: "note", text }]); // full-width, wraps (no truncation)
         const spin = (t: string) => setS({ phase: "work", spin: t });
-        const done = (ok: boolean, rows: [string, string][]) => setS({ phase: "done", ok, rows });
+        const done = (ok: boolean, rows: [string, string][], buildError?: string) => setS({ phase: "done", ok, rows, buildError });
 
         // An empty result set after filtering is a typo, not a suite with no tests.
         const noMatch = () => (filterTests.length ? `no test matched --filter ${filter}` : "no tests ran");
@@ -129,7 +129,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     }
                     if (!run.runnerOk) {
                         add("build", false, "test-wasm build failed");
-                        return done(false, [["stderr", (run.buildError ?? "").slice(0, 400)]]);
+                        return done(false, [], run.buildError);
                     }
                     const results = run.results;
                     const pass = results.filter((t) => t.passed).length;
@@ -221,7 +221,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 });
                 if (!run.runnerOk) {
                     add("build", false, "test-wasm build failed");
-                    return done(false, [["stderr", (run.buildError ?? "").slice(0, 400)]]);
+                    return done(false, [], run.buildError);
                 }
                 const ctiming = fmtTimings(run.timings);
                 if (ctiming) note(`  compile   ${ctiming}`);
@@ -257,6 +257,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                         ok: s.ok,
                         error: s.ok ? null : failedStep && !tests.length ? `${failedStep.label}: ${failedStep.detail ?? "failed"}` : testsFailed,
                         summary: Object.fromEntries(s.rows),
+                        ...(s.buildError ? { buildError: s.buildError } : {}),
                         tests: tests.map((t) => ({ name: t.name, ok: t.passed, ms: t.ms ?? null, message: t.message || null })),
                         notes: items.filter((item): item is Extract<Item, { kind: "note" }> => item.kind === "note").map((item) => item.text),
                     }) + "\n",
@@ -293,6 +294,13 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
             {s.phase === "work" && (
                 <Box marginTop={1}>
                     <Spinner label={s.spin} color={theme.accent} />
+                </Box>
+            )}
+            {s.phase === "done" && s.buildError && (
+                <Box marginTop={1}>
+                    <Panel title="test-wasm build failed" color={theme.err}>
+                        <Text dimColor>{s.buildError}</Text>
+                    </Panel>
                 </Box>
             )}
             {s.phase === "done" && s.rows.length > 0 && (

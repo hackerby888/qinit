@@ -13,6 +13,7 @@ import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { testRuntimeSource, generateClient, extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import { EngineServer } from "@qinit/engine/server";
+import { testRunLogSink } from "../../ops/test-log";
 import { VirtualNode } from "@qinit/engine";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { parseCallees } from "../../contracts/callees";
@@ -119,6 +120,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                         spin("starting in-process simulator");
                         // same window the node runs, so a slot a test exercises is the slot production gets.
                         engineSrv = new EngineServer(new VirtualNode(loadCoreWasmSlotLayout(core)));
+                        engineSrv.engine.onLog = testRunLogSink((line) => add("node", null, line));
                         activeRpc = (await engineSrv.start()).rpcBaseUrl;
                         // A test run reads assertions, not traces — skip the per-call state snapshot a node keeps.
                         engineSrv.engine.setDebug(false);
