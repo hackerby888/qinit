@@ -269,8 +269,18 @@ try {
             release: await transactionRecords(releaseTick, nativeSlots.ShareManager),
         });
 
-        // a phase is one pass over the committee, so the run above spans several and every contract that ran must have been charged.
-        const window = Array.from({ length: releaseTick - payoutTick + 1 }, (_, offset) => payoutTick + offset);
+        // a phase is one pass over the committee, 676 ticks, so the charge for the run above lands at the boundary after it: wait for that
+        // tick (about eleven minutes on a node ticking once a second) before reading the deductions.
+        const boundary = (Math.floor(releaseTick / computors.length) + 1) * computors.length;
+        console.log(`${runtime.name}: waiting for phase boundary ${boundary} (${boundary - releaseTick} ticks after tick ${releaseTick})`);
+        const deadline = Date.now() + 20 * 60_000;
+        while ((await runtime.client.tickInfo()).tick <= boundary + 1) {
+            if (Date.now() > deadline) {
+                throw new Error(`${runtime.name} did not reach phase boundary ${boundary} within twenty minutes`);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        const window = Array.from({ length: boundary + 1 - payoutTick + 1 }, (_, offset) => payoutTick + offset);
         const charged = await deductions(window);
         if (!charged.length) {
             throw new Error(`${runtime.name} charged no execution fees across ticks ${payoutTick}..${releaseTick}`);
