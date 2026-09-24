@@ -17,7 +17,8 @@ export { CORE_WASM_HEADERS } from "./wasm/headers";
 export type { CoreWasmHeaderLayout } from "./wasm/headers";
 export { DEFAULT_WASM_SLOT_LAYOUT } from "./wasm/slot-layout";
 export type { WasmSlotLayout } from "./wasm/slot-layout";
-export { parseWasmSlotLayoutSource } from "./wasm/slot-layout-source";
+export { CORE_BUILD_PROFILE, parseWasmSlotLayoutSource } from "./wasm/slot-layout-source";
+export type { BuildProfile } from "./wasm/slot-layout-source";
 export { deriveIdentity, bytesToIdentity, identityToBytes, contractIndexFromIdentity, cryptoSmoke } from "./crypto/qubic";
 export type { IdentityResult, CryptoSmokeResult } from "./crypto/qubic";
 

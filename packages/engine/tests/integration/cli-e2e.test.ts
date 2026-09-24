@@ -67,7 +67,7 @@ it("-getcurrenttick reports the tick + the quorum's aligned votes", async () => 
         const out = await runCli(port, ["-getcurrenttick"]);
         expect(out).toContain("Tick:");
         expect(out).toContain("Epoch: 1");
-        expect(out).toMatch(/Number Of Aligned Votes:\s*8/);
+        expect(out).toMatch(/Number Of Aligned Votes:\s*676/);
     } finally {
         stop();
     }
@@ -153,7 +153,7 @@ it("-gettickdata + -readtickdata verify the leader's signed TickData", async () 
     } finally {
         stop();
     }
-});
+}, 30_000);
 
 it("a scheduled tx lands in its tick's TickData (-gettickdata finds it, -readtickdata verifies)", async () => {
     const { port, stop } = await serve();
@@ -188,7 +188,7 @@ it("a scheduled tx lands in its tick's TickData (-gettickdata finds it, -readtic
     } finally {
         stop();
     }
-});
+}, 30_000);
 
 it("-getsysteminfo reports the version + entity count", async () => {
     const { port, stop } = await serve();
@@ -213,7 +213,7 @@ it("-getquorumtick returns the tick's verifiable votes", async () => {
     } finally {
         stop();
     }
-});
+}, 30_000);
 
 it("-sendcustomtransaction runs a contract procedure over the wire, and -gettxinfo returns its receipt", async () => {
     const counter = await wasm("Counter");

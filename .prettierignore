@@ -8,6 +8,7 @@ packages/vscode/resources/
 packages/vscode/test-fixtures/ws/.vscode/
 packages/core/src/wasm/generated/
 packages/compiler/src/generated/
+packages/engine/src/chain/generated/
 # Agent scratch output, not project source.
 .superpowers/
 # Byte-compared fixtures and generator-owned manifests.
