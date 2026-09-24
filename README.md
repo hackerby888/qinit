@@ -33,13 +33,14 @@ The installer puts `qinit` in `~/.local/bin` on Linux and macOS, or `%LOCALAPPDA
 ```bash
 qinit new Counter                  # contracts/Counter.h, tests/Counter.test.ts, tests/Counter.test.cpp
 cd Counter
-qinit build                        # compile contracts/Counter.h
-qinit test                         # run tests/Counter.test.ts on a fresh local chain
-qinit gtest                        # run tests/Counter.test.cpp, Core's C++ test style
-qinit node run                     # start a local Qubic chain
+
 qinit deploy                       # deploy Counter to it
 qinit call --proc Counter Inc      # send a transaction to the Inc procedure
 qinit call --fn Counter Get        # read the counter back: 1
+
+qinit test                         # run tests/Counter.test.ts on a fresh local chain
+qinit gtest                        # run tests/Counter.test.cpp, Core's C++ test style
+qinit node run                     # start a local Qubic chain
 qinit node stop
 ```
 
