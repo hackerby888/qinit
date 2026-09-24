@@ -45,6 +45,22 @@ export const MAX_INPUT_SIZE = 1024;
 export const MAX_NUMBER_OF_CONTRACTS = 1024;
 export const TXS_PER_TICK = 4096;
 export const MAINNET_COMPUTOR_COUNT = 676;
+// what a host reports when an inter-contract call never ran (core's CallError values); 0 is NO_CALL_ERROR.
+export const INTER_CONTRACT_CALL_ERROR: Record<number, string> = {
+    2: "insufficient fees — the callee has no execution fee reserve",
+    3: "allocation failed — no room for the callee's context",
+    4: "contract inactive — not deployed, or its slot is not below the caller's",
+};
+
+// the host row of a failed nested call ends in `✗ err N`; the number reads better with core's name for it.
+export function hostCallError(detail: string): { code: number; reason: string } | undefined {
+    const match = /✗ err (\d+)$/.exec(detail);
+    if (!match) {
+        return undefined;
+    }
+    const code = Number(match[1]);
+    return { code, reason: INTER_CONTRACT_CALL_ERROR[code] ?? `error ${code}` };
+}
 export const SPECTRUM_DEPTH = 24;
 export const ASSETS_DEPTH = 24;
 export const MAX_ORACLE_QUERY_SIZE = MAX_INPUT_SIZE - 16;

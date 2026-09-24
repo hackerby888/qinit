@@ -62,7 +62,7 @@ test("a traced call shows the callee's frame with the diff of the callee's own s
         expect(envelope.state).toEqual([]);
         expect(envelope.calls[0].name).toBe("invokeProcedure");
         expect(envelope.callees).toHaveLength(1);
-        expect(envelope.callees[0]).toMatchObject({ contract: "Counter", slot: COUNTER_SLOT, entry: "proc#1 (Inc)", kind: "procedure", ok: true });
+        expect(envelope.callees[0]).toMatchObject({ contract: "Counter", slot: COUNTER_SLOT, entry: "proc#1 (Inc)", kind: "procedure", depth: 0, ok: true });
         expect(envelope.callees[0].state).toEqual([{ label: "counter", detail: "counter", text: "1 → 2", internal: false, before: "1", after: "2" }]);
     } finally {
         stop();

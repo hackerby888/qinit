@@ -1114,6 +1114,17 @@ setDebug(true)
 Entry sequences are 1-based on both runtimes and `since` is exclusive, so the poll
 starts at `0` and still sees the first entry of a freshly enabled ring.
 
+A frame records the sequences of the frames it called directly (`children`, on
+both runtimes), and every frame under the dispatch renders beneath it, indented by
+its depth (`depth` in the JSON `callees`). A node too old to record `children`
+leaves the completion window — same tick, completed before the dispatch — minus
+system procedures, and a shared node can still leak an unrelated frame into that.
+A nested call the host refused (`✗ err N` on the host row) shows core's reason
+beside it (`contract inactive — not deployed, or its slot is not below the
+caller's`) and as `error` on the JSON `calls` row; the frame itself stays `ok`
+because the callee never ran. When a callee's frame fell out of the 200-entry
+poll window, a note says how many are missing.
+
 `--trace-full` implies `--trace` and prints the state block with its container
 internals, the same view `ctrl+t` toggles in `qinit debug` (section 11).
 
@@ -1963,7 +1974,7 @@ from the node's debug trace, matched on tick, slot, procedure, and signer:
 | `output`        | the procedure's output struct, decoded and typed; absent when it trapped        |
 | `trap`          | the trap message of the procedure, or of the first callee that trapped under it |
 | `traceEntry`    | the dispatch record itself: `ok`, `outHex`, `logs`, ...                         |
-| `failedCallees` | dispatches the procedure made that trapped and recovered                        |
+| `failedCallees` | frames under the procedure (by the trace's `children`) that trapped and recovered |
 | `fault`         | the node halted; returned at once with `confirmed: false`, and never resent     |
 
 Tracing snapshots the contract state on every invoke, so a spec against a very

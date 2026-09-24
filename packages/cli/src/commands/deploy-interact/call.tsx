@@ -16,6 +16,7 @@ import {
     TX_TICK_OFFSET,
 } from "@qinit/proto";
 import { AbiTypeKind, formatAbiType, type ContractEntry, type ContractIdl } from "@qinit/proto/contract-idl";
+import { hostCallError, traceChildren, traceDescendants } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { describeTrace, mergePrints, type DecodedTrace } from "../../trace/format";
 import { valueText, abiValueText, bigintText } from "../../trace/state-format";
@@ -40,7 +41,7 @@ type Result = {
     err?: string;
 };
 // a frame another contract ran inside this call, decoded against its own IDL.
-type CalleeTrace = { e: DebugEntry; name: string; entry: string; view: DecodedTrace };
+type CalleeTrace = { e: DebugEntry; name: string; entry: string; view: DecodedTrace; depth: number };
 type Trace = { e: DebugEntry; name: string; entry: string; view: DecodedTrace; callees: CalleeTrace[] };
 // What --json reports beyond the result itself: `out` is the rendered row, `outJson` the same value as data.
 type CallFacts = {
@@ -96,6 +97,7 @@ export function callJsonResult(
                                 slot: callee.e.index,
                                 entry: callee.entry,
                                 kind: callee.e.kind === 0 ? "function" : "procedure",
+                                depth: callee.depth,
                                 ok: callee.e.ok,
                                 ...(callee.e.ok ? {} : { trap: callee.e.trap ?? null }),
                                 ...frameJson(callee.e, callee.view),
@@ -134,7 +136,14 @@ function frameJson(e: DebugEntry, view: DecodedTrace) {
             hex: log.hex,
         })),
         // Host rows; without them a successful nested call leaves no mark.
-        ...(e.hostCalls?.length ? { calls: e.hostCalls.map((call) => ({ name: call.name, detail: call.detail })) } : {}),
+        ...(e.hostCalls?.length
+            ? {
+                  calls: e.hostCalls.map((call) => {
+                      const error = hostCallError(call.detail);
+                      return { name: call.name, detail: call.detail, ...(error ? { error: error.reason } : {}) };
+                  }),
+              }
+            : {}),
     };
 }
 
@@ -157,7 +166,7 @@ async function calleeFrames(rpc: LiteRpc, frames: readonly DebugEntry[], warn: (
                 warn(`    emitted ${frame.logs.length} log${frame.logs.length === 1 ? "" : "s"} before trapping (\`qinit debug ${contract}\` decodes them)`);
             }
         }
-        decoded.push({ e: frame, name: contract, entry: entryLabel(frame.kind, frame.entry, idl), view });
+        decoded.push({ e: frame, name: contract, entry: entryLabel(frame.kind, frame.entry, idl), view, depth: 0 });
     }
 
     return decoded;
@@ -595,8 +604,10 @@ function CallOneShot({
                         te = polled.filter((x) => x.index === idx && x.seq > sinceSeq && x.kind === (mode === "fn" ? 0 : 1) && x.entry === entry).pop();
                         if (!te) await sleep(700);
                     }
-                    // A frame gets its seq on completion, so this call's callees sit between the pre-dispatch seq and its own. A shared node can leak one in.
-                    const children = te ? polled.filter((x) => x.seq > sinceSeq && x.seq < te!.seq && x.tick === te!.tick) : [];
+                    const descendants = te ? traceDescendants(te, polled, sinceSeq) : [];
+                    if (te?.children && traceChildren(te, polled, sinceSeq).length < te.children.length) {
+                        addNote(`${te.children.length - traceChildren(te, polled, sinceSeq).length} callee frame(s) fell outside the polled trace window`);
+                    }
                     // The header only matters for deriving an IDL from source and the build gave us one, so a core checkout must not fail a call that ran.
                     let traceHeader: string | undefined;
                     try {
@@ -616,7 +627,15 @@ function CallOneShot({
                                       return hexToBytes(answer.hex);
                                   };
                         const view = await describeTrace(te, traceHeader ? traceSrc : undefined, traceName, traceHeader, contractIdl, calleeSources, readKey);
-                        const callees = children.length ? await calleeFrames(rpc, children, addNote) : [];
+                        const callees = descendants.length
+                            ? (
+                                  await calleeFrames(
+                                      rpc,
+                                      descendants.map((descendant) => descendant.entry),
+                                      addNote,
+                                  )
+                              ).map((callee, position) => ({ ...callee, depth: descendants[position]!.depth }))
+                            : [];
                         for (const frame of [view, ...callees.map((callee) => callee.view)]) {
                             for (const warning of pastCapacityWarnings(frame.stateDiff)) {
                                 addNote(warning);
@@ -696,8 +715,8 @@ function CallOneShot({
                 </Box>
             )}
             {trace?.callees.map((callee) => (
-                // the callee's prints already sit in the caller's stream above, in run order.
-                <Box key={callee.e.seq} marginLeft={2}>
+                // the callee's prints already sit in the caller's stream above, in run order; a callee's own callee sits one step further in.
+                <Box key={callee.e.seq} marginLeft={2 + 2 * callee.depth}>
                     <TraceView
                         e={callee.e}
                         name={callee.name}

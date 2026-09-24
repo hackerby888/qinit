@@ -252,14 +252,15 @@ test("a traced procedure returns its own dispatch, decoded, and the callees that
         // an older run of the same procedure by the same signer: before the armed seq, so never a candidate.
         before: [traceEntry({ seq: 4, invocator: signerHex, outHex: "0100000000000000" })],
         afterBroadcast: [
-            traceEntry({ seq: 5, index: 29, kind: 1, entry: 7, ok: false, trap: "integer divide by zero" }),
-            traceEntry({ seq: 6, index: 29, kind: 1, entry: 8 }),
-            traceEntry({ seq: 7, invocator: "b".repeat(64), outHex: "0900000000000000" }),
+            // another contract's frame that trapped in the same tick: without the trace's own parenthood it would pass for a callee.
+            traceEntry({ seq: 5, index: 29, kind: 1, entry: 7, ok: false, trap: "integer divide by zero", children: [] }),
+            traceEntry({ seq: 6, index: 29, kind: 1, entry: 8, ok: false, trap: "unreachable", children: [] }),
+            traceEntry({ seq: 7, invocator: "b".repeat(64), outHex: "0900000000000000", children: [] }),
             // the signer's own parallel call to the same procedure, landed one tick earlier.
-            traceEntry({ seq: 8, tick: TX_TICK - 1, invocator: signerHex, outHex: "0300000000000000" }),
-            traceEntry({ seq: 9, invocator: signerHex.toUpperCase(), outHex: OUTPUT_42 }),
+            traceEntry({ seq: 8, tick: TX_TICK - 1, invocator: signerHex, outHex: "0300000000000000", children: [] }),
+            traceEntry({ seq: 9, invocator: signerHex.toUpperCase(), outHex: OUTPUT_42, children: [6] }),
             // a later tx of the same tick that trapped: after this dispatch, so not one of its callees.
-            traceEntry({ seq: 10, index: 29, kind: 1, entry: 7, ok: false, trap: "unreachable" }),
+            traceEntry({ seq: 10, index: 29, kind: 1, entry: 7, ok: false, trap: "unreachable", children: [] }),
         ],
     });
 
@@ -268,6 +269,28 @@ test("a traced procedure returns its own dispatch, decoded, and the callees that
 
         expect(result).toMatchObject({ confirmed: true, included: true, output: 42n });
         expect(result.traceEntry?.seq).toBe(9);
+        expect(result.failedCallees?.map((entry) => entry.seq)).toEqual([6]);
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+// a node too old to record children leaves the completion window; a sysproc is the one frame a user call never made.
+test("without recorded children the callees are the same-tick frames before the dispatch, sysprocs aside", async () => {
+    const signerHex = (await deriveIdentity(SIGNER_SEED)).publicKeyHex;
+    devNode({
+        before: [],
+        afterBroadcast: [
+            traceEntry({ seq: 5, index: 29, kind: 1, entry: 7, ok: false, trap: "integer divide by zero" }),
+            traceEntry({ seq: 6, index: 5, kind: 2, entry: 3, ok: false, trap: "unreachable" }),
+            traceEntry({ seq: 7, invocator: signerHex, outHex: OUTPUT_42 }),
+        ],
+    });
+
+    try {
+        const result = await invoke(true);
+
+        expect(result.traceEntry?.seq).toBe(7);
         expect(result.failedCallees?.map((entry) => entry.seq)).toEqual([5]);
     } finally {
         globalThis.fetch = realFetch;

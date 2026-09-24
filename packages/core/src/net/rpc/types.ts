@@ -132,6 +132,8 @@ export interface DebugEntry {
     hostCalls: DebugHostCall[];
     logs: DebugLog[];
     cheats: DebugCheat[];
+    /** Sequence numbers of the frames this dispatch called directly, in completion order; absent on a node too old to record it. */
+    children?: number[];
 }
 export interface DebugTrace {
     enabled: boolean;

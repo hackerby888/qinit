@@ -34,7 +34,7 @@ export {
 export { decodeLog, loggedSizeOf } from "./decode-log";
 export type { DecodedLog } from "./decode-log";
 export type { InputFormatNode, InputFormatStruct, TypeNode } from "./abi";
-export { callFunction, invokeProcedure, sendTransfer, contractAddress, resolveDeploymentSlot } from "./call";
+export { callFunction, invokeProcedure, sendTransfer, contractAddress, resolveDeploymentSlot, traceChildren, traceDescendants } from "./call";
 export type { TypedContractInput, SubmittedTx } from "./call";
 export * from "./qpi-layout"; // QPI container layout: single source of truth (idl.ts + decoders share it)
 export * from "./qpi-container-view";
@@ -61,6 +61,8 @@ export {
     OC_AUTH_SIGNATURE_PUBLICATION_OFFSET,
     CHUNK_HEADER_SIZE,
     TX_HEADER_SIZE,
+    INTER_CONTRACT_CALL_ERROR,
+    hostCallError,
 } from "./protocol"; // LITE_TX/CHUNK_DATA_MAX via ./deploy
 export * from "./contract-idl";
 export * from "./mutation-log";

@@ -1,5 +1,29 @@
 import { expect, test } from "bun:test";
-import { formatTraceAge, idlCacheKey, mergeTraceEntries, traceSelectionIndex } from "../../src/commands/deploy-interact/debug";
+import type { DebugEntry } from "@qinit/core";
+import { formatTraceAge, idlCacheKey, mergeTraceEntries, traceSelectionIndex, visibleForTarget } from "../../src/commands/deploy-interact/debug";
+
+const frame = (fields: Partial<DebugEntry>): DebugEntry =>
+    ({ seq: 0, tick: 1, index: 29, entry: 1, kind: 1, ok: true, hostCalls: [], logs: [], cheats: [], ...fields }) as DebugEntry;
+
+// a callee shows under the contract that called it; another contract's BEGIN_TICK in the same tick does not.
+test("debug keeps the target's frames and the frames they called", () => {
+    const withChildren = [
+        frame({ seq: 1, index: 28, kind: 1 }),
+        frame({ seq: 2, index: 29, kind: 1, children: [1] }),
+        frame({ seq: 3, index: 5, kind: 2, children: [] }),
+        frame({ seq: 4, index: 28, kind: 0, children: [] }),
+    ];
+    expect(visibleForTarget(withChildren, (entry) => entry.index === 29).map((entry) => entry.seq)).toEqual([1, 2]);
+
+    // a node too old to record children: the completion window, minus the sysprocs a user call never makes.
+    const window = [
+        frame({ seq: 1, index: 5, kind: 2 }),
+        frame({ seq: 2, index: 28, kind: 1 }),
+        frame({ seq: 3, index: 29, kind: 1 }),
+        frame({ seq: 4, index: 28, kind: 1 }),
+    ];
+    expect(visibleForTarget(window, (entry) => entry.index === 29).map((entry) => entry.seq)).toEqual([2, 3]);
+});
 
 test("debug traces merge once in newest-first order and stay hidden", () => {
     const previous = [

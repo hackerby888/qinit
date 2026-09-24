@@ -101,6 +101,23 @@ type TransactionBuilder = (tick: number) => Promise<SignedTx>;
 
 const MAX_TX_RESENDS = 3;
 const TRACE_KIND_PROCEDURE = 1;
+const TRACE_KIND_SYSTEM_PROCEDURE = 2;
+
+// the frames a dispatch called directly. a node too old to record `children` leaves only the completion window,
+// which can still catch an unrelated same-tick frame; sysprocs are the one kind a user dispatch never calls.
+export function traceChildren(parent: DebugEntry, entries: readonly DebugEntry[], sinceSeq: number): DebugEntry[] {
+    if (parent.children) {
+        return entries.filter((entry) => parent.children!.includes(entry.seq));
+    }
+    return entries.filter(
+        (entry) => entry.seq > sinceSeq && entry.seq < parent.seq && entry.tick === parent.tick && entry.kind !== TRACE_KIND_SYSTEM_PROCEDURE,
+    );
+}
+
+// every frame under a dispatch with its depth, callees before their own callees' siblings: the order they completed in.
+export function traceDescendants(parent: DebugEntry, entries: readonly DebugEntry[], sinceSeq: number, depth = 0): { entry: DebugEntry; depth: number }[] {
+    return traceChildren(parent, entries, sinceSeq).flatMap((entry) => [{ entry, depth }, ...traceDescendants(entry, entries, sinceSeq, depth + 1)]);
+}
 const TRACE_POLL_ATTEMPTS = 10;
 const POLL_INTERVAL_MS = 300;
 
@@ -251,10 +268,9 @@ async function collectTrace(rpc: LiteRpc, match: TraceMatch): Promise<{ traceEnt
                 entry.invocator.toLowerCase() === match.invocatorHex,
         );
         if (traceEntry) {
-            // a frame gets its seq on completion, so what this procedure called sits before it.
-            const failedCallees = entries.filter(
-                (entry) => entry.seq > match.sinceSeq && entry.seq < traceEntry.seq && entry.tick === traceEntry.tick && !entry.ok,
-            );
+            const failedCallees = traceDescendants(traceEntry, entries, match.sinceSeq)
+                .map((descendant) => descendant.entry)
+                .filter((entry) => !entry.ok);
 
             return { traceEntry, failedCallees };
         }

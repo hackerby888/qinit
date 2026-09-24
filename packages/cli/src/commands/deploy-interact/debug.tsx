@@ -7,6 +7,7 @@ import { TraceView, shownStateLines } from "../../trace/views";
 import { loadConfig, loadConfiguredQpiHeader, resolveRpc } from "../../config";
 import { loadContractIdls, type ContractIdls } from "../../contracts/idl-lookup";
 import { siblingCalleeSources } from "../../contracts/registry";
+import { traceDescendants } from "@qinit/proto";
 import type { CalleeSource } from "@qinit/build";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 import { Header, Table, Spinner, theme, useFrame, useTerminalSize, type Column } from "../../ui";
@@ -60,6 +61,13 @@ export function mergeTraceEntries<T extends { seq: number }>(previous: readonly 
         }
     }
     return [...bySequence.values()].sort((left, right) => right.seq - left.seq).slice(0, TRACE_LIST_LIMIT);
+}
+
+// the target's own frames and every frame that ran inside one of them: a callee belongs to the call that made it.
+export function visibleForTarget(entries: readonly DebugEntry[], matches: (entry: DebugEntry) => boolean): DebugEntry[] {
+    const own = entries.filter(matches);
+    const nested = new Set(own.flatMap((frame) => traceDescendants(frame, entries, 0).map((descendant) => descendant.entry.seq)));
+    return entries.filter((entry) => matches(entry) || nested.has(entry.seq));
 }
 
 export function traceSelectionIndex<T extends { seq: number }>(entries: readonly T[], selectedSeq: number | null): number {
@@ -162,20 +170,8 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
         };
     }, []);
 
-    // a frame from another contract that ran inside one of the target's frames (same tick, before its
-    // completion) is a callee of this call, so it is kept alongside the target's own frames.
     const matchesTarget = (entry: DebugEntry) => nameOf(entry.index).toLowerCase() === target!.toLowerCase() || String(entry.index) === target;
-    const list = target
-        ? (() => {
-              const own = entries.filter(matchesTarget);
-              const spans = own.map((frame) => ({ tick: frame.tick, seq: frame.seq }));
-              return entries.filter(
-                  (entry) =>
-                      matchesTarget(entry) ||
-                      spans.some((span) => entry.tick === span.tick && entry.seq < span.seq && !own.some((frame) => frame.seq === entry.seq)),
-              );
-          })()
-        : entries;
+    const list = target ? visibleForTarget(entries, matchesTarget) : entries;
     visibleEntriesRef.current = list;
 
     // The frame is pinned to the terminal, so both panes size from what is left under the chrome. Ink cannot erase a frame taller than the screen.

@@ -1,6 +1,7 @@
 // Compact views over trace-format's decoded data, rendered identically by `qinit debug`, `qinit call --trace`, and `qinit state`.
 import { Box, Text } from "ink";
 import { type DebugEntry } from "@qinit/core";
+import { hostCallError } from "@qinit/proto";
 import { Status, theme, truncEnd, truncMid, termCols } from "../ui";
 import { type DecodedTrace } from "./format";
 import { type DecodedState, type StateContainer, type ValueBlocks } from "./state-read";
@@ -239,15 +240,19 @@ export function TraceView({
                 </Text>
             ),
         });
-    for (const h of e.hostCalls)
+    for (const h of e.hostCalls) {
+        // a nested call the host refused: the frame itself succeeded, so the row is where the failure shows.
+        const error = hostCallError(h.detail);
         rows.push({
             label: "host",
             node: (
                 <Text>
-                    <Text color={theme.accent}>{h.name}</Text> <Text dimColor>{h.detail}</Text>
+                    <Text color={theme.accent}>{h.name}</Text> <Text dimColor>{error ? h.detail.slice(0, -` ✗ err ${error.code}`.length) : h.detail}</Text>
+                    {error ? <Text color={theme.warn}> ⚠ {error.reason}</Text> : null}
                 </Text>
             ),
         });
+    }
     if (e.trap)
         rows.push({
             label: "trap",
