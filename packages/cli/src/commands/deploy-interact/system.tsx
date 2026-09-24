@@ -1,25 +1,18 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { LiteRpc, k12Hex } from "@qinit/core";
 import { systemContractClosure } from "@qinit/build";
 import { loadConfig, resolveCompilerBackend, resolveCoreDir, resolveRpc } from "../../config";
 import { parseInitialStates, stageContractState } from "../../contracts/state-stage";
 import { systemCatalog, systemWasm } from "../../contracts/system-wasm";
+import { addSystemSelection, dependentsOf, describeDeployFailure, removeSystemSelection } from "../../contracts/system-selection";
+import { loadContractIdlFile } from "../../contracts/idl-file";
 import { Header, Spinner, Status } from "../../ui";
 import { nodeJsonResult } from "../node/node";
 import { output, type CommandArguments } from "../../args";
 
 // qinit system manages simulator selections and reports native Core contracts.
 type Line = { t: string; ok?: boolean | null };
-
-// Persist the selection into qinit.json (kept minimal — preserves the rest of the config).
-function saveSelection(system: string[]): void {
-    const path = "qinit.json";
-    const cfg: Record<string, unknown> = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
-    cfg.system = system;
-    writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
-}
 
 export type SystemCatalogRow = { index: number; name: string; state: "live" | "selected" | "available" };
 
@@ -112,23 +105,44 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                             }
                         }
 
+                        // a root is saved as soon as its closure runs, so a batch that dies midway leaves qinit.json describing the node.
+                        const running = new Set(live.keys());
+                        const saved = new Set<string>();
+                        const saveCompletedRoots = () => {
+                            for (const root of requested) {
+                                if (saved.has(root.name) || !systemContractClosure(core, root.name).every((dependency) => running.has(dependency.index))) {
+                                    continue;
+                                }
+                                saved.add(root.name);
+                                selected.add(root.name);
+                                addSystemSelection([root.name], "qinit.json", { create: true });
+                                add(`qinit.json system += ${root.name}`, true);
+                            }
+                        };
                         for (const item of built) {
                             const occupant = live.get(item.dependency.index);
                             const statePath = statePathOf(item.dependency.name);
                             if (!statePath && occupant?.codeHash.toLowerCase() === item.hash.toLowerCase()) {
                                 add(`${item.dependency.name} @ ${item.dependency.index} unchanged`, true);
+                                saveCompletedRoots();
                                 continue;
                             }
                             setBusy(`deploying ${item.dependency.name}`);
-                            if (statePath) {
-                                await stageContractState(rpc, item.dependency.index, statePath);
-                            }
-                            const deployed = await rpc.directDeploy(item.wasm.index, item.wasm.wasm, item.wasm.name, "system");
-                            if (!deployed) {
-                                throw new Error("simulator does not expose system deployment");
+                            try {
+                                if (statePath) {
+                                    await stageContractState(rpc, item.dependency.index, statePath);
+                                }
+                                const deployed = await rpc.directDeploy(item.wasm.index, item.wasm.wasm, item.wasm.name, "system");
+                                if (!deployed) {
+                                    throw new Error("simulator does not expose system deployment");
+                                }
+                            } catch (error) {
+                                throw new Error(describeDeployFailure(item.dependency.name, running.size, error));
                             }
                             await rpc.putContractSource(item.wasm.index, item.dependency.source);
+                            running.add(item.dependency.index);
                             add(`${item.dependency.name} @ ${item.dependency.index} deployed${statePath ? " · state seeded" : ""}`, true);
+                            saveCompletedRoots();
                         }
                     }
 
@@ -171,6 +185,14 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                                     systemContractClosure(core, contract.name).map((dependency) => [dependency.index, dependency] as const),
                                 ),
                             );
+                            const going = [...removedClosure.values()].filter((contract) => !requiredSlots.has(contract.index));
+                            const blocking = dependentsOf(going, (await rpc.dynRegistry()).contracts ?? [], loadContractIdlFile(), catalog);
+                            if (blocking.length && !commandArgs.has("force")) {
+                                throw new Error(
+                                    blocking.map((dependent) => `${dependent.name} @ ${dependent.index} calls ${dependent.uses}`).join("; ") +
+                                        " — remove it first, or pass --force",
+                                );
+                            }
 
                             for (const contract of [...removedClosure.values()].sort((left, right) => right.index - left.index)) {
                                 if (requiredSlots.has(contract.index)) {
@@ -189,7 +211,15 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                             }
                         }
                     }
-                    saveSelection([...selected].sort());
+                    if (o.sub === "add") {
+                        addSystemSelection([...selected], "qinit.json", { create: true });
+                    } else {
+                        removeSystemSelection(
+                            requested.map((contract) => contract.name),
+                            "qinit.json",
+                            { create: true },
+                        );
+                    }
                     setSelectedNames([...selected].sort());
                     setDone(true);
                     return;

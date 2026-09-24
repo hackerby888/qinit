@@ -434,6 +434,7 @@ const commandMeta = {
             stringOption("state", "<name>=<path>", "start a system contract from a raw state file (with add)", {
                 multiple: true,
             }),
+            booleanOption("force", "rm a system contract even when a deployed contract calls it"),
         ],
         examples: ["qinit system add QX QEARN", "qinit system ls"],
     },

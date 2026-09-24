@@ -5,6 +5,7 @@ import { LiteRpc, k12Hex, type DynamicContractRegistryEntry, type NodeBackendIde
 import type { CompilerBackend } from "../config";
 import { stageContractState } from "../contracts/state-stage";
 import { systemWasm } from "../contracts/system-wasm";
+import { addSystemSelection } from "../contracts/system-selection";
 import { compileContracts, type BuiltContract, type SlottedContract } from "./project-build";
 import { abiAdviceText, checkHeadersAbi } from "./abi-advice";
 import { assignSlots } from "@qinit/build/contracts/project-slots";
@@ -272,6 +273,12 @@ export async function deployProjectContracts(
             hash: system.hash,
         });
         dependencyEvent(emit, `system ${system.contract.name} @ ${system.contract.slot}: ${occupant ? "updated" : "deployed"}`);
+    }
+    // the node now runs these; a restart seeds qinit.json's selection, so the two must agree. a bare directory gets no qinit.json invented for it.
+    if (systems.length) {
+        const names = systems.map((system) => system.contract.name);
+        const saved = addSystemSelection(names, resolve(options.projectRoot, "qinit.json"));
+        dependencyEvent(emit, saved ? `qinit.json system += ${names.join(", ")}` : `system selection not saved: no qinit.json in ${options.projectRoot}`);
     }
 
     const builtMain = projectBuild.contracts.at(-1);

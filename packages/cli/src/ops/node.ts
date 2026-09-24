@@ -383,6 +383,12 @@ export function launchNode(options: LaunchOptions): { pid: number; scratch: stri
     return { pid, scratch, log };
 }
 
+// JSC's fast wasm memories share one ~37 GiB reservation, about a GiB per system contract, which ran out at the 28th; the
+// bounds-checked path lifts that to ~62 GiB and measured within noise (queries, procedures and ticks alike), so it is always on.
+export function serveEnvironment(coreDirectory?: string): NodeJS.ProcessEnv {
+    return { ...process.env, BUN_JSC_useWasmFastMemory: "0", ...(coreDirectory ? { QINIT_CORE: coreDirectory } : {}) };
+}
+
 export function launchSimulatorNode(options: {
     scratchDirectory?: string;
     rpcBaseUrl?: string;
@@ -433,7 +439,7 @@ export function launchSimulatorNode(options: {
         stdio: ["ignore", logFd, logFd],
         detached: true,
         windowsHide: true,
-        env: options.coreDirectory ? { ...process.env, QINIT_CORE: options.coreDirectory } : process.env,
+        env: serveEnvironment(options.coreDirectory),
     });
 
     child.unref();

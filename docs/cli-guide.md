@@ -1861,9 +1861,20 @@ every contract running regardless of reserve.
 - On the simulator, `add` resolves and prebuilds the dependency closure with
   the selected compiler, skips identical hashes, and deploys canonical slots.
 - On the simulator, `rm` removes the requested roots and dependencies no longer
-  required by another selected root, in reverse dependency order.
+  required by another selected root, in reverse dependency order. It refuses when
+  a deployed user contract calls one of them (`Sysprobe @ 30 calls QX, QUTIL —
+  remove it first, or pass --force`); the callees come from `qinit.idl.json`, or
+  from the contract's stored source for a slot the file never recorded.
 - The selected names are persisted in `qinit.json.system` for later simulator
-  startup.
+  startup — one root at a time, as soon as its closure runs, so a batch that
+  fails midway still leaves the file describing the node. `deploy`, `dev` and
+  `test` persist the system dependencies they deploy the same way, but only when
+  the project has a `qinit.json`; otherwise they say `system selection not saved`.
+- A deploy that fails with `Out of memory` names the contract and how many are
+  loaded: JSC's fast wasm memories share one ~37 GiB reservation, about a GiB per
+  system contract. The simulator `node run` spawns sets
+  `BUN_JSC_useWasmFastMemory=0`, whose bounds-checked path lifts that to ~62 GiB
+  (measured within noise), so a restart seeds the whole selection.
 
 [`contracts/system-wasm.ts`](../packages/cli/src/contracts/system-wasm.ts) caches
 snapshot builds beneath the current header version and compiler. Explicit Core
