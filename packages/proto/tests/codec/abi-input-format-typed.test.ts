@@ -44,13 +44,21 @@ test("a typed bit takes only 0 and 1, however the value arrives", async () => {
     await expect(encodeInputJson(flags, { b: -1 })).rejects.toThrow("bit out of range: -1 (allowed 0..1)");
 });
 
+// `--in 0id` has always meant the null id; `--args` spelled it as an error until the campaign hit it.
+test("a typed id takes 0 for the null id, as the value dialect does", async () => {
+    const who = st(id);
+    expect(await encodeInputJson(who, { f0: 0 })).toEqual(new Uint8Array(32));
+    expect(await encodeInputJson(who, { f0: "0" })).toEqual(new Uint8Array(32));
+    await expect(encodeInputJson(who, { f0: 1 })).rejects.toThrow("id must be 0, a 60-char identity (A-Z) or a 64-hex pubkey, got '1'");
+});
+
 test("a typed id needs a full 60-character identity, not merely capital letters", async () => {
     const target = named(["dst", id]);
 
     expect(await encodeInputJson(target, { dst: "A".repeat(60) })).toEqual(new Uint8Array(32));
-    await expect(encodeInputJson(target, { dst: "A".repeat(59) })).rejects.toThrow("id must be a 60-char identity");
-    await expect(encodeInputJson(target, { dst: "A".repeat(61) })).rejects.toThrow("id must be a 60-char identity");
-    await expect(encodeInputJson(target, { dst: "a".repeat(60) })).rejects.toThrow("id must be a 60-char identity");
+    await expect(encodeInputJson(target, { dst: "A".repeat(59) })).rejects.toThrow("id must be 0, a 60-char identity");
+    await expect(encodeInputJson(target, { dst: "A".repeat(61) })).rejects.toThrow("id must be 0, a 60-char identity");
+    await expect(encodeInputJson(target, { dst: "a".repeat(60) })).rejects.toThrow("id must be 0, a 60-char identity");
 });
 
 test("a zero-length array field shares an offset without making the struct a union", async () => {

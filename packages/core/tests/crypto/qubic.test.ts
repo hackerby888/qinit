@@ -29,6 +29,11 @@ test("identity codec: pubkey <-> 60-char identity round-trips", async () => {
     expect(idn).toMatch(/^[A-Z]{60}$/);
     expect(hx(identityToBytes(idn))).toBe(PUB);
     expect(identityToBytes(idn).length).toBe(32);
+
+    // sixty letters with the wrong tail is a checksum failure, not the length complaint the library words it as.
+    const flipped = idn.slice(0, 59) + (idn[59] === "A" ? "B" : "A");
+    expect(() => identityToBytes(flipped)).toThrow(`identity checksum mismatch: the last 4 letters of ${flipped} do not match its key`);
+    expect(() => identityToBytes("abc")).toThrow("Invalid identity");
 });
 
 test("contractIndexFromIdentity: decodes contract addresses, rejects everything else", async () => {

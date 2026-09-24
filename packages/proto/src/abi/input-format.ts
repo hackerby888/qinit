@@ -3,6 +3,7 @@ import { hexToBytes, identityToBytes } from "@qinit/core";
 import { AbiScalarKind, AbiTypeKind, forbiddenPublicType, formatAbiType, type AbiStruct, type AbiType } from "../contract-idl";
 import { arrayGeometry, bitWordCount } from "../qpi-layout";
 import { assertBounds } from "./decode";
+import { assetNameOrThrow, packAssetName } from "../asset-name";
 import { hasOverlappingAbiType, hasOverlappingFields, nodeOf, parseTypeFormat, SCALAR_SIZE, splitTop, type TypeNode } from "./type-format";
 
 // json -> bytes in place by AbiType, e.g. { count: 1, flag: 1 } as { uint64 count; uint8 flag } -> 01 00 00 00 00 00 00 00 01
@@ -86,12 +87,29 @@ function structValues(type: AbiStruct, value: any): any[] {
     if (value === null || typeof value !== "object") {
         throw new Error(`struct '${type.name ?? type.format}' needs a JSON object`);
     }
-    return type.fields.map((field) => {
-        if (!(field.name in value)) {
-            throw new Error(`missing input field '${field.name}'`);
-        }
-        return value[field.name];
-    });
+    throwMissingFields(type.fields.map((field) => field.name).filter((name) => !(name in value)));
+    return type.fields.map((field) => value[field.name]);
+}
+
+// every missing field at once: an input of fifty fields is fixed in one pass, not fifty.
+function throwMissingFields(missing: readonly string[]): void {
+    if (missing.length === 1) {
+        throw new Error(`missing input field '${missing[0]}' — the interactive \`qinit call\` pre-fills every field`);
+    }
+    if (missing.length) {
+        throw new Error(`missing ${missing.length} input fields: ${missing.join(", ")} — the interactive \`qinit call\` pre-fills every field`);
+    }
+}
+
+// `asset:MYTOK` names an asset where a uint64 is wanted; a bare name stays an error, so "FF" is never read as a name by accident.
+const ASSET_MARKER = "asset:";
+function assetMarkerValue(value: unknown): bigint | undefined {
+    return typeof value === "string" && value.startsWith(ASSET_MARKER) ? packAssetName(assetNameOrThrow(value.slice(ASSET_MARKER.length))) : undefined;
+}
+
+// the value dialect spells the same thing `MYTOKasset`; it becomes the packed uint64 token before any other rule sees it.
+function assetToken(tok: string): string {
+    return tok.endsWith("asset") && !/^-?\d+asset$/.test(tok) ? `${packAssetName(assetNameOrThrow(tok.slice(0, -"asset".length).trim()))}uint64` : tok;
 }
 
 // one scalar -> bytes, e.g. 1 as uint64 -> 01 00 00 00 00 00 00 00, a 60-char identity as id -> its 32 bytes, uint128 low limb first
@@ -99,12 +117,14 @@ async function encodeAbiScalar(view: DataView, offset: number, scalar: AbiScalar
     if (scalar === AbiScalarKind.ID) {
         const text = String(value);
         let bytes: Uint8Array;
-        if (/^(0x)?[0-9a-fA-F]{64}$/.test(text)) {
+        if (text === "0") {
+            bytes = new Uint8Array(32); // the null id, as `--in 0id` spells it
+        } else if (/^(0x)?[0-9a-fA-F]{64}$/.test(text)) {
             bytes = hexToBytes(text);
         } else if (/^[A-Z]{60}$/.test(text)) {
             bytes = identityToBytes(text);
         } else {
-            throw new Error(`id must be a 60-char identity (A-Z) or a 64-hex pubkey, got '${text}'`);
+            throw new Error(`id must be 0, a 60-char identity (A-Z) or a 64-hex pubkey, got '${text}'`);
         }
         writeBytes(view, offset, bytes);
         return;
@@ -112,14 +132,19 @@ async function encodeAbiScalar(view: DataView, offset: number, scalar: AbiScalar
 
     if (scalar === AbiScalarKind.M256I) {
         const text = String(value).replace(/^0x/, "");
+        if (text === "0") {
+            writeBytes(view, offset, new Uint8Array(32));
+            return;
+        }
         if (!/^[0-9a-fA-F]{64}$/.test(text)) {
-            throw new Error(`m256i must be 64 hex chars (32 bytes), got '${text}'`);
+            throw new Error(`m256i must be 0 or 64 hex chars (32 bytes), got '${text}'`);
         }
         writeBytes(view, offset, hexToBytes(text));
         return;
     }
 
-    const number = scalar === AbiScalarKind.BIT && typeof value === "boolean" ? BigInt(value ? 1 : 0) : integerValue(value, scalar);
+    const asset = scalar === AbiScalarKind.UINT64 ? assetMarkerValue(value) : undefined;
+    const number = asset ?? (scalar === AbiScalarKind.BIT && typeof value === "boolean" ? BigInt(value ? 1 : 0) : integerValue(value, scalar));
     const bits = scalarBits(scalar);
     const signed = scalar.startsWith("sint");
     const minimum = signed ? -(1n << BigInt(bits - 1)) : 0n;
@@ -150,7 +175,9 @@ function integerValue(value: any, scalar: AbiScalarKind): bigint {
     try {
         return BigInt(value);
     } catch {
-        throw new Error(`${scalar} needs an integer, got '${String(value)}'`);
+        throw new Error(
+            `${scalar} needs an integer, got '${String(value)}'${scalar === AbiScalarKind.UINT64 ? " (an asset name is written asset:MYTOK)" : ""}`,
+        );
     }
 }
 
@@ -218,7 +245,7 @@ function tokenAlign(tok: string): number {
     if (tok.endsWith("m256i")) return 8;
     if (tok.endsWith("uint128")) return 8;
     if (tok.endsWith("sint128")) return 8;
-    const m = tok.match(/^-?\d+([a-z0-9]+)$/);
+    const m = assetToken(tok).match(/^-?\d+([a-z0-9]+)$/);
     return m ? (SCALAR_SIZE[m[1]] ?? 1) : 1;
 }
 const padTo = (out: number[], align: number) => {
@@ -228,7 +255,7 @@ const padTo = (out: number[], align: number) => {
 // Encode one value token at the current (aligned) offset = out.length.
 // e.g. "5uint16" -> 05 00, "{}" -> one zero byte, "[2; 1uint64, 2uint64]" -> 16 bytes
 async function encodeToken(tok: string, out: number[]): Promise<void> {
-    tok = tok.trim();
+    tok = assetToken(tok.trim());
     if (!tok) return;
     if (tok[0] === "{") {
         // lastIndexOf returns -1 when the closer is absent and slice(1, -1) would silently drop the last character, so a mismatched bracket is caught here.
@@ -368,7 +395,15 @@ function jsonValueToInputFormat(typeTok: string, value: any): string {
     }
     if (typeof value === "boolean") return `${value ? 1 : 0}${typeTok}`;
     if (value === undefined || value === null) throw new Error(`missing value for '${typeTok}'`);
-    return `${BigInt(value)}${typeTok}`; // number / bigint / numeric-string; rejects floats
+    if (typeTok === "uint64") {
+        const asset = assetMarkerValue(value);
+        if (asset !== undefined) return `${asset}uint64`;
+    }
+    try {
+        return `${BigInt(value)}${typeTok}`; // number / bigint / numeric-string; rejects floats
+    } catch {
+        throw new Error(`${typeTok} needs an integer, got '${String(value)}'${typeTok === "uint64" ? " (an asset name is written asset:MYTOK)" : ""}`);
+    }
 }
 
 // the schema an input is encoded against: the IDL's { name, type } list, or an AbiType when the caller has one
@@ -391,12 +426,10 @@ export function jsonToInputFormat(fields: InputFields, json: any): string {
         const values = structValues(fields, json);
         return fields.fields.map((field, index) => typedJsonValueToInputFormat(field.type, values[index])).join(", ");
     }
-    const arr = Array.isArray(json)
-        ? json
-        : fields.map((f) => {
-              if (json == null || !(f.name in json)) throw new Error(`missing input field '${f.name}'`);
-              return json[f.name];
-          });
+    if (!Array.isArray(json)) {
+        throwMissingFields(fields.map((f) => f.name).filter((name) => json == null || !(name in json)));
+    }
+    const arr = Array.isArray(json) ? json : fields.map((f) => json[f.name]);
     return fields.map((f, i) => jsonValueToInputFormat(f.type, arr[i])).join(", ");
 }
 
@@ -561,7 +594,7 @@ function parseInputToken(tok: string): InputFormatNode {
     if (suffix) {
         return { kind: "scalar", type: suffix, text: tok.slice(0, -suffix.length).trim(), raw: tok };
     }
-    const { numStr, type } = scalarToken(tok);
+    const { numStr, type } = scalarToken(assetToken(tok));
     return { kind: "scalar", type, text: numStr, raw: tok };
 }
 

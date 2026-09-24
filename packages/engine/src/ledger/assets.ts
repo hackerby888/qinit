@@ -123,33 +123,9 @@ export interface AssetHost {
     logAssetMutation?(type: number, message: Uint8Array): void;
 }
 
-export function packAssetName(name: string): bigint {
-    let packed = 0n;
-
-    for (let index = 0; index < Math.min(name.length, 7); index++) {
-        packed |= BigInt(name.charCodeAt(index) & 0xff) << BigInt(index * 8);
-    }
-
-    return packed;
-}
-
-export function unpackAssetName(name: bigint): string {
-    let text = "";
-    let remaining = name;
-
-    for (let index = 0; index < 8; index++) {
-        const character = Number(remaining & 0xffn);
-        remaining >>= 8n;
-
-        if (character === 0) {
-            break;
-        }
-
-        text += String.fromCharCode(character);
-    }
-
-    return text;
-}
+// the name codec lives in proto so the cli can spell asset names too; the engine keeps exporting it for its callers.
+import { packAssetName, unpackAssetName } from "@qinit/proto";
+export { packAssetName, unpackAssetName };
 
 interface AssetSelection {
     id: Id;

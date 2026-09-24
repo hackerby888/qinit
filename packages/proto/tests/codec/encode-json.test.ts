@@ -59,6 +59,18 @@ test("jsonToInputFormat: uint128 decimal string remains lossless", async () => {
 
 test("jsonToInputFormat: missing field + arity mismatch throw", () => {
     expect(() => jsonToInputFormat([{ name: "value", type: "uint64" }], {})).toThrow(/missing input field 'value'/);
+    // every absent field at once, in the IDL-fields form and the typed form alike.
+    expect(() =>
+        jsonToInputFormat(
+            [
+                { name: "a", type: "uint64" },
+                { name: "b", type: "uint64" },
+                { name: "c", type: "uint8" },
+            ],
+            { b: 1 },
+        ),
+    ).toThrow("missing 2 input fields: a, c — the interactive `qinit call` pre-fills every field");
+    expect(() => jsonToInputFormat(st(u8, u8), {})).toThrow("missing 2 input fields: f0, f1");
     expect(() => jsonToInputFormat([{ name: "xs", type: "[2;uint64]" }], { xs: [1] })).toThrow(/expects 2 elements/);
     expect(() => jsonToInputFormat([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1] })).toThrow(/expects 2 values/);
 });

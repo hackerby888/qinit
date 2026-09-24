@@ -12,6 +12,7 @@ export {
 } from "./deploy";
 export type { UploadBeginParams, UploadChunkParams, DeployParams } from "./deploy";
 export { TX_TICK_OFFSET } from "./protocol";
+export { ASSET_NAME_PATTERN, assetNameOrThrow, packAssetName, unpackAssetName } from "./asset-name";
 export {
     abiValueToJson,
     decodedAbiToJson,

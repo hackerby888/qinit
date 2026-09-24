@@ -1049,7 +1049,8 @@ are provided; a named entry cannot.
 | kind   | spelling                                    | example                                                    |
 | ------ | ------------------------------------------- | ---------------------------------------------------------- |
 | scalar | number then type                            | `5uint64`, `-7sint32`, `1bit`, `0uint128`                  |
-| id     | `0`, 60 A-Z chars, or 64 hex, then `id`     | `0id`                                                      |
+| asset  | the name then `asset` (a packed `uint64`)   | `MYTOKasset`; in `--args`, `"asset:MYTOK"`                 |
+| id     | `0`, 60 A-Z chars, or 64 hex, then `id`     | `0id`; `--args` takes `0` or `"0"` too                     |
 | m256i  | `0` or 64 hex, then `m256i`                 | `0m256i`                                                   |
 | struct | `{ … }`                                     | `{ 5uint64, 1bit }`                                        |
 | array  | `[N; …]`, `×N` repeats one value            | `[4; 1uint64, 2uint64, 3uint64, 4uint64]`, `[4; 0uint64 ×4]` |
@@ -1057,7 +1058,11 @@ are provided; a named entry cannot.
 An empty `--in` is an empty input. The interactive prompt fills in the all-zero
 sample (`zeroInputFormat()`), and a failed parse prints the same sample. A value
 that starts with `-` must be passed as `--in=-5sint64`, since the option parser
-reads the bare form as a flag.
+reads the bare form as a flag. `--args` needs every field, and names all the
+missing ones at once (`missing 48 input fields: dst2, …`); a bare string where a
+`uint64` is wanted is refused with the `asset:` hint rather than read as a name.
+A 60-letter identity whose last four letters do not match its key is reported as
+a checksum mismatch, not as the wrong length.
 
 For `BitArray<N>`, typed `--args` and generated clients use an exact-length JSON
 array of `0` and `1` values in logical bit order. Raw `--in` remains the physical
