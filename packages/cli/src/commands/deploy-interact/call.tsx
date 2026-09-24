@@ -26,7 +26,7 @@ import { CallInteractive, type CollectedCall } from "./call-interactive";
 import { loadConfig, loadConfiguredQpiHeader, resolveSeed, resolveRpc } from "../../config";
 import { insufficientBalanceMessage, resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
 import { describeContractError, describeFault, readFault } from "../../ops/fault";
-import { loadContracts, mergeContracts, missingContractMessage, resolveContract, siblingCalleeSources } from "../../contracts/registry";
+import { loadContracts, mergeContracts, missingContractMessage, notLoadedMessage, resolveContract, siblingCalleeSources } from "../../contracts/registry";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { loadContractIdls } from "../../contracts/idl-lookup";
 import { Header, Spinner, Status, Bar, theme } from "../../ui";
@@ -295,6 +295,7 @@ function CallOneShot({
                 const sets = await loadContracts(rpc);
                 const rc = resolveContract(contract, sets);
                 if (!rc) throw new Error(missingContractMessage(sets, contract));
+                if (rc.loaded === false) throw new Error(notLoadedMessage(rc.name));
                 const idx = rc.index;
                 // The other deployed contracts' declarations: a state field may use a type a callee declares.
                 const calleeSources = siblingCalleeSources(mergeContracts(sets).all, idx);

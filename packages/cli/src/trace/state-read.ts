@@ -46,8 +46,8 @@ export type StateContainer = {
 };
 // the node's state read, e.g. stateRead(4, 136, 8) -> { hex: "0300000000000000" }, the population word of a map
 export type StateReader = {
-    // Absent on older nodes; the reader then makes no check.
-    stateRead(slot: number, off: number, len: number): Promise<{ hex: string; version?: number }>;
+    // version is absent on older nodes; the reader then makes no check. a stateSize of 0 is a slot nothing is loaded in.
+    stateRead(slot: number, off: number, len: number): Promise<{ hex: string; version?: number; stateSize?: number }>;
 };
 // (field, bytes so far, bytes total), e.g. ("state", 4194304, 4194312)
 export type StateReadProgress = (field: string, completedBytes: number, totalBytes: number) => void;
@@ -95,7 +95,10 @@ function stateByteSource(rpc: StateReader, contractIndex: number, field: StateFi
 
             while (completedBytes < length) {
                 const remainingBytes = length - completedBytes;
-                const { hex, version } = await rpc.stateRead(contractIndex, absoluteOffset + completedBytes, remainingBytes);
+                const { hex, version, stateSize } = await rpc.stateRead(contractIndex, absoluteOffset + completedBytes, remainingBytes);
+                if (stateSize === 0) {
+                    throw new QpiIncompleteReadError(`slot ${contractIndex} holds no state — the contract is not loaded`);
+                }
                 // Before hex validation, so a mid-write read is retryable, not malformed.
                 if (version !== undefined) {
                     if (seenVersion === undefined) {

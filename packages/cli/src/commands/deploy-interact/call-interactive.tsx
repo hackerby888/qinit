@@ -5,7 +5,7 @@ import { zeroInputFormat } from "@qinit/proto";
 import { AbiTypeKind, type AbiField, type AbiType, type ContractEntry, type ContractIdl, type ContractIdlFile } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { loadConfiguredQpiHeader } from "../../config";
-import { loadContracts, mergeContracts, missingContractMessage } from "../../contracts/registry";
+import { loadContracts, mergeContracts, missingContractMessage, systemLoaded } from "../../contracts/registry";
 import { contractIdlForSlot, emptyContractIdlFile, loadContractIdlFile } from "../../contracts/idl-file";
 import { Header, Spinner, Panel, Status, theme } from "../../ui";
 import { Select, TextPrompt } from "../../ui/prompt";
@@ -172,6 +172,7 @@ export function CallInteractive({ rpcBaseUrl, onRun }: { rpcBaseUrl: string; onR
     const [wizard, setWizard] = useState<Wizard>({ stage: "loading" });
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [userCount, setUserCount] = useState(0);
+    const [systemLive, setSystemLive] = useState(true);
     const [idlFile, setIdlFile] = useState<ContractIdlFile>(emptyContractIdlFile());
 
     useEffect(() => {
@@ -188,6 +189,7 @@ export function CallInteractive({ rpcBaseUrl, onRun }: { rpcBaseUrl: string; onR
 
                 setContracts(combined);
                 setUserCount(deployed);
+                setSystemLive(systemLoaded(sets));
                 setWizard({ stage: "contract" });
             } catch (error: any) {
                 setWizard({ stage: "done", error: String(error?.message ?? error) });
@@ -374,7 +376,7 @@ export function CallInteractive({ rpcBaseUrl, onRun }: { rpcBaseUrl: string; onR
         const system = contractItems.slice(userCount);
         const items = [
             ...(deployed.length ? [{ label: "deployed", header: true }, ...deployed] : []),
-            ...(system.length ? [{ label: "system", header: true }, ...system] : []),
+            ...(system.length ? [{ label: systemLive ? "system" : "system · not loaded — qinit system add <name>", header: true }, ...system] : []),
         ];
 
         return wrap(<Select label="Pick a contract:" items={items} onCancel={back} onSelect={(contract) => setWizard({ stage: "entry", contract })} />);

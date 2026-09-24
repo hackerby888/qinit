@@ -78,6 +78,15 @@ test("a node that answers nothing is a short read, not an endless loop", async (
     expect(state.complete).toBe(false);
 });
 
+// a simulator answers a slot it never loaded with an empty state, which is not a short read of a real one.
+test("a slot that holds no state names the missing contract instead of failing every field", async () => {
+    const empty: StateReader = { stateRead: async () => ({ hex: "", stateSize: 0 }) };
+    const state = await readLayout(empty);
+
+    expect(state.fields[0].value).toBe("(read failed: slot 7 holds no state — the contract is not loaded)");
+    expect(state.complete).toBe(false);
+});
+
 test("a chunk longer than requested is refused rather than written past the field", async () => {
     const bytes = stateBytes();
     const state = await readLayout(readerOf((offset, length) => Buffer.from(bytes.slice(offset, offset + length + 8)).toString("hex")));

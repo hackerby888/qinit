@@ -5,7 +5,7 @@ import { contractAddress } from "@qinit/proto";
 import { LARGE_STATE_CONTAINER_BYTES, loadStateContainer, readState, stateIsComplete, type DecodedState, type StateContainer } from "../../trace/state-read";
 import { StateView } from "../../trace/views";
 import { loadConfig, loadConfiguredQpiHeader, resolveRpc } from "../../config";
-import { loadContracts, mergeContracts, missingContractMessage, siblingCalleeSources } from "../../contracts/registry";
+import { loadContracts, mergeContracts, missingContractMessage, notLoadedMessage, siblingCalleeSources, systemLoaded } from "../../contracts/registry";
 import { Header, Spinner, Panel, KV, fmtCompact, theme } from "../../ui";
 import { Select, type SelItem } from "../../ui/prompt";
 import { invalidArgs, output, type CommandArguments } from "../../args";
@@ -89,6 +89,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
     const [meta, setMeta] = useState<{ address: string; balance: string } | null>(null);
     const [contracts, setContracts] = useState<DynamicContractRegistryEntry[]>([]);
     const [userCount, setUserCount] = useState(0); // contracts[0..userCount) deployed, rest system
+    const [systemLive, setSystemLive] = useState(true);
     const [phase, setPhase] = useState<Phase>("loading");
     const [digest, setDigest] = useState<DigestOutput | null>(null);
     const [dump, setDump] = useState<DumpOutput | null>(null);
@@ -369,6 +370,9 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                         }
                         throw new Error(missingContractMessage(sets, o.target));
                     }
+                    if (all.indexOf(c) >= deployed && !systemLoaded(sets)) {
+                        throw new Error(notLoadedMessage(c.name || String(c.index)));
+                    }
                     await load(c, all);
                     return;
                 }
@@ -378,6 +382,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                     throw new Error(`specify a contract: qinit state <name|slot> (${all.map((c) => c.name || c.index).join(", ")})`);
                 setContracts(all);
                 setUserCount(deployed);
+                setSystemLive(systemLoaded(sets));
                 setPhase("pick");
             } catch (e: any) {
                 if (o.dump) {
@@ -517,7 +522,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
     const system = contracts.slice(userCount);
     const pickerItems: SelItem<DynamicContractRegistryEntry>[] = [
         ...(deployed.length ? [{ label: "deployed", header: true }, ...deployed.map(pickerRow)] : []),
-        ...(system.length ? [{ label: "system", header: true }, ...system.map(pickerRow)] : []),
+        ...(system.length ? [{ label: systemLive ? "system" : "system · not loaded — qinit system add <name>", header: true }, ...system.map(pickerRow)] : []),
     ];
 
     return (

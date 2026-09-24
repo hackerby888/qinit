@@ -25,12 +25,18 @@ test("a contract whose reserve is spent reads as dormant, and a node that report
 });
 
 test("ls JSON carries the reserve beside the state", () => {
-    const result = lsJsonResult([entry({ feeReserve: "0" }), entry({ index: 30, name: "Other" })], [], false);
+    const result = lsJsonResult([entry({ feeReserve: "0" }), entry({ index: 30, name: "Other" })], [], false, true);
 
     expect(result.deployed).toEqual([
         { slot: 29, name: "Counter", state: "dormant", version: 1, codeHash: "ab".repeat(32), feeReserve: "0" },
         { slot: 30, name: "Other", state: "ready", version: 1, codeHash: "ab".repeat(32), feeReserve: null },
     ]);
+});
+
+// the catalog lists every system contract even when the simulator runs none; a script has to be told which is which.
+test("ls JSON says whether the listed system contracts are running", () => {
+    expect(lsJsonResult([], [], false, false).systemLoaded).toBe(false);
+    expect(lsJsonResult([], [], false, true).systemLoaded).toBe(true);
 });
 
 test("node status labels a dormant contract", () => {

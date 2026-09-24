@@ -1850,7 +1850,12 @@ every contract running regardless of reserve.
   `{ "backend": "core" }`. The `/live/v1/dev/fault` diagnostic route is never
   used for runtime detection.
 
-- `ls` reads the local core-derived catalog and configured selection.
+- `ls` reads the local core-derived catalog and configured selection. Every
+  command that resolves a contract asks `GET /live/v1/whoami` too: on the
+  simulator a catalog entry the dyn registry does not list is not running, so
+  `state`, `call` and the pickers refuse it with `qinit system add <name>`
+  instead of decoding zero bytes; on core (or a node too old for the route)
+  the system contracts are native and always loaded.
 - On core, `add` records the selection but never uploads built-ins; the core
   already embeds them. `rm` removes only the future simulator selection.
 - On the simulator, `add` resolves and prebuilds the dependency closure with
