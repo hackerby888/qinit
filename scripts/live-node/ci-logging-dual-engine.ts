@@ -280,8 +280,8 @@ try {
             }
             await new Promise((resolve) => setTimeout(resolve, 1000));
         }
-        const window = Array.from({ length: boundary + 1 - payoutTick + 1 }, (_, offset) => payoutTick + offset);
-        const charged = await deductions(window);
+        // the deduction lands on the boundary tick; reading every tick since the payout would be hundreds of peer requests for nothing.
+        const charged = await deductions([boundary - 1, boundary, boundary + 1]);
         if (!charged.length) {
             throw new Error(`${runtime.name} charged no execution fees across ticks ${payoutTick}..${releaseTick}`);
         }
