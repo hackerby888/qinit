@@ -238,6 +238,39 @@ jobs:
           QLOGGING: ${{ github.workspace }}/qlogging/build/qlogging
         run: bun test packages/engine/tests/integration/cli-e2e.test.ts packages/engine/tests/logging/qlogging-integration.test.ts
 
+  # nightly or manual, never inside a release: wires the counter template into the latest qubic/core main and runs
+  # core's own msvc gate on it, so upstream drift or a template core rejects turns this red.
+  integrate-core:
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.workflow == 'test'
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install
+      - run: bun run build:bin
+      - name: Integrate the counter template into qubic/core main
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          qinit="$GITHUB_WORKSPACE/dist/qinit.exe"
+          "$qinit" new Counter
+          cd Counter
+          "$qinit" integrate --contract contracts/Counter.h --out ../core --asset COUNTER --construction-epoch 1
+      - uses: microsoft/setup-msbuild@v2
+      - name: Restore core's packages
+        working-directory: ${{ runner.temp }}/core
+        run: nuget restore Qubic.sln
+      - name: Build core's tests with its own gate
+        working-directory: ${{ runner.temp }}/core
+        run: msbuild /m /p:Configuration=Release Qubic.sln /t:test:Rebuild /warnaserror
+      - name: Run the counter gtest
+        working-directory: ${{ runner.temp }}/core
+        run: .\x64\Release\test.exe --gtest_filter=Counter.*
+
   # contractverify every fixtures/*.h against the qpi.h protocol rules (the AST checker, not just a wasm
   # compile). The script self-fetches the cached verify tool; a fixture that drifts out of compliance reds it.
   verify-fixtures:
