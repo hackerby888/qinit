@@ -230,6 +230,7 @@ beforeAll(async () => {
     await initK12();
 });
 
+// compiles every fixture and all 30 system contracts: 22–30 s on a macos runner, so 30 s was the edge.
 test.skipIf(!HAS_CORE)(
     "conformance sweep — fixtures + system contracts",
     async () => {
@@ -281,5 +282,5 @@ test.skipIf(!HAS_CORE)(
             loaded: real.length,
         });
     },
-    30_000,
+    120_000,
 );
