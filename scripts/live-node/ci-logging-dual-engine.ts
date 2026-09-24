@@ -317,9 +317,7 @@ try {
                 );
             }
         }
-        console.log(
-            `${runtime.name}: ${charged.length} execution-fee deductions over ticks ${boundaryTicks[0]}..${boundaryTicks[2]}, at most one per contract per phase`,
-        );
+        console.log(`${runtime.name}: ${charged.length} execution-fee deductions over ticks ${boundaryTicks[0]}..${boundaryTicks[2]}, at most one per contract per phase`);
     }
 
     const shape = (records: TickLogRecord[]) => records.map((record) => `${record.type}:${Buffer.from(record.message).toString("hex")}`);

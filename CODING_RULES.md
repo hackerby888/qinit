@@ -15,6 +15,6 @@
 
 - Follow this conceptually this clang format (apply for ts,js,cpp,... too):
   IndentWidth: 4
-  ColumnLimit: 160 # effectively unlimited for ordinary code; still wraps long lists/arguments (But be smart about it, don't make it unreadable)
+  ColumnLimit: 0 # no limit, keep the author's breaks: wrap only a list too long to read on one line (imports, parameters, arguments, elements, one per line); never split a message or a single call to fit a width
   BinPackArguments: true
   BinPackParameters: true
