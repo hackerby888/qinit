@@ -696,6 +696,13 @@ in the target Core checkout at a lower index. A same-name local header alone is
 not enough. A referenced callee in the GTest should also have
 `INIT_CONTRACT(Callee)`.
 
+Before any clone, the contract step refuses cheatcodes and build-rule
+violations, then runs contractverify, the checker upstream Core's CI runs on
+every contract. A missing verifier refuses the integration; `qinit setup`
+fetches it. Three findings warn without stopping: a build-gate warning, a
+missing GTest, and a Core header that declares `<Name>` or `<Name>2` outside
+any struct, which the MSVC build may reject.
+
 Qinit updates only the files Core currently needs:
 
 - `src/contracts/<Name>.h`;
@@ -704,8 +711,8 @@ Qinit updates only the files Core currently needs:
 - `test/contract_<name>.cpp`, `test/test.vcxproj`, and
   `test/test.vcxproj.filters` when `tests/<Name>.test.cpp` exists locally.
 
-The GTest is optional. A missing local test does not fail initial integration
-and does not delete an already-wired Core test during an update. The command
+The GTest is optional. A missing local test warns instead of failing initial
+integration, and does not delete an already-wired Core test during an update. The command
 does not edit `Qubic.sln` or any CMake file, and preserves the BOM and CRLF
 format used by Core's Visual Studio project files.
 

@@ -2,9 +2,17 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { CoreIntegrationMetadataRequiredError, inspectCoreIntegration, runCoreIntegration, type CoreIntegrationProgress } from "../../src/ops/core-integration";
+import type { VerifyResult } from "@qinit/build";
+import { CoreIntegrationMetadataRequiredError, inspectCoreIntegration, runCoreIntegration, type CoreIntegrationOptions, type CoreIntegrationProgress } from "../../src/ops/core-integration";
 
 const temporaryDirectories: string[] = [];
+
+const passingVerifier = async (): Promise<VerifyResult> => ({ available: true, ok: true, oracle: false, errors: [] });
+
+// the real verifier is a download; each test that cares about it passes its own.
+function integrate(options: CoreIntegrationOptions) {
+    return runCoreIntegration({ verify: passingVerifier, ...options });
+}
 const CRLF = "\r\n";
 
 function temporaryDirectory(): string {
@@ -181,7 +189,7 @@ describe("runCoreIntegration", () => {
 
         const metadataProgress: CoreIntegrationProgress[] = [];
         await expect(
-            runCoreIntegration({
+            integrate({
                 ...options,
                 requireDestructionEpoch: true,
                 onProgress: (event) => metadataProgress.push(event),
@@ -199,7 +207,7 @@ describe("runCoreIntegration", () => {
         expect(runGit(outputPath, "status", "--porcelain")).toBe("");
 
         const createProgress: CoreIntegrationProgress[] = [];
-        const created = await runCoreIntegration({
+        const created = await integrate({
             ...options,
             onProgress: (event) => createProgress.push(event),
         });
@@ -247,7 +255,7 @@ describe("runCoreIntegration", () => {
 
         const dirtyProgress: CoreIntegrationProgress[] = [];
         await expect(
-            runCoreIntegration({
+            integrate({
                 ...options,
                 onProgress: (event) => dirtyProgress.push(event),
             }),
@@ -262,7 +270,7 @@ describe("runCoreIntegration", () => {
             "struct Main { static constexpr unsigned long long MAIN_FEE = 1; " + "struct StateData { Base::StateData* base; unsigned long long value; }; };\n",
         );
         const updateProgress: CoreIntegrationProgress[] = [];
-        const updated = await runCoreIntegration({
+        const updated = await integrate({
             projectRoot,
             contractPath: "contracts/Main.h",
             contractName: "Main",
@@ -283,7 +291,7 @@ describe("runCoreIntegration", () => {
         runGit(outputPath, "commit", "-m", "Update Main");
         rmSync(join(projectRoot, "tests", "Main.test.cpp"));
         writeFileSync(join(projectRoot, "contracts", "Main.h"), "struct Main { struct StateData { Base::StateData* base; unsigned long long next; }; };\n");
-        await runCoreIntegration({
+        await integrate({
             projectRoot,
             contractPath: "contracts/Main.h",
             contractName: "Main",
@@ -303,7 +311,7 @@ describe("runCoreIntegration", () => {
 
         const failureProgress: CoreIntegrationProgress[] = [];
         await expect(
-            runCoreIntegration({
+            integrate({
                 projectRoot,
                 contractPath: "contracts/Main.h",
                 contractName: "Main",
@@ -324,7 +332,7 @@ describe("runCoreIntegration", () => {
 
         writeFileSync(join(projectRoot, "contracts", "Main.h"), "struct Main { struct StateData {}; };\n");
         await expect(
-            runCoreIntegration({
+            integrate({
                 projectRoot,
                 contractPath: "contracts/Main.h",
                 contractName: "Main",
@@ -346,7 +354,7 @@ describe("runCoreIntegration", () => {
         runGit(root, "clone", repositoryUrl, staleOutputPath);
 
         const landedOutputPath = join(root, "landed-core");
-        await runCoreIntegration({
+        await integrate({
             projectRoot,
             contractPath: "contracts/Main.h",
             contractName: "Main",
@@ -361,7 +369,7 @@ describe("runCoreIntegration", () => {
         runGit(repositoryUrl, "merge", "--ff-only", "FETCH_HEAD");
 
         const updateProgress: CoreIntegrationProgress[] = [];
-        const updated = await runCoreIntegration({
+        const updated = await integrate({
             projectRoot,
             contractPath: "contracts/Main.h",
             contractName: "Main",
@@ -392,7 +400,7 @@ describe("runCoreIntegration", () => {
             'struct Main { struct StateData { Base::StateData* base; }; };\nPUBLIC_PROCEDURE(P)\n{\n    CC_PRINT("here", input.n);\n    state.mut().n += 1;\n}\n',
         );
 
-        const result = await runCoreIntegration({
+        const result = await integrate({
             projectRoot,
             contractPath: "contracts/Main.h",
             contractName: "Main",
@@ -423,7 +431,7 @@ describe("runCoreIntegration", () => {
         );
 
         await expect(
-            runCoreIntegration({
+            integrate({
                 projectRoot,
                 contractPath: "contracts/Main.h",
                 contractName: "Main",
@@ -442,7 +450,7 @@ describe("runCoreIntegration", () => {
         const aliasProject = createProject(aliasRoot);
 
         await expect(
-            runCoreIntegration({
+            integrate({
                 projectRoot: aliasProject,
                 contractPath: "contracts/Main.h",
                 contractName: "ALIAS",
@@ -468,7 +476,7 @@ describe("runCoreIntegration", () => {
         const partialProject = createProject(partialRoot);
         const partialOutput = join(partialRoot, "Partial-core");
         await expect(
-            runCoreIntegration({
+            integrate({
                 projectRoot: partialProject,
                 contractPath: "contracts/Main.h",
                 contractName: "Main",
@@ -496,7 +504,7 @@ describe("build rules at the Core hand-off", () => {
         );
 
         await expect(
-            runCoreIntegration({
+            integrate({
                 projectRoot,
                 contractPath: "contracts/Main.h",
                 contractName: "Main",
@@ -520,7 +528,7 @@ describe("build rules at the Core hand-off", () => {
             "struct Main { struct StateData { Base::StateData* base; }; };\nPUBLIC_PROCEDURE(P)\n{\n    state.mut().n = div(input.a, input.b);\n}\n",
         );
 
-        const result = await runCoreIntegration({
+        const result = await integrate({
             projectRoot,
             contractPath: "contracts/Main.h",
             contractName: "Main",
@@ -533,5 +541,70 @@ describe("build rules at the Core hand-off", () => {
         });
 
         expect(readFileSync(join(result.corePath, "src", "contracts", "Main.h"), "utf8")).toContain("div(input.a, input.b)");
+    }, 60000);
+});
+
+describe("checks at the Core hand-off", () => {
+    function newIntegration(root: string) {
+        const projectRoot = createProject(root);
+        const outputPath = join(root, "Main-core");
+        return { projectRoot, outputPath, contractPath: "contracts/Main.h", contractName: "Main", assetName: "MAIN", constructionEpoch: 300 };
+    }
+
+    test("refuses a contractverify rejection or a missing verifier before cloning", async () => {
+        const root = temporaryDirectory();
+        const options = { ...newIntegration(root), repositoryUrl: createCoreRepository(root) };
+        writeFileSync(
+            join(options.projectRoot, "contracts", "Main.h"),
+            "struct Main : public ContractBase\n{\n    struct StateData { Base::StateData* base; };\n    struct Ping_input {};\n    struct Ping_output {};\n    struct Ping_locals { Base::Get_input i; Base::Get_output o; };\n    PUBLIC_PROCEDURE_WITH_LOCALS(Ping)\n    {\n        CALL_OTHER_CONTRACT_FUNCTION(Base, Get, locals.i, locals.o);\n    }\n    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()\n    {\n        REGISTER_USER_PROCEDURE(Ping, 1);\n    }\n};\n",
+        );
+
+        const calls: unknown[][] = [];
+        const rejecting = async (...args: unknown[]): Promise<VerifyResult> => {
+            calls.push(args);
+            return { available: true, ok: false, oracle: false, errors: ["Main.h:3: global variable x"] };
+        };
+        await expect(integrate({ ...options, verify: rejecting })).rejects.toThrow("global variable x");
+        // callees may prefix globals, so the verifier gets them as allowed prefixes.
+        expect(calls).toEqual([[join(options.projectRoot, "contracts", "Main.h"), "Main", ["Base"]]]);
+
+        const missing = async (): Promise<VerifyResult> => ({ available: false, ok: true, oracle: false, errors: [] });
+        await expect(integrate({ ...options, verify: missing })).rejects.toThrow("contractverify is not installed; run `qinit setup`");
+        expect(existsSync(options.outputPath)).toBe(false);
+    }, 60000);
+
+    test("warns on build-gate findings, a missing GTest, and a Core declaration of the name", async () => {
+        const root = temporaryDirectory();
+        const repositoryUrl = createCoreRepository(root);
+        const corePath = join(root, "core-source");
+        mkdirSync(join(corePath, "src", "qpi"), { recursive: true });
+        // only the namespace-scope declaration clashes; the nested one and the comment do not.
+        writeCoreText(join(corePath, "src", "qpi", "qpi_types.h"), [
+            "namespace QPI",
+            "{",
+            "\tstruct Main2;",
+            "\tstruct Stats",
+            "\t{",
+            "\t\tstruct Main { int n; };",
+            "\t};",
+            "\t// struct Main is taken",
+            "}",
+        ]);
+        runGit(corePath, "add", ".");
+        runGit(corePath, "commit", "-m", "Add qpi types");
+
+        const options = { ...newIntegration(root), repositoryUrl };
+        rmSync(join(options.projectRoot, "tests", "Main.test.cpp"));
+        writeFileSync(
+            join(options.projectRoot, "contracts", "Main.h"),
+            "struct Main : public ContractBase\n{\n    struct StateData { Base::StateData* base; };\n    struct Ping_input {};\n    struct Ping_output {};\n    PUBLIC_PROCEDURE(Ping)\n    {\n    }\n};\n",
+        );
+
+        const result = await integrate(options);
+        expect(result.warnings).toEqual([
+            "line 6: `Ping` is defined but never registered — add REGISTER_USER_PROCEDURE(Ping, <index>) so it's callable on-chain.",
+            "Core already declares Main2 at src/qpi/qpi_types.h:3; the Windows build may fail on the clash",
+            "no tests/Main.test.cpp: Core gets Main without a GTest",
+        ]);
     }, 60000);
 });
