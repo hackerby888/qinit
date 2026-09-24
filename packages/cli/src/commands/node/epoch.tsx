@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, RpcTimeoutError } from "@qinit/core";
-import { loadConfig } from "../../config";
+import { LiteRpc, RpcTimeoutError } from "@qinit/core";
+import { loadConfig, resolveRpc } from "../../config";
 import { advanceTo, haltedNodeError } from "./tick";
 import { Header, Spinner, Bar, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
@@ -87,7 +87,7 @@ export function Epoch({ commandArgs }: { commandArgs: CommandArguments }) {
         rpc: commandArgs.get("rpc"),
         sub: commandArgs.positionals[0] ?? "",
     };
-    const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(o.rpc, loadConfig());
     const { exit } = useApp();
     const [rows, setRows] = useState<[string, string][] | null>(null);
     const [prog, setProg] = useState<{ from: number; cur: number; target: number } | null>(null);

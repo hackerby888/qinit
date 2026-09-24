@@ -280,7 +280,8 @@ interface CommandArguments {
 
 `CommandArguments` is accessor-only: there is no `flags` or `multi` object to
 read directly, and `get()` has no default-value parameter — commands write
-`commandArgs.get("rpc") || DEFAULT_RPC_BASE`.
+`resolveRpc(commandArgs.get("rpc"), loadConfig())` (`config.ts`), never their own
+`--rpc || default` chain: a test pins that no file under `commands/` does.
 
 Subcommand detection is `findSubcommandCandidate()`: for a command whose `META`
 entry has `subcommands`, it runs a non-strict tokenizing pass over the union of
@@ -359,7 +360,10 @@ and [`packages/core/src/project.ts`](../packages/core/src/project.ts).
 ### 4.1 Project configuration
 
 `loadConfig()` reads exactly `./qinit.json`; it does not search parent
-directories. Its current shape is:
+directories. Every node-facing command, `node run` and `node stop` included, resolves
+the node it talks to as `--rpc`, then `qinit.json` `rpc`, then the default (`resolveRpc`).
+A local node has to bind a loopback address, so `node run`/`node stop` refuse a
+project whose `rpc` names a remote host and ask for `--rpc`. Its current shape is:
 
 ```ts
 interface QinitConfig {

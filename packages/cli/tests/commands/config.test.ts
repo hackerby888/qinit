@@ -1,11 +1,13 @@
 // Project config, global seed/theme stores and resolution precedence: a bug here silently signs with the wrong seed or builds against the wrong core.
 import { test, expect, afterEach } from "bun:test";
-import { DEFAULT_FUNDED_SEED } from "@qinit/core";
-import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { DEFAULT_FUNDED_SEED, DEFAULT_RPC_BASE } from "@qinit/core";
+import { mkdtempSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+    assertLoopbackRpc,
     loadConfig,
+    resolveRpc,
     seedStorePath,
     savedSeed,
     setSavedSeed,
@@ -133,4 +135,30 @@ test("resolveCoreDir: explicit precedence -> absolute; throws when unresolved", 
     expect(resolveCoreDir()).toBe(join(x, "env-core"));
     delete process.env.QINIT_CORE;
     expect(() => resolveCoreDir()).toThrow(/no core headers/);
+});
+
+// every node-facing command resolves the rpc the same way, or `node run` starts one node while `deploy` talks to another.
+test("resolveRpc precedence: --rpc > qinit.json rpc > default", () => {
+    expect(resolveRpc("http://127.0.0.1:47241", { rpc: "http://127.0.0.1:5" })).toBe("http://127.0.0.1:47241");
+    expect(resolveRpc(undefined, { rpc: "http://127.0.0.1:5" })).toBe("http://127.0.0.1:5");
+    expect(resolveRpc("", { rpc: "http://127.0.0.1:5" })).toBe("http://127.0.0.1:5");
+    expect(resolveRpc(undefined, {})).toBe(DEFAULT_RPC_BASE);
+});
+
+test("assertLoopbackRpc: a local node binds loopback only", () => {
+    for (const rpc of ["http://127.0.0.1:41841", "http://localhost:41841", "http://[::1]:41841"]) {
+        expect(() => assertLoopbackRpc(rpc)).not.toThrow();
+    }
+    expect(() => assertLoopbackRpc("http://10.0.0.1:41841")).toThrow(
+        "qinit.json rpc is http://10.0.0.1:41841 — a local node needs a loopback address, pass --rpc",
+    );
+});
+
+test("no command resolves the rpc on its own", () => {
+    const commandsDir = join(import.meta.dir, "../../src/commands");
+    const offenders = readdirSync(commandsDir, { recursive: true })
+        .map(String)
+        .filter((file) => /\.tsx?$/.test(file))
+        .filter((file) => /get\("rpc"\)\s*(\|\||\?\?)/.test(readFileSync(join(commandsDir, file), "utf8")));
+    expect(offenders).toEqual([]);
 });

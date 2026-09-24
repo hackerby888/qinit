@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { readFileSync } from "node:fs";
-import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
+import { LiteRpc } from "@qinit/core";
 import { abiTypeFromFormat, AbiTypeKind, assertInputSize, encodeInputFormatAs, ORACLE_STATUS, zeroInputFormat, type AbiType } from "@qinit/proto";
 import { ORACLE_INTERFACES } from "@qinit/engine/oracle-interfaces/registry";
-import { loadConfig } from "../../config";
+import { loadConfig, resolveRpc } from "../../config";
 import { Header, Spinner, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 
@@ -84,7 +84,7 @@ export function Oracle({ commandArgs }: { commandArgs: CommandArguments }) {
         sub: commandArgs.positionals[0] ?? "pending",
         arg: commandArgs.positionals[1] ?? "",
     };
-    const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(o.rpc, loadConfig());
     const { exit } = useApp();
     const [rows, setRows] = useState<[string, string][] | null>(null);
     const [busy, setBusy] = useState("");

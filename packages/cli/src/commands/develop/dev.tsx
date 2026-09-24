@@ -2,11 +2,11 @@ import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { resolve, basename } from "node:path";
 import { readdirSync, statSync } from "node:fs";
-import { loadConfig, projectContractName, projectContractPath, resolveCoreDir, resolveCompilerBackend } from "../../config";
+import { loadConfig, projectContractName, projectContractPath, resolveCoreDir, resolveCompilerBackend, resolveRpc } from "../../config";
 import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentStepState } from "../../ops/deploy";
 import { deployProjectContracts, type ProjectDeployResult } from "../../ops/project-deploy";
 import { nodeContracts } from "../../ops/node";
-import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
+import { LiteRpc } from "@qinit/core";
 import { Header, StepRow, type StepState, Panel, theme } from "../../ui";
 import type { CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
@@ -15,7 +15,7 @@ import { parseContractSlot } from "../../contracts/registry";
 export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
     const cfg = loadConfig();
-    const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), cfg);
     // resolved at render like the core dir, so a missing contract is a panel rather than a crash.
     let contractPath = "",
         contractName = "",

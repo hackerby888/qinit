@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { DEFAULT_RPC_BASE, LiteRpc, k12Hex } from "@qinit/core";
+import { LiteRpc, k12Hex } from "@qinit/core";
 import { systemContractClosure } from "@qinit/build";
-import { loadConfig, resolveCompilerBackend, resolveCoreDir } from "../../config";
+import { loadConfig, resolveCompilerBackend, resolveCoreDir, resolveRpc } from "../../config";
 import { parseInitialStates, stageContractState } from "../../contracts/state-stage";
 import { systemCatalog, systemWasm } from "../../contracts/system-wasm";
 import { Header, Spinner, Status } from "../../ui";
@@ -37,7 +37,7 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
         compiler: resolveCompilerBackend(commandArgs.get("compiler")),
     };
     const cfg = loadConfig();
-    const rpcBaseUrl = o.rpc || cfg.rpc || DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(o.rpc, cfg);
     const [lines, setLines] = useState<Line[]>([]);
     const [catalogRows, setCatalogRows] = useState<SystemCatalogRow[]>([]);
     const [selectedNames, setSelectedNames] = useState<string[]>(cfg.system ?? []);

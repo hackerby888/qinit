@@ -1,10 +1,10 @@
 import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, type DebugEntry, type DynamicContractRegistryEntry } from "@qinit/core";
+import { LiteRpc, type DebugEntry, type DynamicContractRegistryEntry } from "@qinit/core";
 import { describeTrace, type DecodedTrace } from "../../trace/format";
 import { entryLabel } from "../../trace/entry-label";
 import { TraceView, shownStateLines } from "../../trace/views";
-import { loadConfig, loadConfiguredQpiHeader } from "../../config";
+import { loadConfig, loadConfiguredQpiHeader, resolveRpc } from "../../config";
 import { loadContractIdls, type ContractIdls } from "../../contracts/idl-lookup";
 import { siblingCalleeSources } from "../../contracts/registry";
 import type { CalleeSource } from "@qinit/build";
@@ -94,7 +94,7 @@ export function formatTraceAge(tickMs?: number, chainNowMs?: number): string {
 
 export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     const target = commandArgs.get("contract") ?? commandArgs.positionals[0];
-    const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), loadConfig());
     const { exit } = useApp();
     const rpc = useRef(new LiteRpc(rpcBaseUrl)).current;
     const [qpiHeader] = useState(() => {

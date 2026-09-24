@@ -2,13 +2,13 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { resolve, join } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
-import { loadConfig, projectContractName, projectContractPath, resolveCompilerBackend, resolveCoreDir, resolveRuntime } from "../../config";
+import { loadConfig, projectContractName, projectContractPath, resolveCompilerBackend, resolveCoreDir, resolveRuntime, resolveRpc } from "../../config";
 import type { DeploymentEvent } from "../../ops/deploy";
 import { deployProjectContracts } from "../../ops/project-deploy";
 import { activeNodeScratchDir, ensureNodeBinary, killNode, launchNode, scratchForRpc, waitTicking } from "../../ops/node";
 import { portFromRpc } from "../../ops/serve";
 import { ensureSpecProject, installSpecTypes } from "../../ops/spec-project";
-import { DEFAULT_FUNDED_SEED, DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
+import { DEFAULT_FUNDED_SEED, LiteRpc } from "@qinit/core";
 import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { testRuntimeSource, generateClient, extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
@@ -56,7 +56,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
     const cfg = loadConfig();
     const root = process.cwd();
-    const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), cfg);
     // resolved at render for the names below; a missing contract is reported as the first step rather than a crash.
     let contractPath = "",
         contractName = "",

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, type DynamicContractRegistryEntry } from "@qinit/core";
+import { LiteRpc, type DynamicContractRegistryEntry } from "@qinit/core";
 import type { SystemContract } from "@qinit/build";
-import { loadConfig } from "../../config";
+import { loadConfig, resolveRpc } from "../../config";
 import { loadSystem } from "../../contracts/registry";
 import { Header, Spinner, Panel, Table, theme, type Column } from "../../ui";
 import { output, type CommandArguments } from "../../args";
@@ -50,7 +50,7 @@ export function lsJsonResult(user: DynamicContractRegistryEntry[], system: Syste
 }
 
 export function Ls({ commandArgs }: { commandArgs: CommandArguments }) {
-    const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), loadConfig());
     const { exit } = useApp();
     const [s, setS] = useState<{
         phase: "run" | "done";

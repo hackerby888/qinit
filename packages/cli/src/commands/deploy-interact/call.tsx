@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity, hexToBytes, type DebugEntry } from "@qinit/core";
+import { LiteRpc, bytesToIdentity, hexToBytes, type DebugEntry } from "@qinit/core";
 import {
     contractAddress,
     callFunction,
@@ -23,7 +23,7 @@ import { entryLabel } from "../../trace/entry-label";
 import { pastCapacityWarnings } from "../../trace/state-diff";
 import { TraceView } from "../../trace/views";
 import { CallInteractive, type CollectedCall } from "./call-interactive";
-import { loadConfig, loadConfiguredQpiHeader, resolveSeed } from "../../config";
+import { loadConfig, loadConfiguredQpiHeader, resolveSeed, resolveRpc } from "../../config";
 import { insufficientBalanceMessage, resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
 import { describeContractError, describeFault, readFault } from "../../ops/fault";
 import { loadContracts, mergeContracts, missingContractMessage, resolveContract, siblingCalleeSources } from "../../contracts/registry";
@@ -233,7 +233,7 @@ export function Call({ commandArgs }: { commandArgs: CommandArguments }) {
     if (!process.stdin.isTTY && !mode) {
         invalidArgs("call needs --fn or --proc without a terminal — `qinit ls` lists contracts and their entries");
     }
-    const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), loadConfig());
     if (collected) {
         return (
             <CallOneShot

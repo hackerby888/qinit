@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity, type DynamicContractRegistryEntry } from "@qinit/core";
+import { LiteRpc, bytesToIdentity, type DynamicContractRegistryEntry } from "@qinit/core";
 import { contractAddress } from "@qinit/proto";
 import { LARGE_STATE_CONTAINER_BYTES, loadStateContainer, readState, stateIsComplete, type DecodedState, type StateContainer } from "../../trace/state-read";
 import { StateView } from "../../trace/views";
-import { loadConfig, loadConfiguredQpiHeader } from "../../config";
+import { loadConfig, loadConfiguredQpiHeader, resolveRpc } from "../../config";
 import { loadContracts, mergeContracts, missingContractMessage, siblingCalleeSources } from "../../contracts/registry";
 import { Header, Spinner, Panel, KV, fmtCompact, theme } from "../../ui";
 import { Select, type SelItem } from "../../ui/prompt";
@@ -79,7 +79,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
         invalidArgs("--all and --container only apply to decoded state output");
     }
     const explicitContainerSelection = o.all || containerIndexes.size > 0;
-    const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(o.rpc, loadConfig());
     const { exit } = useApp();
     const [lines, setLines] = useState<string[]>([]);
     // Kept beside the rendered ERROR line so --json carries the message without reparsing the prefix.

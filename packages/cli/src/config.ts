@@ -1,13 +1,26 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
-import { DEFAULT_FUNDED_SEED, assertSeed, loadConfig, resolveCoreDir, type QinitConfig } from "@qinit/core";
+import { DEFAULT_FUNDED_SEED, DEFAULT_RPC_BASE, assertSeed, loadConfig, resolveCoreDir, type QinitConfig } from "@qinit/core";
 import { loadQpiHeader } from "@qinit/compiler";
 import { detectContractName } from "@qinit/compiler/analyzer";
 import { invalidArgs } from "./args";
 
 export { loadConfig, resolveCoreDir };
 export type { QinitConfig } from "@qinit/core";
+
+// one rule for every command that talks to a node: --rpc, then qinit.json rpc, then the default.
+export function resolveRpc(requested: string | undefined, config: QinitConfig): string {
+    return requested || config.rpc || DEFAULT_RPC_BASE;
+}
+
+// a local node binds this address; a project pointed at a shared node has to say where the local one goes.
+export function assertLoopbackRpc(rpc: string): void {
+    const host = new URL(rpc).hostname;
+    if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(host)) {
+        throw new Error(`qinit.json rpc is ${rpc} — a local node needs a loopback address, pass --rpc http://127.0.0.1:<port>`);
+    }
+}
 
 // the contract file a command acts on: its argument, then qinit.json. never guessed from a name: the contract name, file and state struct can all differ.
 export function projectContractPath(command: string, requested: string | undefined, config: QinitConfig, cwd = process.cwd()): string {

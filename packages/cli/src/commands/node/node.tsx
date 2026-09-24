@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { resolve } from "node:path";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
-import { DEFAULT_RPC_BASE, readCurrent, LiteRpc } from "@qinit/core";
+import { readCurrent, LiteRpc } from "@qinit/core";
+import { assertLoopbackRpc, loadConfig, resolveRpc } from "../../config";
 import { activeNodeScratchDir, ensureNodeBinary, killNode, nodeAlive, nodeStatus, scratchForRpc, versionDrift } from "../../ops/node";
 import { describeFault } from "../../ops/fault";
 import { output, type CommandArguments } from "../../args";
@@ -29,7 +30,7 @@ export function nodeJsonResult(action: string, lines: Line[], facts: NodeFacts |
 export function Node({ commandArgs, subcommand }: { commandArgs: CommandArguments; subcommand?: string }) {
     const { exit } = useApp();
     const sub = subcommand ?? commandArgs.positionals[0] ?? "status";
-    const rpcBaseUrl = commandArgs.get("rpc") || DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), loadConfig());
     const [s, setS] = useState<State>({ phase: "run", spin: sub });
 
     useEffect(() => {
@@ -93,6 +94,7 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                 }
 
                 if (sub === "stop") {
+                    assertLoopbackRpc(rpcBaseUrl);
                     // the node this command names: --scratch-dir wins, then the launch index for --rpc, and
                     // only a node this machine never launched falls back to the global pointer.
                     const target = commandArgs.get("scratch-dir")

@@ -2,16 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-    DEFAULT_PEER_PORT,
-    DEFAULT_RPC_BASE,
-    LOOPBACK_HOST,
-    LiteRpc,
-    loadCoreWasmSlotLayout,
-    loadManifest,
-    readCurrent,
-    updateCurrent,
-} from "@qinit/core";
+import { DEFAULT_PEER_PORT, LOOPBACK_HOST, LiteRpc, loadCoreWasmSlotLayout, loadManifest, readCurrent, updateCurrent } from "@qinit/core";
 import {
     busyPorts,
     cachedReleaseRef,
@@ -26,7 +17,7 @@ import {
     launchSimulatorNode,
     waitTicking,
 } from "../../ops/node";
-import { loadConfig, resolveCompilerBackend, resolveFeeMode, resolveRuntime } from "../../config";
+import { loadConfig, resolveCompilerBackend, resolveFeeMode, resolveRuntime, resolveRpc, assertLoopbackRpc } from "../../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../../ui";
 import { jsonEnvelope, output, type CommandArguments } from "../../args";
 import { prepareNodeRunCore } from "../../ops/node-core";
@@ -48,12 +39,12 @@ type Phase = { key: string; label: string; state: StepState; detail?: string };
 
 export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
-    const rpcBaseUrl = commandArgs.get("rpc") || DEFAULT_RPC_BASE;
     const peerPort = Number(commandArgs.get("peer-port") || DEFAULT_PEER_PORT);
     const requestedRef = commandArgs.get("ref");
     const nodeBinaryOverride = commandArgs.get("node-bin");
     const offline = commandArgs.has("offline");
     const projectConfig = loadConfig();
+    const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), projectConfig);
     const useSimulator = resolveRuntime(commandArgs.get("runtime")) === "simulator";
     const coreDirectory = commandArgs.get("core-dir") ?? (useSimulator && !requestedRef ? projectConfig.coreDir : undefined);
     const compiler = resolveCompilerBackend(commandArgs.get("compiler"));
@@ -154,6 +145,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
 
                 // Run: reuse a node that's already ticking (keeps deployed state); else (re)launch.
                 set("run", "active", "checking");
+                assertLoopbackRpc(rpcBaseUrl);
                 const st = await nodeStatus(rpcBaseUrl);
                 const requestedBackend = useSimulator ? "simulator" : "core";
                 const runningBackend = st.up && st.ticking ? (await new LiteRpc(rpcBaseUrl).whoami()).backend : undefined;

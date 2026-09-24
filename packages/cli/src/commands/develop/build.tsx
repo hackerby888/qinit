@@ -4,8 +4,8 @@ import { resolve, join } from "node:path";
 import { writeFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { resolveContracts, type ContractBuildResult } from "@qinit/build";
-import { DEFAULT_RPC_BASE, autoUpdateVerifyTool, LiteRpc, loadCoreWasmSlotLayout } from "@qinit/core";
-import { loadConfig, projectContractName, projectContractPath, resolveCoreDir, resolveCompilerBackend } from "../../config";
+import { autoUpdateVerifyTool, LiteRpc, loadCoreWasmSlotLayout } from "@qinit/core";
+import { loadConfig, projectContractName, projectContractPath, resolveCoreDir, resolveCompilerBackend, resolveRpc } from "../../config";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
@@ -53,7 +53,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                 const outDir = resolve(commandArgs.get("out") ?? "dist/contracts");
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
                 const slot = requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot);
-                const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
+                const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), cfg);
                 const rpc = new LiteRpc(rpcBaseUrl);
                 const registry = await Promise.race([
                     rpc.dynRegistry().catch(() => undefined),
