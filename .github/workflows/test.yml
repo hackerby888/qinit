@@ -572,11 +572,12 @@ jobs:
           }
           start_node() {
             active_run_dir="$1"
+            ticking_delay="${2:-1000}"
             mkdir -p "$active_run_dir"
             (
               cd "$active_run_dir"
               exec "$GITHUB_WORKSPACE/core/build-node/src/Qubic" \
-                --peers 127.0.0.1 --node-mode 3 --ticking-delay 1000 > node.log 2>&1
+                --peers 127.0.0.1 --node-mode 3 --ticking-delay "$ticking_delay" > node.log 2>&1
             ) &
             node_pid=$!
             if t=$(bash scripts/live-node/poll-node-json.sh "$QINIT_RPC/live/v1/tick-info" '.tickInfo.tick // .tick // 0' 50 3); then
@@ -607,7 +608,8 @@ jobs:
           echo "=== run-matrix/node.log tail ==="; tail -25 run-matrix/node.log
 
           # Use fresh state so these independent fixtures do not fail from slot exhaustion.
-          start_node run-dual
+          # the native log check waits two 676-tick fee phases, about twenty minutes at the default one tick a second.
+          start_node run-dual 100
           set +e
           bun run scripts/live-node/ci-logging-dual-engine.ts; c4=$? # one TS artifact, byte-identical LOG_* payloads in the simulator and production WAMR
           bun run scripts/live-node/ci-random-dual-engine.ts; c5=$? # chain-seeded PRNG vectors, exact artifact and state in the simulator and WAMR
