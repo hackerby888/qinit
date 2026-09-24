@@ -187,6 +187,7 @@ test("the in-memory variant returns the body and leaves the downloads directory 
     expect(readdirSync(join(cache, "downloads"))).toEqual([]);
 });
 
+// tar.exe on a freshly written archive takes 0.1 s, but a windows runner has stalled it past 6 s.
 test("extractTarGz accepts an archive path and streams it from disk", async () => {
     const src = tmp();
     writeFileSync(join(src, "hello.txt"), "hi");
@@ -198,4 +199,4 @@ test("extractTarGz accepts an archive path and streams it from disk", async () =
     await extractTarGz(archivePath, out);
 
     expect(readFileSync(join(out, "hello.txt"), "utf8")).toBe("hi");
-});
+}, 30_000);

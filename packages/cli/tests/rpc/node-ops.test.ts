@@ -54,6 +54,7 @@ const alive = (pid: number): boolean => {
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// on windows killNode identifies the pid through a powershell start (seconds when cold) and then polls up to 5 s for the exit.
 test("killNode stops ONLY the tracked PID, not an unrelated process", async () => {
     const dir = scratch();
     const mine = sleeper(); // the node qinit manages
@@ -73,7 +74,7 @@ test("killNode stops ONLY the tracked PID, not an unrelated process", async () =
         } catch {}
         rmSync(dir, { recursive: true, force: true });
     }
-});
+}, 30_000);
 
 // a pidfile outliving its node names whatever process got the number next; that process is nobody's node.
 test("a tracked pid running something else is forgotten, not killed", async () => {
