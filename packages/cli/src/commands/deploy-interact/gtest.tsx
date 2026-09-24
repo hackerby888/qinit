@@ -5,7 +5,8 @@ import { resolve, join } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { loadConfig, projectContractName, projectContractPath, resolveCompilerBackend, resolveCoreDir } from "../../config";
-import { genStdGtest, extractIdl, resolveContracts } from "@qinit/build";
+import { genStdGtest, extractIdl, resolveContracts, type CalleeSource } from "@qinit/build";
+import type { DynCallees } from "@qinit/build/contracts/intercontract";
 import { loadQpiHeader } from "@qinit/compiler";
 import type { TestResult } from "@qinit/engine";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
@@ -55,6 +56,17 @@ interface Line {
 // Keep completed output in Static items; reserve the live tail for the spinner or summary.
 type Item = { kind: "header" } | { kind: "line"; line: Line } | { kind: "test"; t: TestResult } | { kind: "note"; text: string };
 type Tail = { phase: "work"; spin: string } | { phase: "done"; ok: boolean; rows: [string, string][] };
+
+// every planned callee, system ones included: a state field typed by QX needs QX's declarations in the test build and in the scaffold's IDL.
+export function gtestCallees(dependencies: readonly { stateType: string; sourcePath: string; slot: number }[]): {
+    dynCallees: DynCallees;
+    calleeSources: CalleeSource[];
+} {
+    return {
+        dynCallees: Object.fromEntries(dependencies.map((contract) => [contract.stateType, { header: contract.sourcePath, slot: contract.slot }])),
+        calleeSources: dependencies.map((contract) => ({ name: contract.stateType, source: readFileSync(contract.sourcePath, "utf8"), slot: contract.slot })),
+    };
+}
 
 export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
@@ -177,22 +189,13 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     slot: contract.slot,
                     kind: contract.kind,
                 }));
-                const dynCallees = Object.fromEntries(
-                    plannedDependencies
-                        .filter((contract) => contract.kind === "custom")
-                        .map((contract) => [
-                            contract.stateType,
-                            {
-                                header: contract.sourcePath,
-                                slot: contract.slot,
-                            },
-                        ]),
-                );
+                const { dynCallees, calleeSources } = gtestCallees(plannedDependencies);
                 if (!existsSync(testPath) || commandArgs.has("new")) {
                     const idl = extractIdl(contractSrc, name, {
                         slot,
                         qpiHeader: loadQpiHeader(core),
                         stateType: name,
+                        calleeSources,
                     });
                     mkdirSync(join(testPath, ".."), { recursive: true });
                     writeFileSync(testPath, genStdGtest(idl, name, name));

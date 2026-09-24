@@ -4,7 +4,7 @@ import { test, expect } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContractWithClang, buildCorpusRunner, extractIdl, genStdGtest } from "@qinit/build";
+import { buildContractWithClang, buildCorpusRunner, extractIdl, genStdGtest, systemContracts } from "@qinit/build";
 import { TEMPLATE_KINDS, templateGtest, templateSource } from "@qinit/build/generate/templates";
 import { loadQpiHeader } from "@qinit/compiler";
 import { wasiSdkPaths } from "@qinit/core/project";
@@ -157,6 +157,93 @@ test.skipIf(!have)(
         expect(by["Counter.ReportsFailures"]?.message).toContain("EXPECT_EQ");
     },
     120_000,
+);
+
+const SYSPROBE = `${import.meta.dir}/../../../../fixtures/SysProbe.h`;
+const SYSPROBE_TEST_SOURCE = `#define NO_UEFI
+#include "contract_testing.h"
+
+class ContractTestingSysProbe : protected ContractTesting {
+public:
+    ContractTestingSysProbe() {
+        initEmptySpectrum();
+        initEmptyUniverse();
+        INIT_CONTRACT(QX);
+        INIT_CONTRACT(QUTIL);
+        INIT_CONTRACT(SysProbe);
+        callSystemProcedure(QX_CONTRACT_INDEX, INITIALIZE);
+        callSystemProcedure(QUTIL_CONTRACT_INDEX, INITIALIZE);
+        callSystemProcedure(SysProbe_CONTRACT_INDEX, INITIALIZE);
+    }
+    SysProbe::ReadFees_output readFees() const {
+        SysProbe::ReadFees_input input{};
+        SysProbe::ReadFees_output output{};
+        callFunction(SysProbe_CONTRACT_INDEX, 1, input, output);
+        return output;
+    }
+    const SysProbe::StateData& state() const {
+        return *(const SysProbe::StateData*)contractStates[SysProbe_CONTRACT_INDEX];
+    }
+    void refresh(const id& user) {
+        SysProbe::RefreshFees_input input{};
+        SysProbe::RefreshFees_output output{};
+        invokeUserProcedure(SysProbe_CONTRACT_INDEX, 1, input, output, user, 0);
+    }
+};
+
+TEST(SysProbe, ReadsFeesThroughQx) {
+    ContractTestingSysProbe t;
+    const id user = id::randomValue();
+    increaseEnergy(user, 1000000000);
+    EXPECT_EQ(t.readFees().issuance, 1000000000ull);
+    EXPECT_EQ(t.state().lastFees.transferFee, 0u);
+    t.refresh(user);
+    EXPECT_EQ(t.state().lastFees.transferFee, 100u);
+    EXPECT_EQ(t.state().reads, 1ull);
+}
+`;
+
+// the campaign's F12b: the runner build analyses the contract's state, and `QX::Fees_output` needs QX's source among the callees.
+test.skipIf(!have)(
+    "a gtest builds a contract whose state holds a system contract's type",
+    async () => {
+        const scratch = mkdtempSync(join(tmpdir(), "qinit-gtest-sysprobe-"));
+        const testPath = join(scratch, "SysProbe.test.cpp");
+        writeFileSync(testPath, SYSPROBE_TEST_SOURCE);
+        const systems = systemContracts(CORE).filter((contract) => contract.name === "QX" || contract.name === "QUTIL");
+        const dependencies: StdGtestContractSpec[] = systems.map((contract) => ({
+            contractPath: join(CORE, "src", "contracts", contract.file),
+            name: contract.name,
+            stateType: contract.stateType,
+            slot: contract.index,
+            kind: "system",
+        }));
+
+        try {
+            const run = await runStdGtest({
+                contractPath: SYSPROBE,
+                testPath,
+                name: "SysProbe",
+                stateType: "SysProbe",
+                slot: 101,
+                core: CORE,
+                backend: "clang",
+                scratch,
+                projectDependencies: dependencies,
+                dynCallees: Object.fromEntries(
+                    dependencies.map((dependency) => [dependency.stateType, { header: dependency.contractPath, slot: dependency.slot }]),
+                ),
+            });
+
+            expect(run.runnerOk, run.buildError).toBe(true);
+            expect(run.results.map((result) => [result.name, result.passed, result.message])).toEqual([
+                ["SysProbe.ReadsFeesThroughQx", true, expect.anything()],
+            ]);
+        } finally {
+            rmSync(scratch, { recursive: true, force: true });
+        }
+    },
+    600_000,
 );
 
 const dependency: StdGtestContractSpec = {

@@ -222,22 +222,7 @@ export async function buildSystemContract(
 
     const compiler = opts.compiler ?? "clang";
     const outDir = opts.outDir ?? join(tmpdir(), "qinit-system");
-    if (compiler === "clang") {
-        const result = await buildContractWithClang({
-            contractPath: join(corePath, "src", "contracts", contract.file),
-            contractName: contract.name,
-            stateType: contract.stateType,
-            slot: contract.index,
-            corePath,
-            outDir,
-            skipVerify: true,
-            contractKind: "system",
-            wasmClang: opts.wasmClang,
-            wasmSysroot: opts.wasmSysroot,
-        });
-        return { ...result, index: contract.index };
-    }
-
+    // the callees' declarations, so a state field typed by another system contract has its layout on both backends.
     const dependencies = Object.fromEntries(
         systemContractClosure(corePath, contract.name)
             .filter((dependency) => dependency.index !== contract.index)
@@ -250,6 +235,23 @@ export async function buildSystemContract(
                 },
             ]),
     );
+    if (compiler === "clang") {
+        const result = await buildContractWithClang({
+            contractPath: join(corePath, "src", "contracts", contract.file),
+            contractName: contract.name,
+            stateType: contract.stateType,
+            slot: contract.index,
+            corePath,
+            outDir,
+            dynCallees: dependencies,
+            skipVerify: true,
+            contractKind: "system",
+            wasmClang: opts.wasmClang,
+            wasmSysroot: opts.wasmSysroot,
+        });
+        return { ...result, index: contract.index };
+    }
+
     const result = await buildContractWithTypeScript({
         contractPath: join(corePath, "src", "contracts", contract.file),
         contractName: contract.name,
