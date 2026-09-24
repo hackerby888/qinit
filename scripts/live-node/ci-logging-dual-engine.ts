@@ -269,19 +269,20 @@ try {
             release: await transactionRecords(releaseTick, nativeSlots.ShareManager),
         });
 
-        // a phase is one pass over the committee, 676 ticks, so the charge for the run above lands at the boundary after it: wait for that
-        // tick (about eleven minutes on a node ticking once a second) before reading the deductions.
-        const boundary = (Math.floor(releaseTick / computors.length) + 1) * computors.length;
-        console.log(`${runtime.name}: waiting for phase boundary ${boundary} (${boundary - releaseTick} ticks after tick ${releaseTick})`);
-        const deadline = Date.now() + 20 * 60_000;
-        while ((await runtime.client.tickInfo()).tick <= boundary + 1) {
+        // a phase is one pass over the committee, 676 ticks. the simulator charges the phase at the boundary after it; core's computors
+        // report it during the next phase and core applies the reports at tick 1 of the phase after that (qubic.cpp processReports).
+        const phaseStart = Math.floor(releaseTick / computors.length) * computors.length;
+        const chargeTick = runtime.name === "simulator" ? phaseStart + computors.length : phaseStart + 2 * computors.length + 1;
+        console.log(`${runtime.name}: waiting for the fee charge at tick ${chargeTick} (${chargeTick - releaseTick} ticks after tick ${releaseTick})`);
+        const deadline = Date.now() + 35 * 60_000;
+        while ((await runtime.client.tickInfo()).tick <= chargeTick + 1) {
             if (Date.now() > deadline) {
-                throw new Error(`${runtime.name} did not reach phase boundary ${boundary} within twenty minutes`);
+                throw new Error(`${runtime.name} did not reach its fee charge at tick ${chargeTick} within thirty-five minutes`);
             }
             await new Promise((resolve) => setTimeout(resolve, 1000));
         }
-        // the deduction lands on the boundary tick; reading every tick since the payout would be hundreds of peer requests for nothing.
-        const boundaryTicks = [boundary - 1, boundary, boundary + 1];
+        // reading every tick since the payout would be hundreds of peer requests for nothing; the charge lands on one tick.
+        const boundaryTicks = [chargeTick - 1, chargeTick, chargeTick + 1];
         const charged = await deductions(boundaryTicks);
         if (!charged.length) {
             throw new Error(`${runtime.name} charged no execution fees across ticks ${payoutTick}..${releaseTick}`);
