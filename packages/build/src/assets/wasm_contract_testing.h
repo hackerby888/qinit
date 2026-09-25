@@ -201,8 +201,7 @@ struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall, public
     // like core's, it runs only the procedure: invokeUserProcedure moves the reward before it gets here.
     void call(unsigned short inputType, const void* input, unsigned short inputSize) {
         allocate(_currentContractIndex, 1, inputType);
-        const unsigned int errorCode = bq_call_procedure(_currentContractIndex, inputType, input, (unsigned int)inputSize, _invocationReward,
-                                                         &_originator.u64._0, outputBuffer, outputSize);
+        const unsigned int errorCode = bq_call_procedure(_currentContractIndex, inputType, input, (unsigned int)inputSize, _invocationReward, &_originator.u64._0, outputBuffer, outputSize);
         if (errorCode) {
             contractError[_currentContractIndex] = errorCode;
         }
@@ -348,15 +347,14 @@ public:
 
 // ---- system / utcTime / etalonTick: core's plain globals ----
 // The test reads and writes them like any variable; the host reads them from here before every call into the engine,
-// so a contract sees what the test last wrote, as it would read core's globals directly.
+// so a contract sees what the test last wrote. The engine keeps time in milliseconds, so an out-of-range date arrives normalized.
 
 struct QbSystemStruct {
     unsigned short epoch;
     unsigned int tick;
     unsigned int initialTick;
 };
-static_assert(offsetof(QbSystemStruct, epoch) == 0 && offsetof(QbSystemStruct, tick) == 4 && offsetof(QbSystemStruct, initialTick) == 8,
-              "gtest.ts reads this layout");
+static_assert(offsetof(QbSystemStruct, epoch) == 0 && offsetof(QbSystemStruct, tick) == 4 && offsetof(QbSystemStruct, initialTick) == 8, "gtest.ts reads this layout");
 
 struct QbEfiTime {
     unsigned short Year;
@@ -374,9 +372,7 @@ struct QbEtalonTick {
     unsigned char second, minute, hour, day, month, year;
     unsigned int tick;  // QTRY/Nostromo corpus: etalonTick.tick += offset; system.tick = etalonTick.tick
 };
-static_assert(offsetof(QbEtalonTick, millisecond) == 32 && offsetof(QbEtalonTick, second) == 34 && offsetof(QbEtalonTick, year) == 39 &&
-                  offsetof(QbEtalonTick, tick) == 40,
-              "gtest.ts reads this layout");
+static_assert(offsetof(QbEtalonTick, millisecond) == 32 && offsetof(QbEtalonTick, second) == 34 && offsetof(QbEtalonTick, year) == 39 && offsetof(QbEtalonTick, tick) == 40, "gtest.ts reads this layout");
 
 static QbEtalonTick etalonTick = { {}, 0, 0, 0, 0, 1, 1, 24, 0 };
 static QbSystemStruct qubicSystemStruct;
@@ -421,8 +417,7 @@ static inline void updateQpiTime() {
 
 // core's qpi_ticking_impl.h definition.
 QPI::DateAndTime QPI::DateAndTime::now() {
-    return QPI::DateAndTime(etalonTick.year + 2000, etalonTick.month, etalonTick.day, etalonTick.hour, etalonTick.minute, etalonTick.second,
-                            etalonTick.millisecond);
+    return QPI::DateAndTime(etalonTick.year + 2000, etalonTick.month, etalonTick.day, etalonTick.hour, etalonTick.minute, etalonTick.second, etalonTick.millisecond);
 }
 
 // core's test_util.h helper.
