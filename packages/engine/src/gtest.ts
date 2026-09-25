@@ -210,6 +210,66 @@ export async function runContractTesting(
     let dispatchCount = 0; // QINIT_GTEST_PROGRESS: dispatch-rate telemetry for slow/hanging corpora
     const t0Progress = performance.now();
 
+    // q_invoke is invokeUserProcedure's path and moves the reward first; q_call_procedure is QpiContextUserProcedureCall::call, which core leaves to its caller.
+    const runProcedure = (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number, transferReward: boolean): number => {
+        if (env_.QINIT_GTEST_PROGRESS && ++dispatchCount % 500 === 0) {
+            (globalThis as any).process?.stderr?.write?.(
+                `[gtest] ${dispatchCount} dispatches (${((performance.now() - t0Progress) / 1000).toFixed(1)}s)\n`,
+            );
+        }
+        pushShadowsToEngine();
+        const input = read(inPtr, inLen);
+        const origin = id32(originPtr);
+        let out: Uint8Array;
+        let code = 0;
+        try {
+            out = traceDisp(`invoke[${idx >>> 0}:${it >>> 0}]`, () =>
+                sim.procedure(idx >>> 0, it >>> 0, input, {
+                    reward: BigInt(amount),
+                    invocator: origin,
+                    originator: origin,
+                    transferReward,
+                }),
+            );
+        } catch (e: any) {
+            code = failed(`invoke[${idx >>> 0}:${it >>> 0}]`, e) ?? 0;
+            out = new Uint8Array(0);
+        }
+        const n = Math.min(out.length, outCap >>> 0);
+        if (n) write(outPtr, out.subarray(0, n));
+        pullShadowsFromEngine();
+        // QINIT_GTEST_WATCH_SLOT=<n>: print the watched contract balance after each invocation.
+        if (env_.QINIT_GTEST_WATCH_SLOT) {
+            const ws = Number(env_.QINIT_GTEST_WATCH_SLOT);
+            const bal = sim.balance((sim as any).contractId(ws));
+            // QINIT_GTEST_WATCH_OFF=<byteOff>: also print the u64 at that state offset, e.g. a counter identified by a snapshot diff.
+            let fld = "";
+            if (env_.QINIT_GTEST_WATCH_OFF) {
+                const off = Number(env_.QINIT_GTEST_WATCH_OFF);
+                const c2 = handles[ws];
+                if (c2) {
+                    const sv = c2.stateView(off + 8);
+                    fld = ` fld=${new DataView(sv.buffer, sv.byteOffset + off, 8).getBigUint64(0, true)}`;
+                }
+            }
+            (globalThis as any).process?.stderr?.write?.(
+                `[watch] #${++dispatchCount} it=${it >>> 0} amt=${amount} org=${hex(origin).slice(0, 12)} bal=${bal}${fld}\n`,
+            );
+            // QINIT_GTEST_SNAP="<dispatchN>:<filePrefix>": dump the watched contract state.
+            const snap = (env_.QINIT_GTEST_SNAP ?? "") as string;
+            if (snap) {
+                const [nStr, prefix] = snap.split(":");
+                if (dispatchCount === Number(nStr)) {
+                    const c2 = handles[ws];
+                    const fs = require("node:fs");
+                    const f = `${prefix}.${dispatchCount}.bin`;
+                    if (c2) fs.writeFileSync(fs.existsSync(f) ? f.replace(/\.bin$/, ".simulator.bin") : f, c2.stateView(c2.stateSize));
+                }
+            }
+        }
+        return code;
+    };
+
     const thost = {
         q_reset: () => {
             deployAll();
@@ -219,62 +279,15 @@ export async function runContractTesting(
         },
 
         // A contract failure inside a dispatch comes back as its code, as in the native harness; only an engine error fails the CURRENT TEST via `trap()`.
-        q_invoke: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number => {
-            if (env_.QINIT_GTEST_PROGRESS && ++dispatchCount % 500 === 0) {
-                (globalThis as any).process?.stderr?.write?.(
-                    `[gtest] ${dispatchCount} dispatches (${((performance.now() - t0Progress) / 1000).toFixed(1)}s)\n`,
-                );
-            }
-            pushShadowsToEngine();
-            const input = read(inPtr, inLen);
-            const origin = id32(originPtr);
-            let out: Uint8Array;
-            let code = 0;
-            try {
-                out = traceDisp(`invoke[${idx >>> 0}:${it >>> 0}]`, () =>
-                    sim.procedure(idx >>> 0, it >>> 0, input, {
-                        reward: BigInt(amount),
-                        invocator: origin,
-                        originator: origin,
-                    }),
-                );
-            } catch (e: any) {
-                code = failed(`invoke[${idx >>> 0}:${it >>> 0}]`, e) ?? 0;
-                out = new Uint8Array(0);
-            }
-            const n = Math.min(out.length, outCap >>> 0);
-            if (n) write(outPtr, out.subarray(0, n));
-            pullShadowsFromEngine();
-            // QINIT_GTEST_WATCH_SLOT=<n>: print the watched contract balance after each invocation.
-            if (env_.QINIT_GTEST_WATCH_SLOT) {
-                const ws = Number(env_.QINIT_GTEST_WATCH_SLOT);
-                const bal = sim.balance((sim as any).contractId(ws));
-                // QINIT_GTEST_WATCH_OFF=<byteOff>: also print the u64 at that state offset, e.g. a counter identified by a snapshot diff.
-                let fld = "";
-                if (env_.QINIT_GTEST_WATCH_OFF) {
-                    const off = Number(env_.QINIT_GTEST_WATCH_OFF);
-                    const c2 = handles[ws];
-                    if (c2) {
-                        const sv = c2.stateView(off + 8);
-                        fld = ` fld=${new DataView(sv.buffer, sv.byteOffset + off, 8).getBigUint64(0, true)}`;
-                    }
-                }
-                (globalThis as any).process?.stderr?.write?.(
-                    `[watch] #${++dispatchCount} it=${it >>> 0} amt=${amount} org=${hex(origin).slice(0, 12)} bal=${bal}${fld}\n`,
-                );
-                // QINIT_GTEST_SNAP="<dispatchN>:<filePrefix>": dump the watched contract state.
-                const snap = (env_.QINIT_GTEST_SNAP ?? "") as string;
-                if (snap) {
-                    const [nStr, prefix] = snap.split(":");
-                    if (dispatchCount === Number(nStr)) {
-                        const c2 = handles[ws];
-                        const fs = require("node:fs");
-                        const f = `${prefix}.${dispatchCount}.bin`;
-                        if (c2) fs.writeFileSync(fs.existsSync(f) ? f.replace(/\.bin$/, ".simulator.bin") : f, c2.stateView(c2.stateSize));
-                    }
-                }
-            }
-            return code;
+        q_invoke: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number =>
+            runProcedure(idx, it, inPtr, inLen, amount, originPtr, outPtr, outCap, true),
+        q_call_procedure: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number =>
+            runProcedure(idx, it, inPtr, inLen, amount, originPtr, outPtr, outCap, false),
+        // the registered output size of a function (0) or procedure (1), which core's call contexts expose as outputSize
+        q_output_size: (idx: number, isProcedure: number, it: number): number => {
+            const kind = isProcedure ? CONTRACT_ENTRY_KIND.PROCEDURE : CONTRACT_ENTRY_KIND.FUNCTION;
+            const entry = handles[idx >>> 0]?.entries.find((candidate) => candidate.kind === kind && candidate.inputType === it >>> 0);
+            return (entry?.outputSizeBytes ?? 0) >>> 0;
         },
 
         q_query: (idx: number, it: number, inPtr: number, inLen: number, outPtr: number, outCap: number): number => {
@@ -319,12 +332,6 @@ export async function runContractTesting(
         q_balance: (idPtr: number): bigint => {
             const b = sim.balance(id32(idPtr));
             return typeof b === "bigint" ? b : 0n;
-        },
-        // Move the amount to dest and fire its POST_INCOMING_TRANSFER.
-        q_notify_pit: (srcPtr: number, dstPtr: number, amount: bigint, type: number) => {
-            pushShadowsToEngine();
-            sim.notifyIncomingTransfer(id32(srcPtr), id32(dstPtr), BigInt(amount), type >>> 0);
-            pullShadowsFromEngine();
         },
         // fire only the POST_INCOMING_TRANSFER callback: core's QpiContextSystemProcedureCall leaves moving the qu to its caller.
         q_fire_pit: (srcPtr: number, dstPtr: number, amount: bigint, type: number): number => {
@@ -396,9 +403,13 @@ export async function runContractTesting(
             return i;
         },
 
-        q_decrease: (idx: number, amount: bigint) => {
+        q_decrease: (idx: number, amount: bigint): number => {
             const b = spectrumBytes[idx >>> 0];
-            if (b) sim.decreaseEnergy(sim.spectrumIndex(b), BigInt(amount));
+            return b && sim.decreaseEnergy(sim.spectrumIndex(b), BigInt(amount)) ? 1 : 0;
+        },
+        q_energy: (idx: number): bigint => {
+            const b = spectrumBytes[idx >>> 0];
+            return b ? sim.balance(b) : 0n;
         },
 
         q_shares: (issuerPtr: number, assetName: bigint): bigint => {

@@ -32,7 +32,7 @@ const shadow = (slot: number) => `(call $shadow (i32.const ${slot}))`;
 const get = (slot: number) => `(call $get (i32.const ${slot}))`;
 const observe = (register: "a" | "b", at: number) => `(global.set $${register} (i64.load (i32.const ${at})))`;
 const fund = (id: number) => `(call $fund (i32.const ${id}) (i64.const 1000000))`;
-const notify = `(call $notify (i32.const ${USER}) (i32.const ${VAULT_ID}) (i64.const 100) (i32.const 0))`;
+const notify = `(drop (call $firePit (i32.const ${USER}) (i32.const ${VAULT_ID}) (i64.const 100) (i32.const 0)))`;
 const sameAsA = "(global.set $b (global.get $a))";
 
 // Vault state: totalReceived@0, incomingCount@8 (POST_INCOMING_TRANSFER adds 1). Get is function 1, Deposit procedure 1.
@@ -106,6 +106,46 @@ const SYNC_ROWS: Row[] = [
     },
 ];
 
+const balanceOf = (register: "a" | "b", id: number) => `(global.set $${register} (call $balance (i32.const ${id})))`;
+
+// core's harness helpers move only the qu core moves
+const HELPER_ROWS: Row[] = [
+    {
+        name: "a procedure context runs the procedure and moves no reward",
+        body: [
+            `(drop (call $callProcedure (i32.const ${VAULT}) (i32.const 1) (i32.const ${IN}) (i32.const 0) (i64.const 5) (i32.const ${USER}) (i32.const ${OUT}) (i32.const 0)))`,
+            get(VAULT),
+            observe("a", OUT),
+            balanceOf("b", VAULT_ID),
+        ].join(" "),
+        expect: [5, 0],
+    },
+    {
+        name: "control: invoking from an unfunded caller runs nothing",
+        body: [
+            `(drop (call $invoke (i32.const ${VAULT}) (i32.const 1) (i32.const ${IN}) (i32.const 0) (i64.const 5) (i32.const ${USER}) (i32.const ${OUT}) (i32.const 0)))`,
+            get(VAULT),
+            observe("a", OUT),
+            balanceOf("b", VAULT_ID),
+        ].join(" "),
+        expect: [0, 0],
+    },
+    {
+        name: "an incoming-transfer callback from an unfunded source moves nothing",
+        body: [notify, get(VAULT), observe("a", OUT + 8), balanceOf("b", VAULT_ID)].join(" "),
+        expect: [1, 0],
+    },
+    {
+        name: "decreaseEnergy refuses an overdraft",
+        body: [
+            fund(USER),
+            `(global.set $a (i64.extend_i32_u (call $decrease (call $spectrum (i32.const ${USER})) (i64.const 2000000))))`,
+            `(global.set $b (call $energy (call $spectrum (i32.const ${USER}))))`,
+        ].join(" "),
+        expect: [0, 1000000],
+    },
+];
+
 // StateData { uint64 inits; } with INITIALIZE adding 1, so the count is the number of runs
 const INIT_ROWS: Row[] = [
     { name: "deploy runs no INITIALIZE", body: [shadow(INIT_COUNT), observe("a", SHADOW), sameAsA].join(" "), expect: [0, 0] },
@@ -137,8 +177,13 @@ async function runner(rows: readonly Row[]): Promise<Uint8Array> {
     const wat = `(module
   (import "thost" "q_reset" (func $reset))
   (import "thost" "q_fund" (func $fund (param i32 i64)))
-  (import "thost" "q_notify_pit" (func $notify (param i32 i32 i64 i32)))
+  (import "thost" "q_fire_pit" (func $firePit (param i32 i32 i64 i32) (result i32)))
   (import "thost" "q_invoke" (func $invoke (param i32 i32 i32 i32 i64 i32 i32 i32) (result i32)))
+  (import "thost" "q_call_procedure" (func $callProcedure (param i32 i32 i32 i32 i64 i32 i32 i32) (result i32)))
+  (import "thost" "q_balance" (func $balance (param i32) (result i64)))
+  (import "thost" "q_spectrum" (func $spectrum (param i32) (result i32)))
+  (import "thost" "q_decrease" (func $decrease (param i32 i64) (result i32)))
+  (import "thost" "q_energy" (func $energy (param i32) (result i64)))
   (import "thost" "q_query" (func $query (param i32 i32 i32 i32 i32 i32) (result i32)))
   (import "thost" "q_sysproc" (func $sysproc (param i32 i32)))
   (import "thost" "q_state_size" (func $stateSize (param i32) (result i32)))
@@ -218,4 +263,10 @@ test("a fixture runs INITIALIZE only when the test calls it", async () => {
 
     const results = await runContractTesting(await runner(INIT_ROWS), { [INIT_COUNT]: Uint8Array.from(compiled.wasm) });
     expect(observed(results)).toEqual(expected(INIT_ROWS));
+}, 60_000);
+
+test("core's harness helpers move only the qu core moves", async () => {
+    const results = await runContractTesting(await runner(HELPER_ROWS), { [VAULT]: await loadWasmFixture("Vault") });
+    expect(observed(results)).toEqual(expected(HELPER_ROWS));
+    expect(results.every((result) => result.passed)).toBe(true);
 }, 60_000);

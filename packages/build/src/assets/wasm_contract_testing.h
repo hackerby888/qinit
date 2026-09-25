@@ -20,13 +20,15 @@ typedef wchar_t CHAR16;
 extern "C" {
 QBCT_IMPORT(q_reset)     void          bq_reset();
 QBCT_IMPORT(q_init)      void          bq_init(unsigned int idx);
-// the three dispatches return the contract error code, 0 on success: an abort code, WASM_TRAP_ERROR_CODE, or ContractErrorFuncProcUnknown
+// the dispatches return the contract error code, 0 on success: an abort code, WASM_TRAP_ERROR_CODE, or ContractErrorFuncProcUnknown
 QBCT_IMPORT(q_invoke)    unsigned int  bq_invoke(unsigned int idx, unsigned int it, const void* in, unsigned int inLen, long long amount, const void* origin32, void* out, unsigned int outCap);
+// runs only the procedure: the reward is visible to it but not moved, as in core's QpiContextUserProcedureCall
+QBCT_IMPORT(q_call_procedure) unsigned int bq_call_procedure(unsigned int idx, unsigned int it, const void* in, unsigned int inLen, long long amount, const void* origin32, void* out, unsigned int outCap);
+QBCT_IMPORT(q_output_size) unsigned int bq_output_size(unsigned int idx, unsigned int isProcedure, unsigned int it);
 QBCT_IMPORT(q_query)     unsigned int  bq_query(unsigned int idx, unsigned int it, const void* in, unsigned int inLen, void* out, unsigned int outCap);
 QBCT_IMPORT(q_sysproc)   unsigned int  bq_sysproc(unsigned int idx, unsigned int sp);
 QBCT_IMPORT(q_fund)      void          bq_fund(const void* id32, long long amount);
 QBCT_IMPORT(q_balance)   long long     bq_balance(const void* id32);
-QBCT_IMPORT(q_notify_pit) void         bq_notify_pit(const void* src32, const void* dst32, long long amount, unsigned int type);
 QBCT_IMPORT(q_fire_pit)  unsigned int  bq_fire_pit(const void* src32, const void* dst32, long long amount, unsigned int type);
 QBCT_IMPORT(q_issue_asset) long long   bq_issue_asset(const void* issuer32, unsigned long long name, int decimals, long long shares, unsigned long long unit, unsigned int slot);
 QBCT_IMPORT(q_shares)    long long     bq_shares(const void* issuer32, unsigned long long assetName);
@@ -36,7 +38,8 @@ QBCT_IMPORT(q_mint_contract_shares) void bq_mint_contract_shares(unsigned long l
 QBCT_IMPORT(q_transfer_shares) long long bq_transfer_shares(unsigned long long name, const void* src32, const void* dst32, long long shares, unsigned int qxSlot);
 QBCT_IMPORT(q_transfer_holding) long long bq_transfer_holding(unsigned long long name, const void* issuer32, const void* owner32, const void* newOwner32, long long shares, unsigned int mgmt);
 QBCT_IMPORT(q_spectrum)  int           bq_spectrum(const void* id32);
-QBCT_IMPORT(q_decrease)  void          bq_decrease(int idx, long long amount);
+QBCT_IMPORT(q_decrease)  unsigned int  bq_decrease(int idx, long long amount);
+QBCT_IMPORT(q_energy)    long long     bq_energy(int idx);
 QBCT_IMPORT(q_state_size) unsigned int bq_state_size(unsigned int i);
 QBCT_IMPORT(q_state_in)   void         bq_state_in(unsigned int i, void* dst, unsigned int len);
 QBCT_IMPORT(q_state_addr) unsigned int bq_state_addr(unsigned int i);
@@ -119,37 +122,58 @@ enum ContractError
     ContractErrorFuncProcUnknown,
 };
 
-struct QpiContextUserFunctionCall : public QPI::QpiContextFunctionCall {
+// core's call contexts keep the output they ran into, sized as the contract registered it, until freeBuffer().
+struct QbCallOutput {
+    char* outputBuffer = nullptr;
+    unsigned short outputSize = 0;
+
+    void allocate(unsigned int contractIndex, unsigned int isProcedure, unsigned short inputType) {
+        freeBuffer();
+        outputSize = (unsigned short)bq_output_size(contractIndex, isProcedure, inputType);
+        outputBuffer = (char*)malloc(outputSize ? outputSize : 1);
+        setMem(outputBuffer, outputSize, 0);
+    }
+
+    void freeBuffer() {
+        free(outputBuffer);
+        outputBuffer = nullptr;
+    }
+};
+
+struct QpiContextUserFunctionCall : public QPI::QpiContextFunctionCall, public QbCallOutput {
     QpiContextUserFunctionCall(unsigned int contractIndex)
         : QPI::QpiContextFunctionCall(contractIndex, QPI::id::zero(), 0, USER_FUNCTION_CALL) {}
 
-    // Call a user FUNCTION: route through the engine's query path (read-only, no state mutation).
-    unsigned int call(unsigned short inputType, const void* input, unsigned short inputSize) {
-        unsigned char output[4096];
-        return bq_query(_currentContractIndex, inputType, input, (unsigned int)inputSize, output, (unsigned int)sizeof(output));
+    ~QpiContextUserFunctionCall() {
+        freeBuffer();
     }
 
-    // In the native harness call() allocates a stack buffer; the caller is expected to free it.
-    // The shim uses a fixed-size local output array — no-op.
-    void freeBuffer() {}
+    // Call a user FUNCTION: route through the engine's query path (read-only, no state mutation).
+    unsigned int call(unsigned short inputType, const void* input, unsigned short inputSize) {
+        allocate(_currentContractIndex, 0, inputType);
+        return bq_query(_currentContractIndex, inputType, input, (unsigned int)inputSize, outputBuffer, outputSize);
+    }
 };
 
 // Mirror of contract_exec.h's QpiContextUserProcedureCall: a corpus constructs one to call a user
 // PROCEDURE (mutable dispatch) in-process, seeded with the invocator and reward.
-struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall {
+struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall, public QbCallOutput {
     QpiContextUserProcedureCall(unsigned int contractIndex, const m256i& originator, long long invocationReward)
         : QPI::QpiContextProcedureCall(contractIndex, originator, invocationReward, USER_PROCEDURE_CALL) {}
 
+    ~QpiContextUserProcedureCall() {
+        freeBuffer();
+    }
+
+    // like core's, it runs only the procedure: invokeUserProcedure moves the reward before it gets here.
     void call(unsigned short inputType, const void* input, unsigned short inputSize) {
-        unsigned char output[4096];
-        const unsigned int errorCode = bq_invoke(_currentContractIndex, inputType, input, (unsigned int)inputSize, _invocationReward,
-                                                 &_originator.u64._0, output, (unsigned int)sizeof(output));
+        allocate(_currentContractIndex, 1, inputType);
+        const unsigned int errorCode = bq_call_procedure(_currentContractIndex, inputType, input, (unsigned int)inputSize, _invocationReward,
+                                                         &_originator.u64._0, outputBuffer, outputSize);
         if (errorCode) {
             contractError[_currentContractIndex] = errorCode;
         }
     }
-
-    void freeBuffer() {}
 
     // In-runner qpi asset mutations (QTRY seeds its QUSD supply this way). The runner's lhost surface is
     // read-only — its ABI carries no contract index, so a mutation resolved there would be a silent no-op.
@@ -572,9 +596,15 @@ static inline long long getBalance(const QPI::id& who) {
     return bq_balance(&who);
 }
 
-// Simulate an inbound transfer to a contract: credit `dest` and fire its POST_INCOMING_TRANSFER handler.
+// core's test/common_def.cpp version: runs only the POST_INCOMING_TRANSFER callback, moving the qu is the caller's job.
 static inline void notifyContractOfIncomingTransfer(const QPI::id& source, const QPI::id& dest, long long amount, unsigned char type) {
-    bq_notify_pit(&source, &dest, amount, (unsigned int)type);
+    if (amount <= 0 || !isPublicKeyOfContract(dest)) {
+        return;
+    }
+
+    QpiContextSystemProcedureCall qpiContext((unsigned int)dest.u64._0, POST_INCOMING_TRANSFER);
+    QPI::PostIncomingTransfer_input input{ source, amount, type };
+    qpiContext.call(input);
 }
 
 static inline unsigned long long assetNameFromString(const char* s);  // defined below; used by issueAsset
@@ -639,9 +669,13 @@ static inline int spectrumIndex(const QPI::id& who) {
     return bq_spectrum(&who);
 }
 
+// core's spectrum.h: false and nothing taken when amount is negative or above the balance.
 static inline bool decreaseEnergy(int idx, QPI::sint64 amount) {
-    bq_decrease(idx, (long long)amount);
-    return true;
+    return bq_decrease(idx, (long long)amount) != 0;
+}
+
+static inline long long energy(int idx) {
+    return bq_energy(idx);
 }
 
 static inline QPI::sint64 numberOfShares(const QPI::Asset& a,
