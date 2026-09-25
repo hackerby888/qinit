@@ -729,10 +729,9 @@ namespace qinit_gtest {
 #define ASSERT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_TRUE(" #x ")", (bool)(x))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 #define ASSERT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_FALSE(" #x ")", !(bool)(x))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 namespace qinit_gtest {
-    // |a - b| <= error, spelled without fabs so the harness stays free of <cmath>.
     template <class A, class B, class E>
     static inline bool recNear(const char* f, int l, const char* w, const A& a, const B& b, const E& error) {
-        if (a <= b + error && b <= a + error) { return true; }
+        if (withinError(a, b, error)) { return true; }
         failAt(f, l, w); appendStr(" ("); appendVal(a); appendStr(" vs "); appendVal(b); appendStr(")");
         return false;
     }

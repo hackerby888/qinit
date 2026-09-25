@@ -356,6 +356,7 @@ TEST(Scout, UpdateTimeReadsTheWallClock) {
 TEST(Scout, PassingMacrosStream) {
   SUCCEED() << "fine";
   EXPECT_NEAR(1.0, 1.05, 0.1) << "close enough";
+  EXPECT_NEAR((sint64)-5, (uint64)3, 10) << "compared as double, as googletest does";
   ASSERT_NEAR(10, 12, 2) << "integers too";
 }
 TEST(Scout, SkipReturnsEarly) {
