@@ -1,10 +1,12 @@
 // Run core-lite contract_testing.h suites in an isolated simulator.
-import { WASM_TRAP_ERROR_CODE, type BuildProfile } from "@qinit/core";
+import { ASSET_ENUMERATION_RECORD, WASM_TRAP_ERROR_CODE, type BuildProfile } from "@qinit/core";
 import { MAINNET_COMPUTOR_COUNT } from "@qinit/proto";
 import { QubicSimulator } from "./qubic-simulator";
 import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, dateFields, packDateAndTime } from "./contract/runtime";
 import { initK12, k12Bytes } from "./support/k12";
 import { EntityRecord, M256i } from "./protocol/wire";
+import { NO_ASSET_INDEX } from "./ledger/assets";
+import type { Id } from "./support/bytes";
 
 export interface TestResult {
     name: string; // "Suite.Name"
@@ -551,6 +553,150 @@ export async function runContractTesting(
         return off >>> 0;
     };
 
+    // The rest of core-lite's lhost surface, reached when a test runs contract code in the runner (a private function it calls directly).
+    // The caller is the contract under test, as for transfer; a call that can move qu or shares or run contract code syncs the shadows around it.
+    const runnerQpiImports = (): Record<string, Function> => {
+        const caller = (): Id => sim.contractId(mainSlot);
+        const synced = <T>(call: () => T): T => {
+            pushShadowsToEngine();
+            try {
+                return call();
+            } finally {
+                pullShadowsFromEngine();
+            }
+        };
+        const writeAssetIndex = (off: number, index: number) => new DataView(mem().buffer).setInt32(off >>> 0, index, true);
+        return {
+            beginFn: () => {},
+            endFn: () => {},
+            pauseLog: () => {},
+            resumeLog: () => {},
+            logBytes: () => {},
+            markDirty: () => sim.host.markDirty(mainSlot),
+            // core cannot continue past an abort either (a procedure spins, a function long-jumps), so the test fails here.
+            abort: (code: number) => {
+                throw new ContractAbort(code >>> 0);
+            },
+            transferTyped: (destOff: number, amount: bigint, type: number): bigint => synced(() => sim.host.transfer(mainSlot, id32(destOff), amount, type & 0xff)),
+            initialTick: (): number => sim.host.initialTick() >>> 0,
+            numberOfTickTransactions: (): number => sim.host.numberOfTickTransactions(),
+            queryFeeReserve: (ci: number): bigint => sim.host.queryFeeReserve(mainSlot, ci >>> 0),
+            nextId: (idOff: number, outOff: number) => write(outOff, sim.host.nextId(id32(idOff)).subarray(0, 32)),
+            prevId: (idOff: number, outOff: number) => write(outOff, sim.host.prevId(id32(idOff)).subarray(0, 32)),
+            isContractId: (idOff: number): number => sim.host.isContractId(id32(idOff)),
+            arbitrator: (outOff: number) => write(outOff, sim.host.arbitrator().subarray(0, 32)),
+            computor: (index: number, outOff: number) => write(outOff, sim.host.computor(index >>> 0).subarray(0, 32)),
+            prevUniverseDigest: (outOff: number) => write(outOff, sim.host.getPrevUniverseDigest().subarray(0, 32)),
+            prevComputerDigest: (outOff: number) => write(outOff, sim.host.getPrevComputerDigest().subarray(0, 32)),
+            isAssetIssued: (issuerOff: number, name: bigint): number => sim.host.isAssetIssued(id32(issuerOff), name),
+            issueAsset: (name: bigint, issuerOff: number, decimals: number, shares: bigint, unit: bigint): bigint =>
+                synced(() => sim.host.issueAsset(mainSlot, name, id32(issuerOff), (decimals << 24) >> 24, shares, unit, caller())),
+            numberOfShares: (assetOff: number, ownershipOff: number, possessionOff: number): bigint =>
+                sim.host.numberOfShares(read(assetOff, 40), read(ownershipOff, 40), read(possessionOff, 40)),
+            numberOfPossessedShares: (name: bigint, issuerOff: number, ownerOff: number, possessorOff: number, ownMgmt: number, posMgmt: number): bigint =>
+                sim.host.numberOfPossessedShares(name, id32(issuerOff), id32(ownerOff), id32(possessorOff), ownMgmt & 0xffff, posMgmt & 0xffff),
+            // the iterator keeps the universe indices in the contract's own object: begin and next advance them there, record reads the current one.
+            assetIterBegin: (kind: number, issuanceOff: number, ownershipOff: number, possessionOff: number, issuanceIdxOff: number, ownershipIdxOff: number, possessionIdxOff: number) => {
+                const position = sim.host.assetIterBegin(kind >>> 0, read(issuanceOff, 40), read(ownershipOff, 36), read(possessionOff, 36));
+                writeAssetIndex(issuanceIdxOff, position.issuanceIndex);
+                writeAssetIndex(ownershipIdxOff, position.ownershipIndex);
+                if (kind === 1) writeAssetIndex(possessionIdxOff, position.possessionIndex);
+            },
+            assetIterNext: (kind: number, _issuanceOff: number, ownershipOff: number, possessionOff: number, issuanceIdxOff: number, ownershipIdxOff: number, possessionIdxOff: number): number => {
+                const view = new DataView(mem().buffer);
+                const position = {
+                    issuanceIndex: view.getInt32(issuanceIdxOff >>> 0, true),
+                    ownershipIndex: view.getInt32(ownershipIdxOff >>> 0, true),
+                    possessionIndex: kind === 1 ? view.getInt32(possessionIdxOff >>> 0, true) : NO_ASSET_INDEX,
+                };
+                const step = sim.host.assetIterNext(kind >>> 0, position, read(ownershipOff, 36), read(possessionOff, 36));
+                writeAssetIndex(ownershipIdxOff, step.position.ownershipIndex);
+                if (kind === 1) writeAssetIndex(possessionIdxOff, step.position.possessionIndex);
+                return step.selected ? 1 : 0;
+            },
+            assetIterRecord: (kind: number, ownershipIdx: number, possessionIdx: number, outOff: number) => {
+                const entry = sim.host.assetIterRecord(kind >>> 0, ownershipIdx | 0, possessionIdx | 0);
+                const record = ASSET_ENUMERATION_RECORD;
+                const out = outOff >>> 0;
+                mem().fill(0, out, out + record.size);
+                if (!entry) return;
+                const view = new DataView(mem().buffer);
+                mem().set(entry.owner.subarray(0, record.fields.owner.size), out + record.fields.owner.offset);
+                mem().set(entry.possessor.subarray(0, record.fields.possessor.size), out + record.fields.possessor.offset);
+                view.setBigInt64(out + record.fields.shares.offset, entry.shares, true);
+                view.setUint16(out + record.fields.ownershipManagingContract.offset, entry.ownMgmt & 0xffff, true);
+                view.setUint16(out + record.fields.possessionManagingContract.offset, entry.posMgmt & 0xffff, true);
+            },
+            transferShareOwnershipAndPossession: (name: bigint, issuerOff: number, ownerOff: number, possessorOff: number, shares: bigint, newOwnerOff: number): bigint =>
+                synced(() => sim.host.transferShareOwnershipAndPossession(mainSlot, name, id32(issuerOff), id32(ownerOff), id32(possessorOff), shares, id32(newOwnerOff))),
+            acquireShares: (name: bigint, issuerOff: number, ownerOff: number, possessorOff: number, shares: bigint, srcOwnMgmt: number, srcPosMgmt: number, fee: bigint): bigint =>
+                synced(() =>
+                    sim.host.acquireShares(mainSlot, name, id32(issuerOff), id32(ownerOff), id32(possessorOff), shares, srcOwnMgmt & 0xffff, srcPosMgmt & 0xffff, fee, caller()),
+                ),
+            releaseShares: (name: bigint, issuerOff: number, ownerOff: number, possessorOff: number, shares: bigint, dstOwnMgmt: number, dstPosMgmt: number, fee: bigint): bigint =>
+                synced(() =>
+                    sim.host.releaseShares(mainSlot, name, id32(issuerOff), id32(ownerOff), id32(possessorOff), shares, dstOwnMgmt & 0xffff, dstPosMgmt & 0xffff, fee, caller()),
+                ),
+            distributeDividends: (amountPerShare: bigint): number => synced(() => sim.host.distributeDividends(mainSlot, amountPerShare, caller())),
+            dayOfWeek: (year: number, month: number, day: number): number => sim.host.dayOfWeek(year & 0xff, month & 0xff, day & 0xff),
+            signatureValidity: (entityOff: number, digestOff: number, signatureOff: number): number =>
+                sim.host.signatureValidity(id32(entityOff), id32(digestOff), read(signatureOff, 64)),
+            bidInIPO: (ipoIdx: number, price: bigint, quantity: number): bigint => synced(() => sim.host.bidInIPO(mainSlot, ipoIdx >>> 0, price, quantity >>> 0)),
+            ipoBidId: (ipoIdx: number, bidIdx: number, outOff: number) => write(outOff, sim.host.ipoBidId(ipoIdx >>> 0, bidIdx >>> 0).subarray(0, 32)),
+            ipoBidPrice: (ipoIdx: number, bidIdx: number): bigint => sim.host.ipoBidPrice(ipoIdx >>> 0, bidIdx >>> 0),
+            computeMiningFunction: (seedOff: number, publicKeyOff: number, nonceOff: number, outOff: number) =>
+                write(outOff, sim.host.computeMiningFunction(id32(seedOff), id32(publicKeyOff), id32(nonceOff)).subarray(0, 32)),
+            initMiningSeed: (seedOff: number) => sim.host.initMiningSeed(id32(seedOff)),
+            getOracleQueryStatus: (queryId: bigint): number => sim.host.getOracleQueryStatus(queryId),
+            getOcInvocationStatus: (invocationId: bigint): number => sim.host.getOcInvocationStatus(invocationId),
+            invokeOc: (interfaceIdx: number, requestOff: number, requestSize: number): bigint =>
+                synced(() => sim.host.invokeOc(mainSlot, interfaceIdx >>> 0, read(requestOff, requestSize))),
+            queryOracle: (interfaceIdx: number, queryOff: number, querySize: number, replySize: number, procId: number, timeout: number, fee: bigint): bigint =>
+                synced(() => sim.host.queryOracle(mainSlot, interfaceIdx >>> 0, read(queryOff, querySize), replySize >>> 0, procId >>> 0, timeout >>> 0, fee)),
+            subscribeOracle: (
+                interfaceIdx: number,
+                queryOff: number,
+                querySize: number,
+                replySize: number,
+                timestampOffset: number,
+                procId: number,
+                period: number,
+                notifyPrev: number,
+                fee: bigint,
+            ): number =>
+                synced(() =>
+                    sim.host.subscribeOracle(
+                        mainSlot,
+                        interfaceIdx >>> 0,
+                        read(queryOff, querySize),
+                        replySize >>> 0,
+                        timestampOffset >>> 0,
+                        procId >>> 0,
+                        period >>> 0,
+                        notifyPrev !== 0,
+                        fee,
+                    ),
+                ),
+            unsubscribeOracle: (subscriptionId: number): number => synced(() => sim.host.unsubscribeOracle(mainSlot, subscriptionId | 0)),
+            getOracleQuery: (queryId: bigint, outOff: number, size: number): number => {
+                const query = sim.host.getOracleQuery(queryId);
+                if (!query || query.length !== size) return 0;
+                write(outOff, query);
+                return 1;
+            },
+            getOracleReply: (queryId: bigint, outOff: number, size: number): number => {
+                const reply = sim.host.getOracleReply(queryId);
+                if (!reply || reply.length !== size) return 0;
+                write(outOff, reply);
+                return 1;
+            },
+            liteSetShareholderProposal: (calleeIdx: number, proposalOff: number, reward: bigint): number =>
+                synced(() => sim.host.setShareholderProposal(mainSlot, calleeIdx >>> 0, read(proposalOff, 1024), reward, caller())),
+            liteSetShareholderVotes: (calleeIdx: number, voteOff: number, voteSize: number, reward: bigint): number =>
+                synced(() => sim.host.setShareholderVotes(mainSlot, calleeIdx >>> 0, read(voteOff, voteSize), reward, caller())),
+        };
+    };
+
     // Read-only host surface for in-runner QPI contexts.
     const lhost: Record<string, Function> = {
         k12: (inOff: number, len: number, outOff: number) => mem().set(k12Bytes(read(inOff, len)), outOff >>> 0),
@@ -603,14 +749,22 @@ export async function runContractTesting(
             rec.latestOutgoingTransferTick = e ? e.latestOutgoingTransferTick : 0;
             return e ? 1 : 0;
         },
-    };
-    if (sharedSlots.size) {
-        lhost.acquireScratch = scratchAcquire;
-        lhost.releaseScratch = (off: number) => {
+        ...runnerQpiImports(),
+        // CALL() locals and container cleanup in the runner. The harness's own malloc when it exports one, so the scratch never lands on heap pages.
+        acquireScratch: (size: bigint, initZero: number): number => {
+            const acquire = runner?.exports?.qinit_scratch_acquire as Function | undefined;
+            return acquire ? acquire(Number(size), initZero) >>> 0 : scratchAcquire(size, initZero);
+        },
+        releaseScratch: (off: number) => {
+            const release = runner?.exports?.qinit_scratch_release as Function | undefined;
+            if (release) {
+                release(off);
+                return;
+            }
             const p = off >>> 0;
             if (p >= scratchBase && p <= scratchBump) scratchBump = p;
-        };
-    }
+        },
+    };
 
     // env: PRNG (global in the runner) + contract-specific symbols.
     const envObj: Record<string, Function> = { ...env };

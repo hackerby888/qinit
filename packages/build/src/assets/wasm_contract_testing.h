@@ -175,8 +175,8 @@ struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall, public
         }
     }
 
-    // In-runner qpi asset mutations (QTRY seeds its QUSD supply this way). The runner's lhost surface is
-    // read-only — its ABI carries no contract index, so a mutation resolved there would be a silent no-op.
+    // In-runner qpi asset mutations (QTRY seeds its QUSD supply this way). These act for this context's contract;
+    // the runner's lhost surface has no contract index and acts for the contract under test.
     long long issueAsset(unsigned long long name, const QPI::id& issuer, signed char numberOfDecimalPlaces,
                          long long numberOfShares, unsigned long long unitOfMeasurement) const {
         return bq_issue_asset(&issuer, name, (int)numberOfDecimalPlaces, numberOfShares, unitOfMeasurement,
@@ -216,6 +216,18 @@ private:
         }
     }
 };
+
+// scratch for contract code the test runs in the runner (CALL() locals, container cleanup): the host takes it from this
+// module's own heap, since memory it grew by hand could later be handed out by malloc too.
+extern "C" {
+__attribute__((export_name("qinit_scratch_acquire"))) void* qinit_scratch_acquire(unsigned int size, unsigned int initZero) {
+    return initZero ? calloc(1, size ? size : 1) : malloc(size ? size : 1);
+}
+
+__attribute__((export_name("qinit_scratch_release"))) void qinit_scratch_release(void* pointer) {
+    free(pointer);
+}
+}
 
 // ---- contractStates: lazy shadow-buffer proxy synced from engine on each access ----
 

@@ -173,6 +173,90 @@ TEST(Sink, DecreaseEnergyRefusesAnOverdraft) {
 }
 `;
 
+// Scout's private Inspect is what a QTF-style test calls straight from the runner, so its qpi calls go through the runner's host.
+const SCOUT = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { uint64 unused; };
+  struct Twice_input { uint64 value; }; struct Twice_output { uint64 value; };
+  struct Inspect_input { id issuer; uint64 name; id owner; };
+  struct Inspect_output { sint64 possessed; sint64 total; uint64 holders; uint8 weekday; id computor0; uint16 epoch; uint32 tick; uint32 initialTick; uint64 twice; };
+  struct Inspect_locals { Asset asset; AssetPossessionIterator iter; Twice_input twiceIn; Twice_output twiceOut; };
+  PRIVATE_FUNCTION(Twice) { output.value = input.value * 2; }
+  PRIVATE_FUNCTION_WITH_LOCALS(Inspect) {
+    output.possessed = qpi.numberOfPossessedShares(input.name, input.issuer, input.owner, input.owner, SELF_INDEX, SELF_INDEX);
+    locals.asset.issuer = input.issuer;
+    locals.asset.assetName = input.name;
+    locals.iter.begin(locals.asset);
+    while (!locals.iter.reachedEnd()) {
+      output.holders += 1;
+      output.total += locals.iter.numberOfPossessedShares();
+      locals.iter.next();
+    }
+    output.weekday = qpi.dayOfWeek(24, 1, 1);
+    output.computor0 = qpi.computor(0);
+    output.epoch = qpi.epoch();
+    output.tick = qpi.tick();
+    output.initialTick = qpi.initialTick();
+    locals.twiceIn.value = 21;
+    CALL(Twice, locals.twiceIn, locals.twiceOut);
+    output.twice = locals.twiceOut.value;
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {}
+};
+`;
+
+const SCOUT_GTEST = `#define NO_UEFI
+#include "contract_testing.h"
+class ScoutChecker : public Scout, public Scout::StateData {
+public:
+  const QPI::ContractState<StateData, Scout_CONTRACT_INDEX>& asState() const {
+    return *reinterpret_cast<const QPI::ContractState<StateData, Scout_CONTRACT_INDEX>*>(static_cast<const StateData*>(this));
+  }
+  Inspect_output inspect(const QPI::QpiContextFunctionCall& qpi, const id& issuer, uint64 name, const id& owner) const {
+    Inspect_input input{ issuer, name, owner };
+    Inspect_output output{};
+    // the iterator's constructor is protected, so the locals are zeroed bytes, as core's own stack hands them out
+    alignas(Inspect_locals) unsigned char localsBuffer[sizeof(Inspect_locals)] = {};
+    Inspect(qpi, asState(), input, output, *reinterpret_cast<Inspect_locals*>(localsBuffer));
+    return output;
+  }
+};
+class ContractTestingScout : protected ContractTesting {
+public:
+  ContractTestingScout() {
+    initEmptySpectrum();
+    initEmptyUniverse();
+    INIT_CONTRACT(Scout);
+  }
+  ScoutChecker* state() { return reinterpret_cast<ScoutChecker*>(contractStates[Scout_CONTRACT_INDEX]); }
+};
+TEST(Scout, PrivateFunctionSeesTheEngine) {
+  ContractTestingScout t;
+  const id issuer = id::randomValue();
+  const id holder = id::randomValue();
+  increaseEnergy(issuer, 1000000000);
+  int issuance, ownership, possession, holderOwnership, holderPossession;
+  EXPECT_EQ(issueAsset(issuer, "SCOUT", 0, CONTRACT_ASSET_UNIT_OF_MEASUREMENT, 1000, Scout_CONTRACT_INDEX, &issuance, &ownership, &possession), 1000ll);
+  EXPECT_TRUE(transferShareOwnershipAndPossession(ownership, possession, holder, 300, &holderOwnership, &holderPossession, true));
+  broadcastedComputors.computors.publicKeys[0] = holder;
+  system.epoch = 7;
+  system.tick = 1234;
+  system.initialTick = 1200;
+  QpiContextUserFunctionCall qpi(Scout_CONTRACT_INDEX);
+  const Scout::Inspect_output output = t.state()->inspect(qpi, issuer, assetNameFromString("SCOUT"), holder);
+  EXPECT_EQ(output.possessed, 300ll);
+  EXPECT_EQ(output.total, 1000ll);
+  EXPECT_EQ(output.holders, 2ull);
+  EXPECT_EQ(output.weekday, 5);
+  EXPECT_EQ(output.computor0, holder);
+  EXPECT_EQ(output.epoch, 7);
+  EXPECT_EQ(output.tick, 1234u);
+  EXPECT_EQ(output.initialTick, 1200u);
+  EXPECT_EQ(output.twice, 42ull);
+}
+`;
+
 // Core-lite-style gtest cases — the same assertions a native build validates.
 const COUNTER_GTEST = coreGtest(
     "Counter",
@@ -256,7 +340,7 @@ describe.skipIf(!HAS_CORE)("differential gtest — my contract vs native test lo
         "QpiContextSystemProcedureCall runs system procedures the way core's tests call them",
         wasi,
         async () => {
-            const results = await runSinkGtest(SINK_GTEST);
+            const results = await runSlot28Gtest(SINK_GTEST);
             expect(results).toEqual([
                 { name: "Sink.IncomingTransferRunsOnlyTheCallback", passed: true, message: "" },
                 { name: "Sink.CallRunsAnInputlessSystemProcedure", passed: true, message: "" },
@@ -269,7 +353,7 @@ describe.skipIf(!HAS_CORE)("differential gtest — my contract vs native test lo
         "core's harness helpers move only the qu core moves",
         wasi,
         async () => {
-            const results = await runSinkGtest(SINK_HELPERS_GTEST);
+            const results = await runSlot28Gtest(SINK_HELPERS_GTEST);
             expect(results).toEqual([
                 { name: "Sink.NotifyRunsOnlyTheCallback", passed: true, message: "" },
                 { name: "Sink.ProcedureContextRunsOnlyTheProcedure", passed: true, message: "" },
@@ -280,24 +364,37 @@ describe.skipIf(!HAS_CORE)("differential gtest — my contract vs native test lo
         },
         120000,
     );
+
+    // a private function the test calls directly runs in the runner, so its qpi calls must reach the engine as core's do.
+    toolchainTest(
+        "contract code the runner runs gets the engine's qpi",
+        wasi,
+        async () => {
+            const results = await runSlot28Gtest(SCOUT_GTEST, "Scout", SCOUT);
+            expect(results).toEqual([
+                { name: "Scout.PrivateFunctionSeesTheEngine", passed: true, message: "" },
+            ]);
+        },
+        120000,
+    );
 });
 
-// Builds a gtest against the Sink contract (slot 28, TypeScript backend) and runs it.
-async function runSinkGtest(gtestSource: string): Promise<Pick<TestResult, "name" | "passed" | "message">[]> {
+// Builds a gtest against a contract at slot 28 (TypeScript backend) and runs it.
+async function runSlot28Gtest(gtestSource: string, name = "Sink", source = SINK): Promise<Pick<TestResult, "name" | "passed" | "message">[]> {
     const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "gtest-sink-"));
-    const contractPath = join(dir, "Sink.h");
-    writeFileSync(contractPath, SINK);
-    const testPath = join(dir, "Sink.test.cpp");
+    const dir = mkdtempSync(join(tmpdir(), `gtest-${name.toLowerCase()}-`));
+    const contractPath = join(dir, `${name}.h`);
+    writeFileSync(contractPath, source);
+    const testPath = join(dir, `${name}.test.cpp`);
     writeFileSync(testPath, gtestSource);
 
-    const built = await buildCorpusRunner({ corpusPath: testPath, contractPath, contractName: "Sink", stateType: "Sink", slot: 28, corePath: CORE, outDir: dir });
+    const built = await buildCorpusRunner({ corpusPath: testPath, contractPath, contractName: name, stateType: name, slot: 28, corePath: CORE, outDir: dir });
     expect(built.ok, built.stderr).toBe(true);
-    const sink = await compileContractWithTypeScript({ source: SINK, contractName: "Sink", slot: 28, qpiHeader: HEADERS(), arenaSizeBytes: 64 * 1024 });
-    expect(sink.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+    const contract = await compileContractWithTypeScript({ source, contractName: name, slot: 28, qpiHeader: HEADERS(), arenaSizeBytes: 64 * 1024 });
+    expect(contract.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
-    const results = await runContractTesting(new Uint8Array(readFileSync(built.wasmPath!)), { 28: sink.wasm });
+    const results = await runContractTesting(new Uint8Array(readFileSync(built.wasmPath!)), { 28: contract.wasm });
     return results.map(({ name, passed, message }) => ({ name, passed, message }));
 }

@@ -108,7 +108,7 @@ const SYNC_ROWS: Row[] = [
 
 const balanceOf = (register: "a" | "b", id: number) => `(global.set $${register} (call $balance (i32.const ${id})))`;
 
-// core's harness helpers move only the qu core moves
+// core's harness helpers move only the qu core moves, and the runner's QPI reaches the engine
 const HELPER_ROWS: Row[] = [
     {
         name: "a procedure context runs the procedure and moves no reward",
@@ -143,6 +143,14 @@ const HELPER_ROWS: Row[] = [
             `(global.set $b (call $energy (call $spectrum (i32.const ${USER}))))`,
         ].join(" "),
         expect: [0, 1000000],
+    },
+    {
+        name: "runner qpi reaches the engine",
+        body: [
+            "(global.set $a (i64.extend_i32_u (call $dayOfWeek (i32.const 24) (i32.const 1) (i32.const 1))))",
+            `(global.set $b (i64.extend_i32_u (call $isContractId (i32.const ${VAULT_ID}))))`,
+        ].join(" "),
+        expect: [5, 1],
     },
 ];
 
@@ -192,6 +200,9 @@ async function runner(rows: readonly Row[]): Promise<Uint8Array> {
   (import "lhost" "transfer" (func $transfer (param i32 i64) (result i64)))
   (import "lhost" "liteInvokeProcedure" (func $liteInvoke (param i32 i32 i32 i32 i32 i32 i64) (result i32)))
   (import "lhost" "liteCallFunction" (func $liteCall (param i32 i32 i32 i32 i32 i32) (result i32)))
+  (import "lhost" "dayOfWeek" (func $dayOfWeek (param i32 i32 i32) (result i32)))
+  (import "lhost" "isContractId" (func $isContractId (param i32) (result i32)))
+  (import "lhost" "abort" (func $abort (param i32)))
   (memory (export "memory") 1)
   (data (i32.const ${USER}) "${byte(7).repeat(32)}")
   (data (i32.const ${VAULT_ID}) "${byte(VAULT)}")
@@ -265,8 +276,16 @@ test("a fixture runs INITIALIZE only when the test calls it", async () => {
     expect(observed(results)).toEqual(expected(INIT_ROWS));
 }, 60_000);
 
-test("core's harness helpers move only the qu core moves", async () => {
+test("core's harness helpers and the runner's qpi reach the engine the way core's do", async () => {
     const results = await runContractTesting(await runner(HELPER_ROWS), { [VAULT]: await loadWasmFixture("Vault") });
     expect(observed(results)).toEqual(expected(HELPER_ROWS));
     expect(results.every((result) => result.passed)).toBe(true);
+}, 60_000);
+
+test("an abort in contract code the runner runs fails the test", async () => {
+    const rows: Row[] = [{ name: "abort", body: "(call $abort (i32.const 7))", expect: [0, 0] }];
+    const results = await runContractTesting(await runner(rows), { [VAULT]: await loadWasmFixture("Vault") });
+    expect(results).toHaveLength(1);
+    expect(results[0]?.passed).toBe(false);
+    expect(results[0]?.message).toContain("contract abort 7");
 }, 60_000);
