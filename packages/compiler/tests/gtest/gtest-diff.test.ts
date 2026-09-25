@@ -178,10 +178,24 @@ const SCOUT = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData { uint64 unused; };
+  struct Clock_input {};
+  struct Clock_output { uint16 epoch; uint32 tick; uint32 initialTick; uint8 year; uint8 month; uint8 day; uint8 hour; uint8 minute; uint8 second; uint16 millisecond; };
   struct Twice_input { uint64 value; }; struct Twice_output { uint64 value; };
   struct Inspect_input { id issuer; uint64 name; id owner; };
   struct Inspect_output { sint64 possessed; sint64 total; uint64 holders; uint8 weekday; id computor0; uint16 epoch; uint32 tick; uint32 initialTick; uint64 twice; };
   struct Inspect_locals { Asset asset; AssetPossessionIterator iter; Twice_input twiceIn; Twice_output twiceOut; };
+  PUBLIC_FUNCTION(Clock) {
+    output.epoch = qpi.epoch();
+    output.tick = qpi.tick();
+    output.initialTick = qpi.initialTick();
+    output.year = qpi.year();
+    output.month = qpi.month();
+    output.day = qpi.day();
+    output.hour = qpi.hour();
+    output.minute = qpi.minute();
+    output.second = qpi.second();
+    output.millisecond = qpi.millisecond();
+  }
   PRIVATE_FUNCTION(Twice) { output.value = input.value * 2; }
   PRIVATE_FUNCTION_WITH_LOCALS(Inspect) {
     output.possessed = qpi.numberOfPossessedShares(input.name, input.issuer, input.owner, input.owner, SELF_INDEX, SELF_INDEX);
@@ -202,7 +216,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     CALL(Twice, locals.twiceIn, locals.twiceOut);
     output.twice = locals.twiceOut.value;
   }
-  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Clock, 1); }
 };
 `;
 
@@ -230,6 +244,11 @@ public:
     INIT_CONTRACT(Scout);
   }
   ScoutChecker* state() { return reinterpret_cast<ScoutChecker*>(contractStates[Scout_CONTRACT_INDEX]); }
+  Scout::Clock_output clock() const {
+    Scout::Clock_output output{};
+    callFunction(Scout_CONTRACT_INDEX, 1, Scout::Clock_input(), output);
+    return output;
+  }
 };
 TEST(Scout, PrivateFunctionSeesTheEngine) {
   ContractTestingScout t;
@@ -254,6 +273,67 @@ TEST(Scout, PrivateFunctionSeesTheEngine) {
   EXPECT_EQ(output.tick, 1234u);
   EXPECT_EQ(output.initialTick, 1200u);
   EXPECT_EQ(output.twice, 42ull);
+}
+TEST(Scout, SystemIsAPlainGlobal) {
+  ContractTestingScout t;
+  system.epoch = 10;
+  system.tick = 100;
+  const auto startTick = system.tick;
+  ++system.tick;
+  --system.epoch;
+  EXPECT_EQ(startTick + 1, system.tick);
+  EXPECT_EQ(system.epoch, 9);
+  EXPECT_EQ(div(system.tick, 2u), 50u);
+  EXPECT_EQ(mod(system.epoch, (uint16)4), 1);
+  QpiContextUserFunctionCall qpi(Scout_CONTRACT_INDEX);
+  EXPECT_EQ(qpi.tick(), 101u);
+  EXPECT_EQ(qpi.epoch(), 9);
+  EXPECT_EQ(t.clock().tick, 101u);
+  EXPECT_EQ(t.clock().epoch, 9);
+}
+TEST(Scout, SystemOutlivesTheFixture) {
+  system.epoch = 33;
+  { ContractTestingScout first; }
+  ContractTestingScout second;
+  EXPECT_EQ(second.clock().epoch, 33);
+}
+TEST(Scout, EtalonTickIsTheContractsClock) {
+  ContractTestingScout t;
+  etalonTick.year = 25;
+  etalonTick.month = 3;
+  etalonTick.day = 4;
+  etalonTick.hour = 5;
+  etalonTick.minute = 6;
+  etalonTick.second = 7;
+  etalonTick.millisecond = 890;
+  const auto hour = etalonTick.hour;
+  etalonTick.hour += 1;
+  EXPECT_EQ(hour, 5);
+  const QPI::DateAndTime now = QPI::DateAndTime::now();
+  EXPECT_EQ(now.getYear(), 2025);
+  EXPECT_EQ(now.getHour(), 6);
+  EXPECT_EQ(now.getMillisec(), 890);
+  const Scout::Clock_output clock = t.clock();
+  EXPECT_EQ(clock.year, 25);
+  EXPECT_EQ(clock.month, 3);
+  EXPECT_EQ(clock.day, 4);
+  EXPECT_EQ(clock.hour, 6);
+  EXPECT_EQ(clock.minute, 6);
+  EXPECT_EQ(clock.second, 7);
+  EXPECT_EQ(clock.millisecond, 890);
+  const unsigned int tick = system.tick;
+  advanceTimeAndTick(1500);
+  EXPECT_EQ(system.tick, tick + 1);
+  EXPECT_EQ(t.clock().second, 9);
+  EXPECT_EQ(t.clock().millisecond, 390);
+}
+TEST(Scout, UpdateTimeReadsTheWallClock) {
+  ContractTestingScout t;
+  updateTime();
+  EXPECT_GE(utcTime.Year, 2025);
+  updateQpiTime();
+  EXPECT_EQ(t.clock().year, utcTime.Year - 2000);
+  EXPECT_EQ(t.clock().month, utcTime.Month);
 }
 `;
 
@@ -365,14 +445,18 @@ describe.skipIf(!HAS_CORE)("differential gtest — my contract vs native test lo
         120000,
     );
 
-    // a private function the test calls directly runs in the runner, so its qpi calls must reach the engine as core's do.
+    // a private function the test calls directly runs in the runner: its qpi and the system/etalonTick globals must act as core's.
     toolchainTest(
-        "contract code the runner runs gets the engine's qpi",
+        "runner-run contract code and core's clock globals behave as in core",
         wasi,
         async () => {
             const results = await runSlot28Gtest(SCOUT_GTEST, "Scout", SCOUT);
             expect(results).toEqual([
                 { name: "Scout.PrivateFunctionSeesTheEngine", passed: true, message: "" },
+                { name: "Scout.SystemIsAPlainGlobal", passed: true, message: "" },
+                { name: "Scout.SystemOutlivesTheFixture", passed: true, message: "" },
+                { name: "Scout.EtalonTickIsTheContractsClock", passed: true, message: "" },
+                { name: "Scout.UpdateTimeReadsTheWallClock", passed: true, message: "" },
             ]);
         },
         120000,

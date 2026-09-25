@@ -16,6 +16,8 @@ const IN = 768;
 const MESSAGE = 1024;
 const DIGITS = 1536;
 const NAMES = 2048;
+const SYSTEM = 4096;
+const ETALON = 4160;
 
 const VAULT = 28;
 const MAIN = 29;
@@ -108,7 +110,7 @@ const SYNC_ROWS: Row[] = [
 
 const balanceOf = (register: "a" | "b", id: number) => `(global.set $${register} (call $balance (i32.const ${id})))`;
 
-// core's harness helpers move only the qu core moves, and the runner's QPI reaches the engine
+// core's harness helpers move only the qu core moves, and the runner's QPI and clock reach the engine
 const HELPER_ROWS: Row[] = [
     {
         name: "a procedure context runs the procedure and moves no reward",
@@ -151,6 +153,16 @@ const HELPER_ROWS: Row[] = [
             `(global.set $b (i64.extend_i32_u (call $isContractId (i32.const ${VAULT_ID}))))`,
         ].join(" "),
         expect: [5, 1],
+    },
+    {
+        name: "the runner's system global is the engine's clock",
+        body: [
+            `(i32.store16 (i32.const ${SYSTEM}) (i32.const 7))`,
+            `(i32.store (i32.const ${SYSTEM + 4}) (i32.const 1234))`,
+            "(global.set $a (i64.extend_i32_u (call $epoch)))",
+            "(global.set $b (i64.extend_i32_u (call $tick)))",
+        ].join(" "),
+        expect: [7, 1234],
     },
 ];
 
@@ -202,6 +214,8 @@ async function runner(rows: readonly Row[]): Promise<Uint8Array> {
   (import "lhost" "liteCallFunction" (func $liteCall (param i32 i32 i32 i32 i32 i32) (result i32)))
   (import "lhost" "dayOfWeek" (func $dayOfWeek (param i32 i32 i32) (result i32)))
   (import "lhost" "isContractId" (func $isContractId (param i32) (result i32)))
+  (import "lhost" "epoch" (func $epoch (result i32)))
+  (import "lhost" "tick" (func $tick (result i32)))
   (import "lhost" "abort" (func $abort (param i32)))
   (memory (export "memory") 1)
   (data (i32.const ${USER}) "${byte(7).repeat(32)}")
@@ -242,6 +256,8 @@ async function runner(rows: readonly Row[]): Promise<Uint8Array> {
       (i32.const ${MESSAGE}) (i32.sub (local.get $at) (i32.const ${MESSAGE}))))
   ${rows.map((row, index) => `(func $row${index} ${row.body})`).join("\n  ")}
   (func (export "test_count") (result i32) (i32.const ${rows.length}))
+  (func (export "qinit_system") (result i32) (i32.const ${SYSTEM}))
+  (func (export "qinit_etalon") (result i32) (i32.const ${ETALON}))
   (func (export "run_test") (param $i i32) (result i32)
     (global.set $a (i64.const -1))
     (global.set $b (i64.const -1))
@@ -276,7 +292,7 @@ test("a fixture runs INITIALIZE only when the test calls it", async () => {
     expect(observed(results)).toEqual(expected(INIT_ROWS));
 }, 60_000);
 
-test("core's harness helpers and the runner's qpi reach the engine the way core's do", async () => {
+test("core's harness helpers, the runner's qpi and its clock reach the engine the way core's do", async () => {
     const results = await runContractTesting(await runner(HELPER_ROWS), { [VAULT]: await loadWasmFixture("Vault") });
     expect(observed(results)).toEqual(expected(HELPER_ROWS));
     expect(results.every((result) => result.passed)).toBe(true);

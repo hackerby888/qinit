@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <ctime>
 #include <map>
 #include <ostream>
 #include <set>
@@ -43,15 +44,7 @@ QBCT_IMPORT(q_energy)    long long     bq_energy(int idx);
 QBCT_IMPORT(q_state_size) unsigned int bq_state_size(unsigned int i);
 QBCT_IMPORT(q_state_in)   void         bq_state_in(unsigned int i, void* dst, unsigned int len);
 QBCT_IMPORT(q_state_addr) unsigned int bq_state_addr(unsigned int i);
-QBCT_IMPORT(q_set_epoch)  void         bq_set_epoch(unsigned int e);
-QBCT_IMPORT(q_get_epoch)  unsigned int bq_get_epoch();
-QBCT_IMPORT(q_set_tick)   void         bq_set_tick(unsigned int t);
-QBCT_IMPORT(q_get_tick)   unsigned int bq_get_tick();
-QBCT_IMPORT(q_set_datetime) void       bq_set_datetime(unsigned int y, unsigned int mo, unsigned int d, unsigned int h, unsigned int mi, unsigned int s);
 QBCT_IMPORT(q_set_computor) void       bq_set_computor(unsigned int i, const void* id32);
-QBCT_IMPORT(q_set_prev_spectrum_digest) void bq_set_prev_spectrum_digest(const void* digest32);
-QBCT_IMPORT(q_set_initial_tick) void    bq_set_initial_tick(unsigned int t);
-QBCT_IMPORT(q_get_initial_tick) unsigned int bq_get_initial_tick();
 QBCT_IMPORT(q_get_fee_reserve) long long bq_get_fee_reserve(unsigned int idx);
 QBCT_IMPORT(q_set_fee_reserve) void      bq_set_fee_reserve(unsigned int idx, long long amount);
 }
@@ -313,93 +306,18 @@ public:
     }
 };
 
-// ---- system.epoch / system.tick control: proxy through q_get/set_epoch and q_get/set_tick ----
-
-struct QbEpochProxy {
-    operator unsigned short() const {
-        return (unsigned short)bq_get_epoch();
-    }
-
-    void operator=(unsigned int e) {
-        bq_set_epoch(e);
-    }
-
-    QbEpochProxy& operator++() {  // ++epoch
-        bq_set_epoch(bq_get_epoch() + 1u);
-        return *this;
-    }
-
-    unsigned int operator++(int) {  // epoch++ (corpora advance the epoch this way)
-        unsigned int v = bq_get_epoch();
-        bq_set_epoch(v + 1u);
-        return v;
-    }
-
-    unsigned int operator+=(unsigned int n) {  // system.epoch += N
-        unsigned int v = bq_get_epoch() + n;
-        bq_set_epoch(v);
-        return v;
-    }
-
-    unsigned int operator-=(unsigned int n) {
-        unsigned int v = bq_get_epoch() - n;
-        bq_set_epoch(v);
-        return v;
-    }
-};
-
-struct QbTickProxy {
-    operator unsigned int() const {
-        return bq_get_tick();
-    }
-
-    void operator=(unsigned int t) {
-        bq_set_tick(t);
-    }
-
-    QbTickProxy& operator++() {
-        bq_set_tick(bq_get_tick() + 1u);
-        return *this;
-    }
-
-    unsigned int operator++(int) {
-        unsigned int v = bq_get_tick();
-        bq_set_tick(v + 1u);
-        return v;
-    }
-
-    unsigned int operator+=(unsigned int n) {  // system.tick += N
-        unsigned int v = bq_get_tick() + n;
-        bq_set_tick(v);
-        return v;
-    }
-
-    unsigned int operator-=(unsigned int n) {
-        unsigned int v = bq_get_tick() - n;
-        bq_set_tick(v);
-        return v;
-    }
-};
-
-// contracts read it through qpi.initialTick(), so a write goes to the engine rather than staying in the shim.
-struct QbInitialTickProxy {
-    operator unsigned int() const {
-        return bq_get_initial_tick();
-    }
-
-    void operator=(unsigned int t) {
-        bq_set_initial_tick(t);
-    }
-};
+// ---- system / utcTime / etalonTick: core's plain globals ----
+// The test reads and writes them like any variable; the host reads them from here before every call into the engine,
+// so a contract sees what the test last wrote, as it would read core's globals directly.
 
 struct QbSystemStruct {
-    QbEpochProxy epoch;
-    QbTickProxy tick;
-    QbInitialTickProxy initialTick;
+    unsigned short epoch;
+    unsigned int tick;
+    unsigned int initialTick;
 };
+static_assert(offsetof(QbSystemStruct, epoch) == 0 && offsetof(QbSystemStruct, tick) == 4 && offsetof(QbSystemStruct, initialTick) == 8,
+              "gtest.ts reads this layout");
 
-// ---- utcTime / etalonTick / updateTime / updateQpiTime: corpus time control ----
-// The native harness exposes a mutable `etalonTick` (a Tick global) whose date fields ARE the simulated chain
 struct QbEfiTime {
     unsigned short Year;
     unsigned char Month, Day, Hour, Minute, Second, Pad1;
@@ -409,112 +327,68 @@ struct QbEfiTime {
 };
 static QbEfiTime utcTime = { 2024, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
 
-static void qbEtalonSync();  // defined just below etalonTick
-
-// One date component of etalonTick. Supports the mutation/read forms the corpora use (=, +=, -=, ++, and the
-// implicit read via operator unsigned int()); every mutation re-pushes the full date to the engine clock.
-struct QbEtalonField {
-    unsigned int* slot;
-
-    operator unsigned int() const {
-        return *slot;
-    }
-
-    QbEtalonField& operator=(unsigned int v) {
-        *slot = v;
-        qbEtalonSync();
-        return *this;
-    }
-
-    QbEtalonField& operator+=(int v) {
-        *slot = (unsigned int)((int)*slot + v);
-        qbEtalonSync();
-        return *this;
-    }
-
-    QbEtalonField& operator-=(int v) {
-        *slot = (unsigned int)((int)*slot - v);
-        qbEtalonSync();
-        return *this;
-    }
-
-    QbEtalonField& operator++() {
-        *slot += 1u;
-        qbEtalonSync();
-        return *this;
-    }
-
-    unsigned int operator++(int) {
-        unsigned int v = *slot;
-        *slot += 1u;
-        qbEtalonSync();
-        return v;
-    }
-};
-
-// Date-only stand-in for core-lite's Tick global. backing[] holds year (2-digit) / month / day / hour /
-// minute / second / millisecond; the proxy fields alias those slots so writes route through qbEtalonSync().
-struct QbDigestProxy {
-    m256i v;
-    QbDigestProxy& operator=(const m256i& d) {
-        v = d;
-        bq_set_prev_spectrum_digest(&v);
-        return *this;
-    }
-    operator const m256i&() const { return v; }
-};
-
+// the Tick fields a test drives: the date (year is 2-digit) is the chain time contracts read, prevSpectrumDigest their entropy.
 struct QbEtalonTick {
-    unsigned int backing[7];
-    QbEtalonField year, month, day, hour, minute, second, millisecond;
-    QbDigestProxy prevSpectrumDigest;
-    unsigned int tick;   // QTRY/Nostromo corpus: etalonTick.tick += offset; system.tick = etalonTick.tick
-
-    QbEtalonTick()
-        : backing{ 24, 1, 1, 0, 0, 0, 0 },
-          year{ &backing[0] }, month{ &backing[1] }, day{ &backing[2] }, hour{ &backing[3] },
-          minute{ &backing[4] }, second{ &backing[5] }, millisecond{ &backing[6] },
-          prevSpectrumDigest{ m256i::zero() },
-          tick{ 0 } {
-    }
+    m256i prevSpectrumDigest;
+    unsigned short millisecond;
+    unsigned char second, minute, hour, day, month, year;
+    unsigned int tick;  // QTRY/Nostromo corpus: etalonTick.tick += offset; system.tick = etalonTick.tick
 };
+static_assert(offsetof(QbEtalonTick, millisecond) == 32 && offsetof(QbEtalonTick, second) == 34 && offsetof(QbEtalonTick, year) == 39 &&
+                  offsetof(QbEtalonTick, tick) == 40,
+              "gtest.ts reads this layout");
 
-static QbEtalonTick etalonTick;
+static QbEtalonTick etalonTick = { {}, 0, 0, 0, 0, 1, 1, 24, 0 };
+static QbSystemStruct qubicSystemStruct;
 
-static void qbEtalonSync() {
-    bq_set_datetime(etalonTick.backing[0] + 2000, etalonTick.backing[1], etalonTick.backing[2],
-                    etalonTick.backing[3], etalonTick.backing[4], etalonTick.backing[5]);
+extern "C" {
+__attribute__((export_name("qinit_system"))) void* qinit_system() {
+    return &qubicSystemStruct;
 }
 
+__attribute__((export_name("qinit_etalon"))) void* qinit_etalon() {
+    return &etalonTick;
+}
+}
+
+// core's stdlib_impl.cpp: utcTime becomes the wall clock (UTC).
 static inline void updateTime() {
+    const time_t now = time(nullptr);
+    const struct tm* utc = gmtime(&now);
+    utcTime.Year = (unsigned short)(utc->tm_year + 1900);
+    utcTime.Month = (unsigned char)(utc->tm_mon + 1);
+    utcTime.Day = (unsigned char)utc->tm_mday;
+    utcTime.Hour = (unsigned char)utc->tm_hour;
+    utcTime.Minute = (unsigned char)utc->tm_min;
+    utcTime.Second = (unsigned char)utc->tm_sec;
+    utcTime.Nanosecond = 0;
+    utcTime.TimeZone = 0;
+    utcTime.Daylight = 0;
 }
 
 static inline void updateQpiTime() {
-    etalonTick.year = (unsigned int)(utcTime.Year - 2000);
-    etalonTick.month = utcTime.Month;
-    etalonTick.day = utcTime.Day;
-    etalonTick.hour = utcTime.Hour;
-    etalonTick.minute = utcTime.Minute;
-    etalonTick.second = utcTime.Second;
     etalonTick.millisecond = utcTime.Nanosecond / 1000000;
-}
-
-static QbSystemStruct qubicSystemStruct;
-
-// QPI::mod is `template<T> mod(T, T)`, so `mod(system.tick, (uint32)X)` (RL) can't deduce T from the proxy +
-// a uint32. This non-template overload is an exact match for that call (and wins over the failed-deduction
-static inline unsigned int mod(const QbTickProxy& a, unsigned int b) {
-    return b ? ((unsigned int)a % b) : 0u;
+    etalonTick.second = utcTime.Second;
+    etalonTick.minute = utcTime.Minute;
+    etalonTick.hour = utcTime.Hour;
+    etalonTick.day = utcTime.Day;
+    etalonTick.month = utcTime.Month;
+    etalonTick.year = utcTime.Year - 2000;
 }
 
 // Matches core-lite's `#define system qubicSystemStruct`
 #define system qubicSystemStruct
 
-// core's test_util.h helper. the engine keeps whole seconds only, so a sub-second step reaches contracts late.
+// core's qpi_ticking_impl.h definition.
+QPI::DateAndTime QPI::DateAndTime::now() {
+    return QPI::DateAndTime(etalonTick.year + 2000, etalonTick.month, etalonTick.day, etalonTick.hour, etalonTick.minute, etalonTick.second,
+                            etalonTick.millisecond);
+}
+
+// core's test_util.h helper.
 static void advanceTimeAndTick(unsigned long long milliseconds) {
-    QPI::DateAndTime now(etalonTick.backing[0] + 2000, etalonTick.backing[1], etalonTick.backing[2], etalonTick.backing[3],
-                         etalonTick.backing[4], etalonTick.backing[5], etalonTick.backing[6]);
-    now.addMillisec(milliseconds);
+    QPI::DateAndTime now = QPI::DateAndTime::now();
+    EXPECT_TRUE(now.addMillisec(milliseconds));
     etalonTick.year = now.getYear() - 2000;
     etalonTick.month = now.getMonth();
     etalonTick.day = now.getDay();

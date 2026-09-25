@@ -110,13 +110,34 @@ export async function runContractTesting(
     }
     const runnerMemory = (): WebAssembly.Memory | undefined => runner?.exports?.memory as WebAssembly.Memory | undefined;
 
+    // core's contracts read the `system` and `etalonTick` globals directly; the runner exports where its copies live (layout pinned by
+    // static_asserts in wasm_contract_testing.h), and every host call copies them into the engine first. A runner without them keeps the engine's clock.
+    let systemAddr = 0;
+    let etalonAddr = 0;
+    const syncClockFromRunner = () => {
+        if (!systemAddr || !etalonAddr) return;
+        const view = new DataView(mem().buffer);
+        sim.currentEpoch = view.getUint16(systemAddr, true);
+        sim.currentTick = view.getUint32(systemAddr + 4, true);
+        sim.initialTickOverride = view.getUint32(systemAddr + 8, true);
+        const millisecond = view.getUint16(etalonAddr + 32, true);
+        const [second, minute, hour, day, month, year] = mem().subarray(etalonAddr + 34, etalonAddr + 40);
+        sim.timeBaseMs = Date.UTC(year + 2000, month - 1, day, hour, minute, second, millisecond) - sim.currentTick * sim.tickDuration;
+        sim.prevSpectrumDigestOverride = read(etalonAddr, 32);
+    };
+    const syncedClock = (imports: Record<string, Function>): Record<string, Function> =>
+        Object.fromEntries(
+            Object.entries(imports).map(([name, call]) => [
+                name,
+                (...args: unknown[]) => {
+                    syncClockFromRunner();
+                    return call(...args);
+                },
+            ]),
+        );
+
+    // Constructing a fixture resets spectrum/universe/contract states; system and etalonTick are the runner's own globals, synced in on every call.
     const deployAll = () => {
-        // The corpus `system` proxy mirrors real Qubic's persistent global: constructing a fixture resets spectrum/universe/contract states but never system.
-        const previousEpoch = sim?.currentEpoch;
-        const previousTick = sim?.currentTick;
-        const previousTimeBase = sim?.timeBaseMs;
-        const previousDigest = sim?.prevSpectrumDigestOverride;
-        const previousInitialTick = sim?.initialTickOverride;
         sim = new QubicSimulator({
             mempool: false,
             fees: "off",
@@ -124,22 +145,13 @@ export async function runContractTesting(
             haltOnContractFault: false,
             ...(opts.profile === "core-gtest" ? { consensus: { numberOfComputors: MAINNET_COMPUTOR_COUNT } } : {}),
         });
-        // Pin the corpus clock to the native harness's fixed date so it does not follow VirtualNode's wall-clock override; preservation wins on redeploy.
+        // Pin the corpus clock to the native harness's fixed date so it does not follow VirtualNode's wall-clock override; syncClockFromRunner replaces it.
         sim.timeBaseMs = Date.UTC(2024, 0, 1);
         // Native-harness clock semantics: etalonTick's date fields ARE the chain time and only move when a corpus writes them. Freeze the per-tick advance.
         sim.tickDuration = 0;
         // Native etalonTick.prevSpectrumDigest is a zero-initialized global the corpus may pin; contracts read exactly that, not a live digest.
-        sim.prevSpectrumDigestOverride = previousDigest ?? new Uint8Array(32);
-        if (previousEpoch !== undefined) {
-            sim.currentEpoch = previousEpoch;
-        }
-        if (previousTick !== undefined) {
-            sim.currentTick = previousTick;
-        }
-        if (previousTimeBase !== undefined) {
-            sim.timeBaseMs = previousTimeBase;
-        }
-        sim.initialTickOverride = previousInitialTick;
+        sim.prevSpectrumDigestOverride = new Uint8Array(32);
+        syncClockFromRunner();
         handles = {};
         spectrumIds = [];
         spectrumBytes = [];
@@ -483,31 +495,11 @@ export async function runContractTesting(
             shadowsToPush.add(slot);
         },
 
-        q_set_epoch: (e: number) => {
-            sim.currentEpoch = e >>> 0;
-        },
-        q_get_epoch: (): number => sim.currentEpoch >>> 0,
-        q_set_tick: (t: number) => {
-            sim.currentTick = t >>> 0;
-        },
-        q_get_tick: (): number => sim.currentTick >>> 0,
-        q_set_prev_spectrum_digest: (ptr: number) => {
-            sim.prevSpectrumDigestOverride = read(ptr, 32);
-        },
         q_number_of_shares: (assetPtr: number, ownershipPtr: number, possessionPtr: number): bigint =>
             sim.host.numberOfShares(read(assetPtr, 40), read(ownershipPtr, 40), read(possessionPtr, 40)),
-        q_set_initial_tick: (t: number) => {
-            sim.initialTickOverride = t >>> 0;
-        },
-        q_get_initial_tick: (): number => sim.host.initialTick() >>> 0,
         q_get_fee_reserve: (i: number): bigint => sim.getContractFeeReserve(i >>> 0),
         q_set_fee_reserve: (i: number, amount: bigint) => {
             sim.setContractFeeReserve(i >>> 0, amount);
-        },
-        // updateQpiTime() pushes its utcTime fields here; set the chain clock so the qpi date accessors return them, with timeBaseMs chosen to match.
-        q_set_datetime: (y: number, mo: number, d: number, h: number, mi: number, s: number) => {
-            const ms = Date.UTC(y >>> 0, (mo >>> 0) - 1, d >>> 0, h >>> 0, mi >>> 0, s >>> 0);
-            sim.timeBaseMs = ms - sim.currentTick * sim.tickDuration;
         },
 
         // Proposal-voting corpora seed their committee via broadcastedComputors.publicKeys[i]; the harness routes each write here so qpi.computor(i) matches.
@@ -805,12 +797,14 @@ export async function runContractTesting(
         }
     }
 
-    const imports: Record<string, Record<string, Function>> = { thost };
-    if (Object.keys(lhost).length) imports.lhost = lhost;
+    const imports: Record<string, Record<string, Function>> = { thost: syncedClock(thost) };
+    if (Object.keys(lhost).length) imports.lhost = syncedClock(lhost);
     if (Object.keys(envObj).length) imports.env = envObj;
     imports.wasi_snapshot_preview1 = wasiObj;
 
     runner = await WebAssembly.instantiate(mod, imports as any);
+    systemAddr = ((runner.exports.qinit_system as Function)?.() ?? 0) >>> 0;
+    etalonAddr = ((runner.exports.qinit_etalon as Function)?.() ?? 0) >>> 0;
     // Deploy after instantiation so _initialize can call the host with live shared memory.
     deployAll();
     (runner.exports._initialize as Function)?.();
