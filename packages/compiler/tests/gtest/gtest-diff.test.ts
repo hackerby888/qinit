@@ -335,6 +335,21 @@ TEST(Scout, UpdateTimeReadsTheWallClock) {
   EXPECT_EQ(t.clock().year, utcTime.Year - 2000);
   EXPECT_EQ(t.clock().month, utcTime.Month);
 }
+TEST(Scout, PassingMacrosStream) {
+  SUCCEED() << "fine";
+  EXPECT_NEAR(1.0, 1.05, 0.1) << "close enough";
+  ASSERT_NEAR(10, 12, 2) << "integers too";
+}
+TEST(Scout, SkipReturnsEarly) {
+  GTEST_SKIP() << "not today";
+  FAIL() << "unreachable";
+}
+TEST(Scout, FailureMacrosReport) {
+  ADD_FAILURE() << "first";
+  EXPECT_TRUE(true);
+  FAIL() << "second";
+  ADD_FAILURE() << "unreachable";
+}
 `;
 
 // Core-lite-style gtest cases — the same assertions a native build validates.
@@ -445,19 +460,29 @@ describe.skipIf(!HAS_CORE)("differential gtest — my contract vs native test lo
         120000,
     );
 
-    // a private function the test calls directly runs in the runner: its qpi and the system/etalonTick globals must act as core's.
+    // a private function the test calls directly runs in the runner: its qpi, the system/etalonTick globals and gtest's macros must act as core's.
     toolchainTest(
-        "runner-run contract code and core's clock globals behave as in core",
+        "runner-run contract code, core's clock globals and gtest's macros behave as in core",
         wasi,
         async () => {
             const results = await runSlot28Gtest(SCOUT_GTEST, "Scout", SCOUT);
-            expect(results).toEqual([
+            const failures = results.filter((result) => result.name !== "Scout.FailureMacrosReport");
+            expect(failures).toEqual([
                 { name: "Scout.PrivateFunctionSeesTheEngine", passed: true, message: "" },
                 { name: "Scout.SystemIsAPlainGlobal", passed: true, message: "" },
                 { name: "Scout.SystemOutlivesTheFixture", passed: true, message: "" },
                 { name: "Scout.EtalonTickIsTheContractsClock", passed: true, message: "" },
                 { name: "Scout.UpdateTimeReadsTheWallClock", passed: true, message: "" },
+                { name: "Scout.PassingMacrosStream", passed: true, message: "" },
+                { name: "Scout.SkipReturnsEarly", passed: true, message: "" },
             ]);
+            const reported = results.find((result) => result.name === "Scout.FailureMacrosReport");
+            expect(reported?.passed).toBe(false);
+            expect(reported?.message).toContain("ADD_FAILURE()");
+            expect(reported?.message).toContain("first");
+            expect(reported?.message).toContain("FAIL()");
+            expect(reported?.message).toContain("second");
+            expect(reported?.message).not.toContain("unreachable");
         },
         120000,
     );

@@ -688,6 +688,27 @@ namespace qinit_gtest {
 #define ASSERT_GE(a, b) QBCT_ASSERT(Ge, a, b, "ASSERT_GE(" #a ", " #b ")")
 #define ASSERT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_TRUE(" #x ")", (bool)(x))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 #define ASSERT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_FALSE(" #x ")", !(bool)(x))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
+namespace qinit_gtest {
+    // |a - b| <= error, spelled without fabs so the harness stays free of <cmath>.
+    template <class A, class B, class E>
+    static inline bool recNear(const char* f, int l, const char* w, const A& a, const B& b, const E& error) {
+        if (a <= b + error && b <= a + error) { return true; }
+        failAt(f, l, w); appendStr(" ("); appendVal(a); appendStr(" vs "); appendVal(b); appendStr(")");
+        return false;
+    }
+    // SUCCEED() and GTEST_SKIP() stream into this, so their text never lands in a failure message.
+    struct NullSink { template <class T> NullSink& operator<<(const T&) { return *this; } };
+    struct SkipSink { void operator=(const NullSink&) const {} };
+}
+#undef EXPECT_NEAR
+#undef ASSERT_NEAR
+#define EXPECT_NEAR(a, b, error) switch (0) case 0: default: if (::qinit_gtest::recNear(__FILE__, __LINE__, "EXPECT_NEAR(" #a ", " #b ", " #error ")", (a), (b), (error))) ; else ::qinit_gtest::Sink()
+#define ASSERT_NEAR(a, b, error) switch (0) case 0: default: if (::qinit_gtest::recNear(__FILE__, __LINE__, "ASSERT_NEAR(" #a ", " #b ", " #error ")", (a), (b), (error))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
+#define ADD_FAILURE() switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ADD_FAILURE()", false)) ; else ::qinit_gtest::Sink()
+#define FAIL() switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "FAIL()", false)) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
+#define SUCCEED() ::qinit_gtest::NullSink()
+// the result has no skipped state, so a skipped test reports as passed.
+#define GTEST_SKIP() return ::qinit_gtest::SkipSink() = ::qinit_gtest::NullSink()
 
 static inline long long numberOfPossessedShares(unsigned long long name, const QPI::id& issuer, const QPI::id& owner, const QPI::id& possessor, unsigned int om, unsigned int pm) {
     return bq_possessed(name, &issuer, &owner, &possessor, om, pm);
