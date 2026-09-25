@@ -545,10 +545,26 @@ export async function runContractTesting(
         return off >>> 0;
     };
 
+    // Whom contract code the runner runs acts for: the invocator and originator of the innermost call context the test built, as core's
+    // context carries them, else the contract under test. The lhost imports carry no context, so the harness reports it.
+    let partiesOff = 0;
+    const parties = (): { invocator: Id; originator: Id } => {
+        const report = runner?.exports?.qinit_context_parties as Function | undefined;
+        const acquire = runner?.exports?.qinit_scratch_acquire as Function | undefined;
+        if (report && acquire) {
+            partiesOff ||= acquire(64, 1) >>> 0;
+            if (report(partiesOff, partiesOff + 32)) {
+                return { invocator: id32(partiesOff), originator: id32(partiesOff + 32) };
+            }
+        }
+        const self = sim.contractId(mainSlot);
+        return { invocator: self, originator: self };
+    };
+
     // The rest of core-lite's lhost surface, reached when a test runs contract code in the runner (a private function it calls directly).
-    // The caller is the contract under test, as for transfer; a call that can move qu or shares or run contract code syncs the shadows around it.
+    // The caller is the contract under test acting for parties(); a call that can move qu or shares or run contract code syncs the shadows around it.
     const runnerQpiImports = (): Record<string, Function> => {
-        const caller = (): Id => sim.contractId(mainSlot);
+        const originator = (): Id => parties().originator;
         const synced = <T>(call: () => T): T => {
             pushShadowsToEngine();
             try {
@@ -569,7 +585,7 @@ export async function runContractTesting(
             abort: (code: number) => {
                 throw new ContractAbort(code >>> 0);
             },
-            transferTyped: (destOff: number, amount: bigint, type: number): bigint => synced(() => sim.host.transfer(mainSlot, id32(destOff), amount, type & 0xff)),
+            transferTyped: (destOff: number, amount: bigint, type: number): bigint => synced(() => sim.host.transfer(mainSlot, id32(destOff), amount, type & 0xff, originator())),
             initialTick: (): number => sim.host.initialTick() >>> 0,
             numberOfTickTransactions: (): number => sim.host.numberOfTickTransactions(),
             queryFeeReserve: (ci: number): bigint => sim.host.queryFeeReserve(mainSlot, ci >>> 0),
@@ -582,7 +598,7 @@ export async function runContractTesting(
             prevComputerDigest: (outOff: number) => write(outOff, sim.host.getPrevComputerDigest().subarray(0, 32)),
             isAssetIssued: (issuerOff: number, name: bigint): number => sim.host.isAssetIssued(id32(issuerOff), name),
             issueAsset: (name: bigint, issuerOff: number, decimals: number, shares: bigint, unit: bigint): bigint =>
-                synced(() => sim.host.issueAsset(mainSlot, name, id32(issuerOff), (decimals << 24) >> 24, shares, unit, caller())),
+                synced(() => sim.host.issueAsset(mainSlot, name, id32(issuerOff), (decimals << 24) >> 24, shares, unit, parties().invocator)),
             numberOfShares: (assetOff: number, ownershipOff: number, possessionOff: number): bigint =>
                 sim.host.numberOfShares(read(assetOff, 40), read(ownershipOff, 40), read(possessionOff, 40)),
             numberOfPossessedShares: (name: bigint, issuerOff: number, ownerOff: number, possessorOff: number, ownMgmt: number, posMgmt: number): bigint =>
@@ -622,14 +638,10 @@ export async function runContractTesting(
             transferShareOwnershipAndPossession: (name: bigint, issuerOff: number, ownerOff: number, possessorOff: number, shares: bigint, newOwnerOff: number): bigint =>
                 synced(() => sim.host.transferShareOwnershipAndPossession(mainSlot, name, id32(issuerOff), id32(ownerOff), id32(possessorOff), shares, id32(newOwnerOff))),
             acquireShares: (name: bigint, issuerOff: number, ownerOff: number, possessorOff: number, shares: bigint, srcOwnMgmt: number, srcPosMgmt: number, fee: bigint): bigint =>
-                synced(() =>
-                    sim.host.acquireShares(mainSlot, name, id32(issuerOff), id32(ownerOff), id32(possessorOff), shares, srcOwnMgmt & 0xffff, srcPosMgmt & 0xffff, fee, caller()),
-                ),
+                synced(() => sim.host.acquireShares(mainSlot, name, id32(issuerOff), id32(ownerOff), id32(possessorOff), shares, srcOwnMgmt & 0xffff, srcPosMgmt & 0xffff, fee, originator())),
             releaseShares: (name: bigint, issuerOff: number, ownerOff: number, possessorOff: number, shares: bigint, dstOwnMgmt: number, dstPosMgmt: number, fee: bigint): bigint =>
-                synced(() =>
-                    sim.host.releaseShares(mainSlot, name, id32(issuerOff), id32(ownerOff), id32(possessorOff), shares, dstOwnMgmt & 0xffff, dstPosMgmt & 0xffff, fee, caller()),
-                ),
-            distributeDividends: (amountPerShare: bigint): number => synced(() => sim.host.distributeDividends(mainSlot, amountPerShare, caller())),
+                synced(() => sim.host.releaseShares(mainSlot, name, id32(issuerOff), id32(ownerOff), id32(possessorOff), shares, dstOwnMgmt & 0xffff, dstPosMgmt & 0xffff, fee, originator())),
+            distributeDividends: (amountPerShare: bigint): number => synced(() => sim.host.distributeDividends(mainSlot, amountPerShare, originator())),
             dayOfWeek: (year: number, month: number, day: number): number => sim.host.dayOfWeek(year & 0xff, month & 0xff, day & 0xff),
             signatureValidity: (entityOff: number, digestOff: number, signatureOff: number): number =>
                 sim.host.signatureValidity(id32(entityOff), id32(digestOff), read(signatureOff, 64)),
@@ -683,9 +695,9 @@ export async function runContractTesting(
                 return 1;
             },
             liteSetShareholderProposal: (calleeIdx: number, proposalOff: number, reward: bigint): number =>
-                synced(() => sim.host.setShareholderProposal(mainSlot, calleeIdx >>> 0, read(proposalOff, 1024), reward, caller())),
+                synced(() => sim.host.setShareholderProposal(mainSlot, calleeIdx >>> 0, read(proposalOff, 1024), reward, originator())),
             liteSetShareholderVotes: (calleeIdx: number, voteOff: number, voteSize: number, reward: bigint): number =>
-                synced(() => sim.host.setShareholderVotes(mainSlot, calleeIdx >>> 0, read(voteOff, voteSize), reward, caller())),
+                synced(() => sim.host.setShareholderVotes(mainSlot, calleeIdx >>> 0, read(voteOff, voteSize), reward, originator())),
         };
     };
 
@@ -706,7 +718,7 @@ export async function runContractTesting(
         // Real host transfer, not a noop: QTF's CheckContractBalance reads qpi.getEntity(SELF), and delegating keeps the deployed runtime's semantics.
         transfer: (destOff: number, amount: bigint): bigint => {
             pushShadowsToEngine();
-            const remaining = sim.host.transfer(mainSlot, id32(destOff), amount, 2 /*qpiTransfer*/);
+            const remaining = sim.host.transfer(mainSlot, id32(destOff), amount, 2 /*qpiTransfer*/, parties().originator);
             pullShadowsFromEngine();
             return remaining;
         },
@@ -719,7 +731,7 @@ export async function runContractTesting(
             return 0;
         },
         liteInvokeProcedure: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number, reward: bigint): number => {
-            const originator = sim.contractId(mainSlot);
+            const originator = parties().originator;
             pushShadowsToEngine();
             const result = sim.host.invokeProcedure(mainSlot, calleeIdx >>> 0, inputType & 0xffff, read(inOff, inSize), reward, originator);
             pullShadowsFromEngine();

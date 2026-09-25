@@ -115,6 +115,36 @@ enum ContractError
     ContractErrorFuncProcUnknown,
 };
 
+// the innermost call context a test built. contract code the test runs with it reaches the host through lhost imports that
+// carry no context, so the host asks here whom a transfer or issuance acts for, as core's context would say.
+static const QPI::QpiContextFunctionCall* qbTestContext = nullptr;
+
+struct QbTestContextScope {
+    const QPI::QpiContextFunctionCall* outer = nullptr;
+
+    void enter(const QPI::QpiContextFunctionCall* context) {
+        outer = qbTestContext;
+        qbTestContext = context;
+    }
+
+    void leave() {
+        qbTestContext = outer;
+    }
+};
+
+extern "C" {
+__attribute__((export_name("qinit_context_parties"))) unsigned int qinit_context_parties(void* invocator32, void* originator32) {
+    if (!qbTestContext) {
+        return 0;
+    }
+    const QPI::id invocator = qbTestContext->invocator();
+    const QPI::id originator = qbTestContext->originator();
+    copyMem(invocator32, &invocator, 32);
+    copyMem(originator32, &originator, 32);
+    return 1;
+}
+}
+
 // core's call contexts keep the output they ran into, sized as the contract registered it, until freeBuffer().
 struct QbCallOutput {
     char* outputBuffer = nullptr;
@@ -134,10 +164,15 @@ struct QbCallOutput {
 };
 
 struct QpiContextUserFunctionCall : public QPI::QpiContextFunctionCall, public QbCallOutput {
+    QbTestContextScope scope;
+
     QpiContextUserFunctionCall(unsigned int contractIndex)
-        : QPI::QpiContextFunctionCall(contractIndex, QPI::id::zero(), 0, USER_FUNCTION_CALL) {}
+        : QPI::QpiContextFunctionCall(contractIndex, QPI::id::zero(), 0, USER_FUNCTION_CALL) {
+        scope.enter(this);
+    }
 
     ~QpiContextUserFunctionCall() {
+        scope.leave();
         freeBuffer();
     }
 
@@ -151,10 +186,15 @@ struct QpiContextUserFunctionCall : public QPI::QpiContextFunctionCall, public Q
 // Mirror of contract_exec.h's QpiContextUserProcedureCall: a corpus constructs one to call a user
 // PROCEDURE (mutable dispatch) in-process, seeded with the invocator and reward.
 struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall, public QbCallOutput {
+    QbTestContextScope scope;
+
     QpiContextUserProcedureCall(unsigned int contractIndex, const m256i& originator, long long invocationReward)
-        : QPI::QpiContextProcedureCall(contractIndex, originator, invocationReward, USER_PROCEDURE_CALL) {}
+        : QPI::QpiContextProcedureCall(contractIndex, originator, invocationReward, USER_PROCEDURE_CALL) {
+        scope.enter(this);
+    }
 
     ~QpiContextUserProcedureCall() {
+        scope.leave();
         freeBuffer();
     }
 

@@ -184,6 +184,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   struct Inspect_input { id issuer; uint64 name; id owner; };
   struct Inspect_output { sint64 possessed; sint64 total; uint64 holders; uint8 weekday; id computor0; uint16 epoch; uint32 tick; uint32 initialTick; uint64 twice; };
   struct Inspect_locals { Asset asset; AssetPossessionIterator iter; Twice_input twiceIn; Twice_output twiceOut; };
+  struct IssueFor_input { uint64 name; }; struct IssueFor_output { sint64 issued; };
   PUBLIC_FUNCTION(Clock) {
     output.epoch = qpi.epoch();
     output.tick = qpi.tick();
@@ -216,6 +217,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     CALL(Twice, locals.twiceIn, locals.twiceOut);
     output.twice = locals.twiceOut.value;
   }
+  PRIVATE_PROCEDURE(IssueFor) { output.issued = qpi.issueAsset(input.name, qpi.invocator(), 0, 1000, 0); }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Clock, 1); }
 };
 `;
@@ -233,6 +235,13 @@ public:
     // the iterator's constructor is protected, so the locals are zeroed bytes, as core's own stack hands them out
     alignas(Inspect_locals) unsigned char localsBuffer[sizeof(Inspect_locals)] = {};
     Inspect(qpi, asState(), input, output, *reinterpret_cast<Inspect_locals*>(localsBuffer));
+    return output;
+  }
+  IssueFor_output issueFor(const QPI::QpiContextProcedureCall& qpi, uint64 name) {
+    IssueFor_input input{ name };
+    IssueFor_output output{};
+    IssueFor_locals locals{};
+    IssueFor(qpi, *reinterpret_cast<QPI::ContractState<StateData, Scout_CONTRACT_INDEX>*>(static_cast<StateData*>(this)), input, output, locals);
     return output;
   }
 };
@@ -273,6 +282,15 @@ TEST(Scout, PrivateFunctionSeesTheEngine) {
   EXPECT_EQ(output.tick, 1234u);
   EXPECT_EQ(output.initialTick, 1200u);
   EXPECT_EQ(output.twice, 42ull);
+}
+TEST(Scout, PrivateProcedureActsForItsContextsInvocator) {
+  ContractTestingScout t;
+  const id user = id::randomValue();
+  increaseEnergy(user, 1000000000);
+  const uint64 name = assetNameFromString("SCOUTB");
+  QpiContextUserProcedureCall qpi(Scout_CONTRACT_INDEX, user, 0);
+  EXPECT_EQ(t.state()->issueFor(qpi, name).issued, 1000ll);
+  EXPECT_EQ(numberOfPossessedShares(name, user, user, user, Scout_CONTRACT_INDEX, Scout_CONTRACT_INDEX), 1000ll);
 }
 TEST(Scout, SystemIsAPlainGlobal) {
   ContractTestingScout t;
@@ -469,6 +487,7 @@ describe.skipIf(!HAS_CORE)("differential gtest — my contract vs native test lo
             const failures = results.filter((result) => result.name !== "Scout.FailureMacrosReport");
             expect(failures).toEqual([
                 { name: "Scout.PrivateFunctionSeesTheEngine", passed: true, message: "" },
+                { name: "Scout.PrivateProcedureActsForItsContextsInvocator", passed: true, message: "" },
                 { name: "Scout.SystemIsAPlainGlobal", passed: true, message: "" },
                 { name: "Scout.SystemOutlivesTheFixture", passed: true, message: "" },
                 { name: "Scout.EtalonTickIsTheContractsClock", passed: true, message: "" },
