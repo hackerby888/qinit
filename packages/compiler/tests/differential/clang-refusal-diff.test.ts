@@ -60,16 +60,56 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-const REFUSED: Record<string, string> = {
-    "a member function hiding a file-scope constant is not a value": hiddenByMember(`state.mut().a = Helper;`),
-    "a read-only function cannot call a procedure": entryContext("PUBLIC_FUNCTION_WITH_LOCALS", "Peek"),
-    "an asset iterator local cannot be default-constructed": iteratorLocal(`AssetOwnershipIterator it; it.begin(locals.asset);`),
+// A const view of state. ContractState::get, Array::get, HashMap::value and LinkedList::element return
+// `const T&`, so a non-const member call on anything reached through them is ill-formed. The backend used
+// to check assignment only, and by the spelling `get` rather than by the declared return type.
+const constView = (body: string) => `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Entry { uint64 tag; BitArray<64> flags; };
+  struct StateData { uint64 a; Array<uint64, 4> arr; BitArray<8> flags; HashMap<id, Entry, 16> m; Array<Entry, 4> entries; LinkedList<Entry, 8> l; Collection<Entry, 8> coll; };
+  struct Go_input {}; struct Go_output {};
+  PUBLIC_PROCEDURE(Go) { ${body} }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};`;
+const READ_ONLY = /read-only/;
+
+const REFUSED: Record<
+    string,
+    {
+        source: string;
+        diagnostic?: RegExp;
+    }
+> = {
+    "a member function hiding a file-scope constant is not a value": { source: hiddenByMember(`state.mut().a = Helper;`) },
+    "a read-only function cannot call a procedure": { source: entryContext("PUBLIC_FUNCTION_WITH_LOCALS", "Peek") },
+    "an asset iterator local cannot be default-constructed": { source: iteratorLocal(`AssetOwnershipIterator it; it.begin(locals.asset);`) },
+    "a scalar write through state.get()": { source: constView(`state.get().a = 77;`), diagnostic: READ_ONLY },
+    "a container mutator through state.get()": { source: constView(`state.get().arr.set(0, 1);`), diagnostic: READ_ONLY },
+    "a bit set through state.get()": { source: constView(`state.get().flags.set(3, true);`), diagnostic: READ_ONLY },
+    "a mutator on a HashMap value reference": { source: constView(`state.mut().m.value(0).flags.set(40, true);`), diagnostic: READ_ONLY },
+    "a mutator on an Array element reference": { source: constView(`state.mut().entries.get(0).flags.set(1, true);`), diagnostic: READ_ONLY },
+    "a mutator on a LinkedList element reference": { source: constView(`state.mut().l.element(0).flags.set(40, true);`), diagnostic: READ_ONLY },
 };
 
 const ACCEPTED: Record<string, string> = {
     "an enum constant no member hides still reads": hiddenByMember(`state.mut().a = Solo;`),
     "a procedure calling a procedure is the allowed direction": entryContext("PUBLIC_PROCEDURE_WITH_LOCALS", "Drive"),
     "an asset iterator local constructed from its asset": iteratorLocal(`AssetOwnershipIterator it(locals.asset, AssetOwnershipSelect::any());`),
+    "the same mutators through state.mut()": constView(`state.mut().arr.set(0, 1); state.mut().flags.set(3, true); state.mut().a = 1;`),
+    "const reads and a static call through state.get()": constView(
+        `state.mut().a = state.get().arr.get(0) + state.get().arr.capacity() + (state.get().flags.get(3) ? 1 : 0) + (state.get().m.value(0).flags.get(40) ? 1 : 0) + state.get().l.element(0).tag;`,
+    ),
+    "a by-value element is a temporary, so its members stay mutable": constView(`state.mut().coll.element(0).flags.set(1, true);`),
+    "a struct named like a container's private node type": `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Node { uint64 tag; uint64 other; };
+  struct StateData { uint64 a; LinkedList<Node, 8> l; };
+  struct Go_input {}; struct Go_output {};
+  PUBLIC_PROCEDURE(Go) { state.mut().a = state.get().l.element(0).tag; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};`,
 };
 
 const ourErrors = async (source: string) => {
@@ -104,12 +144,14 @@ describe.skipIf(!HAS_CORE)("differential — programs clang refuses", () => {
         await initK12();
     });
 
-    for (const [name, source] of Object.entries(REFUSED)) {
+    for (const [name, { source, diagnostic }] of Object.entries(REFUSED)) {
         test(
             name,
             async () => {
                 const { errors } = await ourErrors(source);
                 expect(errors.length).toBeGreaterThan(0);
+                // Refused for the stated reason, not by an unrelated lowering failure.
+                if (diagnostic) expect(errors.map((error) => error.message).join("\n")).toMatch(diagnostic);
                 if (wasiOk) expect(await clangBuilds(source)).toBe(false);
             },
             180000,

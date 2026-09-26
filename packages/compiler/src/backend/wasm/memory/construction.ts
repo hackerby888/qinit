@@ -3,6 +3,7 @@ import { FunctionEmissionContext, ResolvedAddress, EMPTY_TEMPLATE_BINDINGS } fro
 import type { TypeSpec, Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { addrIr } from "./memory-operations";
+import { rejectMutatingCallOnReadOnly } from "./address-resolution";
 // Resolve a container element getter to an addressable node: Array.get(i) → T, HashMap value(i) → V / key(i)
 export function resolveContainerElem(
     context: FunctionEmissionContext,
@@ -28,19 +29,24 @@ export function resolveContainerElem(
     if (!ct || ct.kind !== AstKind.TEMPLATE_INSTANCE) return null;
     const ctype = ct;
     const member = expression.callee.member;
-    const mk = (addr: string, elemType: TypeSpec): ResolvedAddress => ({
+    const mk = (addr: string, elemType: TypeSpec, readOnly?: string): ResolvedAddress => ({
         addr,
         type: elemType,
         size: context.programAnalysis.sizeOfType(elemType),
         layout: context.programAnalysis.layoutOfType(elemType),
+        readOnly,
     });
     const compiled = context.lowering.callCompiled(context, ctype, member, node.addr, expression.callArguments);
-    if (!compiled || (compiled.cm.retKind !== WatNodeType.I32 && !compiled.cm.retAgg)) return null;
+    if (!compiled) return null;
+    rejectMutatingCallOnReadOnly(context, node, compiled.cm, `${ctype.name}::${member}`, expression.span);
+    if (compiled.cm.retKind !== WatNodeType.I32 && !compiled.cm.retAgg) return null;
     if (!compiled?.cm.retType) {
         throw new Error(`authoritative aggregate/reference method ${ctype.name}::${member} could not be lowered`);
     }
     if (compiled.retDest) context.lines.push(`    ${compiled.call}`);
-    const result = mk(compiled.retDest ?? compiled.call, compiled.cm.retType);
+    // a by-value return lands in a temporary, which stays mutable as in c++
+    const readOnly = compiled.cm.retReadOnly ? `${ctype.name}::${member} returns a const reference` : undefined;
+    const result = mk(compiled.retDest ?? compiled.call, compiled.cm.retType, readOnly);
     if (compiled.retDest) (context.materializedCalls ??= new WeakMap()).set(expression, result);
     return result;
 }
