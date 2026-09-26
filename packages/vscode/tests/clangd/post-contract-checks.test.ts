@@ -56,7 +56,8 @@ function coreHeaderClosure(source: string, startingAt: string[]): Set<string> {
 function resolveAgainstCore(include: string, includerDirectory: string): string | undefined {
     for (const candidate of [include, normalize(join(includerDirectory, include))]) {
         if (existsSync(join(CORE_SOURCE_ROOT, candidate))) {
-            return candidate;
+            // Core spells its includes with forward slashes, and so do the sets below; `join` on Windows does not.
+            return candidate.replace(/\\/g, "/");
         }
     }
 
