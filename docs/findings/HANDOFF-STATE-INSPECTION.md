@@ -253,17 +253,37 @@ The only difference is a procedure that never runs in the comparison. That is th
 
 ### Suggested fix (unverified)
 
-Two separable parts, and the easy one is worth doing even if the hard one is deferred:
+**Part 1 — the certain one. Say so.** Return a reason on the record: ambiguous tag, with the candidate
+names. `decodeLog` at `:64` returns the same bare `base` for "two candidates matched", "zero matched" and
+"decode threw", which is why the caller cannot tell an ambiguity from a malformed log. Distinguishing those
+three is cheap and turns a silent wrong conclusion into a correct one. Do this even if part 2 is deferred.
 
-1. **Say so.** Return a reason on the record — ambiguous tag, with the candidate names — instead of a bare
-   `name: null`. Cheap, and it converts a silent wrong conclusion into a correct one.
-2. **Do not let a mislabel contaminate a sibling.** A tag should be attributed to the struct that declares
-   it, not to every struct observed carrying it. If that is too invasive, at minimum prefer the struct
-   whose declared `_type` matches and treat the other's claim as an observation.
+**Part 2 — a design question, not a patch.** Stopping the contamination itself is harder than it looks, and
+the obvious framing is wrong: QPI has **no per-struct declaration** of `_type`. There is no
+`AlphaLog::_type = KindAlpha` anywhere. `collectLogTypeValues` knows only what it observed being *assigned*
+(`log-type-values.ts:33-68`), so "attribute the tag to the struct that declares it" is not available — do
+not go looking for a declaration to key on.
+
+What is available is weaker, and worth weighing rather than assuming:
+
+- Record whether a tag is **exclusive** to one struct or **shared**, and decode on an exclusive tag only.
+  That fixes nothing here (22 is shared) but it makes the ambiguity explicit in the IDL rather than
+  implicit in a set union, which part 1 can then report.
+- A heuristic that picks a winner among shared owners. I have no principled one to offer: both structs
+  genuinely wrote tag 22, and nothing in the source says which meant it. A heuristic here would guess, and
+  guessing between two same-size structs is exactly what round 3's finding was filed against.
+- Reject the mislabel at compile time instead — warn when a contract assigns a `_type` to one struct that
+  another struct of the same logged size also assigns. That catches the real-world cause (a copy-paste
+  slip) at the point where the author can fix it, and leaves the decoder honest. This is my preferred
+  direction, but it is a new diagnostic rather than a bug fix, so it is the contract owner's call.
 
 Note the inconsistency worth resolving while in here: same-size ambiguity refuses silently, while
 different-size ambiguity decodes by size and prints a contradicting `_type` (`AlphaLog·KindGamma`, round 3).
 Two strategies, neither of which says "this tag is ambiguous".
+
+And note what makes this reachable rather than exotic: two same-size log structs is what you get from two
+events each carrying one `uint64`. The liar procedure never has to run — its presence in the source is
+enough, because the set union happens when the catalog is built.
 
 ### Proof required
 
