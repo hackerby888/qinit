@@ -235,7 +235,19 @@ export function bindContainer(
     const templateDeclaration = programAnalysis.templateByName(name);
     const out: TemplateBindings = { types: new Map(), values: new Map(), structs: new Map() };
     if (!templateDeclaration) return out;
-    const resolved = callArguments.map((argument) => programAnalysis.resolveType(argument, templateBindings));
+    // c++ binds an argument in the caller's scope; a bare name the callee also nests as a struct would
+    // resolve to the callee's own struct once its body compiles, so pin it to the caller's declaration now
+    const nestedNames = new Set(
+        templateDeclaration.members
+            .filter((member) => member.kind === AstKind.STRUCT && (member as StructDecl).name)
+            .map((member) => (member as StructDecl).name),
+    );
+    const resolved = callArguments.map((argument): TypeSpec => {
+        const type = programAnalysis.resolveType(argument, templateBindings);
+        if (type.kind !== AstKind.NAME || !nestedNames.has(type.name)) return type;
+        const declaration = programAnalysis.structByName(type.name, templateBindings);
+        return declaration ? { kind: AstKind.INLINE_STRUCT, struct: declaration } : type;
+    });
     const instanceArguments: TypeSpec[] = [];
     for (let parameterIndex = 0; parameterIndex < templateDeclaration.params.length; parameterIndex++) {
         const parameter = templateDeclaration.params[parameterIndex];

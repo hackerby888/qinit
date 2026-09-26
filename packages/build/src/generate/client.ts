@@ -28,6 +28,10 @@ function typescriptType(type: AbiType, input = false): string {
         case AbiTypeKind.STRUCT:
             return `{ ${type.fields.map((field) => `${field.name}: ${typescriptType(field.type, input)}`).join("; ")} }`;
         case AbiTypeKind.ARRAY:
+            // a byte array is also accepted as one hex string, e.g. a `qinit sign` signature
+            if (input && type.element.kind === AbiTypeKind.SCALAR && (type.element.scalar === AbiScalarKind.UINT8 || type.element.scalar === AbiScalarKind.SINT8)) {
+                return "(number[] | string)";
+            }
             return `${typescriptType(type.element, input)}[]`;
         case AbiTypeKind.BIT_ARRAY:
             return "number[]";

@@ -132,6 +132,8 @@ function frameJson(e: DebugEntry, view: DecodedTrace) {
             name: log.name ?? null,
             // Enum name shown beside the struct name.
             ...(log.typeName ? { typeName: log.typeName } : {}),
+            // the structs an unnamed log could still be
+            ...(log.candidates ? { candidates: log.candidates } : {}),
             fields: log.fields ?? null,
             hex: log.hex,
         })),

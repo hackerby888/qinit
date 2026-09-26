@@ -1,6 +1,6 @@
 // The build gate every backend runs on the analyzer's findings: one rule table, each scoped to user contracts or to all — core's contracts build here too.
 import { USER_CONTRACT_RULES, type SourceAnalysisDiagnostic } from "@qinit/compiler/analyzer";
-import { LOG_HEADER_WORD_HINT } from "@qinit/compiler";
+import { LOG_AMBIGUITY_HINT, LOG_HEADER_WORD_HINT } from "@qinit/compiler";
 
 export type ContractKind = "user" | "system";
 
@@ -34,6 +34,8 @@ export const BUILD_GATE_RULES: readonly BuildGateRule[] = [
     { title: "duplicate-call-error-var", scope: "all", matches: (d) => d.code === "qpi/duplicate-call-error-var" },
     { title: "log-header", scope: "all", matches: (d, c) => c.rejectsLogHeader && d.message.includes(LOG_HEADER_WORD_HINT) },
     { title: "unqualified-math", scope: "user", matches: (d) => USER_CONTRACT_RULES.has(d.code) },
+    // a reader sees only the bytes, so two same-size logs with no severity or _type between them decode as neither; core's own pairs are warned below.
+    { title: "log-ambiguity", scope: "user", matches: (d) => d.message.includes(LOG_AMBIGUITY_HINT) },
 ];
 
 // reported but not failed on: the contract compiles and ships, but does not do what its author wrote.
@@ -42,6 +44,7 @@ export const BUILD_WARN_RULES: readonly BuildGateRule[] = [
     { title: "unregistered-entry", scope: "user", matches: (d) => d.code === "qpi/unregistered" },
     // qpi.invocator() is the null identity on the RPC query path, so a caller gate in a view is dead code.
     { title: "invocator-in-function", scope: "user", matches: (d) => d.code === "qpi/invocator-in-function" },
+    { title: "log-ambiguity", scope: "system", matches: (d) => d.message.includes(LOG_AMBIGUITY_HINT) },
 ];
 
 /** QINIT_BUILD_RULES=off switches the user-scope rules off everywhere a flag cannot reach (dev, test, CI). */

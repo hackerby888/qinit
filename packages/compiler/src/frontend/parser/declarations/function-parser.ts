@@ -146,8 +146,7 @@ export class FunctionParser {
         this.parser.state.expect(TokenKind.L_PAREN, "function params");
         const params = this.parser.functions.parseFunctionParams();
         this.parser.state.expect(TokenKind.R_PAREN, "function params close");
-        // Optional const qualifier
-        this.parser.state.tryConsumeKeyword("const");
+        const isConst = !!this.parser.state.tryConsumeKeyword("const");
         // Optional override/final/noexcept
         const isOverride = !!this.parser.state.tryConsumeKeyword("override");
         this.parser.state.tryConsumeKeyword("final");
@@ -174,6 +173,7 @@ export class FunctionParser {
             params,
             body,
             isConstexpr,
+            isConst,
             isStatic,
             isInline,
             isExternC,

@@ -2,11 +2,12 @@
 import { AbiScalarKind, type ContractEnum, type ContractLog } from "@qinit/proto/contract-idl";
 import { AstKind } from "../../../shared/enums";
 import type { Declaration, EnumDecl, StructDecl, VariableDecl } from "../../../ast";
-import { LOG_TERMINATOR_FIELD } from "../abi/log-payload";
+import { LOG_TERMINATOR_FIELD, LOG_TYPE_FIELD } from "../abi/log-payload";
 import type { PreparedContractModule } from "../module/module-analysis";
 import { scalarKindForName } from "./scalars";
 import type { AbiTypeBuilder } from "./abi-type-builder";
-import { collectLogTypeValues } from "./log-type-values";
+import { collectLogFacts } from "./log-facts";
+import { logAmbiguities, type LogCandidate } from "./log-ambiguity";
 
 export function contractEnums(prepared: PreparedContractModule): ContractEnum[] {
     const enums: ContractEnum[] = [];
@@ -49,7 +50,8 @@ export function contractEnums(prepared: PreparedContractModule): ContractEnum[] 
 
 export function contractLogs(prepared: PreparedContractModule, builder: AbiTypeBuilder): ContractLog[] {
     const logs: ContractLog[] = [];
-    const typeValues = collectLogTypeValues(prepared);
+    const candidates: LogCandidate[] = [];
+    const facts = collectLogFacts(prepared);
 
     for (const declaration of userDeclarations(prepared)) {
         if (declaration.kind !== AstKind.STRUCT || !declaration.name) {
@@ -74,8 +76,20 @@ export function contractLogs(prepared: PreparedContractModule, builder: AbiTypeB
 
         const fields = new Map([...fullLayout.fields].filter(([name]) => name !== LOG_TERMINATOR_FIELD));
         const align = fields.size === 0 ? 1 : Math.max(...[...fields.values()].map((field) => prepared.programAnalysis.alignOfType(field.type)));
-        const types = typeValues.get(struct.name);
+        // a set is emitted only when every write or call feeding it was traced; a decoder treats a missing set as "any".
+        const recorded = facts.structs.get(struct.name);
+        const types = facts.untracedTypeWrite === undefined ? recorded?.types : null;
+        const severities = facts.untracedLog === undefined ? recorded?.severities : null;
+        const typeField = fields.get(LOG_TYPE_FIELD);
 
+        candidates.push({
+            name: struct.name,
+            loggedSize: terminator.offset,
+            typeField: typeField ? { offset: typeField.offset, size: typeField.size } : null,
+            types: types ?? null,
+            severities: severities ?? null,
+            line: struct.span.line,
+        });
         logs.push({
             name: struct.name,
             type: builder.namedStruct(
@@ -88,8 +102,14 @@ export function contractLogs(prepared: PreparedContractModule, builder: AbiTypeB
                 true,
                 struct,
             ),
-            ...(types ? { types: [...types].map(Number).sort((left, right) => left - right) } : {}),
+            ...(types?.size ? { types: [...types].map(Number).sort((left, right) => left - right) } : {}),
+            ...(severities?.size ? { severities: [...severities].sort((left, right) => left - right) } : {}),
         });
+    }
+
+    // advisory, not fidelity: core's own contracts ship such pairs and must keep compiling; the build gate hardens it for user contracts
+    for (const ambiguity of logAmbiguities(candidates, facts.untracedTypeWrite)) {
+        prepared.programAnalysis.advise(ambiguity.message, ambiguity.line);
     }
 
     return logs;

@@ -186,6 +186,25 @@ test("array input stays typed", () => {
     has("4, { type: Blob_function_input_schema, value: args }, Blob_function_output_schema)");
 });
 
+test("a byte-array input also types as a hex string; outputs and wider arrays stay arrays", () => {
+    const bytes = generateClient(
+        extractIdl(
+            `
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Check_input { Array<sint8, 64> signature; Array<uint64, 2> xs; }; struct Check_output { Array<uint8, 4> key; };
+  PUBLIC_FUNCTION(Check) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Check, 1); }
+};`,
+            "Bytes",
+        ),
+        28,
+    );
+    expect(() => new Transpiler({ loader: "ts" }).transformSync(bytes)).not.toThrow();
+    expect(bytes).toContain("signature: (number[] | string);");
+    expect(bytes).toContain("xs: bigint[];");
+    expect(bytes).toContain("key: number[];");
+});
+
 test("scalar and array roots use direct aliases, arguments, and results", () => {
     expect(() => {
         new Transpiler({ loader: "ts" }).transformSync(directRootClient);

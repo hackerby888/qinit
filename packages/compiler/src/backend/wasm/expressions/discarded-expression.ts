@@ -1,6 +1,7 @@
 import { AstKind, BinaryOp, UpdateOp, WatNodeType } from "../../../shared/enums";
 import { addrIr, emitScalarLoad, isSignedScalarType, emitScalarStore } from "../memory/memory-operations";
 import { isUint128 } from "../memory/address-resolution";
+import { describeShape } from "../calls/call-shape";
 import { FunctionEmissionContext } from "../types";
 import type { TypeSpec, Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
@@ -41,6 +42,10 @@ export function emitIncrementOrDecrement(context: FunctionEmissionContext, expre
     }
     // Otherwise a member/element lvalue: load, adjust, store back.
     const addr = context.lowering.resolveLvalue(context, argument);
+    if (addr?.readOnly) {
+        context.programAnalysis.error(`cannot modify read-only '${describeShape(argument)}': ${addr.readOnly}`, expression.span);
+        return "";
+    }
     if (addr) {
         // uint128 increment/decrement uses the source-compiled arithmetic operator.
         if (isUint128(context.programAnalysis, addr.type ?? null)) {

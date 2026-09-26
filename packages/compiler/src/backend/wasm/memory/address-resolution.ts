@@ -1,10 +1,17 @@
 import { AstKind, BinaryOp, UnaryOp } from "../../../shared/enums";
 import { ProgramAnalysis } from "../../../semantics/program-analysis";
 import { StructLayout, FieldLayout, FunctionEmissionContext, ResolvedAddress, EMPTY_TEMPLATE_BINDINGS, ResolvedLvalue } from "../types";
-import type { TypeSpec, Expression, StructDecl } from "../../../ast";
+import type { TypeSpec, Expression, StructDecl, Span } from "../../../ast";
 import { addressAtOffset } from "./memory-operations";
 // lvalue addressing
-export function isStateAccessor(expression: Expression): boolean {
+export function isStateAccessor(
+    expression: Expression,
+): expression is Expression & {
+    kind: AstKind.CALL;
+    callee: Expression & {
+        kind: AstKind.MEMBER_ACCESS;
+    };
+} {
     return (
         expression.kind === AstKind.CALL &&
         expression.callee.kind === AstKind.MEMBER_ACCESS &&
@@ -12,6 +19,27 @@ export function isStateAccessor(expression: Expression): boolean {
         expression.callee.object.name === "state" &&
         (expression.callee.member === "mut" || expression.callee.member === "get")
     );
+}
+// `const T&` / `const T*`: the target is read-only even when the handle itself is not.
+export function constQualifiedTarget(type: TypeSpec): boolean {
+    if (type.kind === AstKind.CONST) return constQualifiedTarget(type.valueType);
+    if (type.kind === AstKind.REFERENCE) return type.referentType.kind === AstKind.CONST;
+    if (type.kind === AstKind.POINTER) return type.pointee.kind === AstKind.CONST;
+    return false;
+}
+// a non-const, non-static member function needs a non-const object
+export function rejectMutatingCallOnReadOnly(
+    context: FunctionEmissionContext,
+    receiver: ResolvedAddress,
+    method: {
+        isConst?: boolean;
+        isStatic?: boolean;
+    },
+    qualifiedName: string,
+    span: Span,
+): void {
+    if (!receiver.readOnly || method.isConst || method.isStatic) return;
+    context.programAnalysis.error(`cannot call non-const method '${qualifiedName}' on a read-only value: ${receiver.readOnly}`, span);
 }
 // Build fixed-width limb views for id and m256i storage.
 export function limbLayout(elemSize: number, count: number): StructLayout {
@@ -82,6 +110,7 @@ export function stripPtrRefConst(type: TypeSpec): TypeSpec {
 }
 /** A functional-style construction spells its type as a plain or qualified name in callee position. */
 const CONSTRUCTOR_CALLEE_KINDS: ReadonlySet<AstKind> = new Set([AstKind.IDENTIFIER, AstKind.QUALIFIED_NAME]);
+const POINTS_AT_CONST = "the pointer targets a const value";
 
 export function resolveExpressionAddress(context: FunctionEmissionContext, expression: Expression): ResolvedAddress | null {
     if (expression.kind === AstKind.PAREN) return resolveExpressionAddress(context, expression.expression);
@@ -180,12 +209,14 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
         const base = resolveExpressionAddress(context, expression.object);
         let baseAddr: string | null = null,
             elemType: TypeSpec | null = null;
+        let readOnly = base?.readOnly;
         if (base?.type?.kind === AstKind.ARRAY) {
             baseAddr = base.addr;
             elemType = base.type.element;
         } else if (base?.type?.kind === AstKind.POINTER) {
             baseAddr = base.addr;
             elemType = base.type.pointee;
+            readOnly = elemType.kind === AstKind.CONST ? POINTS_AT_CONST : undefined;
         }
         if (!baseAddr || !elemType) return null;
         const elemSize = context.programAnalysis.sizeOfType(elemType, context.thisBind);
@@ -195,6 +226,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
             type: elemType,
             size: elemSize,
             layout: context.programAnalysis.layoutOfType(elemType, context.thisBind),
+            readOnly,
         };
     }
     // Keep pointer arithmetic pointer-typed for subsequent dereference or indexing.
@@ -236,6 +268,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
                 type: type,
                 size: context.programAnalysis.sizeOfType(type, templateBindings),
                 layout: context.programAnalysis.layoutOfType(type, templateBindings),
+                readOnly: constQualifiedTarget(ci.type) ? "cast to a const reference" : undefined,
             };
         }
     }
@@ -256,6 +289,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
                     type: type,
                     size: context.programAnalysis.sizeOfType(type, templateBindings),
                     layout: context.programAnalysis.layoutOfType(type, templateBindings),
+                    readOnly: constQualifiedTarget(ci.type) ? POINTS_AT_CONST : undefined,
                 };
             }
         }
@@ -270,6 +304,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
                 type: pointee,
                 size: byteSize,
                 layout: context.programAnalysis.layoutOfType(pointee, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
+                readOnly: pointee.kind === AstKind.CONST ? POINTS_AT_CONST : undefined,
             };
         }
         return null;
@@ -279,7 +314,12 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
         const layout = context.state.size > 0 ? context.state : context.programAnalysis.contractStateLayout;
         const stateParam = context.params?.get("state");
         const addr = stateParam?.isAddr ? `(local.get $${stateParam.local ?? "state"})` : "(local.get $__qinit_state)";
-        return { addr, type: null, size: layout.size, layout };
+        // the header decides: get() hands back a const reference, mut() a mutable one
+        const member = expression.callee.member;
+        const accessor = context.programAnalysis.templateMethods.get("ContractState")?.get(`${member}/0`);
+        if (!accessor) throw new Error(`ContractState::${member} is not declared in the qpi header`);
+        const readOnly = constQualifiedTarget(accessor.returnType) ? `state.${member}() returns a const reference — use state.mut()` : undefined;
+        return { addr, type: null, size: layout.size, layout, readOnly };
     }
     // Keep container element getters addressable for chained member access.
     if (expression.kind === AstKind.CALL) {
@@ -302,6 +342,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
                         type,
                         size: Math.max(1, context.programAnalysis.sizeOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS)),
                         layout: context.programAnalysis.layoutOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
+                        readOnly: constQualifiedTarget(method.fn.returnType) ? `${method.fn.name}() returns a const reference` : undefined,
                     };
             }
         }
@@ -354,11 +395,12 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
                 type: pointee,
                 size: context.programAnalysis.sizeOfType(pointee, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
                 layout: context.programAnalysis.layoutOfType(pointee, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS),
+                readOnly: pointee.kind === AstKind.CONST ? POINTS_AT_CONST : undefined,
             };
         }
         // id/m256i limb views (`.u64`/`.u32`/`.u16`/`.u8`) → a fixed-width array at the value's base.
         if (isIdLike(context.programAnalysis, parent.type) && ID_VIEWS[expression.member]) {
-            return { addr: parent.addr, type: null, size: 32, layout: ID_VIEWS[expression.member] };
+            return { addr: parent.addr, type: null, size: 32, layout: ID_VIEWS[expression.member], readOnly: parent.readOnly };
         }
         // uint128 `.low` / `.high` → the low / high 64-bit half (low at offset 0).
         if (isUint128(context.programAnalysis, parent.type) && (expression.member === "low" || expression.member === "high")) {
@@ -367,6 +409,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
                 type: { kind: AstKind.NAME, name: "uint64" },
                 size: 8,
                 layout: null,
+                readOnly: parent.readOnly,
             };
         }
         if (!parent.layout) return null;
@@ -382,6 +425,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
             type: ftype,
             size: fieldLayout.size,
             layout: context.programAnalysis.layoutOfType(ftype),
+            readOnly: parent.readOnly,
         };
     }
     return null;
@@ -423,5 +467,5 @@ export function resolveInParentStruct(context: FunctionEmissionContext, type: Ty
 export function resolveLvalue(context: FunctionEmissionContext, expression: Expression): ResolvedLvalue | null {
     const resolvedAddress = resolveExpressionAddress(context, expression);
     if (!resolvedAddress) return null;
-    return { addr: resolvedAddress.addr, size: resolvedAddress.size, type: resolvedAddress.type };
+    return { addr: resolvedAddress.addr, size: resolvedAddress.size, type: resolvedAddress.type, readOnly: resolvedAddress.readOnly };
 }

@@ -1,6 +1,7 @@
 import { AssetSelectTypeName, AstKind, ContainerEmissionMode, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { getFunctionLoweringServices } from "../functions/function-lowering-registry";
 import { emitScalarLoad, addrIr, isSignedScalarType } from "../memory/memory-operations";
+import { constQualifiedTarget, rejectMutatingCallOnReadOnly } from "../memory/address-resolution";
 import { TemplateBindings, CompiledMethod, FieldLayout, FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import { ProgramAnalysis } from "../../../semantics/program-analysis";
 import { firstInfidelitySince } from "../../../semantics/analysis-diagnostics";
@@ -122,6 +123,9 @@ export function compileContainerMethod(
         retKind,
         retAgg,
         retType,
+        retReadOnly: constQualifiedTarget(definition.returnType),
+        isConst: definition.isConst,
+        isStatic: definition.isStatic,
     };
     programAnalysis.compiledMethods.set(cacheKey, cm); // register before emitting so recursive/sibling calls resolve
     try {
@@ -433,6 +437,7 @@ export function emitTemplateContainerCall(
     if (type.kind !== AstKind.TEMPLATE_INSTANCE) return null;
     const compiled = callCompiled(context, type, expression.callee.member, node.addr, expression.callArguments, undefined, expression.templateArguments ?? []);
     if (!compiled) return null;
+    rejectMutatingCallOnReadOnly(context, node, compiled.cm, `${type.name}::${expression.callee.member}`, expression.span);
     if (valueWanted) {
         if (compiled.retDest || compiled.cm.retKind === WatNodeType.VOID)
             throw new Error(`aggregate or void method ${type.name}::${expression.callee.member} used as a scalar`);
@@ -493,6 +498,7 @@ export function emitContainerCall(
     // Route every captured instance method through source-backed instantiation.
     const compiled = callCompiled(context, node.type, member, map, expression.callArguments);
     if (!compiled) return null;
+    rejectMutatingCallOnReadOnly(context, node, compiled.cm, `${node.type.name}::${member}`, expression.span);
     if (valueWanted) {
         if (compiled.retDest) {
             context.lines.push(`    ${compiled.call}`);

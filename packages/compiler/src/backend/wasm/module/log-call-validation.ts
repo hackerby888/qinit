@@ -2,7 +2,7 @@ import { AstKind, LogPayloadDefect } from "../../../shared/enums";
 import type { ProgramAnalysis } from "../../../semantics/program-analysis";
 import type { StructLayout } from "../../../semantics/types";
 import type { Expression, FunctionDecl, Statement, TypeSpec } from "../../../ast";
-import { isKnownScalarType, logPayloadDefect, logPayloadMessage } from "../abi/log-payload";
+import { isKnownScalarType, LOG_INTRINSIC_LEVELS, logPayloadDefect, logPayloadMessage } from "../abi/log-payload";
 import { SYSPROC_IO } from "../abi/tables";
 import { isStateAccessor } from "../memory/address-resolution";
 import type { PreparedContractModule } from "./module-analysis";
@@ -12,7 +12,7 @@ const MIGRATION_IMPLEMENTATION = "__impl_migrate";
 // Entries taking this context are functions; procedures take QpiContextProcedureCall.
 const QPI_FUNCTION_CONTEXT = "QpiContextFunctionCall";
 
-const LOG_INTRINSICS: ReadonlySet<string> = new Set(["__qinit_log_error", "__qinit_log_warning", "__qinit_log_info", "__qinit_log_debug"]);
+const LOG_INTRINSICS: ReadonlySet<string> = new Set(LOG_INTRINSIC_LEVELS.keys());
 
 // The magic names a payload can be rooted at, bound the way function emission binds them.
 export interface PayloadRoots {

@@ -608,6 +608,87 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     });
 });
 
+// a log carries no struct name: two structs of one logged size must differ in severity or in a constant _type, or a reader decodes neither
+describe("same-size log structs", () => {
+    const PAIR_SOURCE = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct OrderLog { uint32 _contractIndex; uint32 _type; uint64 orderId; uint64 amount; sint8 _terminator; };
+  struct TokensLog { uint32 _contractIndex; uint32 _type; uint64 locked; uint64 received; sint8 _terminator; };
+  struct StateData { uint32 calls; };
+  struct Emit_input {}; struct Emit_output {};
+  struct Emit_locals { OrderLog order; TokensLog tokens; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Emit) {
+    locals.order._type = 1;
+    locals.tokens._type = 2;
+    LOG_INFO(locals.order);
+    LOG_INFO(locals.tokens);
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Emit, 1); }
+};`;
+    const ORDER_LOG_LINE = 4;
+
+    function ambiguities(source: string) {
+        return analyzeContract({ source }).diagnostics.filter((item) => item.message.includes("cannot be told apart from the bytes"));
+    }
+
+    function reasonOf(source: string): string | undefined {
+        const found = ambiguities(source);
+        expect(found.length).toBeLessThan(2);
+        return found[0]?.message.split(": ")[1]?.split(";")[0];
+    }
+
+    test("distinct constant tags tell the pair apart", () => {
+        expect(ambiguities(PAIR_SOURCE)).toEqual([]);
+    });
+
+    test("no tag on either side is reported once, as a warning at the first struct", () => {
+        const source = PAIR_SOURCE.replace("locals.order._type = 1;\n    locals.tokens._type = 2;", "").replace("uint32 _type; uint64 orderId", "uint32 _errorCode; uint64 orderId").replace("uint32 _type; uint64 locked", "uint32 _kind; uint64 locked");
+        const found = ambiguities(source);
+
+        expect(found).toHaveLength(1);
+        expect(found[0].message).toBe("log structs OrderLog and TokensLog both log 24 bytes at INFO and cannot be told apart from the bytes: neither has a _type field; give each a distinct constant _type");
+        expect(found[0].severity).toBe(DiagnosticSeverity.WARNING);
+        expect(found[0].code).toBe("compiler/semantic");
+        expect(found[0].span.line).toBe(ORDER_LOG_LINE);
+    });
+
+    test("a tag on one side only names the side without it", () => {
+        expect(reasonOf(PAIR_SOURCE.replace("uint32 _type; uint64 locked", "uint32 _kind; uint64 locked"))).toBe("TokensLog has no _type field");
+    });
+
+    test("different severities tell an untagged pair apart", () => {
+        const source = PAIR_SOURCE.replace("locals.order._type = 1;\n    locals.tokens._type = 2;", "").replace("LOG_INFO(locals.tokens)", "LOG_ERROR(locals.tokens)");
+        expect(ambiguities(source)).toEqual([]);
+    });
+
+    test("a shared constant is reported with its value", () => {
+        expect(reasonOf(PAIR_SOURCE.replace("locals.tokens._type = 2;", "locals.tokens._type = 1;"))).toBe("both write _type = 1");
+    });
+
+    test("a side never given a constant is reported", () => {
+        expect(reasonOf(PAIR_SOURCE.replace("locals.tokens._type = 2;", ""))).toBe("no constant is written into TokensLog._type");
+        expect(reasonOf(PAIR_SOURCE.replace("locals.tokens._type = 2;", "locals.tokens._type = state.get().calls;"))).toBe("no constant is written into TokensLog._type");
+    });
+
+    test("a tag write the build cannot trace is reported at that write", () => {
+        const found = ambiguities(PAIR_SOURCE.replace("locals.tokens._type = 2;", "locals.tokens._type = 2; TokensLog other; other._type = 3;"));
+
+        expect(found).toHaveLength(1);
+        expect(found[0].message).toContain("the _type write on this line could not be traced");
+        expect(found[0].span.line).toBe(11);
+    });
+
+    test("tags at different offsets are reported", () => {
+        expect(reasonOf(PAIR_SOURCE.replace("uint32 _type; uint64 locked; uint64 received;", "uint32 pad; uint32 _type; uint32 x; uint64 received;"))).toBe("_type sits at different offsets");
+    });
+
+    test("different logged sizes never collide", () => {
+        const source = PAIR_SOURCE.replace("locals.order._type = 1;\n    locals.tokens._type = 2;", "").replace("uint64 orderId; uint64 amount;", "uint64 orderId;");
+        expect(ambiguities(source)).toEqual([]);
+    });
+});
+
 describe("LOG_* call context", () => {
     const UNREACHABLE = "__qinit_log_info is not available in a function; " + "logs are paired with a transaction";
 

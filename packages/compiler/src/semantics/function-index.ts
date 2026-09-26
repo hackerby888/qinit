@@ -79,6 +79,8 @@ export function resolveSourceMethodDefinition(
                           returnType: selectedInlineMethod.returnType,
                           body: selectedInlineMethod.body,
                           isConstexpr: selectedInlineMethod.isConstexpr,
+                          isConst: selectedInlineMethod.isConst,
+                          isStatic: selectedInlineMethod.isStatic,
                           span: selectedInlineMethod.span,
                       };
 

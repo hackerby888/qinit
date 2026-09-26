@@ -58,6 +58,8 @@ export interface FunctionTemplateDecl {
     returnType: TypeSpec;
     body?: Statement;
     isConstexpr: boolean;
+    isConst?: boolean; // const-qualified member function: `T get() const`
+    isStatic?: boolean;
     span: Span;
 }
 
@@ -68,6 +70,7 @@ export interface FunctionDecl {
     params: ParamDecl[];
     body?: Statement;
     isConstexpr: boolean;
+    isConst?: boolean;
     isStatic: boolean;
     isInline: boolean;
     isExternC: boolean;

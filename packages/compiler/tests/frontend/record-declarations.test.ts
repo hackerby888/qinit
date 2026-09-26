@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ClassTemplateDecl, StructDecl } from "../../src/ast";
+import type { ClassTemplateDecl, FunctionDecl, FunctionTemplateDecl, StructDecl } from "../../src/ast";
 import { AstKind, DiagnosticSeverity } from "../../src/shared/enums";
 import { Lexer } from "../../src/frontend/lexer";
 import { Parser } from "../../src/frontend/parser";
@@ -112,5 +112,40 @@ struct IndirectEmptyBase : public ContractBase {
                 },
             ],
         });
+    });
+
+    test("records const and static on member functions", () => {
+        const source = `
+struct S {
+    uint64 a() const { return 1; }
+    uint64 b() { return 2; }
+    static uint64 c() { return 3; }
+    template <typename T> T d() const { return T(); }
+    template <typename T> static T e() { return T(); }
+};
+template <typename T> struct W { const T& get() const; T& mut(); };
+`;
+        const parser = new Parser(new Lexer(source).tokenize());
+        const unit = parser.parseTranslationUnit();
+        expect(parser.getDiagnostics().filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+
+        const qualifiers = (members: StructDecl["members"]) =>
+            members
+                .filter((member): member is FunctionDecl | FunctionTemplateDecl => member.kind === AstKind.FUNCTION || member.kind === AstKind.FUNCTION_TEMPLATE)
+                .map((member) => [member.name, member.isConst ?? false, member.isStatic ?? false]);
+        const record = unit.declarations.find((declaration): declaration is StructDecl => declaration.kind === AstKind.STRUCT && declaration.name === "S")!;
+        const template = unit.declarations.find((declaration): declaration is ClassTemplateDecl => declaration.kind === AstKind.CLASS_TEMPLATE)!;
+
+        expect(qualifiers(record.members)).toEqual([
+            ["a", true, false],
+            ["b", false, false],
+            ["c", false, true],
+            ["d", true, false],
+            ["e", false, true],
+        ]);
+        expect(qualifiers(template.members)).toEqual([
+            ["get", true, false],
+            ["mut", false, false],
+        ]);
     });
 });

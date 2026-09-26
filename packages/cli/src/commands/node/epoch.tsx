@@ -125,8 +125,8 @@ export function Epoch({ commandArgs }: { commandArgs: CommandArguments }) {
                         ["tick", `${e.tick} → ${r.tick}`],
                         ["new epoch start tick", String(r.initialTick)],
                     ]);
-                } else if (o.sub) {
-                    throw new Error(`unknown subcommand '${o.sub}' (use: advance)`);
+                } else if (o.sub && o.sub !== "show") {
+                    throw new Error(`unknown subcommand '${o.sub}' (use: show | advance)`);
                 } else {
                     factsRef.current = {
                         ...NO_EPOCH_FACTS,

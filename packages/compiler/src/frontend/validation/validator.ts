@@ -136,7 +136,7 @@ export class Validator {
     ): void {
         return expressionValidator.checkExpression(this, root, memberFns, allLocals, constParams, scopes);
     }
-    // Assignment roots must be mutable; accessor results are read-only views.
+    // Assignment roots must be mutable locals or parameters; a const view is caught by the backend, which has the declared types.
     checkAssignTarget(
         target: Expression,
         constParams: Set<string>,

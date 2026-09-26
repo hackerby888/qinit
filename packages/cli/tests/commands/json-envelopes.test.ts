@@ -10,7 +10,7 @@ import { seedJsonResult } from "../../src/commands/deploy-interact/seed";
 import { systemJsonResult } from "../../src/commands/deploy-interact/system";
 
 test("every command that renders a document advertises --json in its metadata", () => {
-    for (const command of ["seed", "runtime", "compiler", "system", "gen", "doctor", "clean", "integrate"] as const) {
+    for (const command of ["seed", "runtime", "compiler", "system", "gen", "doctor", "clean", "integrate", "oracle"] as const) {
         expect(META[command].json, command).toBe(true);
     }
 });

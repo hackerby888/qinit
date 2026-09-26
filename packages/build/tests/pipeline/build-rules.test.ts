@@ -1,7 +1,8 @@
 // The build gate: which analyzer findings fail a build, for which contract kind, and how it is switched off.
 import { afterEach, expect, test } from "bun:test";
 import { analyzeContract, DiagnosticSeverity, SourceAnalysisOrigin } from "@qinit/compiler/analyzer";
-import { BUILD_GATE_RULES, buildGateRejection, buildGateViolations, buildRulesEnabled } from "../../src";
+import { LOG_AMBIGUITY_HINT } from "@qinit/compiler";
+import { BUILD_GATE_RULES, buildGateRejection, buildGateViolations, buildGateWarnings, buildRulesEnabled } from "../../src";
 
 const originalEnv = process.env.QINIT_BUILD_RULES;
 afterEach(() => {
@@ -56,6 +57,22 @@ test("a bare div fails a user contract with a line number and the QPI:: spelling
 
 test("a system contract keeps its bare div: core's own code is exempt from the user rules", () => {
     expect(buildGateViolations(diagnostics(), { contractKind: "system" })).toEqual([]);
+});
+
+// the same finding is a rejection for the developer's contract and a warning for core's, which nobody here can change
+test("indistinguishable logs fail a user contract and only warn a system one", () => {
+    const finding = {
+        origin: SourceAnalysisOrigin.COMPILER,
+        code: "compiler/semantic",
+        severity: DiagnosticSeverity.WARNING,
+        message: `log structs A and B both log 24 bytes and ${LOG_AMBIGUITY_HINT}: neither has a _type field`,
+        span: { start: 0, end: 0, line: 4, column: 1 },
+    };
+
+    expect(buildGateViolations([finding], { contractKind: "user" })).toEqual([`line 4: ${finding.message}`]);
+    expect(buildGateWarnings([finding], { contractKind: "user" })).toEqual([]);
+    expect(buildGateViolations([finding], { contractKind: "system" })).toEqual([]);
+    expect(buildGateWarnings([finding], { contractKind: "system" })).toEqual([`line 4: ${finding.message}`]);
 });
 
 test("buildRules:false and QINIT_BUILD_RULES=off drop the user rules only", () => {

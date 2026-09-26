@@ -16,6 +16,10 @@ export function emitAssignment(context: FunctionEmissionContext, expression: Ass
     }
 
     const target = context.lowering.resolveExpressionAddress(context, expression.left);
+    if (target?.readOnly) {
+        context.programAnalysis.error(`cannot assign to read-only '${describeShape(expression.left)}': ${target.readOnly}`, expression.span);
+        return;
+    }
 
     if (tryEmitUint128Assignment(context, expression, target)) {
         return;

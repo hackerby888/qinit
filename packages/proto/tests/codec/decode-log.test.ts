@@ -123,7 +123,7 @@ test("tail vs internal padding disambiguate by logged size, not sizeof", async (
     expect(b.fields).toEqual({ a: 1, b: 2n });
 });
 
-test("ambiguous size -> hex fallback (no name/fields)", async () => {
+test("ambiguous size -> hex fallback naming the candidates (no name/fields)", async () => {
     const cat = [
         log("A", [
             ["a", AbiScalarKind.UINT32],
@@ -134,7 +134,16 @@ test("ambiguous size -> hex fallback (no name/fields)", async () => {
     const d = await decodeLog(6, 8, hexOf(le(1, 8)), cat);
     expect(d.name).toBeUndefined();
     expect(d.fields).toBeUndefined();
+    expect(d.candidates).toEqual(["A", "B"]);
     expect(d.hex).toBe("0x0100000000000000");
+});
+
+// a caller that keeps only the record must still see hex, not an exception that drops every log of the entry
+test("hex that is not hex -> the bare record, no throw", async () => {
+    const d = await decodeLog(6, 8, "zz", [log("A", [["a", AbiScalarKind.UINT64]])]);
+    expect(d.name).toBeUndefined();
+    expect(d.candidates).toBeUndefined();
+    expect(d.hex).toBe("0xzz");
 });
 
 const AMOUNT_SHAPE: Array<[string, AbiScalarKind]> = [
@@ -165,7 +174,27 @@ test("a _type word no entry recorded falls back to hex", async () => {
 test("an entry without recorded values stays ambiguous next to a typed one that does not match", async () => {
     const untyped = log("OtherLog", AMOUNT_SHAPE);
     expect((await decodeLog(6, 16, amountRecord(4, 1), [TRADE, untyped])).name).toBe("OtherLog");
-    expect((await decodeLog(6, 16, amountRecord(3, 1), [TRADE, untyped])).name).toBeUndefined();
+    const both = await decodeLog(6, 16, amountRecord(3, 1), [TRADE, untyped]);
+    expect(both.name).toBeUndefined();
+    expect(both.candidates).toEqual(["TradeLog", "OtherLog"]);
+});
+
+test("a single size match that fails to decode names no candidates", async () => {
+    const d = await decodeLog(6, 16, hexOf(le(1, 4)), [TRADE]);
+    expect(d.name).toBeUndefined();
+    expect(d.candidates).toBeUndefined();
+});
+
+// the header type is the one tag every log carries, so two untagged structs of one size still decode when each is logged at its own severity
+test("same-size structs without a _type word decode by the severity the IDL recorded", async () => {
+    const failed = { ...log("FailedLog", AMOUNT_SHAPE), severities: [4] };
+    const done = { ...log("DoneLog", AMOUNT_SHAPE), severities: [6] };
+    const untraced = log("AnyLog", AMOUNT_SHAPE);
+
+    expect((await decodeLog(4, 16, amountRecord(0, 1), [failed, done])).name).toBe("FailedLog");
+    expect((await decodeLog(6, 16, amountRecord(0, 1), [failed, done])).name).toBe("DoneLog");
+    expect((await decodeLog(7, 16, amountRecord(0, 1), [failed, done])).name).toBeUndefined();
+    expect((await decodeLog(4, 16, amountRecord(0, 1), [done, untraced])).name).toBe("AnyLog");
 });
 
 test("no size match -> hex fallback", async () => {

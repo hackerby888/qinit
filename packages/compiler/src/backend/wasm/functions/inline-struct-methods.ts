@@ -4,6 +4,7 @@ import { FunctionEmissionContext, ResolvedAddress, EMPTY_TEMPLATE_BINDINGS } fro
 import type { TypeSpec, Expression, Statement, FunctionDecl } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { addrIr } from "../memory/memory-operations";
+import { constQualifiedTarget, rejectMutatingCallOnReadOnly } from "../memory/address-resolution";
 // Resolve reference-returning inline member calls as addresses.
 export function tryInlineStructMethod(
     context: FunctionEmissionContext,
@@ -21,12 +22,14 @@ export function tryInlineStructMethod(
         (member) => member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === method && (member as FunctionDecl).body,
     ) as FunctionDecl | undefined;
     if (!fn) return null;
+    rejectMutatingCallOnReadOnly(context, objNode, fn, `${struct.name}::${method}`, expression.span);
     // Keep scalar-returning methods on the normal value-call path.
     const returnsAddress = (type: TypeSpec): boolean =>
         type.kind === AstKind.REFERENCE || type.kind === AstKind.POINTER || (type.kind === AstKind.CONST && returnsAddress(type.valueType));
     if (!returnsAddress(fn.returnType)) return null;
     const addr = emitInlineStructMethod(context, objNode, fn, expression.callArguments);
-    return { addr, type: objNode.type, size: objNode.size, layout: objNode.layout };
+    const readOnly = constQualifiedTarget(fn.returnType) ? `${struct.name}::${method} returns a const reference` : undefined;
+    return { addr, type: objNode.type, size: objNode.size, layout: objNode.layout, readOnly };
 }
 export function inlineMethodInfo(
     context: FunctionEmissionContext,

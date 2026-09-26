@@ -3,7 +3,7 @@ import { jsonToInputFormat, encodeInputJson, encodeInputFormat, decodeAbi, hasOv
 import { callFunction } from "../../src/call";
 import { linkedListGeometry } from "../../src/qpi-layout";
 import { AbiScalarKind, AbiTypeKind, type AbiStruct, type AbiType } from "../../src/contract-idl";
-import { arr, ba, ll, st, u8, validated } from "./abi-builders";
+import { arr, ba, i8, ll, named, st, u16, u8, validated } from "./abi-builders";
 
 test("jsonToInputFormat: flat scalars by field name", () => {
     expect(jsonToInputFormat([{ name: "value", type: "uint64" }], { value: 3 })).toBe("3uint64");
@@ -105,6 +105,30 @@ test("encodeInputJson: m256i field round-trips (64-hex -> 32 bytes)", async () =
     const b = await encodeInputJson([{ name: "d", type: "m256i" }], { d: dg });
     expect(b.length).toBe(32);
     expect(await decodeAbi(b, "m256i")).toBe(dg);
+});
+
+test("a byte array takes a hex string on both json paths, so a `qinit sign` signature pastes as-is", async () => {
+    const signature = "0dc5ee03".padEnd(126, "a") + "ff";
+    const typed = named(["signature", arr(i8, 64)], ["n", u8]);
+    const bytes = await encodeInputJson(typed, { signature, n: 7 });
+    expect([...bytes.subarray(0, 64)]).toEqual([...Buffer.from(signature, "hex")]);
+    expect(bytes[64]).toBe(7);
+    expect((await decodeAbi(bytes, typed))[0].at(-1)).toBe(-1);
+
+    const fields = [
+        { name: "signature", type: "[64;sint8]" },
+        { name: "n", type: "uint8" },
+    ];
+    expect(await encodeInputJson(fields, { signature: `0x${signature}`, n: 7 })).toEqual(bytes);
+    expect(await encodeInputJson(named(["key", arr(u8, 4)]), { key: "00ff7f80" })).toEqual(new Uint8Array([0, 255, 127, 128]));
+    expect(await encodeInputJson([{ name: "key", type: "[4;uint8]" }], { key: "00ff7f80" })).toEqual(new Uint8Array([0, 255, 127, 128]));
+});
+
+test("a byte-array hex string must be exact hex of the array's length; wider elements still need a json array", async () => {
+    await expect(encodeInputJson(named(["key", arr(u8, 4)]), { key: "00ff7f" })).rejects.toThrow("array '[4;uint8]': expected 4-byte hex, got 3");
+    await expect(encodeInputJson([{ name: "key", type: "[4;uint8]" }], { key: "00ff7fzz" })).rejects.toThrow("array '[4;uint8]': invalid hex");
+    await expect(encodeInputJson(named(["words", arr(u16, 2)]), { words: "00ff7f80" })).rejects.toThrow("array '[2;uint16]' needs a JSON array");
+    await expect(encodeInputJson([{ name: "words", type: "[2;uint16]" }], { words: "00ff7f80" })).rejects.toThrow("array '[2;uint16]' needs a JSON array");
 });
 
 test("encodeInputJson: deep nested array-of-structs (positional) round-trips", async () => {
