@@ -101,6 +101,15 @@ const ACCEPTED: Record<string, string> = {
         `state.mut().a = state.get().arr.get(0) + state.get().arr.capacity() + (state.get().flags.get(3) ? 1 : 0) + (state.get().m.value(0).flags.get(40) ? 1 : 0) + state.get().l.element(0).tag;`,
     ),
     "a by-value element is a temporary, so its members stay mutable": constView(`state.mut().coll.element(0).flags.set(1, true);`),
+    "a struct named like a container's private node type": `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Node { uint64 tag; uint64 other; };
+  struct StateData { uint64 a; LinkedList<Node, 8> l; };
+  struct Go_input {}; struct Go_output {};
+  PUBLIC_PROCEDURE(Go) { state.mut().a = state.get().l.element(0).tag; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};`,
 };
 
 const ourErrors = async (source: string) => {
