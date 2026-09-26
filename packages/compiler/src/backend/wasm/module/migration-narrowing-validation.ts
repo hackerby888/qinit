@@ -14,9 +14,8 @@ const MAX_FIELD_DEPTH = 8;
 /** The signed QPI scalars; everything else in `SCALAR_SIZE` that this rule judges is unsigned. */
 const SIGNED_SCALARS: ReadonlySet<string> = new Set(["sint8", "sint16", "sint32", "sint64"]);
 
-// A migration rewrites persisted state once, irreversibly, on a deployed contract. C++ permits both a
-// narrowing and a signedness change implicitly, so no compiler refuses either — this is the only thing that
-// says so. It warns rather than errors: narrowing after proving the range is a legitimate thing to do.
+// A migration rewrites persisted state once, irreversibly. C++ permits a narrowing and a signedness change
+// implicitly, so nothing else says so; it warns because narrowing a proven range is legitimate.
 export function validateMigrationNarrowing(prepared: PreparedContractModule): void {
     const contract = prepared.contract;
 

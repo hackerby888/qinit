@@ -9,12 +9,8 @@ const CORE = process.env.QINIT_CORE ?? "";
 const CORE_SOURCE_ROOT = join(CORE, "src");
 const hasCore = CORE !== "" && existsSync(CORE_SOURCE_ROOT);
 
-// Core checks a contract's log payload with `static_assert`s that live in a header the wrapper includes
-// AFTER the contract, so the editor's translation unit — a strict prefix of the build's — never carries
-// them. Round 29 measured that: the build refuses a payload whose `_terminator` is not last, and clangd
-// says nothing about the same file for over two minutes. qinit's own analyzer is the editor's only source
-// for those rules, and it happens to cover all of them today. Nothing keeps that true, which is what this
-// records: the region's checks, so that a core release adding one to it fails here instead of going quiet.
+// The editor's prefix never carries core's post-contract `static_assert`s, so qinit's analyzer is its only
+// source for them. This records the region's checks, so a core release adding one fails here, not quietly.
 const CHECKS_ONLY_THE_BUILD_SEES: ReadonlyArray<[string, number]> = [
     ["extensions/wasm/sdk/lhost_imports.h", 8],
     ["extensions/wasm/sdk/qpi_forwarders.h", 3],
@@ -110,11 +106,8 @@ test.if(hasCore)("the editor's own analyzer still covers every log rule core ass
     );
 });
 
-// Round 31 swept every container method that can touch a user-supplied type — Collection and LinkedList with
-// a bare element struct, HashMap and HashSet with a bare value and a key that declares `operator==`, and
-// element types carrying a nested container. All three oracles agreed on every one, so the key comparison
-// E27 reports is the only thing these bodies ask of a contract's own type. That holds only while the set of
-// containers whose bodies live past the contract stays put, which is what this pins.
+// Round 31 swept every container method that can touch a user-supplied type and found one requirement. That
+// bound holds only while the set of containers whose bodies live past the contract stays put, so pin it.
 const CONTAINERS_DEFINED_PAST_THE_CONTRACT = ["Collection", "HashMap", "HashSet", "LinkedList"];
 
 test.if(hasCore)("only these containers keep their method bodies past the editor's prefix", () => {
@@ -127,15 +120,12 @@ test.if(hasCore)("only these containers keep their method bodies past the editor
     const definedPastTheContract = containerNames.filter((name) => implSources.some((source) => new RegExp(`\\b${name}\\s*<[^>]*>::`).test(source))).sort();
 
     // Array, BitArray and SlowAnySizeArray define every body inline in `qpi_containers.h`, which the prefix
-    // carries, so the editor type-checks their uses in full. A container moving out of that group would take
-    // its bodies out of the editor's reach, and every requirement in them with it.
+    // carries. One moving out of that group takes its bodies, and every requirement in them, out of reach.
     expect(definedPastTheContract).toEqual(CONTAINERS_DEFINED_PAST_THE_CONTRACT);
 });
 
-// Round 32 measured the region itself rather than guessing at it. Core splits its `qpi/impl` headers: the
-// proposals, oracle and trivial impls are included BEFORE the contract and are in the editor's prefix, while
-// these three arrive after it. That split is the whole of the editor's blind region — a contract with a
-// custom proposal data type missing a member is reported by clangd, a hash key missing `operator==` is not.
+// Core splits its `qpi/impl` headers: proposals, oracle and trivial land in the editor's prefix, these three
+// after it. That split is the whole blind region, so a change to it changes what the editor can see.
 const INCLUDED_AFTER_THE_CONTRACT = [
     "extensions/wasm/sdk/module_runtime.h",
     "qpi/impl/qpi_collection_impl.h",

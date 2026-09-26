@@ -473,8 +473,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(findings[0].severity).toBe(DiagnosticSeverity.ERROR);
     });
 
-    // A migration rewrites persisted state once, irreversibly, on a deployed contract. C++ permits a narrowing
-    // and a signedness change implicitly, so no compiler refuses either and this rule is the only warning.
     const MIGRATION_SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -529,9 +527,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(compilerDiagnostics(withoutMigration).filter((item) => item.message.includes("migration narrows"))).toEqual([]);
     });
 
-    // A container's method bodies arrive in a header the wrapper includes after the contract, so the editor
-    // never instantiates them and never learns what they require of a contract's own types. The check compiles
-    // the body lowering would compile, so it names no container, method or operator of its own.
     const HASH_KEY_SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -557,8 +552,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         ]);
     });
 
-    // Three shapes both compilers accept. Reporting any of them would spend the property this campaign values
-    // most, so each one is pinned: the operator declared, a scalar key, and a method that never compares.
+    // Three shapes both compilers accept: the operator declared, a scalar key, and a method that never compares.
     test("a container body that compiles for the contract's types is not reported", () => {
         const withEquals = "bit operator==(const Pair& other) const { return left == other.left && right == other.right; }";
         expect(hashKeyDiagnostics("HashMap<Pair, uint64, 8> byPair;", "state.mut().byPair.set(locals.key, input.amount);", withEquals)).toEqual([]);

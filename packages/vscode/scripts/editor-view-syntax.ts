@@ -1,6 +1,5 @@
-// Round 30: the quadrant the campaign never measured — code the editor squiggles that the build accepts.
-// clangd type-checks the contract behind the generated prefix, which round 29 showed is a strict prefix of
-// the build's wrapper, so this reproduces that translation unit exactly and runs the same front end over it.
+// Round 30: the quadrant never measured — code the editor squiggles that the build accepts. Reproduces the
+// editor's translation unit exactly, then runs the same front end over it.
 import { execFileSync } from "node:child_process";
 import { globSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

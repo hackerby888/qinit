@@ -258,8 +258,8 @@ function targetOfSpelledType(programAnalysis: ProgramAnalysis, type: TypeSpec, b
     return structDeclaration ? structTarget(programAnalysis, structDeclaration, bindings, scopeOf(resolved) ?? scope) : undefined;
 }
 
-// A callee's types are registered qualified but spelled bare inside it, so the scoped spelling is tried first, as C++ resolves a name in the enclosing class first.
-// The scope belongs to the name rather than to what it names, so this runs before resolution: an alias is reachable only under the spelling it was registered with.
+// A callee's types are registered qualified but spelled bare inside it, so the scoped spelling is tried first, as C++ does.
+// The scope belongs to the name, not to what it names, so this runs before resolution: an alias is reachable only as registered.
 function targetOfType(programAnalysis: ProgramAnalysis, type: TypeSpec | undefined, bindings: TemplateBindings, scope?: string): Target | undefined {
     if (!type) return undefined;
     const spelled = stripPtrRefConst(type);

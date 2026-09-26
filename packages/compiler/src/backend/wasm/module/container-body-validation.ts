@@ -2,18 +2,15 @@ import { AstKind } from "../../../shared/enums";
 import type { Expression, FunctionDecl, TypeSpec } from "../../../ast";
 import { walkExpressions } from "../../../frontend/validation/control-flow-validator";
 import { compileContainerMethod } from "../calls/containers";
-// Compiling a body needs the lowering services, which register themselves when this module loads. The
-// analyzer does not otherwise pull them in, and leaving that to another import's side effect would make
-// the check work or not by accident of who else was loaded.
+// The lowering services register themselves on load and the analyzer does not otherwise pull them in, so
+// importing them here keeps the check from working or not by accident of who else was loaded.
 import "../functions/function-lowering-services";
 import { collectPayloadRoots, resolvePayload, visitStatement } from "./log-call-validation";
 import type { PayloadRoots } from "./log-call-validation";
 import type { PreparedContractModule } from "./module-analysis";
 
-// A container's method bodies live in a header the wrapper includes AFTER the contract, so the editor's
-// translation unit never instantiates them and nothing it runs reports what they require of a contract's
-// own types. Lowering finds out by compiling the body; this compiles the same body, at the same call, in
-// the phase the editor reaches — so whatever a body needs is reported without naming any requirement here.
+// A container's bodies live past the contract, so the editor never instantiates them and never learns what
+// they require. Compiling the same body lowering compiles reports that without naming any requirement here.
 export function validateContainerCalls(prepared: PreparedContractModule): void {
     const contract = prepared.contract;
 
@@ -63,13 +60,12 @@ function instantiateCalledBody(prepared: PreparedContractModule, roots: PayloadR
         // The body's own verdict is read from the error list below; the throw itself says only that it stopped.
     }
 
-    // Only an error counts. Compiling a body speculatively can fail for reasons that are not the contract's
-    // — lowering services absent in a caller that only wanted an analysis, most of all — and those arrive as
-    // a warning. Reporting them would squiggle working code wherever this runs less equipped than a build.
+    // Only an error counts: a speculative compile can fail for reasons that are not the contract's — absent
+    // lowering services above all — and those arrive as a warning that would squiggle working code.
     const rejection = programAnalysis.errors[errorBase]?.message;
 
-    // A body reports against its own header, which is not a file the developer has open, and a speculative
-    // instantiation must not leave its workings behind either way. Both lists go back to where they were.
+    // A body reports against its own header, which the developer does not have open, so neither list keeps
+    // what a speculative instantiation put there.
     programAnalysis.errors.length = errorBase;
     programAnalysis.warnings.length = warningBase;
 
