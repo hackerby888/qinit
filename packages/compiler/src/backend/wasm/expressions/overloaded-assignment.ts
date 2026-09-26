@@ -33,7 +33,7 @@ export function tryEmitOverloadedAssignment(context: FunctionEmissionContext, ex
     }
 
     const operatorName = `operator${expression.operator}`;
-    const declarer = operatorOwner(context, targetType.name, operatorName, 1);
+    const declarer = operatorOwner(context.programAnalysis, targetType.name, operatorName, 1, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
 
     if (!declarer) {
         return false;

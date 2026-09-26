@@ -473,6 +473,94 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(findings[0].severity).toBe(DiagnosticSeverity.ERROR);
     });
 
+    const MIGRATION_SOURCE = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct OldStateData { OLD_FIELDS };
+  struct StateData { NEW_FIELDS };
+  struct Go_input {}; struct Go_output {};
+  MIGRATE() { state.mut().epoch = oldState.epoch; }
+  PUBLIC_PROCEDURE(Go) { state.mut().epoch = 1; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};`;
+
+    function migrationFindings(oldFields: string, newFields: string) {
+        const source = MIGRATION_SOURCE.replace("OLD_FIELDS", oldFields).replace("NEW_FIELDS", newFields);
+        return compilerDiagnostics(source).filter((item) => item.message.includes("migration narrows"));
+    }
+
+    test("a migration that cannot carry a persisted value over is warned about, not refused", () => {
+        const truncating = migrationFindings("uint64 balance; uint32 epoch;", "uint32 balance; uint32 epoch;");
+        expect(truncating.map((item) => item.message)).toEqual([
+            "migration narrows persisted field 'balance': uint64 to uint32 truncates. Every stored value outside the new range is rewritten once, irreversibly",
+        ]);
+        // A warning, deliberately: narrowing after proving the range is a legitimate thing to do.
+        expect(truncating[0].severity).toBe(DiagnosticSeverity.WARNING);
+
+        expect(migrationFindings("sint64 balance; uint32 epoch;", "uint64 balance; uint32 epoch;")).toHaveLength(1);
+        expect(migrationFindings("uint64 balance; uint32 epoch;", "sint64 balance; uint32 epoch;")).toHaveLength(1);
+    });
+
+    test("a migration that keeps every persisted value is not warned about", () => {
+        // Widening, no change, a field only the new state has, and a field only the old state had.
+        expect(migrationFindings("uint32 balance; uint32 epoch;", "uint64 balance; uint32 epoch;")).toEqual([]);
+        expect(migrationFindings("uint64 balance; uint32 epoch;", "uint64 balance; uint32 epoch;")).toEqual([]);
+        expect(migrationFindings("uint32 epoch;", "uint64 balance; uint32 epoch;")).toEqual([]);
+        expect(migrationFindings("uint64 balance; uint32 epoch;", "uint32 epoch;")).toEqual([]);
+    });
+
+    test("a narrowing nested inside a state struct is found, and a contract without a migration is silent", () => {
+        const nested = migrationFindings("struct Inner { uint64 amount; } inner; uint32 epoch;", "struct Inner { uint32 amount; } inner; uint32 epoch;");
+        expect(nested.map((item) => item.message)).toEqual([
+            "migration narrows persisted field 'inner.amount': uint64 to uint32 truncates. Every stored value outside the new range is rewritten once, irreversibly",
+        ]);
+
+        const withoutMigration = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct OldStateData { uint64 balance; };
+  struct StateData { uint32 balance; };
+  struct Go_input {}; struct Go_output {};
+  PUBLIC_PROCEDURE(Go) { state.mut().balance = 1; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};`;
+        expect(compilerDiagnostics(withoutMigration).filter((item) => item.message.includes("migration narrows"))).toEqual([]);
+    });
+
+    const HASH_KEY_SOURCE = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Pair { uint64 left; uint64 right; PAIR_EQUALS };
+  struct StateData { CONTAINER };
+  struct Put_input { uint64 left; uint64 amount; }; struct Put_output { bit stored; };
+  struct Put_locals { Pair key; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Put) { locals.key.left = input.left; CALL_UNDER_TEST }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Put, 1); }
+};`;
+
+    function hashKeyDiagnostics(container: string, callUnderTest: string, pairEquals = "") {
+        const source = HASH_KEY_SOURCE.replace("CONTAINER", container).replace("CALL_UNDER_TEST", callUnderTest).replace("PAIR_EQUALS", pairEquals);
+        return compilerDiagnostics(source).map((item) => item.message);
+    }
+
+    test("a container body that rejects the contract's types is reported at the call", () => {
+        expect(hashKeyDiagnostics("HashMap<Pair, uint64, 8> byPair;", "state.mut().byPair.set(locals.key, input.amount);")).toEqual([
+            "HashMap::set rejects this contract's types: no viable operator== for 'Pair'",
+        ]);
+        expect(hashKeyDiagnostics("HashSet<Pair, 8> seen;", "state.mut().seen.add(locals.key);")).toEqual([
+            "HashSet::add rejects this contract's types: no viable operator== for 'Pair'",
+        ]);
+    });
+
+    // Three shapes both compilers accept: the operator declared, a scalar key, and a method that never compares.
+    test("a container body that compiles for the contract's types is not reported", () => {
+        const withEquals = "bit operator==(const Pair& other) const { return left == other.left && right == other.right; }";
+        expect(hashKeyDiagnostics("HashMap<Pair, uint64, 8> byPair;", "state.mut().byPair.set(locals.key, input.amount);", withEquals)).toEqual([]);
+        expect(hashKeyDiagnostics("HashMap<uint64, uint64, 8> byPair;", "state.mut().byPair.set(input.left, input.amount);")).toEqual([]);
+        expect(hashKeyDiagnostics("HashMap<id, uint64, 8> byId;", "state.mut().byId.set(qpi.invocator(), input.amount);")).toEqual([]);
+        expect(hashKeyDiagnostics("HashMap<Pair, uint64, 8> byPair;", "output.stored = state.get().byPair.population() > 0;")).toEqual([]);
+    });
+
     // The same contract without the collision must stay silent, or the check is reading the wrong thing.
     test("an assignment from an enum constant nothing hides is not reported", () => {
         const clean = `using namespace QPI;

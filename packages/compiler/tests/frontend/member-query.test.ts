@@ -176,6 +176,54 @@ struct Quote : public ContractBase {
     expect(at("Quote::Make_input", ["info", "bc"])).toContain("setAll");
 });
 
+// A callee registers its typedefs under `Callee::Alias` only, so a field spelled with the bare alias is a name no
+// table holds. The struct beside it resolved because the struct lookup re-qualified; the alias had no such path.
+test("completes through a callee's typedef spelled bare", () => {
+    const source = `using namespace QPI;
+
+struct Vault : public ContractBase {
+    typedef Array<uint64, 8> Hist;
+    using Recent = Array<uint64, 4>;
+    struct StateData { uint64 dummy; };
+    struct Tier { sint16 rank; };
+    struct Get_input { Hist hist; Recent recent; Tier tier; };
+    struct Get_output { uint64 value; };
+
+    PUBLIC_FUNCTION(Get) { output.value = 0; }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+};
+`;
+    const callees = [{ name: "Vault", source, slot: 31 }];
+    const caller = `using namespace QPI;
+
+struct Teller : public ContractBase {
+    struct StateData { uint64 dummy; };
+    struct Read_input {};
+    struct Read_output { uint64 value; };
+    struct Read_locals { Vault::Get_input in; };
+
+    PUBLIC_FUNCTION_WITH_LOCALS(Read)
+    {
+        MARKER
+        output.value = 0;
+    }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Read, 1); }
+};
+`;
+
+    expect(names(complete(caller, "Teller", "locals.in.", callees))).toEqual(["hist", "recent", "tier"]);
+    expect(names(complete(caller, "Teller", "locals.in.hist.", callees))).toContain("setAll");
+    expect(names(complete(caller, "Teller", "locals.in.recent.", callees))).toContain("setAll");
+    expect(names(complete(caller, "Teller", "locals.in.tier.", callees))).toEqual(["rank"]);
+
+    // The gtest path reaches the same field through a spelled root type, and was blind to the alias too.
+    const at = (path: string[]) => names(completeMembersOfType({ rootTypeText: "Vault::Get_input", path, calleeSources: callees }));
+    expect(at(["hist"])).toContain("setAll");
+    expect(at(["recent"])).toContain("setAll");
+});
+
 test("answers nothing for a type it cannot resolve", () => {
     // `auto` clangd could not deduce, an unknown name, and a hop that is not a member.
     expect(ofType("auto &")).toBeUndefined();

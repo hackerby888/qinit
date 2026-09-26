@@ -213,6 +213,13 @@ function ensureClangdConfig(workspaceRoot: string, databaseDir: string, sourcePa
     return { path, configured: true, rewritten: true };
 }
 
+// The editor compiles the contract behind this preamble, so its translation unit is a strict prefix of the
+// build's: whatever the wrapper includes after the contract, clangd never sees. Exported so a test can say so.
+export function editorPrefixSource(wrapper: string, contractFile: string): string {
+    const includeOffset = wrapper.indexOf(`#include "${contractFile}"`);
+    return includeOffset >= 0 ? wrapper.slice(0, includeOffset) : wrapper;
+}
+
 // a `.clangd` this extension wrote when a subfolder was the workspace root still names that root's database, and clangd
 // lets it override the root one for the whole subtree; files it never listed then parse with a neighbour's flags.
 function removeShadowingConfigs(workspaceRoot: string, sourcePath: string): boolean {
@@ -233,9 +240,7 @@ function removeShadowingConfigs(workspaceRoot: string, sourcePath: string): bool
 export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
     const details = sourceDetails(o);
     const wrapper = generateWasmWrapperSource(details.options);
-    const contractInclude = `#include "${details.contractFile}"`;
-    const includeOffset = wrapper.indexOf(contractInclude);
-    const preamble = includeOffset >= 0 ? wrapper.slice(0, includeOffset) : wrapper;
+    const preamble = editorPrefixSource(wrapper, details.contractFile);
     const prefixPath = join(details.dir, `${details.name}.prefix.h`);
     writeFileSync(prefixPath, preamble);
 

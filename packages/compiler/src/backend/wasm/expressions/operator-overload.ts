@@ -2,6 +2,8 @@ import { AstKind, BinaryOp, WatNodeType } from "../../../shared/enums";
 import type { Expression, FunctionDecl, FunctionTemplateDecl, StructDecl, TypeSpec } from "../../../ast";
 import * as watIr from "../wat-ir";
 import { EMPTY_TEMPLATE_BINDINGS, type CompiledHelperMetadata, type FunctionEmissionContext } from "../types";
+import type { ProgramAnalysis } from "../../../semantics/program-analysis";
+import type { TemplateBindings } from "../../../semantics/types";
 import { addrIr, narrowCastIr } from "../memory/memory-operations";
 import { compileLibraryFunction } from "../calls/library-function-compiler";
 
@@ -177,19 +179,25 @@ export function classOperandType(
 }
 
 // Methods are indexed under both the qualified and unqualified name depending on where the type was declared, so a lookup tries both — QPI::DateAndTime does.
-export function operatorOwner(context: FunctionEmissionContext, className: string, operatorName: string, arity: number): TypeSpec | null {
+export function operatorOwner(
+    programAnalysis: ProgramAnalysis,
+    className: string,
+    operatorName: string,
+    arity: number,
+    templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
+): TypeSpec | null {
     // Ask the class the name resolves to, and its bases, as member lookup does; the name-keyed table would report whatever other class shares the spelling.
-    const declaration = context.programAnalysis.structByName(className, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
+    const declaration = programAnalysis.structByName(className, templateBindings);
 
     // The walk covers the bases, so a class inheriting every method still finds one — it runs even when the class owns none, which is when it has no entry.
-    const declarer = declaration ? operatorDeclarer(context, declaration, operatorName, arity, 0) : null;
+    const declarer = declaration ? operatorDeclarer(programAnalysis, declaration, operatorName, arity, 0) : null;
 
     if (declarer) {
         return declarer;
     }
 
     // A class that does own methods has been asked and answered; consulting the name-keyed table now would report whatever other class shares the spelling.
-    if (declaration && context.programAnalysis.methodsByDeclaration.has(declaration)) {
+    if (declaration && programAnalysis.methodsByDeclaration.has(declaration)) {
         return null;
     }
 
@@ -197,7 +205,7 @@ export function operatorOwner(context: FunctionEmissionContext, className: strin
     const candidates = separator >= 0 ? [className, className.slice(separator + 2)] : [className];
 
     for (const candidate of candidates) {
-        const methods = context.programAnalysis.templateMethods.get(candidate);
+        const methods = programAnalysis.templateMethods.get(candidate);
 
         if (methods && (methods.has(`${operatorName}/${arity}`) || methods.has(operatorName))) {
             return { kind: AstKind.NAME, name: candidate };
@@ -208,8 +216,8 @@ export function operatorOwner(context: FunctionEmissionContext, className: strin
 }
 
 /** Which class declares the operator: the one asked, or the base it inherits from — returned as the type the derived class names, so the body compiles. */
-function operatorDeclarer(context: FunctionEmissionContext, declaration: StructDecl, operatorName: string, arity: number, depth: number): TypeSpec | null {
-    const methods = context.programAnalysis.methodsByDeclaration.get(declaration);
+function operatorDeclarer(programAnalysis: ProgramAnalysis, declaration: StructDecl, operatorName: string, arity: number, depth: number): TypeSpec | null {
+    const methods = programAnalysis.methodsByDeclaration.get(declaration);
 
     if (methods && (methods.has(`${operatorName}/${arity}`) || methods.has(operatorName))) {
         return { kind: AstKind.NAME, name: declaration.name };
@@ -220,22 +228,22 @@ function operatorDeclarer(context: FunctionEmissionContext, declaration: StructD
     }
 
     for (const base of declaration.bases ?? []) {
-        const resolvedBase = context.programAnalysis.resolveType(base, EMPTY_TEMPLATE_BINDINGS);
-        const baseName = context.programAnalysis.baseTemplateName(resolvedBase);
+        const resolvedBase = programAnalysis.resolveType(base, EMPTY_TEMPLATE_BINDINGS);
+        const baseName = programAnalysis.baseTemplateName(resolvedBase);
         if (!baseName) continue;
 
-        const baseDeclaration = context.programAnalysis.structByName(baseName, EMPTY_TEMPLATE_BINDINGS);
+        const baseDeclaration = programAnalysis.structByName(baseName, EMPTY_TEMPLATE_BINDINGS);
 
         if (baseDeclaration) {
             // A plain base's methods reach the derived class through the owner-name walk, so the class asked stays the target; only a template base names one.
-            if (operatorDeclarer(context, baseDeclaration, operatorName, arity, depth + 1)) {
+            if (operatorDeclarer(programAnalysis, baseDeclaration, operatorName, arity, depth + 1)) {
                 return { kind: AstKind.NAME, name: declaration.name };
             }
             continue;
         }
 
         // A base that is a class template has no struct declaration behind its name: members index under the template's name, arguments live in the base type.
-        const templateMethods = context.programAnalysis.templateMethods.get(baseName);
+        const templateMethods = programAnalysis.templateMethods.get(baseName);
         if (templateMethods && (templateMethods.has(`${operatorName}/${arity}`) || templateMethods.has(operatorName))) {
             return resolvedBase;
         }
@@ -284,7 +292,7 @@ function operatorTarget(
     if (!leftClass) return null;
 
     // The operator may be declared on a base, or under the unqualified spelling of a namespaced class; the operand keeps its own arguments either way.
-    const owner = operatorOwner(context, leftClass.name, operatorName, arity);
+    const owner = operatorOwner(context.programAnalysis, leftClass.name, operatorName, arity, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
     if (!owner) return null;
 
     // A template base answers with its own instantiation; a plain answer naming the operand's own class gives the operand back, so its arguments survive.

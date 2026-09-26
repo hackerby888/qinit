@@ -227,22 +227,11 @@ function structTarget(programAnalysis: ProgramAnalysis, structDeclaration: Struc
     };
 }
 
-// A callee's structs are registered qualified but spelled bare inside the contract, so the scoped spelling is tried first —
-// as C++ does, resolving a bare name in the enclosing class before the global one that would otherwise shadow it.
-function structInScope(programAnalysis: ProgramAnalysis, type: TypeSpec, bindings: TemplateBindings, scope?: string): StructDecl | null {
-    if (scope && type.kind === AstKind.NAME && !type.name.includes("::")) {
-        const scoped = programAnalysis.structOf({ ...type, name: `${scope}::${type.name}` }, bindings);
-        if (scoped) return scoped;
-    }
-    return programAnalysis.structOf(type, bindings);
-}
-
 // `structOf` returns null for a template instance, so an instantiation is the only way to reach HashMap/Array members — the case clangd returns empty for.
-function targetOfType(programAnalysis: ProgramAnalysis, type: TypeSpec | undefined, bindings: TemplateBindings, scope?: string): Target | undefined {
-    if (!type) return undefined;
+function targetOfSpelledType(programAnalysis: ProgramAnalysis, type: TypeSpec, bindings: TemplateBindings, scope?: string): Target | undefined {
     let resolved: TypeSpec;
     try {
-        resolved = programAnalysis.resolveType(stripPtrRefConst(type), bindings);
+        resolved = programAnalysis.resolveType(type, bindings);
     } catch {
         return undefined;
     }
@@ -265,8 +254,20 @@ function targetOfType(programAnalysis: ProgramAnalysis, type: TypeSpec | undefin
     }
     // A qualified type carries the scope its own members' bare type names resolve in: `Tag` written inside
     // `Vault::Get_input` means `Vault::Tag`, and without this the next hop has no scope to re-qualify with.
-    const structDeclaration = structInScope(programAnalysis, resolved, bindings, scope);
+    const structDeclaration = programAnalysis.structOf(resolved, bindings);
     return structDeclaration ? structTarget(programAnalysis, structDeclaration, bindings, scopeOf(resolved) ?? scope) : undefined;
+}
+
+// A callee's types are registered qualified but spelled bare inside it, so the scoped spelling is tried first, as C++ does.
+// The scope belongs to the name, not to what it names, so this runs before resolution: an alias is reachable only as registered.
+function targetOfType(programAnalysis: ProgramAnalysis, type: TypeSpec | undefined, bindings: TemplateBindings, scope?: string): Target | undefined {
+    if (!type) return undefined;
+    const spelled = stripPtrRefConst(type);
+    if (scope && spelled.kind === AstKind.NAME && !spelled.name.includes("::")) {
+        const scoped = targetOfSpelledType(programAnalysis, { ...spelled, name: `${scope}::${spelled.name}` }, bindings, scope);
+        if (scoped) return scoped;
+    }
+    return targetOfSpelledType(programAnalysis, spelled, bindings, scope);
 }
 
 // One field hop: the member's declared type, or a method's return type, resolved as a new receiver.

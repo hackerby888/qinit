@@ -15,6 +15,7 @@ import { SemanticAnalyzer } from "../semantics/semantic-analysis";
 import { prepareContractModule } from "../backend/wasm/module/module-analysis";
 import type { ContractRegistration } from "../backend/wasm/module/registrations";
 import { copyProgramDiagnostics } from "../backend/wasm/module/module-output";
+import { validateContainerCalls } from "../backend/wasm/module/container-body-validation";
 import { buildContractIdl } from "../backend/wasm/idl";
 import { analyzeQpiPolicy, detectQpiContractName } from "./source-policy";
 import { compareDiagnostics } from "./rules/fixes";
@@ -181,6 +182,7 @@ function analyzeCompiler(
             gtestMode: false,
             toleratesUnresolvedCalleeTypes: true,
         });
+        validateContainerCalls(prepared);
         const idl = buildContractIdl(prepared, {
             contractName: compileOptions.contractName,
             slot: compileOptions.slot,

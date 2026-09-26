@@ -12,6 +12,7 @@ import { contextLayoutFromCodegen, type LibrarySymbolIndex, registerLibraryMetad
 import { validateEntryContextConversions } from "./entry-context-validation";
 import { validateHiddenMemberReads } from "./hidden-member-validation";
 import { validateLogCalls } from "./log-call-validation";
+import { validateMigrationNarrowing } from "./migration-narrowing-validation";
 import { ContractLayoutResolver } from "./named-layouts";
 import { type ContractRegistration, registerEntryDispatchTargets, validateContractRegistrations, validateRegistrationInterfaces } from "./registrations";
 import { indexSystemProcedures, type SystemProcedureIndex } from "./system-procedures";
@@ -105,6 +106,7 @@ export function prepareContractModule(request: PrepareContractModuleRequest): Pr
 
     validateLogCalls(prepared);
     validateHiddenMemberReads(prepared);
+    validateMigrationNarrowing(prepared);
     validateEntryContextConversions(prepared);
     return prepared;
 }

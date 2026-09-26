@@ -15,7 +15,7 @@ import {
     typedPrefix,
 } from "./completion-filter";
 import { QpiDiagnostics } from "./diagnostics";
-import { IdlHover } from "./idl-hover";
+import { IdlHover, type TestedContract } from "./idl-hover";
 import { memberFallbackCompletions, type FallbackItem } from "./member-fallback";
 import { type ProjectAnalysisContext, type ProjectSourceDetails, resolveProjectSourceDetails } from "./project-context";
 import { findContractCandidates, findProjectRoot, isContractDoc, isTestDoc, projectContractDocuments, QINIT_JSON, selectTestContract } from "./project-util";
@@ -31,6 +31,9 @@ let filterReported = false;
 let fallbackReported = false;
 // Keyed per document: a contract analyzes under its own name, slot and callees, not the last-regenerated one.
 const contractAnalysisContexts = new Map<string, ProjectAnalysisContext>();
+// The contract a gtest exercises. Completion already resolves one through the context above; the hover
+// reads its IDL, which means analysing the contract itself rather than the test.
+const testedContracts = new Map<string, { path: string; name: string; slot: number; analysis: ProjectAnalysisContext }>();
 // Recorded when the prefix header is generated, read when diagnostics refresh: only the generator knows
 // which callees were dropped, and only the diagnostics collection can put that in front of the developer.
 const droppedCalleesByFile = new Map<string, ReadonlyArray<{ type: string; reason: string }>>();
@@ -380,6 +383,28 @@ function testAnalysisContext(details: ProjectSourceDetails): ProjectAnalysisCont
     return { ...details.analysis, calleeSources };
 }
 
+/** The contract a gtest exercises, read from the open document when there is one so an unsaved edit counts. */
+function testedContractFor(doc: vscode.TextDocument): TestedContract | undefined {
+    const tested = testedContracts.get(doc.fileName);
+    if (!tested) {
+        return undefined;
+    }
+
+    const open = vscode.workspace.textDocuments.find((candidate) => candidate.fileName === tested.path);
+    let source: string;
+    try {
+        source = open ? open.getText() : readFileSync(tested.path, "utf8");
+    } catch {
+        return undefined;
+    }
+
+    return {
+        path: tested.path,
+        source,
+        options: { ...tested.analysis, contractName: tested.name, slot: tested.slot },
+    };
+}
+
 function regenerateTest(doc: vscode.TextDocument, context: vscode.ExtensionContext, fallbackCore: string | undefined, out: vscode.OutputChannel): void {
     const root = workspaceRoot(doc);
     const project = findProjectRoot(doc.fileName);
@@ -421,6 +446,7 @@ function regenerateTest(doc: vscode.TextDocument, context: vscode.ExtensionConte
         });
         // A gtest completes against the contract it exercises, so it analyzes under that contract's context.
         contractAnalysisContexts.set(doc.fileName, testAnalysisContext(sourceDetails));
+        testedContracts.set(doc.fileName, { path: contractPath, name: sourceDetails.name, slot: sourceDetails.slot, analysis: sourceDetails.analysis });
         reportClangdConfig(result.clangdConfigured, result.dotClangdPath, dirname(result.dbPath));
         if (result.clangdConfigured && result.restartRequired) {
             refreshClangd(root, out, sourceDetails.corePath);
@@ -478,7 +504,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.workspace.onDidSaveTextDocument(onSave),
         vscode.workspace.onDidChangeTextDocument((event) => diagnostics.schedule(event.document)),
         vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.clear(doc.uri)),
-        vscode.languages.registerHoverProvider({ scheme: "file", pattern: "**/*.{h,hpp,hxx,cpp,cc,cxx}" }, new IdlHover(diagnostics)),
+        vscode.languages.registerHoverProvider({ scheme: "file", pattern: "**/*.{h,hpp,hxx,cpp,cc,cxx}" }, new IdlHover(diagnostics, testedContractFor)),
         vscode.languages.registerCodeActionsProvider(
             { scheme: "file", pattern: "**/*.{h,hpp,hxx,cpp,cc,cxx}" },
             new QpiCodeActions(diagnostics),

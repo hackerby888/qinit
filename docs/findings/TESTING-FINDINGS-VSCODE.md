@@ -706,7 +706,7 @@ Measured on the zoo workspace, the same project from both sides:
 | `contracts/Desk.h` | `Read` · index **1** · input (empty) · output uint64 |               0 |            1 |          2 |
 | `Desk.test.cpp`    | **(no hover)**                                       |               0 |        **0** |          4 |
 
-## E24 — two providers are registered on the gtest surface and can never answer there (not fixed)
+## E24 — two providers are registered on the gtest surface and can never answer there (hover fixed)
 
 `extension.ts:481-486` registers both the IDL hover and the code actions for
 `**/*.{h,hpp,hxx,cpp,cc,cxx}` — `.cpp` included, so a gtest is in scope. Both read their data from
@@ -1664,7 +1664,7 @@ highest-stakes body a developer writes and the last untouched probe family in th
 Completion there is fine. `oldState.` resolves to `OldStateData`'s fields and `state.mut().` to the new
 ones, in the same body, without confusing the two. The diagnostics are another matter.
 
-## E17 — a migration that narrows a field is silent everywhere (not fixed)
+## E17 — a migration that narrows a field is silent everywhere (fixed: warns)
 
 | migration                      | clang      | TypeScript backend | editor                            |
 | ------------------------------ | ---------- | ------------------ | --------------------------------- |
@@ -2304,3 +2304,547 @@ editor and was never part of that differential. How many of the 22 classes clang
 been measured; on the evidence here, at least the 13 hidden-member contracts were covered and the 9
 log-payload ones were not. Round 21 joined clang as a third oracle but asked the opposite question —
 whether clang refuses anything the others accept — so it does not answer this.
+
+## Round 29 — the editor's translation unit is a strict prefix of the build's
+
+Two of this campaign's own measurements disagreed. Round 21 recorded clang rejecting all 22 blind-spot
+contracts, both classes included. Round 28 measured clang saying nothing about the log payload, because
+the contract is well-formed C++. Both cannot be right, and which one is decides whether the log-payload
+fix closed anything a developer could see.
+
+Both are right, about different compilers. Asked of one real corpus contract per class:
+
+```
+log payload, field after _terminator   (16 in the corpus)
+  qinit editor  : __qinit_log_info payload _terminator must be the last field…
+  qinit backend : __qinit_log_info payload _terminator must be the last field…
+  clang         : REJECTS -> lhost_imports.h:174: static assertion failed due to requirement
+                  'sizeof(T) - __builtin_offsetof(T, _terminator) <= alignof(T)':
+                  Fields after _terminator are never logged
+
+enum constant hidden by a member fn    (13 in the corpus)
+  qinit editor  : 'Helper' names a member function of this contract, which hides…
+  qinit backend : 'Helper' names a member function of this contract, which hides…
+  clang         : REJECTS -> NsEnumConstantHiddenByMember.h:61:34: error: assigning to 'uint64'
+                  from incompatible type 'void (const QPI::QpiContextFunctionCall &, …)'
+```
+
+**The two rejections are not the same kind.** The hidden member is an error on the contract's own line 61,
+which needs nothing but the contract and its prefix — so clangd raises it in the editor too, as round 28
+measured. The log payload is a `static_assert` in `lhost_imports.h`, which the wrapper reaches only
+through `module_runtime.h` — and that include sits **after** the contract.
+
+`generateClangdConfig` builds the editor's prefix by truncating the wrapper at the contract include
+(`clangd-config.ts`, now `editorPrefixSource`). The generated `Desk.prefix.h` is 234 lines ending at
+`qpi_support.h`, and the string `_terminator` does not appear in it. So the editor's translation unit is a
+**strict prefix** of the build's, and every check core places after the contract is invisible to it by
+construction.
+
+Confirmed in the real editor rather than inferred. Round 28's probe stopped at the first diagnostic, and
+qinit's own arrives first, so it could not have seen a later clang wave. This round polled for over two
+minutes:
+
+```
++ 2s  qinit 1, other 0        +20s  qinit 1, other 0
++ 5s  qinit 1, other 0        +40s  qinit 1, other 0
++10s  qinit 1, other 0        +60s  qinit 1, other 0
+```
+
+clangd never speaks. The silence is structural, not a race.
+
+**How big the region is.** Walking core's includes from both halves of the wrapper and subtracting:
+
+```
+prefix closure (what the editor sees)   31 headers
+post-contract closure                   42 headers
+reachable only after the contract       23 headers
+static_asserts in that region           27
+```
+
+Of those 27, exactly **8 are parameterised on a type the contract author writes** — the log payload `T`,
+in `lhost_imports.h`, two rules across four log levels. The other 19 check core's own fixed structs and
+constants (`sizeof(issuance) == 32 + 1 + 7 + 1 + 7`, `sizeof(long) == 4`, tick-threshold ordering); no
+contract source can make them fire.
+
+**The class is closed today, by coincidence.** `log-payload.ts` implements both of core's rules —
+`TERMINATOR_TOO_EARLY` answers `offsetof(T, _terminator) >= 8` and `FIELD_AFTER_TERMINATOR` answers
+`sizeof(T) - offsetof(T, _terminator) <= alignof(T)` — plus three stricter ones core does not have. So
+qinit's analyzer is a superset, and the editor loses nothing. Nothing enforces that. A core release that
+adds a ninth user-parameterised assert to this region would go silent in the editor, and no test would
+notice.
+
+`post-contract-checks.test.ts` records the region: which headers past the prefix carry checks, how many
+each has, and the exact set of rules `lhost_imports.h` asserts. A core bump that changes any of it fails
+there instead of quietly widening the blind spot. Verified to fail by perturbing one count.
+
+**What this settles about the headline.** The 22 → 13 → 0 figure compares two qinit oracles. Round 28 said
+that omits clang and left the size of the omission unmeasured; this round measures it for both classes the
+figure closed. The 13 hidden-member contracts were already flagged by clangd in the editor — a developer
+was never blind to them. The 16 log-payload contracts were flagged by nothing the editor runs, so that fix
+is the editor's only source for the rule. Of the two classes the differential closed, one was real.
+
+## E27 — a hash key with no `operator==` compiles in the editor and in nothing else (fixed)
+
+Round 29 established that the editor's translation unit is a strict prefix of the build's. That result has a
+consequence bigger than the static_asserts it was measured on: the QPI container **implementations** are
+included after the contract too, so the editor sees every container's declarations and none of its bodies. A
+template body is only type-checked when it is instantiated, and the editor never instantiates one.
+
+Core's hash containers compare two keys inside their bodies:
+
+```cpp
+// qpi_hash_map_impl.h:136, inside HashMap<KeyT, ValueT, L>::set
+if (_elements[index].key == key)
+// qpi_hash_map_impl.h:473, inside HashSet<KeyT, L>::add
+if (_keys[index] == key)
+```
+
+So a key type without `operator==` is a build error that the editor cannot reach. Measured on a contract
+holding `HashMap<Pair, uint64, 8>`, where `Pair` is a plain two-field struct:
+
+```
+qinit editor  : clean
+clangd view   : CLEAN — no diagnostic
+qinit backend : Codegen failed: no viable operator== for 'Pair'
+clang         : REJECTS -> qpi_hash_map_impl.h:136: invalid operands to binary expression
+                ('Pair' and 'const Pair'), in instantiation of 'HashMap<Pair, uint64, 8>::set'
+```
+
+Both oracles a developer can see said nothing; both that build refused. The same holds for `HashSet`.
+
+**Why 29 rounds of corpus differentials never found it.** The generator produces **no** struct-keyed
+`HashMap` or `HashSet` — `grep -rlE "HashMap<[A-Z]|HashSet<[A-Z]"` over the 6 654 variants returns 0. The
+corpus measures what it contains, and a composite key is a shape it never writes.
+
+**The trigger is the call, not the declaration.** A contract may hold such a map and build, as long as it
+never calls a method that compares keys:
+
+| contract                                        | editor | backend | clang   |
+| ----------------------------------------------- | ------ | ------- | ------- |
+| `HashMap<Pair, …>` and `.set(key, …)`           | clean  | refuses | rejects |
+| `HashSet<Pair, …>` and `.add(key)`              | clean  | refuses | rejects |
+| `HashMap<Pair, …>` and only `.population()`     | clean  | clean   | accepts |
+
+So a check keyed on the declaration would report a contract that builds. The methods that reach a key
+comparison, directly or through `getElementIndex`, are `HashMap::{contains, get, getElementIndex,
+removeByKey, replace, set}` and `HashSet::{add, contains, getElementIndex, remove}`; every other method,
+`population` and `removeByIndex` among them, never compares.
+
+**The fix** (`hash-key-validation.ts`) reports at those call sites, in module analysis beside
+`validateLogCalls`, which the editor reaches. It judges **only a struct the contract itself declares**.
+That restriction is not tidiness — the first version without it reported `HashMap<id, …>`, because `id` is
+`m256i`, whose `operator==` is declared at namespace scope where the class-scope walk cannot see it, and
+clang accepts that contract. Reporting it would have spent the property this campaign values most.
+
+`operatorOwner` already walks base classes, so a key inheriting the operator resolves; it now takes the
+`ProgramAnalysis` it always read rather than a whole emission context, which is what lets module analysis
+ask the same question the lowering asks.
+
+Pinned by six fixtures, each checked against clang: the two that must report, and four that must not — the
+operator declared, a scalar key, an `id` key, and a comparing-free method.
+
+Verified against the corpus as well, where the check must never fire, since the generator writes no
+struct-keyed container:
+
+```
+6654 contracts through analyzeContract
+  clean            6613
+  reported errors    41      <- the same 41 round 26 recorded, unchanged
+  threw               0
+  hash-key reports    0
+```
+
+So the new rule adds no editor diagnostic anywhere in the corpus and throws on nothing. `bun test
+packages/compiler` is 1414 pass / 0 fail, sc-corpus included: 38 core contracts parsed, compiled to wasm
+and engine-loaded.
+
+### E27's check, generalised
+
+The version above names the methods it watches and the operator they need. That is a table of what one
+container's bodies happen to ask of a type, transcribed into TypeScript, and it goes stale the moment core
+edits a body — silently, because nothing compares the two. The rule the editor is missing is not
+"`HashMap::set` needs `operator==`"; it is "this container body does not accept this contract's types", and
+qinit can already answer that, because lowering compiles those bodies for every build.
+
+`container-body-validation.ts` calls `compileContainerMethod` — the same entry lowering uses — for each
+container method the contract calls, and reports the first error the body produces:
+
+```
+HashMap::set rejects this contract's types: no viable operator== for 'Pair'
+```
+
+Nothing lists methods, nothing names `operator==`, and the `id` exception disappears with the list that
+needed it: the body accepts an `id` key, so there is nothing to report and no restriction to write. A
+requirement core adds to a body is reported the day core adds it.
+
+Two things it has to get right. A speculative compile can fail for reasons that are not the contract's —
+lowering services absent in a caller that only wanted an analysis, most of all — and those arrive as a
+warning, so only an error counts; reporting a warning would squiggle working code wherever the analyzer
+runs less equipped than a build. And those services register themselves as a module side effect, so the
+check imports them explicitly rather than working or not by accident of who else was loaded.
+
+Re-verified on the same population: the six fixtures give the same verdicts with the general reason, the
+corpus is 6613 clean / 41 pre-existing / 0 new / 0 threw, core's 32 contracts report nothing, and no test in
+the compiler suite mentions the new message.
+
+## Round 30 — the editor's own view, run over the corpus
+
+Round 29 measured what the editor cannot see. This round asks the other direction, which the campaign had
+never measured: does the editor's clangd **squiggle** anything the build accepts? Noise a developer cannot
+act on is worse than a miss.
+
+Reproducing clangd's translation unit exactly — the generated prefix, the editor's own flags from
+`compile_commands.json`, `-fsyntax-only` — over a 287-contract sample:
+
+```
+  type-checks clean    286
+  clang reports errors   1
+```
+
+The one is `ReadOnlyFunctionCallsPrivateProcedure`, a contract named for its defect: a read-only function
+calling a private procedure. All four oracles refuse it — qinit's editor analysis, the backend, the build's
+clang, and the editor's own view. A correct squiggle, not noise.
+
+The first pass of this sweep also flagged three `intercontract` contracts for an undeclared callee. That is
+the round-20 contamination again: the family's callee lives in generator memory and never reaches disk, so
+the caller alone cannot resolve it. Excluded here as `corpus-blind-spot.ts` already excludes it.
+
+**At full scale, over every contract the corpus holds:**
+
+```
+6310 contracts, as the editor's translation unit sees them
+  type-checks clean     6285
+  clang reports errors    25   in 2 distinct classes
+
+  13x  assigning to 'uint64' from incompatible type 'void (const QPI::QpiContextFunctionCall &, …)'
+       namespaces/NsEnumConstantHiddenByMember__*.h
+  12x  no viable conversion from 'const QpiContextFunctionCall' to 'const QpiContextProcedureCall'
+       controlflow/ReadOnlyFunctionCallsPrivateProcedure__*.h
+```
+
+**Zero editor-only false positives.** Every contract clangd squiggles is one both backends also refuse. The
+editor is not noisy; the quadrant is empty.
+
+The two classes it does flag settle round 29 empirically rather than by argument:
+
+| class                            | in corpus | clangd in the editor | the build |
+| -------------------------------- | --------: | -------------------- | --------- |
+| enum constant hidden by a member |    **13** | **squiggles**        | refuses   |
+| log payload, field after `_terminator` | **16** | **silent**        | refuses   |
+
+The 13 are exactly the 13 round 26 closed, and clangd sees every one — so no developer was ever blind to
+that class. The 16 appear nowhere in this sweep, so nothing the editor runs mentions them, which is what
+makes the log-payload fix the editor's only source for that rule. One of the two classes the 22 → 13 → 0
+figure closed was real, measured now on all 6 310 rather than on one contract of each.
+
+## Round 31 — is E27 one of many, or the whole class?
+
+E27 was found by reading one container body and spotting one requirement. That is not evidence there are no
+others, so this round sweeps the mechanism instead of the instance: every QPI container method whose body
+can touch a user-supplied type, run through all three oracles.
+
+**The blind region is smaller than it looks.** A container whose methods are defined inline in
+`qpi_containers.h` is fully in the prefix, so the editor type-checks its uses completely. Only a container
+with bodies in `qpi/impl/*.h` — included after the contract — can hide anything:
+
+```
+Array, BitArray, SlowAnySizeArray   no impl file; every body inline, the editor sees it all
+Collection    15 methods            defined past the contract
+HashMap       16 methods            defined past the contract
+HashSet       13 methods            defined past the contract
+LinkedList    14 methods            defined past the contract
+```
+
+**Four probes, each through the editor, the backend and clang:**
+
+| probe                                                                             | editor | backend | clang   |
+| --------------------------------------------------------------------------------- | ------ | ------- | ------- |
+| `Collection<Pair, 8>`, bare struct — add, replace, element, remove, cleanup        | clean  | clean   | accepts |
+| `LinkedList<Pair, 8>`, bare struct — addHead/addTail, insertAfter/Before, replace  | clean  | clean   | accepts |
+| `HashMap`/`HashSet`, key with `operator==`, bare-struct value, every method        | clean  | clean   | accepts |
+| element, key and value types each carrying a nested `Array<uint64, 4>`             | clean  | clean   | accepts |
+
+Every T-taking method of every container in the blind region was called, `cleanup` included, which relocates
+elements and so copy-assigns the type.
+
+**So E27 is the whole class for the containers.** The key comparison is the only thing these bodies ask of a
+contract's own type; everything else they do to it — storing, copying, relocating — a plain QPI struct
+already satisfies. This is a negative result, and it is the useful kind: it turns "there may be more" into a
+measured bound.
+
+That bound is over the container impls, which is what this round swept. Core has ten other `qpi/impl`
+headers, and whether any of them is also past the contract is a separate question — round 32 answers it.
+
+It holds only while the set of containers with post-contract bodies stays put. A container moving its bodies
+into an impl file would take every requirement in them out of the editor's reach at once, so
+`post-contract-checks.test.ts` now pins that set as well. Verified to fail by adding one name to it.
+
+**A note on where the probes came from.** The first attempt read the method lists with a regex over
+`qpi_containers.h`, which does not track struct ends and assigned HashMap's methods to `SlowAnySizeArray`
+and LinkedList's to `Collection`. Parsing C++ that way would have pointed the whole sweep at the wrong
+methods. The lists used here come from qinit's own parse of core, via `templateMethods`.
+
+## Round 32 — the blind region, measured rather than inferred
+
+Round 31 swept the three container impls. Core has thirteen `qpi/impl` headers, and two of the untouched ten
+take a type the contract author writes: `qpi_proposals_impl.h` over `ProposalDataType`, and
+`qpi_oracle_impl.h` over `ContractStateType` and `LocalsType` — which are the contract's own `StateData` and
+`<fn>_locals`. If those bodies were past the contract too, E27 would have siblings on a surface real
+contracts use: `GeneralQuorumProposal`, `ComputorControlledFund` and `TestExampleA/B` all instantiate
+`ProposalVoting`.
+
+Three probes, each modelled on `GeneralQuorumProposal` and each measured before the next was written:
+
+| probe                                                            | editor | backend                            | clang   |
+| ---------------------------------------------------------------- | ------ | ---------------------------------- | ------- |
+| core's own `ProposalDataV1<false>` — the baseline                | clean  | clean                              | accepts |
+| a contract's **own** proposal data type, complete                 | clean  | clean                              | accepts |
+| the same type with `checkValidity()` omitted                      | clean  | `unsupported call as value`        | rejects |
+
+The third looks exactly like E27 — until the editor's own translation unit is asked, rather than qinit's
+analyzer alone:
+
+```
+editor view: 1 error
+  qpi/impl/qpi_proposals_impl.h:564: error: no member named 'checkValidity' in 'MyProposalData'
+```
+
+**clangd reports it.** The mechanism says why, and the wrapper settles it without inference:
+
+```
+line 108  #include "qpi/impl/qpi_proposals_impl.h"    <- before the contract, so the prefix carries it
+line 145  #include "<the contract>"
+line 149  #include "qpi/impl/qpi_collection_impl.h"   <- after
+line 150  #include "qpi/impl/qpi_linked_list_impl.h"
+line 154  #include "qpi/impl/qpi_hash_map_impl.h"
+line 158  #include "extensions/wasm/sdk/module_runtime.h"
+```
+
+**Core splits its impls, and the split is the whole blind region.** Proposals, oracle, trivial and the rest
+are included before the contract and the editor type-checks every use of them in full. Exactly three
+container impls and `module_runtime.h` arrive after. Round 29 measured what the latter carries (the log
+asserts) and round 31 swept the former (one requirement, E27). There is nothing else in the region.
+
+`post-contract-checks.test.ts` now pins the region directly — the exact set of headers the wrapper includes
+after the contract — which is a sharper guard than the two it had, and the one the whole result rests on.
+
+**A smaller finding, recorded not fixed.** On the omitted-`checkValidity` contract, qinit's own analyzer is
+silent while clangd reports it. That is the hidden-member pattern from round 29 again: a real defect, not a
+blind spot, because the developer sees a squiggle on the right line from the other oracle. Duplicating it in
+qinit's analyzer would mean modelling core's proposal-type requirements, which is a large surface to
+re-implement for a message a developer already gets.
+
+## Round 33 — what an E17 rule would actually cost and catch
+
+E17 is pinned as a product decision: a migration that narrows a persisted field is silent in all three
+oracles, and the remedy is a new rule, which a testing round should not invent. That was the right call, but
+the decision was left with no numbers behind it. This round supplies them without making it.
+
+**Feasibility, first.** `layouts.resolve("OldStateData")` and `prepared.stateLayout` are both resolved in
+module analysis — `system-procedures.ts:117` and `build-idl.ts:65` already do it — which is the phase the
+editor reaches. The IDL carries both shapes fully expanded, nested structs included, so the comparison needs
+no new machinery.
+
+**Blast radius, over every migration that exists:**
+
+```
+core's own contracts     2 of 35 have a MIGRATE
+corpus variants          0 of 6654
+```
+
+The corpus cannot test migrations at all. Every migration finding in this campaign — E18, the migration
+oracle, E17 itself — came from hand-built fixtures, and that is not a choice but a necessity.
+
+**The prototype, run on both halves of the question:**
+
+```
+=== every real migration that exists ===
+NOST                       no narrowing
+QRAFFLE                    no narrowing
+
+=== the rows E17 names ===
+uint32 -> uint64           no narrowing                                        <- widening, correctly silent
+uint64 -> uint32           balance: uint64 to uint32 truncates                 <- caught
+sint64 -> uint64           balance: sint64 to uint64 turns negatives into…     <- caught
+uint64 -> uint64           no narrowing                                        <- unchanged, correctly silent
+```
+
+So the rule catches both rows E17 records, stays quiet on widening and on no change, and fires on **zero**
+of the contracts that exist. n = 2 is a weak number, but it is not a sample — it is the entire real-world
+population of migrating contracts.
+
+**What this leaves for the decision.** Cost today is zero; catch today is zero, because nobody is narrowing
+right now; the value is entirely as a tripwire for a migration someone writes later, on a failure that is
+irreversible and on-chain. Roughly forty lines, in the phase the editor reaches. Whether that trade is worth
+making, whether it warns or errors, and whether it lives in `qpi/*` policy or the compiler are still product
+questions, and they stay open — but they are now decidable.
+
+**One observation, not a finding.** NOST's migration goes from 29 fields to 28, and its new state opens with
+a different field entirely: the migration is a restructure, not a field-type tweak. A rule matching fields by
+name would say nothing about a field that was dropped, which is a separate question from narrowing and a
+larger one — dropping a field discards persisted data outright.
+
+## E17 — closed, as a warning
+
+With the numbers from round 33 in hand the product question was put and answered: warn, do not refuse.
+`migration-narrowing-validation.ts` runs in module analysis beside the other three, which is the phase the
+editor reaches, and compares `OldStateData` against `StateData` field by field.
+
+```
+uint32 -> uint64   silent                                                    widening keeps every value
+uint64 -> uint32   warning: migration narrows persisted field 'balance':
+                   uint64 to uint32 truncates. Every stored value outside
+                   the new range is rewritten once, irreversibly
+sint64 -> uint64   warning: … turns every negative value into a large positive one
+uint64 -> sint64   warning: … loses the top half of the range
+uint64 -> uint64   silent                                                    no change
+```
+
+**A warning, deliberately.** Narrowing after proving the range is a legitimate thing to do, and this rule
+cannot know whether the range was proved. Refusing would take that away; saying nothing is what E17 was.
+
+**What it does not judge.** A field only one side declares is left alone — adding a field loses nothing, and
+dropping one is a different and larger question than narrowing. Containers and any field whose kind changes
+are skipped too, because what it means to narrow one of those is not the same question. `id` and `m256i`
+have no range to lose. Nested state structs are followed by name, to a depth of eight.
+
+Verified on the whole population, not a sample: all **32** of core's contracts analyse with **0** warnings,
+the two that migrate included, and the corpus holds no migration to test. The rule fires only on the rows
+E17 recorded, which is what a tripwire for a future migration should do.
+
+## Round 34 — E24's hover, closed
+
+Round 19 measured the gtest surface and round 19 also prescribed the fix: resolve the hover against the same
+context the completion path already uses, rather than widening `applies()`. Fifteen rounds later the premise
+still held exactly, re-measured in the real editor before anything was written:
+
+```
+contract  'Read'       -> **QPI function** `Read` · index **1** | input: (empty) | output: uint64
+gtest     'Read_input' -> (no hover)
+```
+
+Completion in that same gtest answers with four items and walks `gi.detail.` into the callee's struct, so
+the context is resolving; only the hover was reading from somewhere else.
+
+**Two halves, and the second is easy to miss.** Giving the hover the IDL is not enough: a gtest names an
+entry through its payload — `Desk::Read_input` — where a contract names it directly, and the IDL lists the
+entry as `Read`. Without stripping the suffix the hover would have had the data and still said nothing.
+
+The suffix is stripped **only** on the tested-contract path. A contract's own hovers resolve exactly as
+before, so the surface that already worked is untouched:
+
+```
+contract  'Read'       -> **QPI function** `Read` · index **1** | input: (empty) | output: uint64
+gtest     'Read_input' -> **QPI function** `Read` · index **1** | input: (empty) | output: uint64
+```
+
+The contract under test is stored beside the completion context, at the point that already resolves it, and
+its IDL is analysed once per revision of that contract — a gtest hovers the same contract repeatedly.
+`applies()` is unchanged, so the QPI policy analyzer still never runs over a `.cpp`.
+
+`test-surface.itest.js` now asserts what it used to only print: the gtest hover is non-empty, names the
+entry, and carries the index.
+
+**Code actions stay as they were.** QPI's rules are contract rules, so a gtest offering none is defensible —
+that half of E24 was always the lesser one.
+
+**A regression of my own, caught here.** Round 31's guard imported `globSync` from `node:fs`, which this
+project's TypeScript lib does not declare. `bun test` passed, so I had not noticed; `tsc -p packages/vscode`
+fails on it, and CI runs that. Replaced with `readdirSync`. The lesson is narrow and practical: a green
+`bun test` is not a green typecheck, and for this package both have to be run.
+
+## Round 35 — the safety net's hole: a callee's typedef spelled bare
+
+`test:xross` came back 5 passing / 1 failing once main was merged, and I recorded the failure as main's.
+That attribution was wrong. The round that chased it found a hole in the extension's own fallback that no
+commit on either side opened.
+
+Two receivers out of twenty-two failed, and they are the two of a kind:
+
+```
+locals.in.hist.                    ->  91 items, setAll MISSING
+locals.in.tranche.hist.            ->  91 items, setAll MISSING
+locals.in.tranche.tier.bits.       ->   7 items, setAll ✓
+locals.in.lots. / .grid. / .flags. ->   7 / 7 / 5 ✓
+```
+
+`hist` is `Bank::Hist`, `typedef Array<uint64, 8> Hist;`, spelled bare inside `Bank::Quote_input`. `bits`,
+`lots`, `grid` and `flags` are the same containers written out. 91 items is clangd's word-scrape, so both
+oracles were down at once — the campaign's worst tier, where the developer reads "this type has no members".
+
+**Which oracle failed.** Asked in-process, away from the editor, the fallback answers every other receiver
+in that contract and returns `UNRESOLVED` for exactly those two. clangd declined, and the safety net that
+exists for clangd declining had nothing either.
+
+**The shape, isolated.** One callee declaring an alias several ways, one caller reaching each:
+
+| receiver                | the field's type as written                    | before | after |
+| ----------------------- | ---------------------------------------------- | ------ | ----- |
+| `locals.in.hist.`       | `Hist` — callee alias to a container, **bare** | ✗      | 8     |
+| `locals.in.alias.`      | the same alias as `using`, **bare**            | ✗      | 8     |
+| `locals.in.tierAlias.`  | callee alias to a **struct**, bare             | 2      | 2     |
+| `locals.in.tier.`       | the struct itself, bare                        | 2      | 2     |
+| `locals.qualifiedHist.` | `Vault::Hist` — the same alias, **qualified**  | 8      | 8     |
+| `locals.ownHist.`       | the caller's own alias                         | 8      | 8     |
+
+One row was broken: an alias to a container, declared in another contract, spelled bare. An alias to a
+struct resolved, which is why nothing had noticed.
+
+**Bounded on the other side too.** A contract's own aliases were never affected — its declarations are
+registered under their bare names, so `locals.bag.hist.`, `input.bag.hist.` and `state.mut().hist.` all
+answer with the container's members, before the fix and after. The hole needed another contract's
+qualifier.
+
+## E28 — a callee's typedef spelled bare resolves nowhere (fixed)
+
+A callee's declarations are registered under its own qualifier. A struct becomes `Vault::Tier`, a typedef
+becomes `Vault::Hist`, and the bare spelling is deliberately not registered for either, so an alias the
+querying contract declares is never hijacked by a callee's. `targetOfType` then re-qualified — but only
+after resolving, and only for structs:
+
+```ts
+resolved = programAnalysis.resolveType(stripPtrRefConst(type), bindings);            // bare `Hist`: nothing to find
+if (resolved.kind === AstKind.TEMPLATE_INSTANCE) { … }                               // so this is never taken
+const structDeclaration = structInScope(programAnalysis, resolved, bindings, scope); // looks for a struct `Vault::Hist`
+```
+
+The scope belongs to the **name**, not to what the name turns out to mean, so re-qualifying has to happen
+before resolution rather than after. `targetOfType` now tries the scoped spelling first and falls back to the
+bare one — C++'s own order, the enclosing class before the global that would otherwise shadow — and it
+applies to every kind of type rather than to structs alone. `structInScope` is gone: it was that rule,
+narrowed to one kind.
+
+**Blast radius, measured on the real population rather than argued.** Every entry payload of every core
+contract, one field hop deep, through the same query the editor runs, before and after:
+
+```
+contracts 29   payloads 779   fields 2023
+unresolved      1478  ->  1477
+```
+
+One verdict changed in all of core, and it is the shape:
+
+```
+GQMPROP::GetProposal_output.proposal : ProposalDataT
+  before   UNRESOLVED
+  after    url, epoch, type, tick, data, checkValidity, supportScalarVotes
+```
+
+`typedef ProposalDataV1<false> ProposalDataT;` — the alias GQMPROP declares and spells bare in its own
+output struct. Anyone calling `GetProposal` and typing `locals.out.proposal.` got the word-scrape. Nothing
+else moved: the two runs differ by one removed line and no added ones, so nothing that resolved before
+stopped. The 1477 that remain are overwhelmingly scalars, which have no members and correctly answer with
+nothing.
+
+**Not a regression, and not #26's.** The fallback never covered this shape — its scope rule has only ever
+been the struct one. Round 4 recorded `locals.in.hist.` answering with 7 items, which must therefore have
+been clangd, and clangd declines on it today. I have not established when clangd's answer changed and do not
+claim a commit caused it. The durable point is the other one: the shape was covered only by the oracle the
+fallback exists to cover for.
+
+Pinned by `member-query.test.ts` through both entry points — a contract's own receiver and a gtest's spelled
+root type — and verified to fail without the fix.
+
+**Verification.** `test:xross` **6 passing / 0 failing**, the row that was pinned as failing. `test:int` 17
+passing, `test:campaign` 16 passing, `bun test packages/vscode` 99 pass / 0 fail, `bun run typecheck` clean
+across the workspace.
