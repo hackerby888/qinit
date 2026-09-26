@@ -14,6 +14,8 @@ export interface DecodedLog {
     // The log struct and its field values in declaration order, so a renderer holding both can name every nested field — `fields` carries only the top level.
     abi?: AbiStruct;
     values?: unknown[];
+    // the structs left when size, severity and the _type word could not pick one; the log is then shown as hex under these names
+    candidates?: string[];
     hex: string;
 }
 
@@ -34,12 +36,20 @@ export async function decodeLog(type: number, size: number, hex: string, catalog
         size,
         hex: "0x" + (hex.startsWith("0x") ? hex.slice(2) : hex),
     };
+    let loggedBytes: Uint8Array;
+    try {
+        loggedBytes = hexToBytes(hex);
+    } catch {
+        return base; // not hex at all: nothing below can read it
+    }
     // an entry that recorded its severities is ruled out by a header type it never logs under; one without stays a candidate
     const sized = catalog.filter((entry) => loggedSizeOf(entry.type) === size && (!entry.severities?.length || entry.severities.includes(type)));
-    const hit = sized.length > 1 ? byTypeWord(sized, hex) : sized;
+    const hit = sized.length > 1 ? byTypeWord(sized, loggedBytes) : sized;
+    if (hit.length > 1) {
+        return { ...base, candidates: hit.map((entry) => entry.name) };
+    }
     if (hit.length === 1) {
         try {
-            const loggedBytes = hexToBytes(hex);
             if (loggedBytes.length < size) {
                 throw new Error("log bytes are truncated");
             }
@@ -62,12 +72,11 @@ export async function decodeLog(type: number, size: number, hex: string, catalog
             };
         } catch {}
     }
-    return base; // 0 or >1 size matches, or decode threw -> hex + severity only
+    return base; // no size match, or decode threw -> hex + severity only
 }
 
 // Same-size structs are told apart by the `_type` word each declares; an entry with no recorded values stays a candidate rather than being guessed away.
-function byTypeWord(candidates: ContractLog[], hex: string): ContractLog[] {
-    const bytes = hexToBytes(hex);
+function byTypeWord(candidates: ContractLog[], bytes: Uint8Array): ContractLog[] {
     return candidates.filter((entry) => {
         if (!entry.types?.length) return true;
         const field = entry.type.fields.find((candidate) => candidate.name === "_type");

@@ -56,6 +56,15 @@ test("call JSON reports a traced procedure with its state rows and logs", () => 
     expect(JSON.stringify(result, bigintText)).toContain('"counter":"16"');
 });
 
+// an undecoded log names the structs it could still be, and only then, so the named shape above stays as it is
+test("call JSON carries the candidates of a log the decoder could not name", () => {
+    const facts = { contract: "Counter", slot: 29, entry: "Inc", tick: 4738, tx: "iugijpcz" };
+    const trace = { ...TRACE, view: { ...TRACE.view, logs: [{ severity: "INFO", type: 6, size: 24, candidates: ["OrderLog", "TokensLog"], hex: "0x1d" }] } } as any;
+    const result = callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, facts, trace) as any;
+
+    expect(result.logs).toEqual([{ severity: "INFO", type: 6, name: null, candidates: ["OrderLog", "TokensLog"], fields: null, hex: "0x1d" }]);
+});
+
 test("call JSON without a trace omits the trace keys and falls back to the requested names", () => {
     const result = callJsonResult("fn", "Counter", "Get", { ok: false, label: "call", err: "no contract 'Counter'" }, null, null);
 

@@ -234,6 +234,10 @@ export function TraceView({
                             {l.name}
                             {l.typeName ? "·" + l.typeName : ""} <Text dimColor>{l.abi ? abiValueText(l.values, l.abi) : jsonText(l.fields)}</Text>
                         </Text>
+                    ) : l.candidates ? (
+                        <Text dimColor>
+                            ?{l.candidates.join("|")} {l.size}B
+                        </Text>
                     ) : (
                         <Text dimColor>{l.size}B</Text>
                     )}
