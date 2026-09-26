@@ -335,14 +335,14 @@ The invariants to remember are:
 
 `GROUP_ORDER` in `meta.ts` is the print order, and the directory is the kebab-cased group.
 
-| Workflow                   | `META` group        | Directory                   | Commands                                                                                |
-| -------------------------- | ------------------- | --------------------------- | --------------------------------------------------------------------------------------- |
-| Install and maintain qinit | `setup`             | `commands/setup/`           | `setup`, `doctor`, `clean`, `self-update`, `uninstall`                                  |
-| Run the dev chain          | `node`              | `commands/node/`            | `node`, `tick`, `epoch`                                                                 |
-| Develop                    | `develop`           | `commands/develop/`         | `new`, `integrate`, `dev`, `build`, `gen`, `verify`                                     |
-| Deploy and interact        | `deploy & interact` | `commands/deploy-interact/` | `deploy`, `call`, `seed`, `ls`, `state`, `explorer`, `debug`, `test`, `gtest`, `system` |
-| Editor integration         | `editor`            | `commands/editor/`          | `ext`                                                                                   |
-| Miscellaneous              | `misc`              | `commands/misc/`            | `runtime`, `compiler`, `theme`, `cheat-sheet`, `version`, `help` (plus hidden `smoke`)  |
+| Workflow                   | `META` group        | Directory                   | Commands                                                                                        |
+| -------------------------- | ------------------- | --------------------------- | ----------------------------------------------------------------------------------------------- |
+| Install and maintain qinit | `setup`             | `commands/setup/`           | `setup`, `doctor`, `clean`, `update`, `uninstall`                                               |
+| Run the dev chain          | `node`              | `commands/node/`            | `node`, `tick`, `oracle`, `epoch`                                                               |
+| Develop                    | `develop`           | `commands/develop/`         | `new`, `integrate`, `dev`, `build`, `gen`, `strip`, `verify`                                    |
+| Deploy and interact        | `deploy & interact` | `commands/deploy-interact/` | `deploy`, `call`, `seed`, `sign`, `ls`, `state`, `explorer`, `debug`, `test`, `gtest`, `system` |
+| Editor integration         | `editor`            | `commands/editor/`          | `ext`                                                                                           |
+| Miscellaneous              | `misc`              | `commands/misc/`            | `runtime`, `compiler`, `theme`, `cheat-sheet`, `info`, `version`, `help` (plus hidden `smoke`)  |
 
 Within a group, commands print in `META` declaration order — `Help` filters `COMMANDS`, which is
 `Object.keys(META)`. Keep a new entry beside its group's other entries.
@@ -1935,7 +1935,7 @@ Other maintenance commands are intentionally thin:
 | ------------- | ------------------------------------------------------------------------------------- |
 | `doctor`      | Check the Wasm compiler, Node.js executable, QPI headers, Qubic library, and verifier |
 | `clean`       | Stop the tracked node and remove the cache                                            |
-| `self-update` | Resolve a CLI release, download it, and replace the executable                        |
+| `update`      | Resolve a CLI release, download it, and replace the executable                        |
 | `uninstall`   | Preview or remove discovered CLI binaries and optionally the cache                    |
 | `ext`         | Invoke a supported editor's extension installer                                       |
 | `theme`       | Select and persist the terminal palette                                               |
@@ -2122,7 +2122,7 @@ Paths below are relative to `packages/cli/src/`.
 | `setup`                | `commands/setup/setup.tsx`            | `@qinit/core` cache/downloads                               |
 | `doctor`               | `commands/setup/doctor.tsx`           | config and tool lookup                                      |
 | `clean`                | `commands/setup/clean.tsx`            | `ops/cache.ts`, `ops/node.ts`                               |
-| `self-update`          | `commands/setup/update.tsx`           | `ops/update.ts`, `@qinit/core` release helpers              |
+| `update`               | `commands/setup/update.tsx`           | `ops/update.ts`, `@qinit/core` release helpers              |
 | `uninstall`            | `commands/setup/uninstall.tsx`        | filesystem/cache helpers                                    |
 | `node run`             | `commands/node/node-run.tsx`          | `ops/node-core.ts`, `ops/node.ts`, engine                   |
 | `node status/stop/get` | `commands/node/node.tsx`              | `ops/node.ts`, `LiteRpc`                                    |
@@ -2134,10 +2134,12 @@ Paths below are relative to `packages/cli/src/`.
 | `dev`                  | `commands/develop/dev.tsx`            | `ops/project-deploy.ts`, `ops/deploy/`                      |
 | `build`                | `commands/develop/build.tsx`          | `ops/project-build.ts`, `@qinit/build`                      |
 | `gen`                  | `commands/develop/gen.tsx`            | IDL/client generator                                        |
+| `strip`                | `commands/develop/strip.tsx`          | `@qinit/compiler/analyzer` cheatcode strip                  |
 | `verify`               | `commands/develop/verify.tsx`         | external `contractverify`                                   |
 | `deploy`               | `commands/deploy-interact/deploy.tsx` | `ops/project-deploy.ts`, `ops/deploy/`, proto wire codecs   |
 | `call`                 | `commands/deploy-interact/call*.tsx`  | proto call helpers, `LiteRpc`                               |
 | `seed`                 | `commands/deploy-interact/seed.tsx`   | config store, funded-seed RPC                               |
+| `sign`                 | `commands/deploy-interact/sign.tsx`   | `@qinit/core` K12 keys and signatures                       |
 | `ls`                   | `commands/deploy-interact/ls.tsx`     | registry plus system catalog                                |
 | `state`                | `commands/deploy-interact/state.tsx`  | `trace/format.ts`, proto decoders                           |
 | `explorer`             | `commands/deploy-interact/explorer/`  | `LiteRpc` explorer read models, `contracts/idl-lookup.ts`   |
@@ -2150,6 +2152,7 @@ Paths below are relative to `packages/cli/src/`.
 | `compiler`             | `commands/misc/compiler.tsx`          | `commands/misc/backend-picker.tsx`, config store            |
 | `theme`                | `commands/misc/theme.tsx`             | config store and `ui/theme.tsx`                             |
 | `cheat-sheet`          | `commands/misc/cheat.tsx`             | static Ink view                                             |
+| `info`                 | `commands/misc/info.tsx`              | `ops/node.ts`, `@qinit/compiler/browser` compiler info      |
 | `smoke`                | `commands/misc/smoke.tsx`             | core crypto primitives                                      |
 | `version`              | `commands/misc/version.tsx`           | generated/version constant                                  |
 | `help`                 | `commands/misc/help.tsx`              | command metadata                                            |
@@ -2294,12 +2297,12 @@ should know them before relying on metadata or a successful exit status.
   same path are not observed in that process.
 - `clean` and `uninstall` preserve user config, including the saved seed.
 - Debug capture is a global node toggle, so concurrent clients can interfere.
-- There is no direct rendered-command coverage for doctor, clean, self-update,
+- There is no direct rendered-command coverage for doctor, clean, update,
   uninstall, or system selection persistence. The `node`/`tick`/`epoch`/`state`
   JSON documents are covered as pure builders
   (`tests/commands/node-json.test.ts`, `state-json.test.ts`), not as rendered
   commands.
-  `self-update` is the closest: `tests/commands/update.test.ts` covers the
+  `update` is the closest: `tests/commands/update.test.ts` covers the
   download-and-replace helpers thoroughly, but not the Ink command around them.
 
 Treat this section as a checklist when related code changes. Fix a sharp edge at
