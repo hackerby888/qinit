@@ -26,6 +26,7 @@ test(
         expect(existsSync(join(workDir, "Proxy", "tsconfig.json"))).toBe(true);
         expect(existsSync(join(workDir, "Proxy", "node_modules"))).toBe(false);
         expect(readFileSync(join(workDir, "Proxy", ".gitignore"), "utf8")).toContain("node_modules/\n");
+        expect(readFileSync(join(workDir, "Proxy", ".gitignore"), "utf8")).toContain("contracts/system_scs/\n");
     },
     CLI_TEST_TIMEOUT_MS,
 );

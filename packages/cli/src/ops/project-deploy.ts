@@ -4,7 +4,7 @@ import { resolveContracts, type CalleeInput, type ContractIdl } from "@qinit/bui
 import { LiteRpc, k12Hex, type DynamicContractRegistryEntry, type NodeBackendIdentity } from "@qinit/core";
 import type { CompilerBackend } from "../config";
 import { stageContractState } from "../contracts/state-stage";
-import { systemWasm } from "../contracts/system-wasm";
+import { systemWasm, writeSystemSource } from "../contracts/system-wasm";
 import { addSystemSelection } from "../contracts/system-selection";
 import { compileContracts, type BuiltContract, type SlottedContract } from "./project-build";
 import { abiAdviceText, checkHeadersAbi } from "./abi-advice";
@@ -19,6 +19,8 @@ export interface ProjectDeploymentRecord {
     kind: "system" | "custom" | "main";
     action: "skipped" | "deployed" | "updated";
     hash: string;
+    // where the system contract's header was copied in the project, relative to its root
+    source?: string;
     // The build's IDL for a project contract, so a test SDK can carry a client for every deployed callee.
     idl?: ContractIdl;
 }
@@ -202,7 +204,12 @@ export async function deployProjectContracts(
     // a core node embeds its system contracts, so there is no deploy to take the state: the node applies it at its next tick
     if (identity.backend === "core") {
         for (const contract of plan) {
-            const systemStatePath = contract.kind === "system" ? initialStates[contract.name] : undefined;
+            if (contract.kind !== "system") {
+                continue;
+            }
+            const sourceCopy = writeSystemSource(options.projectRoot, contract.sourcePath);
+            dependencyEvent(emit, `system ${contract.name} @ ${contract.slot}: embedded by the core node · ${sourceCopy}`);
+            const systemStatePath = initialStates[contract.name];
             if (!systemStatePath) {
                 continue;
             }
@@ -221,6 +228,7 @@ export async function deployProjectContracts(
             }
         }
         const systemStatePath = initialStates[system.contract.name];
+        const sourceCopy = writeSystemSource(options.projectRoot, system.contract.sourcePath);
         if (!systemStatePath && normalizedHash(occupant?.codeHash) === normalizedHash(system.hash)) {
             deployments.push({
                 name: system.contract.name,
@@ -228,8 +236,9 @@ export async function deployProjectContracts(
                 kind: "system",
                 action: "skipped",
                 hash: system.hash,
+                source: sourceCopy,
             });
-            dependencyEvent(emit, `system ${system.contract.name} @ ${system.contract.slot}: unchanged`);
+            dependencyEvent(emit, `system ${system.contract.name} @ ${system.contract.slot}: unchanged · ${sourceCopy}`);
             continue;
         }
 
@@ -271,8 +280,9 @@ export async function deployProjectContracts(
             kind: "system",
             action: occupant ? "updated" : "deployed",
             hash: system.hash,
+            source: sourceCopy,
         });
-        dependencyEvent(emit, `system ${system.contract.name} @ ${system.contract.slot}: ${occupant ? "updated" : "deployed"}`);
+        dependencyEvent(emit, `system ${system.contract.name} @ ${system.contract.slot}: ${occupant ? "updated" : "deployed"} · ${sourceCopy}`);
     }
     // the node now runs these; a restart seeds qinit.json's selection, so the two must agree. a bare directory gets no qinit.json invented for it.
     if (systems.length) {

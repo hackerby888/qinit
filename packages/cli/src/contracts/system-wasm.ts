@@ -1,7 +1,7 @@
 // Compile built-in system contracts for simulator execution.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { cacheRoot, readCurrent } from "@qinit/core";
 import { buildSystemContract, systemContracts, type SystemContract, type SystemContractCompiler } from "@qinit/build";
 import { resolveCoreDir } from "../config";
@@ -15,6 +15,21 @@ export const WASM_BUILD_PROFILE = "testnet-lite";
 
 export function systemWasmCacheDir(compiler: SystemContractCompiler, headersVersion: string): string {
     return join(cacheRoot(), headersVersion, "system-wasm", WASM_BUILD_PROFILE, compiler);
+}
+
+export const SYSTEM_SOURCE_DIR = "contracts/system_scs";
+
+// the copy is the header the node runs, kept for reading and for the editor; `system rm` leaves it in place
+export function writeSystemSource(projectRoot: string, sourcePath: string): string {
+    const relativePath = `${SYSTEM_SOURCE_DIR}/${basename(sourcePath)}`;
+    const target = join(projectRoot, relativePath);
+    const source = readFileSync(sourcePath);
+    // an identical copy is skipped so `qinit dev`, which watches contracts/ mtimes, does not redeploy after its own deploy
+    if (!existsSync(target) || !source.equals(readFileSync(target))) {
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, source);
+    }
+    return relativePath;
 }
 
 // Snapshot builds use a compiler-specific cache; explicit Core checkouts build in a temporary directory.

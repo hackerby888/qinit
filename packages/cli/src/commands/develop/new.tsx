@@ -100,7 +100,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
                 // on purpose, since it carries a relative path and means the same thing on every clone.
                 writeFileSync(
                     join(dir, ".gitignore"),
-                    ["dist/", "*.wasm", "*.log", "qinit.idl.json", "contracts_dyn/", ".qpi/", "compile_commands.json", "node_modules/", ".DS_Store"].join(
+                    ["dist/", "*.wasm", "*.log", "qinit.idl.json", "contracts/system_scs/", "contracts_dyn/", ".qpi/", "compile_commands.json", "node_modules/", ".DS_Store"].join(
                         "\n",
                     ) + "\n",
                 );

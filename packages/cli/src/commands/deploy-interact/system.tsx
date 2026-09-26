@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
+import { join } from "node:path";
 import { LiteRpc, k12Hex } from "@qinit/core";
 import { systemContractClosure } from "@qinit/build";
 import { loadConfig, resolveCompilerBackend, resolveCoreDir, resolveRpc } from "../../config";
 import { parseInitialStates, stageContractState } from "../../contracts/state-stage";
-import { systemCatalog, systemWasm } from "../../contracts/system-wasm";
+import { systemCatalog, systemWasm, writeSystemSource } from "../../contracts/system-wasm";
 import { addSystemSelection, dependentsOf, describeDeployFailure, removeSystemSelection } from "../../contracts/system-selection";
 import { loadContractIdlFile } from "../../contracts/idl-file";
 import { Header, Spinner, Status } from "../../ui";
@@ -122,8 +123,9 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                         for (const item of built) {
                             const occupant = live.get(item.dependency.index);
                             const statePath = statePathOf(item.dependency.name);
+                            const sourceCopy = writeSystemSource(process.cwd(), join(core, "src", "contracts", item.dependency.file));
                             if (!statePath && occupant?.codeHash.toLowerCase() === item.hash.toLowerCase()) {
-                                add(`${item.dependency.name} @ ${item.dependency.index} unchanged`, true);
+                                add(`${item.dependency.name} @ ${item.dependency.index} unchanged · ${sourceCopy}`, true);
                                 saveCompletedRoots();
                                 continue;
                             }
@@ -141,14 +143,21 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                             }
                             await rpc.putContractSource(item.wasm.index, item.dependency.source);
                             running.add(item.dependency.index);
-                            add(`${item.dependency.name} @ ${item.dependency.index} deployed${statePath ? " · state seeded" : ""}`, true);
+                            add(`${item.dependency.name} @ ${item.dependency.index} deployed${statePath ? " · state seeded" : ""} · ${sourceCopy}`, true);
                             saveCompletedRoots();
                         }
                     }
 
                     // a core node embeds its system contracts, so a state has no deploy to ride on: the node applies it at its next tick
                     if (o.sub === "add" && identity.backend === "core") {
-                        for (const contract of requested.flatMap((requestedContract) => systemContractClosure(core, requestedContract.name))) {
+                        const closure = new Map(
+                            requested.flatMap((requestedContract) =>
+                                systemContractClosure(core, requestedContract.name).map((dependency) => [dependency.index, dependency] as const),
+                            ),
+                        );
+                        for (const contract of [...closure.values()].sort((left, right) => left.index - right.index)) {
+                            const sourceCopy = writeSystemSource(process.cwd(), join(core, "src", "contracts", contract.file));
+                            add(`${contract.name} @ ${contract.index} embedded by the core node · ${sourceCopy}`, true);
                             const statePath = statePathOf(contract.name);
                             if (!statePath) {
                                 continue;
@@ -162,9 +171,6 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
 
                     if (o.sub === "add") {
                         for (const contract of requested) {
-                            if (identity.backend === "core") {
-                                add(`${contract.name}: already embedded by the core node`, true);
-                            }
                             selected.add(contract.name);
                         }
                     } else {

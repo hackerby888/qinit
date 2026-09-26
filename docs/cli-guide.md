@@ -907,6 +907,7 @@ GET /live/v1/whoami + dyn-registry
   -> build every custom contract
   -> simulator: build required system Wasm with the selected compiler
   -> core: treat native system contracts as already present
+  -> copy each system header to contracts/system_scs/<File>.h
   -> preflight system canonical slots
   -> skip unchanged custom/system dependencies by code hash
   -> deploy changed dependencies in dependency-first order
@@ -1887,6 +1888,11 @@ every contract running regardless of reserve.
   the system contracts are native and always loaded.
 - On core, `add` records the selection but never uploads built-ins; the core
   already embeds them. `rm` removes only the future simulator selection.
+- On both backends, `add` copies each header in the closure from the core
+  headers to `contracts/system_scs/<File>.h` (core's own file name, `QUtil.h`
+  for QUTIL) and prints the path; `deploy`, `dev` and `test` do the same for the
+  system contracts they resolve. `rm` leaves the copy in place, so an editor
+  that reads it keeps working.
 - On the simulator, `add` resolves and prebuilds the dependency closure with
   the selected compiler, skips identical hashes, and deploys canonical slots.
 - On the simulator, `rm` removes the requested roots and dependencies no longer
