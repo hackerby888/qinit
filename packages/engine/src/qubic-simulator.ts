@@ -74,6 +74,8 @@ export interface ProcedureCallOptions {
     invocator?: Id;
     originator?: Id;
     reward?: bigint;
+    // false runs only the procedure, as core's QpiContextUserProcedureCall does once its caller moved the reward
+    transferReward?: boolean;
 }
 
 interface PendingOracleNotification {
@@ -1615,7 +1617,7 @@ export class QubicSimulator {
             "contract-procedure",
             () => {
                 // like core's test harness: the reward comes out of the invocator, and a caller who cannot pay does not get the procedure run
-                if (reward > 0n) {
+                if (reward > 0n && options.transferReward !== false) {
                     if (!this.transferBalance(invocator, this.contractId(slot), reward)) {
                         return EMPTY;
                     }

@@ -188,6 +188,11 @@ struct Trace {
 };
 static const Trace* g_trace = nullptr;
 
+// googletest's EXPECT_NEAR: |a - b| <= error in double, spelled without fabs so the harness stays free of <cmath>.
+inline bool withinError(double a, double b, double error) {
+    return a - b <= error && b - a <= error;
+}
+
 inline void failAt(const char* file, int line, const char* what) {
     g_ctx.failed = true;
     appendStr("\n  ");
@@ -342,13 +347,11 @@ struct ScopedTrace {
 #define ASSERT_GT(a, b) QINIT_GTEST_CMP(a, b, >,  "ASSERT_GT", true)
 #define ASSERT_GE(a, b) QINIT_GTEST_CMP(a, b, >=, "ASSERT_GE", true)
 
-// |a - b| <= error, spelled without fabs so the harness stays free of <cmath>.
 #define QINIT_GTEST_NEAR(a, b, error, label, fatal)                                                \
     do {                                                                                        \
         auto qinit_gtest_va = (a);                                                                 \
         auto qinit_gtest_vb = (b);                                                                 \
-        auto qinit_gtest_err = (error);                                                            \
-        if (!(qinit_gtest_va <= qinit_gtest_vb + qinit_gtest_err && qinit_gtest_vb <= qinit_gtest_va + qinit_gtest_err)) { \
+        if (!::qinit_gtest::withinError(qinit_gtest_va, qinit_gtest_vb, (error))) {                   \
             ::qinit_gtest::failAt(__FILE__, __LINE__, label "(" #a ", " #b ", " #error ")");       \
             ::qinit_gtest::appendStr(" (");                                                        \
             ::qinit_gtest::appendVal(qinit_gtest_va);                                                 \

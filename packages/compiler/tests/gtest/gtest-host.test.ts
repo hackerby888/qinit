@@ -16,6 +16,8 @@ const IN = 768;
 const MESSAGE = 1024;
 const DIGITS = 1536;
 const NAMES = 2048;
+const SYSTEM = 4096;
+const ETALON = 4160;
 
 const VAULT = 28;
 const MAIN = 29;
@@ -32,7 +34,7 @@ const shadow = (slot: number) => `(call $shadow (i32.const ${slot}))`;
 const get = (slot: number) => `(call $get (i32.const ${slot}))`;
 const observe = (register: "a" | "b", at: number) => `(global.set $${register} (i64.load (i32.const ${at})))`;
 const fund = (id: number) => `(call $fund (i32.const ${id}) (i64.const 1000000))`;
-const notify = `(call $notify (i32.const ${USER}) (i32.const ${VAULT_ID}) (i64.const 100) (i32.const 0))`;
+const notify = `(drop (call $firePit (i32.const ${USER}) (i32.const ${VAULT_ID}) (i64.const 100) (i32.const 0)))`;
 const sameAsA = "(global.set $b (global.get $a))";
 
 // Vault state: totalReceived@0, incomingCount@8 (POST_INCOMING_TRANSFER adds 1). Get is function 1, Deposit procedure 1.
@@ -106,6 +108,64 @@ const SYNC_ROWS: Row[] = [
     },
 ];
 
+const balanceOf = (register: "a" | "b", id: number) => `(global.set $${register} (call $balance (i32.const ${id})))`;
+
+// core's harness helpers move only the qu core moves, and the runner's QPI and clock reach the engine
+const HELPER_ROWS: Row[] = [
+    {
+        name: "a procedure context runs the procedure and moves no reward",
+        body: [
+            `(drop (call $callProcedure (i32.const ${VAULT}) (i32.const 1) (i32.const ${IN}) (i32.const 0) (i64.const 5) (i32.const ${USER}) (i32.const ${OUT}) (i32.const 0)))`,
+            get(VAULT),
+            observe("a", OUT),
+            balanceOf("b", VAULT_ID),
+        ].join(" "),
+        expect: [5, 0],
+    },
+    {
+        name: "control: invoking from an unfunded caller runs nothing",
+        body: [
+            `(drop (call $invoke (i32.const ${VAULT}) (i32.const 1) (i32.const ${IN}) (i32.const 0) (i64.const 5) (i32.const ${USER}) (i32.const ${OUT}) (i32.const 0)))`,
+            get(VAULT),
+            observe("a", OUT),
+            balanceOf("b", VAULT_ID),
+        ].join(" "),
+        expect: [0, 0],
+    },
+    {
+        name: "an incoming-transfer callback from an unfunded source moves nothing",
+        body: [notify, get(VAULT), observe("a", OUT + 8), balanceOf("b", VAULT_ID)].join(" "),
+        expect: [1, 0],
+    },
+    {
+        name: "decreaseEnergy refuses an overdraft",
+        body: [
+            fund(USER),
+            `(global.set $a (i64.extend_i32_u (call $decrease (call $spectrum (i32.const ${USER})) (i64.const 2000000))))`,
+            `(global.set $b (call $energy (call $spectrum (i32.const ${USER}))))`,
+        ].join(" "),
+        expect: [0, 1000000],
+    },
+    {
+        name: "runner qpi reaches the engine",
+        body: [
+            "(global.set $a (i64.extend_i32_u (call $dayOfWeek (i32.const 24) (i32.const 1) (i32.const 1))))",
+            `(global.set $b (i64.extend_i32_u (call $isContractId (i32.const ${VAULT_ID}))))`,
+        ].join(" "),
+        expect: [5, 1],
+    },
+    {
+        name: "the runner's system global is the engine's clock",
+        body: [
+            `(i32.store16 (i32.const ${SYSTEM}) (i32.const 7))`,
+            `(i32.store (i32.const ${SYSTEM + 4}) (i32.const 1234))`,
+            "(global.set $a (i64.extend_i32_u (call $epoch)))",
+            "(global.set $b (i64.extend_i32_u (call $tick)))",
+        ].join(" "),
+        expect: [7, 1234],
+    },
+];
+
 // StateData { uint64 inits; } with INITIALIZE adding 1, so the count is the number of runs
 const INIT_ROWS: Row[] = [
     { name: "deploy runs no INITIALIZE", body: [shadow(INIT_COUNT), observe("a", SHADOW), sameAsA].join(" "), expect: [0, 0] },
@@ -137,8 +197,13 @@ async function runner(rows: readonly Row[]): Promise<Uint8Array> {
     const wat = `(module
   (import "thost" "q_reset" (func $reset))
   (import "thost" "q_fund" (func $fund (param i32 i64)))
-  (import "thost" "q_notify_pit" (func $notify (param i32 i32 i64 i32)))
+  (import "thost" "q_fire_pit" (func $firePit (param i32 i32 i64 i32) (result i32)))
   (import "thost" "q_invoke" (func $invoke (param i32 i32 i32 i32 i64 i32 i32 i32) (result i32)))
+  (import "thost" "q_call_procedure" (func $callProcedure (param i32 i32 i32 i32 i64 i32 i32 i32) (result i32)))
+  (import "thost" "q_balance" (func $balance (param i32) (result i64)))
+  (import "thost" "q_spectrum" (func $spectrum (param i32) (result i32)))
+  (import "thost" "q_decrease" (func $decrease (param i32 i64) (result i32)))
+  (import "thost" "q_energy" (func $energy (param i32) (result i64)))
   (import "thost" "q_query" (func $query (param i32 i32 i32 i32 i32 i32) (result i32)))
   (import "thost" "q_sysproc" (func $sysproc (param i32 i32)))
   (import "thost" "q_state_size" (func $stateSize (param i32) (result i32)))
@@ -147,6 +212,11 @@ async function runner(rows: readonly Row[]): Promise<Uint8Array> {
   (import "lhost" "transfer" (func $transfer (param i32 i64) (result i64)))
   (import "lhost" "liteInvokeProcedure" (func $liteInvoke (param i32 i32 i32 i32 i32 i32 i64) (result i32)))
   (import "lhost" "liteCallFunction" (func $liteCall (param i32 i32 i32 i32 i32 i32) (result i32)))
+  (import "lhost" "dayOfWeek" (func $dayOfWeek (param i32 i32 i32) (result i32)))
+  (import "lhost" "isContractId" (func $isContractId (param i32) (result i32)))
+  (import "lhost" "epoch" (func $epoch (result i32)))
+  (import "lhost" "tick" (func $tick (result i32)))
+  (import "lhost" "abort" (func $abort (param i32)))
   (memory (export "memory") 1)
   (data (i32.const ${USER}) "${byte(7).repeat(32)}")
   (data (i32.const ${VAULT_ID}) "${byte(VAULT)}")
@@ -186,6 +256,8 @@ async function runner(rows: readonly Row[]): Promise<Uint8Array> {
       (i32.const ${MESSAGE}) (i32.sub (local.get $at) (i32.const ${MESSAGE}))))
   ${rows.map((row, index) => `(func $row${index} ${row.body})`).join("\n  ")}
   (func (export "test_count") (result i32) (i32.const ${rows.length}))
+  (func (export "qinit_system") (result i32) (i32.const ${SYSTEM}))
+  (func (export "qinit_etalon") (result i32) (i32.const ${ETALON}))
   (func (export "run_test") (param $i i32) (result i32)
     (global.set $a (i64.const -1))
     (global.set $b (i64.const -1))
@@ -218,4 +290,18 @@ test("a fixture runs INITIALIZE only when the test calls it", async () => {
 
     const results = await runContractTesting(await runner(INIT_ROWS), { [INIT_COUNT]: Uint8Array.from(compiled.wasm) });
     expect(observed(results)).toEqual(expected(INIT_ROWS));
+}, 60_000);
+
+test("core's harness helpers, the runner's qpi and its clock reach the engine the way core's do", async () => {
+    const results = await runContractTesting(await runner(HELPER_ROWS), { [VAULT]: await loadWasmFixture("Vault") });
+    expect(observed(results)).toEqual(expected(HELPER_ROWS));
+    expect(results.every((result) => result.passed)).toBe(true);
+}, 60_000);
+
+test("an abort in contract code the runner runs fails the test", async () => {
+    const rows: Row[] = [{ name: "abort", body: "(call $abort (i32.const 7))", expect: [0, 0] }];
+    const results = await runContractTesting(await runner(rows), { [VAULT]: await loadWasmFixture("Vault") });
+    expect(results).toHaveLength(1);
+    expect(results[0]?.passed).toBe(false);
+    expect(results[0]?.message).toContain("contract abort 7");
 }, 60_000);
