@@ -529,8 +529,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(compilerDiagnostics(withoutMigration).filter((item) => item.message.includes("migration narrows"))).toEqual([]);
     });
 
-    // Core's hash containers compare two keys inside their method bodies, and those bodies arrive in a header
-    // the wrapper includes after the contract, so the editor's own translation unit never instantiates them.
+    // A container's method bodies arrive in a header the wrapper includes after the contract, so the editor
+    // never instantiates them and never learns what they require of a contract's own types. The check compiles
+    // the body lowering would compile, so it names no container, method or operator of its own.
     const HASH_KEY_SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -547,18 +548,18 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         return compilerDiagnostics(source).map((item) => item.message);
     }
 
-    test("a hash key the contract declares without operator== is reported at the call that compares keys", () => {
+    test("a container body that rejects the contract's types is reported at the call", () => {
         expect(hashKeyDiagnostics("HashMap<Pair, uint64, 8> byPair;", "state.mut().byPair.set(locals.key, input.amount);")).toEqual([
-            "'Pair' is the key type of this HashMap and declares no 'operator==', which HashMap::set compares keys with",
+            "HashMap::set rejects this contract's types: no viable operator== for 'Pair'",
         ]);
         expect(hashKeyDiagnostics("HashSet<Pair, 8> seen;", "state.mut().seen.add(locals.key);")).toEqual([
-            "'Pair' is the key type of this HashSet and declares no 'operator==', which HashSet::add compares keys with",
+            "HashSet::add rejects this contract's types: no viable operator== for 'Pair'",
         ]);
     });
 
     // Three shapes both compilers accept. Reporting any of them would spend the property this campaign values
     // most, so each one is pinned: the operator declared, a scalar key, and a method that never compares.
-    test("a hash key that needs no operator== is not reported", () => {
+    test("a container body that compiles for the contract's types is not reported", () => {
         const withEquals = "bit operator==(const Pair& other) const { return left == other.left && right == other.right; }";
         expect(hashKeyDiagnostics("HashMap<Pair, uint64, 8> byPair;", "state.mut().byPair.set(locals.key, input.amount);", withEquals)).toEqual([]);
         expect(hashKeyDiagnostics("HashMap<uint64, uint64, 8> byPair;", "state.mut().byPair.set(input.left, input.amount);")).toEqual([]);
