@@ -457,8 +457,8 @@ function CallOneShot({
                             ["out", rendered],
                             ...(info
                                 ? ([
-                                      ["balance", info.balance],
-                                      ["address", info.address],
+                                      ["SC balance", info.balance],
+                                      ["SC address", info.address],
                                   ] as [string, string][])
                                 : []),
                         ],
@@ -583,8 +583,8 @@ function CallOneShot({
                                 ["tick", String(tick)],
                                 ...(info
                                     ? ([
-                                          ["balance", info.balance],
-                                          ["address", info.address],
+                                          ["SC balance", info.balance],
+                                          ["SC address", info.address],
                                       ] as [string, string][])
                                     : []),
                             ],

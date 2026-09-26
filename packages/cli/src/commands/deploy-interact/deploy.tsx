@@ -137,8 +137,8 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                             rows={[
                                 ["contract", name],
                                 ["slot", String(result.slot)],
-                                ["address", addr || `id(${result.slot},0,0,0)`],
-                                ["balance", bal ?? "—"],
+                                ["SC address", addr || `id(${result.slot},0,0,0)`],
+                                ["SC balance", bal ?? "—"],
                                 ["tx", result.txId ?? "—"],
                                 ["codeHash", result.hash ?? "—"],
                                 ["fns/procs", result.idl ? `${result.idl.functions.length} / ${result.idl.procedures.length}` : "—"],
