@@ -11,6 +11,7 @@ import type { PreparedContractModule } from "./module-analysis";
 
 // A container's bodies live past the contract, so the editor never instantiates them and never learns what
 // they require. Compiling the same body lowering compiles reports that without naming any requirement here.
+// editor only: the build lowers every call itself and refuses there; a pre-compile here would reorder its output
 export function validateContainerCalls(prepared: PreparedContractModule): void {
     const contract = prepared.contract;
 

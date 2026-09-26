@@ -74,6 +74,19 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 const READ_ONLY = /read-only/;
 
+// A hash container compares keys inside its body, so a key type without operator== fails only once that body
+// is instantiated; both compilers must refuse it there, not only the editor check.
+const hashKey = (body: string) => `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Pair { uint64 left; uint64 right; };
+  struct StateData { uint64 a; HashMap<Pair, uint64, 8> byPair; };
+  struct Go_input { uint64 x; }; struct Go_output {};
+  struct Go_locals { Pair key; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Go) { locals.key.left = input.x; ${body} }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
+};`;
+
 const REFUSED: Record<
     string,
     {
@@ -90,6 +103,7 @@ const REFUSED: Record<
     "a mutator on a HashMap value reference": { source: constView(`state.mut().m.value(0).flags.set(40, true);`), diagnostic: READ_ONLY },
     "a mutator on an Array element reference": { source: constView(`state.mut().entries.get(0).flags.set(1, true);`), diagnostic: READ_ONLY },
     "a mutator on a LinkedList element reference": { source: constView(`state.mut().l.element(0).flags.set(40, true);`), diagnostic: READ_ONLY },
+    "a hash key that declares no operator==": { source: hashKey(`state.mut().byPair.set(locals.key, input.x);`), diagnostic: /operator==/ },
 };
 
 const ACCEPTED: Record<string, string> = {
@@ -101,6 +115,7 @@ const ACCEPTED: Record<string, string> = {
         `state.mut().a = state.get().arr.get(0) + state.get().arr.capacity() + (state.get().flags.get(3) ? 1 : 0) + (state.get().m.value(0).flags.get(40) ? 1 : 0) + state.get().l.element(0).tag;`,
     ),
     "a by-value element is a temporary, so its members stay mutable": constView(`state.mut().coll.element(0).flags.set(1, true);`),
+    "a hash container whose body never compares its keys": hashKey(`state.mut().a = state.get().byPair.population();`),
     "a struct named like a container's private node type": `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
